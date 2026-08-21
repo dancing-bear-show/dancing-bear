@@ -55,22 +55,42 @@ exclude_patterns = [
   "**/testdata/**",
   "**/vendor/**",
   # A single-file AST analyser that the facade-elimination workflow shells out
-  # to by path; it is run as a script, never imported. file_complexity sums to
-  # 172 against a threshold of 100 (see [smells.file_complexity] below), but the
-  # excess is inherent to the shape: 27 small helpers, none of which trips
-  # function_complexity individually, which have to live in one file because the
-  # workflow invokes one path. Splitting it into a package to satisfy a
-  # file-level sum would add indirection to a script with exactly one caller.
-  # (The file does carry two return_statements findings — _resolve_alias_assign
-  # and resolve, 6 returns each — which this exclusion also silences.)
+  # to by path. Production consumers run it as a script, never as an imported
+  # module; tests/test_detect_facades.py does load it, via
+  # importlib.util.spec_from_file_location, to exercise its helpers directly.
   #
-  # Excluded by path rather than by raising the global threshold, which was
-  # deliberately tuned to 100 and would stop catching genuinely runaway modules.
-  # Note that per-smell exclusion is NOT available: both `[[exclude]]` with
-  # `plugins = [...]` and `[[smells.exclude]]` fail to suppress it — the latter
-  # at least warns ("not part of the supported configuration"), the former is
-  # accepted silently and does nothing. This list is the only mechanism that
-  # works, and it excludes the file from all smell analysis, not just complexity.
+  # file_complexity sums to 172 against a threshold of 100 (see
+  # [smells.file_complexity] below), but the excess is inherent to the shape:
+  # 27 small helpers, none of which trips function_complexity individually,
+  # which have to live in one file because the workflow invokes one path.
+  # Splitting it into a package to satisfy a file-level sum would add
+  # indirection to a script with exactly one caller. Excluded by path rather
+  # than by raising the global threshold, which was deliberately tuned to 100
+  # and would stop catching genuinely runaway modules.
+  #
+  # ---- ACCEPTED GAP: this is broader than the finding it silences ----
+  #
+  # exclude_patterns is a TOP-LEVEL exclusion, so it drops this file from
+  # `qlty check` as well as `qlty smells` — ruff, bandit, and every other
+  # configured plugin included. CI runs `qlty check --no-progress`
+  # (.github/workflows/ci.yml), so this file is unlinted and unscanned there.
+  # Verified empirically: an injected `eval()` and unused import in this file
+  # produce NO qlty finding, while the identical code in a sibling file is
+  # flagged ruff:F401 + bandit:B307.
+  #
+  # This gap is accepted rather than worked around because per-smell and
+  # per-plugin exclusion do not exist in qlty: `[[exclude]]` with
+  # `plugins = [...]` is parsed without complaint and suppresses nothing, and
+  # `[[smells.exclude]]` warns "not part of the supported configuration and
+  # will be ignored". exclude_patterns is the only mechanism that works.
+  #
+  # COMPENSATING CONTROL: `make lint` runs the qlty-pinned ruff directly over
+  # src/, tests/, and bin/ — it does not read exclude_patterns, but it also
+  # does not cover workflows/. Lint this file explicitly when editing it:
+  #     bin/ruff-resolve.sh check workflows/code/scripts/detect_facades.py
+  # (verified clean as of this commit). Behaviour is covered by
+  # tests/test_detect_facades.py, which loads the module and exercises its
+  # helpers, so functional regressions still fail CI via the tests job.
   "workflows/code/scripts/detect_facades.py",
 ]
 
