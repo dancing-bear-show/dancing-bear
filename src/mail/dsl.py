@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Any
 
 from .outlook.helpers import norm_label_name_outlook, norm_label_color_outlook as normalize_label_color_outlook
 
@@ -8,9 +9,9 @@ from .outlook.helpers import norm_label_name_outlook, norm_label_color_outlook a
 _norm_label_name_outlook = norm_label_name_outlook
 
 
-def normalize_labels_for_outlook(labels: list[dict], name_mode: str = "join-dash") -> list[dict]:
+def normalize_labels_for_outlook(labels: list[dict[str, Any]], name_mode: str = "join-dash") -> list[dict[str, Any]]:
     seen = set()
-    out: list[dict] = []
+    out: list[dict[str, Any]] = []
     for lbl in labels or []:
         if not isinstance(lbl, dict):
             continue
@@ -18,7 +19,7 @@ def normalize_labels_for_outlook(labels: list[dict], name_mode: str = "join-dash
         if not name or name in seen:
             continue
         seen.add(name)
-        entry: dict = {"name": name}
+        entry: dict[str, Any] = {"name": name}
         c = normalize_label_color_outlook(lbl.get("color"))
         if c:
             entry["color"] = c
@@ -56,7 +57,7 @@ def _decode_label(value: bytes) -> list[str]:
     return [value.decode("utf-8", "replace")] if value else []
 
 
-def normalize_filter_for_outlook(spec: dict) -> dict | None:
+def normalize_filter_for_outlook(spec: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(spec, dict):
         return None
     m = spec.get("match") or {}
@@ -88,8 +89,8 @@ def normalize_filter_for_outlook(spec: dict) -> dict | None:
     return {"match": crit, "action": act}
 
 
-def normalize_filters_for_outlook(filters: list[dict]) -> list[dict]:
-    out: list[dict] = []
+def normalize_filters_for_outlook(filters: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     for f in filters or []:
         nf = normalize_filter_for_outlook(f)
         if nf:

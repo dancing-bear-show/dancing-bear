@@ -179,7 +179,7 @@ def _sync_one_outlook_filter(
     try:
         client.create_filter(criteria, action)
         return 1, 0
-    except Exception:  # nosec B110 - continue on filter creation errors
+    except Exception:  # continue on filter creation errors
         return 0, 1
 
 

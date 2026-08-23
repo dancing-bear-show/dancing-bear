@@ -237,47 +237,45 @@ class TestBuildClientForAccount(unittest.TestCase):
         )
 
     @patch("mail.accounts.helpers.expand_path")
-    def test_builds_outlook_client(self, mock_expand):
+    @patch("core.outlook.OutlookClient")
+    def test_builds_outlook_client(self, mock_client_cls, mock_expand):
         from mail.accounts.helpers import build_client_for_account
 
         mock_expand.side_effect = lambda x: x
 
-        # Create mock module
-        mock_outlook_api = MagicMock()
         mock_client_instance = MagicMock()
-        mock_outlook_api.OutlookClient.return_value = mock_client_instance
+        mock_client_cls.return_value = mock_client_instance
 
-        with patch.dict("sys.modules", {"mail.outlook_api": mock_outlook_api}):
-            acc = {
-                "name": "work",
-                "provider": "outlook",
-                "client_id": "my-client-id",
-                "tenant": "my-tenant",
-                "token": "/my/token.json",
-                "cache": "/my/cache",
-            }
-            result = build_client_for_account(acc)
+        acc = {
+            "name": "work",
+            "provider": "outlook",
+            "client_id": "my-client-id",
+            "tenant": "my-tenant",
+            "token": "/my/token.json",
+            "cache": "/my/cache",
+        }
+        result = build_client_for_account(acc)
 
-            mock_outlook_api.OutlookClient.assert_called_once_with(
-                client_id="my-client-id",
-                tenant="my-tenant",
-                token_path="/my/token.json",  # nosec B106 - test fixture path
-                cache_dir="/my/cache",
-            )
-            self.assertEqual(result, mock_client_instance)
+        mock_client_cls.assert_called_once_with(
+            client_id="my-client-id",
+            tenant="my-tenant",
+            token_path="/my/token.json",  # nosec B106 - test fixture path
+            cache_dir="/my/cache",
+        )
+        self.assertEqual(result, mock_client_instance)
 
-    def test_raises_for_outlook_missing_client_id(self):
+    @patch("core.outlook.OutlookClient")
+    def test_raises_for_outlook_missing_client_id(self, _mock_client_cls):
         from mail.accounts.helpers import build_client_for_account
 
-        with patch.dict("sys.modules", {"mail.outlook_api": MagicMock()}):
-            acc = {
-                "name": "work",
-                "provider": "outlook",
-                # No client_id
-            }
-            with self.assertRaises(SystemExit) as ctx:
-                build_client_for_account(acc)
-            self.assertIn("missing client_id", str(ctx.exception))
+        acc = {
+            "name": "work",
+            "provider": "outlook",
+            # No client_id
+        }
+        with self.assertRaises(SystemExit) as ctx:
+            build_client_for_account(acc)
+        self.assertIn("missing client_id", str(ctx.exception))
 
     def test_raises_for_unsupported_provider(self):
         from mail.accounts.helpers import build_client_for_account

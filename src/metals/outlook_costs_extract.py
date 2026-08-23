@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Tuple
 from core.auth import resolve_outlook_credentials
 from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
 from core.text_utils import html_to_text
-from mail.outlook_api import OutlookClient
+from core.outlook import OutlookClient
 
 from .cost_extractor import CostExtractor, MessageInfo, OrderData
 from .costs_common import extract_order_amount, format_breakdown, format_qty, get_price_band

@@ -47,7 +47,7 @@ class OutlookContext:
         Returns a ready client or raises if Outlook features are unavailable.
         """
         try:  # lazy heavy import
-            from mail.outlook_api import OutlookClient  # type: ignore
+            from core.outlook import OutlookClient  # type: ignore
         except Exception as e:  # nosec B110 - optional dep; re-raise as CLIError
             raise CLIError(f"Outlook features unavailable: {e}") from e
         client_id, tenant, token_path = self.resolve()

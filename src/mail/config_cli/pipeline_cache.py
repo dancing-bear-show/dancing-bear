@@ -360,7 +360,6 @@ class ConfigInspectProcessor(SafeProcessor[ConfigInspectRequest, ConfigInspectRe
 
         result_sections = []
         for s in sections:
-            [(_mask_value(k, v), k, v) for k, v in cp.items(s)]
             result_sections.append(ConfigSection(
                 name=s,
                 items=[(k, _mask_value(k, v)) for k, v in cp.items(s)],

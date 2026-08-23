@@ -55,7 +55,7 @@ Familiarization: Reading Order
 1) .llm/CONTEXT.md, .llm/DOMAIN_MAP.md, README.md
 2) bin/mail → src/mail/__main__.py
 3) src/mail/dsl.py, src/mail/config_resolver.py, src/mail/utils/filters.py
-4) src/mail/providers/*.py, src/mail/gmail_api.py, src/mail/outlook_api/
+4) src/mail/providers/*.py, src/mail/gmail_api.py, src/core/outlook/
 5) tests/test_cli.py, tests/test_cli_filters.py, tests/test_workflows*.py
 ```
 

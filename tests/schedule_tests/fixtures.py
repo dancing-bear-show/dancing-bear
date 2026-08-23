@@ -21,7 +21,7 @@ class FakeOutlook:
         svc = FakeOutlook(events=[
             {"subject": "Swim", "start": {"dateTime": "2025-10-05T10:00:00"}, ...}
         ])
-        # Pass via patch("mail.outlook_api.OutlookClient", new=type(svc))
+        # Pass via patch("core.outlook.OutlookClient", new=type(svc))
     """
 
     events: List[Dict[str, Any]] = field(default_factory=list)

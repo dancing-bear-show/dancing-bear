@@ -250,6 +250,7 @@ def _collect_domain_stats(client, msgs: list, protected: list) -> tuple[Counter,
 def run_labels_learn(args) -> int:
     """Learn label suggestions from message patterns."""
     from pathlib import Path
+    from core.yamlio import dump_config
     from ..config_resolver import resolve_paths_profile
     from ..gmail_api import GmailClient
     from ..utils.filters import build_gmail_query
@@ -285,11 +286,9 @@ def run_labels_learn(args) -> int:
                 'hints': domain_hints[dom],
             })
 
-    import yaml
     out_doc = {'suggestions': suggestions, 'params': {'days': int(args.days), 'min_count': int(args.min_count)}}
     out = Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(yaml.safe_dump(out_doc, sort_keys=False), encoding='utf-8')
+    dump_config(str(out), out_doc)
     print(f"Wrote {len(suggestions)} suggestions to {out}")
     return 0
 

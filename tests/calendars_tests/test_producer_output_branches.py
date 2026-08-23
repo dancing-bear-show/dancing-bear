@@ -456,7 +456,7 @@ class TestOutlookContextEnsureClient(unittest.TestCase):
         ctx = OutlookContext(client_id=None, tenant="consumers", token_path=None)
         fake_client_cls = MagicMock()
         with patch("calendars.context.resolve_outlook_credentials", return_value=(None, "consumers", None)):
-            with patch("mail.outlook_api.OutlookClient", fake_client_cls, create=True):
+            with patch("core.outlook.OutlookClient", fake_client_cls):
                 with self.assertRaises(RuntimeError) as cm:
                     ctx.ensure_client()
         self.assertIn("client-id", str(cm.exception))
@@ -467,7 +467,7 @@ class TestOutlookContextEnsureClient(unittest.TestCase):
         fake_client = MagicMock()
         fake_client_cls = MagicMock(return_value=fake_client)
         with patch("calendars.context.resolve_outlook_credentials", return_value=("fake-id", "consumers", "/tmp/token.json")):  # nosec B108 - test string only
-            with patch.dict("sys.modules", {"mail.outlook_api": MagicMock(OutlookClient=fake_client_cls)}):
+            with patch("core.outlook.OutlookClient", fake_client_cls):
                 result = ctx.ensure_client()
         fake_client.authenticate.assert_called_once()
         self.assertEqual(result, fake_client)

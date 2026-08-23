@@ -95,7 +95,7 @@ Familiarization Policy (Fast + Lean)
   2) Entry points: `bin/assistant`, `bin/mail`, `bin/calendar`, `bin/schedule`, `bin/phone`, `bin/wifi`, `bin/whatsapp`, `bin/qlty-assistant`
   3) Shared helpers: `src/core/`
   4) Mail config/DSL: `src/mail/dsl.py`, `src/mail/config_resolver.py`, `src/mail/utils/filters.py`
-  5) Providers/APIs: `src/mail/providers/*.py`, `src/mail/gmail_api.py`, `src/mail/outlook_api/`
+  5) Providers/APIs: `src/mail/providers/*.py`, `src/mail/gmail_api.py`, `src/core/outlook/`
   6) Tests for shape: `tests/test_cli.py`, `tests/test_cli_filters.py`, `tests/test_workflows*.py`
 - Ripgrep quick searches (exclude heavy dirs):
   - `rg -n "(def main\(|argparse|click)" src/mail/ bin/ -g '!{.venv,.git,.cache,_disasm,out,_out,maker,backups}/**'`

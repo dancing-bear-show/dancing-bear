@@ -56,7 +56,7 @@ class TestScheduleVerifySync(unittest.TestCase):
 
             args = _make_outlook_args(plan=str(plan), calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", match="subject-time")
             buf = io.StringIO()
-            with patch("mail.outlook_api.OutlookClient", new=lambda *a, **k: fake), redirect_stdout(buf):
+            with patch("core.outlook.OutlookClient", new=lambda *a, **k: fake), redirect_stdout(buf):
                 rc = sa.cmd_verify(args)
             out = buf.getvalue()
             self.assertEqual(rc, 0)
@@ -86,7 +86,7 @@ class TestScheduleVerifySync(unittest.TestCase):
 
             args = _make_outlook_args(plan=str(plan), calendar="Your Family", from_date="2025-10-01", to_date="2025-10-31", match="subject-time")
             buf = io.StringIO()
-            with patch("mail.outlook_api.OutlookClient", new=lambda *a, **k: fake), redirect_stdout(buf):
+            with patch("core.outlook.OutlookClient", new=lambda *a, **k: fake), redirect_stdout(buf):
                 rc = sa.cmd_verify(args)
             out = buf.getvalue()
             self.assertEqual(rc, 0)
@@ -121,7 +121,7 @@ class TestScheduleVerifySync(unittest.TestCase):
 
             args = _make_outlook_args(plan=str(plan), calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", match="subject-time", delete_missing=True, apply=False)
             buf = io.StringIO()
-            with patch("mail.outlook_api.OutlookClient", new=lambda *a, **k: fake), redirect_stdout(buf):
+            with patch("core.outlook.OutlookClient", new=lambda *a, **k: fake), redirect_stdout(buf):
                 rc = sa.cmd_sync(args)
             out = buf.getvalue()
             self.assertEqual(rc, 0)
@@ -142,7 +142,7 @@ class TestScheduleVerifySync(unittest.TestCase):
 
             args = _make_outlook_args(calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", out=str(out))
             buf = io.StringIO()
-            with patch("mail.outlook_api.OutlookClient", new=lambda *a, **k: fake), redirect_stdout(buf):
+            with patch("core.outlook.OutlookClient", new=lambda *a, **k: fake), redirect_stdout(buf):
                 rc = sa.cmd_export(args)
             self.assertEqual(rc, 0)
             self.assertTrue(out.exists())

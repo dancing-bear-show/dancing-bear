@@ -96,7 +96,7 @@ def _build_cli_tree() -> str:
 
 
 _KEY_FILES = [
-    "__main__.py", "config_resolver.py", "gmail_api.py", "outlook_api.py",
+    "__main__.py", "config_resolver.py", "gmail_api.py",
     "dsl.py", "yamlio.py", "applog.py", "cache.py", "paging.py", "llm_cli.py", "agentic.py",
 ]
 

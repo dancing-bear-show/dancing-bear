@@ -5,7 +5,7 @@ import csv
 from dataclasses import dataclass
 from typing import Dict, List
 
-from mail.outlook_api import OutlookClient
+from core.outlook import OutlookClient
 
 
 def col_letter(idx: int) -> str:

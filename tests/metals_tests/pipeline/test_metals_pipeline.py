@@ -150,7 +150,7 @@ class TestGmailExtractProcessor(unittest.TestCase):
 class TestOutlookExtractProcessor(unittest.TestCase):
     """Tests for OutlookExtractProcessor."""
 
-    @patch("mail.outlook_api.OutlookClient")
+    @patch("core.outlook.OutlookClient")
     @patch("core.auth.resolve_outlook_credentials")
     def test_process_success(self, mock_resolve, mock_client_class):
         """Test successful extraction."""
@@ -187,7 +187,7 @@ class TestOutlookExtractProcessor(unittest.TestCase):
         self.assertFalse(result.ok())
         self.assertIn("Missing", (result.diagnostics or {}).get("message", ""))
 
-    @patch("mail.outlook_api.OutlookClient")
+    @patch("core.outlook.OutlookClient")
     @patch("core.auth.resolve_outlook_credentials")
     def test_process_search_error(self, mock_resolve, mock_client_class):
         """Test handling of search error."""
