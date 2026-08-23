@@ -1,6 +1,6 @@
 ---
 name: decompose
-description: Split an oversized Python file into smaller focused modules with backward-compatible re-exports. Use when a file is too large to review or maintain comfortably.
+description: Split an oversized Python file into smaller focused modules, updating all call sites directly (no re-export facades). Use when a file is too large to review or maintain comfortably.
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Agent
 skills:
   - dancing-bear-rules
@@ -8,7 +8,7 @@ skills:
 
 # Decompose
 
-Split an oversized Python source or test file into focused submodules. All original imports remain valid via re-exports. The companion workflow `workflows/code/decompose-sweep.yaml` automates this across an entire domain.
+Split an oversized Python source or test file into focused submodules. The original module is deleted and every import site is updated to name its new module directly — no re-export facades. The companion workflow `workflows/code/decompose-sweep.yaml` automates this across an entire domain.
 
 ## When to Use
 
@@ -100,15 +100,19 @@ Split <domain>/<module>.py into the following files:
 Target: each output file under <N> lines.
 
 Rules:
-1. Backward compatibility: update <domain>/<module>.py to re-export everything
-   it previously defined, so all existing importers keep working without changes:
-       from .submodule_a import *  # noqa: F401,F403
-       from .submodule_b import *  # noqa: F401,F403
+1. NO re-export facade: delete <domain>/<module>.py entirely and update every
+   import site to point at the new modules directly. Do not leave behind a
+   `from .submodule import *` shim.
 2. Extract shared fixtures/base classes into <submodule_c>.py first.
-3. Search all importers before removing any symbol:
+3. Search all importers before removing any symbol — including non-Python
+   references (YAML, markdown, mock.patch target strings):
        grep -rn "from <domain>.<module> import\|import <domain>.<module>" . --include="*.py"
+       grep -rn "<domain>[./]<module>" src/ tests/ bin/ .llm/ workflows/ concerns/ docs/ README.md
 4. Each new file must be independently runnable (no circular deps).
-5. Verify with: python3 -m unittest tests/<domain>_tests/ -v
+5. Verify with `make test` (pins PYTHONPATH to this checkout). NEVER run bare
+   `python3 -m unittest` — an inherited PYTHONPATH silently resolves imports to
+   the MAIN checkout and produces a false green. Fallback:
+       PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests -t .
 6. Do not rename test classes (preserves git blame).
 7. Do not touch bin/* entry points.
 """
@@ -117,15 +121,34 @@ Rules:
 
 ### Critical rules
 
-**Backward-compatible re-exports** — the original module must re-export all public symbols after the split:
+**No re-export facades** — this is a hard project rule. After the split, the
+original module is **deleted**, not converted into a shim:
 
 ```python
-# <domain>/<module>.py (after split — becomes a thin re-export facade)
+# WRONG — <domain>/<module>.py left behind as a facade
 from .submodule_a import *  # noqa: F401,F403
 from .submodule_b import *  # noqa: F401,F403
 ```
 
-This is the one sanctioned pattern where a re-export wrapper is appropriate — it is a same-domain internal split, not a public API wrapper across packages. It must never touch `bin/*` entry points or rename public CLI-facing modules (see CLAUDE.md: "Avoid: Broad refactors that rename modules or move public entry points").
+```python
+# RIGHT — update each import site to name the new module directly
+from slides.parsers_dict import load_deck_from_dict
+from slides.parsers_csv import load_deck_from_csv
+```
+
+Facades hide the new structure, keep the old module name alive as a second
+import path, and accumulate. Update all call sites atomically instead — this
+repo explicitly permits that for internal APIs (see CLAUDE.md: "Avoid:
+Maintaining backwards-compatible wrappers for internal APIs (update all call
+sites instead)"). `workflows/code/scripts/detect_facades.py` flags any that
+slip through; run it after the split to confirm zero findings for the domain.
+
+**Do not miss non-import references.** `mock.patch("<domain>.<module>.func")`
+target strings in tests, module paths cited in `concerns/*.md` "when loaded"
+triggers, and architecture notes in READMEs all break silently — the tests
+still pass and the concerns guide simply stops firing. Grep beyond `*.py`.
+
+The split must never touch `bin/*` entry points or rename public CLI-facing modules (see CLAUDE.md: "Avoid: Broad refactors that rename modules or move public entry points"). Public API surfaces like a package's `__init__.py` `__all__` should keep exporting the same symbol names — only the internal source of each symbol changes.
 
 **Import prefix** — this repo uses bare absolute imports. Example patterns observed in the codebase:
 
@@ -135,23 +158,41 @@ from core.fileutil import atomic_write_json
 from core.context import AppContext
 ```
 
-Use the same style in all re-export examples and generated code — no relative-only imports at the package level, no invented package prefixes.
+Use the same style in all rewritten import sites and generated code — no relative-only imports at the package level, no invented package prefixes.
 
 ## Step 4: Verify
 
 ```bash
-# Run domain tests
-python3 -m unittest tests/<domain>_tests/ -v
+# Confirm imports resolve to THIS checkout, not the main one
+make check-env
 
-# Verify no broken imports
-python3 -c "import <domain>.<module>"
+# Full suite — never bare `python3 -m unittest` (false greens in a worktree)
+make test
+
+# Lint with the ruff build CI enforces (there is no bare `ruff` on PATH)
+make lint
+
+# The old module must be GONE, and the new ones importable
+PYTHONPATH="$PWD/src" python3 -c "
+import importlib
+for m in ['<domain>.<submodule_a>', '<domain>.<submodule_b>']:
+    importlib.import_module(m)
+try:
+    importlib.import_module('<domain>.<module>')
+    raise SystemExit('ERROR: old module still importable — facade left behind')
+except ModuleNotFoundError:
+    print('old module removed: OK')
+"
+
+# No facade slipped through
+PYTHONPATH="$PWD/src" python3 workflows/code/scripts/detect_facades.py <domain>/
 
 # Check new file sizes hit targets
-find <domain>/ -name "*.py" | xargs wc -l | sort -rn | head -10
-
-# Full suite if touching shared code (core/, tests/fakes/, tests/fixtures.py)
-python3 -m unittest discover tests/ -v
+find src/<domain>/ -name "*.py" | xargs wc -l | sort -rn | head -10
 ```
+
+Do NOT run `qlty check` from a worktree under `.claude/` — it is excluded there
+and prints a false "✔ No issues" while scanning zero files.
 
 ## Step 5: Report
 
@@ -160,10 +201,13 @@ After the split, output:
 ```
 ## Decompose Results
 
-| Original File | Lines | Split Into | Files | Max Lines |
-|---------------|-------|------------|-------|-----------|
-| mail/cli/main.py | 1041 | cli/main_labels.py, cli/main_filters.py, cli/main.py (facade) | 3 | 420 |
+| Original File | Lines | Split Into | Files | Max Lines | Call Sites Updated |
+|---------------|-------|------------|-------|-----------|--------------------|
+| slides/parsers.py | 773 | parsers_markdown.py, parsers_dict.py, parsers_csv.py, _parse_bullets.py, _parse_text.py | 5 | 288 | 6 |
 ```
+
+Report the original module as **deleted**, not as a facade, and state the
+verification actually run (`make test` count, `make lint`, facade detector).
 
 ## Parallel Execution
 
@@ -171,9 +215,13 @@ For multi-file decomposition, spawn one `code-writer` agent per file in a single
 
 ## Anti-Patterns to Avoid
 
+- **Leaving a re-export facade**: delete the original module and update call sites; a `from .x import *` shim is a project-rule violation, not a convenience
 - **Too granular**: 50-line files are worse than 500-line files — split into 2-4 submodules, not 10
 - **Breaking imports**: always verify all importers still work after the split
+- **Missing non-Python references**: `mock.patch()` target strings, `concerns/*.md` "when loaded" triggers, and README module lists break silently — tests stay green while the concerns guide stops firing
 - **Duplicating code**: shared helpers go into one submodule, not copied into each
+- **Duplicating test bodies**: when splitting a test file, each test must live in exactly one file — copying full method bodies into several files makes them run twice
+- **False-green verification**: bare `python3 -m unittest` in a worktree resolves to the main checkout; `qlty check` under `.claude/` scans zero files. Neither absence is a pass
 - **Losing coverage**: run the test suite before and after; coverage must not drop
 - **Renaming test classes**: keep class names identical in the new files (preserves git blame)
 - **Touching bin/\***: entry point wrappers are public API — never move or rename them
