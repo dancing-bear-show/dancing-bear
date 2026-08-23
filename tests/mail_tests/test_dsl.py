@@ -88,6 +88,19 @@ class DslNormalizeTests(unittest.TestCase):
         self.assertEqual({}, out["action"])
         self.assertNotIn("keepInInbox", out["action"])
 
+    def test_normalize_filter_for_outlook_keep_in_inbox_needs_a_non_empty_action(self):
+        """An `add` whose entries are all falsy is not a real action to modify.
+
+        `add: ["", None]` coerces to `add: []`, which leaves the action dict
+        truthy while holding nothing — so a non-emptiness check on the dict alone
+        would let the marker ride along on a rule that does nothing.
+        """
+        out = normalize_filter_for_outlook(
+            {"match": {"from": "a@b.com"}, "action": {"add": ["", None], "keepInInbox": True}}
+        )
+        self.assertEqual([], out["action"]["add"])
+        self.assertNotIn("keepInInbox", out["action"])
+
     def test_normalize_filter_for_outlook_keeps_keep_in_inbox_beside_an_action(self):
         """Paired with a real action it is preserved for the derive step to read."""
         out = normalize_filter_for_outlook(
