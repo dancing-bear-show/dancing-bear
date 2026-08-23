@@ -11,9 +11,9 @@ from slides.generator import (
     generate_pptx,
     load_deck_from_yaml,
 )
-from slides.parsers import (
-    load_deck_from_csv,
-    load_deck_from_dict,
+from slides.parsers_csv import load_deck_from_csv
+from slides.parsers_dict import load_deck_from_dict
+from slides.parsers_markdown import (
     load_deck_from_markdown,
     load_deck_from_outline,
 )

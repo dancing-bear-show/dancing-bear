@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 from slides.cli import _parse_layout_map_flag
 from slides.constants import RESERVED_LAYOUT_KEY
 from slides.generator import SlideGenerator, load_deck_from_yaml
-from slides.parsers import _parse_layout_map, load_deck_from_dict
+from slides.parsers_dict import _parse_layout_map, load_deck_from_dict
 from slides.schema import (
     DeckMetadata,
     SlideContent,

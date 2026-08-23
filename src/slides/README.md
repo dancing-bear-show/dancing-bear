@@ -63,7 +63,7 @@ title: Slides — YAML deck to rendered PPTX
 ---
 flowchart LR
     yaml[deck.yaml] --> cli[cli.py\ngenerate/validate/templates]
-    cli --> parsers[parsers.py\nload_deck_from_yaml]
+    cli --> parsers[parsers_dict / parsers_markdown / parsers_csv\n_parse_bullets / _parse_text]
     parsers --> schema[schema.py\nSlideDeck / SlideContent / TableSlide]
     schema --> gen[generator.py\nSlideGenerator]
     gen --> mixins["_shape_utils / _styling / _table\n_content / _image / _layout"]
@@ -73,7 +73,11 @@ flowchart LR
 ## Key Modules
 
 - `cli.py` — command dispatch: `generate`, `validate`, `templates`
-- `parsers.py` — YAML/Markdown/CSV/outline loaders into `SlideDeck`
+- `parsers_dict.py` — dict/YAML deck parsing into `SlideDeck`
+- `parsers_markdown.py` — Markdown and outline loaders into `SlideDeck`
+- `parsers_csv.py` — CSV loader into `SlideDeck`
+- `_parse_bullets.py` — bullet parsing primitives shared by the loaders
+- `_parse_text.py` — shared text/regex/chunking helpers for the loaders
 - `schema.py` — `SlideDeck`, `SlideContent`, `TableSlide`, `BulletItem`, `DeckMetadata`
 - `generator.py` — `SlideGenerator`, composed from six mixins:
   - `_shape_utils.py` — shape/placeholder helpers
