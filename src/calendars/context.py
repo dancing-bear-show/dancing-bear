@@ -48,7 +48,7 @@ class OutlookContext:
         """
         try:  # lazy heavy import
             from core.outlook import OutlookClient  # type: ignore
-        except Exception as e:  # nosec B110 - optional dep; re-raise as CLIError
+        except Exception as e:  # optional dep; re-raise as CLIError
             raise CLIError(f"Outlook features unavailable: {e}") from e
         client_id, tenant, token_path = self.resolve()
         if not client_id:

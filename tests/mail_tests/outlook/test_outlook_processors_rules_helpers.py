@@ -73,10 +73,8 @@ class TestFetchRulesWithResilienceAuthError(unittest.TestCase):
         client = MagicMock()
         client.list_filters.side_effect = self._make_auth_error(401)
 
-        try:
+        with self.assertRaises(Exception):
             _fetch_rules_with_resilience(client)
-        except Exception:
-            pass
 
         # list_filters must have been called exactly once — no cache fallback
         self.assertEqual(client.list_filters.call_count, 1)

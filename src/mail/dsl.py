@@ -9,7 +9,9 @@ from .outlook.helpers import norm_label_name_outlook, norm_label_color_outlook a
 _norm_label_name_outlook = norm_label_name_outlook
 
 
-def normalize_labels_for_outlook(labels: list[dict[str, Any]], name_mode: str = "join-dash") -> list[dict[str, Any]]:
+def normalize_labels_for_outlook(
+    labels: list[dict[str, Any]] | None, name_mode: str = "join-dash"
+) -> list[dict[str, Any]]:
     seen = set()
     out: list[dict[str, Any]] = []
     for lbl in labels or []:
@@ -57,7 +59,7 @@ def _decode_label(value: bytes) -> list[str]:
     return [value.decode("utf-8", "replace")] if value else []
 
 
-def normalize_filter_for_outlook(spec: dict[str, Any]) -> dict[str, Any] | None:
+def normalize_filter_for_outlook(spec: object) -> dict[str, Any] | None:
     if not isinstance(spec, dict):
         return None
     m = spec.get("match") or {}
@@ -89,7 +91,7 @@ def normalize_filter_for_outlook(spec: dict[str, Any]) -> dict[str, Any] | None:
     return {"match": crit, "action": act}
 
 
-def normalize_filters_for_outlook(filters: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def normalize_filters_for_outlook(filters: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for f in filters or []:
         nf = normalize_filter_for_outlook(f)
