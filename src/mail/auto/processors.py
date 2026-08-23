@@ -5,6 +5,7 @@ import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from core.pipeline import SafeProcessor
 
@@ -253,7 +254,12 @@ class AutoApplyProcessor(SafeProcessor[AutoApplyPayload, AutoApplyResult]):
             logger.end(sid, status="error", error=str(e))
             raise
 
-    def _apply_groups(self, client, groups, payload) -> tuple[int, list]:
+    def _apply_groups(
+        self,
+        client: Any,
+        groups: dict[tuple[tuple[str, ...], tuple[str, ...]], list[str]],
+        payload: AutoApplyPayload,
+    ) -> tuple[int, list[tuple[int, list[str], list[str]]]]:
         """Apply label changes per group; return (total, result_groups)."""
         total = 0
         result_groups = []

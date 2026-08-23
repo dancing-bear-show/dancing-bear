@@ -214,7 +214,7 @@ class OutlookExtractProcessor(SafeProcessor[ExtractRequest, ExtractResult]):
 
     def _process_safe(self, request: ExtractRequest) -> ExtractResult:
         from core.auth import resolve_outlook_credentials
-        from mail.outlook_api import OutlookClient
+        from core.outlook import OutlookClient
         from .extractors import extract_amounts, extract_order_id, MetalsAmount
 
         client_id, tenant, token_path = resolve_outlook_credentials(

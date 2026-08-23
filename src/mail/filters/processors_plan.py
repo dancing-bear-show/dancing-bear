@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from typing import Any
 
 from core.pipeline import Processor, SafeProcessor, ResultEnvelope
 
@@ -21,14 +22,14 @@ from .consumers import (
 
 @dataclass
 class FilterPlanEntry:
-    criteria: dict
+    criteria: dict[str, Any]
     action_names: dict[str, object]
 
 
 @dataclass
 class FiltersPlanResult:
     to_create: list[FilterPlanEntry]
-    to_delete: list[dict]
+    to_delete: list[dict[str, Any]]
     add_counts: Counter
     id_to_name: dict[str, str]
 
@@ -50,7 +51,7 @@ class FiltersPlanProcessor(SafeProcessor[FiltersPlanPayload, FiltersPlanResult])
                 add_counter[name] += 1
 
         to_create = [entry for key, entry in desired_entries if key not in existing_map]
-        to_delete: list[dict] = []
+        to_delete: list[dict[str, Any]] = []
         if payload.delete_missing:
             extra_keys = set(existing_map.keys()) - desired_keys
             to_delete = [existing_map[k] for k in extra_keys]
@@ -66,7 +67,7 @@ class FiltersPlanProcessor(SafeProcessor[FiltersPlanPayload, FiltersPlanResult])
 @dataclass
 class FiltersSyncResult:
     to_create: list[FilterPlanEntry]
-    to_delete: list[dict]
+    to_delete: list[dict[str, Any]]
 
 
 class FiltersSyncProcessor(Processor[FiltersSyncPayload, ResultEnvelope[FiltersSyncResult]]):
@@ -95,7 +96,7 @@ class FiltersSyncProcessor(Processor[FiltersSyncPayload, ResultEnvelope[FiltersS
             _canon_existing_with_names(f, payload.id_to_name): f for f in payload.existing_filters
         }
         to_create = [entry for key, entry in desired_entries if key not in existing_map]
-        to_delete: list[dict] = []
+        to_delete: list[dict[str, Any]] = []
         if payload.delete_missing:
             extra_keys = set(existing_map.keys()) - desired_keys
             to_delete = [existing_map[k] for k in extra_keys]
@@ -136,7 +137,7 @@ class FiltersImpactProcessor(SafeProcessor[FiltersImpactPayload, FiltersImpactRe
 
 @dataclass
 class FiltersExportResult:
-    filters: list[dict]
+    filters: list[dict[str, Any]]
     out_path: str
 
 
@@ -144,9 +145,9 @@ class FiltersExportProcessor(SafeProcessor[FiltersExportPayload, FiltersExportRe
     """Convert Gmail filters into DSL export format."""
 
     def _process_safe(self, payload: FiltersExportPayload) -> FiltersExportResult:
-        entries: list[dict] = []
+        entries: list[dict[str, Any]] = []
         for filt in payload.filters:
-            entry: dict = {}
+            entry: dict[str, Any] = {}
             criteria = self._export_criteria(filt.get("criteria") or {})
             if criteria:
                 entry["criteria"] = criteria
@@ -158,8 +159,8 @@ class FiltersExportProcessor(SafeProcessor[FiltersExportPayload, FiltersExportRe
             entries.append(entry)
         return FiltersExportResult(filters=entries, out_path=str(payload.out_path))
 
-    def _export_criteria(self, criteria: dict) -> dict:
-        out: dict = {}
+    def _export_criteria(self, criteria: dict[str, Any]) -> dict[str, Any]:
+        out: dict[str, Any] = {}
         for key in ("from", "to", "subject", "query", "negatedQuery"):
             if criteria.get(key):
                 out[key] = criteria[key]
@@ -174,8 +175,8 @@ class FiltersExportProcessor(SafeProcessor[FiltersExportPayload, FiltersExportRe
             out["size"] = size_entry
         return out
 
-    def _export_action(self, action: dict, id_to_name: dict[str, str]) -> dict:
-        out: dict = {}
+    def _export_action(self, action: dict[str, Any], id_to_name: dict[str, str]) -> dict[str, Any]:
+        out: dict[str, Any] = {}
         add_names = _ids_to_names(action.get("addLabelIds"), id_to_name)
         if add_names:
             out["addLabels"] = add_names

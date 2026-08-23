@@ -20,7 +20,7 @@ from typing import List, Optional
 
 from core.auth import resolve_outlook_credentials
 from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
-from mail.outlook_api import OutlookClient
+from core.outlook import OutlookClient
 from .workbook import WorkbookContext, ChartPlacement, col_letter as _col_letter, write_range_to_sheet as _write_range, pad_rows as _pad_rows  # noqa: F401
 
 from .excel_io import (  # noqa: F401

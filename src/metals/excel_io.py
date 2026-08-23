@@ -6,7 +6,7 @@ import json
 from typing import Dict, List, Optional, Tuple
 
 from core.constants import DEFAULT_REQUEST_TIMEOUT
-from mail.outlook_api import OutlookClient
+from core.outlook import OutlookClient
 
 from .workbook import WorkbookContext
 

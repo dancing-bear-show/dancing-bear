@@ -134,6 +134,13 @@ _default_gmail_token = default_gmail_token_path()
 _default_outlook_flow = default_outlook_flow_path()
 _default_outlook_token = default_outlook_token_path()
 
+# Repeated help-text strings extracted as module-level constants
+HELP_CREDENTIALS = "Path to OAuth credentials.json"
+HELP_TOKEN = "Path to token.json"
+HELP_CLIENT_ID = "Azure app (client) ID"
+HELP_TENANT = "AAD tenant"
+HELP_TOKEN_CACHE = "Path to token cache JSON"
+
 
 def _lazy_emit_agentic():
     from ..agentic import emit_agentic_context
@@ -142,8 +149,8 @@ def _lazy_emit_agentic():
 
 # --- auth command ---
 @app.command("auth", help="Authenticate with the mail provider")
-@app.argument("--credentials", help=f"Path to OAuth credentials.json (default: {_default_gmail_credentials})")
-@app.argument("--token", help=f"Path to token.json (default: {_default_gmail_token})")
+@app.argument("--credentials", help=f"{HELP_CREDENTIALS} (default: {_default_gmail_credentials})")
+@app.argument("--token", help=f"{HELP_TOKEN} (default: {_default_gmail_token})")
 @app.argument("--validate", action="store_true", help="Validate existing Gmail token non-interactively")
 def cmd_auth(args) -> int:
     return run_auth(args)
@@ -151,8 +158,8 @@ def cmd_auth(args) -> int:
 
 # --- backup command ---
 @app.command("backup", help="Backup Gmail labels and filters to a timestamped folder")
-@app.argument("--credentials", help="Path to OAuth credentials.json")
-@app.argument("--token", help="Path to token.json")
+@app.argument("--credentials", help=HELP_CREDENTIALS)
+@app.argument("--token", help=HELP_TOKEN)
 @app.argument("--out-dir", help="Output directory (default backups/<timestamp>)")
 def cmd_backup(args) -> int:
     return run_backup(args)
@@ -170,8 +177,8 @@ messages_group = app.group("messages", help="Search, get, summarize (Gmail+Outlo
 
 
 @messages_group.command("search", help="Search for messages and list candidates")
-@messages_group.argument("--credentials", help="Path to OAuth credentials.json")
-@messages_group.argument("--token", help="Path to token.json")
+@messages_group.argument("--credentials", help=HELP_CREDENTIALS)
+@messages_group.argument("--token", help=HELP_TOKEN)
 @messages_group.argument("--query", default="", help="Search query (Gmail syntax or Outlook $search)")
 @messages_group.argument("--days", type=int, help="Restrict to last N days")
 @messages_group.argument("--only-inbox", action="store_true", help="Restrict to inbox")
@@ -188,8 +195,8 @@ def cmd_messages_search(args) -> int:
 
 
 @messages_group.command("summarize", help="Summarize a message's content")
-@messages_group.argument("--credentials", help="Path to OAuth credentials.json")
-@messages_group.argument("--token", help="Path to token.json")
+@messages_group.argument("--credentials", help=HELP_CREDENTIALS)
+@messages_group.argument("--token", help=HELP_TOKEN)
 @messages_group.argument("--id", help="Message ID to summarize")
 @messages_group.argument("--query", help="Fallback query if id not given")
 @messages_group.argument("--days", type=int, help=HELP_DAYS_BACK)
@@ -202,8 +209,8 @@ def cmd_messages_summarize(args) -> int:
 
 
 @messages_group.command("get", help="Fetch and print a message body")
-@messages_group.argument("--credentials", help="Path to OAuth credentials.json")
-@messages_group.argument("--token", help="Path to token.json")
+@messages_group.argument("--credentials", help=HELP_CREDENTIALS)
+@messages_group.argument("--token", help=HELP_TOKEN)
 @messages_group.argument("--id", help="Message ID")
 @messages_group.argument("--ids", help="Comma-separated message IDs (e.g. A,B,C)")
 @messages_group.argument("--query", help="Fallback query if id not given")
@@ -215,8 +222,8 @@ def cmd_messages_get(args) -> int:
 
 
 @messages_group.command("threads-get", help="Fetch all messages in a conversation")
-@messages_group.argument("--credentials", help="Path to OAuth credentials.json")
-@messages_group.argument("--token", help="Path to token.json")
+@messages_group.argument("--credentials", help=HELP_CREDENTIALS)
+@messages_group.argument("--token", help=HELP_TOKEN)
 @messages_group.argument("--thread-id", help="Thread ID")
 @messages_group.argument("--id", help="Message ID to resolve the thread from")
 @messages_group.argument("--query", help="Fallback query if thread-id/id not given")
@@ -229,8 +236,8 @@ def cmd_messages_threads_get(args) -> int:
 
 
 @messages_group.command("reply", help="Draft or send a reply for a message")
-@messages_group.argument("--credentials", help="Path to OAuth credentials.json")
-@messages_group.argument("--token", help="Path to token.json")
+@messages_group.argument("--credentials", help=HELP_CREDENTIALS)
+@messages_group.argument("--token", help=HELP_TOKEN)
 @messages_group.argument("--id", help="Message ID to reply to")
 @messages_group.argument("--query", help="Fallback query if id not given")
 @messages_group.argument("--days", type=int, help=HELP_DAYS_BACK)
@@ -263,8 +270,8 @@ def cmd_messages_apply_scheduled(args) -> int:
 
 
 @messages_group.command("list-attachments", help="List attachments in a Gmail message")
-@messages_group.argument("--credentials", help="Path to OAuth credentials.json")
-@messages_group.argument("--token", help="Path to token.json")
+@messages_group.argument("--credentials", help=HELP_CREDENTIALS)
+@messages_group.argument("--token", help=HELP_TOKEN)
 @messages_group.argument("--id", required=True, help="Message ID")
 @messages_group.argument("--json", action="store_true", help="Output JSON")
 def cmd_messages_list_attachments(args) -> int:
@@ -272,8 +279,8 @@ def cmd_messages_list_attachments(args) -> int:
 
 
 @messages_group.command("download-attachment", help="Download an attachment from a Gmail message")
-@messages_group.argument("--credentials", help="Path to OAuth credentials.json")
-@messages_group.argument("--token", help="Path to token.json")
+@messages_group.argument("--credentials", help=HELP_CREDENTIALS)
+@messages_group.argument("--token", help=HELP_TOKEN)
 @messages_group.argument("--id", required=True, help="Message ID")
 @messages_group.argument("--attachment-id", dest="attachment_id", help="Attachment ID (omit if exactly one attachment)")
 @messages_group.argument("--filename", help="Select attachment by filename instead of --attachment-id")
@@ -311,8 +318,8 @@ auto_group = app.group("auto", help="Gmail: propose/apply categorization + archi
 
 
 @auto_group.command("propose", help="Create proposal for categorizing + archiving mail")
-@auto_group.argument("--credentials", help="Path to OAuth credentials.json")
-@auto_group.argument("--token", help="Path to token.json")
+@auto_group.argument("--credentials", help=HELP_CREDENTIALS)
+@auto_group.argument("--token", help=HELP_TOKEN)
 @auto_group.argument("--cache", help=HELP_CACHE_DIR)
 @auto_group.argument("--days", type=int, default=7, help="Days of messages")
 @auto_group.argument("--only-inbox", action="store_true")
@@ -327,8 +334,8 @@ def cmd_auto_propose(args) -> int:
 
 
 @auto_group.command("apply", help="Apply a saved proposal (archive + label)")
-@auto_group.argument("--credentials", help="Path to OAuth credentials.json")
-@auto_group.argument("--token", help="Path to token.json")
+@auto_group.argument("--credentials", help=HELP_CREDENTIALS)
+@auto_group.argument("--token", help=HELP_TOKEN)
 @auto_group.argument("--cache", help=HELP_CACHE_DIR)
 @auto_group.argument("--proposal", required=True, help="Proposal JSON path")
 @auto_group.argument("--cutoff-days", type=int, help="Only apply to messages older than N days")
@@ -350,38 +357,38 @@ forwarding_group = app.group("forwarding", help="Gmail forwarding configuration"
 
 
 @forwarding_group.command("list", help="List forwarding addresses")
-@forwarding_group.argument("--credentials", help="Path to OAuth credentials.json")
-@forwarding_group.argument("--token", help="Path to token.json")
+@forwarding_group.argument("--credentials", help=HELP_CREDENTIALS)
+@forwarding_group.argument("--token", help=HELP_TOKEN)
 def cmd_forwarding_list(args) -> int:
     return run_forwarding_list(args)
 
 
 @forwarding_group.command("add", help="Add a forwarding address")
-@forwarding_group.argument("--credentials", help="Path to OAuth credentials.json")
-@forwarding_group.argument("--token", help="Path to token.json")
+@forwarding_group.argument("--credentials", help=HELP_CREDENTIALS)
+@forwarding_group.argument("--token", help=HELP_TOKEN)
 @forwarding_group.argument("--email", required=True, help="Email address to add")
 def cmd_forwarding_add(args) -> int:
     return run_forwarding_add(args)
 
 
 @forwarding_group.command("status", help="Check forwarding status")
-@forwarding_group.argument("--credentials", help="Path to OAuth credentials.json")
-@forwarding_group.argument("--token", help="Path to token.json")
+@forwarding_group.argument("--credentials", help=HELP_CREDENTIALS)
+@forwarding_group.argument("--token", help=HELP_TOKEN)
 def cmd_forwarding_status(args) -> int:
     return run_forwarding_status(args)
 
 
 @forwarding_group.command("enable", help="Enable forwarding")
-@forwarding_group.argument("--credentials", help="Path to OAuth credentials.json")
-@forwarding_group.argument("--token", help="Path to token.json")
+@forwarding_group.argument("--credentials", help=HELP_CREDENTIALS)
+@forwarding_group.argument("--token", help=HELP_TOKEN)
 @forwarding_group.argument("--email", required=True, help="Address to forward to")
 def cmd_forwarding_enable(args) -> int:
     return run_forwarding_enable(args)
 
 
 @forwarding_group.command("disable", help="Disable forwarding")
-@forwarding_group.argument("--credentials", help="Path to OAuth credentials.json")
-@forwarding_group.argument("--token", help="Path to token.json")
+@forwarding_group.argument("--credentials", help=HELP_CREDENTIALS)
+@forwarding_group.argument("--token", help=HELP_TOKEN)
 def cmd_forwarding_disable(args) -> int:
     return run_forwarding_disable(args)
 
@@ -391,16 +398,16 @@ signatures_group = app.group("signatures", help="Gmail signatures operations")
 
 
 @signatures_group.command("export", help="Export Gmail signatures to files")
-@signatures_group.argument("--credentials", help="Path to OAuth credentials.json")
-@signatures_group.argument("--token", help="Path to token.json")
+@signatures_group.argument("--credentials", help=HELP_CREDENTIALS)
+@signatures_group.argument("--token", help=HELP_TOKEN)
 @signatures_group.argument("--out-dir", required=True, help=HELP_OUT_DIR)
 def cmd_signatures_export(args) -> int:
     return run_signatures_export(args)
 
 
 @signatures_group.command("sync", help="Sync signatures from files to Gmail")
-@signatures_group.argument("--credentials", help="Path to OAuth credentials.json")
-@signatures_group.argument("--token", help="Path to token.json")
+@signatures_group.argument("--credentials", help=HELP_CREDENTIALS)
+@signatures_group.argument("--token", help=HELP_TOKEN)
 @signatures_group.argument("--in-dir", required=True, help="Input directory with signatures")
 @signatures_group.argument("--dry-run", action="store_true", help="Preview changes")
 def cmd_signatures_sync(args) -> int:
@@ -499,8 +506,8 @@ env_group = app.group("env", help="Environment setup and verification")
 @env_group.argument("--skip-install", action="store_true", help="Skip pip install")
 @env_group.argument("--credentials", help=f"Path to Gmail credentials.json (default: {_default_gmail_credentials})")
 @env_group.argument("--token", help=f"Path to Gmail token.json (default: {_default_gmail_token})")
-@env_group.argument("--outlook-client-id", help="Azure app (client) ID")
-@env_group.argument("--tenant", help="AAD tenant (e.g., consumers)")
+@env_group.argument("--outlook-client-id", help=HELP_CLIENT_ID)
+@env_group.argument("--tenant", help=f"{HELP_TENANT} (e.g., consumers)")
 @env_group.argument("--outlook-token", help="Path to Outlook token cache JSON")
 @env_group.argument("--copy-gmail-example", dest="copy_gmail_example", action="store_true", default=True)
 @env_group.argument("--no-copy-gmail-example", dest="copy_gmail_example", action="store_false")
@@ -598,8 +605,8 @@ outlook_group = app.group("outlook", help="Outlook-specific operations")
 
 # outlook auth subgroup
 @outlook_group.command("auth.device-code", help="Initiate device-code login (non-blocking)")
-@outlook_group.argument("--client-id", help="Azure app (client) ID")
-@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
+@outlook_group.argument("--client-id", help=HELP_CLIENT_ID)
+@outlook_group.argument("--tenant", default="consumers", help=HELP_TENANT)
 @outlook_group.argument("--out", default=_default_outlook_flow, help=f"Path to store device-flow JSON (default: {_default_outlook_flow})")
 def cmd_outlook_auth_device_code(args) -> int:
     return run_outlook_auth_device_code(args)
@@ -613,26 +620,26 @@ def cmd_outlook_auth_poll(args) -> int:
 
 
 @outlook_group.command("auth.ensure", help="Ensure valid Outlook token (silent refresh or device-code)")
-@outlook_group.argument("--client-id", help="Azure app (client) ID")
-@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
-@outlook_group.argument("--token", help="Path to token cache JSON")
+@outlook_group.argument("--client-id", help=HELP_CLIENT_ID)
+@outlook_group.argument("--tenant", default="consumers", help=HELP_TENANT)
+@outlook_group.argument("--token", help=HELP_TOKEN_CACHE)
 def cmd_outlook_auth_ensure(args) -> int:
     return run_outlook_auth_ensure(args)
 
 
 @outlook_group.command("auth.validate", help="Validate Outlook token non-interactively")
-@outlook_group.argument("--client-id", help="Azure app (client) ID")
-@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
-@outlook_group.argument("--token", help="Path to token cache JSON")
+@outlook_group.argument("--client-id", help=HELP_CLIENT_ID)
+@outlook_group.argument("--tenant", default="consumers", help=HELP_TENANT)
+@outlook_group.argument("--token", help=HELP_TOKEN_CACHE)
 def cmd_outlook_auth_validate(args) -> int:
     return run_outlook_auth_validate(args)
 
 
 # outlook rules subgroup
 @outlook_group.command("rules.list", help="List Outlook Inbox rules")
-@outlook_group.argument("--client-id", help="Azure app (client) ID")
-@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
-@outlook_group.argument("--token", help="Path to token cache JSON")
+@outlook_group.argument("--client-id", help=HELP_CLIENT_ID)
+@outlook_group.argument("--tenant", default="consumers", help=HELP_TENANT)
+@outlook_group.argument("--token", help=HELP_TOKEN_CACHE)
 @outlook_group.argument("--use-cache", action="store_true", help="Use cached rules")
 @outlook_group.argument("--cache-ttl", type=int, default=600, help="Cache TTL seconds")
 @outlook_group.argument("--accounts-config", default="config/accounts.yaml")
@@ -642,9 +649,9 @@ def cmd_outlook_rules_list(args) -> int:
 
 
 @outlook_group.command("rules.export", help="Export Outlook rules to filters YAML")
-@outlook_group.argument("--client-id", help="Azure app (client) ID")
-@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
-@outlook_group.argument("--token", help="Path to token cache JSON")
+@outlook_group.argument("--client-id", help=HELP_CLIENT_ID)
+@outlook_group.argument("--tenant", default="consumers", help=HELP_TENANT)
+@outlook_group.argument("--token", help=HELP_TOKEN_CACHE)
 @outlook_group.argument("--out", required=True, help=HELP_YAML_OUT)
 @outlook_group.argument("--use-cache", action="store_true")
 @outlook_group.argument("--cache-ttl", type=int, default=600)
@@ -655,9 +662,9 @@ def cmd_outlook_rules_export(args) -> int:
 
 
 @outlook_group.command("rules.plan", help="Plan Outlook rule changes from filters YAML")
-@outlook_group.argument("--client-id", help="Azure app (client) ID")
-@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
-@outlook_group.argument("--token", help="Path to token cache JSON")
+@outlook_group.argument("--client-id", help=HELP_CLIENT_ID)
+@outlook_group.argument("--tenant", default="consumers", help=HELP_TENANT)
+@outlook_group.argument("--token", help=HELP_TOKEN_CACHE)
 @outlook_group.argument("--config", required=True, help="Filters YAML")
 @outlook_group.argument("--use-cache", action="store_true")
 @outlook_group.argument("--cache-ttl", type=int, default=600)
@@ -670,9 +677,9 @@ def cmd_outlook_rules_plan(args) -> int:
 
 
 @outlook_group.command("rules.sync", help="Sync rules from filters YAML into Outlook Inbox")
-@outlook_group.argument("--client-id", help="Azure app (client) ID")
-@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
-@outlook_group.argument("--token", help="Path to token cache JSON")
+@outlook_group.argument("--client-id", help=HELP_CLIENT_ID)
+@outlook_group.argument("--tenant", default="consumers", help=HELP_TENANT)
+@outlook_group.argument("--token", help=HELP_TOKEN_CACHE)
 @outlook_group.argument("--config", required=True, help="Filters YAML")
 @outlook_group.argument("--dry-run", action="store_true")
 @outlook_group.argument("--move-to-folders", action="store_true", dest="move_to_folders", default=True)
@@ -685,9 +692,9 @@ def cmd_outlook_rules_sync(args) -> int:
 
 
 @outlook_group.command("rules.delete", help="Delete an Outlook rule by ID")
-@outlook_group.argument("--client-id", help="Azure app (client) ID")
-@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
-@outlook_group.argument("--token", help="Path to token cache JSON")
+@outlook_group.argument("--client-id", help=HELP_CLIENT_ID)
+@outlook_group.argument("--tenant", default="consumers", help=HELP_TENANT)
+@outlook_group.argument("--token", help=HELP_TOKEN_CACHE)
 @outlook_group.argument("--id", required=True, help="Rule ID to delete")
 @outlook_group.argument("--accounts-config", default="config/accounts.yaml")
 @outlook_group.argument("--account", help="Account name for defaults")
@@ -696,9 +703,9 @@ def cmd_outlook_rules_delete(args) -> int:
 
 
 @outlook_group.command("rules.prune-empty", help="Delete Outlook rules with no conditions or actions")
-@outlook_group.argument("--client-id", help="Azure app (client) ID")
-@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
-@outlook_group.argument("--token", help="Path to token cache JSON")
+@outlook_group.argument("--client-id", help=HELP_CLIENT_ID)
+@outlook_group.argument("--tenant", default="consumers", help=HELP_TENANT)
+@outlook_group.argument("--token", help=HELP_TOKEN_CACHE)
 @outlook_group.argument("--dry-run", action="store_true", help="Preview changes")
 @outlook_group.argument("--accounts-config", default="config/accounts.yaml")
 @outlook_group.argument("--account", help="Account name for defaults")
@@ -707,9 +714,9 @@ def cmd_outlook_rules_prune_empty(args) -> int:
 
 
 @outlook_group.command("rules.sweep", help="Apply folder moves to existing messages")
-@outlook_group.argument("--client-id", help="Azure app (client) ID")
-@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
-@outlook_group.argument("--token", help="Path to token cache JSON")
+@outlook_group.argument("--client-id", help=HELP_CLIENT_ID)
+@outlook_group.argument("--tenant", default="consumers", help=HELP_TENANT)
+@outlook_group.argument("--token", help=HELP_TOKEN_CACHE)
 @outlook_group.argument("--config", required=True, help="Filters YAML")
 @outlook_group.argument("--days", type=int, default=30, help="Only sweep messages in last N days")
 @outlook_group.argument("--pages", type=int, default=2, help="Pages to search per rule")
@@ -728,9 +735,9 @@ def cmd_outlook_rules_sweep(args) -> int:
 
 # outlook calendar subgroup
 @outlook_group.command("calendar.add", help="Add a one-time event to a calendar")
-@outlook_group.argument("--client-id", help="Azure app (client) ID")
-@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
-@outlook_group.argument("--token", help="Path to token cache JSON")
+@outlook_group.argument("--client-id", help=HELP_CLIENT_ID)
+@outlook_group.argument("--tenant", default="consumers", help=HELP_TENANT)
+@outlook_group.argument("--token", help=HELP_TOKEN_CACHE)
 @outlook_group.argument("--calendar", help="Calendar name (defaults to primary)")
 @outlook_group.argument("--subject", required=True, help="Event subject")
 @outlook_group.argument("--start", required=True, help="Start datetime ISO")
@@ -747,9 +754,9 @@ def cmd_outlook_calendar_add(args) -> int:
 
 
 @outlook_group.command("calendar.add-recurring", help="Add a recurring event with optional exclusions")
-@outlook_group.argument("--client-id", help="Azure app (client) ID")
-@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
-@outlook_group.argument("--token", help="Path to token cache JSON")
+@outlook_group.argument("--client-id", help=HELP_CLIENT_ID)
+@outlook_group.argument("--tenant", default="consumers", help=HELP_TENANT)
+@outlook_group.argument("--token", help=HELP_TOKEN_CACHE)
 @outlook_group.argument("--calendar", help="Calendar name (defaults to primary)")
 @outlook_group.argument("--subject", required=True, help="Event subject")
 @outlook_group.argument("--repeat", required=True, choices=["daily", "weekly", "monthly"], help="Recurrence type")
@@ -772,9 +779,9 @@ def cmd_outlook_calendar_add_recurring(args) -> int:
 
 
 @outlook_group.command("calendar.add-from-config", help="Add events defined in a YAML file")
-@outlook_group.argument("--client-id", help="Azure app (client) ID")
-@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
-@outlook_group.argument("--token", help="Path to token cache JSON")
+@outlook_group.argument("--client-id", help=HELP_CLIENT_ID)
+@outlook_group.argument("--tenant", default="consumers", help=HELP_TENANT)
+@outlook_group.argument("--token", help=HELP_TOKEN_CACHE)
 @outlook_group.argument("--config", required=True, help="YAML with events: [] entries")
 @outlook_group.argument("--no-reminder", action="store_true", help="No reminders")
 @outlook_group.argument("--accounts-config", default="config/accounts.yaml")
@@ -785,9 +792,9 @@ def cmd_outlook_calendar_add_from_config(args) -> int:
 
 # outlook categories subgroup
 @outlook_group.command("categories.list", help="List Outlook categories")
-@outlook_group.argument("--client-id", help="Azure app (client) ID")
-@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
-@outlook_group.argument("--token", help="Path to token cache JSON")
+@outlook_group.argument("--client-id", help=HELP_CLIENT_ID)
+@outlook_group.argument("--tenant", default="consumers", help=HELP_TENANT)
+@outlook_group.argument("--token", help=HELP_TOKEN_CACHE)
 @outlook_group.argument("--use-cache", action="store_true")
 @outlook_group.argument("--cache-ttl", type=int, default=600)
 @outlook_group.argument("--accounts-config", default="config/accounts.yaml")
@@ -797,9 +804,9 @@ def cmd_outlook_categories_list(args) -> int:
 
 
 @outlook_group.command("categories.export", help="Export categories to YAML")
-@outlook_group.argument("--client-id", help="Azure app (client) ID")
-@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
-@outlook_group.argument("--token", help="Path to token cache JSON")
+@outlook_group.argument("--client-id", help=HELP_CLIENT_ID)
+@outlook_group.argument("--tenant", default="consumers", help=HELP_TENANT)
+@outlook_group.argument("--token", help=HELP_TOKEN_CACHE)
 @outlook_group.argument("--out", required=True, help=HELP_YAML_OUT)
 @outlook_group.argument("--use-cache", action="store_true")
 @outlook_group.argument("--cache-ttl", type=int, default=600)
@@ -810,9 +817,9 @@ def cmd_outlook_categories_export(args) -> int:
 
 
 @outlook_group.command("categories.sync", help="Sync categories from labels YAML")
-@outlook_group.argument("--client-id", help="Azure app (client) ID")
-@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
-@outlook_group.argument("--token", help="Path to token cache JSON")
+@outlook_group.argument("--client-id", help=HELP_CLIENT_ID)
+@outlook_group.argument("--tenant", default="consumers", help=HELP_TENANT)
+@outlook_group.argument("--token", help=HELP_TOKEN_CACHE)
 @outlook_group.argument("--config", required=True, help="Labels YAML")
 @outlook_group.argument("--dry-run", action="store_true")
 @outlook_group.argument("--accounts-config", default="config/accounts.yaml")
@@ -823,9 +830,9 @@ def cmd_outlook_categories_sync(args) -> int:
 
 # outlook folders subgroup
 @outlook_group.command("folders.sync", help="Create Outlook folders from labels YAML")
-@outlook_group.argument("--client-id", help="Azure app (client) ID")
-@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
-@outlook_group.argument("--token", help="Path to token cache JSON")
+@outlook_group.argument("--client-id", help=HELP_CLIENT_ID)
+@outlook_group.argument("--tenant", default="consumers", help=HELP_TENANT)
+@outlook_group.argument("--token", help=HELP_TOKEN_CACHE)
 @outlook_group.argument("--config", required=True, help="Labels YAML")
 @outlook_group.argument("--dry-run", action="store_true")
 @outlook_group.argument("--accounts-config", default="config/accounts.yaml")
@@ -835,9 +842,9 @@ def cmd_outlook_folders_sync(args) -> int:
 
 
 @outlook_group.command("messages.search", help="Search Outlook messages across all folders")
-@outlook_group.argument("--client-id", help="Azure app (client) ID")
-@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
-@outlook_group.argument("--token", help="Path to token cache JSON")
+@outlook_group.argument("--client-id", help=HELP_CLIENT_ID)
+@outlook_group.argument("--tenant", default="consumers", help=HELP_TENANT)
+@outlook_group.argument("--token", help=HELP_TOKEN_CACHE)
 @outlook_group.argument("--query", default="", help="KQL search query")
 @outlook_group.argument("--top", type=int, default=50, help=HELP_PAGE_SIZE)
 @outlook_group.argument("--pages", type=int, default=3, help="Max pages to fetch")
@@ -853,9 +860,9 @@ def cmd_outlook_messages_search(args) -> int:
 
 
 @outlook_group.command("messages.summarize", help="Summarize an Outlook message")
-@outlook_group.argument("--client-id", help="Azure app (client) ID")
-@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
-@outlook_group.argument("--token", help="Path to token cache JSON")
+@outlook_group.argument("--client-id", help=HELP_CLIENT_ID)
+@outlook_group.argument("--tenant", default="consumers", help=HELP_TENANT)
+@outlook_group.argument("--token", help=HELP_TOKEN_CACHE)
 @outlook_group.argument("--id", help="Message ID to summarize")
 @outlook_group.argument("--query", help="KQL query to find message (fallback if --id not given)")
 @outlook_group.argument("--top", type=int, default=5, help="Max results when searching by query")

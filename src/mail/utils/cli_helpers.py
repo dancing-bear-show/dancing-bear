@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import argparse
+from collections.abc import Callable
+from typing import Any
+
 from ..providers.gmail import GmailProvider
 from ..config_resolver import resolve_paths_profile, persist_if_provided, get_outlook_client_id_for_profile
 
 
-def gmail_provider_from_args(args):
+def gmail_provider_from_args(args: argparse.Namespace) -> GmailProvider:
     """Construct a GmailProvider from argparse-like args with credentials/token/cache.
 
     Does not authenticate; caller decides when to call authenticate().
@@ -32,7 +36,7 @@ def is_outlook_profile(profile: str | None) -> bool:
     return bool(get_outlook_client_id_for_profile(profile))
 
 
-def outlook_client_from_args(args):
+def outlook_client_from_args(args: argparse.Namespace) -> Any:
     """Construct an authenticated OutlookClient from argparse-like args.
 
     Returns the raw OutlookClient (not OutlookProvider) for message operations.
@@ -45,7 +49,7 @@ def outlook_client_from_args(args):
     return client
 
 
-def with_gmail_client(func):
+def with_gmail_client(func: Callable[..., Any]) -> Callable[..., Any]:
     """Decorator that authenticates a Gmail client and attaches it to args.
 
     Attaches the client as `args._gmail_client` before invoking the function.
@@ -62,7 +66,7 @@ def with_gmail_client(func):
     return wrapper
 
 
-def gmail_client_authenticated(args):
+def gmail_client_authenticated(args: argparse.Namespace) -> GmailProvider:
     """Return an authenticated GmailProvider built from args.
 
     Convenience wrapper to reduce repeated provider+authenticate boilerplate.
@@ -70,12 +74,6 @@ def gmail_client_authenticated(args):
     client = gmail_provider_from_args(args)
     client.authenticate()
     return client
-
-
-def add_outlook_common_args(parser):
-    # deprecated: use mail.cli.args directly
-    from ..cli.args import add_outlook_common_args as _impl
-    return _impl(parser)
 
 
 def preview_criteria(criteria: dict | None) -> str:

@@ -94,7 +94,7 @@ def get_outlook_client(args):
     Returns: (client, error_code) - client is None if error, error_code is 0 if success.
     """
     try:
-        from ..outlook_api import OutlookClient
+        from core.outlook import OutlookClient
     except Exception as e:
         print(f"Outlook features unavailable: {e}", file=sys.stderr)
         return None, 1

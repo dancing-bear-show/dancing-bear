@@ -212,7 +212,7 @@ def _send_one_scheduled(client, item: dict, profile: str) -> bool:
         client.send_message_raw(raw, thread_id=thread_id)
         print(f"Sent scheduled message to {to} subject='{subj}' profile={profile}")
         return True
-    except Exception as e:  # nosec B110 - log and continue on send failure
+    except Exception as e:  # log and continue on send failure
         print(f"Failed to send to {to}: {e}")
         return False
 
