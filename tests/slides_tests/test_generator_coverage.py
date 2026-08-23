@@ -908,7 +908,7 @@ class TestParseBulletsNonDictNonStr(unittest.TestCase):
 
     def test_non_dict_non_str_bullet_is_ignored(self) -> None:
         """Items that are not dict or str are silently skipped by _parse_bullets."""
-        from slides.parsers import _parse_bullets
+        from slides._parse_bullets import _parse_bullets
 
         raw_bullets = [
             "valid string bullet",

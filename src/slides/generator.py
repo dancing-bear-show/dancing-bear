@@ -43,7 +43,7 @@ def load_deck_from_yaml(yaml_path: str) -> SlideDeck:
     exception. This is a behavior change from the ported source, which raised
     on a missing file.
     """
-    from slides.parsers import load_deck_from_dict
+    from slides.parsers_dict import load_deck_from_dict
 
     data = load_config(yaml_path)
     return load_deck_from_dict(data)

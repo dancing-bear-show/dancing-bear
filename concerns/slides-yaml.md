@@ -3,8 +3,10 @@
 ## When loaded
 
 Load this guide when authoring or reviewing a slide deck YAML definition, when
-editing `src/slides/parsers.py` or `src/slides/schema.py`, or when a generated
-`.pptx` does not match what the YAML appears to describe.
+editing the `src/slides/` parser modules (`_parse_bullets.py`, `_parse_text.py`,
+`parsers_dict.py`, `parsers_markdown.py`, `parsers_csv.py`) or
+`src/slides/schema.py`, or when a generated `.pptx` does not match what the
+YAML appears to describe.
 
 Most failures in this domain are **silent**: the deck generates successfully,
 exits 0, and produces a file with missing or wrong content. The concerns below
@@ -48,7 +50,7 @@ slides:
 - **check**: Verify every entry under `bullets:` is a string, a dict, or a
   list/tuple. Any other YAML type is skipped with no error and no warning.
 - **triggers**: Any deck YAML with a `bullets:` list; any edit to `_parse_bullets`
-  in `src/slides/parsers.py`.
+  in `src/slides/_parse_bullets.py`.
 - **example**: `_parse_bullets` dispatches on `isinstance` for dict, list/tuple,
   and str — a value matching none of these falls off the end of the loop and is
   never appended. A bare number (`- 42`) or a YAML null (`- `) therefore vanishes

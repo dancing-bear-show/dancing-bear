@@ -15,7 +15,7 @@ from pptx.enum.dml import MSO_THEME_COLOR
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 from slides.generator import SlideGenerator
-from slides.parsers import _parse_slide
+from slides.parsers_dict import _parse_slide
 from slides.schema import SlideContent
 
 # ---------------------------------------------------------------------------
