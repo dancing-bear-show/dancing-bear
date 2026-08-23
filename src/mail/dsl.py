@@ -76,7 +76,12 @@ def normalize_filter_for_outlook(spec: dict) -> dict | None:
     # Per-rule opt-out from the moveToFolder derived from add[] when move-to-folders
     # is enabled, so this rule's mail stays in the inbox while others still move.
     # Carried through here; stripped from the output by _strip_keep_in_inbox.
-    if a.get("keepInInbox"):
+    #
+    # It is a modifier on the actions above, not an action of its own, so it only
+    # rides along when one of them actually carries content. Testing `act` alone is
+    # not enough: `add: ["", None]` coerces to `add: []`, leaving act truthy as a
+    # dict while holding no real action.
+    if a.get("keepInInbox") and any(act.get(k) for k in ("add", "forward", "moveToFolder")):
         act["keepInInbox"] = True
     if not crit and not act:
         return None
