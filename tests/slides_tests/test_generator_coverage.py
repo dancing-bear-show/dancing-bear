@@ -455,7 +455,7 @@ class TestGenerateMultipleSlidesWithTableAndBullets(unittest.TestCase):
             template_path=None,
         )
 
-        result = generator.generate(deck, "/tmp/output.pptx")
+        result = generator.generate(deck, "/tmp/output.pptx")  # nosec B108 - mock path arg, Presentation is patched
 
         self.assertEqual(result, "/tmp/output.pptx")
         # The new slide should NOT have insert_element_before called (no textbox clone)

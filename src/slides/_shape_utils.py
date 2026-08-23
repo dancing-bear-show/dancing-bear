@@ -174,6 +174,26 @@ class ShapeUtilsMixin:
             except (TypeError, ValueError):
                 pass  # Shape.top not numeric (e.g., in tests with mocks)
 
+    @staticmethod
+    def _is_removable_placeholder(shape, *, keep_body: bool) -> bool:
+        """Return True if this placeholder should be removed.
+
+        Keeps:
+          - Title placeholder (idx 0 = title/center-title)
+          - Body placeholder (idx 1) when keep_body is True
+          - Page number placeholders (short all-digit text)
+        """
+        idx = shape.placeholder_format.idx
+        if idx == 0:
+            return False
+        if keep_body and idx == 1:
+            return False
+        if shape.has_text_frame:
+            text = "".join(p.text for p in shape.text_frame.paragraphs).strip()
+            if text and text.isdigit():
+                return False
+        return True
+
     def _remove_unused_placeholders(self, slide, *, keep_body: bool = False) -> None:
         """Remove empty non-title placeholders (e.g., subtitle) that overlap content.
 
@@ -184,21 +204,11 @@ class ShapeUtilsMixin:
                 OBJECT) use placeholder idx 1 for body text instead of a
                 separate text box.
         """
-        to_remove = []
-        for shape in slide.shapes:
-            if not shape.is_placeholder:
-                continue
-            # Keep the title placeholder (idx 0 = title/center-title)
-            if shape.placeholder_format.idx == 0:
-                continue
-            # Keep body placeholder (idx 1) when requested
-            if keep_body and shape.placeholder_format.idx == 1:
-                continue
-            # Keep page number placeholders (short numeric text)
-            if shape.has_text_frame:
-                text = "".join(p.text for p in shape.text_frame.paragraphs).strip()
-                if text and text.isdigit():
-                    continue
-            to_remove.append(shape)
+        to_remove = [
+            shape
+            for shape in slide.shapes
+            if shape.is_placeholder
+            and self._is_removable_placeholder(shape, keep_body=keep_body)
+        ]
         for shape in to_remove:
             shape._element.getparent().remove(shape._element)

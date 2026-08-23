@@ -510,12 +510,12 @@ class TestLoadDeckFromMarkdown(unittest.TestCase):
         deck = load_deck_from_markdown(
             md,
             author="Alice",
-            template_path="/tmp/t.pptx",
+            template_path="/tmp/t.pptx",  # nosec B108 - mock path arg, no file read
             template_slide_index=5,
             theme_color="ACCENT_1",
         )
         self.assertEqual(deck.metadata.author, "Alice")
-        self.assertEqual(deck.template_path, "/tmp/t.pptx")
+        self.assertEqual(deck.template_path, "/tmp/t.pptx")  # nosec B108 - asserting on mock data value
         self.assertEqual(deck.metadata.template_slide_index, 5)
         self.assertEqual(deck.metadata.theme_color, "ACCENT_1")
 
@@ -660,12 +660,12 @@ class TestLoadDeckFromOutline(unittest.TestCase):
         deck = load_deck_from_outline(
             outline,
             author="Bob",
-            template_path="/tmp/t.pptx",
+            template_path="/tmp/t.pptx",  # nosec B108 - mock path arg, no file read
             template_slide_index=3,
             theme_color="DARK_1",
         )
         self.assertEqual(deck.metadata.author, "Bob")
-        self.assertEqual(deck.template_path, "/tmp/t.pptx")
+        self.assertEqual(deck.template_path, "/tmp/t.pptx")  # nosec B108 - asserting on mock data value
         self.assertEqual(deck.metadata.template_slide_index, 3)
         self.assertEqual(deck.metadata.theme_color, "DARK_1")
 
@@ -800,12 +800,12 @@ class TestLoadDeckFromCsv(unittest.TestCase):
         deck = load_deck_from_csv(
             csv_file,
             author="Charlie",
-            template_path="/tmp/t.pptx",
+            template_path="/tmp/t.pptx",  # nosec B108 - mock path arg, no file read
             template_slide_index=7,
             theme_color="ACCENT_3",
         )
         self.assertEqual(deck.metadata.author, "Charlie")
-        self.assertEqual(deck.template_path, "/tmp/t.pptx")
+        self.assertEqual(deck.template_path, "/tmp/t.pptx")  # nosec B108 - asserting on mock data value
         self.assertEqual(deck.metadata.template_slide_index, 7)
         self.assertEqual(deck.metadata.theme_color, "ACCENT_3")
 
