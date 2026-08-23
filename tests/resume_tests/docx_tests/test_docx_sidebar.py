@@ -9,6 +9,35 @@ from unittest.mock import MagicMock, patch
 from tests.resume_tests.fixtures import make_candidate, mock_docx_modules
 
 
+def _make_fake_cell():
+    """Create a fake cell with paragraph tracking. Shared by TestSidebarSectionRenderers and TestMainColumnRenderers."""
+    cell = MagicMock()
+    paragraphs = []
+
+    def add_paragraph():
+        p = MagicMock()
+        runs = []
+
+        def add_run(text=""):
+            run = MagicMock()
+            run.text = text
+            run.bold = False
+            run.italic = False
+            run.font = MagicMock()
+            runs.append(run)
+            return run
+
+        p.add_run = add_run
+        p.runs = runs
+        p.paragraph_format = MagicMock()
+        paragraphs.append(p)
+        return p
+
+    cell.add_paragraph = add_paragraph
+    cell.paragraphs = paragraphs
+    return cell
+
+
 @mock_docx_modules
 class TestCellHelpers(unittest.TestCase):
     """Tests for cell styling helper functions."""
@@ -41,38 +70,10 @@ class TestCellHelpers(unittest.TestCase):
 class TestSidebarSectionRenderers(unittest.TestCase):
     """Tests for sidebar section rendering functions."""
 
-    def _get_fake_cell(self):
-        """Create a fake cell with paragraph tracking."""
-        cell = MagicMock()
-        paragraphs = []
-
-        def add_paragraph():
-            p = MagicMock()
-            runs = []
-
-            def add_run(text=""):
-                run = MagicMock()
-                run.text = text
-                run.bold = False
-                run.italic = False
-                run.font = MagicMock()
-                runs.append(run)
-                return run
-
-            p.add_run = add_run
-            p.runs = runs
-            p.paragraph_format = MagicMock()
-            paragraphs.append(p)
-            return p
-
-        cell.add_paragraph = add_paragraph
-        cell.paragraphs = paragraphs
-        return cell
-
     def test_render_sidebar_section_with_title(self):
         """Test rendering sidebar section with title."""
         from resume.docx_sidebar import _render_sidebar_section
-        cell = self._get_fake_cell()
+        cell = _make_fake_cell()
         page_cfg = {"h1_pt": 14, "body_pt": 10}
 
         _render_sidebar_section(cell, "Test Section", ["Item 1", "Item 2"], page_cfg)
@@ -83,7 +84,7 @@ class TestSidebarSectionRenderers(unittest.TestCase):
     def test_render_sidebar_section_bulleted(self):
         """Test rendering sidebar section with bullets."""
         from resume.docx_sidebar import _render_sidebar_section
-        cell = self._get_fake_cell()
+        cell = _make_fake_cell()
         page_cfg = {"body_pt": 10}
 
         _render_sidebar_section(cell, "Skills", ["Python", "Java"], page_cfg, bulleted=True)
@@ -94,7 +95,7 @@ class TestSidebarSectionRenderers(unittest.TestCase):
     def test_render_sidebar_section_not_bulleted(self):
         """Test rendering sidebar section without bullets."""
         from resume.docx_sidebar import _render_sidebar_section
-        cell = self._get_fake_cell()
+        cell = _make_fake_cell()
         page_cfg = {"body_pt": 10}
 
         _render_sidebar_section(cell, "Skills", ["Python", "Java"], page_cfg, bulleted=False)
@@ -107,38 +108,10 @@ class TestSidebarSectionRenderers(unittest.TestCase):
 class TestMainColumnRenderers(unittest.TestCase):
     """Tests for main column section rendering functions."""
 
-    def _get_fake_cell(self):
-        """Create a fake cell with paragraph tracking."""
-        cell = MagicMock()
-        paragraphs = []
-
-        def add_paragraph():
-            p = MagicMock()
-            runs = []
-
-            def add_run(text=""):
-                run = MagicMock()
-                run.text = text
-                run.bold = False
-                run.italic = False
-                run.font = MagicMock()
-                runs.append(run)
-                return run
-
-            p.add_run = add_run
-            p.runs = runs
-            p.paragraph_format = MagicMock()
-            paragraphs.append(p)
-            return p
-
-        cell.add_paragraph = add_paragraph
-        cell.paragraphs = paragraphs
-        return cell
-
     def test_render_main_section_heading(self):
         """Test rendering main section heading."""
         from resume.docx_sidebar import _render_main_section_heading
-        cell = self._get_fake_cell()
+        cell = _make_fake_cell()
         page_cfg = {"h1_pt": 14, "h1_color": "#D4A84B"}
 
         _render_main_section_heading(cell, "Experience", page_cfg)
@@ -148,7 +121,7 @@ class TestMainColumnRenderers(unittest.TestCase):
     def test_render_main_education(self):
         """Test rendering education in main column."""
         from resume.docx_sidebar import _render_main_education
-        cell = self._get_fake_cell()
+        cell = _make_fake_cell()
         page_cfg = {"body_pt": 10, "meta_pt": 9}
         data = {
             "education": [
@@ -166,7 +139,7 @@ class TestMainColumnRenderers(unittest.TestCase):
     def test_render_main_experience(self):
         """Test rendering experience in main column."""
         from resume.docx_sidebar import _render_main_experience
-        cell = self._get_fake_cell()
+        cell = _make_fake_cell()
         page_cfg = {"body_pt": 10, "meta_pt": 9}
         data = {
             "experience": [
@@ -189,7 +162,7 @@ class TestMainColumnRenderers(unittest.TestCase):
     def test_render_main_teaching(self):
         """Test rendering teaching in main column."""
         from resume.docx_sidebar import _render_main_teaching
-        cell = self._get_fake_cell()
+        cell = _make_fake_cell()
         page_cfg = {"body_pt": 10, "meta_pt": 9}
         data = {
             "teaching": [
@@ -207,7 +180,7 @@ class TestMainColumnRenderers(unittest.TestCase):
     def test_render_main_presentations(self):
         """Test rendering presentations in main column."""
         from resume.docx_sidebar import _render_main_presentations
-        cell = self._get_fake_cell()
+        cell = _make_fake_cell()
         page_cfg = {"body_pt": 10, "meta_pt": 9}
         data = {
             "presentations": [

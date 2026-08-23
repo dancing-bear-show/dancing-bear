@@ -35,7 +35,7 @@ from unittest.mock import MagicMock, patch
 
 from slides.cli import cmd_generate, _apply_layout_map
 
-TEST_OUTPUT_PATH = "/tmp/output.pptx"
+TEST_OUTPUT_PATH = "/tmp/output.pptx"  # nosec B108 - string literal for mock data, no actual file created
 TEST_TEMPLATE_PATH = "/path/to/template.pptx"
 TEST_YAML_TEMPLATE_PATH = "/yaml/template.pptx"
 TEST_EXPLICIT_TEMPLATE_PATH = "/explicit/template.pptx"
@@ -311,10 +311,10 @@ class TestCmdGenerateTemplateFromYaml(unittest.TestCase):
         mock_deck.metadata.layout_map = None
         mock_deck.template_path = None
         mock_load_deck.return_value = mock_deck
-        mock_gen.return_value = "/tmp/out.pptx"
+        mock_gen.return_value = "/tmp/out.pptx"  # nosec B108 - mock return value, no file created
 
         args = _make_generate_args(
-            output="/tmp/out.pptx",
+            output="/tmp/out.pptx",  # nosec B108 - mock arg, no file created
             template=TEST_EXPLICIT_TEMPLATE_PATH,
         )
         cmd_generate(args)
@@ -335,9 +335,9 @@ class TestCmdGenerateTemplateFromYaml(unittest.TestCase):
         mock_deck.metadata.layout_map = None
         mock_load_deck.return_value = mock_deck
 
-        mock_gen.return_value = "/tmp/out.pptx"
+        mock_gen.return_value = "/tmp/out.pptx"  # nosec B108 - mock return value, no file created
 
-        args = _make_generate_args(output="/tmp/out.pptx")
+        args = _make_generate_args(output="/tmp/out.pptx")  # nosec B108 - mock arg, no file created
         cmd_generate(args)
 
         mock_load_deck.assert_called_once_with("deck.yaml")

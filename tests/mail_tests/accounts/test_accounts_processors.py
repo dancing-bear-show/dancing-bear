@@ -541,7 +541,7 @@ class TestAccountsSyncSignaturesProcessor(unittest.TestCase):
     @patch("mail.accounts.helpers.iter_accounts")
     @patch("mail.accounts.helpers.load_accounts")
     def test_process_delegates_gmail_sync(self, mock_load, mock_iter, mock_run_sync):
-        acct = make_account_dict(name="personal", provider="gmail", credentials="/c.json", token="/t.json")
+        acct = make_account_dict(name="personal", provider="gmail", credentials="/c.json", token="/t.json")  # nosec B106 - test fixture path, not a credential
         mock_load.return_value = [acct]
         mock_iter.return_value = [acct]
 

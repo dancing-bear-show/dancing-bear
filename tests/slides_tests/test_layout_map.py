@@ -390,7 +390,7 @@ class TestGenerateWithLayoutMap(unittest.TestCase):
         )
 
         generator = SlideGenerator(template_path="/fake/template.pptx")
-        generator.generate(deck, "/tmp/test_output.pptx")
+        generator.generate(deck, "/tmp/test_output.pptx")  # nosec B108 - mock path arg, Presentation is patched
 
         # Verify add_slide was called with correct layouts
         calls = mock_slides.add_slide.call_args_list

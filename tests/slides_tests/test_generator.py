@@ -700,7 +700,7 @@ class TestSlideGeneratorGenerate(unittest.TestCase):
         )
 
         with self.assertRaises(ValueError) as ctx:
-            generator.generate(deck, "/tmp/output.pptx")
+            generator.generate(deck, "/tmp/output.pptx")  # nosec B108 - mock path arg, Presentation is patched
 
         self.assertIn("No template path provided", str(ctx.exception))
 
@@ -885,7 +885,7 @@ class TestGeneratePptx(unittest.TestCase):
         )
 
         with self.assertRaises(ValueError) as ctx:
-            generate_pptx(deck, "/tmp/output.pptx")
+            generate_pptx(deck, "/tmp/output.pptx")  # nosec B108 - mock path arg, no file created
 
         self.assertIn("No template path provided", str(ctx.exception))
 
@@ -900,7 +900,7 @@ class TestGeneratePptx(unittest.TestCase):
         with patch("slides.generator.SlideGenerator") as mock_gen_class:
             mock_gen = MagicMock()
             mock_gen_class.return_value = mock_gen
-            mock_gen.generate.return_value = "/tmp/output.pptx"
+            mock_gen.generate.return_value = "/tmp/output.pptx"  # nosec B108 - mock return value, no file created
 
             with tempfile.NamedTemporaryFile(suffix=".pptx", delete=False) as f:
                 generate_pptx(deck, f.name, template_path="/override/template.pptx")
@@ -1666,8 +1666,8 @@ class TestSlideGeneratorMultipleSlides(unittest.TestCase):
 
         # New slide mock - shapes is MagicMock with _spTree attribute
         mock_new_slide = MagicMock()
-        mock_spTree = MagicMock()
-        mock_new_slide.shapes._spTree = mock_spTree
+        mock_sp_tree = MagicMock()
+        mock_new_slide.shapes._spTree = mock_sp_tree
         # Make shapes iterable (returns empty for _find_shape)
         mock_new_slide.shapes.__iter__ = MagicMock(return_value=iter([]))
         mock_prs.slides.add_slide.return_value = mock_new_slide
@@ -1692,10 +1692,11 @@ class TestSlideGeneratorMultipleSlides(unittest.TestCase):
         # Verify deepcopy was called: first to save template, then to clone per slide
         # First call saves the text box element as template
         calls = mock_deepcopy.call_args_list
-        assert any(c.args == (mock_textbox_element,) for c in calls), \
-            f"Expected deepcopy to be called with text box element. Calls: {calls}"
+        assert any(  # nosec B101 - real test assertion
+            c.args == (mock_textbox_element,) for c in calls
+        ), f"Expected deepcopy to be called with text box element. Calls: {calls}"
         # Verify insert_element_before was called on the new slide
-        mock_spTree.insert_element_before.assert_called_with(
+        mock_sp_tree.insert_element_before.assert_called_with(
             mock_cloned_element, "p:extLst"
         )
 

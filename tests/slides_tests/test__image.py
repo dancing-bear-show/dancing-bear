@@ -84,7 +84,7 @@ class TestAddImageToSlide(unittest.TestCase):
 
         with patch("PIL.Image.open", return_value=mock_img):
             mixin._add_image_to_slide(
-                slide, "/tmp/image.png", self._make_content(), MSO_THEME_COLOR.LIGHT_2
+                slide, "/tmp/image.png", self._make_content(), MSO_THEME_COLOR.LIGHT_2  # nosec B108 - mock path string, PIL.Image.open is patched
             )
 
         mixin._set_slide_title.assert_called_once()
@@ -102,7 +102,7 @@ class TestAddImageToSlide(unittest.TestCase):
 
         with patch("PIL.Image.open", return_value=mock_img):
             mixin._add_image_to_slide(
-                slide, "/tmp/image.png", self._make_content(), MSO_THEME_COLOR.LIGHT_2
+                slide, "/tmp/image.png", self._make_content(), MSO_THEME_COLOR.LIGHT_2  # nosec B108 - mock path string, PIL.Image.open is patched
             )
 
         body._element.getparent().remove.assert_called_once_with(body._element)
@@ -119,7 +119,7 @@ class TestAddImageToSlide(unittest.TestCase):
 
         with patch("PIL.Image.open", return_value=mock_img):
             mixin._add_image_to_slide(
-                slide, "/tmp/image.png", self._make_content(), MSO_THEME_COLOR.LIGHT_2
+                slide, "/tmp/image.png", self._make_content(), MSO_THEME_COLOR.LIGHT_2  # nosec B108 - mock path string, PIL.Image.open is patched
             )
 
         textbox._element.getparent().remove.assert_called_once_with(textbox._element)
@@ -135,7 +135,7 @@ class TestAddImageToSlide(unittest.TestCase):
 
         with patch("PIL.Image.open", return_value=mock_img):
             mixin._add_image_to_slide(
-                slide, "/tmp/image.png", self._make_content(), MSO_THEME_COLOR.LIGHT_2
+                slide, "/tmp/image.png", self._make_content(), MSO_THEME_COLOR.LIGHT_2  # nosec B108 - mock path string, PIL.Image.open is patched
             )
 
         slide.shapes.add_picture.assert_called_once()
@@ -152,7 +152,7 @@ class TestAddImageToSlide(unittest.TestCase):
 
         with patch("PIL.Image.open", return_value=mock_img):
             mixin._add_image_to_slide(
-                slide, "/tmp/large.png", self._make_content(), MSO_THEME_COLOR.LIGHT_2
+                slide, "/tmp/large.png", self._make_content(), MSO_THEME_COLOR.LIGHT_2  # nosec B108 - mock path string, PIL.Image.open is patched
             )
 
         call_args = slide.shapes.add_picture.call_args[0]
@@ -170,7 +170,7 @@ class TestAddImageToSlide(unittest.TestCase):
 
         with patch("PIL.Image.open", return_value=mock_img):
             mixin._add_image_to_slide(
-                slide, "/tmp/image.png", self._make_content(), MSO_THEME_COLOR.LIGHT_2
+                slide, "/tmp/image.png", self._make_content(), MSO_THEME_COLOR.LIGHT_2  # nosec B108 - mock path string, PIL.Image.open is patched
             )
 
         slide.shapes.add_picture.assert_called_once()

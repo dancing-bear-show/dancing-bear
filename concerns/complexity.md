@@ -94,14 +94,19 @@ Load this guide when the diff contains `.py` files.
   parameter: `def send_invite(invite: InviteRequest) -> None`. Prefer this over
   `**kwargs` or a plain `dict`, which lose type hints and IDE support.
 - **counting caveat**: qlty's reported count is not the function's arity. It
-  counts `self`/`cls`, and it counts the bare `*` separator as if it were a
+  **excludes** `self`/`cls`, but it counts the bare `*` separator as if it were a
   parameter. A keyword-only signature therefore reports one higher than it
   actually takes — `def f(*, a, b, c, d, e)` takes 5 arguments and is reported
-  as `count = 6`. Verified directly: a fixture with `def f_mix(a, b, *, c, d,
-  e)` (5 real parameters) reports `count = 6`, while `def b_4kw(*, a, b, c, d)`
-  (4 real) is not flagged at all. Always read the signature before acting on a
-  count — of this repo's 18 current findings, 16 are inflated by the separator
-  and 8 of those have a real arity of 5, at or under the documented limit.
+  as `count = 6`. Verified directly with a module-level fixture:
+  `def nostar_6_real(a, b, c, d, e, f)` reports 6, while
+  `def star_6_real(a, b, c, *, d, e, f)` — same six real parameters, one added
+  `*` — reports **7**. `def f_mix(a, b, *, c, d, e)` (5 real) reports 6, and
+  `def b_4kw(*, a, b, c, d)` (4 real) is not flagged at all.
+  Note that a *method* cannot discriminate the rule: on
+  `def request(self, m, p, *, a, b, c)`, "counts `self`, ignores `*`" and
+  "ignores `self`, counts `*`" both predict 6. Use a module-level fixture.
+  Always read the signature before acting on a count — subtract one whenever a
+  `*` is present, and treat the adjusted arity as the real one.
 - **accepted exceptions**: two shapes trip the count without carrying the risk
   this concern describes. Confirm which one applies before filing a finding.
 
@@ -109,10 +114,23 @@ Load this guide when the diff contains `.py` files.
      at a call site, so the stated failure mode is structurally impossible —
      and per the counting caveat above, these signatures are also over-reported
      by one. Prefer adding `*` over splitting a cohesive signature to lower a
-     count. 16 of the repo's 18 current findings are this shape, e.g.
+     count. This is the dominant shape by a wide margin — e.g.
      `worker/queue_ops.py` `write_manifest`-style helpers and
-     `core/outlook/calendar.py` `update_event_location` (4 keyword-only
-     arguments plus `self`, reported as 6).
+     `phone/profile.py` `build_mobileconfig` (5 keyword-only arguments,
+     reported as 6, already using extracted dataclasses).
+
+     Don't trust a hardcoded tally here; counts drift as the repo grows. Get the
+     current split with:
+
+     ```bash
+     ./bin/qlty-assistant scan --expect-min 1 --format json \
+       | python3 -c "import json,sys,collections; d=json.load(sys.stdin); \
+     f=[x for x in d['findings'] if x['rule']=='function-parameters' and x['file'].startswith('src/')]; \
+     print(collections.Counter(x['value'] for x in f))"
+     ```
+
+     Anything reporting 6 has a real arity of 5 and is at or under the limit;
+     only `>= 7` is worth reading closely.
 
   2. **Click command callbacks.** A function decorated with `@click.command` /
      `@click.option` has its signature dictated by the decorators — Click binds
