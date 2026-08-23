@@ -76,7 +76,12 @@ def normalize_filter_for_outlook(spec: dict) -> dict | None:
     # Per-rule opt-out from the moveToFolder derived from add[] when move-to-folders
     # is enabled, so this rule's mail stays in the inbox while others still move.
     # Carried through here; stripped from the output by _strip_keep_in_inbox.
-    if a.get("keepInInbox"):
+    #
+    # It is a modifier on the actions above, not an action of its own: carrying it
+    # on a rule that has no other action would keep that rule alive here and then
+    # leave an empty `action: {}` once the marker is stripped — a derived Outlook
+    # rule that matches senders and does nothing.
+    if a.get("keepInInbox") and act:
         act["keepInInbox"] = True
     if not crit and not act:
         return None

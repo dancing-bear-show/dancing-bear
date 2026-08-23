@@ -74,6 +74,30 @@ class DslNormalizeTests(unittest.TestCase):
         self.assertIsNone(normalize_filter_for_outlook({}))
         self.assertIsNone(normalize_filter_for_outlook({"match": {}, "action": {}}))
 
+    def test_normalize_filter_for_outlook_keep_in_inbox_alone_is_not_an_action(self):
+        """keepInInbox is a modifier on other actions, never an action by itself.
+
+        Carrying it alone made a keepInInbox-only rule look actionable, and
+        stripping the marker downstream then left `action: {}`. Such a rule is
+        already indistinguishable from any other action-less rule, which this
+        function has always passed through unchanged.
+        """
+        out = normalize_filter_for_outlook(
+            {"match": {"from": "a@b.com"}, "action": {"keepInInbox": True}}
+        )
+        self.assertEqual({}, out["action"])
+        self.assertNotIn("keepInInbox", out["action"])
+
+    def test_normalize_filter_for_outlook_keeps_keep_in_inbox_beside_an_action(self):
+        """Paired with a real action it is preserved for the derive step to read."""
+        out = normalize_filter_for_outlook(
+            {"match": {"from": "a@b.com"}, "action": {"add": ["X"], "keepInInbox": True}}
+        )
+        self.assertEqual(
+            out,
+            {"match": {"from": "a@b.com"}, "action": {"add": ["X"], "keepInInbox": True}},
+        )
+
     def test_normalize_filters_for_outlook_maps_list(self):
         inp = [
             {"match": {"from": "a@b"}, "action": {"add": ["X"]}},

@@ -27,7 +27,9 @@
 #   action.remove  — label(s) to remove (Gmail: INBOX = skip inbox)
 #   action.forward — forward to this address
 #   action.moveToFolder — Outlook folder path (derived from add[] when omitted)
-#   action.keepInInbox  — suppress the derived Outlook moveToFolder (stay in inbox)
+#   action.keepInInbox  — suppress the derived Outlook moveToFolder (stay in inbox);
+#                         a modifier on the actions above, so pair it with at least
+#                         one of them — a rule carrying only this is dropped
 #
 # Derive provider-specific configs (reads the config home by default):
 #   ./bin/mail-assistant config derive.filters \
