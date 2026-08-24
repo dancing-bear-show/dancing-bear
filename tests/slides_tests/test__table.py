@@ -92,6 +92,9 @@ class _Concrete(TableMixin):
         return None
 
     def _remove_unused_placeholders(self, slide, *, keep_body=False):
+        # Intentional no-op: ShapeUtilsMixin._remove_unused_placeholders removes non-title
+        # placeholder XML elements from the pptx shape tree; TableMixin tests assert
+        # table structure and bullet rendering, not placeholder cleanup.
         pass
 
     def _is_section_header(self, text):

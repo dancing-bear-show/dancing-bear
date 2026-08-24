@@ -9,6 +9,7 @@ Covers:
 - Backward compatibility
 """
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -216,7 +217,7 @@ class TestPrepareWithLayoutMap(unittest.TestCase):
             slides=[],
         )
 
-        prs, first_slide, layouts, theme_color = self.generator._prepare_presentation(deck)
+        _, first_slide, layouts, _ = self.generator._prepare_presentation(deck)
 
         # first_slide should be None in layout_map mode
         self.assertIsNone(first_slide)
@@ -286,7 +287,7 @@ class TestPrepareWithLayoutMap(unittest.TestCase):
             slides=[],
         )
 
-        prs, first_slide, layouts, theme_color = self.generator._prepare_presentation(deck)
+        _, _, layouts, _ = self.generator._prepare_presentation(deck)
 
         # Fallback should come from the first layout_map entry
         self.assertIn(RESERVED_LAYOUT_KEY, layouts)
@@ -390,7 +391,9 @@ class TestGenerateWithLayoutMap(unittest.TestCase):
         )
 
         generator = SlideGenerator(template_path="/fake/template.pptx")
-        generator.generate(deck, "/tmp/test_output.pptx")  # nosec B108 - mock path arg, Presentation is patched
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_path = os.path.join(tmpdir, "test_output.pptx")
+            generator.generate(deck, out_path)
 
         # Verify add_slide was called with correct layouts
         calls = mock_slides.add_slide.call_args_list
@@ -399,7 +402,7 @@ class TestGenerateWithLayoutMap(unittest.TestCase):
         self.assertIs(calls[1][0][0], mock_bullet_layout)
 
         # Verify save was called
-        mock_prs.save.assert_called_once_with("/tmp/test_output.pptx")
+        mock_prs.save.assert_called_once_with(out_path)
 
 
 class TestBackwardCompatibility(unittest.TestCase):
@@ -438,7 +441,7 @@ class TestBackwardCompatibility(unittest.TestCase):
         )
 
         generator = SlideGenerator(template_path="/fake/template.pptx")
-        prs, first_slide, layouts, theme_color = generator._prepare_presentation(deck)
+        _, first_slide, layouts, _ = generator._prepare_presentation(deck)
 
         # In legacy mode, first_slide is returned and layouts is a single layout
         self.assertIs(first_slide, mock_first_slide)

@@ -193,7 +193,7 @@ class TestPrepareLegacyMode(unittest.TestCase):
         deck.metadata.template_slide_index = 0
         theme = MSO_THEME_COLOR.LIGHT_2
 
-        result_prs, first_slide, layout, result_theme = self.mixin._prepare_legacy_mode(
+        result_prs, _, _, result_theme = self.mixin._prepare_legacy_mode(
             prs, deck, theme
         )
         self.assertIs(result_prs, prs)
