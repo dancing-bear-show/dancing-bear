@@ -1,0 +1,441 @@
+"""Unit tests for core/retry.py."""
+
+from __future__ import annotations
+
+import sys
+import types
+import unittest
+from unittest.mock import MagicMock, patch
+
+
+class TestExponentialBackoff(unittest.TestCase):
+    """exponential_backoff grows as base*multiplier**attempt and clamps to max_delay."""
+
+    def setUp(self) -> None:
+        from core.retry import exponential_backoff
+        self.fn = exponential_backoff
+
+    def test_attempt_zero(self) -> None:
+        self.assertAlmostEqual(self.fn(0), 1.0)
+
+    def test_attempt_one(self) -> None:
+        self.assertAlmostEqual(self.fn(1), 2.0)
+
+    def test_attempt_two(self) -> None:
+        self.assertAlmostEqual(self.fn(2), 4.0)
+
+    def test_custom_base_and_multiplier(self) -> None:
+        self.assertAlmostEqual(self.fn(3, base_delay=0.5, multiplier=3.0), 13.5)
+
+    def test_clamps_to_max_delay(self) -> None:
+        result = self.fn(100, max_delay=10.0)
+        self.assertAlmostEqual(result, 10.0)
+
+    def test_max_delay_exact_boundary(self) -> None:
+        # attempt 3 with base=1, mult=2: 8.0; max=8 => exactly 8
+        self.assertAlmostEqual(self.fn(3, base_delay=1.0, multiplier=2.0, max_delay=8.0), 8.0)
+
+
+class TestLinearBackoff(unittest.TestCase):
+    """linear_backoff grows linearly and clamps to max_delay."""
+
+    def setUp(self) -> None:
+        from core.retry import linear_backoff
+        self.fn = linear_backoff
+
+    def test_attempt_zero(self) -> None:
+        self.assertAlmostEqual(self.fn(0), 1.0)
+
+    def test_attempt_one(self) -> None:
+        self.assertAlmostEqual(self.fn(1), 2.0)
+
+    def test_attempt_four(self) -> None:
+        self.assertAlmostEqual(self.fn(4), 5.0)
+
+    def test_custom_increment(self) -> None:
+        self.assertAlmostEqual(self.fn(3, base_delay=2.0, increment=0.5), 3.5)
+
+    def test_clamps_to_max_delay(self) -> None:
+        result = self.fn(100, max_delay=5.0)
+        self.assertAlmostEqual(result, 5.0)
+
+
+class TestJitterBackoff(unittest.TestCase):
+    """jitter_backoff stays within expected bounds and never drops below 0.1s."""
+
+    def setUp(self) -> None:
+        from core.retry import jitter_backoff
+        self.fn = jitter_backoff
+
+    def test_within_jitter_bounds_attempt_zero(self) -> None:
+        # base=1.0, jitter_ratio=0.3 → range [0.7, 1.3]
+        results = [self.fn(0) for _ in range(200)]
+        for v in results:
+            self.assertGreaterEqual(v, 0.7)
+            self.assertLessEqual(v, 1.3)
+
+    def test_within_jitter_bounds_attempt_two(self) -> None:
+        # base=4.0, jitter_ratio=0.3 → range [2.8, 5.2]
+        results = [self.fn(2) for _ in range(200)]
+        for v in results:
+            self.assertGreaterEqual(v, 2.8)
+            self.assertLessEqual(v, 5.2)
+
+    def test_minimum_floor_of_0_1(self) -> None:
+        # Patch core.retry.random.uniform to return a maximally negative value so
+        # the 0.1s floor clamp is exercised — no global RNG mutation.
+        with patch("core.retry.random.uniform", return_value=-0.003):
+            results = [self.fn(0, base_delay=0.01, max_delay=0.01) for _ in range(100)]
+        for v in results:
+            self.assertGreaterEqual(v, 0.1)
+
+    def test_respects_max_delay_before_jitter(self) -> None:
+        # With max_delay=2.0 and jitter_ratio=0.0, result should be exactly 2.0 for large attempts.
+        result = self.fn(100, max_delay=2.0, jitter_ratio=0.0)
+        self.assertAlmostEqual(result, 2.0)
+
+    def test_produces_variation(self) -> None:
+        # jitter should not produce the same value every time (with reasonable prob).
+        results = {self.fn(1) for _ in range(50)}
+        self.assertGreater(len(results), 1, "jitter produced no variation over 50 samples")
+
+
+class TestRetryDecoratorSuccess(unittest.TestCase):
+    """@retry passes through immediately when no exception is raised."""
+
+    def test_succeeds_first_try_no_sleep(self) -> None:
+        from core.retry import retry
+
+        calls = []
+
+        @retry(max_attempts=3)
+        def fn() -> str:
+            calls.append(1)
+            return "ok"
+
+        with patch("core.retry.time.sleep") as mock_sleep:
+            result = fn()
+
+        self.assertEqual(result, "ok")
+        self.assertEqual(len(calls), 1)
+        mock_sleep.assert_not_called()
+
+
+class TestRetryDecoratorRetryThenSucceed(unittest.TestCase):
+    """@retry retries on failure then succeeds when a later attempt passes."""
+
+    def test_retries_then_succeeds(self) -> None:
+        from core.retry import retry
+
+        attempt_count = [0]
+
+        @retry(max_attempts=3, delay=0.1)
+        def flaky() -> str:
+            attempt_count[0] += 1
+            if attempt_count[0] < 3:
+                raise ValueError("not yet")
+            return "done"
+
+        with patch("core.retry.time.sleep"):
+            result = flaky()
+
+        self.assertEqual(result, "done")
+        self.assertEqual(attempt_count[0], 3)
+
+    def test_sleep_called_between_attempts(self) -> None:
+        from core.retry import retry
+
+        attempt_count = [0]
+
+        @retry(max_attempts=3, delay=1.0, backoff=2.0)
+        def flaky() -> str:
+            attempt_count[0] += 1
+            if attempt_count[0] < 3:
+                raise IOError("boom")
+            return "ok"
+
+        with patch("core.retry.time.sleep") as mock_sleep:
+            flaky()
+
+        # 3 attempts → 2 sleeps (between attempt 0→1 and 1→2)
+        self.assertEqual(mock_sleep.call_count, 2)
+
+
+class TestRetryDecoratorExhausted(unittest.TestCase):
+    """@retry raises RetryExhaustedError when all attempts fail."""
+
+    def test_raises_retry_exhausted_error(self) -> None:
+        from core.retry import RetryExhaustedError, retry
+
+        @retry(max_attempts=3, delay=0.1)
+        def always_fails() -> None:
+            raise RuntimeError("permanent")
+
+        with patch("core.retry.time.sleep"):
+            with self.assertRaises(RetryExhaustedError) as ctx:
+                always_fails()
+
+        err = ctx.exception
+        self.assertEqual(err.attempts, 3)
+        self.assertIsInstance(err.last_exception, RuntimeError)
+        self.assertIn("3", str(err))
+
+    def test_error_message_contains_last_exception(self) -> None:
+        from core.retry import RetryExhaustedError, retry
+
+        @retry(max_attempts=2, delay=0.0)
+        def fails() -> None:
+            raise ValueError("bad input")
+
+        with patch("core.retry.time.sleep"):
+            with self.assertRaises(RetryExhaustedError) as ctx:
+                fails()
+
+        self.assertIn("bad input", str(ctx.exception))
+
+
+class TestRetryDecoratorRaiseOnExhaustedFalse(unittest.TestCase):
+    """raise_on_exhausted=False re-raises the original exception type."""
+
+    def test_reraises_original_exception(self) -> None:
+        from core.retry import retry
+
+        @retry(max_attempts=2, delay=0.0, raise_on_exhausted=False)
+        def fails() -> None:
+            raise TypeError("original")
+
+        with patch("core.retry.time.sleep"):
+            with self.assertRaises(TypeError) as ctx:
+                fails()
+
+        self.assertIn("original", str(ctx.exception))
+
+    def test_does_not_raise_retry_exhausted(self) -> None:
+        from core.retry import retry
+
+        @retry(max_attempts=2, delay=0.0, raise_on_exhausted=False)
+        def fails() -> None:
+            raise OSError("disk")
+
+        with patch("core.retry.time.sleep"):
+            with self.assertRaises(OSError):
+                fails()
+
+
+class TestRetryDecoratorExceptionFilter(unittest.TestCase):
+    """Only listed exception types trigger a retry; others propagate immediately."""
+
+    def test_unlisted_exception_propagates_without_retry(self) -> None:
+        from core.retry import retry
+
+        call_count = [0]
+
+        @retry(max_attempts=5, exceptions=(ValueError,))
+        def raises_key_error() -> None:
+            call_count[0] += 1
+            raise KeyError("unlisted")
+
+        with patch("core.retry.time.sleep"):
+            with self.assertRaises(KeyError):
+                raises_key_error()
+
+        # Should have been called exactly once — no retry for unlisted exception.
+        self.assertEqual(call_count[0], 1)
+
+    def test_listed_exception_triggers_retry(self) -> None:
+        from core.retry import retry
+
+        call_count = [0]
+
+        @retry(max_attempts=3, exceptions=(ValueError,), delay=0.0)
+        def raises_value_error() -> None:
+            call_count[0] += 1
+            raise ValueError("listed")
+
+        with patch("core.retry.time.sleep"):
+            try:
+                raises_value_error()
+            except Exception:
+                pass
+
+        self.assertEqual(call_count[0], 3)
+
+
+class TestRetryDecoratorOnRetryCallback(unittest.TestCase):
+    """on_retry callback fires with the correct attempt number and exception."""
+
+    def test_callback_fires_with_correct_args(self) -> None:
+        from core.retry import retry
+
+        recorded: list[tuple[int, Exception]] = []
+
+        def on_retry(attempt: int, exc: Exception) -> None:
+            recorded.append((attempt, exc))
+
+        @retry(max_attempts=3, delay=0.0, on_retry=on_retry)
+        def fails() -> None:
+            raise IOError("net")
+
+        with patch("core.retry.time.sleep"):
+            try:
+                fails()
+            except Exception:
+                pass
+
+        # 3 attempts → 2 retries (attempt 0 and 1 fire callback; attempt 2 exhausts)
+        self.assertEqual(len(recorded), 2)
+        self.assertEqual(recorded[0][0], 0)
+        self.assertEqual(recorded[1][0], 1)
+        self.assertIsInstance(recorded[0][1], IOError)
+
+    def test_callback_suppresses_default_log(self) -> None:
+        from core.retry import retry
+
+        callback = MagicMock()
+
+        @retry(max_attempts=2, delay=0.0, on_retry=callback)
+        def fails() -> None:
+            raise RuntimeError("x")
+
+        with patch("core.retry.time.sleep"), patch("core.retry._logger") as mock_log:
+            try:
+                fails()
+            except Exception:
+                pass
+
+        mock_log.warning.assert_not_called()
+        callback.assert_called_once()
+
+
+class TestRetryDecoratorCallableBackoff(unittest.TestCase):
+    """When backoff is callable it is invoked with the attempt number."""
+
+    def test_callable_backoff_is_called(self) -> None:
+        from core.retry import retry
+
+        strategy = MagicMock(return_value=0.5)
+
+        @retry(max_attempts=3, backoff=strategy)
+        def fails() -> None:
+            raise RuntimeError("x")
+
+        with patch("core.retry.time.sleep") as mock_sleep:
+            try:
+                fails()
+            except Exception:
+                pass
+
+        # 2 sleeps for 3 attempts
+        self.assertEqual(strategy.call_count, 2)
+        strategy.assert_any_call(0)
+        strategy.assert_any_call(1)
+        mock_sleep.assert_called_with(0.5)
+
+
+class TestRetryDecoratorPreservesMetadata(unittest.TestCase):
+    """@retry preserves the wrapped function's __name__ and __doc__."""
+
+    def test_wraps_preserves_name(self) -> None:
+        from core.retry import retry
+
+        @retry(max_attempts=1)
+        def my_function() -> None:
+            """My docstring."""
+
+        self.assertEqual(my_function.__name__, "my_function")
+        self.assertEqual(my_function.__doc__, "My docstring.")
+
+
+class TestHttpSleepForRetryWithJitter(unittest.TestCase):
+    """_sleep_for_retry: jitter never reduces delay below a server-specified Retry-After."""
+
+    def _make_requests_stub(self) -> types.ModuleType:
+        """Build a minimal requests stub without touching sys.modules."""
+        requests = types.ModuleType("requests")
+        exceptions_mod = types.ModuleType("requests.exceptions")
+
+        class _ConnError(Exception):
+            pass
+
+        class _Timeout(Exception):
+            pass
+
+        class _HTTPError(Exception):
+            pass
+
+        exceptions_mod.ConnectionError = _ConnError  # type: ignore[attr-defined]
+        exceptions_mod.Timeout = _Timeout  # type: ignore[attr-defined]
+        exceptions_mod.HTTPError = _HTTPError  # type: ignore[attr-defined]
+        requests.exceptions = exceptions_mod  # type: ignore[attr-defined]
+
+        class _Session:
+            def request(self, *args, **kwargs):
+                pass
+
+        requests.Session = _Session  # type: ignore[attr-defined]
+        return requests
+
+    def _make_client(self):
+        import importlib
+        requests_stub = self._make_requests_stub()
+
+        # Inject stub and schedule teardown so sys.modules is always restored.
+        original = sys.modules.get("requests")
+        sys.modules["requests"] = requests_stub
+        if original is None:
+            self.addCleanup(sys.modules.pop, "requests", None)
+        else:
+            self.addCleanup(sys.modules.__setitem__, "requests", original)
+
+        import core.http as http_mod
+        importlib.reload(http_mod)
+        # Restore http_mod to its real state after this test.
+        self.addCleanup(importlib.reload, http_mod)
+
+        return http_mod.HttpClient("https://example.com", session=requests_stub.Session())
+
+    def test_retry_after_floor_held(self) -> None:
+        """Delay must be >= retry_after regardless of jitter."""
+        client = self._make_client()
+        retry_after = 30
+
+        sleep_calls = []
+        with patch("core.http.time.sleep", side_effect=lambda d: sleep_calls.append(d)):
+            for attempt in range(10):
+                client._sleep_for_retry(attempt, retry_after)
+
+        for delay in sleep_calls:
+            self.assertGreaterEqual(
+                delay, retry_after,
+                f"delay {delay} dropped below retry_after={retry_after}",
+            )
+
+    def test_no_retry_after_uses_jitter(self) -> None:
+        """Without Retry-After the delay comes from jitter_backoff (max 10s)."""
+        client = self._make_client()
+
+        sleep_calls = []
+        with patch("core.http.time.sleep", side_effect=lambda d: sleep_calls.append(d)):
+            for attempt in range(5):
+                client._sleep_for_retry(attempt, None)
+
+        for delay in sleep_calls:
+            self.assertGreaterEqual(delay, 0.1)
+            self.assertLessEqual(delay, 10.0 * 1.3 + 0.01)  # max_delay + max jitter
+
+    def test_jitter_delay_never_exceeds_max_when_no_retry_after(self) -> None:
+        """Jitter does not push delay beyond max_delay * (1 + jitter_ratio)."""
+        client = self._make_client()
+        upper = 10.0 * (1.0 + 0.3) + 0.01  # generous upper bound
+
+        sleep_calls = []
+        with patch("core.http.time.sleep", side_effect=lambda d: sleep_calls.append(d)):
+            for attempt in range(20):
+                client._sleep_for_retry(attempt, None)
+
+        for delay in sleep_calls:
+            self.assertLessEqual(delay, upper, f"delay {delay} exceeded expected upper bound")
+
+
+if __name__ == "__main__":
+    unittest.main()

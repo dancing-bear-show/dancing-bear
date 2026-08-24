@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
+from core.retry import jitter_backoff
 from core.secrets import mask_headers, mask_url
 
 # ---------------------------------------------------------------------------
@@ -141,8 +142,13 @@ class HttpClient:
             )
 
     def _sleep_for_retry(self, attempt: int, retry_after: int | None) -> None:
-        backoff = min(2 ** attempt, 10)
-        delay = max(backoff, retry_after) if retry_after is not None else backoff
+        # jitter_backoff with max_delay=10 matches the previous min(2**attempt, 10) cap,
+        # but spreads concurrent retries across a randomised window to avoid thundering
+        # herd when core/parallel.py runs many threads against a shared rate limit.
+        computed = jitter_backoff(attempt, base_delay=1.0, multiplier=2.0, max_delay=10.0)
+        # A server-supplied Retry-After is a hard floor: jitter must not reduce the
+        # delay below what the server requested.
+        delay = max(computed, retry_after) if retry_after is not None else computed
         time.sleep(delay)
 
     def _should_retry_response(self, resp: Any, method: str, url: str, attempt: int) -> bool:
