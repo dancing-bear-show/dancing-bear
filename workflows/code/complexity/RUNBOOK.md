@@ -3,13 +3,18 @@
 Generated 2026-08-06 from 71 flagged files.
 12 groups emitted, 70 files targeted, 1 deferred.
 
+Group 2 (metals) was retired on 2026-08-24 when that domain was extracted to the
+separate private `dancing-bear-metals` repo. Its row is struck through rather than
+renumbered so the remaining group numbers still match the sweep as it was run;
+11 of the original 12 groups remain actionable here (61 files).
+
 Run groups one at a time, reviewing and committing between each.
 Each child ends in a human gate before anything is committed.
 
 | # | Group | Files | Total Cx | Command |
 |---|-------|-------|----------|---------|
 | 1 | telemetry | 12 | 829 | ./bin/workflow run workflows/code/complexity/telemetry.yaml |
-| 2 | metals | 9 | 644 | ./bin/workflow run workflows/code/complexity/metals.yaml |
+| ~~2~~ | ~~metals~~ | ~~9~~ | ~~644~~ | _extracted to dancing-bear-metals (2026-08-24)_ |
 | 3 | mail | 9 | 591 | ./bin/workflow run workflows/code/complexity/mail.yaml |
 | 4 | resume | 7 | 587 | ./bin/workflow run workflows/code/complexity/resume.yaml |
 | 5 | phone | 7 | 471 | ./bin/workflow run workflows/code/complexity/phone.yaml |

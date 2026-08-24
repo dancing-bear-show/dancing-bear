@@ -182,7 +182,7 @@ class TestWrappersExist(unittest.TestCase):
 
     def test_primary_wrappers_exist(self):
         """Test that primary Python wrappers exist."""
-        for name in ["mail", "phone", "calendar", "schedule", "whatsapp", "wifi", "maker", "assistant", "metals"]:
+        for name in ["mail", "phone", "calendar", "schedule", "whatsapp", "wifi", "maker", "assistant"]:
             path = bin_path(name)
             self.assertTrue(path.exists(), f"Missing wrapper: {name}")
 

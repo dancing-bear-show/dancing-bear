@@ -17,11 +17,9 @@ Thin wrappers around Python package CLIs. Regenerate generated wrappers with `ma
 | `maker` | `maker` |
 | `assistant` | `core.assistant_cli` |
 | `charts` | `charts` |
-| `metals` | `metals` |
 | `apple-music-assistant` | `apple_music` |
 | `apple-music-user-token` | `apple_music.user_token_cli` |
 
-**Metals utilities** (9): `outlook-metals-scan`, `extract-metals`, `extract-metals-costs`, `extract-metals-costs-outlook`, `build-metals-summaries`, `metals-premium`, `metals-premium-summary`, `metals-spot-series`, `metals-excel-merge`
 
 **Legacy `-assistant` aliases** (5, retained for compatibility): `mail-assistant`, `phone-assistant`, `calendar-assistant`, `schedule-assistant`, `wifi-assistant`
 

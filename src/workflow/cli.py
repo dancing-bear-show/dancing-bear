@@ -8,7 +8,7 @@ as part of the CLIApp migration (no code outside this module referenced them).
 
 Built on ``core.cli_framework.CLIApp``, matching the pattern used by the other
 domain CLIs (mail, calendar, schedule, resume, phone, whatsapp, desk, wifi,
-maker, apple_music, metals).
+maker, apple_music).
 
 Engine-specific verb conventions: this domain uses ``run`` (not ``apply``) and
 ``lint`` (not ``verify``) to match workflow engine terminology.  These names

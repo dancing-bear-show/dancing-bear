@@ -59,7 +59,7 @@ stages:
         For each domain directory listed below, find .py files excluding
         __init__.py and __pycache__:
           mail/ calendars/ schedule/ phone/ core/ desk/ wifi/
-          whatsapp/ resume/ metals/ apple_music/
+          whatsapp/ resume/ apple_music/
 
         Write {workspace}/analysis/domain-inventory.json:
           {

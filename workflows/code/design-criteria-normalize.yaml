@@ -17,7 +17,7 @@ description: >
 
   Also updates documentation so the normalization sticks: per-domain
   README/AGENTS files (creating them where a touched domain has none —
-  telemetry, worker, metals, apple_music, charts, diagrams, workflow
+  telemetry, worker, apple_music, charts, diagrams, workflow
   currently lack one), .llm/PATTERNS.md and .llm/PIPELINE_MIGRATION.md
   (marking newly-migrated domains complete), and proposes new entries to
   the concerns/*.md review-guide library (reusing the same propose/human-
@@ -379,7 +379,7 @@ stages:
         public-facing test/fixture convention. Keep it terse — 1-2 sentences
         per addition, matching this repo's existing README style (see
         src/mail/README.md or src/schedule/README.md for tone/length).
-        If it does NOT exist (true for telemetry, worker, metals,
+        If it does NOT exist (true for telemetry, worker,
         apple_music, charts, diagrams, workflow as of this writing — verify
         current state, do not assume): create a minimal README.md following
         the structure of an existing domain README (purpose, CLI entry

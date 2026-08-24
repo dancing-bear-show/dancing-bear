@@ -20,8 +20,8 @@ Use Existing Commands First
 ./bin/mail --agentic --agentic-format json
 ./bin/mail --agentic --agentic-format json --agentic-compact
 ./bin/mail --agentic --agentic-format json --agentic-domain labels
-# Works identically for all 11 domain CLIs (mail, calendar, schedule, resume, phone,
-# whatsapp, desk, wifi, maker, apple_music, metals)
+# Works identically for all 10 domain CLIs (mail, calendar, schedule, resume, phone,
+# whatsapp, desk, wifi, maker, apple_music)
 ```
 
 Agentic Shortcuts (LLM CLI)
@@ -149,7 +149,7 @@ def produce(self, envelope):
 def produce(self, envelope):
     payload = envelope.unwrap()  # raises ValueError if None
 
-# Implementation (core/pipeline.py, metals/pipeline.py):
+# Implementation (core/pipeline.py):
 class ResultEnvelope:
     def unwrap(self) -> T:
         """Extract payload or raise ValueError with context."""
@@ -165,7 +165,7 @@ SafeProcessor Pattern (Automatic Error Handling)
 # Migrated domains (Dec 2024):
 #   - mail/config_cli (11 pipelines), mail/messages_cli (2), mail/accounts (9)
 #   - calendars (19 pipelines: Gmail + Outlook)
-#   - desk (3), phone (12), wifi (1), metals (2), schedule (4)
+#   - desk (3), phone (12), wifi (1), schedule (4)
 
 from core.pipeline import SafeProcessor, BaseProducer, RequestConsumer
 from dataclasses import dataclass
@@ -478,15 +478,6 @@ Calendar Patterns
 # Dedup series
 ./bin/calendar --profile outlook_personal outlook dedup --calendar "Family" \
   --from 2025-01-01 --to 2025-12-31 --prefer-delete-nonstandard --keep-newest
-```
-
-Metals Patterns
-```
-# Extract and build summaries
-./bin/extract-metals --profile gmail_personal --out out/metals.json
-./bin/build-metals-summaries --in out/metals.json --out out/metals-summary.xlsx
-./bin/metals-premium --in out/metals.json
-./bin/metals-spot-series --days 30
 ```
 
 WiFi Patterns

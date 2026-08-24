@@ -292,7 +292,7 @@ applicability by file type:
 - **triggers**: New CLI entry-point files that call `app.run(argv)` or `app.main(argv)`
   directly without a `BaseAssistant` instance; `CLIApp` usage with no import of
   `core.assistant.BaseAssistant`.
-- **example**: `apple_music/cli.py` and `metals/cli/main.py` originally called
+- **example**: `apple_music/cli.py` (and the since-extracted `metals/cli/main.py`) originally called
   `app.run()` directly and had zero `--agentic` support despite using `CLIApp` —
   agents had no way to introspect their command surface. Fix: `assistant =
   BaseAssistant(app_id="foo", fallback_banner="...")` and
