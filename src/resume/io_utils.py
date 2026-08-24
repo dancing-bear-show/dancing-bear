@@ -14,7 +14,7 @@ from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
 def safe_import(name: str) -> Any | None:
     try:
         return __import__(name)
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency probe; absence is expected
         return None
 
 

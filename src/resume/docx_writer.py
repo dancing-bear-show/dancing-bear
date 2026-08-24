@@ -27,7 +27,7 @@ from .docx_styles import (
     _format_link_display,
 )
 from .docx_renderers import BulletRenderer
-from .docx_standard import SECTION_RENDERERS, SECTIONS_WITH_KEYWORDS  # re-export
+from .docx_standard import SECTION_RENDERERS, SECTIONS_WITH_KEYWORDS
 
 
 SECTION_SYNONYMS = {
@@ -237,7 +237,13 @@ def write_resume_docx(
     doc.save(out_path)
 
 
-def _render_sections(doc, template, data, sections, keywords) -> None:
+def _render_sections(
+    doc,
+    template: dict[str, Any],
+    data: dict[str, Any],
+    sections: list[dict[str, Any]],
+    keywords: list[str] | None,
+) -> None:
     """Render all sections into the document."""
     page_cfg = template.get("page") or {}
     for sec in sections:

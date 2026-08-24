@@ -238,8 +238,11 @@ def _extract_sections(lines: list[str]) -> dict[str, list[str]]:
 def _parse_experience(lines: list[str]) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     buf: list[str] = []
-    def push():
-        return (items.append(_parse_experience_block(buf.copy())), buf.clear()) if buf else None
+    def push() -> None:
+        if not buf:
+            return
+        items.append(_parse_experience_block(buf.copy()))
+        buf.clear()
     for ln in lines:
         # simple delimiter between roles: blank line or leading dash indicator of new role
         if not ln.strip():

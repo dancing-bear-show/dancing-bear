@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any
 from slides.constants import (
     CONTENT_LEFT,
     CONTENT_WIDTH,
-    DEFAULT_BULLET_LEVEL,
     DEFAULT_SECTION_HEADER_MAX_LENGTH,
     FONT_SIZE_HEADER,
     FONT_SIZES_BY_LEVEL,
@@ -16,7 +15,7 @@ from slides.constants import (
     SPACING_BEFORE_BULLET,
     SPACING_BEFORE_HEADER,
 )
-from slides.schema import BulletItem
+from slides.schema import BulletItem, ResolvedBullet
 
 if TYPE_CHECKING:
     from pptx.enum.dml import MSO_THEME_COLOR
@@ -31,17 +30,6 @@ class ContentMixin:
             return False
         text = text.strip()
         return text.endswith(":") and len(text) < DEFAULT_SECTION_HEADER_MAX_LENGTH
-
-    @staticmethod
-    def _unpack_bullet_item(item) -> tuple[str, int, str, list, bool, str | None]:
-        """Unpack a BulletItem or plain string into (text, level, raw_text, highlights, bold, url)."""
-        if isinstance(item, BulletItem):
-            return (
-                item.text, item.level, item.text,
-                item.highlight, item.bold, item.url,
-            )
-        raw = str(item)
-        return raw, DEFAULT_BULLET_LEVEL, raw, [], False, None
 
     @staticmethod
     def _resolve_font_and_spacing(
@@ -87,26 +75,28 @@ class ContentMixin:
                 formatting inherit from the template. No bullet, font, or
                 spacing overrides are applied.
         """
-        raw_text, level, _, highlights, item_bold, item_url = self._unpack_bullet_item(item)
-        text = self._format_bullet_text(raw_text, level)
-        paragraph.level = level
+        bullet = ResolvedBullet.from_item(item)
+        text = self._format_bullet_text(bullet.text, bullet.level)
+        paragraph.level = bullet.level
 
         if inherit_style:
             # Template-style: let placeholder formatting inherit.
             # Highlights render as bold-only (no accent color). Hyperlinks preserved.
-            self._add_text_to_paragraph(paragraph, text, None, None, item_bold, highlights, url=item_url)
+            self._add_text_to_paragraph(
+                paragraph, text, None, None, bullet.bold, bullet.highlight, url=bullet.url
+            )
             return
 
-        is_header = self._is_section_header(raw_text)
+        is_header = self._is_section_header(bullet.text)
         if not is_header:
-            self._apply_native_bullet(paragraph, level)
+            self._apply_native_bullet(paragraph, bullet.level)
 
         font_size, effective_theme, space_before, space_after = self._resolve_font_and_spacing(
-            is_header, level, theme_color, use_template_style,
+            is_header, bullet.level, theme_color, use_template_style,
         )
         self._add_text_to_paragraph(
             paragraph, text, effective_theme, font_size,
-            is_header or item_bold, highlights, url=item_url,
+            is_header or bullet.bold, bullet.highlight, url=bullet.url,
         )
         paragraph.space_before = space_before
         paragraph.space_after = space_after

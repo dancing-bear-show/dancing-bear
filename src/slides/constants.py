@@ -21,6 +21,11 @@ BULLET_LEVEL_2 = "▪"  # Sub-sub-bullet
 
 BULLET_CHARS = [BULLET_LEVEL_0, BULLET_LEVEL_1, BULLET_LEVEL_2]
 
+# Native-bullet paragraph geometry, in EMU, indexed by bullet level.
+# Hanging indent is a constant 0.5"; the left margin steps 0.5" per level.
+BULLET_HANGING_INDENT_EMU = 457200  # 0.5"
+BULLET_MARGIN_BY_LEVEL_EMU = [457200, 914400, 1371600]  # 0.5", 1.0", 1.5"
+
 # Characters that indicate text already has a bullet
 EXISTING_BULLET_CHARS = ("•", "◦", "▪", "‣", "-", "*")
 
@@ -56,6 +61,15 @@ SPACING_AFTER_BULLET = 14
 
 
 # =============================================================================
+# OOXML Units
+# =============================================================================
+
+# English Metric Units per inch — OOXML's internal length unit. python-pptx's
+# Inches() converts to this; reading a raw shape offset back needs the inverse.
+EMU_PER_INCH = 914400
+
+
+# =============================================================================
 # Content Positioning (in inches)
 # =============================================================================
 
@@ -63,7 +77,6 @@ SLIDE_WIDTH = 13.33  # Standard widescreen slide width in inches
 SLIDE_HEIGHT = 7.5  # Standard widescreen slide height in inches
 CONTENT_WIDTH = 10.5  # Text box width
 CONTENT_LEFT = (SLIDE_WIDTH - CONTENT_WIDTH) / 2  # Centered horizontally
-CONTENT_TOP = 2.7  # Inches from top (below title, below branding graphic)
 CONTENT_BOTTOM_MARGIN = 0.4  # Inches from slide bottom
 IMAGE_CONTENT_TOP = 1.3  # Top of content area for image/mermaid slides (below title in layout_map mode)
 
@@ -198,10 +211,6 @@ DEFAULT_BULLET_LEVEL = 0
 DEFAULT_SECTION_HEADER_MAX_LENGTH = 40
 DEFAULT_LAYOUT_KEY = LAYOUT_BULLET
 RESERVED_LAYOUT_KEY = "__fallback__"
-
-# Common layout_map indices for branded templates
-DEFAULT_SECTION_LAYOUT = 0  # Section/breaker slide (typically first layout)
-DEFAULT_CONTENT_LAYOUT = 1  # Content/bullet slide (typically second layout)
 
 
 def link_blue() -> Any:

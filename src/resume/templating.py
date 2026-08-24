@@ -29,7 +29,7 @@ def parse_seed_criteria(seed: str | None) -> dict[str, Any]:
     if seed.startswith("{"):
         try:
             return json.loads(seed)
-        except Exception:
+        except Exception:  # nosec B110 - malformed seed JSON yields no criteria
             return {}
     out: dict[str, Any] = {}
     # KEY=VALUE pairs comma separated

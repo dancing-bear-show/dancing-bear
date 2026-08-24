@@ -73,9 +73,55 @@ def _resolve_layout_entry(
         return prs.slides[idx].slide_layout
     raise ValueError(
         f"layout_map[{name!r}] index {idx} is out of bounds "
-        f"(template has {num_slides} "
-        f"slide{'s' if num_slides != 1 else ''}) "
+        f"(template has {_slide_count(num_slides)}) "
         f"and no matching master layout found"
+    )
+
+
+def _slide_rel_id(sld_id: Any) -> str:
+    """Read a <p:sldId> element's relationship ID.
+
+    Older python-pptx exposes it only as the .rId property; newer builds carry
+    it as the r:id XML attribute. Try the attribute, then the property.
+    """
+    return sld_id.get(_RELS_ID_ATTR) or sld_id.rId
+
+
+def _drop_slide_at(prs: Any, index: int) -> None:
+    """Delete the slide at *index*, releasing its part relationship.
+
+    python-pptx has no public slide-deletion API; _sldIdLst is the XML
+    <p:sldIdLst> element backing the slides collection.
+    """
+    sld_id_lst = prs.slides._sldIdLst
+    prs.part.drop_rel(_slide_rel_id(sld_id_lst[index]))
+    del sld_id_lst[index]
+
+
+def _slide_count(num_slides: int) -> str:
+    """Render a slide count with the correct plural for error messages."""
+    return f"{num_slides} slide{'s' if num_slides != 1 else ''}"
+
+
+def _pick_fallback_layout(prs: Any, deck, layouts: dict[str, Any]) -> Any:
+    """Choose the layout used for slides whose layout name is unrecognized.
+
+    Prefers the resolved "bullet" layout, then any resolved layout, and only
+    then falls back to the deck's template_slide_index.
+    """
+    if LAYOUT_BULLET in layouts:
+        return layouts[LAYOUT_BULLET]
+    if layouts:
+        return next(iter(layouts.values()))
+
+    fallback_idx = deck.metadata.template_slide_index
+    num_template_slides = len(prs.slides)
+    if 0 <= fallback_idx < num_template_slides:
+        return prs.slides[fallback_idx].slide_layout
+    raise ValueError(
+        "layout_map is empty and no valid fallback layout can be "
+        f"determined (template_slide_index={fallback_idx}, "
+        f"template has {_slide_count(num_template_slides)})"
     )
 
 
@@ -129,28 +175,8 @@ class LayoutMixin:
         # Resolve layouts — prefer master layouts, fall back to slide indices
         layouts = self._resolve_layouts_from_master(prs, layout_map)
 
-        # Determine the fallback layout for unrecognized slide layout names.
-        # Prefer the master-resolved "bullet" layout, then first resolved layout,
-        # then fall back to template_slide_index.
         if _FALLBACK_LAYOUT_KEY not in layouts:
-            if LAYOUT_BULLET in layouts:
-                fallback_layout = layouts[LAYOUT_BULLET]
-            elif layouts:
-                fallback_layout = next(iter(layouts.values()))
-            else:
-                # Last resort: use template_slide_index directly
-                fallback_idx = deck.metadata.template_slide_index
-                num_template_slides = len(prs.slides)
-                if 0 <= fallback_idx < num_template_slides:
-                    fallback_layout = prs.slides[fallback_idx].slide_layout
-                else:
-                    raise ValueError(
-                        "layout_map is empty and no valid fallback layout can be "
-                        f"determined (template_slide_index={fallback_idx}, "
-                        f"template has {num_template_slides} "
-                        f"slide{'s' if num_template_slides != 1 else ''})"
-                    )
-            layouts[_FALLBACK_LAYOUT_KEY] = fallback_layout
+            layouts[_FALLBACK_LAYOUT_KEY] = _pick_fallback_layout(prs, deck, layouts)
 
         # Delete ALL template slides cleanly
         self._delete_all_slides(prs)
@@ -166,35 +192,23 @@ class LayoutMixin:
         if template_idx < 0 or template_idx >= num_template_slides:
             raise ValueError(
                 f"template_slide_index {template_idx} is out of bounds "
-                f"(template has {num_template_slides} slide{'s' if num_template_slides != 1 else ''})"
+                f"(template has {_slide_count(num_template_slides)})"
             )
 
-        # Keep only the template slide.
-        # python-pptx has no public API for slide deletion; _sldIdLst is the
-        # XML <p:sldIdLst> element backing the slides collection.
+        # Keep only the template slide. Iterate in reverse so each deletion
+        # cannot shift the index of a slide not yet visited.
         for i in range(len(prs.slides) - 1, -1, -1):
             if i != template_idx:
-                rel_id = prs.slides._sldIdLst[i].get(
-                    _RELS_ID_ATTR
-                ) or prs.slides._sldIdLst[i].rId
-                prs.part.drop_rel(rel_id)
-                del prs.slides._sldIdLst[i]
+                _drop_slide_at(prs, i)
 
         first_slide = prs.slides[0]
         return prs, first_slide, first_slide.slide_layout, theme_color
 
     @staticmethod
     def _delete_all_slides(prs: Any) -> None:
-        """Remove all slides from a presentation cleanly.
-
-        Uses _sldIdLst because python-pptx has no public slide deletion API.
-        """
+        """Remove all slides from a presentation cleanly."""
         while len(prs.slides) > 0:
-            rel_id = prs.slides._sldIdLst[0].get(
-                _RELS_ID_ATTR
-            ) or prs.slides._sldIdLst[0].rId
-            prs.part.drop_rel(rel_id)
-            del prs.slides._sldIdLst[0]
+            _drop_slide_at(prs, 0)
 
     def _resolve_layout(
         self,

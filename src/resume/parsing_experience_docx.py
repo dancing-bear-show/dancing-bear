@@ -30,7 +30,7 @@ _STYLE_HEADING_2 = "heading 2"
 class _DocxParaHelper:
     """Helper for accessing paragraph style and text by index."""
 
-    def __init__(self, paragraphs):
+    def __init__(self, paragraphs: list[Any]) -> None:
         self._paragraphs = paragraphs
 
     def style(self, i: int) -> str:

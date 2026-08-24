@@ -329,11 +329,9 @@ class TestResumeCLIRender(unittest.TestCase):
 class TestResumeCLIStructure(unittest.TestCase):
     """Test resume structure command functionality."""
 
-    def test_structure_help(self):
-        """Test structure subcommand help."""
-        proc = run([sys.executable, "-m", "resume", "structure", "--help"])
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-        self.assertIn("--source", proc.stdout)
+    # test_structure_help removed — identical body already lives at
+    # tests/resume_tests/cli/test_resume_cli_core.py::TestResumeCLISubcommandHelp::test_structure_help
+    # which is where all sibling *_help checks are colocated.
 
     def test_structure_infers_order_from_real_docx(self):
         """E2E: infer section order from an actual rendered reference DOCX.

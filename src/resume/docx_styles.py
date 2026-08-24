@@ -45,7 +45,7 @@ class StyleManager:
             g = int(v[2:4], 16)
             b = int(v[4:6], 16)
             return (r, g, b)
-        except Exception:
+        except Exception:  # nosec B110 - malformed hex string is not a colour
             return None
 
     @staticmethod

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from slides._content import ContentMixin
 from slides._image import ImageMixin
-from slides._layout import LayoutMixin, _RELS_ID_ATTR
+from slides._layout import LayoutMixin, _slide_rel_id
 from slides._shape_utils import ShapeUtilsMixin
 from slides._styling import StylingMixin
 from slides._table import TableMixin
@@ -265,19 +265,23 @@ class SlideGenerator(ShapeUtilsMixin, StylingMixin, TableMixin, ContentMixin, Im
                 inherit_style=True,
             )
 
+    @staticmethod
+    def _snapshot_text_box(slide: Any) -> Any | None:
+        """Deep-copy the slide's first non-placeholder text box element, if any."""
+        from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+        for shape in slide.shapes:
+            if not shape.is_placeholder and shape.shape_type == MSO_SHAPE_TYPE.TEXT_BOX:
+                return copy.deepcopy(shape.element)
+        return None
+
     def _generate_legacy_mode(
         self, prs: Any, deck: SlideDeck, first_slide: Any, template_layout: Any, theme_color: MSO_THEME_COLOR,
     ) -> None:
         """Generate slides using single cloned template layout (legacy mode)."""
-        from pptx.enum.shapes import MSO_SHAPE_TYPE
-
-        # Save a copy of the text box element before any population
-        # (table slides delete text boxes, so we need this for later cloning)
-        text_box_template = None
-        for orig_shape in first_slide.shapes:
-            if not orig_shape.is_placeholder and orig_shape.shape_type == MSO_SHAPE_TYPE.TEXT_BOX:
-                text_box_template = copy.deepcopy(orig_shape.element)
-                break
+        # Snapshot the text box before any population: table slides delete
+        # text boxes, so the element must be cloned while it still exists.
+        text_box_template = self._snapshot_text_box(first_slide)
 
         if deck.slides:
             self._populate_slide(first_slide, deck.slides[0], theme_color, is_title_slide=True)
@@ -317,8 +321,7 @@ class SlideGenerator(ShapeUtilsMixin, StylingMixin, TableMixin, ContentMixin, Im
         # may reuse partnames (e.g., slide2.xml) that still exist as orphans.
         # rename_slide_parts is not a public python-pptx API; guard against
         # versions that don't provide it.
-        rel_ids = [sld_id.get(_RELS_ID_ATTR) or sld_id.rId
-                   for sld_id in prs.slides._sldIdLst]
+        rel_ids = [_slide_rel_id(sld_id) for sld_id in prs.slides._sldIdLst]
         rename_fn = getattr(prs.part, "rename_slide_parts", None)
         if callable(rename_fn):
             rename_fn(rel_ids)
@@ -393,13 +396,7 @@ def generate_from_yaml(
     Returns:
         Path to the generated file
     """
-    deck = load_deck_from_yaml(yaml_path)
-    template = template_path or deck.template_path
-    if not template:
-        raise ValueError(ERR_NO_TEMPLATE_PATH)
-
-    generator = SlideGenerator(template_path=template)
-    return generator.generate(deck, output_path)
+    return generate_pptx(load_deck_from_yaml(yaml_path), output_path, template_path)
 
 
 def __getattr__(name: str) -> Any:

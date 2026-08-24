@@ -36,7 +36,9 @@ class ImageMixin:
             body._element.getparent().remove(body._element)
 
         # Remove any text boxes too
-        for s in list(slide.shapes):  # noqa: python:S1226,S6389 - snapshot required: shapes collection mutates during removal  # NOSONAR - list() eagerly materializes the collection before mutation begins
+        # NOSONAR S1226,S6389 - snapshot required: list() eagerly materializes the
+        # shapes collection before the loop body mutates it during removal.
+        for s in list(slide.shapes):
             if not s.is_placeholder and s.shape_type == MSO_SHAPE_TYPE.TEXT_BOX:
                 s._element.getparent().remove(s._element)
 

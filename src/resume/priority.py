@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 
-def _score(v) -> float:
+def _score(v: Any) -> float:
     try:
         return float(v)
-    except Exception:
+    except Exception:  # nosec B110 - non-numeric priority falls back to default
         return 1.0
 
 

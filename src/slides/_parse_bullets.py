@@ -6,6 +6,9 @@ typed BulletItem objects.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 from slides.constants import (
     DEFAULT_BULLET_LEVEL,
     YAML_BOLD,
@@ -16,29 +19,26 @@ from slides.constants import (
 )
 from slides.schema import BulletItem
 
+# Marker that promotes a body line to a sub-bullet; indent depth picks level 1 vs 2.
+_BODY_SUB_BULLET_PREFIX = "- "
+
 
 def _validate_bullet_level(raw: object, context: str = "") -> int:
     """Validate and coerce a bullet level value to int.
 
     Rejects bools (YAML true/false) and negative values.
     """
+    suffix = f" for {context}" if context else ""
     if isinstance(raw, bool):
-        raise ValueError(
-            f"Bullet level must be an integer, got bool {raw!r}"
-            + (f" for {context}" if context else "")
-        )
+        raise ValueError(f"Bullet level must be an integer, got bool {raw!r}{suffix}")
     try:
         level = int(raw)
     except (TypeError, ValueError):
         raise ValueError(
-            f"Bullet level must be an integer, got {type(raw).__name__} {raw!r}"
-            + (f" for {context}" if context else "")
+            f"Bullet level must be an integer, got {type(raw).__name__} {raw!r}{suffix}"
         ) from None
     if level < 0:
-        raise ValueError(
-            f"Bullet level must be non-negative, got {level}"
-            + (f" for {context}" if context else "")
-        )
+        raise ValueError(f"Bullet level must be non-negative, got {level}{suffix}")
     return level
 
 
@@ -76,16 +76,25 @@ def _parse_str_bullet(b: str) -> BulletItem:
     return BulletItem(text=b, url=url)
 
 
+# Ordered type dispatch: the first matching entry parses the bullet.
+_BULLET_PARSERS: tuple[tuple[type | tuple[type, ...], Callable[[Any], BulletItem]], ...] = (
+    (dict, _parse_dict_bullet),
+    ((list, tuple), _parse_list_bullet),
+    (str, _parse_str_bullet),
+)
+
+
 def _parse_bullets(raw_bullets: list[object]) -> list[BulletItem]:
-    """Parse bullet items from YAML data into BulletItem objects."""
+    """Parse bullet items from YAML data into BulletItem objects.
+
+    Values of an unsupported type are skipped rather than raising.
+    """
     bullets: list[BulletItem] = []
     for b in raw_bullets:
-        if isinstance(b, dict):
-            bullets.append(_parse_dict_bullet(b))
-        elif isinstance(b, (list, tuple)):
-            bullets.append(_parse_list_bullet(b))
-        elif isinstance(b, str):
-            bullets.append(_parse_str_bullet(b))
+        for types, parser in _BULLET_PARSERS:
+            if isinstance(b, types):
+                bullets.append(parser(b))
+                break
     return bullets
 
 
@@ -101,19 +110,24 @@ def _body_to_bullets(body: str) -> list[BulletItem]:
     """
     items: list[BulletItem] = []
     for line in body.strip("\n").split("\n"):
-        stripped = line.rstrip()
-        if not stripped:
-            continue
-        lstripped = stripped.lstrip()
-        indent = len(stripped) - len(lstripped)
-        if lstripped.startswith("- ") and indent >= 2:
-            text = lstripped[2:]
-            if text:
-                items.append(BulletItem(text=text, level=2))
-        elif lstripped.startswith("- "):
-            text = lstripped[2:]
-            if text:
-                items.append(BulletItem(text=text, level=1))
-        else:
-            items.append(BulletItem(text=stripped, level=0))
+        item = _body_line_to_bullet(line)
+        if item is not None:
+            items.append(item)
     return items
+
+
+def _body_line_to_bullet(line: str) -> BulletItem | None:
+    """Convert one body line into a BulletItem, or None if it contributes nothing."""
+    stripped = line.rstrip()
+    if not stripped:
+        return None
+
+    lstripped = stripped.lstrip()
+    if not lstripped.startswith(_BODY_SUB_BULLET_PREFIX):
+        return BulletItem(text=stripped, level=0)
+
+    text = lstripped[len(_BODY_SUB_BULLET_PREFIX):]
+    if not text:
+        return None
+    indent = len(stripped) - len(lstripped)
+    return BulletItem(text=text, level=2 if indent >= 2 else 1)

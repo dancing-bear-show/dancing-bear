@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from slides.constants import (
     CONTENT_BOTTOM_MARGIN,
+    EMU_PER_INCH,
     SLIDE_HEIGHT,
 )
 
@@ -35,15 +36,14 @@ class ShapeUtilsMixin:
         Returns:
             First matching shape, or None if not found
         """
-        for shape in slide.shapes:
+        def matches(shape) -> bool:
             if placeholder is not None and shape.is_placeholder != placeholder:
-                continue
+                return False
             if shape_type is not None and shape.shape_type != shape_type:
-                continue
-            if has_text_frame and not shape.has_text_frame:
-                continue
-            return shape
-        return None
+                return False
+            return not (has_text_frame and not shape.has_text_frame)
+
+        return next((s for s in slide.shapes if matches(s)), None)
 
     @staticmethod
     def _find_body_placeholder(slide):
@@ -169,10 +169,10 @@ class ShapeUtilsMixin:
             shape.width = Inches(width)
             # Read the template's top position instead of overriding it
             try:
-                top_inches = int(shape.top) / 914400  # EMU to inches
+                top_inches = int(shape.top) / EMU_PER_INCH
                 shape.height = Inches(max(SLIDE_HEIGHT - top_inches - CONTENT_BOTTOM_MARGIN, 1.0))
-            except (TypeError, ValueError):
-                pass  # Shape.top not numeric (e.g., in tests with mocks)
+            except (TypeError, ValueError):  # nosec B110 - shape.top is non-numeric on mocked/partial shapes; height is cosmetic, so keep the template's own value
+                pass
 
     @staticmethod
     def _is_removable_placeholder(shape, *, keep_body: bool) -> bool:

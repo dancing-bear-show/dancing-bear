@@ -46,7 +46,7 @@ class FilterConfig:
 class FilterPipeline:
     """Chainable pipeline for applying filters to resume/candidate data."""
 
-    def __init__(self, data: dict[str, Any]):
+    def __init__(self, data: dict[str, Any]) -> None:
         """Initialize pipeline with candidate data.
 
         Args:

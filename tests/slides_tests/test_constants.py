@@ -29,12 +29,9 @@ from slides.constants import (
     # Positioning
     CONTENT_BOTTOM_MARGIN,
     CONTENT_LEFT,
-    CONTENT_TOP,
     CONTENT_WIDTH,
     DEFAULT_BULLET_LEVEL,
-    DEFAULT_CONTENT_LAYOUT,
     DEFAULT_SECTION_HEADER_MAX_LENGTH,
-    DEFAULT_SECTION_LAYOUT,
     DEFAULT_TEMPLATE_SLIDE_INDEX,
     DEFAULT_THEME_COLOR,
     # Default values
@@ -349,16 +346,12 @@ class TestPositioningConstants(unittest.TestCase):
 
         Assert:
             - CONTENT_LEFT is between 0 and 2 inches
-            - CONTENT_TOP is between 0 and 3 inches
             - CONTENT_WIDTH is between 5 and 12 inches
             - CONTENT_BOTTOM_MARGIN is positive
             - SLIDE_HEIGHT matches standard widescreen
         """
         self.assertGreaterEqual(CONTENT_LEFT, 0)
         self.assertLessEqual(CONTENT_LEFT, 2)
-
-        self.assertGreaterEqual(CONTENT_TOP, 0)
-        self.assertLessEqual(CONTENT_TOP, 3)
 
         self.assertGreaterEqual(CONTENT_WIDTH, 5)
         self.assertLessEqual(CONTENT_WIDTH, 12)
@@ -852,14 +845,6 @@ class TestDefaultValues(unittest.TestCase):
         """
         from pptx.enum.text import MSO_ANCHOR
         self.assertEqual(VERTICAL_ANCHOR_MIDDLE, MSO_ANCHOR.MIDDLE)
-
-    def test_default_section_layout_is_zero(self):
-        """DEFAULT_SECTION_LAYOUT should be 0 (first layout in branded templates)."""
-        self.assertEqual(DEFAULT_SECTION_LAYOUT, 0)
-
-    def test_default_content_layout_is_one(self):
-        """DEFAULT_CONTENT_LAYOUT should be 1 (second layout in branded templates)."""
-        self.assertEqual(DEFAULT_CONTENT_LAYOUT, 1)
 
     def test_link_blue_is_rgb(self):
         """LINK_BLUE should be an RGBColor instance with Google link-blue value."""

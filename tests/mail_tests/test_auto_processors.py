@@ -6,15 +6,14 @@ import time
 import unittest
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
 from unittest.mock import patch, MagicMock
 
 from mail.auto.processors import (
     classify_low_interest,
-    _is_protected,
     AutoSummaryProcessor,
     AutoApplyProcessor,
 )
+from mail.utils.senders import is_protected_sender
 from mail.auto.consumers import (
     AutoProposePayload,
     AutoSummaryPayload,
@@ -185,34 +184,34 @@ class TestClassifyLowInterest(unittest.TestCase):
 
 
 class TestIsProtected(unittest.TestCase):
-    """Tests for _is_protected function."""
+    """Tests for is_protected_sender."""
 
     def test_matches_exact_email(self):
-        result = _is_protected("friend@example.com", ["friend@example.com"])
+        result = is_protected_sender("friend@example.com", ["friend@example.com"])
         self.assertTrue(result)
 
     def test_matches_domain_pattern(self):
-        result = _is_protected("anyone@company.com", ["@company.com"])
+        result = is_protected_sender("anyone@company.com", ["@company.com"])
         self.assertTrue(result)
 
     def test_extracts_email_from_display_name(self):
-        result = _is_protected("John Doe <john@protected.com>", ["john@protected.com"])
+        result = is_protected_sender("John Doe <john@protected.com>", ["john@protected.com"])
         self.assertTrue(result)
 
     def test_case_insensitive(self):
-        result = _is_protected("JOHN@Example.COM", ["john@example.com"])
+        result = is_protected_sender("JOHN@Example.COM", ["john@example.com"])
         self.assertTrue(result)
 
     def test_no_match_returns_false(self):
-        result = _is_protected("other@example.com", ["protected@example.com"])
+        result = is_protected_sender("other@example.com", ["protected@example.com"])
         self.assertFalse(result)
 
     def test_empty_patterns_returns_false(self):
-        result = _is_protected("anyone@example.com", [])
+        result = is_protected_sender("anyone@example.com", [])
         self.assertFalse(result)
 
     def test_skips_empty_patterns(self):
-        result = _is_protected("test@example.com", ["", None, "test@example.com"])
+        result = is_protected_sender("test@example.com", ["", None, "test@example.com"])
         self.assertTrue(result)
 
 
@@ -262,41 +261,41 @@ class TestAutoSummaryProcessor(unittest.TestCase):
 class FakeAutoClient:
     """Fake Gmail client for auto pipeline tests."""
 
-    labels: List[Dict[str, str]] = field(default_factory=list)
-    message_ids_by_query: Dict[str, List[str]] = field(default_factory=dict)
-    messages: Dict[str, Dict] = field(default_factory=dict)
+    labels: list[dict[str, str]] = field(default_factory=list)
+    message_ids_by_query: dict[str, list[str]] = field(default_factory=dict)
+    messages: dict[str, dict] = field(default_factory=dict)
 
     # Track mutations
-    modified_batches: List[tuple] = field(default_factory=list)
+    modified_batches: list[tuple] = field(default_factory=list)
 
     def authenticate(self) -> None:
         """No-op: test fixture does not require authentication."""
         pass
 
-    def get_label_id_map(self) -> Dict[str, str]:
+    def get_label_id_map(self) -> dict[str, str]:
         return {lab["name"]: lab["id"] for lab in self.labels}
 
     def list_message_ids(
         self,
-        query: Optional[str] = None,
-        label_ids: Optional[List[str]] = None,
+        query: str | None = None,
+        label_ids: list[str] | None = None,
         max_pages: int = 1,
         page_size: int = 500,
-    ) -> List[str]:
+    ) -> list[str]:
         q = (query or "").lower()
         for pattern, ids in self.message_ids_by_query.items():
             if pattern.lower() in q:
                 return ids
         return []
 
-    def get_messages_metadata(self, ids: List[str], use_cache: bool = True) -> List[Dict]:
+    def get_messages_metadata(self, ids: list[str], use_cache: bool = True) -> list[dict]:
         return [self.messages.get(mid, {"id": mid}) for mid in ids]
 
     def batch_modify_messages(
         self,
-        ids: List[str],
-        add_label_ids: Optional[List[str]] = None,
-        remove_label_ids: Optional[List[str]] = None,
+        ids: list[str],
+        add_label_ids: list[str] | None = None,
+        remove_label_ids: list[str] | None = None,
     ) -> None:
         self.modified_batches.append((list(ids), list(add_label_ids or []), list(remove_label_ids or [])))
 

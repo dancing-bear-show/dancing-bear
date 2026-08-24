@@ -17,6 +17,7 @@ from slides._parse_text import (
 from slides.constants import (
     DEFAULT_TEMPLATE_SLIDE_INDEX,
     DEFAULT_THEME_COLOR,
+    DEFAULT_TITLE,
 )
 from slides.schema import (
     BulletItem,
@@ -30,7 +31,7 @@ from slides.schema import (
 def load_deck_from_csv(
     csv_path: str | Path,
     *,
-    title: str = "Untitled",
+    title: str = DEFAULT_TITLE,
     author: str | None = None,
     template_path: str | None = None,
     template_slide_index: int = DEFAULT_TEMPLATE_SLIDE_INDEX,

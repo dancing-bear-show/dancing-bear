@@ -278,7 +278,7 @@ class SidebarResumeWriter(ResumeWriterBase):
             )
 
     @staticmethod
-    def _normalize_summary_items(summary) -> list:
+    def _normalize_summary_items(summary: Any) -> list[str]:
         """Normalize summary to a flat list of strings."""
         if isinstance(summary, str):
             return [summary] if summary else []
