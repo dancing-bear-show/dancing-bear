@@ -45,6 +45,9 @@ class _Concrete(ImageMixin):
     """Concrete subclass with required mixin methods stubbed."""
 
     def _set_slide_title(self, slide, title, theme_color, **kwargs):
+        # Intentional no-op: ShapeUtilsMixin._set_slide_title mutates the title placeholder's
+        # text, font, and position via python-pptx; ImageMixin tests replace this stub with
+        # a MagicMock (mixin._set_slide_title = MagicMock()) and assert only that it was called.
         pass
 
     def _find_body_placeholder(self, slide):

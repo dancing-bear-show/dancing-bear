@@ -28,10 +28,10 @@ class TestParseSlideImageField(unittest.TestCase):
 
     def test_image_field_set(self):
         """YAML slide dict with image: field produces SlideContent with image set."""
-        slide_data = {"title": "Arch Diagram", "image": "/tmp/diagram.png"}  # nosec B108 - mock data dict, no file created
+        slide_data = {"title": "Arch Diagram", "image": "/fake/diagram.png"}
         result = _parse_slide(slide_data)
         self.assertIsInstance(result, SlideContent)
-        self.assertEqual(result.image, "/tmp/diagram.png")
+        self.assertEqual(result.image, "/fake/diagram.png")
         self.assertIsNone(result.mermaid)
 
     def test_image_field_absent_defaults_to_none(self):
@@ -76,11 +76,11 @@ class TestParseSlideMermaidField(unittest.TestCase):
         slide_data = {
             "title": "Both",
             "mermaid": "graph LR\n  X --> Y",
-            "image": "/tmp/fallback.png",  # nosec B108 - mock data dict, no file created
+            "image": "/fake/fallback.png",
         }
         result = _parse_slide(slide_data)
         self.assertEqual(result.mermaid, "graph LR\n  X --> Y")
-        self.assertEqual(result.image, "/tmp/fallback.png")
+        self.assertEqual(result.image, "/fake/fallback.png")
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +100,7 @@ class TestRenderMermaid(unittest.TestCase):
              patch("slides.generator.os.unlink"):
             # Simulate NamedTemporaryFile context manager
             mock_file = MagicMock()
-            mock_file.name = "/tmp/fake.mmd"  # nosec B108 - mock attribute for patched NamedTemporaryFile
+            mock_file.name = "/fake/fake.mmd"
             mock_ntf.return_value.__enter__ = MagicMock(return_value=mock_file)
             mock_ntf.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -125,7 +125,7 @@ class TestRenderMermaid(unittest.TestCase):
              patch("slides.generator.tempfile.NamedTemporaryFile") as mock_ntf, \
              patch("slides.generator.os.unlink"):
             mock_file = MagicMock()
-            mock_file.name = "/tmp/test_diagram.mmd"  # nosec B108 - mock attribute for patched NamedTemporaryFile
+            mock_file.name = "/fake/test_diagram.mmd"
             mock_ntf.return_value.__enter__ = MagicMock(return_value=mock_file)
             mock_ntf.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -142,7 +142,7 @@ class TestRenderMermaid(unittest.TestCase):
              patch("slides.generator.tempfile.NamedTemporaryFile") as mock_ntf, \
              patch("slides.generator.os.unlink"):
             mock_file = MagicMock()
-            mock_file.name = "/tmp/test.mmd"  # nosec B108 - mock attribute for patched NamedTemporaryFile
+            mock_file.name = "/fake/test.mmd"
             mock_ntf.return_value.__enter__ = MagicMock(return_value=mock_file)
             mock_ntf.return_value.__exit__ = MagicMock(return_value=False)
             mock_run.side_effect = FileNotFoundError()
@@ -160,7 +160,7 @@ class TestRenderMermaid(unittest.TestCase):
              patch("slides.generator.tempfile.NamedTemporaryFile") as mock_ntf, \
              patch("slides.generator.os.unlink"):
             mock_file = MagicMock()
-            mock_file.name = "/tmp/bad.mmd"  # nosec B108 - mock attribute for patched NamedTemporaryFile
+            mock_file.name = "/fake/bad.mmd"
             mock_ntf.return_value.__enter__ = MagicMock(return_value=mock_file)
             mock_ntf.return_value.__exit__ = MagicMock(return_value=False)
             exc = subprocess.CalledProcessError(1, "mmdc", stderr=b"parse error")
@@ -179,13 +179,13 @@ class TestRenderMermaid(unittest.TestCase):
              patch("slides.generator.tempfile.NamedTemporaryFile") as mock_ntf, \
              patch("slides.generator.os.unlink") as mock_unlink:
             mock_file = MagicMock()
-            mock_file.name = "/tmp/cleanup_test.mmd"  # nosec B108 - mock attribute for patched NamedTemporaryFile
+            mock_file.name = "/fake/cleanup_test.mmd"
             mock_ntf.return_value.__enter__ = MagicMock(return_value=mock_file)
             mock_ntf.return_value.__exit__ = MagicMock(return_value=False)
 
             SlideGenerator._render_mermaid(mermaid_src)
 
-            mock_unlink.assert_called_once_with("/tmp/cleanup_test.mmd")  # nosec B108 - asserting on mock call arg
+            mock_unlink.assert_called_once_with("/fake/cleanup_test.mmd")
 
     def test_cleans_up_mmd_file_on_failure(self):
         """Temporary .mmd file is removed even when mmdc fails."""
@@ -195,7 +195,7 @@ class TestRenderMermaid(unittest.TestCase):
              patch("slides.generator.tempfile.NamedTemporaryFile") as mock_ntf, \
              patch("slides.generator.os.unlink") as mock_unlink:
             mock_file = MagicMock()
-            mock_file.name = "/tmp/fail_cleanup.mmd"  # nosec B108 - mock attribute for patched NamedTemporaryFile
+            mock_file.name = "/fake/fail_cleanup.mmd"
             mock_ntf.return_value.__enter__ = MagicMock(return_value=mock_file)
             mock_ntf.return_value.__exit__ = MagicMock(return_value=False)
             exc = subprocess.CalledProcessError(1, "mmdc", stderr=b"err")
@@ -204,7 +204,7 @@ class TestRenderMermaid(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 SlideGenerator._render_mermaid(mermaid_src)
 
-            mock_unlink.assert_called_once_with("/tmp/fail_cleanup.mmd")  # nosec B108 - asserting on mock call arg
+            mock_unlink.assert_called_once_with("/fake/fail_cleanup.mmd")
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +285,7 @@ class TestAddImageToSlide(unittest.TestCase):
 
         with patch("PIL.Image.open", return_value=self._make_pil_image()):
             self.generator._add_image_to_slide(
-                mock_slide, "/tmp/test.png", content, MSO_THEME_COLOR.LIGHT_2  # nosec B108 - mock path arg, PIL.Image.open is patched
+                mock_slide, "/fake/test.png", content, MSO_THEME_COLOR.LIGHT_2
             )
 
         mock_slide.shapes.add_picture.assert_called_once()
@@ -298,7 +298,7 @@ class TestAddImageToSlide(unittest.TestCase):
 
         with patch("PIL.Image.open", return_value=self._make_pil_image()):
             self.generator._add_image_to_slide(
-                mock_slide, "/tmp/test.png", content, MSO_THEME_COLOR.LIGHT_2  # nosec B108 - mock path arg, PIL.Image.open is patched
+                mock_slide, "/fake/test.png", content, MSO_THEME_COLOR.LIGHT_2
             )
 
         body._element.getparent.return_value.remove.assert_called_once_with(body._element)
@@ -311,7 +311,7 @@ class TestAddImageToSlide(unittest.TestCase):
 
         with patch("PIL.Image.open", return_value=self._make_pil_image()):
             self.generator._add_image_to_slide(
-                mock_slide, "/tmp/test.png", content, MSO_THEME_COLOR.LIGHT_2  # nosec B108 - mock path arg, PIL.Image.open is patched
+                mock_slide, "/fake/test.png", content, MSO_THEME_COLOR.LIGHT_2
             )
 
         tb._element.getparent.return_value.remove.assert_called_once_with(tb._element)
@@ -347,7 +347,7 @@ class TestPopulateSlideDispatch(unittest.TestCase):
     def test_dispatches_to_mermaid_when_content_mermaid_set(self):
         """_populate_slide calls _render_mermaid then _add_image_to_slide for mermaid content."""
         content = SlideContent(title="Flow", mermaid="graph TD\n  A --> B")
-        fake_png = "/tmp/rendered.png"  # nosec B108 - mock return value from patched _render_mermaid
+        fake_png = "/fake/rendered.png"
 
         with patch.object(self.generator, "_render_mermaid", return_value=fake_png) as mock_render, \
              patch.object(self.generator, "_add_image_to_slide") as mock_add_img, \
@@ -360,7 +360,7 @@ class TestPopulateSlideDispatch(unittest.TestCase):
     def test_mermaid_path_unlinked_after_image_add(self):
         """Rendered PNG is deleted even if _add_image_to_slide succeeds."""
         content = SlideContent(title="Flow", mermaid="graph TD\n  A --> B")
-        fake_png = "/tmp/to_delete.png"  # nosec B108 - mock return value from patched _render_mermaid
+        fake_png = "/fake/to_delete.png"
 
         with patch.object(self.generator, "_render_mermaid", return_value=fake_png), \
              patch.object(self.generator, "_add_image_to_slide"), \
@@ -372,7 +372,7 @@ class TestPopulateSlideDispatch(unittest.TestCase):
     def test_mermaid_path_unlinked_on_add_image_failure(self):
         """Rendered PNG is deleted even if _add_image_to_slide raises."""
         content = SlideContent(title="Flow", mermaid="graph TD\n  A --> B")
-        fake_png = "/tmp/on_fail.png"  # nosec B108 - mock return value from patched _render_mermaid
+        fake_png = "/fake/on_fail.png"
 
         with patch.object(self.generator, "_render_mermaid", return_value=fake_png), \
              patch.object(self.generator, "_add_image_to_slide", side_effect=RuntimeError("fail")), \
@@ -384,16 +384,16 @@ class TestPopulateSlideDispatch(unittest.TestCase):
 
     def test_dispatches_to_image_when_content_image_set(self):
         """_populate_slide calls _add_image_to_slide for image content."""
-        content = SlideContent(title="Photo", image="/tmp/photo.png")  # nosec B108 - mock data, no file created
+        content = SlideContent(title="Photo", image="/fake/photo.png")
 
         with patch.object(self.generator, "_add_image_to_slide") as mock_add_img:
             self.generator._populate_slide(self.mock_slide, content, self.theme)
 
-        mock_add_img.assert_called_once_with(self.mock_slide, "/tmp/photo.png", content, self.theme)  # nosec B108 - asserting on mock call arg
+        mock_add_img.assert_called_once_with(self.mock_slide, "/fake/photo.png", content, self.theme)
 
     def test_image_does_not_call_render_mermaid(self):
         """content.image path skips mermaid rendering entirely."""
-        content = SlideContent(title="Photo", image="/tmp/photo.png")  # nosec B108 - mock data, no file created
+        content = SlideContent(title="Photo", image="/fake/photo.png")
 
         with patch.object(self.generator, "_render_mermaid") as mock_render, \
              patch.object(self.generator, "_add_image_to_slide"):
@@ -403,8 +403,8 @@ class TestPopulateSlideDispatch(unittest.TestCase):
 
     def test_mermaid_takes_priority_over_image(self):
         """When both mermaid and image are set, mermaid wins (checked first)."""
-        content = SlideContent(title="Both", mermaid="graph TD\n  A-->B", image="/tmp/img.png")  # nosec B108 - mock data, no file created
-        fake_png = "/tmp/mermaid.png"  # nosec B108 - mock return value from patched _render_mermaid
+        content = SlideContent(title="Both", mermaid="graph TD\n  A-->B", image="/fake/img.png")
+        fake_png = "/fake/mermaid.png"
 
         with patch.object(self.generator, "_render_mermaid", return_value=fake_png) as mock_render, \
              patch.object(self.generator, "_add_image_to_slide") as mock_add_img, \

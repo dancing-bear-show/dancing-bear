@@ -1990,7 +1990,7 @@ class TestStyleTableDataRows(unittest.TestCase):
         cells = {}
         for i in range(len(rows)):
             for j in range(2):
-                cell, run = self._make_cell()
+                cell, _ = self._make_cell()
                 cells[(i + 1, j)] = cell
 
         mock_table = MagicMock()
@@ -2014,7 +2014,7 @@ class TestStyleTableDataRows(unittest.TestCase):
         generator = SlideGenerator(template_path="/template.pptx")
         rows = [["a"]]
 
-        cell, run = self._make_cell()
+        cell, _ = self._make_cell()
         mock_table = MagicMock()
         mock_table.cell = lambda row, col: cell
 
@@ -2032,7 +2032,7 @@ class TestStyleTableDataRows(unittest.TestCase):
 
         cells = {}
         for j in range(2):
-            cell, run = self._make_cell()
+            cell, _ = self._make_cell()
             cells[(1, j)] = cell
 
         mock_table = MagicMock()
@@ -2053,7 +2053,7 @@ class TestStyleTableDataRows(unittest.TestCase):
 
         cells = {}
         for j in range(3):
-            cell, run = self._make_cell()
+            cell, _ = self._make_cell()
             cells[(1, j)] = cell
 
         mock_table = MagicMock()
@@ -2095,7 +2095,7 @@ class TestStyleTableDataRows(unittest.TestCase):
         cells = {}
         for i in range(2):
             for j in range(2):
-                cell, run = self._make_cell()
+                cell, _ = self._make_cell()
                 cells[(i + 1, j)] = cell
 
         mock_table = MagicMock()

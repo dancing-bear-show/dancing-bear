@@ -205,7 +205,7 @@ class TestAddBulletsBelow(unittest.TestCase):
 
     def test_adds_bullet_item_objects(self) -> None:
         """BulletItem objects are formatted with their level and highlights."""
-        mock_slide, mock_tf = self._make_mock_slide()
+        mock_slide, _ = self._make_mock_slide()
 
         bullets = [
             BulletItem(text="Highlighted item", level=1, highlight=["Highlighted"]),
@@ -226,7 +226,7 @@ class TestAddBulletsBelow(unittest.TestCase):
 
     def test_section_header_bullet_gets_header_font_size(self) -> None:
         """A bullet ending with ':' is treated as a section header."""
-        mock_slide, mock_tf = self._make_mock_slide()
+        mock_slide, _ = self._make_mock_slide()
 
         bullets = [BulletItem(text="Details:", level=0)]
 
@@ -246,7 +246,7 @@ class TestAddBulletsBelow(unittest.TestCase):
 
     def test_mixed_string_and_bullet_items(self) -> None:
         """Mix of strings and BulletItem objects processes correctly."""
-        mock_slide, mock_tf = self._make_mock_slide()
+        mock_slide, _ = self._make_mock_slide()
 
         bullets = [
             "Plain string",
@@ -264,7 +264,7 @@ class TestAddBulletsBelow(unittest.TestCase):
 
     def test_remaining_height_minimum(self) -> None:
         """When top_inches is very high, remaining height is clamped to 0.5."""
-        mock_slide, mock_tf = self._make_mock_slide()
+        mock_slide, _ = self._make_mock_slide()
 
         self.generator._add_bullets_below(
             mock_slide,
@@ -455,9 +455,11 @@ class TestGenerateMultipleSlidesWithTableAndBullets(unittest.TestCase):
             template_path=None,
         )
 
-        result = generator.generate(deck, "/tmp/output.pptx")  # nosec B108 - mock path arg, Presentation is patched
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_path = os.path.join(tmpdir, "output.pptx")
+            result = generator.generate(deck, out_path)
 
-        self.assertEqual(result, "/tmp/output.pptx")
+        self.assertEqual(result, out_path)
         # The new slide should NOT have insert_element_before called (no textbox clone)
         mock_new_slide.shapes._spTree.insert_element_before.assert_not_called()
 
@@ -1326,7 +1328,7 @@ class TestPopulateTableSlideSubtitle(unittest.TestCase):
 
     def test_table_slide_with_subtitle_renders_subtitle(self) -> None:
         """Table slide with subtitle adds subtitle paragraph below title."""
-        mock_slide, mock_title, mock_sub_para, mock_sub_run = self._make_mock_slide()
+        mock_slide, mock_title, _, mock_sub_run = self._make_mock_slide()
 
         content = TableSlide(
             title="Test Table",
@@ -1345,7 +1347,7 @@ class TestPopulateTableSlideSubtitle(unittest.TestCase):
 
     def test_table_slide_without_subtitle_skips_subtitle(self) -> None:
         """Table slide without subtitle does not add subtitle paragraph."""
-        mock_slide, mock_title, mock_sub_para, mock_sub_run = self._make_mock_slide()
+        mock_slide, mock_title, _, _ = self._make_mock_slide()
 
         content = TableSlide(
             title="No Subtitle Table",
@@ -1363,7 +1365,7 @@ class TestPopulateTableSlideSubtitle(unittest.TestCase):
 
     def test_table_slide_subtitle_style_run_called(self) -> None:
         """Table slide subtitle run is styled with font_size=Pt(18)."""
-        mock_slide, mock_title, mock_sub_para, mock_sub_run = self._make_mock_slide()
+        mock_slide, _, _, mock_sub_run = self._make_mock_slide()
 
         content = TableSlide(
             title="Styled Table",
