@@ -361,7 +361,7 @@ class OutlookCostsProcessor(SafeProcessor[OutlookCostsRequest, OutlookCostsResul
     def _process_safe(self, request: OutlookCostsRequest) -> OutlookCostsResult:
         from .outlook_costs import run as _costs_run
         _costs_run(profile=request.profile, out_path=request.out_path)
-        # rows stays at the dataclass default (0): the run() wrapper is the
+        # row_count stays at the dataclass default (0): the run() wrapper is the
         # patch seam tests rely on, and it does not expose the underlying
         # OutlookCostExtractor. Constructing the extractor here to read
         # last_row_count would bypass that seam and make a live network call.
