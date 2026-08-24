@@ -98,10 +98,17 @@ stages:
       human gate sees the real coverage of this run.
 
       Step 1 — Type checking (mypy):
-        .venv/bin/python -m mypy --version
-        If that exits non-zero, mypy is not installed in this project's venv
-        and CI does not enforce it — record "UNAVAILABLE: mypy not installed;
-        CI does not run it" and skip to Step 2. Do NOT pip install it.
+        Distinguish "no venv" from "mypy missing" so the recorded reason is
+        accurate — they call for different follow-up.
+          test -x .venv/bin/python
+        If that fails, the venv has not been created — record
+        "UNAVAILABLE: no .venv present; run make venv" and skip to Step 2.
+        Otherwise:
+          .venv/bin/python -m mypy --version
+        If THAT exits non-zero, the venv exists but mypy is not installed in
+        it, and CI does not enforce mypy — record "UNAVAILABLE: mypy not
+        installed in .venv; CI does not run it" and skip to Step 2. Do NOT
+        pip install it.
         Otherwise: .venv/bin/python -m mypy {source_root} --ignore-missing-imports
         If exit != 0: show errors, attempt fixes (type annotations, imports),
         re-run. Up to 3 fix cycles. If still failing after 3 cycles, write
@@ -161,10 +168,16 @@ stages:
         [error list if any; if UNAVAILABLE, state why]
 
         ### qlty + ruff
+        Record each command separately — they have independent exit codes and
+        a single combined Exit: line is ambiguous at the human gate.
+
         qlty status: PASS|FAIL|UNAVAILABLE
+        qlty exit: 0|non-zero|n/a
         [if UNAVAILABLE, state why — e.g. worktree under .claude/ is excluded]
+
         ruff (make lint) status: PASS|FAIL
-        Exit: 0|non-zero
+        ruff exit: 0|non-zero
+
         Issues fixed: N
         Remaining: N
 

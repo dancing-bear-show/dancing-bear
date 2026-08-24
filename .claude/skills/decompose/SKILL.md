@@ -56,7 +56,7 @@ Read the full file, then identify:
 
 ```bash
 # Find all importers of the module being split
-grep -rn "from <domain>.<module> import\|import <domain>.<module>" . \
+grep -rnE "from <domain>.<module> import|import <domain>.<module>" . \
   --include="*.py" \
   -l
 ```
@@ -106,8 +106,8 @@ Rules:
 2. Extract shared fixtures/base classes into <submodule_c>.py first.
 3. Search all importers before removing any symbol — including non-Python
    references (YAML, markdown, mock.patch target strings):
-       grep -rn "from <domain>.<module> import\|import <domain>.<module>" . --include="*.py"
-       grep -rn "<domain>[./]<module>" src/ tests/ bin/ .llm/ workflows/ concerns/ docs/ README.md
+       grep -rnE "from <domain>.<module> import|import <domain>.<module>" . --include="*.py"
+       grep -rnE "<domain>[./]<module>" src/ tests/ bin/ .llm/ workflows/ concerns/ docs/ README.md
 4. Each new file must be independently runnable (no circular deps).
 5. Verify with `make test` (pins PYTHONPATH to this checkout). NEVER run bare
    `python3 -m unittest` — an inherited PYTHONPATH silently resolves imports to
@@ -184,8 +184,10 @@ except ModuleNotFoundError:
     print('old module removed: OK')
 "
 
-# No facade slipped through
-PYTHONPATH="$PWD/src" python3 workflows/code/scripts/detect_facades.py <domain>/
+# No facade slipped through. The script takes NO positional arguments — it
+# scopes via the DOMAINS env var, as a bare package name (no trailing slash).
+# Passing a path is silently ignored and scans the whole repo.
+DOMAINS=<domain> PYTHONPATH="$PWD/src" python3 workflows/code/scripts/detect_facades.py
 
 # Check new file sizes hit targets
 find src/<domain>/ -name "*.py" | xargs wc -l | sort -rn | head -10
