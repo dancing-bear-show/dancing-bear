@@ -86,6 +86,7 @@ flowchart TB
         workflow[workflow/]
         worker[worker/]
         telemetry[telemetry/]
+        slides[slides/]
         qlty[qlty/]
     end
 

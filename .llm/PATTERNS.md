@@ -20,7 +20,7 @@ Use Existing Commands First
 ./bin/mail --agentic --agentic-format json
 ./bin/mail --agentic --agentic-format json --agentic-compact
 ./bin/mail --agentic --agentic-format json --agentic-domain labels
-# Works identically for all 11 domain CLIs (mail, calendar, schedule, resume, phone,
+# Works identically for all 10 domain CLIs (mail, calendar, schedule, resume, phone,
 # whatsapp, desk, wifi, maker, apple_music)
 ```
 
