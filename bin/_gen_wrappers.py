@@ -32,13 +32,33 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 exec "$SCRIPT_DIR/{base}" {args} "$@"
 """
 
+_VENV_REEXEC_BLOCK = '''\
+import os
+
+# Re-exec under the repo .venv interpreter when available.
+# The system python3 (e.g. Homebrew Python 3.14) may lack required deps such
+# as PyYAML.  Running under .venv guarantees the right interpreter and packages.
+# Guard: skip if a venv is already active, or if we are already the venv python.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_VENV_PY = _REPO_ROOT / ".venv" / "bin" / "python3"
+if (
+    _VENV_PY.exists()
+    and sys.prefix == sys.base_prefix  # no venv active
+    and os.path.realpath(sys.executable) != os.path.realpath(str(_VENV_PY))
+    and os.environ.get("_DANCING_BEAR_VENV_EXEC") != "1"
+):
+    os.environ["_DANCING_BEAR_VENV_EXEC"] = "1"
+    os.execv(str(_VENV_PY), [str(_VENV_PY)] + sys.argv)
+'''
+
 PYTHON_TEMPLATE = '''\
 #!/usr/bin/env python3
 """{doc}"""
 from pathlib import Path
 import sys
 
-SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
+''' + _VENV_REEXEC_BLOCK + '''
+SRC_ROOT = _REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
@@ -55,7 +75,8 @@ PYTHON_TEMPLATE_CORE = '''\
 from pathlib import Path
 import sys
 
-SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
+''' + _VENV_REEXEC_BLOCK + '''
+SRC_ROOT = _REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 

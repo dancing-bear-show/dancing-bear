@@ -33,6 +33,14 @@ def _load_definition(path: str) -> WorkflowDefinition:
     """Parse a workflow YAML, raising CLIError on failure."""
     try:
         return parse_workflow(path)
+    except ImportError as exc:
+        # An import failure (e.g. missing PyYAML) is an environment problem,
+        # not a content error in the workflow file.
+        raise CLIError(
+            f"Missing dependency '{exc.name}' (interpreter: {sys.executable}). "
+            "Run 'make venv' and use the repo .venv interpreter.",
+            ExitCode.ERROR,
+        ) from exc
     except WorkflowParseError as exc:
         raise CLIError(f"Parse error: {exc}", ExitCode.ERROR) from exc
 
@@ -368,7 +376,16 @@ def _cmd_list(args: argparse.Namespace) -> int:
             defn = parse_workflow(path)
             rows.append({"file": rel, "name": defn.name, "version": defn.version,
                          "description": defn.description, "stages": len(defn.stages)})
-        except Exception:  # noqa: BLE001 # nosec B110 - best-effort listing
+        except ImportError as exc:
+            # An import failure is an environment problem (e.g. missing PyYAML),
+            # not a property of this file.  Surface it once as a hard error so
+            # it can't be silently swallowed across all 40+ rows in the table.
+            raise CLIError(
+                f"Missing dependency '{exc.name}' (interpreter: {sys.executable}). "
+                "Run 'make venv' and use the repo .venv interpreter.",
+                ExitCode.ERROR,
+            ) from exc
+        except Exception:  # noqa: BLE001 # nosec B110 - per-file parse resilience: skip malformed YAML and continue listing
             rows.append({"file": rel, "name": "?", "version": "?",
                          "description": "(parse error)", "stages": 0})
 
