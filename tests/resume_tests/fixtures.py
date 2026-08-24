@@ -388,3 +388,22 @@ SAMPLE_LINKEDIN_HTML = f'''
 </head>
 </html>
 '''
+
+
+def make_docx_paragraph_side_effect(mock_paragraphs):
+    """Return an ``add_heading``/``add_paragraph`` ``side_effect`` that appends a MagicMock to ``mock_paragraphs`` and returns it.
+
+    Used by tests that mock python-docx and need every ``Document.add_*`` call
+    to (a) return a mock paragraph and (b) record the call order in a list.
+    Previously duplicated as a nested closure in test_docx_base.py and
+    test_docx_writer.py.
+    """
+    from unittest.mock import MagicMock
+
+    def _add(*_args, **_kwargs):
+        mock_para = MagicMock()
+        mock_para.paragraph_format = MagicMock()
+        mock_paragraphs.append(mock_para)
+        return mock_para
+
+    return _add

@@ -137,21 +137,8 @@ class TestStatsRendererBuildWaiting(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestStatsRendererBuildLazyDiscovery(unittest.TestCase):
-    def test_resolves_session_id_on_build_when_initially_none(self):
-        t = MagicMock()
-        t.get_current_session_id.return_value = None
-        t.find_session_file.return_value = None
-        r = _StatsRenderer(
-            session_id=None,
-            compact=False,
-            classify_engine=ClassifyEngine({}),
-            blame_engine=BlameEngine({}),
-            transcript=t,
-        )
-        r.build()
-        # Should have tried to discover the session
-        t.get_current_session_id.assert_called()
-
+    # Note: the "no session id" -> discovery attempt is already covered by
+    # TestStatsRendererBuildWaiting.test_resolve_session_called_on_build above.
     def test_finds_session_file_when_session_id_becomes_known(self):
         fake_path = Path("/nonexistent/some.jsonl")
         t = MagicMock()

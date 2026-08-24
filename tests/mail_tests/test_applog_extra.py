@@ -19,6 +19,19 @@ from unittest.mock import patch
 from mail.applog import AppLogger
 
 
+class _AppLoggerTestBase(unittest.TestCase):
+    """Shared setUp: build an AppLogger writing to a scratch app.log."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.mkdtemp()
+        self.log_path = os.path.join(self._tmpdir, "app.log")
+        self.logger = AppLogger(self.log_path)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+
 class AppLoggerInitNoDirTests(unittest.TestCase):
     """__init__ with a flat filename — dirname() returns '' so makedirs is skipped."""
 
@@ -41,18 +54,8 @@ class AppLoggerInitNoDirTests(unittest.TestCase):
         mock_makedirs.assert_not_called()
 
 
-class AppLoggerWriteExceptionTests(unittest.TestCase):
+class AppLoggerWriteExceptionTests(_AppLoggerTestBase):
     """_write must swallow exceptions silently (lines 27-28)."""
-
-    def setUp(self):
-        self._tmpdir = tempfile.mkdtemp()
-        self.log_path = os.path.join(self._tmpdir, "app.log")
-        self.logger = AppLogger(self.log_path)
-
-    def tearDown(self):
-        import shutil
-
-        shutil.rmtree(self._tmpdir, ignore_errors=True)
 
     def test_write_exception_is_silenced(self):
         # Patch open() inside applog to raise so the except branch is exercised
@@ -64,18 +67,8 @@ class AppLoggerWriteExceptionTests(unittest.TestCase):
                 self.fail("_write raised an exception instead of silencing it")
 
 
-class AppLoggerStartTests(unittest.TestCase):
+class AppLoggerStartTests(_AppLoggerTestBase):
     """start() with and without argv."""
-
-    def setUp(self):
-        self._tmpdir = tempfile.mkdtemp()
-        self.log_path = os.path.join(self._tmpdir, "app.log")
-        self.logger = AppLogger(self.log_path)
-
-    def tearDown(self):
-        import shutil
-
-        shutil.rmtree(self._tmpdir, ignore_errors=True)
 
     def _read_records(self):
         with open(self.log_path, "r", encoding="utf-8") as fh:
@@ -103,18 +96,8 @@ class AppLoggerStartTests(unittest.TestCase):
         self.assertNotEqual(sid1, sid2)
 
 
-class AppLoggerEndTests(unittest.TestCase):
+class AppLoggerEndTests(_AppLoggerTestBase):
     """end() optional fields: duration_ms and error."""
-
-    def setUp(self):
-        self._tmpdir = tempfile.mkdtemp()
-        self.log_path = os.path.join(self._tmpdir, "app.log")
-        self.logger = AppLogger(self.log_path)
-
-    def tearDown(self):
-        import shutil
-
-        shutil.rmtree(self._tmpdir, ignore_errors=True)
 
     def _read_records(self):
         with open(self.log_path, "r", encoding="utf-8") as fh:
@@ -150,18 +133,8 @@ class AppLoggerEndTests(unittest.TestCase):
         self.assertNotIn("error", rec)
 
 
-class AppLoggerInfoTests(unittest.TestCase):
+class AppLoggerInfoTests(_AppLoggerTestBase):
     """info() record structure."""
-
-    def setUp(self):
-        self._tmpdir = tempfile.mkdtemp()
-        self.log_path = os.path.join(self._tmpdir, "app.log")
-        self.logger = AppLogger(self.log_path)
-
-    def tearDown(self):
-        import shutil
-
-        shutil.rmtree(self._tmpdir, ignore_errors=True)
 
     def _read_records(self):
         with open(self.log_path, "r", encoding="utf-8") as fh:
@@ -177,18 +150,8 @@ class AppLoggerInfoTests(unittest.TestCase):
         self.assertIn("ts", rec)
 
 
-class AppLoggerErrorTests(unittest.TestCase):
+class AppLoggerErrorTests(_AppLoggerTestBase):
     """error() record structure with and without extra."""
-
-    def setUp(self):
-        self._tmpdir = tempfile.mkdtemp()
-        self.log_path = os.path.join(self._tmpdir, "app.log")
-        self.logger = AppLogger(self.log_path)
-
-    def tearDown(self):
-        import shutil
-
-        shutil.rmtree(self._tmpdir, ignore_errors=True)
 
     def _read_records(self):
         with open(self.log_path, "r", encoding="utf-8") as fh:

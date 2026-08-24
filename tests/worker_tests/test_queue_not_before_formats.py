@@ -22,7 +22,7 @@ import json
 import unittest
 from datetime import UTC, datetime, timedelta
 
-from tests.worker_tests.helpers import QueueRootIsolationMixin, _make_root
+from tests.worker_tests.helpers import QueueRootIsolationMixin
 
 
 def _future(**kw) -> datetime:
@@ -37,9 +37,7 @@ class TestNotBeforeFormatsDeferCorrectly(unittest.TestCase, QueueRootIsolationMi
     """A future not_before must defer the job in EVERY legal ISO form."""
 
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def _write_job(self, job_id: str, not_before: str) -> None:
         from worker.queue_ops import _ensure_dirs
@@ -94,9 +92,7 @@ class TestEnqueueValidatesNotBefore(unittest.TestCase, QueueRootIsolationMixin):
     """
 
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def test_invalid_not_before_raises(self):
         from worker.queue_ops import Job, enqueue
@@ -139,9 +135,7 @@ class TestNotBeforePastFormatsAreEligible(unittest.TestCase, QueueRootIsolationM
     """
 
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def _write_job(self, job_id: str, not_before: str) -> None:
         from worker.queue_ops import _ensure_dirs

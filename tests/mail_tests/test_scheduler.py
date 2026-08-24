@@ -73,8 +73,8 @@ class QueuePathXdgFallbackTests(unittest.TestCase):
         self.assertEqual(path.parent.name, "mail")
 
 
-class LoadQueueCorruptJsonTests(unittest.TestCase):
-    """Exercise _load_queue() exception handler for corrupt JSON (lines 39-40)."""
+class _ScheduleQueuePathTestBase(unittest.TestCase):
+    """Shared setUp/tearDown: point MAIL_ASSISTANT_SCHEDULE_PATH at a scratch file."""
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
@@ -84,6 +84,10 @@ class LoadQueueCorruptJsonTests(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
         del os.environ["MAIL_ASSISTANT_SCHEDULE_PATH"]
+
+
+class LoadQueueCorruptJsonTests(_ScheduleQueuePathTestBase):
+    """Exercise _load_queue() exception handler for corrupt JSON (lines 39-40)."""
 
     def test_corrupt_json_returns_empty_list(self):
         with open(self.queue_file, "w", encoding="utf-8") as fh:
@@ -105,17 +109,8 @@ class LoadQueueCorruptJsonTests(unittest.TestCase):
         self.assertEqual(result, [])
 
 
-class EnqueueCreatedAtTests(unittest.TestCase):
+class EnqueueCreatedAtTests(_ScheduleQueuePathTestBase):
     """Exercise the enqueue() branch where created_at is already set (line 51->53)."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-        self.queue_file = os.path.join(self.tmpdir, "scheduled_sends.json")
-        os.environ["MAIL_ASSISTANT_SCHEDULE_PATH"] = self.queue_file
-
-    def tearDown(self):
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-        del os.environ["MAIL_ASSISTANT_SCHEDULE_PATH"]
 
     def test_enqueue_preserves_existing_created_at(self):
         fixed_ts = 1700000001
@@ -144,17 +139,8 @@ class EnqueueCreatedAtTests(unittest.TestCase):
         self.assertGreater(queue[0]["created_at"], 0)
 
 
-class PopDueRestBranchTests(unittest.TestCase):
+class PopDueRestBranchTests(_ScheduleQueuePathTestBase):
     """Exercise pop_due() rest-append branch and limit overflow (lines 66, 68-71)."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-        self.queue_file = os.path.join(self.tmpdir, "scheduled_sends.json")
-        os.environ["MAIL_ASSISTANT_SCHEDULE_PATH"] = self.queue_file
-
-    def tearDown(self):
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-        del os.environ["MAIL_ASSISTANT_SCHEDULE_PATH"]
 
     def test_future_items_stay_in_queue(self):
         # Line 66: rest.append branch

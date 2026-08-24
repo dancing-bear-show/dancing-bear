@@ -8,13 +8,17 @@ from unittest.mock import MagicMock, patch
 from mail.gmail_api import GmailClient
 
 
-class TestGmailClientWithMockedService(unittest.TestCase):
-    """Tests for GmailClient methods using mocked service."""
+class _GmailClientTestBase(unittest.TestCase):
+    """Shared setUp: construct GmailClient with a mocked service."""
 
     def setUp(self):
         self.client = GmailClient("/fake/creds.json", "/fake/token.json")
         self.mock_service = MagicMock()
         self.client._service = self.mock_service
+
+
+class TestGmailClientWithMockedService(_GmailClientTestBase):
+    """Tests for GmailClient methods using mocked service."""
 
     def test_get_profile(self):
         self.mock_service.users().getProfile().execute.return_value = {
@@ -235,13 +239,8 @@ class TestGmailClientWithMockedService(unittest.TestCase):
         self.assertTrue(result["enabled"])
 
 
-class TestGmailClientEnsureLabel(unittest.TestCase):
+class TestGmailClientEnsureLabel(_GmailClientTestBase):
     """Tests for ensure_label method."""
-
-    def setUp(self):
-        self.client = GmailClient("/fake/creds.json", "/fake/token.json")
-        self.mock_service = MagicMock()
-        self.client._service = self.mock_service
 
     def test_ensure_label_returns_existing_id(self):
         self.mock_service.users().labels().list().execute.return_value = {
@@ -275,13 +274,8 @@ class TestGmailClientEnsureLabel(unittest.TestCase):
             self.client.ensure_label("NewLabel")
 
 
-class TestGmailClientListMessageIds(unittest.TestCase):
+class TestGmailClientListMessageIds(_GmailClientTestBase):
     """Tests for list_message_ids with pagination."""
-
-    def setUp(self):
-        self.client = GmailClient("/fake/creds.json", "/fake/token.json")
-        self.mock_service = MagicMock()
-        self.client._service = self.mock_service
 
     @patch("mail.paging.paginate_gmail_messages")
     @patch("mail.paging.gather_pages")
@@ -324,13 +318,8 @@ class TestGmailClientListMessageIds(unittest.TestCase):
             self.client.list_message_ids(query="is:unread", max_pages=2, page_size=100)
 
 
-class TestGmailClientMessageMetadata(unittest.TestCase):
+class TestGmailClientMessageMetadata(_GmailClientTestBase):
     """Tests for message metadata retrieval with caching."""
-
-    def setUp(self):
-        self.client = GmailClient("/fake/creds.json", "/fake/token.json")
-        self.mock_service = MagicMock()
-        self.client._service = self.mock_service
 
     def test_get_message_metadata_without_cache(self):
         self.mock_service.users().messages().get().execute.return_value = {
@@ -406,13 +395,8 @@ class TestGmailClientMessageMetadata(unittest.TestCase):
         self.assertEqual(result[1]["id"], "m3")
 
 
-class TestGmailClientGetMessageText(unittest.TestCase):
+class TestGmailClientGetMessageText(_GmailClientTestBase):
     """Tests for get_message_text complex parsing."""
-
-    def setUp(self):
-        self.client = GmailClient("/fake/creds.json", "/fake/token.json")
-        self.mock_service = MagicMock()
-        self.client._service = self.mock_service
 
     def test_get_message_text_plain(self):
         plain_text = "Hello World"
@@ -560,13 +544,8 @@ class TestGmailClientGetMessageText(unittest.TestCase):
         self.assertIn("Grand Total $90.00", result)
 
 
-class TestGmailClientForwarding(unittest.TestCase):
+class TestGmailClientForwarding(_GmailClientTestBase):
     """Tests for forwarding address methods."""
-
-    def setUp(self):
-        self.client = GmailClient("/fake/creds.json", "/fake/token.json")
-        self.mock_service = MagicMock()
-        self.client._service = self.mock_service
 
     def test_create_forwarding_address(self):
         self.mock_service.users().settings().forwardingAddresses().create().execute.return_value = {
@@ -592,7 +571,7 @@ class TestGmailClientForwarding(unittest.TestCase):
         self.assertEqual(result[1]["verificationStatus"], "pending")
 
 
-class TestGmailClientCaching(unittest.TestCase):
+class TestGmailClientCaching(_GmailClientTestBase):
     """Tests for cache-enabled methods."""
 
     def setUp(self):
@@ -651,13 +630,8 @@ class TestGmailClientCaching(unittest.TestCase):
         self.assertEqual(self.mock_service.users().settings().filters().list().execute.call_count, 1)
 
 
-class TestGmailClientGetAttachment(unittest.TestCase):
+class TestGmailClientGetAttachment(_GmailClientTestBase):
     """Attachment fetch decodes unpadded base64url data returned by Gmail."""
-
-    def setUp(self):
-        self.client = GmailClient("/fake/creds.json", "/fake/token.json")
-        self.mock_service = MagicMock()
-        self.client._service = self.mock_service
 
     def _set_response(self, data: str) -> None:
         self.mock_service.users().messages().attachments().get().execute.return_value = {

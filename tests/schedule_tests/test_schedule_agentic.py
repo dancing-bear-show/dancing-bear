@@ -7,11 +7,7 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 
 
-def _make_path_mock(true_paths: set):
-    """Return a function that returns True only for the given paths."""
-    def _exists(path):
-        return tuple(path) in true_paths
-    return _exists
+from tests.fixtures import make_path_mock as _make_path_mock  # noqa: E402
 
 
 class TestScheduleFlowMap(unittest.TestCase):

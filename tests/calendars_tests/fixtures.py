@@ -80,3 +80,17 @@ def make_mock_processor(envelope):
         def process(self, _req):  # NOSONAR - fake interface must match real signature
             return envelope
     return MockProcessor
+
+
+def make_occurrence(subject, series_id, start_iso, end_iso, created, location=None):
+    """Build a Graph calendar-event dict shaped for pipeline tests."""
+    event = {
+        "subject": subject,
+        "seriesMasterId": series_id,
+        "start": {"dateTime": start_iso},
+        "end": {"dateTime": end_iso},
+        "createdDateTime": created,
+    }
+    if location:
+        event["location"] = location
+    return event

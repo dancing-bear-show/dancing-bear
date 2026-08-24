@@ -66,11 +66,12 @@ class DefaultPathTests(unittest.TestCase):
         self.assertTrue(path.endswith("msal_flow.json"))
 
 
-class IniOperationsTests(unittest.TestCase):
+class _ConfigResolverTestBase(unittest.TestCase):
+    """Shared setUp/tearDown: patch mail.config_resolver._INI_PATHS to a scratch tmpdir."""
+
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
         self.ini_path = os.path.join(self.tmpdir, "credentials.ini")
-        # Patch the INI paths to use our temp file
         import mail.config_resolver as cr
         self._orig_ini_paths = cr._INI_PATHS
         cr._INI_PATHS = [self.ini_path]
@@ -81,6 +82,8 @@ class IniOperationsTests(unittest.TestCase):
         cr._INI_PATHS = self._orig_ini_paths
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
+
+class IniOperationsTests(_ConfigResolverTestBase):
     def test_read_ini_empty_when_no_file(self):
         result = _read_ini()
         self.assertEqual(result, {})
@@ -129,20 +132,7 @@ class IniOperationsTests(unittest.TestCase):
         self.assertTrue(os.path.exists(nested_path))
 
 
-class ResolvePathsTests(unittest.TestCase):
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-        self.ini_path = os.path.join(self.tmpdir, "credentials.ini")
-        import mail.config_resolver as cr
-        self._orig_ini_paths = cr._INI_PATHS
-        cr._INI_PATHS = [self.ini_path]
-
-    def tearDown(self):
-        import shutil
-        import mail.config_resolver as cr
-        cr._INI_PATHS = self._orig_ini_paths
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
+class ResolvePathsTests(_ConfigResolverTestBase):
     def test_arg_credentials_takes_precedence(self):
         _write_ini(ProfileSettings(credentials="/ini/creds.json", token="/ini/token.json"))  # nosec B106
         creds, _token = resolve_paths(
@@ -172,20 +162,7 @@ class ResolvePathsTests(unittest.TestCase):
         self.assertTrue(token.endswith("token.json"))
 
 
-class ResolvePathsProfileTests(unittest.TestCase):
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-        self.ini_path = os.path.join(self.tmpdir, "credentials.ini")
-        import mail.config_resolver as cr
-        self._orig_ini_paths = cr._INI_PATHS
-        cr._INI_PATHS = [self.ini_path]
-
-    def tearDown(self):
-        import shutil
-        import mail.config_resolver as cr
-        cr._INI_PATHS = self._orig_ini_paths
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
+class ResolvePathsProfileTests(_ConfigResolverTestBase):
     def test_with_profile(self):
         _write_ini(ProfileSettings(credentials="/personal/creds.json", token="/personal/token.json", profile="personal"))  # nosec B106
         creds, _token = resolve_paths_profile(
@@ -205,20 +182,7 @@ class ResolvePathsProfileTests(unittest.TestCase):
         self.assertEqual(creds, "/default/creds.json")
 
 
-class PersistIfProvidedTests(unittest.TestCase):
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-        self.ini_path = os.path.join(self.tmpdir, "credentials.ini")
-        import mail.config_resolver as cr
-        self._orig_ini_paths = cr._INI_PATHS
-        cr._INI_PATHS = [self.ini_path]
-
-    def tearDown(self):
-        import shutil
-        import mail.config_resolver as cr
-        cr._INI_PATHS = self._orig_ini_paths
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
+class PersistIfProvidedTests(_ConfigResolverTestBase):
     def test_persists_when_provided(self):
         persist_if_provided(arg_credentials="/new/creds.json", arg_token=None)
         result = _read_ini()
@@ -238,20 +202,7 @@ class PersistIfProvidedTests(unittest.TestCase):
         self.assertIn("mail.work", result)
 
 
-class GetIniSectionTests(unittest.TestCase):
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-        self.ini_path = os.path.join(self.tmpdir, "credentials.ini")
-        import mail.config_resolver as cr
-        self._orig_ini_paths = cr._INI_PATHS
-        cr._INI_PATHS = [self.ini_path]
-
-    def tearDown(self):
-        import shutil
-        import mail.config_resolver as cr
-        cr._INI_PATHS = self._orig_ini_paths
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
+class GetIniSectionTests(_ConfigResolverTestBase):
     def test_get_section_with_profile(self):
         _write_ini(ProfileSettings(credentials="/profile/creds.json", profile="myprofile"))
         section = _get_ini_section("myprofile")
@@ -268,20 +219,7 @@ class GetIniSectionTests(unittest.TestCase):
         self.assertEqual(section["credentials"], "/default/creds.json")
 
 
-class OutlookSettingsTests(unittest.TestCase):
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-        self.ini_path = os.path.join(self.tmpdir, "credentials.ini")
-        import mail.config_resolver as cr
-        self._orig_ini_paths = cr._INI_PATHS
-        cr._INI_PATHS = [self.ini_path]
-
-    def tearDown(self):
-        import shutil
-        import mail.config_resolver as cr
-        cr._INI_PATHS = self._orig_ini_paths
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
+class OutlookSettingsTests(_ConfigResolverTestBase):
     def test_get_outlook_client_id(self):
         _write_ini(ProfileSettings(outlook_client_id="my-client-id"))
         result = get_outlook_client_id()

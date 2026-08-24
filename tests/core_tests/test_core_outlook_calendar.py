@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import requests
 
@@ -14,6 +14,10 @@ from core.outlook.models import (
     RecurringEventCreationParams,
     UpdateEventLocationRequest,
     UpdateEventSubjectRequest,
+)
+from tests.core_tests.outlook_helpers import (
+    OutlookCalendarTestBase,
+    make_mock_response,
 )
 
 
@@ -35,27 +39,6 @@ EVENTS_LIST = [
 PERMISSION_READ = {"id": "p1", "role": "read"}
 PERMISSION_WRITE = {"id": "p2", "role": "write"}
 PERMISSION_WITH_EMAIL = {"id": "p1", "emailAddress": {"address": "user@example.com"}, "role": "write"}
-
-
-def make_mock_response(json_data=None, status_code=200, text=None):
-    """Create a mock HTTP response object."""
-    resp = MagicMock()
-    resp.status_code = status_code
-    fallback_text = str(json_data) if json_data else ""
-    resp.text = text if text is not None else fallback_text
-    resp.json.return_value = json_data
-    resp.raise_for_status = MagicMock()
-    return resp
-
-
-class OutlookCalendarTestBase(unittest.TestCase):
-    """Base class for Outlook calendar tests with common helpers."""
-
-    def _setup_mock_requests(self, mock_requests_fn):
-        """Set up mock requests and return the mock object."""
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
-        return mock_requests
 
 
 class TestParseLocation(unittest.TestCase):
