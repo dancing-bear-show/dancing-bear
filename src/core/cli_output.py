@@ -146,14 +146,16 @@ class OutputWriter:
     def _print_json(self, data: Any) -> None:
         """Print data as JSON."""
         normalized = self._normalize_for_json(data)
-        self.print(json.dumps(normalized, indent=2, default=str))
+        self.print(json.dumps(normalized, indent=2, ensure_ascii=False, default=str))
 
     def _print_yaml(self, data: Any) -> None:
         """Print data as YAML."""
         try:
             import yaml
             normalized = self._normalize_for_json(data)
-            self.print(yaml.safe_dump(normalized, default_flow_style=False, sort_keys=False))
+            self.print(yaml.safe_dump(
+                normalized, default_flow_style=False, sort_keys=False, allow_unicode=True
+            ))
         except ImportError:
             # Fallback to JSON if yaml not available
             self._print_json(data)
@@ -306,9 +308,9 @@ def output_table(data: Any, headers: list[str] | None = None) -> None:
 def emit_one(data: object, fmt: str = "json") -> None:
     """Emit a single JSON object to stdout."""
     if fmt == "jsonl":
-        print(json.dumps(data, separators=(",", ":"), default=str))
+        print(json.dumps(data, separators=(",", ":"), ensure_ascii=False, default=str))
     else:
-        print(json.dumps(data, indent=2, default=str))
+        print(json.dumps(data, indent=2, ensure_ascii=False, default=str))
 
 
 def _emit_rows_csv(rows: list[dict[str, object]], cols: list[str]) -> None:
@@ -352,7 +354,7 @@ def emit_rows(  # NOSONAR S3516 - always returns 0 by design; callers chain retu
         return 0
     cols = headers or list(rows[0].keys())
     if fmt == "json":
-        print(json.dumps(rows, default=str))
+        print(json.dumps(rows, ensure_ascii=False, default=str))
     elif fmt == "csv":
         _emit_rows_csv(rows, cols)
     else:  # table
