@@ -35,6 +35,7 @@ from workflow.cli_dispatch import (
     _load_definition,
     _load_manifest,
     _parse_params,
+    _parse_workflow_safe,
     _resolve_base_dir,
     _stage_names_from_manifest,
     _stage_names_from_plan,
@@ -905,6 +906,141 @@ class TestCmdRunDryRun(unittest.TestCase):
                 mock_stdin.isatty.return_value = True
                 rc = _cmd_run(args)
             self.assertEqual(rc, 1)
+
+
+# ---------------------------------------------------------------------------
+# _parse_workflow_safe — shared import-error helper (Fix 3)
+# ---------------------------------------------------------------------------
+
+
+class TestParseWorkflowSafe(unittest.TestCase):
+    """_parse_workflow_safe must surface a friendly CLIError on import failure."""
+
+    def test_raises_cli_error_on_import_error(self) -> None:
+        """ModuleNotFoundError from parse_workflow becomes a CLIError with module name and interpreter."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = _write_yaml(tmp_dir, _MINIMAL_YAML)
+            err = ModuleNotFoundError("No module named 'yaml'")
+            err.name = "yaml"
+            with patch("workflow.cli_dispatch.parse_workflow", side_effect=err):
+                with self.assertRaises(CLIError) as ctx:
+                    _parse_workflow_safe(path)
+            msg = str(ctx.exception)
+            self.assertIn("yaml", msg)
+            import sys as _sys
+            self.assertIn(_sys.executable, msg)
+
+    def test_raises_cli_error_on_parse_error(self) -> None:
+        """WorkflowParseError becomes a CLIError (parse content errors still surface)."""
+        from workflow.parser import WorkflowParseError
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = _write_yaml(tmp_dir, _MINIMAL_YAML)
+            with patch("workflow.cli_dispatch.parse_workflow", side_effect=WorkflowParseError("bad yaml")):
+                with self.assertRaises(CLIError):
+                    _parse_workflow_safe(path)
+
+    def test_returns_definition_on_success(self) -> None:
+        """On a valid workflow, _parse_workflow_safe returns the definition."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = _write_yaml(tmp_dir, _MINIMAL_YAML)
+            defn = _parse_workflow_safe(path)
+            self.assertEqual(defn.name, "test-wf")
+
+
+# ---------------------------------------------------------------------------
+# Regression: import-error handling in _cmd_list (Fix 4a)
+# ---------------------------------------------------------------------------
+
+
+class TestCmdListImportError(unittest.TestCase):
+    """parse_workflow raising ModuleNotFoundError must surface as one CLIError,
+    not silently emit per-file '(parse error)' rows across the whole catalog."""
+
+    def test_import_error_raises_cli_error_not_parse_error_rows(self) -> None:
+        """When parse_workflow raises ImportError, _cmd_list raises CLIError.
+
+        The message must contain the missing module name and the interpreter.
+        It must NOT produce any '(parse error)' rows — that masking was the bug.
+        """
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            wf_dir = tmp_path / "workflows"
+            wf_dir.mkdir()
+            (wf_dir / "a.yaml").write_text(_MINIMAL_YAML, encoding="utf-8")
+            (wf_dir / "b.yaml").write_text(_MINIMAL_YAML, encoding="utf-8")
+
+            err = ModuleNotFoundError("No module named 'yaml'")
+            err.name = "yaml"
+            args = _make_args(format="json")
+            with patch("os.getcwd", return_value=tmp_dir), \
+                 patch("workflow.cli_dispatch.parse_workflow", side_effect=err):
+                with self.assertRaises(CLIError) as ctx:
+                    _cmd_list(args)
+            msg = str(ctx.exception)
+            self.assertIn("yaml", msg)
+            import sys as _sys
+            self.assertIn(_sys.executable, msg)
+
+    def test_genuine_parse_error_still_yields_parse_error_row(self) -> None:
+        """A WorkflowParseError on one file produces a '(parse error)' row while
+        the other files list normally.  This deliberate resilience must survive."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            wf_dir = tmp_path / "workflows"
+            wf_dir.mkdir()
+            (wf_dir / "good.yaml").write_text(_MINIMAL_YAML, encoding="utf-8")
+            (wf_dir / "broken.yaml").write_text("invalid: {{{", encoding="utf-8")
+
+            args = _make_args(format="json")
+            out = io.StringIO()
+            with patch("os.getcwd", return_value=tmp_dir), \
+                 patch("sys.stdout", out):
+                rc = _cmd_list(args)
+            self.assertEqual(rc, 0)
+            rows = json.loads(out.getvalue())
+            # The good file must be listed with its real name
+            good_rows = [r for r in rows if r.get("name") == "test-wf"]
+            self.assertEqual(len(good_rows), 1)
+            # The broken file must appear as a (parse error) row
+            error_rows = [r for r in rows if "parse error" in r.get("description", "")]
+            self.assertEqual(len(error_rows), 1)
+
+
+# ---------------------------------------------------------------------------
+# Regression: _build_resolved_params surfaces CLIError on missing dep (Fix 4c)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildResolvedParamsImportError(unittest.TestCase):
+    """_build_resolved_params must raise CLIError (not raw ModuleNotFoundError)
+    when parse_workflow raises ImportError — the fix routes it through _parse_workflow_safe."""
+
+    def test_raises_cli_error_on_missing_dep(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = _write_yaml(tmp_dir, _MINIMAL_YAML)
+            err = ModuleNotFoundError("No module named 'yaml'")
+            err.name = "yaml"
+            with patch("workflow.cli_dispatch.parse_workflow", side_effect=err):
+                with self.assertRaises(CLIError) as ctx:
+                    _build_resolved_params(path, {})
+            msg = str(ctx.exception)
+            self.assertIn("yaml", msg)
+            import sys as _sys
+            self.assertIn(_sys.executable, msg)
+
+    def test_does_not_raise_raw_module_not_found_error(self) -> None:
+        """Ensure the caller never sees a raw ModuleNotFoundError from this path."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = _write_yaml(tmp_dir, _MINIMAL_YAML)
+            err = ModuleNotFoundError("No module named 'yaml'")
+            err.name = "yaml"
+            with patch("workflow.cli_dispatch.parse_workflow", side_effect=err):
+                try:
+                    _build_resolved_params(path, {})
+                except CLIError:
+                    pass  # expected
+                except ModuleNotFoundError:
+                    self.fail("_build_resolved_params leaked a raw ModuleNotFoundError")
 
 
 if __name__ == "__main__":
