@@ -43,14 +43,19 @@ trigger:
     test_path: ""       # e.g. "tests/workflow/"
     scope: "changed"    # changed = files differing from origin/main (or {pr_number});
                         # domain  = every .py under {source_root} + {test_path}
-    pr_number: ""       # optional — scope to changed files in this PR (implies scope=changed)
+    domain_slug: ""     # required: {source_root} with "/" replaced by "-" (e.g. "src-mail").
+                        # Keeps workspaces isolated per domain — see workspace_dir below.
+    pr_number: ""       # optional — only valid with scope=changed; scope=domain + pr_number
+                        # is rejected by scan-changed-files rather than silently ignored
     skip_checks: ""     # optional — comma-separated: reuse,complexity,coverage,security,arch
     auth_domains: "github"
 
-# {source_root} is NOT interpolated here: it contains a "/" (e.g. "src/mail"),
-# which would split the workspace into a spurious nested directory
-# (out/optimize-code-domain--src/mail/...) instead of one flat run directory.
-workspace_dir: "{work_dir}/optimize-code-{scope}-{pr_number}"
+# {source_root} is NOT interpolated here: it contains a "/" (e.g. "src/mail"), which
+# would split the workspace into a spurious nested directory rather than one flat run
+# directory. {domain_slug} carries the same identity in a path-safe form — without it,
+# two runs sharing a --run-id but targeting different source roots resolve to the same
+# workspace and overwrite each other's findings.
+workspace_dir: "{work_dir}/optimize-code-{scope}-{domain_slug}-{pr_number}"
 
 stages:
 
@@ -85,6 +90,16 @@ stages:
 
       If {scope} is neither "changed" nor "domain", fail the stage with a clear
       message naming the two valid values — do not silently fall back.
+
+      If {scope} is "domain" AND {pr_number} is set, FAIL the stage. The two
+      express contradictory intent (whole domain vs one PR's diff), and
+      silently honouring scope while ignoring pr_number produces a materially
+      different file set than the caller asked for. Say which two params
+      conflict and that pr_number requires scope=changed.
+
+      If {domain_slug} is empty, FAIL the stage: without it, concurrent runs
+      sharing a --run-id collide in one workspace. State that it should be
+      {source_root} with "/" replaced by "-".
 
       If no files found: for scope=changed write an empty list and note
       "no changed files in {source_root} — nothing to optimize". For
@@ -195,8 +210,17 @@ stages:
     depends_on: [apply-corrections]
     reads_from: [apply-corrections]
     description: >
-      bin/ruff-resolve.sh check {source_root}
-      ./bin/test-quality test-failures {test_path} -x -q
+      Run with the Bash tool, in this order:
+        bin/ruff-resolve.sh check {source_root} {test_path}
+        make test
+
+      Use `make test`, not a bare `python3 -m unittest` and not pytest: this
+      repo has no pytest, and a bare unittest run in a worktree resolves
+      imports against the main checkout via an inherited PYTHONPATH, producing
+      a false green. `make test` pins PYTHONPATH to this checkout.
+      (An earlier revision called `./bin/test-quality`, which does not exist in
+      this repo — every run failed with command-not-found instead of validating.)
+
       Confirm all previously-critical findings are resolved.
       Write {workspace}/validation/recheck.json: { "lint_exit": 0, "test_exit": 0, "unresolved": [] }
     agent:
@@ -207,8 +231,8 @@ stages:
     validation:
       strategy: unit
       criteria:
-        - bin/ruff-resolve.sh check {source_root} exits 0
-        - pytest {test_path} -x -q exits 0
+        - bin/ruff-resolve.sh check {source_root} {test_path} exits 0
+        - make test exits 0
         - No new issues introduced by corrections
       max_revisions: 1
     required: true
