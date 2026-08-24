@@ -1,7 +1,7 @@
 """Shared constants used across multiple domains.
 
 This module consolidates duplicate constants that were scattered across
-mail, calendars, phone, apple_music, and metals modules.
+mail, calendars, phone, and apple_music modules.
 """
 
 from __future__ import annotations

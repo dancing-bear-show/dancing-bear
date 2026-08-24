@@ -81,7 +81,7 @@ slides = "slides.__main__:main"
 paths = [
   "bin", "tests",
   "src/apple_music", "src/calendars", "src/charts", "src/core", "src/desk",
-  "src/diagrams", "src/mail", "src/metals", "src/phone", "src/resume",
+  "src/diagrams", "src/mail", "src/phone", "src/resume",
   "src/schedule", "src/telemetry", "src/whatsapp", "src/wifi", "src/worker",
   "src/workflow",
 ]
@@ -145,7 +145,6 @@ include = [
   "charts*",
   "diagrams*",
   "workflow*",
-  "metals*",
   "worker*",
   "maker*",
   "desk*",

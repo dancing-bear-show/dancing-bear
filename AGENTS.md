@@ -1,7 +1,7 @@
 # Repository Agent Hints
 
 This repository hosts personal assistants (mail, calendar, schedule, phone, resume, whatsapp,
-wifi, desk, metals, apple_music, maker, charts, diagrams, workflow, worker, telemetry).
+wifi, desk, apple_music, maker, charts, diagrams, workflow, worker, telemetry).
 
 ## Quick Start for Agents
 
@@ -40,7 +40,6 @@ phone/        iOS layout tooling
 whatsapp/     local-only ChatStorage search
 wifi/         diagnostics
 desk/         macOS filesystem tidying
-metals/       precious metals tracking
 apple_music/  Apple Music API
 maker/        utility generators
 charts/       time-series chart rendering

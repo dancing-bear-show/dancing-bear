@@ -61,7 +61,7 @@ stages:
       Step 1 — identify domain directories.
         The relevant source domains are:
           mail  calendars  schedule  resume  phone  whatsapp  desk
-          maker  charts  diagrams  workflow  core  metals  wifi
+          maker  charts  diagrams  workflow  core  wifi
           apple_music  telemetry  worker
         Never include bin/ — those are public entry-point wrappers.
         If {domains} is not "*", restrict to the comma-separated list provided.

@@ -93,7 +93,7 @@ stages:
     description: >
       List src/ domain packages to audit:
         mail calendars schedule resume phone whatsapp desk maker charts
-        diagrams workflow core metals wifi apple_music telemetry worker
+        diagrams workflow core wifi apple_music telemetry worker
 
       Exclude per CLAUDE.md "Ignore During Scanning": maker (heavy generator
       output), and any .venv/.cache/.git/_disasm/out/_out/backups paths.
@@ -399,7 +399,7 @@ stages:
           "domains": [
             { "domain": "telemetry", "grades": {"C1":"PASS","C2":"FAIL",...}, "findings": [...] }
           ],
-          "recommended_order": ["telemetry", "worker", "charts", "diagrams", "workflow", "apple_music", "metals"]
+          "recommended_order": ["telemetry", "worker", "charts", "diagrams", "workflow", "apple_music"]
         }
     agent:
       role: doc-writer

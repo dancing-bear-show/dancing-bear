@@ -32,7 +32,7 @@ make venv
 ```
 
 CLI help:
-- `./bin/assistant <apple-music|calendar|mail|maker|metals|music|phone|resume|schedule|whatsapp|wifi> --help`
+- `./bin/assistant <apple-music|calendar|mail|maker|music|phone|resume|schedule|whatsapp|wifi> --help`
 - `./bin/mail --help`
 - `./bin/calendar --help`
 - `./bin/schedule --help`
@@ -48,7 +48,6 @@ CLI help:
 | Phone | `./bin/phone` | iOS home screen layout tooling |
 | WhatsApp | `./bin/whatsapp` | Local-only ChatStorage search |
 | WiFi | `./bin/wifi` | Diagnostics |
-| Metals | `./bin/metals` | Precious metals portfolio tracking |
 | Apple Music | `./bin/apple-music-assistant` | Playlist management |
 | Desk | `python3 -m desk` | macOS filesystem tidying (no `bin/desk`) |
 | Maker | `./bin/maker` | Utility generators |
@@ -69,7 +68,7 @@ safety pattern before touching any real provider.
 flowchart TB
     user([CLI or Claude Code])
     assistant[./bin/assistant]
-    bins["./bin/mail  ./bin/calendar  ./bin/schedule\n./bin/phone  ./bin/whatsapp  ./bin/wifi\n./bin/metals  ./bin/maker  ./bin/charts\n./bin/diagrams  ./bin/slides  ./bin/workflow  ./bin/worker\n./bin/telemetry  ./bin/llm  ./bin/qlty-assistant"]
+    bins["./bin/mail  ./bin/calendar  ./bin/schedule\n./bin/phone  ./bin/whatsapp  ./bin/wifi\n./bin/maker  ./bin/charts\n./bin/diagrams  ./bin/slides  ./bin/workflow  ./bin/worker\n./bin/telemetry  ./bin/llm  ./bin/qlty-assistant"]
 
     subgraph domain["Domain packages (src/)"]
         mail[mail/]
@@ -80,7 +79,6 @@ flowchart TB
         whatsapp[whatsapp/]
         wifi[wifi/]
         desk[desk/]
-        metals[metals/]
         apple_music[apple_music/]
         maker[maker/]
         charts[charts/]
@@ -332,18 +330,6 @@ python3 -m desk apply --plan plan.yaml --dry-run
 python3 -m desk rules list
 ```
 
-## Metals
-
-```bash
-./bin/metals extract gmail --profile gmail_personal --out metals.yaml
-./bin/metals extract outlook --profile outlook_personal --out metals.yaml
-./bin/metals costs --data metals.yaml
-./bin/metals spot fetch
-./bin/metals premium --data metals.yaml
-./bin/metals build --data metals.yaml --out summaries/
-./bin/metals excel merge --data metals.yaml --workbook portfolio.xlsx
-```
-
 ## Apple Music
 
 ```bash
@@ -403,7 +389,6 @@ src/
   whatsapp/     local-only ChatStorage search
   wifi/         diagnostics
   desk/         macOS filesystem tidying
-  metals/       precious metals tracking
   apple_music/  Apple Music API
   maker/        utility generators
   charts/       time-series chart rendering (line/bar/area/dual)

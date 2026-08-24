@@ -14,7 +14,7 @@ Core tools:
 - Email management — sync Gmail/Outlook filters and labels from a single YAML file
 - iOS phone layouts — export, plan, and apply home screen configurations
 
-Also available: calendar scheduling, WhatsApp search, precious metals tracking, WiFi diagnostics.
+Also available: calendar scheduling, WhatsApp search, WiFi diagnostics.
 
 Every command that modifies data has a `--dry-run` or `plan` step first.
 
@@ -121,8 +121,6 @@ Step-by-step:
 # WhatsApp: search local chat database (macOS only)
 ./bin/whatsapp search --contains "meeting" --limit 20
 
-# Metals: track precious metals from email receipts (proof of concept)
-./bin/metals extract gmail --out metals.yaml
 ```
 
 ## Claude Code Setup

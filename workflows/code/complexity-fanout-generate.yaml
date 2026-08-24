@@ -154,7 +154,7 @@ stages:
               "created_by_prior_split": false
             }
           ],
-          "by_group": {"telemetry": 12, "metals": 9, "...": 0}
+          "by_group": {"telemetry": 12, "...": 0}
         }
 
       If no candidates are found, write candidates.json with an empty list and

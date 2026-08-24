@@ -36,7 +36,6 @@ src/
   core/         # shared helpers
   telemetry/    # Claude Code session telemetry (cost, tokens, TUI)
   worker/       # background job queue and daemon
-  metals/       # precious metals purchase tracking
   apple_music/  # Apple Music CLI
   wifi/         # Wi-Fi CLI
   qlty/         # qlty scan/triage wrapper (tiers findings by remediation strategy)

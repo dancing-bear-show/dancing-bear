@@ -9,7 +9,6 @@ Each child ends in a human gate before anything is committed.
 | # | Group | Files | Total Cx | Command |
 |---|-------|-------|----------|---------|
 | 1 | telemetry | 12 | 829 | ./bin/workflow run workflows/code/complexity/telemetry.yaml |
-| 2 | metals | 9 | 644 | ./bin/workflow run workflows/code/complexity/metals.yaml |
 | 3 | mail | 9 | 591 | ./bin/workflow run workflows/code/complexity/mail.yaml |
 | 4 | resume | 7 | 587 | ./bin/workflow run workflows/code/complexity/resume.yaml |
 | 5 | phone | 7 | 471 | ./bin/workflow run workflows/code/complexity/phone.yaml |
