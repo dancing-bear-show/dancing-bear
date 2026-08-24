@@ -3,7 +3,8 @@ version: "1.0"
 description: >
   Comprehensive pre-PR validation and pull request creation for the dancing-bear
   project. Covers six phases: auth pre-flight, code quality gate (mypy + qlty +
-  coverage), PR description generation from diff and commits, human review gate,
+  ruff + coverage, each reporting PASS/FAIL/UNAVAILABLE rather than treating a
+  missing tool as a pass), PR description generation from diff and commits, human review gate,
   branch push and PR creation, and fact-check of the description against the
   actual diff.
 
@@ -91,18 +92,48 @@ stages:
       proceeding. Qlty and coverage failures block the human gate; mypy failures
       are documented and the human gate decides whether to proceed.
 
+      A tool that is absent is NOT a passing gate. Whenever a check below is
+      skipped because its tool is missing or its scan was excluded, record it
+      as "UNAVAILABLE" (never "PASS") in scan-results.md and say why, so the
+      human gate sees the real coverage of this run.
+
       Step 1 — Type checking (mypy):
-        mypy {source_root} --ignore-missing-imports
+        Distinguish "no venv" from "mypy missing" so the recorded reason is
+        accurate — they call for different follow-up.
+          test -x .venv/bin/python
+        If that fails, the venv has not been created — record
+        "UNAVAILABLE: no .venv present; run make venv" and skip to Step 2.
+        Otherwise:
+          .venv/bin/python -m mypy --version
+        If THAT exits non-zero, the venv exists but mypy is not installed in
+        it, and CI does not enforce mypy — record "UNAVAILABLE: mypy not
+        installed in .venv; CI does not run it" and skip to Step 2. Do NOT
+        pip install it.
+        Otherwise: .venv/bin/python -m mypy {source_root} --ignore-missing-imports
         If exit != 0: show errors, attempt fixes (type annotations, imports),
         re-run. Up to 3 fix cycles. If still failing after 3 cycles, write
         the errors and continue — do not abort; report in scan-results.md.
 
-      Step 2 — Lint (qlty):
-        ~/.qlty/bin/qlty check {source_root}
-        Fix any reported issues using Edit tool on individual files.
-        After fixes, re-run qlty to confirm clean.
-        Also run ruff format --check {source_root} to catch formatting drift.
-        If ruff format --check fails: run ruff format {source_root} to fix.
+      Step 2 — Lint (qlty + ruff):
+        FIRST check whether qlty can even see this checkout. `.qlty/qlty.toml`
+        excludes `**/.claude/**`, so a worktree under `.claude/worktrees/`
+        scans ZERO files while printing "✔ No issues" — a false clean that is
+        indistinguishable from a real pass.
+          pwd
+        If the path contains `/.claude/`, do NOT run qlty. Record
+        "UNAVAILABLE: worktree under .claude/ is excluded by qlty.toml; the
+        CI qlty job covers this" and rely on ruff below plus the CI check.
+        Otherwise:
+          ~/.qlty/bin/qlty check {source_root}
+          Fix any reported issues using Edit tool on individual files.
+          After fixes, re-run qlty to confirm clean.
+
+        Then lint with ruff — ALWAYS, regardless of the qlty branch above.
+        There is no bare `ruff` on PATH; `make lint` resolves the qlty-pinned
+        build via bin/ruff-resolve.sh, which is the version CI enforces:
+          make lint
+        A bare `ruff check` or `ruff format` fails as "command not found" —
+        do not substitute one. Fix what it reports and re-run until clean.
 
       Step 3 — Test suite with coverage:
         Determine the test command:
@@ -116,7 +147,11 @@ stages:
 
         Then run coverage report:
           coverage report --show-missing --fail-under={min_coverage}
-          (No --rcfile flag — .coveragerc does not exist in this project.)
+          (No --rcfile flag needed — .coveragerc sits at the repo root and is
+          picked up automatically. Do not pass --source or --omit overrides on
+          the command line: .coveragerc's omit rules, e.g. */__main__.py, are
+          deliberate, and overriding them measures a different denominator
+          than CI reports.)
 
         If coverage report exits non-zero (threshold not met):
           Record the actual coverage % from the output.
@@ -127,12 +162,22 @@ stages:
         ## scan-validate Results
 
         ### mypy
-        Exit: 0|non-zero
+        Status: PASS|FAIL|UNAVAILABLE
+        Exit: 0|non-zero|n/a
         Issues: N (or "clean")
-        [error list if any]
+        [error list if any; if UNAVAILABLE, state why]
 
         ### qlty + ruff
-        Exit: 0|non-zero
+        Record each command separately — they have independent exit codes and
+        a single combined Exit: line is ambiguous at the human gate.
+
+        qlty status: PASS|FAIL|UNAVAILABLE
+        qlty exit: 0|non-zero|n/a
+        [if UNAVAILABLE, state why — e.g. worktree under .claude/ is excluded]
+
+        ruff (make lint) status: PASS|FAIL
+        ruff exit: 0|non-zero
+
         Issues fixed: N
         Remaining: N
 
@@ -149,9 +194,10 @@ stages:
     validation:
       strategy: deliverable
       criteria:
-        - mypy exits 0 or errors are documented in scan-results.md
-        - qlty check exits 0 on {source_root}
-        - ruff format --check exits 0
+        - mypy exits 0, errors are documented, or it is recorded UNAVAILABLE with a reason
+        - qlty check exits 0 on {source_root}, or is recorded UNAVAILABLE with a reason
+        - make lint exits 0 (this one has no UNAVAILABLE escape — it is what CI enforces)
+        - No check is recorded PASS on the basis of a missing tool or an excluded scan
         - Coverage measured and threshold status recorded
       max_revisions: 2
     required: true
@@ -190,9 +236,12 @@ stages:
           - [bullet per logical group of changed files]
 
           ## Test plan
-          - [ ] mypy: pass/fail status from scan-results.md
-          - [ ] qlty lint: pass/fail status from scan-results.md
+          - [ ] mypy: pass/fail/unavailable status from scan-results.md
+          - [ ] qlty lint: pass/fail/unavailable status from scan-results.md
+          - [ ] make lint (ruff): pass/fail status from scan-results.md
           - [ ] coverage: N% (threshold: {min_coverage}%)
+          Carry UNAVAILABLE through verbatim with its reason — never restate
+          an unavailable gate as passing or omit it from the list.
           - [ ] Describe manual verification steps if applicable
 
           ## Coverage
