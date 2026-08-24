@@ -59,17 +59,7 @@ from calendars.pipeline import (
 )
 
 
-def _make_occurrence(subject, series_id, start_iso, end_iso, created, location=None):
-    event = {
-        "subject": subject,
-        "seriesMasterId": series_id,
-        "start": {"dateTime": start_iso},
-        "end": {"dateTime": end_iso},
-        "createdDateTime": created,
-    }
-    if location:
-        event["location"] = location
-    return event
+from tests.calendars_tests.fixtures import make_occurrence as _make_occurrence  # noqa: E402
 
 
 class CalendarPipelineTests(TestCase):

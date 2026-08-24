@@ -51,11 +51,8 @@ class TestSessionToDict(unittest.TestCase):
         self.assertIsNotNone(result["duration_minutes"])
         self.assertAlmostEqual(result["duration_minutes"], 30.0, places=1)
 
-    def test_no_start_time_isoformat_none(self):
-        s = _make_session_summary()
-        s.start_time = None
-        result = _session_to_dict(s)
-        self.assertIsNone(result["start_time"])
+    # test_no_start_time_isoformat_none removed — identical body already lives at
+    # tests/telemetry_tests/test_cli_sessions_module.py::TestSessionToDict::test_no_start_time_start_none
 
 
 # ---------------------------------------------------------------------------

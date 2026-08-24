@@ -8,7 +8,6 @@ from slides.constants import (
     CONTENT_BOTTOM_MARGIN,
     CONTENT_LEFT,
     CONTENT_WIDTH,
-    DEFAULT_BULLET_LEVEL,
     FONT_SIZE_HEADER,
     FONT_SIZE_TABLE_CELL,
     FONT_SIZE_TABLE_HEADER,
@@ -26,7 +25,7 @@ from slides.constants import (
     table_row_odd_bg,
     vertical_anchor_middle,
 )
-from slides.schema import BulletItem, TableSlide
+from slides.schema import ResolvedBullet, TableSlide
 
 if TYPE_CHECKING:
     from pptx.enum.dml import MSO_THEME_COLOR
@@ -207,22 +206,20 @@ class TableMixin:
         for i, item in enumerate(bullets):
             p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
 
-            if isinstance(item, BulletItem):
-                text = self._format_bullet_text(item.text, item.level)
-                level = item.level
-                highlights = item.highlight
-                item_url = item.url
-            else:
-                text = self._format_bullet_text(str(item), DEFAULT_BULLET_LEVEL)
-                level = DEFAULT_BULLET_LEVEL
-                highlights = []
-                item_url = None
+            bullet = ResolvedBullet.from_item(item)
+            text = self._format_bullet_text(bullet.text, bullet.level)
 
-            p.level = level
-            is_header = self._is_section_header(item.text if isinstance(item, BulletItem) else str(item))
-            font_size = Pt(FONT_SIZE_HEADER if is_header else FONT_SIZES_BY_LEVEL[min(level, len(FONT_SIZES_BY_LEVEL) - 1)])
+            p.level = bullet.level
+            is_header = self._is_section_header(bullet.text)
+            font_size = Pt(
+                FONT_SIZE_HEADER
+                if is_header
+                else FONT_SIZES_BY_LEVEL[min(bullet.level, len(FONT_SIZES_BY_LEVEL) - 1)]
+            )
 
-            self._add_text_to_paragraph(p, text, theme_color, font_size, is_header, highlights, url=item_url)
+            self._add_text_to_paragraph(
+                p, text, theme_color, font_size, is_header, bullet.highlight, url=bullet.url
+            )
             p.space_before = Pt(SPACING_BEFORE_BULLET)
             p.space_after = Pt(SPACING_AFTER_BULLET)
 

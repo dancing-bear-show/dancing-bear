@@ -12,6 +12,7 @@ from slides.constants import (
 from slides.schema import (
     BulletItem,
     DeckMetadata,
+    ResolvedBullet,
     SlideContent,
     SlideDeck,
     TableSlide,
@@ -283,6 +284,36 @@ class TestSlideDeck(unittest.TestCase):
             template_path="/path/to/template.pptx",
         )
         self.assertEqual(deck_custom.template_path, "/path/to/template.pptx")
+
+
+class TestResolvedBullet(unittest.TestCase):
+    """Tests for ResolvedBullet.from_item normalization."""
+
+    def test_from_bullet_item_copies_all_fields(self):
+        item = BulletItem(text="hello", level=1, highlight=["hi"], bold=True, url="http://x.com")
+        resolved = ResolvedBullet.from_item(item)
+        self.assertEqual(resolved.text, "hello")
+        self.assertEqual(resolved.level, 1)
+        self.assertEqual(resolved.highlight, ["hi"])
+        self.assertTrue(resolved.bold)
+        self.assertEqual(resolved.url, "http://x.com")
+
+    def test_from_plain_string_uses_defaults(self):
+        resolved = ResolvedBullet.from_item("plain")
+        self.assertEqual(resolved.text, "plain")
+        self.assertEqual(resolved.level, DEFAULT_BULLET_LEVEL)
+        self.assertEqual(resolved.highlight, [])
+        self.assertFalse(resolved.bold)
+        self.assertIsNone(resolved.url)
+
+    def test_non_string_item_is_coerced_to_text(self):
+        resolved = ResolvedBullet.from_item(42)
+        self.assertEqual(resolved.text, "42")
+
+    def test_is_frozen(self):
+        resolved = ResolvedBullet.from_item("x")
+        with self.assertRaises(AttributeError):
+            resolved.text = "mutated"
 
 
 if __name__ == "__main__":

@@ -7,28 +7,17 @@ the ``days`` window is applied client-side.
 """
 from __future__ import annotations
 
-import datetime as dt
 import unittest
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlparse
 
-from core.outlook.mail import OutlookMailMixin
 from core.outlook.models import SearchParams
 
-
-def make_mock_response(json_data=None):
-    """Create a mock HTTP response object."""
-    resp = MagicMock()
-    resp.status_code = 200
-    resp.json.return_value = json_data or {}
-    resp.raise_for_status = MagicMock()
-    return resp
-
-
-def iso_days_ago(days: int) -> str:
-    """Return an ISO-8601 Z timestamp ``days`` before now."""
-    stamp = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)
-    return stamp.strftime("%Y-%m-%dT%H:%M:%SZ")
+from tests.core_tests.outlook_helpers import (
+    FakeMailClient,
+    iso_days_ago,
+    make_mock_response,
+)
 
 
 def graph_message(mid: str, **overrides) -> dict:
@@ -45,31 +34,6 @@ def graph_message(mid: str, **overrides) -> dict:
     }
     msg.update(overrides)
     return msg
-
-
-class FakeMailClient(OutlookMailMixin):
-    """Fake client exercising the mixin without network or credentials."""
-
-    def __init__(self, cache_dir=None):
-        self.cache_dir = cache_dir
-        self._cfg_cache = {}
-
-    def _headers(self):
-        return {"Authorization": "Bearer fake-token", "Content-Type": "application/json"}
-
-    def _headers_search(self):
-        headers = self._headers()
-        headers["ConsistencyLevel"] = "eventual"
-        return headers
-
-    def cfg_get_json(self, key, ttl=300):
-        return self._cfg_cache.get(key)
-
-    def cfg_put_json(self, key, data):
-        self._cfg_cache[key] = data
-
-    def cfg_clear(self):
-        self._cfg_cache.clear()
 
 
 class DictSearchTestBase(unittest.TestCase):

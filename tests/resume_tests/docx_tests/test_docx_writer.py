@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from tests.fixtures import test_path
+from tests.resume_tests.fixtures import make_docx_paragraph_side_effect
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -310,20 +311,9 @@ class TestWriteResumeDocx(unittest.TestCase):
         mock_paragraphs = []
         mock_doc.paragraphs = mock_paragraphs
 
-        def add_heading_side_effect(*args, **kwargs):
-            mock_para = MagicMock()
-            mock_para.paragraph_format = MagicMock()
-            mock_paragraphs.append(mock_para)
-            return mock_para
-
-        def add_paragraph_side_effect(*args, **kwargs):
-            mock_para = MagicMock()
-            mock_para.paragraph_format = MagicMock()
-            mock_paragraphs.append(mock_para)
-            return mock_para
-
-        mock_doc.add_heading.side_effect = add_heading_side_effect
-        mock_doc.add_paragraph.side_effect = add_paragraph_side_effect
+        add_side_effect = make_docx_paragraph_side_effect(mock_paragraphs)
+        mock_doc.add_heading.side_effect = add_side_effect
+        mock_doc.add_paragraph.side_effect = add_side_effect
         mock_doc.styles = {"Normal": MagicMock(), "Heading 1": MagicMock(), "Title": MagicMock()}
         mock_docx.Document.return_value = mock_doc
         mock_safe_import.return_value = mock_docx

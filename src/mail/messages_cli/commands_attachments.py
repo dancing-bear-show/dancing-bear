@@ -64,8 +64,10 @@ def _sanitize_filename(filename: str) -> str:
 
 def run_messages_list_attachments(args) -> int:
     """List attachments in a Gmail message."""
-    import json
     import sys
+
+    from core.cli_output import emit_one
+
     from ..utils.cli_helpers import gmail_provider_from_args
 
     msg_id = getattr(args, "id", None)
@@ -96,7 +98,7 @@ def run_messages_list_attachments(args) -> int:
             }
             for a in attachments
         ]
-        print(json.dumps(rows, indent=2))
+        emit_one(rows)
     else:
         for a in attachments:
             print(f"{a.filename}  ({a.mime_type}, {a.size} bytes)  id={a.attachment_id}")

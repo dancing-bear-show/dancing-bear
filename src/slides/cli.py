@@ -40,41 +40,49 @@ def _lazy_agentic():
     return _agentic.emit_agentic_context
 
 
+def _parse_layout_map_entry(pair: str) -> tuple[str, int]:
+    """Parse one ``name=index`` pair from a --layout-map value.
+
+    Raises ValueError on a missing '=', an empty or reserved name, or an
+    index that is not a non-negative integer.
+    """
+    from .constants import RESERVED_LAYOUT_KEY
+
+    if "=" not in pair:
+        raise ValueError(f"Invalid layout-map entry {pair!r}; expected name=index")
+
+    name, _, index_str = pair.partition("=")
+    name = name.strip()
+    if not name:
+        raise ValueError("Layout name cannot be empty in --layout-map")
+    if name == RESERVED_LAYOUT_KEY:
+        raise ValueError(f"Layout name {name!r} is reserved and cannot be used in --layout-map")
+
+    index_str = index_str.strip()
+    try:
+        index = int(index_str)
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid index {index_str!r} for layout {name!r}; must be an integer"
+        ) from exc
+    if index < 0:
+        raise ValueError(f"Index for layout {name!r} must be non-negative, got {index}")
+    return name, index
+
+
 def _parse_layout_map_flag(raw: str | None) -> dict[str, int] | None:
     """Parse a --layout-map CLI flag value into a dict.
 
     Accepts comma-separated key=value pairs like ``section=0,bullet=1``.
-    Raises ValueError on malformed input (missing '=', empty name, reserved
-    name RESERVED_LAYOUT_KEY, non-integer index, negative index).
     """
     if not raw:
         return None
 
-    from .constants import RESERVED_LAYOUT_KEY
-
-    layout_map: dict[str, int] = {}
-    for pair in raw.split(","):
-        pair = pair.strip()
-        if not pair:
-            continue
-        if "=" not in pair:
-            raise ValueError(f"Invalid layout-map entry {pair!r}; expected name=index")
-        name, _, index_str = pair.partition("=")
-        name = name.strip()
-        index_str = index_str.strip()
-        if not name:
-            raise ValueError("Layout name cannot be empty in --layout-map")
-        if name == RESERVED_LAYOUT_KEY:
-            raise ValueError(f"Layout name {name!r} is reserved and cannot be used in --layout-map")
-        try:
-            index = int(index_str)
-        except ValueError as exc:
-            raise ValueError(
-                f"Invalid index {index_str!r} for layout {name!r}; must be an integer"
-            ) from exc
-        if index < 0:
-            raise ValueError(f"Index for layout {name!r} must be non-negative, got {index}")
-        layout_map[name] = index
+    layout_map = dict(
+        _parse_layout_map_entry(pair)
+        for pair in (p.strip() for p in raw.split(","))
+        if pair
+    )
     return layout_map or None
 
 

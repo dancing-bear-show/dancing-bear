@@ -321,3 +321,16 @@ def make_mock_processor(envelope=None, ok: bool = True, result: Any = None):
     processor = MagicMock()
     processor.process.return_value = envelope
     return processor
+
+
+def make_path_mock(true_paths: set):
+    """Return an ``_cli_path_exists``-shaped callable that is True only for the given paths.
+
+    Both ``tests/calendars_tests/test_agentic_flow_map.py`` and
+    ``tests/schedule_tests/test_schedule_agentic.py`` independently arrived at
+    this same helper — extracting it here keeps the two suites decoupled from
+    each other but avoids two copies drifting.
+    """
+    def _exists(path):
+        return tuple(path) in true_paths
+    return _exists

@@ -329,12 +329,12 @@ def _resolve_get_ids(args, client) -> list[str]:
 
 def _emit_get_records(records: list[dict[str, str]], *, fmt: str, single: bool) -> None:
     """Print fetched message records in the requested format."""
-    import json
+    from core.cli_output import emit_one
 
     if fmt == "json":
         # A single id keeps emitting a bare object for backwards compatibility;
         # only an explicit multi-id request produces a list.
-        print(json.dumps(records[0] if single else records, ensure_ascii=False, indent=2))
+        emit_one(records[0] if single else records)
         return
     for idx, record in enumerate(records):
         if idx:

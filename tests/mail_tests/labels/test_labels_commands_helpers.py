@@ -33,12 +33,12 @@ def make_mock_client_with_headers(header_responses: list) -> MagicMock:
 
 
 class TestExtractEmailFromHeader(unittest.TestCase):
-    """Tests for _extract_email_from_header."""
+    """Tests for extract_sender_email."""
 
     @classmethod
     def setUpClass(cls):
-        from mail.labels.commands_doctor import _extract_email_from_header
-        cls.extract = staticmethod(_extract_email_from_header)
+        from mail.utils.senders import extract_sender_email
+        cls.extract = staticmethod(extract_sender_email)
 
     def test_simple_email(self):
         self.assertEqual(self.extract("user@example.com"), "user@example.com")
@@ -57,12 +57,12 @@ class TestExtractEmailFromHeader(unittest.TestCase):
 
 
 class TestExtractDomain(unittest.TestCase):
-    """Tests for _extract_domain."""
+    """Tests for extract_domain."""
 
     @classmethod
     def setUpClass(cls):
-        from mail.labels.commands_doctor import _extract_domain
-        cls.extract = staticmethod(_extract_domain)
+        from mail.utils.senders import extract_domain
+        cls.extract = staticmethod(extract_domain)
 
     def test_extracts_domain(self):
         self.assertEqual(self.extract("user@example.com"), "example.com")
@@ -78,12 +78,12 @@ class TestExtractDomain(unittest.TestCase):
 
 
 class TestIsProtectedSender(unittest.TestCase):
-    """Tests for _is_protected_sender."""
+    """Tests for is_protected_email."""
 
     @classmethod
     def setUpClass(cls):
-        from mail.labels.commands_doctor import _is_protected_sender
-        cls.is_protected = staticmethod(_is_protected_sender)
+        from mail.utils.senders import is_protected_email
+        cls.is_protected = staticmethod(is_protected_email)
 
     def test_exact_email_match(self):
         self.assertTrue(self.is_protected("boss@company.com", ["boss@company.com"]))

@@ -10,7 +10,7 @@ import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from tests.worker_tests.helpers import QueueRootIsolationMixin, _make_root
+from tests.worker_tests.helpers import QueueRootIsolationMixin
 
 
 # ---------------------------------------------------------------------------
@@ -61,9 +61,7 @@ class TestJobDataclass(unittest.TestCase):
 
 class TestEnqueue(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def test_enqueue_creates_pending_file(self):
         from worker.queue_ops import Job, enqueue
@@ -124,9 +122,7 @@ class TestEnsureDirs(unittest.TestCase):
 
 class TestListPending(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def test_empty_queue_returns_empty_list(self):
         from worker.queue_ops import list_pending
@@ -184,9 +180,7 @@ class TestListPending(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestStartProcessing(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def test_moves_to_processing(self):
         from worker.queue_ops import Job, enqueue, start_processing
@@ -229,9 +223,7 @@ class TestStartProcessing(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestFinish(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def _enqueue_and_start(self, job_id: str):
         from worker.queue_ops import Job, enqueue, start_processing
@@ -300,9 +292,7 @@ class TestFinish(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestRetry(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def _enqueue_and_start(self, job_id: str):
         from worker.queue_ops import Job, enqueue, start_processing
@@ -351,9 +341,7 @@ class TestRetry(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestCounts(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def test_counts_empty_queue(self):
         from worker.queue_metrics import counts
@@ -380,9 +368,7 @@ class TestCounts(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestListProcessingAndError(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def test_list_processing_empty(self):
         from worker.queue_ops import list_processing
@@ -418,9 +404,7 @@ class TestListProcessingAndError(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestRequeueError(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def _make_error_job(self, job_id: str) -> Path:
         from worker.queue_ops import Job, enqueue, finish, start_processing
@@ -495,9 +479,7 @@ class TestRequeueError(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestStatus(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def test_status_returns_expected_keys(self):
         from worker.queue_metrics import status
@@ -575,9 +557,7 @@ class TestStatus(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestFindJobPathById(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def test_finds_pending_job(self):
         from worker.queue_ops import Job, enqueue, find_job_path_by_id
@@ -619,9 +599,7 @@ class TestFindJobPathById(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestPurge(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def _make_old_file(self, folder: str, job_id: str, age_sec: int = 3600) -> Path:
         from worker.queue_ops import _ensure_dirs
@@ -681,9 +659,7 @@ class TestPurge(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestReapStaleProcessingJobs(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def test_reap_moves_stale_job_to_pending(self):
         from worker.queue_ops import Job, enqueue, start_processing, reap_stale_processing_jobs
@@ -877,9 +853,7 @@ class TestRemoveJobFile(unittest.TestCase):
 
 class TestComputePendingInsights(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def test_empty_folder_returns_zeros(self):
         from worker.queue_ops import _ensure_dirs
@@ -904,9 +878,7 @@ class TestComputePendingInsights(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestComputeProcessingOldestAge(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def test_no_processing_returns_zero(self):
         from worker.queue_metrics import _compute_processing_oldest_age
@@ -951,9 +923,7 @@ class TestReapResolveFallbackToUpdatedAt(unittest.TestCase, QueueRootIsolationMi
     """_reap_resolve_start_time falls back to updated_at then mtime."""
 
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def test_falls_back_to_updated_at_when_no_processing_started_at(self):
         from worker.queue_ops import _ensure_dirs, reap_stale_processing_jobs

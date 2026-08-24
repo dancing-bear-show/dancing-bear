@@ -1,6 +1,8 @@
 """Agentic capsule helpers for the Resume Assistant CLI."""
 from __future__ import annotations
 
+import argparse
+
 from core.agentic import (
     build_capsule as _build_capsule,
     build_cli_tree as _core_build_cli_tree,
@@ -11,7 +13,7 @@ from core.agentic import (
 )
 
 
-def _load_parser():
+def _load_parser() -> argparse.ArgumentParser:
     from .cli.main import build_parser
 
     return build_parser()

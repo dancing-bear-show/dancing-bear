@@ -10,6 +10,7 @@ from typing import Any
 from core.pipeline import SafeProcessor
 
 from .consumers import AutoProposePayload, AutoSummaryPayload, AutoApplyPayload
+from ..utils.senders import is_protected_sender
 
 
 _PROMO_KEYWORDS = ["sale", "% off", "percent off", "deal", "promo", "clearance", "free shipping", "coupon"]
@@ -64,35 +65,6 @@ def classify_low_interest(msg: dict) -> dict | None:
         "subject": hdrs.get("subject") or "",
         "ts": int(msg.get("internalDate", 0)),
     }
-
-
-def _extract_bare_email(from_val: str) -> str:
-    """Extract bare email address from 'Name <email>' format."""
-    f = (from_val or "").lower()
-    if "<" in f and ">" in f:
-        try:
-            f = f.split("<")[-1].split(">")[0]
-        except Exception:  # nosec B110 - malformed From header, fall back to original
-            pass
-    return f.strip()
-
-
-def _matches_pattern(email: str, domain: str, pattern: str) -> bool:
-    """Check if email/domain matches a single protected pattern."""
-    if pattern.startswith("@"):
-        return email.endswith(pattern) or domain == pattern.lstrip("@")
-    return pattern == email
-
-
-def _is_protected(from_val: str, protected_patterns: list[str]) -> bool:
-    """Check if sender matches any protected pattern."""
-    email = _extract_bare_email(from_val)
-    domain = email.split("@")[-1] if "@" in email else email
-    return any(
-        _matches_pattern(email, domain, p)
-        for p in protected_patterns
-        if p
-    )
 
 
 @dataclass
@@ -151,7 +123,7 @@ class AutoProposeProcessor(SafeProcessor[AutoProposePayload, AutoProposeResult])
 
             for m in msgs:
                 hdrs = GmailClient.headers_to_dict(m)
-                if _is_protected(hdrs.get("from", ""), prot):
+                if is_protected_sender(hdrs.get("from", ""), prot):
                     continue
                 act = classify_low_interest(m)
                 if act:

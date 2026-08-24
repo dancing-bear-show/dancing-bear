@@ -13,6 +13,8 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any
 
+from core.cli_output import emit_one
+
 from ..messages import Candidate
 
 _THREAD_ID_REQUIRED = "--thread-id, --id or --query is required"
@@ -108,8 +110,6 @@ def _print_thread_text(result: ThreadResult, *, include_body: bool) -> None:
 
 def run_messages_threads_get(args) -> int:
     """Fetch all messages in a conversation."""
-    import json
-
     from ..utils.cli_helpers import gmail_provider_from_args, is_outlook_profile
 
     if is_outlook_profile(getattr(args, "profile", None)):
@@ -139,7 +139,7 @@ def run_messages_threads_get(args) -> int:
     )
 
     if getattr(args, "json", False):
-        print(json.dumps(result.to_dict(include_body=include_body), ensure_ascii=False, indent=2))
+        emit_one(result.to_dict(include_body=include_body))
     else:
         _print_thread_text(result, include_body=include_body)
     return 0

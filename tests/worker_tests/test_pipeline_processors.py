@@ -12,7 +12,7 @@ import subprocess
 import unittest
 from unittest.mock import MagicMock, patch
 
-from tests.worker_tests.helpers import QueueRootIsolationMixin, _make_root
+from tests.worker_tests.helpers import QueueRootIsolationMixin
 
 
 # ---------------------------------------------------------------------------
@@ -102,9 +102,7 @@ class TestJobResultProducerHappyPath(unittest.TestCase, QueueRootIsolationMixin)
     """Consumer → JobSafeProcessor → JobResultProducer: success outcome → q.finish."""
 
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
         from worker.queue_ops import finish as _real_finish
         self._real_finish = _real_finish
 

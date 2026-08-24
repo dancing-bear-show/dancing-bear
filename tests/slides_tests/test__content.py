@@ -163,27 +163,6 @@ class TestIsSectionHeader(unittest.TestCase):
         self.assertTrue(self.mixin._is_section_header(text))
 
 
-class TestUnpackBulletItem(unittest.TestCase):
-    """Tests for ContentMixin._unpack_bullet_item."""
-
-    def test_unpacks_bullet_item(self):
-        item = BulletItem(text="hello", level=1, highlight=["hi"], bold=True, url="http://x.com")
-        text, level, _, highlights, bold, url = ContentMixin._unpack_bullet_item(item)
-        self.assertEqual(text, "hello")
-        self.assertEqual(level, 1)
-        self.assertEqual(highlights, ["hi"])
-        self.assertTrue(bold)
-        self.assertEqual(url, "http://x.com")
-
-    def test_unpacks_plain_string(self):
-        text, level, _, highlights, bold, url = ContentMixin._unpack_bullet_item("plain")
-        self.assertEqual(text, "plain")
-        self.assertEqual(level, 0)
-        self.assertEqual(highlights, [])
-        self.assertFalse(bold)
-        self.assertIsNone(url)
-
-
 class TestResolveFontAndSpacing(unittest.TestCase):
     """Tests for ContentMixin._resolve_font_and_spacing."""
 

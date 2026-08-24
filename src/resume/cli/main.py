@@ -72,7 +72,7 @@ def _emit_agentic(fmt: str, compact: bool) -> int:
     return emit_agentic_context(fmt, compact)
 
 
-def _extend_seed_with_style(seed: dict, style_profile_path) -> dict:
+def _extend_seed_with_style(seed: dict, style_profile_path: str | None) -> dict:
     if not style_profile_path:
         return seed
     try:
@@ -88,11 +88,6 @@ def _extend_seed_with_style(seed: dict, style_profile_path) -> dict:
     except Exception:  # nosec B110 - non-fatal seed extension
         pass
     return seed
-
-
-def _apply_profile_overlays(data: dict, prof) -> dict:
-    # shim retained for backward-compatibility within this module; delegate
-    return apply_profile_overlays(data, prof)
 
 
 def _apply_filter_pipeline(data: dict, args: argparse.Namespace, min_priority: float | None = None) -> dict:
@@ -359,7 +354,7 @@ def cmd_align(args: argparse.Namespace) -> int:
     candidate = read_yaml_or_json(args.data)
     prof = getattr(args, "profile", None)
     if prof:
-        candidate = _apply_profile_overlays(candidate, prof)
+        candidate = apply_profile_overlays(candidate, prof)
     job_cfg = load_job_config(args.job)
     kw_spec, synonyms = build_keyword_spec(job_cfg)
     al = align_candidate_to_job(candidate, kw_spec, synonyms)
@@ -386,7 +381,7 @@ def cmd_candidate_init(args: argparse.Namespace) -> int:
     # Overlay profile data onto candidate if profile is provided
     prof = getattr(args, "profile", None)
     if prof:
-        data = _apply_profile_overlays(data, prof)
+        data = apply_profile_overlays(data, prof)
     out = _resolve_out(args, EXT_YAML, kind="candidate")
     # Build skeleton candidate skills YAML
     skills = [str(s) for s in (data.get("skills") or [])]
@@ -490,7 +485,7 @@ def cmd_experience_export(args: argparse.Namespace) -> int:
         data = read_yaml_or_json(args.data)
         prof = getattr(args, "profile", None)
         if prof:
-            data = _apply_profile_overlays(data, prof)
+            data = apply_profile_overlays(data, prof)
     else:
         # parse from resume file
         resume_text = read_text_any(args.resume)

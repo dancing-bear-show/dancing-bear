@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from tests.fixtures import test_path
+from tests.core_tests.outlook_helpers import (
+    FakeMailClient,
+    OutlookMailTestBase,
+    make_mock_response,
+)
 import unittest
-from unittest.mock import MagicMock, patch
-
-from core.outlook.mail import OutlookMailMixin
+from unittest.mock import patch
 
 
 # -------------------- Fixtures --------------------
@@ -40,52 +43,6 @@ FOLDER_INBOX = {"id": "inbox-id", "displayName": "Inbox", "parentFolderId": None
 FOLDER_ARCHIVE = {"id": "archive-id", "displayName": "Archive", "parentFolderId": None}
 FOLDER_SUBFOLDER = {"id": "sub-id", "displayName": "SubFolder", "parentFolderId": "inbox-id"}
 FOLDERS_LIST = [FOLDER_INBOX, FOLDER_ARCHIVE]
-
-
-def make_mock_response(json_data=None, status_code=200, text=None):
-    """Create a mock HTTP response object."""
-    resp = MagicMock()
-    resp.status_code = status_code
-    fallback_text = str(json_data) if json_data else ""
-    resp.text = text if text is not None else fallback_text
-    resp.json.return_value = json_data
-    resp.raise_for_status = MagicMock()
-    return resp
-
-
-class FakeMailClient(OutlookMailMixin):
-    """Fake client for testing mixin methods."""
-
-    def __init__(self, cache_dir=None):
-        self.cache_dir = cache_dir
-        self._cfg_cache = {}
-
-    def _headers(self):
-        return {"Authorization": "Bearer fake-token", "Content-Type": "application/json"}
-
-    def _headers_search(self):
-        h = self._headers()
-        h["ConsistencyLevel"] = "eventual"
-        return h
-
-    def cfg_get_json(self, key, ttl=300):
-        return self._cfg_cache.get(key)
-
-    def cfg_put_json(self, key, data):
-        self._cfg_cache[key] = data
-
-    def cfg_clear(self):
-        self._cfg_cache.clear()
-
-
-class OutlookMailTestBase(unittest.TestCase):
-    """Base class for Outlook mail tests with common helpers."""
-
-    def _setup_mock_requests(self, mock_requests_fn):
-        """Set up mock requests and return the mock object."""
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
-        return mock_requests
 
 
 # -------------------- Label (Category) Tests --------------------

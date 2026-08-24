@@ -19,7 +19,7 @@ class BulletRenderer:
         self.styles = StyleManager()
         self.text = TextFormatter()
 
-    def _apply_page_bullet_config(self, style, glyph):
+    def _apply_page_bullet_config(self, style: str | None, glyph: str | None) -> tuple[str | None, str | None]:
         """Apply page-level bullet config if style not already set."""
         if not style and isinstance(self.page_cfg.get("bullets"), dict):
             bulp = self.page_cfg.get("bullets") or {}

@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from tests.worker_tests.helpers import QueueRootIsolationMixin, _make_root
+from tests.worker_tests.helpers import QueueRootIsolationMixin
 
 
 # ---------------------------------------------------------------------------
@@ -80,9 +80,7 @@ class TestJobContext(unittest.TestCase):
 
 class TestUndoRetryAttempt(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def test_resets_attempts_on_pending_job(self):
         from worker.queue_ops import Job, enqueue
@@ -108,9 +106,7 @@ class TestUndoRetryAttempt(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestHandleOutcome(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
         # Import the real (unpatched) functions before any patching occurs
         from worker.queue_ops import finish as _real_finish, retry as _real_retry
         self._real_finish = _real_finish
@@ -213,9 +209,7 @@ class TestHandleOutcome(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestJobProcessor(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
         # Capture real functions before any patching
         from worker.queue_ops import finish as _real_finish, retry as _real_retry, start_processing as _real_start
         self._real_finish = _real_finish
@@ -373,9 +367,7 @@ class TestJobProcessor(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def _make_runner(self, **config_kwargs):
         from worker.job_runtime import DaemonRunner, JobProcessor, WorkerConfig
@@ -462,9 +454,7 @@ class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestDaemonRunnerProcessBatch(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def test_process_batch_runs_in_threads(self):
         from worker.queue_ops import Job, enqueue, _ensure_dirs
@@ -505,9 +495,7 @@ class TestDaemonRunnerProcessBatch(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestDaemonRunnerDaemon(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def test_run_daemon_stops_on_keyboard_interrupt(self):
         from worker.job_runtime import DaemonRunner, JobProcessor, WorkerConfig
@@ -557,9 +545,7 @@ class TestDaemonRunnerDaemon(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestEnqueueCommand(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def test_enqueue_command_creates_job(self):
         from worker.commands import EnqueueCommand
@@ -633,9 +619,7 @@ class TestEnqueueCommand(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestListCommand(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def test_list_command_returns_zero(self):
         from worker.commands import ListCommand
@@ -668,9 +652,7 @@ class TestListCommand(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestStatusCommand(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def test_status_command_returns_zero(self):
         from worker.commands import StatusCommand
@@ -800,9 +782,7 @@ class TestStatusCommand(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestShowCommand(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def test_show_found_job_prints_content(self):
         import io
@@ -840,9 +820,7 @@ class TestShowCommand(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestRequeueErrorsCommand(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def _make_error_job(self, job_id: str, updated_at: str | None = None, error: str = "boom") -> Path:
         from worker.queue_ops import _ensure_dirs
@@ -963,9 +941,7 @@ class TestRequeueErrorsCommand(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestRetryCommand(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def _make_error_job(self, job_id: str) -> Path:
         from worker.queue_ops import _ensure_dirs
@@ -1044,9 +1020,7 @@ class TestRetryCommand(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestPurgeCommand(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def test_purge_command_returns_zero(self):
         from worker.commands import PurgeCommand
@@ -1101,9 +1075,7 @@ class TestPurgeCommand(unittest.TestCase, QueueRootIsolationMixin):
 
 class TestJoinWithTimeout(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
-        self.tmp, self.root = _make_root()
-        self.addCleanup(self.tmp.cleanup)
-        self.isolate_queue_root()
+        self.setup_queue_root()
 
     def test_join_threads_with_zero_timeout(self):
         from worker.job_runtime import DaemonRunner, JobProcessor, WorkerConfig

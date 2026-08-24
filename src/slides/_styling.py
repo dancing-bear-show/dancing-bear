@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 from slides.constants import (
     BULLET_CHARS,
+    BULLET_HANGING_INDENT_EMU,
+    BULLET_MARGIN_BY_LEVEL_EMU,
     EXISTING_BULLET_CHARS,
     highlight_theme_color,
     link_blue,
@@ -156,12 +158,14 @@ class StylingMixin:
 
         p_pr.set("lvl", str(level))
 
-        # Set indent and margin for the level
-        indent_map = {0: 457200, 1: 457200, 2: 457200}  # ~0.5" hanging indent
-        margin_map = {0: 457200, 1: 914400, 2: 1371600}  # 0.5", 1.0", 1.5"
-
-        p_pr.set("indent", str(-indent_map.get(level, 457200)))
-        p_pr.set("marL", str(margin_map.get(level, 457200)))
+        # Hanging indent is level-independent; only the left margin steps.
+        margin = (
+            BULLET_MARGIN_BY_LEVEL_EMU[level]
+            if 0 <= level < len(BULLET_MARGIN_BY_LEVEL_EMU)
+            else BULLET_MARGIN_BY_LEVEL_EMU[0]
+        )
+        p_pr.set("indent", str(-BULLET_HANGING_INDENT_EMU))
+        p_pr.set("marL", str(margin))
 
         # Remove any existing bullet definitions
         for tag in ["a:buNone", "a:buChar", "a:buAutoNum"]:

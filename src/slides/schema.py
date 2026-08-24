@@ -16,6 +16,34 @@ class BulletItem:
     url: str | None = None  # Clickable hyperlink target
 
 
+@dataclass(frozen=True)
+class ResolvedBullet:
+    """A bullet normalized to its render-time fields.
+
+    Both BulletItem and a plain string collapse to this, so renderers do not
+    need to re-check the input type at each use site.
+    """
+
+    text: str
+    level: int = 0
+    highlight: list[str] = field(default_factory=list)
+    bold: bool = False
+    url: str | None = None
+
+    @classmethod
+    def from_item(cls, item: "str | BulletItem") -> "ResolvedBullet":
+        """Normalize a BulletItem or plain string into a ResolvedBullet."""
+        if isinstance(item, BulletItem):
+            return cls(
+                text=item.text,
+                level=item.level,
+                highlight=item.highlight,
+                bold=item.bold,
+                url=item.url,
+            )
+        return cls(text=str(item))
+
+
 @dataclass
 class SlideContent:
     """Content for a single slide."""

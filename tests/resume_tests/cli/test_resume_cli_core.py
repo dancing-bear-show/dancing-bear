@@ -334,17 +334,6 @@ class TestResumeCLIHelpers(unittest.TestCase):
             result = _find_structure_in_dirs("testprofile", [first_dir, second_dir])
             self.assertEqual(result, {"found": True})
 
-    def test_apply_profile_overlays_delegates(self):
-        """Test _apply_profile_overlays delegates to overlays module."""
-        from resume.cli.main import _apply_profile_overlays
-
-        data = {"name": "Test User", "skills": ["Python"]}
-        # Should not crash and return data (overlays may modify or return as-is)
-        result = _apply_profile_overlays(data, "testprofile")
-        self.assertIsInstance(result, dict)
-        self.assertIn("name", result)
-
-
 class TestResumeCLIFindStructureInConfig(unittest.TestCase):
     """Test _find_structure_in_config helper function."""
 

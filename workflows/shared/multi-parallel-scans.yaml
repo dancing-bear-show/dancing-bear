@@ -10,6 +10,14 @@
 #   → mps-collate-findings
 #
 # Params consumed: {source_root}, {test_path}
+#
+# SCOPE CONTRACT: when the including workflow's reads_from stage produces
+# context/changed-files.json, that file's "files" array is authoritative and
+# every scan below MUST restrict itself to it. {source_root}/{test_path} then
+# describe only where those files live, not what to scan. Without this, a
+# changed-scope run would report findings on files the caller never touched.
+# If the file is absent, scans fall back to the full {source_root}/{test_path}.
+#
 # Output files:
 #   {workspace}/analysis/reuse-findings.json
 #   {workspace}/analysis/complexity-findings.json
@@ -39,6 +47,10 @@ stages:
     depends_on: []      # overridden by include.depends_on
     reads_from: []      # overridden by include.reads_from
     description: >
+      First read {workspace}/context/changed-files.json if it exists and scan
+      ONLY the paths in its "files" array (see SCOPE CONTRACT at the top of
+      this fragment). Fall back to {source_root} only when that file is absent.
+
       Scan {source_root} for code reuse issues using the canonical concern
       definitions in concerns/reuse.md.
 
@@ -110,6 +122,10 @@ stages:
     depends_on: []      # overridden by include.depends_on (intra-fragment: parallel to scan-reuse)
     reads_from: []
     description: >
+      First read {workspace}/context/changed-files.json if it exists and scan
+      ONLY the paths in its "files" array (see SCOPE CONTRACT at the top of
+      this fragment). Fall back to {source_root} only when that file is absent.
+
       Scan {source_root} for complexity issues using the canonical concern
       definitions in concerns/complexity.md.
 
@@ -148,6 +164,15 @@ stages:
     reads_from: []
     description: >
       Scan {source_root} and {test_path} for test coverage gaps.
+
+      Step 0 — Guard: if {test_path} is empty or unset, SKIP this entire stage.
+      Write an empty findings array and note "no test_path supplied — coverage
+      scan skipped". Every step below needs a test tree; running them with an
+      empty {test_path} expands to `discover -s` with a missing argument and
+      fails the run instead of performing the requested sweep.
+
+      As with the other scans, honour {workspace}/context/changed-files.json
+      when it exists — restrict the helper audit to the test files it lists.
 
       Step 1 — Test shared helper audit:
         For each test file under {test_path}: grep for manual dict
@@ -191,6 +216,10 @@ stages:
     depends_on: []      # overridden by include.depends_on (intra-fragment: parallel to scan-reuse)
     reads_from: []
     description: >
+      First read {workspace}/context/changed-files.json if it exists and scan
+      ONLY the paths in its "files" array (see SCOPE CONTRACT at the top of
+      this fragment). Fall back to {source_root} only when that file is absent.
+
       Scan {source_root} for hardcoded credentials, credential masking
       gaps, and direct HTTP client usage.
 

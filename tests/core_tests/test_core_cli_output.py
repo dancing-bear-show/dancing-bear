@@ -17,6 +17,8 @@ from core.cli_output import (
     output_json,
     output_yaml,
     output_table,
+    emit_one,
+    emit_rows,
 )
 
 
@@ -465,6 +467,56 @@ class TestOutputTableSadPath(unittest.TestCase):
         with unittest.mock.patch("sys.stdout", buf):
             with self.assertRaises(TypeError):
                 output_table(SampleData)
+
+
+class TestNonAsciiRoundTrip(unittest.TestCase):
+    """Non-ASCII user data must reach stdout literally, never \\uXXXX-escaped.
+
+    These CLIs carry email subjects, sender display names, and attachment
+    filenames, where escaping is lossy for the reader.
+    """
+
+    SUBJECT = "Café ☕"
+
+    def _capture(self, fn) -> str:
+        buf = StringIO()
+        with unittest.mock.patch("sys.stdout", buf):
+            fn()
+        return buf.getvalue()
+
+    def assertUnescaped(self, out: str) -> None:
+        self.assertIn(self.SUBJECT, out)
+        self.assertNotIn("\\u00e9", out)
+        self.assertNotIn("\\u2615", out)
+
+    def test_emit_one_json_emits_literal_utf8(self):
+        out = self._capture(lambda: emit_one({"subject": self.SUBJECT}))
+        self.assertUnescaped(out)
+        self.assertEqual(json.loads(out)["subject"], self.SUBJECT)
+
+    def test_emit_one_jsonl_emits_literal_utf8(self):
+        out = self._capture(lambda: emit_one({"subject": self.SUBJECT}, fmt="jsonl"))
+        self.assertUnescaped(out)
+        self.assertEqual(json.loads(out)["subject"], self.SUBJECT)
+
+    def test_emit_rows_json_emits_literal_utf8(self):
+        out = self._capture(lambda: emit_rows([{"subject": self.SUBJECT}], fmt="json"))
+        self.assertUnescaped(out)
+        self.assertEqual(json.loads(out)[0]["subject"], self.SUBJECT)
+
+    def test_output_writer_json_emits_literal_utf8(self):
+        out = self._capture(lambda: output_json({"subject": self.SUBJECT}))
+        self.assertUnescaped(out)
+        self.assertEqual(json.loads(out)["subject"], self.SUBJECT)
+
+    def test_output_writer_yaml_emits_literal_utf8(self):
+        out = self._capture(lambda: output_yaml({"subject": self.SUBJECT}))
+        self.assertUnescaped(out)
+        self.assertNotIn("\\xE9", out)
+
+    def test_emit_rows_csv_emits_literal_utf8(self):
+        out = self._capture(lambda: emit_rows([{"subject": self.SUBJECT}], fmt="csv"))
+        self.assertUnescaped(out)
 
 
 if __name__ == "__main__":

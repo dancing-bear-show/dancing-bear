@@ -5,6 +5,8 @@ import argparse
 import time
 from collections import Counter, defaultdict
 
+from ..utils.senders import extract_domain, extract_sender_email, is_protected_email
+
 
 def _print_doctor_report(info: dict) -> None:
     """Print label analysis report."""
@@ -171,39 +173,6 @@ def run_labels_prune_empty(args) -> int:
     return 0
 
 
-def _extract_email_from_header(from_val: str) -> str:
-    """Extract email address from 'Name <email>' format."""
-    f = (from_val or '').lower()
-    if '<' in f and '>' in f:
-        try:
-            f = f.split('<')[-1].split('>')[0]
-        except Exception:  # nosec B110 - malformed From header
-            pass
-    return f.strip()
-
-
-def _extract_domain(email: str) -> str:
-    """Extract domain from email address."""
-    return email.split('@')[-1].lower().strip() if '@' in email else email.lower().strip()
-
-
-def _pattern_matches(email: str, domain: str, pattern: str) -> bool:
-    """Return True if email/domain matches a single protected pattern."""
-    if pattern.startswith('@'):
-        return email.endswith(pattern) or domain == pattern.lstrip('@')
-    return pattern == email
-
-
-def _is_protected_sender(email: str, protected_patterns: list) -> bool:
-    """Check if sender matches any protected pattern."""
-    domain = _extract_domain(email)
-    return any(
-        _pattern_matches(email, domain, p)
-        for p in protected_patterns
-        if p
-    )
-
-
 def _classify_domain(hints: dict, count: int) -> str | None:
     """Classify domain based on message hints. Returns label or None."""
     threshold = max(1, count // 3)
@@ -216,10 +185,10 @@ def _classify_domain(hints: dict, count: int) -> str | None:
 
 def _domain_for_message(hdrs: dict, protected: list) -> str | None:
     """Return the sender domain for a message's headers, or None if protected/unresolvable."""
-    email = _extract_email_from_header(hdrs.get('from', ''))
-    if _is_protected_sender(email, protected):
+    email = extract_sender_email(hdrs.get('from', ''))
+    if is_protected_email(email, protected):
         return None
-    dom = _extract_domain(email)
+    dom = extract_domain(email)
     return dom or None
 
 
