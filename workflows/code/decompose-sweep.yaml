@@ -101,9 +101,9 @@ stages:
           ],
           "test_candidates": [
             {
-              "path": "tests/metals_tests/costs/test_metals_gmail_costs.py",
-              "domain": "metals",
-              "line_count": 1084
+              "path": "tests/telemetry_tests/test_parse_transcripts.py",
+              "domain": "telemetry",
+              "line_count": 1090
             }
           ],
           "total_lines_over_threshold": <sum of (line_count - threshold) for all candidates>
