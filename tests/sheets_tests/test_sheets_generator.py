@@ -9,7 +9,12 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 from sheets.constants import MAX_COLUMN_WIDTH, MIN_COLUMN_WIDTH
-from sheets.generator import SheetGenerator, generate_from_yaml, generate_xlsx
+from sheets.generator import (
+    SheetGenerator,
+    generate_from_yaml,
+    generate_xlsx,
+    validate_workbook,
+)
 from sheets.schema import HeaderStyle, SheetMetadata, SheetTab, SheetWorkbook
 
 
@@ -179,3 +184,123 @@ class TestGenerateXlsx(unittest.TestCase):
             fill_row2 = ws.cell(2, 1).fill.fgColor.rgb
             fill_row3 = ws.cell(3, 1).fill.fgColor.rgb
             self.assertNotEqual(fill_row2, fill_row3)
+
+
+class TestValidateWorkbook(unittest.TestCase):
+    """validate_workbook catches definitions openpyxl cannot write.
+
+    Regression guard: `sheets validate` previously reported OK for a workbook
+    whose sheet name Excel forbids, and `sheets generate` then failed at write
+    time — a validate pass that did not mean the file could be produced.
+    """
+
+    def test_clean_workbook_has_no_problems(self) -> None:
+        self.assertEqual(validate_workbook(_make_workbook()), [])
+
+    def test_forbidden_character_is_reported(self) -> None:
+        wb = _make_workbook([SheetTab(name="Q1/Q2", headers=["A"], rows=[[1]])])
+        problems = validate_workbook(wb)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("/", problems[0])
+
+    def test_every_forbidden_character_is_caught(self) -> None:
+        for char in ["\\", "/", "*", "?", ":", "[", "]"]:
+            with self.subTest(char=char):
+                wb = _make_workbook(
+                    [SheetTab(name=f"A{char}B", headers=["A"], rows=[[1]])]
+                )
+                self.assertTrue(validate_workbook(wb), f"{char!r} not caught")
+
+    def test_forbidden_character_actually_breaks_openpyxl(self) -> None:
+        # Anchors the constant list to real openpyxl behaviour rather than a
+        # guess: if openpyxl ever stops rejecting one of these, this fails.
+        wb = _make_workbook([SheetTab(name="Q1/Q2", headers=["A"], rows=[[1]])])
+        with tempfile.TemporaryDirectory() as tmp:
+            out = str(Path(tmp) / "out.xlsx")
+            with self.assertRaises(ValueError):
+                generate_xlsx(wb, out)
+
+    def test_overlong_name_is_reported(self) -> None:
+        wb = _make_workbook([SheetTab(name="A" * 32, headers=["A"], rows=[[1]])])
+        problems = validate_workbook(wb)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("32", problems[0])
+
+    def test_name_at_limit_is_allowed(self) -> None:
+        wb = _make_workbook([SheetTab(name="A" * 31, headers=["A"], rows=[[1]])])
+        self.assertEqual(validate_workbook(wb), [])
+
+    def test_empty_name_is_reported(self) -> None:
+        wb = _make_workbook([SheetTab(name="", headers=["A"], rows=[[1]])])
+        self.assertTrue(validate_workbook(wb))
+
+    def test_duplicate_names_are_reported(self) -> None:
+        wb = _make_workbook([
+            SheetTab(name="Data", headers=["A"], rows=[[1]]),
+            SheetTab(name="Data", headers=["A"], rows=[[2]]),
+        ])
+        problems = validate_workbook(wb)
+        self.assertTrue(any("duplicate" in p for p in problems))
+
+    def test_duplicate_names_differing_only_by_case_are_reported(self) -> None:
+        # Excel compares sheet names case-insensitively.
+        wb = _make_workbook([
+            SheetTab(name="Data", headers=["A"], rows=[[1]]),
+            SheetTab(name="DATA", headers=["A"], rows=[[2]]),
+        ])
+        problems = validate_workbook(wb)
+        self.assertTrue(any("duplicate" in p for p in problems))
+
+    def test_multiple_problems_all_reported(self) -> None:
+        wb = _make_workbook([
+            SheetTab(name="A/B", headers=["A"], rows=[[1]]),
+            SheetTab(name="C" * 40, headers=["A"], rows=[[1]]),
+        ])
+        self.assertEqual(len(validate_workbook(wb)), 2)
+
+
+class TestUncoveredGeneratorPaths(unittest.TestCase):
+    """Branches the initial test pass missed."""
+
+    def test_alternating_rows_disabled_leaves_cells_unfilled(self) -> None:
+        wb = SheetWorkbook(
+            metadata=SheetMetadata(title="T"),
+            sheets=[SheetTab(
+                name="Plain", headers=["A"], rows=[[1], [2]],
+                alternating_rows=False,
+            )],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            out = str(Path(tmp) / "plain.xlsx")
+            generate_xlsx(wb, out)
+            ws = load_workbook(out)["Plain"]
+            self.assertEqual(ws.cell(2, 1).fill.fill_type, None)
+            self.assertEqual(ws.cell(3, 1).fill.fill_type, None)
+
+    def test_column_width_skips_none_values(self) -> None:
+        gen = SheetGenerator()
+        width = gen._calculate_column_width([None, "hello"])
+        self.assertGreaterEqual(width, MIN_COLUMN_WIDTH)
+        self.assertLessEqual(width, MAX_COLUMN_WIDTH)
+
+    def test_row_shorter_than_headers_is_written(self) -> None:
+        wb = SheetWorkbook(
+            metadata=SheetMetadata(title="T"),
+            sheets=[SheetTab(name="Short", headers=["A", "B", "C"], rows=[["x"]])],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            out = str(Path(tmp) / "short.xlsx")
+            generate_xlsx(wb, out)
+            ws = load_workbook(out)["Short"]
+            self.assertEqual(ws.cell(2, 1).value, "x")
+            self.assertIsNone(ws.cell(2, 3).value)
+
+    def test_author_is_written_to_workbook_properties(self) -> None:
+        wb = SheetWorkbook(
+            metadata=SheetMetadata(title="T", author="Alice"),
+            sheets=[SheetTab(name="S", headers=["A"], rows=[[1]])],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            out = str(Path(tmp) / "authored.xlsx")
+            generate_xlsx(wb, out)
+            self.assertEqual(load_workbook(out).properties.creator, "Alice")

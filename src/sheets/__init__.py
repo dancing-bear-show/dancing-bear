@@ -11,6 +11,7 @@ from sheets.generator import (
     generate_from_yaml,
     generate_xlsx,
     load_workbook_from_yaml,
+    validate_workbook,
 )
 from sheets.schema import (
     HeaderStyle,
@@ -35,4 +36,5 @@ __all__ = [
     "generate_from_yaml",
     "generate_xlsx",
     "load_workbook_from_yaml",
+    "validate_workbook",
 ]

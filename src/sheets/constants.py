@@ -1,8 +1,10 @@
 """Constants for spreadsheet generation.
 
 Centralises all magic strings, numeric values, and configuration defaults
-used in the sheets module. All values are plain Python scalars, so this
-module stays importable without openpyxl installed.
+used in the sheets module. Every value is a plain Python scalar, so
+``from sheets.constants import ...`` pulls in no third-party code. Note that
+``import sheets`` does require openpyxl, because the package __init__ re-exports
+the generator.
 """
 
 from __future__ import annotations
@@ -37,11 +39,8 @@ DEFAULT_HEADER_BOLD = True
 # Column and Row Dimensions (characters / points)
 # =============================================================================
 
-DEFAULT_COLUMN_WIDTH = 12  # characters
 MIN_COLUMN_WIDTH = 8       # auto-fit lower bound
 MAX_COLUMN_WIDTH = 50      # auto-fit upper bound
-
-DEFAULT_ROW_HEIGHT = 15    # points
 
 
 # =============================================================================
@@ -81,3 +80,18 @@ YAML_FREEZE_COLS = "freeze_cols"
 DEFAULT_WORKBOOK_TITLE = "Untitled"
 DEFAULT_SHEET_NAME = "Sheet1"
 DEFAULT_ALTERNATING_ROWS = True
+
+
+# =============================================================================
+# Excel Sheet-Name Constraints
+# =============================================================================
+
+# Excel rejects these outright: openpyxl raises ValueError when a title
+# contains one, so a workbook that only fails at write time would otherwise
+# pass `sheets validate` and then blow up in `sheets generate`.
+INVALID_SHEET_NAME_CHARS = frozenset(r"\/*?:[]")
+
+# Excel's hard limit. openpyxl only emits a UserWarning past this length and
+# writes the file anyway, but some readers cannot open the result — so treat
+# it as an error at validation time rather than shipping a broken workbook.
+MAX_SHEET_NAME_LENGTH = 31

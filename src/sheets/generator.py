@@ -25,7 +25,9 @@ from sheets.constants import (
     DEFAULT_HEADER_TEXT_COLOR,
     DEFAULT_SHEET_NAME,
     DEFAULT_WORKBOOK_TITLE,
+    INVALID_SHEET_NAME_CHARS,
     MAX_COLUMN_WIDTH,
+    MAX_SHEET_NAME_LENGTH,
     MIN_COLUMN_WIDTH,
     YAML_ALTERNATING_ROWS,
     YAML_AUTHOR,
@@ -45,6 +47,50 @@ from sheets.constants import (
     YAML_TITLE,
 )
 from sheets.schema import HeaderStyle, SheetMetadata, SheetTab, SheetWorkbook
+
+
+def validate_workbook(workbook_def: SheetWorkbook) -> list[str]:
+    """Return a list of problems that would break .xlsx generation.
+
+    Excel constrains sheet names in ways a YAML definition can violate, and
+    openpyxl only reports them when the workbook is written: an invalid
+    character raises ValueError mid-generate, and an over-long name is
+    downgraded to a UserWarning that still yields a file some readers refuse
+    to open. Checking up front means `sheets validate` fails on a definition
+    that `sheets generate` cannot produce, instead of reporting OK and
+    deferring the error to write time.
+
+    Returns an empty list when the definition is generatable.
+    """
+    problems: list[str] = []
+    seen: set[str] = set()
+
+    for index, sheet in enumerate(workbook_def.sheets, start=1):
+        label = f"sheet {index}"
+        if not sheet.name:
+            problems.append(f"{label}: name is empty")
+            continue
+
+        bad_chars = sorted(set(sheet.name) & INVALID_SHEET_NAME_CHARS)
+        if bad_chars:
+            problems.append(
+                f"{label} ({sheet.name!r}): contains character(s) Excel forbids "
+                f"in a sheet name: {' '.join(bad_chars)}"
+            )
+        if len(sheet.name) > MAX_SHEET_NAME_LENGTH:
+            problems.append(
+                f"{label} ({sheet.name!r}): name is {len(sheet.name)} characters; "
+                f"Excel allows at most {MAX_SHEET_NAME_LENGTH}"
+            )
+
+        # Excel treats sheet names case-insensitively, so two tabs differing
+        # only in case collide and the second silently overwrites the first.
+        key = sheet.name.casefold()
+        if key in seen:
+            problems.append(f"{label} ({sheet.name!r}): duplicate sheet name")
+        seen.add(key)
+
+    return problems
 
 
 def load_workbook_from_yaml(yaml_path: str) -> SheetWorkbook:

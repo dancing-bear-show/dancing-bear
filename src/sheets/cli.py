@@ -57,6 +57,9 @@ def cmd_generate(args) -> int:
         generator = SheetGenerator()
         result = generator.generate(workbook, output_path)
     except Exception as e:
+        # Broad catch is intentional: openpyxl raises a range of types
+        # (ValueError, OSError, ...) and every one of them is a user-facing
+        # failure. The error is reported and surfaced as exit 1, never swallowed.
         print(f"Error generating spreadsheet: {e}", file=sys.stderr)
         return 1
 
@@ -74,11 +77,13 @@ def cmd_validate(args) -> int:
         return 1
 
     try:
-        from .generator import load_workbook_from_yaml
+        from .generator import load_workbook_from_yaml, validate_workbook
         workbook = load_workbook_from_yaml(args.yaml_file)
     except Exception as e:
         print(f"Validation failed: {e}", file=sys.stderr)
         return 1
+
+    problems = validate_workbook(workbook)
 
     meta = workbook.metadata
     print(f"Title: {meta.title}")
@@ -88,6 +93,11 @@ def cmd_validate(args) -> int:
     for i, sheet in enumerate(workbook.sheets, start=1):
         print(f"  {i}. {sheet.name} ({len(sheet.headers)} columns, {len(sheet.rows)} rows)")
     print()
+    if problems:
+        print(f"Validation: FAILED ({len(problems)} problem(s))", file=sys.stderr)
+        for problem in problems:
+            print(f"  - {problem}", file=sys.stderr)
+        return 1
     print("Validation: OK")
     return 0
 
