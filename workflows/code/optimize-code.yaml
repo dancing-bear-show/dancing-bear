@@ -5,6 +5,13 @@ description: >
   parallel (reuse, complexity, coverage, security via shared fragment; plus
   architecture inline), collates findings, applies corrections, and rechecks.
 
+  Scope is set by the {scope} param:
+    changed (default) — only .py files differing from origin/main, or from
+                        {pr_number} when set. Use after implementing a change.
+    domain            — every .py file under {source_root} and {test_path},
+                        ignoring git entirely. Use to sweep a whole domain,
+                        including code nobody touched this branch.
+
   Replaces running /optimize-code, /optimize-code-complexity,
   /optimize-code-coverage, /optimize-code-reuse, and
   /optimize-code-security manually in sequence.
@@ -34,11 +41,16 @@ trigger:
   params:
     source_root: ""     # e.g. "workflow/"
     test_path: ""       # e.g. "tests/workflow/"
-    pr_number: ""       # optional — scope to changed files in this PR
+    scope: "changed"    # changed = files differing from origin/main (or {pr_number});
+                        # domain  = every .py under {source_root} + {test_path}
+    pr_number: ""       # optional — scope to changed files in this PR (implies scope=changed)
     skip_checks: ""     # optional — comma-separated: reuse,complexity,coverage,security,arch
     auth_domains: "github"
 
-workspace_dir: "{work_dir}/optimize-code-{pr_number}-{source_root}"
+# {source_root} is NOT interpolated here: it contains a "/" (e.g. "src/mail"),
+# which would split the workspace into a spurious nested directory
+# (out/optimize-code-domain--src/mail/...) instead of one flat run directory.
+workspace_dir: "{work_dir}/optimize-code-{scope}-{pr_number}"
 
 stages:
 
@@ -50,22 +62,41 @@ stages:
     kind: gather
     depends_on: []
     description: >
-      Identify the set of source files to check.
+      Identify the set of files to check. Honour {scope}.
 
-      If {pr_number} is set:
-        gh pr diff {pr_number} --name-only
-        (Raw gh is intentional here — ./bin/github has no pr-diff subcommand. This is the
-        only approved use of raw gh in this workflow.)
-        Filter the output to .py files under {source_root}.
-      Otherwise:
-        git diff origin/main...HEAD --name-only
-        Filter to .py files under {source_root}.
+      If {scope} is "domain":
+        List every .py file under {source_root} AND under {test_path}:
+          find {source_root} {test_path} -name '*.py'
+        Skip {test_path} if it is empty/unset. Do NOT consult git — a domain
+        sweep covers the whole domain regardless of what changed.
+        Note in the output that tests are in scope, so downstream scans know to
+        apply the test-quality checks (shared fixtures, parametrization,
+        byte-identical duplicate test methods) and not only the src checks.
 
-      If no files found (nothing changed in {source_root}), write an empty list
-      and note "no changed files in {source_root} — nothing to optimize".
+      If {scope} is "changed" (the default):
+        If {pr_number} is set:
+          gh pr diff {pr_number} --name-only
+          (Raw gh is intentional here — ./bin/github has no pr-diff subcommand. This is the
+          only approved use of raw gh in this workflow.)
+          Filter the output to .py files under {source_root} or {test_path}.
+        Otherwise:
+          git diff origin/main...HEAD --name-only
+          Filter to .py files under {source_root} or {test_path}.
 
-      Write {workspace}/context/changed-files.json:
-        { "source_root": "{source_root}", "files": ["path/to/file.py", ...] }
+      If {scope} is neither "changed" nor "domain", fail the stage with a clear
+      message naming the two valid values — do not silently fall back.
+
+      If no files found: for scope=changed write an empty list and note
+      "no changed files in {source_root} — nothing to optimize". For
+      scope=domain an empty result means {source_root} is wrong or empty —
+      fail loudly rather than reporting a clean sweep of nothing.
+
+      Write {workspace}/context/changed-files.json (filename kept for
+      compatibility with downstream stages; under scope=domain it holds the
+      full domain file set):
+        { "scope": "{scope}", "source_root": "{source_root}",
+          "test_path": "{test_path}", "tests_in_scope": true|false,
+          "files": ["path/to/file.py", ...] }
     agent:
       role: researcher
       model: sonnet
@@ -86,7 +117,8 @@ stages:
     depends_on: [scan-changed-files]
     reads_from: [scan-changed-files]
     description: >
-      Read context/changed-files.json. For each changed file:
+      Read context/changed-files.json. For each file listed (the full domain
+      when scope=domain, only the diff when scope=changed):
 
       Step 7 — Dead code:
         Flag unused imports (importable but never referenced).
