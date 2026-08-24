@@ -266,7 +266,6 @@ class TestAddTableToSlide(unittest.TestCase):
 
         self.mixin._add_table_to_slide(slide, headers, rows, self.theme)
 
-        # num_rows = len(rows)+1 = 3; num_cols = 2
         slide.shapes.add_table.assert_called_once()
         args = slide.shapes.add_table.call_args[0]
         self.assertEqual(args[0], 3)  # num_rows
