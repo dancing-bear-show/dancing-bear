@@ -68,6 +68,9 @@ class _Concrete(ContentMixin):
     """Concrete subclass with only the methods needed by ContentMixin."""
 
     def _set_slide_title(self, slide, title_text, theme_color, subtitle=None, *, inherit_style=False):
+        # Intentional no-op: ShapeUtilsMixin._set_slide_title mutates the title placeholder's
+        # text, alignment, font runs, and position via python-pptx; these tests only assert
+        # ContentMixin's call routing and body-paragraph formatting, not title rendering.
         pass
 
     def _find_shape(self, slide, *, placeholder=None, shape_type=None, has_text_frame=False):
@@ -92,15 +95,28 @@ class _Concrete(ContentMixin):
         return self._find_body_placeholder(slide) is not None
 
     def _reposition_textbox(self, slide, left, width):
+        # Intentional no-op: ShapeUtilsMixin._reposition_textbox adjusts the text-box
+        # shape's left, width, and height in EMU via python-pptx; the tests that exercise
+        # this path (test_repositions_textbox_in_legacy_mode) use assert_called_once on a
+        # MagicMock replacement, so the stub never runs.
         pass
 
     def _remove_unused_placeholders(self, slide, *, keep_body=False):
+        # Intentional no-op: ShapeUtilsMixin._remove_unused_placeholders removes non-title
+        # placeholder XML elements from the pptx shape tree; ContentMixin tests assert
+        # slide content and paragraph formatting, not placeholder cleanup.
         pass
 
     def _apply_native_bullet(self, paragraph, level):
+        # Intentional no-op: StylingMixin._apply_native_bullet mutates the DrawingML pPr
+        # XML element (bullet char, indent, margin) via lxml; these tests assert only
+        # paragraph text content and spacing, not the XML bullet structure.
         pass
 
     def _suppress_bullet(self, paragraph):
+        # Intentional no-op: StylingMixin._suppress_bullet injects a DrawingML buNone
+        # element via lxml to suppress native bullet markers; section-header tests only
+        # assert spacing and text run values, not the underlying XML structure.
         pass
 
     def _format_bullet_text(self, text, level):
@@ -111,6 +127,10 @@ class _Concrete(ContentMixin):
         run.text = text
 
     def _populate_title_slide(self, slide, content, theme_color):
+        # Intentional no-op: ContentMixin._populate_title_slide removes non-title placeholders,
+        # repositions the title shape, and adds a subtitle textbox via python-pptx; the test
+        # (test_title_slide_calls_populate_title_slide) replaces this with a MagicMock and
+        # only asserts the method was called — the stub itself never executes.
         pass
 
 
@@ -147,7 +167,7 @@ class TestResolveFontAndSpacing(unittest.TestCase):
     """Tests for ContentMixin._resolve_font_and_spacing."""
 
     def test_header_spacing(self):
-        font_size, theme, space_before, space_after = ContentMixin._resolve_font_and_spacing(
+        font_size, _, space_before, space_after = ContentMixin._resolve_font_and_spacing(
             True, 0, MSO_THEME_COLOR.LIGHT_2, False
         )
         self.assertEqual(font_size, Pt(FONT_SIZE_HEADER))
@@ -155,7 +175,7 @@ class TestResolveFontAndSpacing(unittest.TestCase):
         self.assertEqual(space_after, Pt(SPACING_AFTER_HEADER))
 
     def test_bullet_spacing(self):
-        font_size, theme, space_before, space_after = ContentMixin._resolve_font_and_spacing(
+        font_size, _, space_before, space_after = ContentMixin._resolve_font_and_spacing(
             False, 0, MSO_THEME_COLOR.LIGHT_2, False
         )
         self.assertEqual(font_size, Pt(FONT_SIZES_BY_LEVEL[0]))

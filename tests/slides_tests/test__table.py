@@ -92,6 +92,9 @@ class _Concrete(TableMixin):
         return None
 
     def _remove_unused_placeholders(self, slide, *, keep_body=False):
+        # Intentional no-op: ShapeUtilsMixin._remove_unused_placeholders removes non-title
+        # placeholder XML elements from the pptx shape tree; TableMixin tests assert
+        # table structure and bullet rendering, not placeholder cleanup.
         pass
 
     def _is_section_header(self, text):
@@ -263,7 +266,6 @@ class TestAddTableToSlide(unittest.TestCase):
 
         self.mixin._add_table_to_slide(slide, headers, rows, self.theme)
 
-        # num_rows = len(rows)+1 = 3; num_cols = 2
         slide.shapes.add_table.assert_called_once()
         args = slide.shapes.add_table.call_args[0]
         self.assertEqual(args[0], 3)  # num_rows

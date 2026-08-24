@@ -72,6 +72,9 @@ check-env: venv
 	got = pathlib.Path(core.__file__).resolve(); \
 	sys.exit(0) if src in got.parents else (print(f'ERROR: core resolves to {got}, expected under {src}'), sys.exit(1))"
 	@echo "OK: imports resolve to $(SRC)"
+	@$(RUNPY) -c "import sys; \
+[print(f'OK: PyYAML importable under {sys.executable}')] if [__import__('yaml')] else None" \
+	2>/dev/null || (echo "ERROR: PyYAML not importable under $$($(RUNPY) -c 'import sys; print(sys.executable)') — run make venv" >&2; exit 1)
 
 # The [tui] extra comes from the venv target above. An optional dep missing at
 # collection time reports its modules as 0% rather than as skipped, which reads

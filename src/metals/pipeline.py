@@ -361,15 +361,11 @@ class OutlookCostsProcessor(SafeProcessor[OutlookCostsRequest, OutlookCostsResul
     def _process_safe(self, request: OutlookCostsRequest) -> OutlookCostsResult:
         from .outlook_costs import run as _costs_run
         _costs_run(profile=request.profile, out_path=request.out_path)
-        # NOTE: outlook_costs.run() (the module-level wrapper, patched by
-        # tests/metals_tests/pipeline/test_new_processors.py) does not expose
-        # the underlying OutlookCostExtractor instance, so the real row count
-        # is not available here. Calling OutlookCostExtractor directly would
-        # bypass the wrapper's test seam and execute a live network call in
-        # tests that patch metals.outlook_costs.run. Row count is left at the
-        # dataclass default (0) on this path; see GmailCostsProcessor for the
-        # equivalent Gmail path, where the extractor IS constructed directly
-        # and last_row_count is available.
+        # row_count stays at the dataclass default (0): the run() wrapper is the
+        # patch seam tests rely on, and it does not expose the underlying
+        # OutlookCostExtractor. Constructing the extractor here to read
+        # last_row_count would bypass that seam and make a live network call.
+        # GmailCostsProcessor builds its extractor directly, so it can report.
         return OutlookCostsResult(out_path=request.out_path, row_count=0)
 
 

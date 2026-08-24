@@ -136,10 +136,10 @@ _default_outlook_token = default_outlook_token_path()
 
 # Repeated help-text strings extracted as module-level constants
 HELP_CREDENTIALS = "Path to OAuth credentials.json"
-HELP_TOKEN = "Path to token.json"
+HELP_TOKEN = "Path to token.json"  # nosec B105 - argparse help text, not a credential
 HELP_CLIENT_ID = "Azure app (client) ID"
 HELP_TENANT = "AAD tenant"
-HELP_TOKEN_CACHE = "Path to token cache JSON"
+HELP_TOKEN_CACHE = "Path to token cache JSON"  # nosec B105 - argparse help text, not a credential
 
 
 def _lazy_emit_agentic():

@@ -29,12 +29,29 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-def _load_definition(path: str) -> WorkflowDefinition:
-    """Parse a workflow YAML, raising CLIError on failure."""
+def _parse_workflow_safe(path: str) -> WorkflowDefinition:
+    """Wrap parse_workflow with friendly CLIError on ImportError or parse failure.
+
+    Shared by _load_definition and _build_resolved_params so the interpreter/
+    remediation message is never duplicated and cannot be missed by a new call site.
+    """
     try:
         return parse_workflow(path)
+    except ImportError as exc:
+        # An import failure (e.g. missing PyYAML) is an environment problem,
+        # not a content error in the workflow file.
+        raise CLIError(
+            f"Missing dependency '{exc.name}' (interpreter: {sys.executable}). "
+            "Run 'make venv' and use the repo .venv interpreter.",
+            ExitCode.ERROR,
+        ) from exc
     except WorkflowParseError as exc:
         raise CLIError(f"Parse error: {exc}", ExitCode.ERROR) from exc
+
+
+def _load_definition(path: str) -> WorkflowDefinition:
+    """Parse a workflow YAML, raising CLIError on failure."""
+    return _parse_workflow_safe(path)
 
 
 def _load_manifest(
@@ -68,10 +85,7 @@ def _parse_params(raw: list[str]) -> tuple[dict[str, str], str | None]:
 
 def _build_resolved_params(path: str, cli_params: dict[str, str]) -> dict[str, str]:
     """Merge trigger-default and CLI params in priority order."""
-    try:
-        defn_only = parse_workflow(path)
-    except WorkflowParseError as exc:
-        raise CLIError(f"workflow: parse error: {exc}", ExitCode.ERROR) from exc
+    defn_only = _parse_workflow_safe(path)
     trigger_defaults = defn_only.trigger.params if defn_only.trigger else {}
     work_dir = str(Path.cwd() / "out")
     built_in_params = {"work_dir": work_dir}
@@ -368,7 +382,16 @@ def _cmd_list(args: argparse.Namespace) -> int:
             defn = parse_workflow(path)
             rows.append({"file": rel, "name": defn.name, "version": defn.version,
                          "description": defn.description, "stages": len(defn.stages)})
-        except Exception:  # noqa: BLE001 # nosec B110 - best-effort listing
+        except ImportError as exc:
+            # An import failure is an environment problem (e.g. missing PyYAML),
+            # not a property of this file.  Surface it once as a hard error so
+            # it can't be silently swallowed across all 40+ rows in the table.
+            raise CLIError(
+                f"Missing dependency '{exc.name}' (interpreter: {sys.executable}). "
+                "Run 'make venv' and use the repo .venv interpreter.",
+                ExitCode.ERROR,
+            ) from exc
+        except Exception:  # noqa: BLE001 # nosec B110 - per-file parse resilience: skip malformed YAML and continue listing
             rows.append({"file": rel, "name": "?", "version": "?",
                          "description": "(parse error)", "stages": 0})
 
