@@ -131,6 +131,10 @@ class AgentSpec:
     model: str | None = None  # sonnet, opus, haiku, or None (inherit)
     tools: tuple[str, ...] = ()  # allowed tools (empty = all)
     access: AgentAccess = AgentAccess.read_only
+    # "worktree" runs the agent in its own git worktree so parallel writers do
+    # not interleave edits in a shared tree. None inherits the caller's tree.
+    # Surfaced in the dispatch payload so the orchestrator passes it to Agent().
+    isolation: str | None = None
 
 
 @dataclass(frozen=True)

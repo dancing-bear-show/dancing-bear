@@ -95,14 +95,14 @@ general workflow concerns live in `workflow.md`.
 - **triggers**: `writes_to` list entries that begin with the literal string `outputs/`; corresponding stage descriptions or downstream stages that reference the same file without the `outputs/` prefix.
 - **example**: `writes_to: ["outputs/manifest.json"]` resolves to `{workspace}/outputs/outputs/manifest.json`, but the next stage reads `{workspace}/outputs/manifest.json`. Post-group output verification finds the file missing and marks the stage failed. Fix: drop the prefix — `writes_to: ["manifest.json"]`.
 
-### work-dir-agent-path-protocol
+### isolated-agent-path-protocol
 - **severity**: critical
-- **check**: Verify that any `isolation: work-dir` stage instructs its agent to read/write
+- **check**: Verify that any `isolation: worktree` stage instructs its agent to read/write
   via an **absolute path under the agent's OWN worktree cwd** (`{cwd}/inputs/<name>`,
   `{cwd}/outputs/<name>`) — NOT a bare relative path (`inputs/<name>`, `outputs/<name>`)
   and NOT an absolute `{workspace}/...` path. The orchestrator copies each input into
   `{cwd}/inputs/` before signaling proceed; the agent reads and writes absolute-under-own-cwd.
-- **triggers**: `isolation: work-dir` stage descriptions using `{workspace}/...` paths
+- **triggers**: `isolation: worktree` stage descriptions using `{workspace}/...` paths
   (these prompt); descriptions telling the agent to read/write a **bare relative** path
   (`inputs/foo.md`, `outputs/bar.json`) (these leak into the shared repo tree); a stage
   that correctly avoids `{workspace}/...` but still uses bare-relative paths.
@@ -113,7 +113,7 @@ general workflow concerns live in `workflow.md`.
   session does not inherit the parent's allow list. The fix is symmetric — the orchestrator
   copies inputs IN (to `{cwd}/inputs/`) and copies outputs OUT (from `{cwd}/outputs/`),
   and the agent uses **absolute paths under its own cwd** in both directions.
-- **example**: A concern-sweep fan-out stage (`isolation: work-dir`) says "Read
+- **example**: A concern-sweep fan-out stage (`isolation: worktree`) says "Read
   `{workspace}/concerns/correctness.md`" (prompts) or "Read `inputs/correctness.md`"
   (bare relative — reads the shared tree). Fix: the orchestrator copies the concern
   guide into `{cwd}/inputs/` and passes the agent its `cwd`; the prompt says
@@ -146,31 +146,35 @@ general workflow concerns live in `workflow.md`.
 - **severity**: critical
 - **check**: Verify that Haiku fan-out agents (researcher-haiku, unit-validator, cross-unit-validator) spawned with `isolation: worktree` do NOT write output files to the repo worktree. Haiku agents in isolated worktrees cannot write to repo paths — the Write tool may be blocked at the harness level in certain permission modes. Writing to repo paths in that context silently fails with "Permission denied", leaving downstream stages with missing input.
 - **triggers**: Workflow YAML fan-out stages with `model: haiku` (or `role: researcher-haiku`, `role: unit-validator`, `role: cross-unit-validator`) whose `description` instructs agents to write output files to repo-relative paths instead of `{workspace}/...` paths; stages where the Haiku agent's only write target is inside the repo tree rather than the engine-provided workspace.
-- **fix**: Write Haiku agent output directly to `{workspace}/outputs/...` paths. If the session's harness blocks workspace writes for Haiku, promote to `model: sonnet` or use an `executor: inline` copy stage after the fan-out to move files from a local staging path into the workspace.
-- **example**: An `extract-evidence` fan-out stage uses `role: researcher-haiku` and instructs agents to `Write evidence-staging/{stage_name}.json` (repo-local). In a session where Haiku's Write tool is harness-blocked for repo paths, every agent reports "Permission denied" and the staging dir remains empty, causing all downstream agents to SKIP. Fix: point agents to `{workspace}/outputs/evidence/{stage_name}.json` instead.
+- **fix**: **If the stage is NOT isolated**, write Haiku agent output directly to `{workspace}/outputs/...` paths. **If the stage declares `isolation: worktree`**, `{workspace}` is exactly the wrong target — see `isolated-agent-path-protocol` above, which takes precedence: the agent writes absolute paths under its OWN cwd and the orchestrator copies them back at that stage's completion. Do not apply this fix to an isolated stage; doing so reintroduces shared writes and defeats the isolation. If the harness blocks writes either way, promote to `model: sonnet`.
+- **example**: A NON-ISOLATED `extract-evidence` fan-out stage uses `role: researcher-haiku` and instructs agents to `Write evidence-staging/{stage_name}.json` (repo-local). In a session where Haiku's Write tool is harness-blocked for repo paths, every agent reports "Permission denied" and the staging dir remains empty, causing all downstream agents to SKIP. Fix: point agents to `{workspace}/outputs/evidence/{stage_name}.json` instead. Had that stage been `isolation: worktree`, the correct target would instead be `<agent-cwd>/outputs/evidence/...` with orchestrator copy-back.
 
-### agent-isolation-key-misplaced
+### agent-isolation-wrong-key-or-value
 - **severity**: critical
-- **check**: Verify that fan-out stages declare `isolation: work-dir` under `fan_out:` (`FanOutSpec.isolation`), not under `agent:`. Both `AgentSpec` and `FanOutSpec` have an `isolation` field and both are parsed by the engine; the distinction matters because the workflow skill reads `fan_out.isolation` when orchestrating worker_queue fan-outs (`fan_out.mode: worker_queue`). For non-fan-out single-agent stages, `agent.isolation: work-dir` is the correct and valid location.
-- **triggers**: Fan-out stages (`fan_out.mode: worker_queue` or `fan_out.mode: agent`) where `isolation: work-dir` appears under the `agent:` block rather than the `fan_out:` block; any stage using the literal value `isolation: worktree` anywhere (not a supported value — the YAML field uses `work-dir`; the Agent tool parameter uses `worktree`).
+- **check**: Verify that stage isolation is declared as `isolation: worktree` under `agent:`. This is the ONLY supported form. `FanOutSpec` has no `isolation` field (see `models.py`), so `fan_out.isolation` is not parsed by anything, and `work-dir` is not a recognised value anywhere in the engine.
+- **triggers**: `isolation:` appearing under a `fan_out:` block; the value `work-dir` anywhere; any misspelling of the `isolation` key.
+- **note**: Since `_parse_agent` rejects unknown agent keys, a misspelled key now raises `WorkflowParseError` at parse time rather than being silently dropped. An `isolation:` under `fan_out:` is still silently ignored — `_parse_fan_out` does not read it.
 - **example**:
   ```yaml
-  # bad — isolation under agent: is ignored for fan-out stages;
-  # the workflow skill reads fan_out.isolation, not agent.isolation,
-  # when spawning worker_queue agents
+  # bad — fan_out.isolation is not a parsed field; silently ignored
   agent:
     role: researcher
-    model: haiku
-    isolation: work-dir
   fan_out:
     mode: worker_queue
+    isolation: work-dir
 
-  # good — isolation belongs under fan_out: for fan-out stages
+  # bad — "work-dir" is not a supported value; raises WorkflowParseError
   agent:
-    role: researcher
-    model: haiku
-  fan_out:
-    mode: worker_queue
+    role: code-writer
     isolation: work-dir
+
+  # good — the only supported form, for fan-out and single-agent stages alike
+  agent:
+    role: code-writer
+    isolation: worktree
   ```
-  For non-fan-out single-agent stages, `agent.isolation: work-dir` is correct and IS used (`dispatch.py` reads `stage.spec.agent.isolation`).
+  The parsed value is carried into the compiled manifest as `agent_isolation`
+  and must be passed to `Agent(isolation=...)` by the orchestrator; see
+  `.claude/skills/workflow/SKILL.md`. A stage that declares isolation but whose
+  agent does not receive it runs in the shared tree, which is how parallel
+  code-writers end up interleaving edits to the same file.

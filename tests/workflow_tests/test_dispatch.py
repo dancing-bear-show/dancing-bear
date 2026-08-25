@@ -57,6 +57,97 @@ class TestKnownRoles(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
+class TestBuildAgentPromptIsolation(unittest.TestCase):
+    """An isolated agent's prompt must not point at the shared workspace.
+
+    It cannot write there, and the orchestrator waits on files that would
+    never appear — the stage deadlocks instead of failing.
+    """
+
+    def _prompt(self, isolation: str | None) -> str:
+        from workflow.models import AgentSpec
+
+        spec = make_stage_spec(
+            name="iso",
+            agent=AgentSpec(role="code-writer", isolation=isolation),
+            writes_to=("outputs/report.json",),
+        )
+        return build_agent_prompt(make_resolved_stage(spec=spec, index=1), "wf", "/ws")
+
+    def test_isolated_prompt_has_no_workspace_paths(self) -> None:
+        prompt = self._prompt("worktree")
+        self.assertNotIn("/ws/", prompt)
+        self.assertIn("<your-cwd>", prompt)
+
+    def test_isolated_prompt_explains_copy_back(self) -> None:
+        prompt = self._prompt("worktree")
+        self.assertIn("OWN git worktree", prompt)
+        self.assertIn("copies your outputs/", prompt)
+
+    def test_non_isolated_prompt_still_uses_workspace(self) -> None:
+        prompt = self._prompt(None)
+        self.assertIn("/ws/outputs/report.json", prompt)
+        self.assertNotIn("<your-cwd>", prompt)
+
+    def test_isolated_validate_fallback_stays_in_worktree(self) -> None:
+        """A validate stage with no writes_to must not fall back to {ws}.
+
+        The no-writes_to branch emitted shared validation/ paths regardless of
+        isolation, so the parent waited on files outside the agent's worktree.
+        """
+        from workflow.models import AgentSpec, StageKind, ValidationSpec, ValidationStrategy
+
+        spec = make_stage_spec(
+            name="iso-val",
+            kind=StageKind.validate,
+            agent=AgentSpec(role="reviewer", isolation="worktree"),
+            validation=ValidationSpec(strategy=ValidationStrategy.unit, criteria=("check it",)),
+        )
+        prompt = build_agent_prompt(make_resolved_stage(spec=spec, index=2), "wf", "/ws")
+        self.assertIn("<your-cwd>/validation/iso-val-findings.json", prompt)
+        self.assertNotIn("/ws/validation/", prompt)
+
+    def _prompt_with_inputs(self, isolation: str | None) -> str:
+        """An execute stage that both reads upstream and writes output."""
+        from workflow.models import AgentSpec, StageKind
+
+        spec = make_stage_spec(
+            name="iso",
+            kind=StageKind.execute,
+            agent=AgentSpec(role="code-writer", isolation=isolation),
+            reads_from=("upstream",),
+            writes_to=("outputs/report.json",),
+        )
+        return build_agent_prompt(make_resolved_stage(spec=spec, index=1), "wf", "/ws")
+
+    def test_isolated_inputs_come_from_own_cwd(self) -> None:
+        """The boundary applies to reads too, not only writes.
+
+        An isolated agent cannot read the shared workspace either; pointing it
+        at {ws} makes it read outside its worktree or find nothing.
+        """
+        prompt = self._prompt_with_inputs("worktree")
+        self.assertIn("<your-cwd>/inputs/", prompt)
+        self.assertIn("upstream", prompt)
+        self.assertNotIn("/ws/", prompt)
+
+    def test_isolated_inputs_do_not_name_a_synthetic_file(self) -> None:
+        """Never name one <dep>.json per dependency.
+
+        A stage may declare several outputs of different types (design.md AND
+        design.json). Naming a single synthetic file points the agent at
+        something that does not exist and silently drops the rest.
+        """
+        prompt = self._prompt_with_inputs("worktree")
+        self.assertNotIn("inputs/upstream.json", prompt)
+        self.assertIn("same relative path", prompt)
+
+    def test_non_isolated_inputs_still_come_from_workspace(self) -> None:
+        prompt = self._prompt_with_inputs(None)
+        self.assertIn("/ws/stages/*-upstream.json", prompt)
+        self.assertNotIn("<your-cwd>", prompt)
+
+
 class TestBuildAgentPromptGather(unittest.TestCase):
     def test_contains_stage_name(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -189,6 +280,25 @@ class TestBuildDispatchInstruction(unittest.TestCase):
                 str(Path(result["workspace_dir"]).resolve()),
                 str(Path(tmp_dir).resolve()),
             )
+
+    # (g) isolation key is present in the payload and carries the agent's value
+    def test_isolation_worktree_carried_through(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = make_agent_spec(role="code-writer", isolation="worktree")
+            stage = make_stage_spec(name="isolated-stage", agent=agent)
+            resolved = make_resolved_stage(spec=stage, index=0)
+            result = build_dispatch_instruction(resolved, "test-workflow", tmp_dir)
+            self.assertIn("isolation", result)
+            self.assertEqual(result["isolation"], "worktree")
+
+    def test_isolation_none_carried_through(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = make_agent_spec(role="researcher", isolation=None)
+            stage = make_stage_spec(name="non-isolated-stage", agent=agent)
+            resolved = make_resolved_stage(spec=stage, index=0)
+            result = build_dispatch_instruction(resolved, "test-workflow", tmp_dir)
+            self.assertIn("isolation", result)
+            self.assertIsNone(result["isolation"])
 
 
 # ---------------------------------------------------------------------------

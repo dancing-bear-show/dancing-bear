@@ -47,16 +47,28 @@ def _fragment_bytes(
     return b"".join(parts)
 
 
+# Bump whenever _build_compile_payload's key set changes. The cache key is
+# derived from YAML + root + params, so without this a payload cached before a
+# schema change is still served and silently lacks the new fields — e.g. a
+# pre-existing cache would drop agent_isolation, making `isolation: worktree` a
+# no-op again for any workflow that had already been compiled once.
+_COMPILE_PAYLOAD_SCHEMA = 3
+
+
 def _compile_cache_path(
     yaml_bytes: bytes,
     project_root: str,
     params: list[str],
     yaml_path: Path | None = None,
 ) -> Path:
-    """Return the temp-dir cache file path keyed by YAML content, fragments, root, and params."""
+    """Return the temp-dir cache file path keyed by payload schema, YAML content, fragments, root, and params."""
     import tempfile
     frag_bytes = _fragment_bytes(yaml_bytes, yaml_path or Path.cwd())
-    key_material = f"{project_root}:{':'.join(sorted(params))}:".encode() + yaml_bytes + frag_bytes
+    key_material = (
+        f"v{_COMPILE_PAYLOAD_SCHEMA}:{project_root}:{':'.join(sorted(params))}:".encode()
+        + yaml_bytes
+        + frag_bytes
+    )
     sha = hashlib.sha256(key_material).hexdigest()[:16]
     return Path(tempfile.gettempdir()) / f"workflow-compile-{sha}.json"
 
@@ -126,6 +138,19 @@ def _build_compile_payload(path: str) -> dict:
     resolutions = [{
         "stage": name, "template_resolved": r.template_content is not None,
         "guide_resolved": r.guide_content is not None, "cli_commands": len(r.cli_commands),
+        # Everything the orchestrator needs to dispatch a stage without
+        # re-reading the YAML. Omitting any of these forces it back to the
+        # parsed definition, which defeats the point of a compiled manifest —
+        # and isolation in particular must reach the Agent() call, or
+        # `isolation: worktree` silently does nothing.
+        "index": r.index,
+        "kind": r.spec.kind.value,
+        "executor": r.spec.executor,
+        "human_gate": r.spec.human_gate,
+        "sub_workflow": r.spec.sub_workflow or None,
+        "agent_role": r.spec.agent.role if r.spec.agent else None,
+        "agent_model": r.spec.agent.model if r.spec.agent else None,
+        "agent_isolation": r.spec.agent.isolation if r.spec.agent else None,
     } for name, r in manifest.resolved_stages.items()]
     warnings = [{"stage": w.stage, "upstream": w.upstream, "message": w.message}
                 for w in contract_warnings]

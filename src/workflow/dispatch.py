@@ -49,13 +49,40 @@ def _ws(workspace_dir: str | Path) -> str:
     return str(Path(workspace_dir).resolve())
 
 
+def _is_isolated(stage: ResolvedStage) -> bool:
+    """True if this stage's agent runs in its own git worktree."""
+    agent = stage.spec.agent
+    return bool(agent and agent.isolation)
+
+
 def _read_paths(stage: ResolvedStage, ws: str) -> list[str]:
-    """Workspace paths for each reads_from dependency."""
-    paths: list[str] = []
-    for name in stage.spec.reads_from:
-        paths.append(f"{ws}/stages/*-{name}.json")
-    if stage.spec.reads_from:
-        paths.append(f"{ws}/outputs/")
+    """Paths the agent reads its upstream inputs from.
+
+    An isolated agent is directed to its own ``inputs/`` rather than the shared
+    workspace: the orchestrator copies upstream artifacts in before signalling
+    proceed, so a ``{ws}/...`` read here would either prompt or reach outside
+    the worktree, breaking the isolation boundary in the input direction the
+    same way an unguarded write breaks it in the output direction.
+    """
+    if not stage.spec.reads_from:
+        return []
+    if _is_isolated(stage):
+        # The orchestrator mirrors each upstream stage's declared writes_to
+        # under inputs/, preserving relative paths. Do NOT name a single
+        # synthetic <name>.json per dependency: a stage may declare several
+        # outputs of different types (design.md AND design.json), and naming
+        # one would tell the agent to read a file that does not exist while
+        # silently omitting the rest.
+        return [
+            "<your-cwd>/inputs/ — every output of these upstream stages, "
+            "copied in before you start, at the same relative path the "
+            "upstream stage declared (e.g. an upstream `outputs/design.md` "
+            f"arrives as `<your-cwd>/inputs/outputs/design.md`): "
+            f"{', '.join(stage.spec.reads_from)}",
+            "<your-cwd>/inputs/stages/ — each upstream stage's result JSON",
+        ]
+    paths = [f"{ws}/stages/*-{name}.json" for name in stage.spec.reads_from]
+    paths.append(f"{ws}/outputs/")
     return paths
 
 
@@ -63,20 +90,38 @@ _WORKSPACE_SUBDIRS = ("outputs/", "validation/", "stages/", "dispatch/")
 
 
 def _write_paths(stage: ResolvedStage, ws: str) -> list[str]:
+    """Absolute output paths for the agent's prompt.
+
+    An isolated agent cannot write the shared workspace, so it is directed to
+    the same relative layout under its OWN cwd; the orchestrator copies those
+    files back. Pointing an isolated agent at ``{ws}/...`` produces a prompt it
+    cannot satisfy while the orchestrator waits on files that never appear.
+    """
+    root = "<your-cwd>" if _is_isolated(stage) else ws
     paths: list[str] = []
     for f in stage.spec.writes_to:
         if any(f.startswith(prefix) for prefix in _WORKSPACE_SUBDIRS):
-            paths.append(f"{ws}/{f}")
+            paths.append(f"{root}/{f}")
         else:
-            paths.append(f"{ws}/outputs/{f}")
+            paths.append(f"{root}/outputs/{f}")
     return paths
 
 
 def _completion(stage: ResolvedStage, ws: str) -> str:
-    result_path = f"{ws}/stages/{stage.index:03d}-{stage.spec.name}.json"
+    root = "<your-cwd>" if _is_isolated(stage) else ws
+    result_path = f"{root}/stages/{stage.index:03d}-{stage.spec.name}.json"
+    isolated_note = (
+        "\n\nYou are running in your OWN git worktree. Write every path above "
+        "as an absolute path under your own cwd — NOT under the shared "
+        "workspace, and never as a bare relative path (that resolves against "
+        "the orchestrator's cwd, outside your worktree). The orchestrator "
+        "copies your outputs/ and stages/ files back after you finish."
+        if _is_isolated(stage)
+        else ""
+    )
     return (
         "## Completion\n"
-        f"When done, write your stage result to: {result_path}\n\n"
+        f"When done, write your stage result to: {result_path}{isolated_note}\n\n"
         f"Use this structure:\n```json\n"
         f"{_RESULT_FMT.format(name=stage.spec.name, index=stage.index)}\n```"
     )
@@ -100,7 +145,11 @@ def _header(stage: ResolvedStage, workflow_name: str, verb: str = "executing") -
         ),
         "",
         (
-            "**No external side effects**: Write ONLY to the workspace directory. "
+            "**No external side effects**: Write ONLY to your own worktree cwd "
+            "(you are running isolated; the orchestrator copies your files back). "
+            "Only stages with kind=publish are authorized to create external resources."
+            if _is_isolated(stage)
+            else "**No external side effects**: Write ONLY to the workspace directory. "
             "Only stages with kind=publish are authorized to create external resources."
         ),
         "",
@@ -120,7 +169,8 @@ def _header(stage: ResolvedStage, workflow_name: str, verb: str = "executing") -
 
 def _gather(stage: ResolvedStage, wf: str, ws: str) -> str:
     lines = _header(stage, wf)
-    lines += ["## Workspace", f"Write all output to: {ws}/outputs/", ""]
+    write_root = "<your-cwd>" if _is_isolated(stage) else ws
+    lines += ["## Workspace", f"Write all output to: {write_root}/outputs/", ""]
     if stage.cli_commands:
         lines += _section("CLI Commands\nRun these commands and capture their output", [f"`{c}`" for c in stage.cli_commands])
     wp = _write_paths(stage, ws)
@@ -189,10 +239,14 @@ def _validate(stage: ResolvedStage, wf: str, ws: str) -> str:
     if wp:
         lines += _section("Output\nWrite results to", wp)
     else:
+        # Same isolated-root rule as _write_paths: a validate stage with no
+        # explicit writes_to must not be sent to the shared workspace, or the
+        # parent waits for files outside the agent's worktree.
+        val_root = "<your-cwd>" if _is_isolated(stage) else ws
         lines += [
             "## Output",
-            f"Write findings to: {ws}/validation/{stage.spec.name}-findings.json",
-            f"Write summary to: {ws}/validation/{stage.spec.name}-summary.md",
+            f"Write findings to: {val_root}/validation/{stage.spec.name}-findings.json",
+            f"Write summary to: {val_root}/validation/{stage.spec.name}-summary.md",
             "",
         ]
     lines.append(_completion(stage, ws))
@@ -257,6 +311,7 @@ def build_dispatch_instruction(
         "stage_index": stage.index,
         "workflow_name": workflow_name,
         "model": stage.spec.agent.model,
+        "isolation": stage.spec.agent.isolation,
         "prompt": build_agent_prompt(stage, workflow_name, workspace_dir),
         "workspace_dir": ws,
         "writes_to": list(stage.spec.writes_to),

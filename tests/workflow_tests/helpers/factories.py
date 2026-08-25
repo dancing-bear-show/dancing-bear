@@ -47,6 +47,7 @@ def make_agent_spec(**overrides: object) -> AgentSpec:
         "model": None,
         "tools": (),
         "access": AgentAccess.read_only,
+        "isolation": None,
     }
     defaults.update(overrides)
     return AgentSpec(**defaults)  # type: ignore[arg-type]

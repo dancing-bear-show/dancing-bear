@@ -284,6 +284,69 @@ class TestBuildCompilePayload(unittest.TestCase):
             payload = _build_compile_payload(path)
         self.assertEqual(payload["name"], "compile-test-wf")
 
+    def test_resolution_carries_agent_spec(self) -> None:
+        """Agent role/model/isolation reach the manifest.
+
+        The orchestrator spawns agents from this payload, so a stage's
+        isolation must survive compilation — otherwise `isolation: worktree`
+        parses fine and still never reaches the Agent() call.
+        """
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = str(_write_yaml(tmp_dir, _MINIMAL_YAML))
+            payload = _build_compile_payload(path)
+        res = {r["stage"]: r for r in payload["resolutions"]}["gather"]
+        self.assertEqual(res["agent_role"], "researcher")
+        self.assertIsNone(res["agent_model"])
+        self.assertIsNone(res["agent_isolation"])
+
+    def test_resolution_carries_dispatch_metadata(self) -> None:
+        """A resolution must carry everything needed to dispatch a stage.
+
+        The skill's documented compile-to-spawn path reads stage name, index,
+        kind and executor from this payload. A missing key forces the
+        orchestrator back to the parsed YAML, which defeats the manifest.
+        """
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = str(_write_yaml(tmp_dir, _MINIMAL_YAML))
+            payload = _build_compile_payload(path)
+        res = {r["stage"]: r for r in payload["resolutions"]}["gather"]
+        for key in ("index", "kind", "executor", "human_gate", "sub_workflow"):
+            self.assertIn(key, res)
+        self.assertEqual(res["kind"], "gather")
+        self.assertEqual(res["index"], 0)
+
+    def test_cache_key_includes_payload_schema_version(self) -> None:
+        """A payload-schema bump must invalidate caches written by the old one.
+
+        The key is derived from YAML + root + params, so without the schema
+        version a cache written before `agent_isolation` was added would still
+        be served — silently dropping isolation for any workflow already
+        compiled once.
+        """
+        from workflow import cli_compile
+
+        args = (b"name: x\n", "/repo", [])
+        before = cli_compile._compile_cache_path(*args)
+        original = cli_compile._COMPILE_PAYLOAD_SCHEMA
+        try:
+            cli_compile._COMPILE_PAYLOAD_SCHEMA = original + 1
+            after = cli_compile._compile_cache_path(*args)
+        finally:
+            cli_compile._COMPILE_PAYLOAD_SCHEMA = original
+        self.assertNotEqual(before, after)
+
+    def test_resolution_carries_worktree_isolation(self) -> None:
+        yaml_src = _MINIMAL_YAML.replace(
+            "      role: researcher\n",
+            "      role: code-writer\n      isolation: worktree\n",
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = str(_write_yaml(tmp_dir, yaml_src))
+            payload = _build_compile_payload(path)
+        res = {r["stage"]: r for r in payload["resolutions"]}["gather"]
+        self.assertEqual(res["agent_isolation"], "worktree")
+        self.assertEqual(res["agent_role"], "code-writer")
+
     def test_payload_total_stages_matches_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = str(_write_yaml(tmp_dir, _MINIMAL_YAML))

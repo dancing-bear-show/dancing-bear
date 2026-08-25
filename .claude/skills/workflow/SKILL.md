@@ -48,8 +48,27 @@ Parse `--params` arguments into a dict. Then compile the workflow:
 .venv/bin/python bin/workflow compile <WORKFLOW_PATH> --format json
 ```
 
-This prints the compiled manifest as JSON. Parse it to get `parallel_groups`
-and `resolved_stages`. If compile fails, report the error and stop.
+This prints the compiled manifest as JSON. The top-level keys are:
+
+| Key | Contents |
+|---|---|
+| `groups` | `[{group, stages, parallelism}]` — `stages` is a comma-joined string, in execution order |
+| `resolutions` | one entry per stage: `{stage, index, kind, executor, human_gate, sub_workflow, template_resolved, guide_resolved, cli_commands, agent_role, agent_model, agent_isolation}` — everything needed to dispatch without re-reading the YAML |
+| `contract_warnings_detail` | `[{stage, upstream, message}]` |
+
+Read `groups` for execution order and `resolutions` for each stage's dispatch
+metadata — including `agent_isolation`, which must reach `Agent()` (see 2a).
+
+**The manifest is a routing summary, not the full stage contract.** It
+deliberately does NOT carry stage descriptions, `reads_from`/`writes_to`,
+`validation`, or `fan_out` source/field/key. Use it to decide execution order,
+which agent to spawn, and with what model/isolation — then build the prompt
+from the parsed definition or from `dispatch/*.json`, which the engine writes
+per stage with the fully-rendered prompt. A fan-out stage in particular cannot
+be enumerated from `resolutions`; read its `fan_out` config from the parsed
+definition.
+
+If compile fails, report the error and stop.
 
 **If `--execute` is NOT set (dry-run):** print the execution plan and stop:
 
@@ -95,16 +114,71 @@ Generate a `RUN_ID` in the format `{workflow_name}-{YYYYMMDD}-{8_hex_chars}`.
    a `kind: publish` stage.** Only publish stages may run `gh pr create`,
    post comments, or write outside the workspace.
 
-7. **`isolation: worktree` for code-writer agents requires an explicit merge
-   step before validate.** After all parallel code-writers in a group complete,
-   merge their worktree branches before spawning any validate stage:
+7. **`isolation: worktree` requires THREE explicit steps** — inputs, outputs
+   and code changes all travel separately, and missing any one of them fails
+   silently rather than loudly.
+
+   a. **Copy the stage's inputs IN before spawning it.** An isolated agent
+      cannot read `{workspace}` either — the boundary applies in both
+      directions.
+
+      Copy **every declared output of every upstream stage**, preserving its
+      relative path: an upstream `outputs/design.md` arrives as
+      `<agent-cwd>/inputs/outputs/design.md`. Do not collapse a dependency to
+      one synthetic `<name>.json` — a stage may declare several outputs of
+      different types (`design.md` AND `design.json`), and naming only one
+      points the agent at a file that does not exist while silently dropping
+      the rest. Copy each upstream stage's result JSON to
+      `<agent-cwd>/inputs/stages/<name>.json` as well.
+
+      The prompt built by the engine already points an isolated agent at
+      `<your-cwd>/inputs/`, so skipping this leaves it reading an empty
+      directory.
+
+      **Watch for bare paths in the stage description.** A description is
+      embedded in the prompt verbatim, so an instruction like "read
+      `outputs/design.md`" overrides the isolation-aware input list — it
+      resolves against the orchestrator's CWD, i.e. the shared tree. A stage
+      that is isolated must refer to its inputs by absolute own-cwd path.
+
+   b. **Copy back each agent's outputs — as part of THAT stage's completion,
+      before releasing any dependent stage.** An isolated agent writes to
+      `<its-cwd>/outputs/` and `<its-cwd>/stages/`, never to `{workspace}`
+      (see the workspace-lock exception below). As soon as the agent returns,
+      copy those files into `{workspace}/outputs/` and
+      `{workspace}/stages/` yourself.
+
+      Do NOT defer this to a later stage. The completion check in 2c waits for
+      each declared `writes_to` path under `{workspace}`; if the copy-back is
+      deferred, that file never appears, the stage never completes, and the
+      very stage meant to do the copying is never scheduled — a deadlock.
+
+      If a declared `writes_to` file is missing from the agent's cwd after it
+      returns, fail the stage — downstream stages read those files by name,
+      and a missing one degrades them quietly instead of erroring.
+
+   c. **Merge the worktree branch** so the code changes land.
+
+   `git merge` moves **commits**, not uncommitted files. An agent that edits
+   its worktree and returns without committing leaves nothing to merge — the
+   merge succeeds against an empty branch and the stage reports success while
+   no code lands. Any stage whose agent writes code must therefore instruct it
+   to commit before finishing, and you must verify the branch is non-empty
+   before merging and that the expected files exist after:
 
    ```bash
+   git log --oneline <target-branch>..worktree-agent-{id}   # must be non-empty
    git merge --no-ff worktree-agent-{id} -m "merge stage {stage_name}"
    ```
 
-   Read-only agents (researcher, reviewer, Explore, unit-validator) do not
-   need merging.
+   **Branch names.** An isolated agent runs on the generated
+   `worktree-agent-<id>` branch, NOT on the workflow's target branch. A stage
+   guard that requires `git branch --show-current` to equal a target branch can
+   never pass inside an isolated worktree. Verify the target branch in the
+   parent context, before spawning and before merging.
+
+   Read-only agents (researcher, reviewer, Explore, unit-validator) need
+   none of these steps.
 
 8. **Validate stages must wait for all implementation output to exist.** Before
    spawning a validate agent, verify every file in `reads_from` stage's
@@ -116,14 +190,60 @@ Generate a `RUN_ID` in the format `{workflow_name}-{YYYYMMDD}-{8_hex_chars}`.
    ```
    Do NOT spawn an agent — agents cannot invoke skills.
 
-Iterate through `parallel_groups` in order. For each group:
+Iterate through `groups` (from the compiled manifest) in order. For each group:
 
 #### 2a. Spawn Agents
 
-**Inline stages run directly — no agent spawned.** Check `stage.spec.executor`:
+**Normalize the stage's fields FIRST.** Three stage representations exist and
+they spell the same fields differently, so every check below — including the
+inline-executor check and the resume result-file path — reads through these
+accessors. A compiled-manifest entry is a plain dict with no `.spec` or
+`.agent`, so `stage.agent.role` raises `AttributeError` on it:
+
+| Field | `ResolvedStage` (parsed) | `resolutions` entry (`compile --format json`) | `dispatch/*.json` |
+|---|---|---|---|
+| name | `stage.spec.name` | `stage` | `stage_name` |
+| index | `stage.index` | `index` | `stage_index` |
+| kind | `stage.spec.kind` | `kind` | `kind` |
+| executor | `stage.spec.executor` | `executor` | — |
+| role | `stage.spec.agent.role` | `agent_role` | `agent_type` |
+| model | `stage.spec.agent.model` | `agent_model` | `model` |
+| isolation | `stage.spec.agent.isolation` | `agent_isolation` | `isolation` |
 
 ```python
-if stage.spec.executor == "inline":
+def _field(stage, attr_path, *dict_keys):
+    """Read one field from any stage representation."""
+    if isinstance(stage, dict):
+        for k in dict_keys:
+            if stage.get(k) is not None:
+                return stage[k]
+        return None
+    obj = stage
+    for part in attr_path.split("."):
+        obj = getattr(obj, part, None)
+        if obj is None:
+            return None
+    return obj
+
+# Resolve EVERY field through the accessor before any check below uses it —
+# including the inline-executor check and the resume result-file path, which
+# would otherwise raise NameError on the compiled-manifest path.
+stage_name = _field(stage, "spec.name",     "stage", "stage_name")
+stage_kind = _field(stage, "spec.kind",     "kind")
+index      = _field(stage, "index",         "index", "stage_index")
+executor   = _field(stage, "spec.executor", "executor")
+role       = _field(stage, "spec.agent.role",      "agent_role", "agent_type")
+model      = _field(stage, "spec.agent.model",     "agent_model", "model")
+isolation  = _field(stage, "spec.agent.isolation", "agent_isolation", "isolation")
+
+```
+
+**Inline stages run directly — no agent spawned.** Check the `executor`
+resolved above (on a compiled-manifest entry it is a dict key, not an
+attribute):
+
+```python
+if executor == "inline":
     # Run Bash commands from the stage description directly.
     # Write output files with the Write tool.
     # Write stage result JSON to {workspace}/stages/{index:03d}-{stage_name}.json.
@@ -162,17 +282,29 @@ message so they run concurrently.
 ```python
 agent_kwargs = dict(
     description=f"Stage {stage_name} — {stage_kind}",
-    subagent_type=ROLE_MAP[stage.agent.role],
+    subagent_type=ROLE_MAP[role],
     run_in_background=True,
     prompt="...",
 )
 if team_name:
     agent_kwargs["name"] = stage_name
     agent_kwargs["team_name"] = team_name
+if model:
+    agent_kwargs["model"] = model
+# REQUIRED. Omitting this is what made `isolation: worktree` a no-op: the YAML
+# read as isolated while parallel code-writers shared one tree and interleaved
+# edits to the same files.
+if isolation:
+    agent_kwargs["isolation"] = isolation
 Agent(**agent_kwargs)
 ```
 
-Map `stage.agent.role` to `subagent_type`:
+**Never drop `isolation`.** If a stage declares it, the spawned agent must get
+it. A workflow whose stages say `isolation: worktree` but whose agents share a
+tree will silently produce interleaved edits, and any later `git merge
+worktree-agent-*` step will fail because no such branch was ever created.
+
+Map the resolved `role` (see the accessor table above) to `subagent_type`:
 
 | Agent Role | subagent_type |
 |------------|---------------|
@@ -186,7 +318,7 @@ Map `stage.agent.role` to `subagent_type`:
 | `cross-unit-validator` | `cross-unit-validator` |
 | `fact-checker` | `fact-checker` |
 
-If `stage.agent.model` is set explicitly in the YAML, pass `model=` on the
+If the resolved `model` is set explicitly in the YAML, pass `model=` on the
 Agent call. Otherwise omit it and inherit the session model.
 
 #### 2b. Build Agent Prompts
@@ -200,6 +332,20 @@ For each stage, construct the prompt:
 2. **Workspace lock** (immediately after file access rules):
 
    > Workspace: {workspace} — write ALL output files under this exact path. Do NOT create subdirectories outside this path.
+
+   **Exception — isolated stages.** For a stage with `isolation: worktree`,
+   this instruction is wrong and must be replaced. The agent runs in its own
+   git worktree and is not permitted to write the shared `{workspace}`; a
+   bare relative path resolves against the orchestrator's CWD (the shared repo
+   tree), leaking outside the worktree. Use instead:
+
+   > Workspace: you run in your OWN git worktree. Write ALL output files to absolute paths under YOUR cwd (`<your-cwd>/outputs/<name>`). Do NOT write to {workspace}/... and do NOT use bare relative paths.
+
+   The orchestrator is then responsible for copying those outputs back into
+   `{workspace}/outputs/` after the stage completes and before any downstream
+   stage reads them — see the merge step in rule 7 above. Skipping the copy-back
+   leaves the monitor waiting for a file in the shared workspace that the agent
+   never wrote there, so the stage can never signal completion.
 
 3. **Input data**: for each entry in `reads_from`, read the actual output files
    now (with the Read tool) and inline relevant content into the prompt. Do NOT
@@ -589,15 +735,22 @@ If a stage has `fan_out` defined, check `fan_out.mode`:
 2. Parse JSON and extract the array at `fan_out.field`.
 3. For each item, spawn a separate background agent:
    ```python
+   # Same accessors as the single-agent path — a compiled-manifest stage is a
+   # plain dict with no `.agent`, so read role/isolation through _field().
+   role = _field(stage, "spec.agent.role", "agent_role", "agent_type")
+   isolation = _field(stage, "spec.agent.isolation", "agent_isolation", "isolation")
    fan_kwargs = dict(
        description=f"Stage {stage_name} — {item[fan_out.key]}",
-       subagent_type=ROLE_MAP[stage.agent.role],
+       subagent_type=ROLE_MAP[role],
        run_in_background=True,
        prompt="...",  # substitute {fan_out.key} value into description + writes_to
    )
    if team_name:
        fan_kwargs["team_name"] = team_name
        fan_kwargs["name"] = f"{stage_name}-{item[fan_out.key]}"
+   # Fan-out writers sharing one tree is the worst case: N agents, same files.
+   if isolation:
+       fan_kwargs["isolation"] = isolation
    Agent(**fan_kwargs)
    ```
 4. All fan-out agents run in parallel (same group).

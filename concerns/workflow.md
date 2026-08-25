@@ -144,9 +144,9 @@ param wiring, and agent definition quality.
 
 ### agent-spec-unsupported-field
 - **severity**: major
-- **check**: Verify that `agent:` blocks in workflow stages do not contain fields beyond `role`, `model`, `tools`, `access`, and `isolation` — the workflow parser silently ignores any unknown key, so extra fields (e.g. `prompt`) are dropped and the intended behavior will never execute.
+- **check**: Verify that `agent:` blocks in workflow stages do not contain fields beyond `role`, `model`, `tools`, `access`, and `isolation`. `_parse_agent` now RAISES `WorkflowParseError` naming the offending key, so an unknown field is a hard parse failure rather than a silent drop. (It was silently ignored before — a dropped `isolation` key meant parallel writers shared one tree while the YAML read as isolated.)
 - **triggers**: Workflow YAML stages with an `agent:` block that contains fields other than the recognized set; stages where `agent.prompt` appears to describe a merge or post-processing step that would otherwise have no executor; stages whose `writes_to` contract depends on a step described only inside an unsupported `agent.prompt` field.
-- **example**: A stage declares `agent: {role: researcher, model: sonnet, prompt: "Merge per-team findings into output.json"}`. The `prompt` field is an unknown key and is silently dropped, so the merge never runs. Fix: move the merge logic into the stage `description:` field, or implement it as a dedicated inline step in `script:`.
+- **example**: A stage declares `agent: {role: researcher, model: sonnet, prompt: "Merge per-team findings into output.json"}`. `prompt` is not a recognised key, so the workflow fails to parse with `agent has unknown key(s) ['prompt']`. Fix: move the merge logic into the stage `description:` field, or implement it as a dedicated inline step in `script:`.
 
 ### embedded-script-nondeterministic-glob
 - **severity**: major

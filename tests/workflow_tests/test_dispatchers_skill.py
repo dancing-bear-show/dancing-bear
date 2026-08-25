@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import tempfile
 import unittest
@@ -39,6 +40,38 @@ class TestSkillDispatcherDispatchFileBlockedByExistingFile(unittest.TestCase):
 
             with self.assertRaises(FileExistsError):
                 dispatcher.dispatch(stage, tmp_path)
+
+
+class TestSkillDispatcherSerializesIsolation(unittest.TestCase):
+    """isolation must survive serialization to dispatch/*.json.
+
+    The runtime handoff to the workflow skill is the written JSON file, not the
+    in-memory dict — a regression in serialization or the field name would make
+    `isolation: worktree` a no-op while dispatch-builder tests still pass.
+    """
+
+    def _dispatch_and_read(self, isolation: str | None) -> dict:
+        from workflow.models import AgentSpec
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            spec = make_stage_spec(
+                name="iso-stage",
+                agent=AgentSpec(role="code-writer", isolation=isolation),
+            )
+            stage = make_resolved_stage(spec=spec, index=3)
+            SkillDispatcher("test-workflow").dispatch(stage, tmp_path)
+            written = tmp_path / "dispatch" / "003-iso-stage.json"
+            return json.loads(written.read_text(encoding="utf-8"))
+
+    def test_worktree_isolation_reaches_dispatch_file(self) -> None:
+        payload = self._dispatch_and_read("worktree")
+        self.assertEqual(payload["isolation"], "worktree")
+
+    def test_absent_isolation_serializes_as_null(self) -> None:
+        payload = self._dispatch_and_read(None)
+        self.assertIn("isolation", payload)
+        self.assertIsNone(payload["isolation"])
 
 
 class TestSkillDispatcherDispatchGroupPropagatesFailure(unittest.TestCase):
