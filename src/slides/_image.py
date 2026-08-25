@@ -36,9 +36,11 @@ class ImageMixin:
             body._element.getparent().remove(body._element)
 
         # Remove any text boxes too
-        # NOSONAR S1226,S6389 - snapshot required: list() eagerly materializes the
-        # shapes collection before the loop body mutates it during removal.
-        for s in list(slide.shapes):
+        # Snapshot required: list() eagerly materializes the shapes collection
+        # before the loop body mutates it during removal.
+        # NOSONAR must stay on the flagged line itself — on a preceding comment
+        # line it suppresses nothing, which is the bug this line already had once.
+        for s in list(slide.shapes):  # NOSONAR S1226,S6389
             if not s.is_placeholder and s.shape_type == MSO_SHAPE_TYPE.TEXT_BOX:
                 s._element.getparent().remove(s._element)
 

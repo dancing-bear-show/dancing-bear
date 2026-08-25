@@ -48,12 +48,20 @@ jobs:
 
   # Respond to @claude mentions
   respond:
+    # The author_association gate is load-bearing. issue_comment fires on any
+    # comment from any GitHub user on this public repo, so without it a stranger
+    # commenting "@claude" gets an agent running against ANTHROPIC_API_KEY with
+    # write access. Do not relax this to a body-only condition.
     if: |
       github.event_name != 'pull_request' &&
-      contains(github.event.comment.body, '@claude')
+      contains(github.event.comment.body, '@claude') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
+    # contents is read-only on purpose: this job answers mentions, it does not
+    # commit. Raise it to write only if you actually want "@claude, fix and push"
+    # to work, and only alongside the author gate above.
     permissions:
-      contents: write
+      contents: read
       pull-requests: write
       issues: write
       id-token: write
