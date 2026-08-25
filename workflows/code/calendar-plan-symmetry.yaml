@@ -342,11 +342,21 @@ stages:
            calendar or mailbox data, and that no stage may log event bodies,
            recipients, or tokens.
 
-           If consumer_kind is google_calendar and
-           survey.json.escalate_google_calendar is true, present that decision
-           at this stage's human gate explicitly — new OAuth scope, forced
-           re-consent for every existing Gmail token — and state that the
-           implementation stages must not run until it is approved.
+           If consumer_kind is google_calendar: FAIL THIS STAGE. Do not write
+           a design and do not fall through. That path needs a new
+           auth/calendar OAuth scope and forces re-consent for every existing
+           Gmail token, so it is a decision to take deliberately, as its own
+           run — not something to approve mid-flight at this gate.
+
+           This stage is the hard stop for that value. The `when:` guard on
+           implement-consumer only SKIPS that stage, and a skipped dependency
+           is not a failure: integrate-and-test would still run and consume a
+           non-existent consumer report, producing an integration with no
+           consumer at all. Failing here prevents that.
+
+           To pursue google_calendar: run this workflow once with
+           consumer_kind=ics_draft or verify_mail to land the producer, then
+           open a separate scoped effort for the Google backend.
 
         6. Explicit non-goals. State that no unified CalendarBackend base is
            being introduced, and why.
@@ -443,9 +453,19 @@ stages:
       values key-by-key, not merely that some output was produced. Use fakes for
       the Graph service exactly as the existing tests do — never hit the network.
 
-      Report created/modified files to {workspace}/outputs/producer-report.json
-      with keys "files", "tests_added", "commands_added", "deviations"
-      (anything you did differently from design.md, with reasoning).
+      ISOLATED-AGENT PATH PROTOCOL — you run in your OWN git worktree. Write
+      your report to an absolute path under YOUR cwd:
+        <your-cwd>/outputs/producer-report.json
+      Do NOT write {workspace}/... (a fresh isolated session is not permitted
+      to write the shared workspace, and the write will prompt or fail), and do
+      NOT use a bare relative path (that resolves against the orchestrator's
+      CWD, i.e. the shared repo tree, leaking outside your worktree).
+      The orchestrator copies your outputs/ back into {workspace}/outputs/
+      during integrate-and-test, along with your code changes.
+
+      Report created/modified files with keys "files", "tests_added",
+      "commands_added", "deviations" (anything you did differently from
+      design.md, with reasoning).
     agent:
       role: code-writer
       isolation: worktree
@@ -460,10 +480,11 @@ stages:
     kind: execute
     depends_on: [design-and-plan]
     reads_from: [design-and-plan, survey-current-state]
-    # Mechanically skip the google_calendar path rather than relying on the
-    # stage description to talk an agent out of it. That path needs a new
-    # auth/calendar OAuth scope and forces re-consent for every existing Gmail
-    # token — a decision for the design human gate, not for this stage.
+    # Belt-and-braces only: design-and-plan FAILS on google_calendar, so this
+    # stage should never be reached with that value. The guard remains so that
+    # if design-and-plan is ever relaxed, this stage still cannot silently
+    # implement a path nobody approved. It is NOT the primary control — a skip
+    # is not a failure, and integrate-and-test would run regardless.
     when: '"{consumer_kind}" does not contain "google_calendar"'
     description: >
       BRANCH GUARD — run this before any edit:
@@ -496,8 +517,14 @@ stages:
       Write tests under tests/calendars_tests/ with fakes for all mail calls;
       never hit the network or touch a real mailbox.
 
-      Report to {workspace}/outputs/consumer-report.json with keys "files",
-      "tests_added", "commands_added", "deviations".
+      ISOLATED-AGENT PATH PROTOCOL — you run in your OWN git worktree. Write
+      your report to an absolute path under YOUR cwd:
+        <your-cwd>/outputs/consumer-report.json
+      Do NOT write {workspace}/... and do NOT use a bare relative path; see the
+      producer stage for why. The orchestrator copies your outputs/ back into
+      {workspace}/outputs/ during integrate-and-test.
+
+      Report with keys "files", "tests_added", "commands_added", "deviations".
     agent:
       role: code-writer
       isolation: worktree
@@ -526,7 +553,16 @@ stages:
       Both prior stages ran in ISOLATED WORKTREES; their edits are NOT in this
       branch and never merge back automatically.
 
-      Merge them the way the orchestrator mandates, NOT by copying files. The
+      FIRST, copy back each isolated agent's report. Per the isolated-agent path
+      protocol they wrote to <their-cwd>/outputs/, never to {workspace}. For
+      each of implement-producer and implement-consumer, locate its worktree and
+      copy <that-cwd>/outputs/*-report.json into {workspace}/outputs/. If a
+      report is missing, say so and FAIL this stage — downstream stages
+      (sad-path-coverage, review) read those files by name and a missing one
+      silently degrades them rather than erroring.
+
+      THEN merge the code changes the way the orchestrator mandates, NOT by
+      copying files. The
       /workflow skill (.claude/skills/workflow/SKILL.md, "isolation: worktree
       ... requires an explicit merge step") specifies:
         git merge --no-ff worktree-agent-<agent-id> -m "merge stage <stage-name>"

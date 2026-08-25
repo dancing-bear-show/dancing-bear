@@ -104,16 +104,25 @@ Generate a `RUN_ID` in the format `{workflow_name}-{YYYYMMDD}-{8_hex_chars}`.
    a `kind: publish` stage.** Only publish stages may run `gh pr create`,
    post comments, or write outside the workspace.
 
-7. **`isolation: worktree` for code-writer agents requires an explicit merge
-   step before validate.** After all parallel code-writers in a group complete,
-   merge their worktree branches before spawning any validate stage:
+7. **`isolation: worktree` requires TWO explicit steps before validate** —
+   outputs and code changes travel separately, and missing either one fails
+   silently rather than loudly.
+
+   a. **Copy back each agent's outputs.** An isolated agent writes to
+      `<its-cwd>/outputs/`, never to `{workspace}` (see the workspace-lock
+      exception below). Copy those files into `{workspace}/outputs/` yourself.
+      If a declared `writes_to` file is missing after this, fail the stage —
+      downstream stages read those files by name, and a missing one degrades
+      them quietly instead of erroring.
+
+   b. **Merge the worktree branch** so the code changes land:
 
    ```bash
    git merge --no-ff worktree-agent-{id} -m "merge stage {stage_name}"
    ```
 
-   Read-only agents (researcher, reviewer, Explore, unit-validator) do not
-   need merging.
+   Read-only agents (researcher, reviewer, Explore, unit-validator) need
+   neither step.
 
 8. **Validate stages must wait for all implementation output to exist.** Before
    spawning a validate agent, verify every file in `reads_from` stage's
@@ -252,6 +261,20 @@ For each stage, construct the prompt:
 2. **Workspace lock** (immediately after file access rules):
 
    > Workspace: {workspace} — write ALL output files under this exact path. Do NOT create subdirectories outside this path.
+
+   **Exception — isolated stages.** For a stage with `isolation: worktree`,
+   this instruction is wrong and must be replaced. The agent runs in its own
+   git worktree and is not permitted to write the shared `{workspace}`; a
+   bare relative path resolves against the orchestrator's CWD (the shared repo
+   tree), leaking outside the worktree. Use instead:
+
+   > Workspace: you run in your OWN git worktree. Write ALL output files to absolute paths under YOUR cwd (`<your-cwd>/outputs/<name>`). Do NOT write to {workspace}/... and do NOT use bare relative paths.
+
+   The orchestrator is then responsible for copying those outputs back into
+   `{workspace}/outputs/` after the stage completes and before any downstream
+   stage reads them — see the merge step in rule 7 above. Skipping the copy-back
+   leaves the monitor waiting for a file in the shared workspace that the agent
+   never wrote there, so the stage can never signal completion.
 
 3. **Input data**: for each entry in `reads_from`, read the actual output files
    now (with the Read tool) and inline relevant content into the prompt. Do NOT
