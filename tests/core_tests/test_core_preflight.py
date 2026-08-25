@@ -323,11 +323,90 @@ class TestSummaryPluralization(unittest.TestCase):
         self.assertIn("(2 samples)", two.summary())
 
 
+class TestSensitiveKeyMasking(unittest.TestCase):
+    """A bare value under a sensitive key must be redacted.
+
+    mask_text recognizes credentials by surrounding text -- "?api_key=x",
+    "Authorization: Bearer x". A value stored under a sensitive KEY has no
+    such marker, so masking has to use the key as context.
+
+    Every value here is deliberately OPAQUE: no "ghp_" prefix, no URL, no
+    "Bearer". An earlier version of these tests used GitHub-token-shaped
+    values, which mask_text catches by pattern -- so they passed even with
+    no key handling at all and hid this gap entirely. If a value in this
+    class ever becomes self-describing, the test stops proving anything.
+    """
+
+    OPAQUE = "zzz1111222233334444"
+
+    def _flag_all(self, changes, baseline):
+        return "leaks", list(changes)
+
+    def _sample_for(self, change):
+        report = evaluate_invariants([change], {}, [self._flag_all])
+        return report.violations[0].samples[0]
+
+    def _assert_no_leak(self, change):
+        report = evaluate_invariants([change], {}, [self._flag_all])
+        self.assertNotIn(self.OPAQUE, json.dumps(report.to_dict()))
+
+    def test_opaque_value_is_not_caught_by_pattern_alone(self):
+        # Guards the guard: proves OPAQUE really is invisible to mask_text,
+        # so a pass below is attributable to key handling and nothing else.
+        from core.secrets import mask_text
+
+        self.assertIn(self.OPAQUE, mask_text(self.OPAQUE))
+
+    def test_common_sensitive_keys_are_redacted(self):
+        for key in (
+            "api_key", "apikey", "api-key", "API_KEY",
+            "token", "access_token", "refresh_token",
+            "password", "secret", "client_secret",
+            "authorization", "Authorization",
+            "aws_secret_access_key",
+        ):
+            with self.subTest(key=key):
+                self._assert_no_leak({key: self.OPAQUE})
+
+    def test_header_style_keys_are_redacted(self):
+        for key in ("X-Api-Key", "x_api_key", "X-Auth-Token"):
+            with self.subTest(key=key):
+                self._assert_no_leak({key: self.OPAQUE})
+
+    def test_nested_sensitive_key_is_redacted(self):
+        self._assert_no_leak({"meta": {"headers": {"api_key": self.OPAQUE}}})
+
+    def test_sensitive_key_holding_a_list_redacts_every_leaf(self):
+        self._assert_no_leak({"token": [self.OPAQUE, self.OPAQUE]})
+
+    def test_insensitive_key_keeps_its_value(self):
+        # Redaction must be targeted, or the report stops being evidence.
+        sample = self._sample_for({"op": "sync", "count_label": "42 items"})
+        self.assertEqual(sample["op"], "sync")
+        self.assertEqual(sample["count_label"], "42 items")
+
+    def test_key_names_are_preserved(self):
+        # Knowing WHICH field was redacted is the point of the sample.
+        sample = self._sample_for({"api_key": self.OPAQUE, "op": "sync"})
+        self.assertIn("api_key", sample)
+        self.assertNotIn(self.OPAQUE, sample["api_key"])
+
+    def test_non_string_under_sensitive_key_is_untouched(self):
+        sample = self._sample_for({"token": None, "secret": 42})
+        self.assertIsNone(sample["token"])
+        self.assertEqual(sample["secret"], 42)
+
+
 class TestOffendingSampleMasking(unittest.TestCase):
     """Offending items are the caller's change records and may carry secrets.
 
     A change describing an API call carries the URL or headers that would
     make it, so an unmasked sample puts a live key in to_dict() output.
+
+    These cases cover values mask_text recognizes from their surrounding
+    text. Bare values under a sensitive key are a different mechanism and
+    are covered by TestSensitiveKeyMasking above -- with deliberately
+    pattern-less values, since a token-shaped one proves nothing there.
     """
 
     TOKEN = "ghp_EEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"

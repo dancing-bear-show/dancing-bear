@@ -37,7 +37,22 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from core.secrets import mask_text
+from core.secrets import SENSITIVE_PARAM_KEYS, mask_text
+
+# Reuses the shared key set rather than a second list that would drift from
+# it. Normalized to underscores once here so lookups stay cheap; the extra
+# entries are header spellings that never appear as query params.
+_SENSITIVE_KEYS = {k.replace("-", "_") for k in SENSITIVE_PARAM_KEYS} | {
+    # Header spellings mask_headers already treats as sensitive but which
+    # never appear as query params, so SENSITIVE_PARAM_KEYS omits them.
+    "x_auth_token",
+    "proxy_authorization",
+    "api_secret",
+    "private_key",
+    "session_token",
+}
+
+_REDACTED_VALUE = "***REDACTED***"
 
 __all__ = [
     "InvariantViolation",
@@ -125,19 +140,43 @@ def _mask_sample(sample: dict[str, Any]) -> dict[str, Any]:
     string leaves change, and nesting, keys, and non-string values are
     untouched.
     """
-    return {key: _mask_value(value) for key, value in sample.items()}
+    return {key: _mask_value(value, key) for key, value in sample.items()}
 
 
-def _mask_value(value: Any) -> Any:
-    """Recursively mask string leaves inside a sample value."""
+def _is_sensitive_key(key: object) -> bool:
+    """Return True when a mapping key marks its value as a credential.
+
+    Normalizes ``-``/``_`` and case so ``X-Api-Key``, ``api_key`` and
+    ``APIKEY`` all match the shared key set.
+    """
+    if not isinstance(key, str):
+        return False
+    normalized = key.strip().lower().replace("-", "_")
+    return normalized in _SENSITIVE_KEYS
+
+
+def _mask_value(value: Any, key: object = None) -> Any:
+    """Recursively mask string leaves inside a sample value.
+
+    ``key`` carries the mapping key a value was found under. It matters
+    because ``mask_text`` recognizes credentials by their surrounding text
+    -- ``?api_key=x`` or ``Authorization: Bearer x`` -- and a bare value
+    stored under a sensitive key has no such marker. ``{"api_key": "x"}``
+    would otherwise pass through untouched, which is the ordinary shape of
+    a structured change record.
+    """
     if isinstance(value, str):
+        if _is_sensitive_key(key):
+            return _REDACTED_VALUE
         return mask_text(value)
     if isinstance(value, dict):
-        return {k: _mask_value(v) for k, v in value.items()}
+        return {k: _mask_value(v, k) for k, v in value.items()}
+    # A sensitive key holding a collection redacts every leaf inside it:
+    # {"headers": {...}} is not sensitive, but {"token": [...]} is.
     if isinstance(value, list):
-        return [_mask_value(v) for v in value]
+        return [_mask_value(v, key) for v in value]
     if isinstance(value, tuple):
-        return tuple(_mask_value(v) for v in value)
+        return tuple(_mask_value(v, key) for v in value)
     return value
 
 
