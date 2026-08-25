@@ -191,5 +191,43 @@ class TestBodyToBullets(unittest.TestCase):
         result = _body_to_bullets("   \n  \n  ")
         self.assertEqual(result, [])
 
+
+class TestParseBulletsUnrecognizedType(unittest.TestCase):
+    """Tests for _parse_bullets rejection of unrecognized item types."""
+
+    def test_int_bullet_raises(self):
+        """Integer bullet item raises ValueError."""
+        with self.assertRaises(ValueError) as ctx:
+            _parse_bullets([42])
+        self.assertIn("int", str(ctx.exception))
+
+    def test_none_bullet_raises(self):
+        """None bullet item raises ValueError."""
+        with self.assertRaises(ValueError) as ctx:
+            _parse_bullets([None])
+        self.assertIn("NoneType", str(ctx.exception))
+
+    def test_float_bullet_raises(self):
+        """Float bullet item raises ValueError."""
+        with self.assertRaises(ValueError) as ctx:
+            _parse_bullets([3.14])
+        self.assertIn("float", str(ctx.exception))
+
+    def test_valid_types_still_parse(self):
+        """Valid types (str, dict, list) parse without error."""
+        result = _parse_bullets(["text", {"text": "bold", "bold": True}, ["item", 1]])
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result[0].text, "text")
+        self.assertTrue(result[1].bold)
+        self.assertEqual(result[2].level, 1)
+
+    def test_error_message_names_type_and_value(self):
+        """Error message includes the type name and the offending value."""
+        with self.assertRaises(ValueError) as ctx:
+            _parse_bullets([True])
+        msg = str(ctx.exception)
+        self.assertIn("bool", msg)
+
+
 if __name__ == "__main__":
     unittest.main()

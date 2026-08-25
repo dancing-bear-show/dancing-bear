@@ -224,13 +224,25 @@ class LayoutMixin:
 
         Returns:
             The SlideLayout object to use for this slide.
+
+        Raises:
+            ValueError: If the layout name is not in the resolved layout map.
         """
+        from slides.constants import VALID_LAYOUTS
+
         if not isinstance(layouts, dict):
             return layouts
         layout_name = content.layout or DEFAULT_LAYOUT_KEY
         if layout_name in layouts:
             return layouts[layout_name]
-        return layouts[_FALLBACK_LAYOUT_KEY]
+        # layout_name not in layouts: reject — do not silently fall back.
+        # Only VALID_LAYOUTS names are accepted; the _FALLBACK_LAYOUT_KEY is an
+        # internal sentinel, not a user-facing name.
+        valid = sorted(k for k in layouts if k != _FALLBACK_LAYOUT_KEY) or VALID_LAYOUTS
+        raise ValueError(
+            f"Slide {content.title!r}: unknown layout {layout_name!r}; "
+            f"expected one of {valid}"
+        )
 
     @staticmethod
     def _scan_master_layouts(prs: Any) -> dict[str, int]:

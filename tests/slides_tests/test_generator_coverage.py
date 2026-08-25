@@ -906,26 +906,39 @@ class TestApplyNativeBullet(unittest.TestCase):
 
 
 class TestParseBulletsNonDictNonStr(unittest.TestCase):
-    """Cover branch 86->76: bullet item is neither dict nor str (silently skipped)."""
+    """Unrecognized bullet types raise ValueError instead of being silently skipped."""
 
-    def test_non_dict_non_str_bullet_is_ignored(self) -> None:
-        """Items that are not dict or str are silently skipped by _parse_bullets."""
+    def test_non_dict_non_str_bullet_raises(self) -> None:
+        """Items that are not dict, list, tuple, or str raise ValueError."""
         from slides._parse_bullets import _parse_bullets
 
-        raw_bullets = [
-            "valid string bullet",
-            42,            # int - should be skipped
-            None,          # NoneType - should be skipped
-            {"text": "dict bullet"},  # dict - should be parsed
-        ]
-        result = _parse_bullets(raw_bullets)
+        with self.assertRaises(ValueError) as ctx:
+            _parse_bullets(["valid string bullet", 42])
+        self.assertIn("int", str(ctx.exception))
 
-        # Only the string and the dict bullet should be present
-        self.assertEqual(len(result), 2)
-        self.assertIsInstance(result[0], BulletItem)
+    def test_none_bullet_raises(self) -> None:
+        """None bullet raises ValueError."""
+        from slides._parse_bullets import _parse_bullets
+
+        with self.assertRaises(ValueError) as ctx:
+            _parse_bullets([None])
+        self.assertIn("NoneType", str(ctx.exception))
+
+    def test_valid_types_all_parse(self) -> None:
+        """str, dict, list, and tuple all parse successfully."""
+        from slides._parse_bullets import _parse_bullets
+
+        result = _parse_bullets([
+            "valid string bullet",
+            {"text": "dict bullet"},
+            ["list bullet", 1],
+            ("tuple bullet", 0),
+        ])
+        self.assertEqual(len(result), 4)
         self.assertEqual(result[0].text, "valid string bullet")
-        self.assertIsInstance(result[1], BulletItem)
         self.assertEqual(result[1].text, "dict bullet")
+        self.assertEqual(result[2].text, "list bullet")
+        self.assertEqual(result[3].text, "tuple bullet")
 
 
 class TestRemoveUnusedPlaceholdersNoTextFrame(unittest.TestCase):

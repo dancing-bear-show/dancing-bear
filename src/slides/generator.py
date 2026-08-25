@@ -229,8 +229,18 @@ class SlideGenerator(ShapeUtilsMixin, StylingMixin, TableMixin, ContentMixin, Im
             self._add_image_to_slide(slide, content.image, content, theme_color)
             return
 
-        if isinstance(content, TableSlide) and content.headers:
-            self._populate_table_slide(slide, content, theme_color)
+        if isinstance(content, TableSlide):
+            if content.rows and not content.headers:
+                raise ValueError(
+                    f"Table slide {content.title!r} has rows but no headers; "
+                    "add a 'headers:' list to the slide definition"
+                )
+            if content.headers:
+                self._populate_table_slide(slide, content, theme_color)
+            else:
+                self._populate_bullet_slide(
+                    slide, content, theme_color, is_title_slide=is_title_slide, inherit_style=inherit_style,
+                )
         else:
             self._populate_bullet_slide(
                 slide, content, theme_color, is_title_slide=is_title_slide, inherit_style=inherit_style,

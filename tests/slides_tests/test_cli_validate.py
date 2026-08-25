@@ -43,6 +43,7 @@ class TestCmdValidate(unittest.TestCase):
 
         mock_slide = MagicMock()
         mock_slide.title = "Slide 1"
+        mock_slide.layout = "bullet"
         mock_slide.bullets = ["Bullet A", "Bullet B"]
 
         mock_metadata = MagicMock()
@@ -81,6 +82,7 @@ class TestCmdValidate(unittest.TestCase):
 
         mock_slide = MagicMock()
         mock_slide.title = "Introduction"
+        mock_slide.layout = "bullet"
         mock_slide.bullets = ["Point 1", "Point 2", "Point 3"]
 
         mock_metadata = MagicMock()
@@ -167,14 +169,17 @@ class TestCmdValidate(unittest.TestCase):
 
         mock_slide_1 = MagicMock()
         mock_slide_1.title = "Slide One"
+        mock_slide_1.layout = "bullet"
         mock_slide_1.bullets = ["A"]
 
         mock_slide_2 = MagicMock()
         mock_slide_2.title = "Slide Two"
+        mock_slide_2.layout = "bullet"
         mock_slide_2.bullets = ["B", "C"]
 
         mock_slide_3 = MagicMock()
         mock_slide_3.title = "Slide Three"
+        mock_slide_3.layout = "section"
         mock_slide_3.bullets = []
 
         mock_metadata = MagicMock()
@@ -221,6 +226,160 @@ class TestCmdValidateNoCommandStderr(unittest.TestCase):
             call_args_list = [str(call) for call in mock_print.call_args_list]
             joined = "\n".join(call_args_list)
             self.assertIn("/missing/deck.yaml", joined)
+
+
+class TestCmdValidateLayoutChecks(unittest.TestCase):
+    """Tests for cmd_validate enum-like field validation (layout name, table headers)."""
+
+    def _make_deck(self, slides):
+        """Build a minimal mock deck with the given slides list."""
+        mock_metadata = MagicMock()
+        mock_metadata.title = "Test Deck"
+        mock_metadata.author = None
+        mock_metadata.date = None
+        mock_metadata.template_slide_index = 0
+        mock_metadata.theme_color = "LIGHT_2"
+        mock_deck = MagicMock()
+        mock_deck.metadata = mock_metadata
+        mock_deck.template_path = "/tpl.pptx"
+        mock_deck.slides = slides
+        return mock_deck
+
+    @patch("slides.cli.load_deck_from_yaml")
+    @patch("slides.cli.Path")
+    def test_unknown_layout_returns_1(self, mock_path_class, mock_load_deck):
+        """cmd_validate returns 1 for a slide with an unknown layout name."""
+        from slides.schema import SlideContent
+
+        mock_path_class.return_value.exists.return_value = True
+        slide = SlideContent(title="Typo Slide", layout="bulets")  # typo
+        mock_load_deck.return_value = self._make_deck([slide])
+
+        args = argparse.Namespace(yaml_file="deck.yaml")
+        import io
+        buf = io.StringIO()
+        with patch("sys.stderr", buf):
+            result = cmd_validate(args)
+
+        self.assertEqual(result, 1)
+        self.assertIn("bulets", buf.getvalue())
+
+    @patch("slides.cli.load_deck_from_yaml")
+    @patch("slides.cli.Path")
+    def test_unknown_layout_names_offending_value_in_stderr(self, mock_path_class, mock_load_deck):
+        """cmd_validate error message includes the offending layout name and slide title."""
+        from slides.schema import SlideContent
+
+        mock_path_class.return_value.exists.return_value = True
+        slide = SlideContent(title="Bad Layout Slide", layout="bulets")
+        mock_load_deck.return_value = self._make_deck([slide])
+
+        args = argparse.Namespace(yaml_file="deck.yaml")
+        import io
+        buf = io.StringIO()
+        with patch("sys.stderr", buf):
+            result = cmd_validate(args)
+
+        self.assertEqual(result, 1)
+        self.assertIn("bulets", buf.getvalue())
+        self.assertIn("Bad Layout Slide", buf.getvalue())
+
+    @patch("slides.cli.load_deck_from_yaml")
+    @patch("slides.cli.Path")
+    def test_table_slide_rows_no_headers_returns_1(self, mock_path_class, mock_load_deck):
+        """cmd_validate returns 1 for a TableSlide with rows but no headers."""
+        from slides.schema import TableSlide
+
+        mock_path_class.return_value.exists.return_value = True
+        slide = TableSlide(
+            title="Headerless Table",
+            headers=[],
+            rows=[["r1c1", "r1c2"]],
+        )
+        mock_load_deck.return_value = self._make_deck([slide])
+
+        args = argparse.Namespace(yaml_file="deck.yaml")
+        import io
+        buf = io.StringIO()
+        with patch("sys.stderr", buf):
+            result = cmd_validate(args)
+
+        self.assertEqual(result, 1)
+        self.assertIn("no headers", buf.getvalue())
+
+    @patch("slides.cli.load_deck_from_yaml")
+    @patch("slides.cli.Path")
+    def test_valid_deck_still_passes(self, mock_path_class, mock_load_deck):
+        """cmd_validate returns 0 for a deck with valid layouts and correct tables."""
+        from slides.schema import SlideContent, TableSlide
+
+        mock_path_class.return_value.exists.return_value = True
+        slides = [
+            SlideContent(title="Intro", layout="bullet"),
+            SlideContent(title="Section", layout="section"),
+            TableSlide(
+                title="Data",
+                headers=["Col A", "Col B"],
+                rows=[["a", "b"]],
+            ),
+        ]
+        mock_load_deck.return_value = self._make_deck(slides)
+
+        args = argparse.Namespace(yaml_file="deck.yaml")
+        with patch("builtins.print"):
+            result = cmd_validate(args)
+
+        self.assertEqual(result, 0)
+
+    @patch("slides.cli.load_deck_from_yaml")
+    @patch("slides.cli.Path")
+    def test_table_slide_with_headers_and_rows_passes(self, mock_path_class, mock_load_deck):
+        """cmd_validate returns 0 for a TableSlide that has both headers and rows."""
+        from slides.schema import TableSlide
+
+        mock_path_class.return_value.exists.return_value = True
+        slide = TableSlide(
+            title="Good Table",
+            headers=["Name", "Value"],
+            rows=[["foo", "bar"]],
+        )
+        mock_load_deck.return_value = self._make_deck([slide])
+
+        args = argparse.Namespace(yaml_file="deck.yaml")
+        with patch("builtins.print"):
+            result = cmd_validate(args)
+
+        self.assertEqual(result, 0)
+
+
+class TestCmdValidateTableSlideNoRowsNoHeaders(unittest.TestCase):
+    """cmd_validate should not error on a TableSlide with no rows even if no headers."""
+
+    @patch("slides.cli.load_deck_from_yaml")
+    @patch("slides.cli.Path")
+    def test_table_slide_no_rows_no_headers_passes(self, mock_path_class, mock_load_deck):
+        """Empty table (no rows, no headers) is not an error — only rows-without-headers is."""
+        from slides.schema import TableSlide
+
+        mock_path_class.return_value.exists.return_value = True
+        slide = TableSlide(title="Empty Table", headers=[], rows=[])
+        mock_meta = MagicMock()
+        mock_meta.title = "D"
+        mock_meta.author = None
+        mock_meta.date = None
+        mock_meta.template_slide_index = 0
+        mock_meta.theme_color = "LIGHT_2"
+        mock_deck = MagicMock()
+        mock_deck.metadata = mock_meta
+        mock_deck.template_path = "/tpl.pptx"
+        mock_deck.slides = [slide]
+        mock_load_deck.return_value = mock_deck
+
+        args = argparse.Namespace(yaml_file="deck.yaml")
+        with patch("builtins.print"):
+            result = cmd_validate(args)
+
+        self.assertEqual(result, 0)
 
 
 if __name__ == "__main__":
