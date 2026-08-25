@@ -24,6 +24,10 @@ DEFAULT_HTTP_RETRIES = 3
 
 _RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 
+# Hard ceiling on a self-computed retry delay, in seconds. A server-supplied
+# Retry-After may exceed it; our own backoff may not.
+_MAX_RETRY_BACKOFF = 10.0
+
 
 @dataclass
 class HttpRequestBody:
@@ -142,12 +146,18 @@ class HttpClient:
             )
 
     def _sleep_for_retry(self, attempt: int, retry_after: int | None) -> None:
-        # jitter_backoff with max_delay=10 matches the previous min(2**attempt, 10) cap,
-        # but spreads concurrent retries across a randomised window to avoid thundering
-        # herd when core/parallel.py runs many threads against a shared rate limit.
-        computed = jitter_backoff(attempt, base_delay=1.0, multiplier=2.0, max_delay=10.0)
-        # A server-supplied Retry-After is a hard floor: jitter must not reduce the
-        # delay below what the server requested.
+        # Jitter spreads concurrent retries so the up-to-16 threads in
+        # core/parallel.py stop backing off in lockstep against a shared rate
+        # limit. jitter_backoff applies its +/-30% band *after* its own clamp,
+        # so it can return up to 13s for a 10s max_delay -- clamp again here to
+        # keep the hard ceiling the previous min(2 ** attempt, 10) guaranteed.
+        computed = min(
+            jitter_backoff(attempt, base_delay=1.0, multiplier=2.0, max_delay=_MAX_RETRY_BACKOFF),
+            _MAX_RETRY_BACKOFF,
+        )
+        # A server-supplied Retry-After is a hard floor: jitter must not reduce
+        # the delay below what the server requested, and the ceiling above does
+        # not apply to it -- the server's instruction wins over our own cap.
         delay = max(computed, retry_after) if retry_after is not None else computed
         time.sleep(delay)
 

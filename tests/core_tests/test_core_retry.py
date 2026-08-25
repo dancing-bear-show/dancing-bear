@@ -474,3 +474,79 @@ class TestPRFeedbackFixes(unittest.TestCase):
 
         self.assertEqual(once(), "ok")
         self.assertEqual(len(calls), 1)
+
+
+class TestNonGrowingMultipliers(unittest.TestCase):
+    """A multiplier <= 1 never reaches the cap, so it must not be shortcut.
+
+    The first overflow guard short-circuited to max_delay past a fixed attempt
+    ceiling regardless of multiplier, so exponential_backoff(512, multiplier=1.0)
+    returned the cap instead of base_delay — a flat series reported as maxed out.
+    """
+
+    def test_flat_multiplier_returns_base_delay(self) -> None:
+        from core.retry import exponential_backoff
+
+        self.assertEqual(
+            exponential_backoff(512, base_delay=1.0, multiplier=1.0, max_delay=60.0),
+            1.0,
+        )
+
+    def test_shrinking_multiplier_decays_toward_zero(self) -> None:
+        from core.retry import exponential_backoff
+
+        value = exponential_backoff(
+            512, base_delay=1.0, multiplier=0.5, max_delay=60.0
+        )
+        self.assertLess(value, 1.0)
+        self.assertGreaterEqual(value, 0.0)
+
+    def test_growing_multiplier_still_caps(self) -> None:
+        from core.retry import exponential_backoff
+
+        self.assertEqual(
+            exponential_backoff(10_000, multiplier=2.0, max_delay=60.0), 60.0
+        )
+
+    def test_normal_series_is_unaffected(self) -> None:
+        from core.retry import exponential_backoff
+
+        self.assertEqual(exponential_backoff(0, max_delay=60.0), 1.0)
+        self.assertEqual(exponential_backoff(3, max_delay=60.0), 8.0)
+
+
+class TestHttpBackoffCeiling(unittest.TestCase):
+    """_sleep_for_retry must not exceed the ceiling the old code guaranteed.
+
+    jitter_backoff applies its +/-30% band after its own clamp, so a 10s
+    max_delay yields up to 13s. The previous min(2 ** attempt, 10) was a hard
+    10s ceiling, so HttpClient clamps a second time.
+    """
+
+    def _sleeps_for(self, attempt: int, retry_after=None, samples: int = 400):
+        from unittest.mock import patch
+
+        from core.http import HttpClient
+
+        client = HttpClient.__new__(HttpClient)
+        recorded: list[float] = []
+        with patch("core.http.time.sleep", side_effect=recorded.append):
+            for _ in range(samples):
+                client._sleep_for_retry(attempt, retry_after)
+        return recorded
+
+    def test_delay_never_exceeds_ten_seconds(self) -> None:
+        for delay in self._sleeps_for(attempt=20):
+            self.assertLessEqual(delay, 10.0)
+
+    def test_jitter_still_varies_below_the_ceiling(self) -> None:
+        # Clamping must not flatten every sample onto the ceiling — that would
+        # reintroduce the lockstep retries jitter exists to prevent.
+        delays = self._sleeps_for(attempt=20)
+        self.assertGreater(len(set(delays)), 1)
+        self.assertTrue(any(d < 10.0 for d in delays))
+
+    def test_retry_after_may_exceed_the_ceiling(self) -> None:
+        # The server's instruction wins over our own cap.
+        for delay in self._sleeps_for(attempt=1, retry_after=30, samples=20):
+            self.assertEqual(delay, 30)

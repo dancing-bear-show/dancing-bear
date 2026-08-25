@@ -40,11 +40,6 @@ __all__ = [
 
 _logger = logging.getLogger(__name__)
 
-# Attempt count past which exponential growth is short-circuited to the cap.
-# Any real backoff hits max_delay long before this; the guard exists so a
-# runaway attempt number returns the cap instead of raising OverflowError.
-_EXPONENT_CEILING = 512
-
 
 # ---------------------------------------------------------------------------
 # Error type
@@ -80,14 +75,18 @@ def exponential_backoff(
     Delay grows as ``base_delay * multiplier**attempt``, clamped to
     ``max_delay``.
 
-    The growth is short-circuited once it would exceed ``max_delay``.
-    Evaluating the exponent first raises OverflowError for a large attempt
-    (``2.0 ** 10_000``), which would turn a capped strategy into a crash at
-    exactly the point the cap was supposed to make it safe.
+    OverflowError from the exponentiation is treated as "grew past the cap"
+    rather than propagating: ``2.0 ** 10_000`` raises, which would turn a
+    capped strategy into a crash at exactly the point the cap was supposed
+    to make it safe. Only a multiplier greater than 1 can overflow, so this
+    genuinely means the value exceeded ``max_delay`` -- a shrinking or flat
+    multiplier (``<= 1``) stays finite and takes the normal path, which
+    matters because such a series never reaches the cap at all.
     """
-    if attempt >= _EXPONENT_CEILING or multiplier <= 0:
+    try:
+        return min(base_delay * (multiplier ** attempt), max_delay)
+    except OverflowError:
         return max_delay
-    return min(base_delay * (multiplier ** attempt), max_delay)
 
 
 def linear_backoff(
