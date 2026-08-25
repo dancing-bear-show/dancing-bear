@@ -49,23 +49,36 @@ def _ws(workspace_dir: str | Path) -> str:
     return str(Path(workspace_dir).resolve())
 
 
-def _read_paths(stage: ResolvedStage, ws: str) -> list[str]:
-    """Workspace paths for each reads_from dependency."""
-    paths: list[str] = []
-    for name in stage.spec.reads_from:
-        paths.append(f"{ws}/stages/*-{name}.json")
-    if stage.spec.reads_from:
-        paths.append(f"{ws}/outputs/")
-    return paths
-
-
-_WORKSPACE_SUBDIRS = ("outputs/", "validation/", "stages/", "dispatch/")
-
-
 def _is_isolated(stage: ResolvedStage) -> bool:
     """True if this stage's agent runs in its own git worktree."""
     agent = stage.spec.agent
     return bool(agent and agent.isolation)
+
+
+def _read_paths(stage: ResolvedStage, ws: str) -> list[str]:
+    """Paths the agent reads its upstream inputs from.
+
+    An isolated agent is directed to its own ``inputs/`` rather than the shared
+    workspace: the orchestrator copies upstream artifacts in before signalling
+    proceed, so a ``{ws}/...`` read here would either prompt or reach outside
+    the worktree, breaking the isolation boundary in the input direction the
+    same way an unguarded write breaks it in the output direction.
+    """
+    if not stage.spec.reads_from:
+        return []
+    if _is_isolated(stage):
+        paths = [
+            f"<your-cwd>/inputs/{name}.json (copied in by the orchestrator)"
+            for name in stage.spec.reads_from
+        ]
+        paths.append("<your-cwd>/inputs/")
+        return paths
+    paths = [f"{ws}/stages/*-{name}.json" for name in stage.spec.reads_from]
+    paths.append(f"{ws}/outputs/")
+    return paths
+
+
+_WORKSPACE_SUBDIRS = ("outputs/", "validation/", "stages/", "dispatch/")
 
 
 def _write_paths(stage: ResolvedStage, ws: str) -> list[str]:

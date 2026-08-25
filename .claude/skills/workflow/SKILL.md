@@ -56,8 +56,18 @@ This prints the compiled manifest as JSON. The top-level keys are:
 | `resolutions` | one entry per stage: `{stage, index, kind, executor, human_gate, sub_workflow, template_resolved, guide_resolved, cli_commands, agent_role, agent_model, agent_isolation}` — everything needed to dispatch without re-reading the YAML |
 | `contract_warnings_detail` | `[{stage, upstream, message}]` |
 
-Read `groups` for execution order and `resolutions` for each stage's agent
-spec — including `agent_isolation`, which must reach `Agent()` (see step 2a).
+Read `groups` for execution order and `resolutions` for each stage's dispatch
+metadata — including `agent_isolation`, which must reach `Agent()` (see 2a).
+
+**The manifest is a routing summary, not the full stage contract.** It
+deliberately does NOT carry stage descriptions, `reads_from`/`writes_to`,
+`validation`, or `fan_out` source/field/key. Use it to decide execution order,
+which agent to spawn, and with what model/isolation — then build the prompt
+from the parsed definition or from `dispatch/*.json`, which the engine writes
+per stage with the fully-rendered prompt. A fan-out stage in particular cannot
+be enumerated from `resolutions`; read its `fan_out` config from the parsed
+definition.
+
 If compile fails, report the error and stop.
 
 **If `--execute` is NOT set (dry-run):** print the execution plan and stop:
@@ -104,11 +114,19 @@ Generate a `RUN_ID` in the format `{workflow_name}-{YYYYMMDD}-{8_hex_chars}`.
    a `kind: publish` stage.** Only publish stages may run `gh pr create`,
    post comments, or write outside the workspace.
 
-7. **`isolation: worktree` requires TWO explicit steps before validate** —
-   outputs and code changes travel separately, and missing either one fails
+7. **`isolation: worktree` requires THREE explicit steps** — inputs, outputs
+   and code changes all travel separately, and missing any one of them fails
    silently rather than loudly.
 
-   a. **Copy back each agent's outputs — as part of THAT stage's completion,
+   a. **Copy the stage's inputs IN before spawning it.** An isolated agent
+      cannot read `{workspace}` either — the boundary applies in both
+      directions. For each name in the stage's `reads_from`, copy that
+      upstream stage's output into `<agent-cwd>/inputs/<name>.json` before
+      signalling proceed. The prompt built by the engine already points an
+      isolated agent at `<your-cwd>/inputs/`, so skipping this leaves it
+      reading an empty directory.
+
+   b. **Copy back each agent's outputs — as part of THAT stage's completion,
       before releasing any dependent stage.** An isolated agent writes to
       `<its-cwd>/outputs/` and `<its-cwd>/stages/`, never to `{workspace}`
       (see the workspace-lock exception below). As soon as the agent returns,
@@ -124,14 +142,14 @@ Generate a `RUN_ID` in the format `{workflow_name}-{YYYYMMDD}-{8_hex_chars}`.
       returns, fail the stage — downstream stages read those files by name,
       and a missing one degrades them quietly instead of erroring.
 
-   b. **Merge the worktree branch** so the code changes land:
+   c. **Merge the worktree branch** so the code changes land:
 
    ```bash
    git merge --no-ff worktree-agent-{id} -m "merge stage {stage_name}"
    ```
 
    Read-only agents (researcher, reviewer, Explore, unit-validator) need
-   neither step.
+   none of these steps.
 
 8. **Validate stages must wait for all implementation output to exist.** Before
    spawning a validate agent, verify every file in `reads_from` stage's

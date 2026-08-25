@@ -89,6 +89,34 @@ class TestBuildAgentPromptIsolation(unittest.TestCase):
         self.assertIn("/ws/outputs/report.json", prompt)
         self.assertNotIn("<your-cwd>", prompt)
 
+    def _prompt_with_inputs(self, isolation: str | None) -> str:
+        """An execute stage that both reads upstream and writes output."""
+        from workflow.models import AgentSpec, StageKind
+
+        spec = make_stage_spec(
+            name="iso",
+            kind=StageKind.execute,
+            agent=AgentSpec(role="code-writer", isolation=isolation),
+            reads_from=("upstream",),
+            writes_to=("outputs/report.json",),
+        )
+        return build_agent_prompt(make_resolved_stage(spec=spec, index=1), "wf", "/ws")
+
+    def test_isolated_inputs_come_from_own_cwd(self) -> None:
+        """The boundary applies to reads too, not only writes.
+
+        An isolated agent cannot read the shared workspace either; pointing it
+        at {ws} makes it read outside its worktree or find nothing.
+        """
+        prompt = self._prompt_with_inputs("worktree")
+        self.assertIn("<your-cwd>/inputs/upstream.json", prompt)
+        self.assertNotIn("/ws/", prompt)
+
+    def test_non_isolated_inputs_still_come_from_workspace(self) -> None:
+        prompt = self._prompt_with_inputs(None)
+        self.assertIn("/ws/stages/*-upstream.json", prompt)
+        self.assertNotIn("<your-cwd>", prompt)
+
 
 class TestBuildAgentPromptGather(unittest.TestCase):
     def test_contains_stage_name(self) -> None:

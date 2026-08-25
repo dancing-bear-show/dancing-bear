@@ -187,11 +187,15 @@ stages:
 
       Branch safety — do this FIRST, before reading anything. Run:
         git branch --show-current
-      Record the result under key "branch". If it is "main", FAIL this stage
-      immediately with a message telling the operator to check out {branch}
-      first. Do NOT attempt to create or switch the branch here: this stage is
-      read-only, and a later stage cannot rely on inheriting a branch switch
-      anyway — each stage is a fresh agent session.
+      Record the result under key "branch". It MUST equal {branch} exactly.
+      If it does not — whether it is "main" or any other branch — FAIL this
+      stage immediately, telling the operator to check out {branch} first.
+      Checking only for "main" would let a run started from an unrelated
+      branch mutate and merge into that branch while reporting success.
+      Do NOT create or switch the branch here: this stage is read-only, and a
+      later stage cannot rely on inheriting a branch switch anyway — each
+      stage is a fresh agent session, which is why every mutating stage
+      re-checks independently.
 
       Every stage below that mutates the tree (implement-producer,
       implement-consumer, integrate-and-test, fix-protocol-lie) re-checks this
@@ -424,7 +428,10 @@ stages:
     description: >
       BRANCH GUARD — run this before any edit:
         git branch --show-current
-      If it prints "main", STOP and fail this stage. Never mutate main.
+      It MUST print exactly {branch}. If it prints anything else — "main" or
+      any other branch — STOP and fail this stage. Rejecting only "main" is
+      not enough: a run started from an unrelated branch would otherwise
+      mutate and merge into it while reporting success.
       A fresh agent session does not inherit an earlier stage's branch, so
       this check must happen here, not only in the survey stage.
 
@@ -519,7 +526,10 @@ stages:
     description: >
       BRANCH GUARD — run this before any edit:
         git branch --show-current
-      If it prints "main", STOP and fail this stage. Never mutate main.
+      It MUST print exactly {branch}. If it prints anything else — "main" or
+      any other branch — STOP and fail this stage. Rejecting only "main" is
+      not enough: a run started from an unrelated branch would otherwise
+      mutate and merge into it while reporting success.
       A fresh agent session does not inherit an earlier stage's branch, so
       this check must happen here, not only in the survey stage.
 
@@ -585,7 +595,10 @@ stages:
     description: >
       BRANCH GUARD — run this before any edit:
         git branch --show-current
-      If it prints "main", STOP and fail this stage. Never mutate main.
+      It MUST print exactly {branch}. If it prints anything else — "main" or
+      any other branch — STOP and fail this stage. Rejecting only "main" is
+      not enough: a run started from an unrelated branch would otherwise
+      mutate and merge into it while reporting success.
       A fresh agent session does not inherit an earlier stage's branch, so
       this check must happen here, not only in the survey stage.
 
@@ -678,7 +691,10 @@ stages:
     description: >
       BRANCH GUARD — run this before any edit:
         git branch --show-current
-      If it prints "main", STOP and fail this stage. Never mutate main.
+      It MUST print exactly {branch}. If it prints anything else — "main" or
+      any other branch — STOP and fail this stage. Rejecting only "main" is
+      not enough: a run started from an unrelated branch would otherwise
+      mutate and merge into it while reporting success.
       A fresh agent session does not inherit an earlier stage's branch, so
       this check must happen here, not only in the survey stage.
 
