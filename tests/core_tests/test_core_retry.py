@@ -379,7 +379,7 @@ class TestHttpSleepForRetryWithJitter(unittest.TestCase):
         else:
             self.addCleanup(sys.modules.__setitem__, "requests", original)
 
-        import core.http as http_mod
+        from core import http as http_mod
         importlib.reload(http_mod)
         # Restore http_mod to its real state after this test.
         self.addCleanup(importlib.reload, http_mod)
