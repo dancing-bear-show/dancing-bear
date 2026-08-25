@@ -274,6 +274,27 @@ class TestUriEmbeddedCredentials(unittest.TestCase):
         self.assertNotIn(self.PW, out)
         self.assertIn("[2001:db8::1]:8080", out)
 
+    def test_error_path_masks_the_query_too(self):
+        # A malformed IPv6 literal makes urlsplit raise, so mask_url falls
+        # back to string surgery. Masking only the password there meant the
+        # function leaked a query secret precisely on its own error path.
+        url = f"https://user:{self.PW}@[bad::ipv6::host]:99/p?api_key=SECRETQUERY"
+        out = mask_url(url)
+        self.assertNotIn(self.PW, out)
+        self.assertNotIn("SECRETQUERY", out)
+
+    def test_error_path_keeps_benign_query_params(self):
+        url = "https://user:pw@[bad::ipv6::host]:99/p?page=2&sort=name"
+        out = mask_url(url)
+        self.assertIn("page=2", out)
+        self.assertIn("sort=name", out)
+
+    def test_error_path_preserves_the_fragment(self):
+        url = f"https://u:{self.PW}@[bad::ipv6::x]:9/p?token=SECRETQ#frag"
+        out = mask_url(url)
+        self.assertNotIn("SECRETQ", out)
+        self.assertIn("#frag", out)
+
 
 class TestMappingLiteralMasking(unittest.TestCase):
     """Both JSON and Python-repr mapping forms must mask.
@@ -313,6 +334,23 @@ class TestMappingLiteralMasking(unittest.TestCase):
 
         exc = RuntimeError(f"rejected: {{'api_key': '{self.SECRET}'}}")
         self.assertNotIn(self.SECRET, str(RetryExhaustedError(2, exc)))
+
+    def test_escaped_quote_inside_value_does_not_end_the_match(self):
+        # A plain .*? stopped at the first quote character and redacted
+        # only the head: "abc\"def_TAIL" became ***REDACTED***"def_TAIL,
+        # which reads as masked while leaving the tail in the log.
+        for text in (
+            r'{"api_key": "abc\"def_SECRETTAIL"}',
+            r"{'api_key': 'abc\'def_SECRETTAIL'}",
+        ):
+            with self.subTest(text=text):
+                out = mask_text(text)
+                self.assertNotIn("SECRETTAIL", out)
+                self.assertNotIn("def", out)
+
+    def test_escaped_backslash_before_closing_quote(self):
+        out = mask_text(r'{"api_key": "value\\"}')
+        self.assertNotIn("value", out)
 
     def test_benign_mapping_fields_survive(self):
         for text in (

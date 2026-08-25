@@ -159,19 +159,48 @@ def _mask_netloc(netloc: str) -> str:
     return f"{user}:{REDACTED}@{host}"
 
 
-def _strip_userinfo(url: str) -> str:
-    """Drop any ``user:pass@`` section from a URL by pure string surgery.
+def _mask_query_pairs(query: str) -> str:
+    """Redact sensitive values in a raw ``a=1&b=2`` query string.
 
-    The fallback for when parsing fails outright: emitting a slightly
-    mangled URL is always better than emitting a live password.
+    String-only, for the path where urlsplit/parse_qsl already failed.
+    """
+    out = []
+    for pair in query.split("&"):
+        key, sep, value = pair.partition("=")
+        out.append(f"{key}={REDACTED}" if sep and is_sensitive_key(key) else pair)
+    return "&".join(out)
+
+
+def _strip_userinfo(url: str) -> str:
+    """Mask credentials in a URL by pure string surgery.
+
+    The fallback for when urlsplit fails outright -- a malformed IPv6
+    literal raises ValueError, for instance. Emitting a slightly mangled
+    URL is always better than emitting a live credential.
+
+    Handles the query string as well as the userinfo: masking only the
+    password meant a malformed host with "?api_key=..." still leaked, so
+    mask_url leaked precisely on its own error path.
     """
     scheme, sep, rest = url.partition("://")
-    if not sep or "@" not in rest:
-        return url
-    authority, _, tail = rest.partition("/")
-    if "@" not in authority:
-        return url
-    return f"{scheme}://{_mask_netloc(authority)}" + (f"/{tail}" if tail else "")
+    if not sep:
+        return _mask_query_pairs_in_tail(url)
+    authority, slash, tail = rest.partition("/")
+    masked_authority = _mask_netloc(authority) if "@" in authority else authority
+    rebuilt = f"{scheme}://{masked_authority}"
+    if slash:
+        rebuilt += "/" + _mask_query_pairs_in_tail(tail)
+    return rebuilt
+
+
+def _mask_query_pairs_in_tail(tail: str) -> str:
+    """Mask the query portion of a ``path?query#fragment`` tail."""
+    path, qmark, remainder = tail.partition("?")
+    if not qmark:
+        return tail
+    query, hashmark, fragment = remainder.partition("#")
+    rebuilt = f"{path}?{_mask_query_pairs(query)}"
+    return rebuilt + (f"#{fragment}" if hashmark else "")
 
 
 def mask_url(url: str) -> str:
@@ -219,7 +248,12 @@ _MAPPING_KEY_ALTERNATION = (
 # terminated by a stray double quote inside it.
 _MAPPING_FIELD_RE = re.compile(
     r"(?i)((['\"])(?:" + _MAPPING_KEY_ALTERNATION + r")\2\s*:\s*(['\"]))"
-    r".*?\3"
+    # (?:\\.|(?!\3).)* consumes an escape sequence as one unit, so a
+    # backslash-escaped quote inside the value cannot end the match. A
+    # plain .*? stopped at the first quote character and redacted only the
+    # head -- "abc\"def_SECRET" became ***REDACTED***"def_SECRET, which
+    # reads as masked while leaving the tail in the log.
+    r"(?:\\.|(?!\3).)*\3"
 )
 
 
