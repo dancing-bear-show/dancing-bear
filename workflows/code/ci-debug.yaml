@@ -22,7 +22,7 @@ trigger:
   params:
     run_url: ""          # GitHub Actions workflow run URL (optional if pr_number given)
     pr_number: ""        # PR number to check (optional if run_url given)
-    test_cmd: ""         # Test invocation for local verify (e.g. "python3 -m unittest tests/core/ -x -q")
+    test_cmd: ""         # Test invocation for local verify (e.g. "python3 -m unittest tests/core/ -f -q")
     source_root: ""      # Source dir for coverage scoping (e.g. "core/")
     min_coverage: "80"   # Minimum new coverage % required
 

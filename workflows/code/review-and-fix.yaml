@@ -240,7 +240,7 @@ stages:
            is missing entirely. Use the Edit tool for modifications; use the
            Write tool only when creating a new test file.
         4. After each edit, run the test to confirm it is green:
-             Bash tool: python3 -m unittest {item["file"]} -x -q
+             Bash tool: python3 -m unittest {item["file"]} -f -q
            If the test fails, re-read and fix before moving on.
 
       Write {workspace}/outputs/fix/fix-tests-results.json:
@@ -341,7 +341,7 @@ stages:
       Step 2 — tests:
         Bash tool: {test_cmd}
         Record pass/fail. If test_cmd is blank, run:
-          python3 -m unittest {test_path} -x -q
+          python3 -m unittest {test_path} -f -q
         If test_path is also blank, skip and mark as "no test_cmd provided".
 
       Step 3 — qlty gate:
