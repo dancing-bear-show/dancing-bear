@@ -15,9 +15,14 @@ from core.agentic import (
 
 
 def _load_parser() -> argparse.ArgumentParser:
-    from . import __main__ as main_mod
+    # Load from cli.main's CLIApp, matching calendars/schedule. Importing
+    # __main__ and calling build_parser() on it raised AttributeError —
+    # __main__ only re-exports main() — which _cached_parser_loader swallowed,
+    # so _get_parser() returned None and _cli_tree()/_flow_map() silently
+    # produced empty strings.
+    from .cli.main import app
 
-    return main_mod.build_parser()
+    return app.build_parser()
 
 
 _get_parser = _cached_parser_loader(_load_parser)

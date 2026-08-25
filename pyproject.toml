@@ -52,11 +52,23 @@ slides = [
 menubar = [
   "rumps==0.4.0; sys_platform == 'darwin'",
 ]
+# BeautifulSoup powers the richer HTML parsing path in the Richmond Hill
+# schedule parser (src/calendars/importer/web_parser_vendors_rh.py). parse()
+# try/excepts the import and silently falls back to a regex parser, so with bs4
+# absent the entire _parse_with_bs4 branch is unreachable — 49 of that file's 50
+# uncovered lines. Declared so the branch actually runs and can be tested.
+calendars = [
+  "beautifulsoup4==4.15.0",
+]
 dev = [
   "pytest==9.1.1",
   "vulture==2.16",
   # Self-reference so the textual pin lives only in [tui].
   "personal-assistants[tui]",
+  # Self-reference so the bs4 parsing branch is exercised and measured wherever
+  # coverage runs. This IS the [tui]/[slides] 0%-coverage trap: without it the
+  # branch reports as untested code when it is really unreachable code.
+  "personal-assistants[calendars]",
   # Self-reference so `telemetry menubar` is runnable in a dev install on macOS.
   # Unlike [tui]/[slides], this is NOT a coverage fix: _menubar_app.py guards the
   # import and falls back to rumps = None, so the mixins import (and report their
