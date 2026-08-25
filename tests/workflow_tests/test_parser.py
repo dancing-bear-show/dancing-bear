@@ -599,6 +599,28 @@ class TestParseAgentIsolation(unittest.TestCase):
         from workflow.parser_fields import _parse_agent
         return _parse_agent(data, source="test.yaml")
 
+    def test_unhashable_isolation_raises_parse_error(self) -> None:
+        """A list/dict isolation must not escape as TypeError.
+
+        `isolation not in _VALID_ISOLATIONS` raises TypeError on an unhashable
+        YAML value, which surfaces as a traceback rather than a parse error.
+        """
+        from workflow.parser_errors import WorkflowParseError
+
+        for bad in (["worktree"], {}, {"mode": "worktree"}):
+            with self.subTest(value=bad):
+                with self.assertRaises(WorkflowParseError) as ctx:
+                    self._parse_agent({"role": "code-writer", "isolation": bad})
+                self.assertIn("invalid isolation", str(ctx.exception))
+
+    def test_non_string_isolation_raises_parse_error(self) -> None:
+        from workflow.parser_errors import WorkflowParseError
+
+        for bad in (5, True):
+            with self.subTest(value=bad):
+                with self.assertRaises(WorkflowParseError):
+                    self._parse_agent({"role": "code-writer", "isolation": bad})
+
     # (b) isolation: worktree is parsed through to AgentSpec.isolation
     def test_isolation_worktree_parsed(self) -> None:
         spec = self._parse_agent({"role": "code-writer", "isolation": "worktree"})

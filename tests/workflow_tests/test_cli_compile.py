@@ -299,6 +299,26 @@ class TestBuildCompilePayload(unittest.TestCase):
         self.assertIsNone(res["agent_model"])
         self.assertIsNone(res["agent_isolation"])
 
+    def test_cache_key_includes_payload_schema_version(self) -> None:
+        """A payload-schema bump must invalidate caches written by the old one.
+
+        The key is derived from YAML + root + params, so without the schema
+        version a cache written before `agent_isolation` was added would still
+        be served — silently dropping isolation for any workflow already
+        compiled once.
+        """
+        from workflow import cli_compile
+
+        args = (b"name: x\n", "/repo", [])
+        before = cli_compile._compile_cache_path(*args)
+        original = cli_compile._COMPILE_PAYLOAD_SCHEMA
+        try:
+            cli_compile._COMPILE_PAYLOAD_SCHEMA = original + 1
+            after = cli_compile._compile_cache_path(*args)
+        finally:
+            cli_compile._COMPILE_PAYLOAD_SCHEMA = original
+        self.assertNotEqual(before, after)
+
     def test_resolution_carries_worktree_isolation(self) -> None:
         yaml_src = _MINIMAL_YAML.replace(
             "      role: researcher\n",

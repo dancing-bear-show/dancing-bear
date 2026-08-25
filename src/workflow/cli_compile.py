@@ -47,16 +47,28 @@ def _fragment_bytes(
     return b"".join(parts)
 
 
+# Bump whenever _build_compile_payload's key set changes. The cache key is
+# derived from YAML + root + params, so without this a payload cached before a
+# schema change is still served and silently lacks the new fields — e.g. a
+# pre-existing cache would drop agent_isolation, making `isolation: worktree` a
+# no-op again for any workflow that had already been compiled once.
+_COMPILE_PAYLOAD_SCHEMA = 2
+
+
 def _compile_cache_path(
     yaml_bytes: bytes,
     project_root: str,
     params: list[str],
     yaml_path: Path | None = None,
 ) -> Path:
-    """Return the temp-dir cache file path keyed by YAML content, fragments, root, and params."""
+    """Return the temp-dir cache file path keyed by payload schema, YAML content, fragments, root, and params."""
     import tempfile
     frag_bytes = _fragment_bytes(yaml_bytes, yaml_path or Path.cwd())
-    key_material = f"{project_root}:{':'.join(sorted(params))}:".encode() + yaml_bytes + frag_bytes
+    key_material = (
+        f"v{_COMPILE_PAYLOAD_SCHEMA}:{project_root}:{':'.join(sorted(params))}:".encode()
+        + yaml_bytes
+        + frag_bytes
+    )
     sha = hashlib.sha256(key_material).hexdigest()[:16]
     return Path(tempfile.gettempdir()) / f"workflow-compile-{sha}.json"
 

@@ -95,14 +95,14 @@ general workflow concerns live in `workflow.md`.
 - **triggers**: `writes_to` list entries that begin with the literal string `outputs/`; corresponding stage descriptions or downstream stages that reference the same file without the `outputs/` prefix.
 - **example**: `writes_to: ["outputs/manifest.json"]` resolves to `{workspace}/outputs/outputs/manifest.json`, but the next stage reads `{workspace}/outputs/manifest.json`. Post-group output verification finds the file missing and marks the stage failed. Fix: drop the prefix — `writes_to: ["manifest.json"]`.
 
-### work-dir-agent-path-protocol
+### isolated-agent-path-protocol
 - **severity**: critical
-- **check**: Verify that any `isolation: work-dir` stage instructs its agent to read/write
+- **check**: Verify that any `isolation: worktree` stage instructs its agent to read/write
   via an **absolute path under the agent's OWN worktree cwd** (`{cwd}/inputs/<name>`,
   `{cwd}/outputs/<name>`) — NOT a bare relative path (`inputs/<name>`, `outputs/<name>`)
   and NOT an absolute `{workspace}/...` path. The orchestrator copies each input into
   `{cwd}/inputs/` before signaling proceed; the agent reads and writes absolute-under-own-cwd.
-- **triggers**: `isolation: work-dir` stage descriptions using `{workspace}/...` paths
+- **triggers**: `isolation: worktree` stage descriptions using `{workspace}/...` paths
   (these prompt); descriptions telling the agent to read/write a **bare relative** path
   (`inputs/foo.md`, `outputs/bar.json`) (these leak into the shared repo tree); a stage
   that correctly avoids `{workspace}/...` but still uses bare-relative paths.
@@ -113,7 +113,7 @@ general workflow concerns live in `workflow.md`.
   session does not inherit the parent's allow list. The fix is symmetric — the orchestrator
   copies inputs IN (to `{cwd}/inputs/`) and copies outputs OUT (from `{cwd}/outputs/`),
   and the agent uses **absolute paths under its own cwd** in both directions.
-- **example**: A concern-sweep fan-out stage (`isolation: work-dir`) says "Read
+- **example**: A concern-sweep fan-out stage (`isolation: worktree`) says "Read
   `{workspace}/concerns/correctness.md`" (prompts) or "Read `inputs/correctness.md`"
   (bare relative — reads the shared tree). Fix: the orchestrator copies the concern
   guide into `{cwd}/inputs/` and passes the agent its `cwd`; the prompt says

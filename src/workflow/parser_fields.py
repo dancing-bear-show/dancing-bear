@@ -66,11 +66,15 @@ def _parse_agent(data: dict[str, Any], source: str) -> AgentSpec:
             f"{source}: agent has invalid access '{access_str}' (valid: {valid})"
         ) from None
     isolation = data.get("isolation")
-    if isolation is not None and isolation not in _VALID_ISOLATIONS:
-        valid = ", ".join(sorted(_VALID_ISOLATIONS))
-        raise WorkflowParseError(
-            f"{source}: agent has invalid isolation '{isolation}' (valid: {valid})"
-        )
+    if isolation is not None:
+        # Check the type before set membership: an unhashable YAML value such as
+        # `isolation: [worktree]` or `isolation: {}` would raise TypeError out of
+        # the `in` test, surfacing as a traceback rather than a parse error.
+        if not isinstance(isolation, str) or isolation not in _VALID_ISOLATIONS:
+            valid = ", ".join(sorted(_VALID_ISOLATIONS))
+            raise WorkflowParseError(
+                f"{source}: agent has invalid isolation {isolation!r} (valid: {valid})"
+            )
     # Reject unknown keys rather than dropping them. A silently ignored
     # 'isolation: worktree' let parallel code-writers interleave edits in one
     # tree while the workflow read as if they were isolated.

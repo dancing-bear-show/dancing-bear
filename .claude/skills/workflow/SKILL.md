@@ -170,10 +170,14 @@ if team_name:
     agent_kwargs["name"] = stage_name
     agent_kwargs["team_name"] = team_name
 # REQUIRED: a stage declaring `agent.isolation: worktree` must receive it here.
-# The compiled manifest exposes it as `agent_isolation` on the stage's
-# resolutions entry. Omitting this is what made `isolation: worktree` a no-op:
-# the YAML read as isolated while parallel code-writers shared one tree and
-# interleaved edits to the same files.
+# Read it from whichever stage representation you built above — the same object
+# `stage.agent.role` came from. If you are working from the compiled manifest
+# rather than the parsed definition, the field is named `agent_isolation` on the
+# stage's `resolutions` entry:
+#     isolation = stage.agent.isolation            # parsed definition
+#     isolation = resolution["agent_isolation"]    # compiled manifest
+# Omitting this is what made `isolation: worktree` a no-op: the YAML read as
+# isolated while parallel code-writers shared one tree and interleaved edits.
 if stage.agent.isolation:
     agent_kwargs["isolation"] = stage.agent.isolation
 Agent(**agent_kwargs)
@@ -610,8 +614,10 @@ If a stage has `fan_out` defined, check `fan_out.mode`:
    if team_name:
        fan_kwargs["team_name"] = team_name
        fan_kwargs["name"] = f"{stage_name}-{item[fan_out.key]}"
-   # Same rule as single-agent stages: isolation must reach Agent(). Fan-out
-   # writers sharing one tree is the worst case — N agents, same files.
+   # Same rule as single-agent stages: isolation must reach Agent() — read it
+   # from the same stage representation used for `stage.agent.role` above, or
+   # `resolution["agent_isolation"]` if working from the compiled manifest.
+   # Fan-out writers sharing one tree is the worst case: N agents, same files.
    if stage.agent.isolation:
        fan_kwargs["isolation"] = stage.agent.isolation
    Agent(**fan_kwargs)
