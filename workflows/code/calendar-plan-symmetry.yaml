@@ -204,8 +204,10 @@ stages:
       human has approved taking on a new OAuth scope and forced re-consent.
     agent:
       role: researcher
-      # writes_to is non-empty, so access must be read-write; the tools list
-      # is what actually keeps this stage from editing source.
+      # NOTE: the engine parses `tools` and `access` but never reads them
+      # (grep src/workflow — no consumer). They are advisory documentation of
+      # intent, NOT enforcement. This stage's read-only discipline rests on its
+      # description saying "Do NOT modify any file", nothing more.
       access: read-write
       tools: [Read, Grep, Glob, Bash, Write]
     writes_to:
@@ -280,6 +282,13 @@ stages:
              - all-day events
              - events spanning a DST boundary
              - timezone normalization
+             - interval > 1. _build_recurrence_pattern writes
+               pattern["interval"], so a triweekly series read back without it
+               exports as plain weekly — a WRONG plan that still passes any
+               count-based check. Reverse the interval or fail loudly.
+             - recurrence.range.type: "numbered" vs "endDate". The plan format
+               carries both (count and until, per compute_window); reversing
+               only one silently truncates the other's series.
            Whatever is skipped MUST be counted and surfaced in the producer's
            output, never dropped silently.
 
@@ -307,7 +316,18 @@ stages:
              (b) each exported event's fields match the expected values
                  key-by-key.
            State the exact fixture composition and expected output here so
-           integrate-and-test cannot weaken it. Passing verify-from-config is a
+           integrate-and-test cannot weaken it. "Match key-by-key" is ambiguous
+           unless you also pin, explicitly:
+             - which keys are compared, drawn from survey.json.plan_schema
+               (normalize_event in calendars/model.py admits ~15)
+             - the expected value for an ABSENT optional key — e.g. is a
+               missing `interval` None or 1? Pick one and say so.
+             - the case convention for `byday` — _normalize_days uppercases
+               ("MO"), other paths default to lowercase. Pick one and say so.
+             - whether extra keys in the export fail the comparison or are
+               ignored.
+           Without those four, two agents build two different fixtures and the
+           criterion is not reproducible. Passing verify-from-config is a
            secondary smoke check, not the criterion.
 
         5. CLI surface: new subcommand name(s) under the outlook group, their
@@ -440,6 +460,11 @@ stages:
     kind: execute
     depends_on: [design-and-plan]
     reads_from: [design-and-plan, survey-current-state]
+    # Mechanically skip the google_calendar path rather than relying on the
+    # stage description to talk an agent out of it. That path needs a new
+    # auth/calendar OAuth scope and forces re-consent for every existing Gmail
+    # token — a decision for the design human gate, not for this stage.
+    when: '"{consumer_kind}" does not contain "google_calendar"'
     description: >
       BRANCH GUARD — run this before any edit:
         git branch --show-current
@@ -530,6 +555,13 @@ stages:
       worktree an inherited PYTHONPATH silently resolves imports to the main
       checkout and produces a false green indistinguishable from a real one.
       Skip only if run_tests={run_tests} is "false".
+
+      Then make the verdict checkable rather than self-reported. Run this and
+      paste its output into your summary; a non-zero exit means the round trip
+      did NOT pass, regardless of what you wrote in the file:
+        python3 -c "import json,sys; d=json.load(open(sys.argv[1])); e=d.get('events_expected'); g=d.get('events_exported'); ok=bool(d.get('round_trip_passed')) and e==g; print('ROUND_TRIP_VERDICT:', 'PASS' if ok else 'FAIL', '| expected=', e, '| exported=', g); sys.exit(0 if ok else 1)" {workspace}/outputs/integration.json
+      The engine's has_key check only verifies a key EXISTS — it cannot catch
+      round_trip_passed: false. This command is the actual gate.
 
       Write {workspace}/outputs/integration.json with keys "files_landed"
       (from git, not from the reports), "report_discrepancies" (files git shows
@@ -637,10 +669,10 @@ stages:
       faithfully — a false green here defeats the whole stage.
     agent:
       role: reviewer
-      # read-write + explicit Write: the stage has a non-empty writes_to, and a
-      # read-only spec with no tools list is the write-stage-missing-write-tool
-      # concern. Read/Grep/Glob/Bash are for inspection only — these stages must
-      # not Edit source.
+      # read-write because writes_to is non-empty. NOTE: `tools` and `access`
+      # are parsed but never consumed by the engine — they document intent and
+      # do not restrict the agent. "Inspection only" is enforced by the
+      # criteria text, not by this list.
       access: read-write
       tools: [Read, Grep, Glob, Bash, Write]
     # NOTE: kind: validate builds its prompt from validation.criteria and
@@ -650,6 +682,7 @@ stages:
     validation:
       strategy: unit
       criteria:
+        - "SCOPE: you are recording findings, not fixing. Fix ONLY trivially mechanical issues (import order, formatting). Do NOT change logic, tests, or behaviour — the review stage reads this tree immediately after you."
         - "Lint: run `make lint` and confirm it is clean. Do NOT run a bare `ruff check` — there is no ruff on PATH; CI lints via qlty's pinned build."
         - "Do NOT trust `qlty check` run from inside .claude/worktrees/ — .qlty/qlty.toml excludes **/.claude/**, so it scans zero files while printing 'No issues'. An empty result there means excluded, not clean."
         - "Tests: run `make test` and confirm it passes. NEVER run a bare `python3 -m unittest` in a worktree — an inherited PYTHONPATH resolves imports to the main checkout and yields a false green."
@@ -696,7 +729,7 @@ stages:
       strategy: unit
       criteria:
         - "Build the failure-mode list from BOTH sources and take the union. (1) outputs/design.json key failure_modes — a structured list the design stage is required to emit; if that key is missing or empty, that is itself a BLOCKING finding, because it means the design named no failure modes for a feature whose primary risk is silent data loss. (2) The fixed floor below. Never derive the list from design.md prose alone — free text is not a contract, and an empty derived list would make this stage pass while proving nothing."
-        - "Fixed floor — these modes are REQUIRED members of the list regardless of what design.json says: relativeMonthly, absoluteYearly, relativeYearly (Graph pattern types with no plan representation, per _recurrence.py:10), series with exceptions or cancelled occurrences, all-day events, DST-boundary events, timezone normalization. Add any further modes design.json names. If design.json omits a floor mode, record that omission as a finding AND still check the mode."
+        - "Fixed floor — these modes are REQUIRED members of the list regardless of what design.json says: relativeMonthly, absoluteYearly, relativeYearly (Graph pattern types with no plan representation, per _recurrence.py:10), series with exceptions or cancelled occurrences, all-day events, DST-boundary events, timezone normalization, interval > 1 (a triweekly series must not export as weekly), and recurrence.range.type numbered vs endDate. Add any further modes design.json names. If design.json omits a floor mode, record that omission as a finding AND still check the mode."
         - "Collect every test method added by this change. Use the tests_added lists in outputs/producer-report.json and outputs/consumer-report.json, then confirm against git: run `git diff --name-only` and inspect the test files actually touched. A test claimed in a report but absent from git is a blocking finding, and vice versa."
         - "Classify each added test as happy-path (asserts correct output for valid input) or sad-path (asserts behaviour for invalid, unsupported, boundary, or error input). A test that merely imports a module or asserts a call did not raise is NEITHER — count it as neither and flag it, since project rules forbid tests that exist only to raise a coverage number."
         - "For each failure mode, record whether a sad-path test asserts the design's chosen behaviour for it. Asserting a silent skip where the design said fail loudly does NOT satisfy the mode — the assertion must match the specified behaviour."
@@ -708,10 +741,10 @@ stages:
         - "Run this to make the verdict checkable rather than self-reported, and paste its output into your summary: python3 -c \"import json,sys; d=json.load(open(sys.argv[1])); u=d.get('uncovered_modes') or []; s=d.get('sad_count',0); ok=(not u) and s>0; print('SAD_PATH_VERDICT:', 'PASS' if ok else 'FAIL', '| uncovered=', u, '| sad_count=', s); sys.exit(0 if ok else 1)\" {workspace}/outputs/sad-path-coverage.json"
     agent:
       role: reviewer
-      # read-write + explicit Write: the stage has a non-empty writes_to, and a
-      # read-only spec with no tools list is the write-stage-missing-write-tool
-      # concern. Read/Grep/Glob/Bash are for inspection only — these stages must
-      # not Edit source.
+      # read-write because writes_to is non-empty. NOTE: `tools` and `access`
+      # are parsed but never consumed by the engine — they document intent and
+      # do not restrict the agent. "Inspection only" is enforced by the
+      # criteria text, not by this list.
       access: read-write
       tools: [Read, Grep, Glob, Bash, Write]
     writes_to:
@@ -790,10 +823,10 @@ stages:
         - "Write findings to {workspace}/outputs/review.json with key 'findings' (list of {severity, file, line, issue, suggestion}; severities blocking/suggestion/nice-to-have) and key 'verdict' (ship or fix-first)."
     agent:
       role: reviewer
-      # read-write + explicit Write: the stage has a non-empty writes_to, and a
-      # read-only spec with no tools list is the write-stage-missing-write-tool
-      # concern. Read/Grep/Glob/Bash are for inspection only — these stages must
-      # not Edit source.
+      # read-write because writes_to is non-empty. NOTE: `tools` and `access`
+      # are parsed but never consumed by the engine — they document intent and
+      # do not restrict the agent. "Inspection only" is enforced by the
+      # criteria text, not by this list.
       access: read-write
       tools: [Read, Grep, Glob, Bash, Write]
     writes_to:
