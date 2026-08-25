@@ -10,6 +10,7 @@ import io
 import tempfile
 from contextlib import redirect_stdout
 from pathlib import Path
+from typing import Any
 from unittest import TestCase
 
 from core.pipeline import ResultEnvelope
@@ -422,7 +423,10 @@ class AuditFiltersProducerOutputTests(TestCase):
     """Producer output tests beyond what already exists."""
 
     def _make_envelope(self, **kwargs) -> ResultEnvelope:
-        defaults = dict(
+        # Annotated Any rather than inferred: dict(...) infers dict[str, object],
+        # which loses the per-field types when splatted into AuditFiltersResult
+        # and makes mypy reject every int/float/list argument.
+        defaults: dict[str, Any] = dict(
             simple_total=5,
             covered=3,
             not_covered=2,

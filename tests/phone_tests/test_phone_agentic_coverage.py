@@ -20,6 +20,35 @@ from phone import agentic as _agentic_module
 from tests.fixtures import make_path_mock
 
 
+class TestRealParserLoads(unittest.TestCase):
+    """The real parser must load — not just return the right type.
+
+    _load_parser previously imported phone.__main__ and called build_parser()
+    on it, but __main__ only re-exports main(). The resulting AttributeError
+    was swallowed by _cached_parser_loader, so _get_parser() returned None and
+    _cli_tree()/_flow_map() silently produced empty strings — `phone --agentic`
+    emitted a capsule with no CLI content at all.
+
+    Every other test in this module patches _cli_path_exists, so none of them
+    exercised the real loader. These do.
+    """
+
+    def test_get_parser_returns_a_parser(self):
+        self.assertIsNotNone(_agentic_module._get_parser())
+
+    def test_known_command_path_resolves_true(self):
+        self.assertTrue(_agentic_module._cli_path_exists(["plan"]))
+
+    def test_known_deep_command_path_resolves_true(self):
+        self.assertTrue(_agentic_module._cli_path_exists(["profile", "build"]))
+
+    def test_cli_tree_is_not_empty(self):
+        self.assertNotEqual(_agentic_module._cli_tree().strip(), "")
+
+    def test_flow_map_is_not_empty(self):
+        self.assertNotEqual(_agentic_module._flow_map().strip(), "")
+
+
 class TestCliPathExists(unittest.TestCase):
     """Tests for _cli_path_exists."""
 
@@ -28,11 +57,12 @@ class TestCliPathExists(unittest.TestCase):
 
         self.assertFalse(_cli_path_exists(["nonexistent_command_xyz"]))
 
-    def test_returns_bool(self):
+    def test_returns_true_for_real_command(self):
         from phone.agentic import _cli_path_exists
 
-        result = _cli_path_exists(["plan"])
-        self.assertIsInstance(result, bool)
+        # Asserting only isinstance(result, bool) passed while the value was
+        # always False from a broken loader — assert the value, not the type.
+        self.assertTrue(_cli_path_exists(["plan"]))
 
     def test_two_element_nonexistent_path_returns_false(self):
         from phone.agentic import _cli_path_exists

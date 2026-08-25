@@ -15,8 +15,12 @@ from calendars.importer.web_parser_vendors_rh import (
 )
 from calendars.importer.model import ScheduleItem
 
+# Availability probe only — bs4 is an optional [calendars] extra, so the
+# bs4-dependent tests below skip when it is absent. Import the module rather
+# than aliasing a symbol: binding BeautifulSoup here would be unused and needs
+# a noqa to silence a warning that is, in fact, correct.
 try:
-    from bs4 import BeautifulSoup as _BeautifulSoup  # noqa: F401
+    import bs4  # noqa: F401  # probe: presence is the signal, module unused
     _BS4_AVAILABLE = True
 except ImportError:
     _BS4_AVAILABLE = False

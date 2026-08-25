@@ -348,6 +348,7 @@ class TestValidateCliCommand(unittest.TestCase):
         with patch("workflow.linter.subprocess.run", side_effect=FileNotFoundError):
             result = _validate_cli_command("nonexistent", "sub", "stage1")
         self.assertIsNotNone(result)
+        assert result is not None  # narrows LintWarning | None for mypy
         self.assertIsInstance(result, LintWarning)
         self.assertIn("command not found", result.message)
         self.assertIn("nonexistent", result.message)
@@ -359,6 +360,7 @@ class TestValidateCliCommand(unittest.TestCase):
         ):
             result = _validate_cli_command("mail", "labels", "stage1")
         self.assertIsNotNone(result)
+        assert result is not None  # narrows LintWarning | None for mypy
         self.assertIn("timeout", result.message)
         self.assertIn("mail labels", result.message)
 
@@ -366,6 +368,7 @@ class TestValidateCliCommand(unittest.TestCase):
         with patch("workflow.linter.subprocess.run", side_effect=OSError("perm")):
             result = _validate_cli_command("mail", "labels", "stage1")
         self.assertIsNotNone(result)
+        assert result is not None  # narrows LintWarning | None for mypy
         self.assertIn("OSError", result.message)
 
     def test_returncode_zero_returns_none(self) -> None:
@@ -385,6 +388,7 @@ class TestValidateCliCommand(unittest.TestCase):
         with patch("workflow.linter.subprocess.run", return_value=mock_proc):
             result = _validate_cli_command("mail", "badcmd", "stage1")
         self.assertIsNotNone(result)
+        assert result is not None  # narrows LintWarning | None for mypy
         self.assertIn("command not found", result.message)
 
     def test_nonzero_without_invalid_choice_returns_none(self) -> None:
@@ -397,11 +401,17 @@ class TestValidateCliCommand(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_allowlisted_sub_missing_bin_returns_warning(self) -> None:
-        # docs/search is allowlisted; if bin doesn't exist -> warning, no subprocess call
-        with patch("workflow.linter.subprocess.run") as mock_run:
-            result = _validate_cli_command("docs", "search", "stage1")
+        # docs/search is allowlisted; if bin doesn't exist -> warning, no subprocess call.
+        # Path.exists is patched rather than relying on ./bin/docs genuinely being
+        # absent: CLAUDE.md reserves `docs` for a planned CLI, so shipping bin/docs
+        # would silently flip this test from asserting the missing-bin branch to
+        # asserting nothing. The sibling test below patches it True for the same reason.
+        with patch("workflow.linter.Path.exists", return_value=False):
+            with patch("workflow.linter.subprocess.run") as mock_run:
+                result = _validate_cli_command("docs", "search", "stage1")
         mock_run.assert_not_called()
         self.assertIsNotNone(result)
+        assert result is not None  # narrows LintWarning | None for mypy
         self.assertIn("command not found", result.message)
 
     def test_allowlisted_sub_existing_bin_returns_none(self) -> None:
