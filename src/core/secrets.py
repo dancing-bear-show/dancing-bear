@@ -174,8 +174,12 @@ def mask_text(text: str) -> str:
     # "connection failed (apikey=abc123)", which the query-param and JSON
     # rules below both miss.
     s = re.sub(
+        # The value class is "everything up to whitespace or a delimiter"
+        # rather than an allow-list: a percent-encoded value (api_key=%2Fabc)
+        # fell outside [\w.~+/=-] and was left whole, and abc%2Fdef was
+        # worse -- redacted up to the % and the tail emitted.
         r"(?i)((?:api[_.-]?key|api[_.-]?secret|token|password|passwd"
-        r"|client[_.-]?secret|private[_.-]?key|secret)\s*=\s*)([\w.~+/=-]+)",
+        r"|client[_.-]?secret|private[_.-]?key|secret)\s*=\s*)([^\s&;,\"')\]}]+)",
         _REDACTED,
         s,
     )
@@ -189,7 +193,13 @@ def mask_text(text: str) -> str:
         s,
     )
     # JSON fields
-    s = re.sub(r"(?i)(\"(?:api[_-]?token|api[_-]?key|token|access[_-]?token|secret|client_secret|password)\"\s*:\s*\")(.*?)(\")", r"\1***REDACTED***\3", s)
+    s = re.sub(
+        r"(?i)(\"(?:api[_.-]?token|api[_.-]?key|api[_.-]?secret|token"
+        r"|access[_.-]?token|refresh[_.-]?token|secret|client[_.-]?secret"
+        r"|private[_.-]?key|password|passwd)\"\s*:\s*\")(.*?)(\")",
+        r"\1***REDACTED***\3",
+        s,
+    )
     # GitHub tokens
     s = re.sub(r"gh[pousr]_[A-Za-z0-9]{20,}", "gh_***REDACTED***", s)
     # Vendor tokens recognizable by shape alone, so they are caught even

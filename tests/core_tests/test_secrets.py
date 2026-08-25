@@ -283,6 +283,66 @@ class TestBareCredentialPairs(unittest.TestCase):
     def test_dot_separated_spelling_is_masked(self):
         self.assertNotIn(self.SECRET, mask_text(f"api.key={self.SECRET}"))
 
+    def test_percent_encoded_values_are_fully_masked(self):
+        # An allow-list value class stopped at the '%': "abc%2Fdef" was
+        # redacted up to the escape and the tail emitted, which reads as
+        # masked while still leaking most of the credential.
+        for value in ("%2Fabc123def456", "abc%2Fdef456ghi", "a%2Bb%3Dc"):
+            with self.subTest(value=value):
+                out = mask_text(f"api_key={value}")
+                self.assertNotIn("%2F", out)
+                self.assertNotIn("abc", out)
+                self.assertEqual(out, "api_key=***REDACTED***")
+
+    def test_value_stops_at_a_delimiter(self):
+        # Masking must not swallow the rest of the line.
+        out = mask_text("api_key=abc123, retrying in 5s")
+        self.assertNotIn("abc123", out)
+        self.assertIn("retrying in 5s", out)
+
+    def test_value_stops_at_a_closing_quote(self):
+        out = mask_text('called with "api_key=abc123" and failed')
+        self.assertNotIn("abc123", out)
+        self.assertIn("and failed", out)
+
+
+class TestJsonFieldSpellings(unittest.TestCase):
+    """The JSON rule maintained its own key list and fell behind.
+
+    api_secret was added to the sensitive-key set and the bare-pair rule
+    but not here, so {"api_secret": "..."} in a RetryExhaustedError message
+    still emitted the value.
+    """
+
+    SECRET = "s3cr3tvalue123"
+
+    def test_api_secret_json_field_is_masked(self):
+        for key in ("api_secret", "api-secret", "api.secret"):
+            with self.subTest(key=key):
+                self.assertNotIn(
+                    self.SECRET, mask_text(f'{{"{key}": "{self.SECRET}"}}')
+                )
+
+    def test_other_sensitive_json_fields_are_masked(self):
+        for key in (
+            "api_key", "api_token", "token", "access_token", "refresh_token",
+            "secret", "client_secret", "private_key", "password", "passwd",
+        ):
+            with self.subTest(key=key):
+                self.assertNotIn(
+                    self.SECRET, mask_text(f'{{"{key}": "{self.SECRET}"}}')
+                )
+
+    def test_benign_json_fields_survive(self):
+        payload = '{"api_version": "2", "name": "widget"}'
+        self.assertEqual(mask_text(payload), payload)
+
+    def test_masked_json_stays_parseable(self):
+        import json as _json
+
+        out = mask_text(f'{{"api_secret": "{self.SECRET}"}}')
+        self.assertEqual(_json.loads(out)["api_secret"], "***REDACTED***")
+
 
 class TestNoOverMasking(unittest.TestCase):
     """Widening these patterns must not redact ordinary log content.
