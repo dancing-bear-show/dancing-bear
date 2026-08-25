@@ -62,7 +62,17 @@ REDACTED = "***REDACTED***"
 # SENSITIVE_PARAM_KEYS with -/_ folded together, so header names
 # ("X-Auth-Token") and query/body names ("x_auth_token") resolve to the
 # same entry. Computed once; every masker compares against this.
-_NORMALIZED_SENSITIVE_KEYS = {k.replace("-", "_") for k in SENSITIVE_PARAM_KEYS}
+def _normalize_key(key: str) -> str:
+    """Fold case and the -/./_ separators to one spelling.
+
+    ``.`` is folded alongside ``-`` because the bare-pair regex in
+    mask_text() accepts ``api.key``: a spelling one masker recognizes and
+    another does not is precisely the drift this module keeps hitting.
+    """
+    return key.strip().lower().replace("-", "_").replace(".", "_")
+
+
+_NORMALIZED_SENSITIVE_KEYS = {_normalize_key(k) for k in SENSITIVE_PARAM_KEYS}
 
 # Suffixes that mark a key as a credential regardless of its prefix, so
 # vendor-specific names are covered without enumerating every service.
@@ -94,7 +104,7 @@ def is_sensitive_key(key: object) -> bool:
     """
     if not isinstance(key, str):
         return False
-    normalized = key.strip().lower().replace("-", "_")
+    normalized = _normalize_key(key)
     if normalized in _NORMALIZED_SENSITIVE_KEYS:
         return True
     # Vendor headers are open-ended -- "Music-User-Token", "X-Shopify-
@@ -133,6 +143,37 @@ def mask_headers(headers: dict[str, str]) -> dict[str, str]:
     return masked
 
 
+def _mask_netloc(netloc: str) -> str:
+    """Redact the password in a raw ``user:pass@host`` netloc.
+
+    Operates on the string rather than urlsplit's ``password``/``port``
+    properties, which raise ValueError on a malformed port and would push
+    the caller into an except branch that returns the unmasked original.
+    """
+    if "@" not in netloc:
+        return netloc
+    userinfo, _, host = netloc.rpartition("@")
+    if ":" not in userinfo:
+        return netloc  # user with no password; nothing to hide
+    user, _, _pw = userinfo.partition(":")
+    return f"{user}:{REDACTED}@{host}"
+
+
+def _strip_userinfo(url: str) -> str:
+    """Drop any ``user:pass@`` section from a URL by pure string surgery.
+
+    The fallback for when parsing fails outright: emitting a slightly
+    mangled URL is always better than emitting a live password.
+    """
+    scheme, sep, rest = url.partition("://")
+    if not sep or "@" not in rest:
+        return url
+    authority, _, tail = rest.partition("/")
+    if "@" not in authority:
+        return url
+    return f"{scheme}://{_mask_netloc(authority)}" + (f"/{tail}" if tail else "")
+
+
 def mask_url(url: str) -> str:
     try:
         parts = urlsplit(url or "")
@@ -148,15 +189,18 @@ def mask_url(url: str) -> str:
         # A password in the netloc (https://user:pw@host) survived here:
         # only the query string was inspected, and urlunsplit reassembled
         # the netloc verbatim.
-        netloc = parts.netloc
-        if parts.password:
-            host = parts.hostname or ""
-            if parts.port:
-                host = f"{host}:{parts.port}"
-            netloc = f"{parts.username or ''}:{REDACTED}@{host}"
+        #
+        # Rebuilt by splitting the raw netloc rather than reading
+        # parts.password/parts.port: those properties raise ValueError on a
+        # malformed port ("host:bad"), and the except below would then
+        # return the ORIGINAL url -- password intact. A masking function
+        # whose failure mode is emitting the secret is worse than no
+        # masking at all, so the parse must not be able to raise here.
+        netloc = _mask_netloc(parts.netloc)
         return urlunsplit((parts.scheme, netloc, parts.path, query, parts.fragment))
     except Exception:
-        return url
+        # Last-resort: never return a URL still carrying userinfo.
+        return _strip_userinfo(url)
 
 
 _REDACTED = r"\1***REDACTED***"

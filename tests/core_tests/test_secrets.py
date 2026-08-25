@@ -219,6 +219,27 @@ class TestUriEmbeddedCredentials(unittest.TestCase):
         url = "https://api.example.com/v1?page=2"
         self.assertEqual(mask_url(url), url)
 
+    def test_malformed_port_does_not_leak_the_password(self):
+        # urlsplit's .password/.port properties raise ValueError on a bad
+        # port, which sent mask_url into its except branch and returned the
+        # ORIGINAL url -- password intact. A masking function that emits
+        # the secret on malformed input is worse than none.
+        for url in (
+            f"https://user:{self.PW}@host:bad/",
+            f"https://user:{self.PW}@host:99999999/",
+            f"https://user:{self.PW}@host:/path",
+        ):
+            with self.subTest(url=url):
+                self.assertNotIn(self.PW, mask_url(url))
+
+    def test_username_without_password_is_left_alone(self):
+        url = "https://justauser@host/path"
+        self.assertEqual(mask_url(url), url)
+
+    def test_password_containing_an_at_sign(self):
+        url = "https://user:p@ssw0rd@host/path"
+        self.assertNotIn("ssw0rd", mask_url(url))
+
     def test_mask_text_redacts_connection_string(self):
         text = f"connection failed: postgres://dbuser:{self.PW}@db.host/mydb"
         out = mask_text(text)
@@ -408,6 +429,46 @@ class TestHeaderMaskingUsesSharedPolicy(unittest.TestCase):
     def test_benign_headers_pass_through(self):
         headers = {"Accept": "application/json", "User-Agent": "dancing-bear/1.0"}
         self.assertEqual(mask_headers(headers), headers)
+
+
+class TestSeparatorFolding(unittest.TestCase):
+    """One spelling of a key must not be sensitive on only some paths.
+
+    mask_text's bare-pair regex accepts api.key, but is_sensitive_key
+    folded only -/_ -- so mask_url returned "?api.key=SECRET" untouched
+    while mask_text redacted the same name in prose.
+    """
+
+    SECRET = "opaquevalue987654"
+
+    def test_dotted_spellings_are_sensitive(self):
+        from core.secrets import is_sensitive_key
+
+        for key in ("api.key", "api.secret", "access.token", "client.secret"):
+            with self.subTest(key=key):
+                self.assertTrue(is_sensitive_key(key))
+
+    def test_dotted_spellings_are_masked_in_urls(self):
+        for key in ("api.key", "api.secret"):
+            with self.subTest(key=key):
+                url = f"https://svc.example/v1?{key}={self.SECRET}"
+                self.assertNotIn(self.SECRET, mask_url(url))
+
+    def test_all_separator_spellings_agree(self):
+        # The three separators are interchangeable in the wild; none of
+        # them should be the one that slips through.
+        from core.secrets import is_sensitive_key
+
+        for key in ("api_key", "api-key", "api.key", "API.KEY", "Api-Key"):
+            with self.subTest(key=key):
+                self.assertTrue(is_sensitive_key(key))
+
+    def test_benign_dotted_names_are_still_benign(self):
+        from core.secrets import is_sensitive_key
+
+        for key in ("api.version", "sort.key", "user.id"):
+            with self.subTest(key=key):
+                self.assertFalse(is_sensitive_key(key))
 
 
 if __name__ == "__main__":

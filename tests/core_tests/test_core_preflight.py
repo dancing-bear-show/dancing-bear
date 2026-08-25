@@ -357,13 +357,17 @@ class TestMaskValueEdgeCases(unittest.TestCase):
         self.assertNotIn(self.SECRET, json.dumps(report.to_dict(), default=str))
 
 
-class TestSamplesAreImmutable(unittest.TestCase):
-    """Evidence in a returned report must not be editable after the fact.
+class TestSamplesContainerIsImmutable(unittest.TestCase):
+    """The samples COLLECTION cannot be resized after the report returns.
 
     frozen=True blocks attribute reassignment but not mutation of a list
     held in the attribute, so `violation.samples.append(...)` silently
     rewrote evidence that PreflightReport also references. A tuple closes
     that hole.
+
+    The guarantee is deliberately scoped to the container -- individual
+    samples are still plain dicts. test_individual_samples_remain_mutable
+    pins that so the docstring and the behaviour cannot drift apart.
     """
 
     @staticmethod
@@ -394,6 +398,15 @@ class TestSamplesAreImmutable(unittest.TestCase):
         payload = self._report().to_dict()
         self.assertIsInstance(payload["violations"][0]["samples"], list)
         json.dumps(payload)
+
+    def test_individual_samples_remain_mutable(self):
+        # Documents the limit of the guarantee rather than implying one the
+        # code does not provide: the tuple protects the collection, not the
+        # dicts inside it. If this ever starts failing, the docstring on
+        # InvariantViolation.samples needs updating with it.
+        sample = self._report().violations[0].samples[0]
+        sample["injected"] = "yes"
+        self.assertEqual(sample["injected"], "yes")
 
 
 class TestSensitiveKeyMasking(unittest.TestCase):

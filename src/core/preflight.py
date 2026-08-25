@@ -68,11 +68,17 @@ class InvariantViolation:
     samples: tuple[dict[str, Any], ...]
     """Representative offending items, capped by ``max_samples``.
 
-    A tuple, not a list: ``frozen=True`` blocks attribute reassignment but
-    not mutation of a list held in the attribute, so evidence in a report
-    that has already been returned could still be appended to or cleared.
+    A tuple rather than a list so the *collection* cannot be appended to or
+    cleared after the report is returned -- ``frozen=True`` blocks
+    reassigning the attribute but not mutating a list held in it.
+
+    The guarantee stops at the container. Each sample is still a plain dict
+    and its nested values are still mutable, so a caller can rewrite a
+    field in place. Deep-freezing was considered and rejected: it would
+    mean converting every nested structure on the way in and thawing it in
+    ``to_dict()``, which costs more than it protects against a caller
+    editing its own evidence. Treat samples as read-only by convention.
     """
-    """Representative offending items (capped by ``max_samples``)."""
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable representation."""
