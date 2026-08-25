@@ -96,10 +96,22 @@ class PreflightReport:
         total = self.tallies.get("total_changes", "?")
         n_violations = len(self.violations)
         status = "PASSED" if self.passed else "FAILED"
-        lines = [f"{status}: {total} changes, {n_violations} violations"]
+        lines = [
+            f"{status}: {total} {_plural(total, 'change')}, "
+            f"{n_violations} {_plural(n_violations, 'violation')}"
+        ]
         for v in self.violations:
-            lines.append(f"  [{v.code}] {v.message} ({len(v.samples)} sample(s))")
+            n_samples = len(v.samples)
+            lines.append(
+                f"  [{v.code}] {v.message} "
+                f"({n_samples} {_plural(n_samples, 'sample')})"
+            )
         return "\n".join(lines)
+
+
+def _plural(count: object, noun: str) -> str:
+    """Return ``noun`` pluralized for ``count`` (regular -s nouns only)."""
+    return noun if count == 1 else f"{noun}s"
 
 
 def _code_to_message(code: str) -> str:
@@ -140,11 +152,15 @@ def evaluate_invariants(
     for check in checks:
         try:
             code, offending = check(changes, baseline)
-        except Exception as exc:  # nosec B110 - a buggy check must not silently pass; record as violation
+        except Exception as exc:  # nosec B112 - handler continues; the error is recorded as a violation, never swallowed
             error_code = "check_error"
             error_message = (messages or {}).get(
                 error_code, _code_to_message(error_code)
             )
+            # This single sample is deliberately exempt from max_samples: it is
+            # not one offending item among many but the sole diagnostic for a
+            # check that crashed. Truncating it under max_samples=0 would report
+            # "a check failed" with no way to tell which one or why.
             violations.append(
                 InvariantViolation(
                     code=error_code,

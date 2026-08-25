@@ -40,6 +40,11 @@ __all__ = [
 
 _logger = logging.getLogger(__name__)
 
+# Attempt count past which exponential growth is short-circuited to the cap.
+# Any real backoff hits max_delay long before this; the guard exists so a
+# runaway attempt number returns the cap instead of raising OverflowError.
+_EXPONENT_CEILING = 512
+
 
 # ---------------------------------------------------------------------------
 # Error type
@@ -74,7 +79,14 @@ def exponential_backoff(
 
     Delay grows as ``base_delay * multiplier**attempt``, clamped to
     ``max_delay``.
+
+    The growth is short-circuited once it would exceed ``max_delay``.
+    Evaluating the exponent first raises OverflowError for a large attempt
+    (``2.0 ** 10_000``), which would turn a capped strategy into a crash at
+    exactly the point the cap was supposed to make it safe.
     """
+    if attempt >= _EXPONENT_CEILING or multiplier <= 0:
+        return max_delay
     return min(base_delay * (multiplier ** attempt), max_delay)
 
 
@@ -155,7 +167,17 @@ def retry(
     raise_on_exhausted:
         When ``True`` (default), raise ``RetryExhaustedError`` after the last
         attempt. When ``False``, re-raise the last exception directly.
+
+    Raises:
+        ValueError: If ``max_attempts`` is less than 1. A zero or negative
+            value would make the decorated function never run at all and
+            fail with RetryExhaustedError carrying no underlying error --
+            a silent no-op that is far harder to diagnose than a loud
+            rejection at decoration time.
     """
+    if max_attempts < 1:
+        raise ValueError(f"max_attempts must be >= 1, got {max_attempts}")
+
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):

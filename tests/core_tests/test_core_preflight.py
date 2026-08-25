@@ -248,7 +248,8 @@ class TestSummary(unittest.TestCase):
         report = evaluate_invariants(changes, {}, [_no_new_labels])
         s = report.summary()
         self.assertTrue(s.startswith("FAILED"))
-        self.assertIn("1 violations", s)
+        # Singular at a count of one — this is user-facing CLI output.
+        self.assertEqual(s.splitlines()[0], "FAILED: 1 change, 1 violation")
 
     def test_failing_summary_lists_violation_codes(self):
         changes = [{"op": "add_label", "id": "1"}]
@@ -289,6 +290,37 @@ class TestMessageDerivation(unittest.TestCase):
             changes, {}, [_no_new_labels], messages={"other_code": "irrelevant"}
         )
         self.assertEqual(report.violations[0].message, "no new labels")
+
+
+class TestSummaryPluralization(unittest.TestCase):
+    """summary() is user-facing CLI output, so counts read naturally."""
+
+    @staticmethod
+    def _fail_check(changes, baseline):
+        return "bad_thing", list(changes)
+
+    def test_singular_forms_at_count_one(self):
+        report = evaluate_invariants([{"id": "1"}], {}, [self._fail_check])
+        first = report.summary().splitlines()[0]
+        self.assertEqual(first, "FAILED: 1 change, 1 violation")
+
+    def test_plural_forms_above_one(self):
+        changes = [{"id": "1"}, {"id": "2"}]
+        report = evaluate_invariants(changes, {}, [self._fail_check])
+        self.assertIn("2 changes", report.summary().splitlines()[0])
+
+    def test_plural_forms_at_zero(self):
+        report = evaluate_invariants([], {}, [])
+        first = report.summary().splitlines()[0]
+        self.assertEqual(first, "PASSED: 0 changes, 0 violations")
+
+    def test_sample_count_is_pluralized(self):
+        one = evaluate_invariants([{"id": "1"}], {}, [self._fail_check])
+        self.assertIn("(1 sample)", one.summary())
+        two = evaluate_invariants(
+            [{"id": "1"}, {"id": "2"}], {}, [self._fail_check]
+        )
+        self.assertIn("(2 samples)", two.summary())
 
 
 if __name__ == "__main__":

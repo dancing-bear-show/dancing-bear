@@ -243,7 +243,7 @@ class TestRetryDecoratorExceptionFilter(unittest.TestCase):
         self.assertEqual(call_count[0], 1)
 
     def test_listed_exception_triggers_retry(self) -> None:
-        from core.retry import retry
+        from core.retry import RetryExhaustedError, retry
 
         call_count = [0]
 
@@ -253,10 +253,8 @@ class TestRetryDecoratorExceptionFilter(unittest.TestCase):
             raise ValueError("listed")
 
         with patch("core.retry.time.sleep"):
-            try:
+            with self.assertRaises(RetryExhaustedError):
                 raises_value_error()
-            except Exception:
-                pass
 
         self.assertEqual(call_count[0], 3)
 
@@ -265,7 +263,7 @@ class TestRetryDecoratorOnRetryCallback(unittest.TestCase):
     """on_retry callback fires with the correct attempt number and exception."""
 
     def test_callback_fires_with_correct_args(self) -> None:
-        from core.retry import retry
+        from core.retry import RetryExhaustedError, retry
 
         recorded: list[tuple[int, Exception]] = []
 
@@ -277,10 +275,8 @@ class TestRetryDecoratorOnRetryCallback(unittest.TestCase):
             raise IOError("net")
 
         with patch("core.retry.time.sleep"):
-            try:
+            with self.assertRaises(RetryExhaustedError):
                 fails()
-            except Exception:
-                pass
 
         # 3 attempts → 2 retries (attempt 0 and 1 fire callback; attempt 2 exhausts)
         self.assertEqual(len(recorded), 2)
@@ -289,7 +285,7 @@ class TestRetryDecoratorOnRetryCallback(unittest.TestCase):
         self.assertIsInstance(recorded[0][1], IOError)
 
     def test_callback_suppresses_default_log(self) -> None:
-        from core.retry import retry
+        from core.retry import RetryExhaustedError, retry
 
         callback = MagicMock()
 
@@ -298,10 +294,8 @@ class TestRetryDecoratorOnRetryCallback(unittest.TestCase):
             raise RuntimeError("x")
 
         with patch("core.retry.time.sleep"), patch("core.retry._logger") as mock_log:
-            try:
+            with self.assertRaises(RetryExhaustedError):
                 fails()
-            except Exception:
-                pass
 
         mock_log.warning.assert_not_called()
         callback.assert_called_once()
@@ -311,7 +305,7 @@ class TestRetryDecoratorCallableBackoff(unittest.TestCase):
     """When backoff is callable it is invoked with the attempt number."""
 
     def test_callable_backoff_is_called(self) -> None:
-        from core.retry import retry
+        from core.retry import RetryExhaustedError, retry
 
         strategy = MagicMock(return_value=0.5)
 
@@ -320,10 +314,8 @@ class TestRetryDecoratorCallableBackoff(unittest.TestCase):
             raise RuntimeError("x")
 
         with patch("core.retry.time.sleep") as mock_sleep:
-            try:
+            with self.assertRaises(RetryExhaustedError):
                 fails()
-            except Exception:
-                pass
 
         # 2 sleeps for 3 attempts
         self.assertEqual(strategy.call_count, 2)
@@ -439,3 +431,46 @@ class TestHttpSleepForRetryWithJitter(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPRFeedbackFixes(unittest.TestCase):
+    """Regressions found in review of PR #237."""
+
+    def test_large_attempt_returns_cap_instead_of_overflowing(self) -> None:
+        # 2.0 ** 10_000 raises OverflowError if evaluated before the clamp,
+        # turning a capped strategy into a crash at exactly the point the cap
+        # was meant to make it safe.
+        from core.retry import exponential_backoff
+
+        self.assertEqual(exponential_backoff(10_000, max_delay=60.0), 60.0)
+        self.assertEqual(exponential_backoff(1_000_000, max_delay=5.0), 5.0)
+
+    def test_large_attempt_is_safe_for_jitter_too(self) -> None:
+        from core.retry import jitter_backoff
+
+        value = jitter_backoff(10_000, max_delay=10.0)
+        self.assertGreaterEqual(value, 0.1)
+        self.assertLessEqual(value, 13.0)
+
+    def test_non_positive_max_attempts_is_rejected(self) -> None:
+        # A zero/negative value previously produced a decorated function that
+        # never ran and failed with RetryExhaustedError carrying no error.
+        from core.retry import retry
+
+        for bad in (0, -1):
+            with self.subTest(max_attempts=bad):
+                with self.assertRaises(ValueError):
+                    retry(max_attempts=bad)
+
+    def test_max_attempts_of_one_still_runs_once(self) -> None:
+        from core.retry import retry
+
+        calls = []
+
+        @retry(max_attempts=1)
+        def once() -> str:
+            calls.append(1)
+            return "ok"
+
+        self.assertEqual(once(), "ok")
+        self.assertEqual(len(calls), 1)
