@@ -89,6 +89,24 @@ class TestBuildAgentPromptIsolation(unittest.TestCase):
         self.assertIn("/ws/outputs/report.json", prompt)
         self.assertNotIn("<your-cwd>", prompt)
 
+    def test_isolated_validate_fallback_stays_in_worktree(self) -> None:
+        """A validate stage with no writes_to must not fall back to {ws}.
+
+        The no-writes_to branch emitted shared validation/ paths regardless of
+        isolation, so the parent waited on files outside the agent's worktree.
+        """
+        from workflow.models import AgentSpec, StageKind, ValidationSpec, ValidationStrategy
+
+        spec = make_stage_spec(
+            name="iso-val",
+            kind=StageKind.validate,
+            agent=AgentSpec(role="reviewer", isolation="worktree"),
+            validation=ValidationSpec(strategy=ValidationStrategy.unit, criteria=("check it",)),
+        )
+        prompt = build_agent_prompt(make_resolved_stage(spec=spec, index=2), "wf", "/ws")
+        self.assertIn("<your-cwd>/validation/iso-val-findings.json", prompt)
+        self.assertNotIn("/ws/validation/", prompt)
+
     def _prompt_with_inputs(self, isolation: str | None) -> str:
         """An execute stage that both reads upstream and writes output."""
         from workflow.models import AgentSpec, StageKind
@@ -109,8 +127,20 @@ class TestBuildAgentPromptIsolation(unittest.TestCase):
         at {ws} makes it read outside its worktree or find nothing.
         """
         prompt = self._prompt_with_inputs("worktree")
-        self.assertIn("<your-cwd>/inputs/upstream.json", prompt)
+        self.assertIn("<your-cwd>/inputs/", prompt)
+        self.assertIn("upstream", prompt)
         self.assertNotIn("/ws/", prompt)
+
+    def test_isolated_inputs_do_not_name_a_synthetic_file(self) -> None:
+        """Never name one <dep>.json per dependency.
+
+        A stage may declare several outputs of different types (design.md AND
+        design.json). Naming a single synthetic file points the agent at
+        something that does not exist and silently drops the rest.
+        """
+        prompt = self._prompt_with_inputs("worktree")
+        self.assertNotIn("inputs/upstream.json", prompt)
+        self.assertIn("same relative path", prompt)
 
     def test_non_isolated_inputs_still_come_from_workspace(self) -> None:
         prompt = self._prompt_with_inputs(None)

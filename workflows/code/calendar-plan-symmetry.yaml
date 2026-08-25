@@ -426,17 +426,20 @@ stages:
     depends_on: [design-and-plan]
     reads_from: [design-and-plan, survey-current-state]
     description: >
-      BRANCH GUARD — run this before any edit:
+      BRANCH GUARD (isolated stage) — run this before any edit:
         git branch --show-current
-      It MUST print exactly {branch}. If it prints anything else — "main" or
-      any other branch — STOP and fail this stage. Rejecting only "main" is
-      not enough: a run started from an unrelated branch would otherwise
-      mutate and merge into it while reporting success.
-      A fresh agent session does not inherit an earlier stage's branch, so
-      this check must happen here, not only in the survey stage.
+      You are in your OWN worktree, so this prints the generated
+      worktree-agent-<id> branch, NOT {branch}. That is expected and correct.
+      Fail ONLY if it prints "main" — that would mean isolation did not take
+      effect and you are about to edit the shared checkout. The {branch}
+      equality check belongs to the parent context, which verifies it before
+      spawning you and again at integrate-and-test before merging.
 
-      Implement the Outlook plan producer exactly as specified in
-      outputs/design.md. Work in an isolated worktree.
+      Implement the Outlook plan producer exactly as specified in the design
+      document staged for you at <your-cwd>/inputs/design.md (the orchestrator
+      copies every upstream output in before spawning you). Do NOT read a bare
+      `outputs/design.md` — that resolves against the shared checkout, outside
+      your worktree. Work in your isolated worktree.
 
       Build:
         - PlanWriterProducer — ONLY if design.md concluded the candidate
@@ -491,6 +494,13 @@ stages:
       report under {workspace}, so this stage would never finish and the stage
       meant to copy it would never run.)
 
+
+      COMMIT BEFORE YOU FINISH. Your edits live in your own worktree; the
+      parent transfers them with `git merge`, which moves COMMITS, not
+      uncommitted files. Stage your changed files by name (never `git add -A`)
+      and commit them on your worktree branch before writing your report. An
+      uncommitted change is invisible to the merge and will silently not land.
+
       Report created/modified files with keys "files", "tests_added",
       "commands_added", "deviations" (anything you did differently from
       design.md, with reasoning).
@@ -524,17 +534,20 @@ stages:
     # is not a failure, and integrate-and-test would run regardless.
     when: '"{consumer_kind}" does not contain "google_calendar"'
     description: >
-      BRANCH GUARD — run this before any edit:
+      BRANCH GUARD (isolated stage) — run this before any edit:
         git branch --show-current
-      It MUST print exactly {branch}. If it prints anything else — "main" or
-      any other branch — STOP and fail this stage. Rejecting only "main" is
-      not enough: a run started from an unrelated branch would otherwise
-      mutate and merge into it while reporting success.
-      A fresh agent session does not inherit an earlier stage's branch, so
-      this check must happen here, not only in the survey stage.
+      You are in your OWN worktree, so this prints the generated
+      worktree-agent-<id> branch, NOT {branch}. That is expected and correct.
+      Fail ONLY if it prints "main" — that would mean isolation did not take
+      effect and you are about to edit the shared checkout. The {branch}
+      equality check belongs to the parent context, which verifies it before
+      spawning you and again at integrate-and-test before merging.
 
       Implement the Gmail-side plan consumer for consumer_kind={consumer_kind},
-      exactly as specified in outputs/design.md. Work in an isolated worktree.
+      exactly as specified in the design document staged for you at
+      <your-cwd>/inputs/design.md. Do NOT read a bare `outputs/design.md` —
+      that resolves against the shared checkout, outside your worktree.
+      Work in your isolated worktree.
 
       Subclass EventIterationProcessor from
       src/calendars/outlook_pipelines/_base.py and implement _init_accumulator,
@@ -563,6 +576,13 @@ stages:
       Do NOT write {workspace}/... and do NOT use a bare relative path; see the
       producer stage for why. The orchestrator copies your outputs/ back into
       {workspace}/outputs/ as part of THIS stage's completion, not later.
+
+
+      COMMIT BEFORE YOU FINISH. Your edits live in your own worktree; the
+      parent transfers them with `git merge`, which moves COMMITS, not
+      uncommitted files. Stage your changed files by name (never `git add -A`)
+      and commit them on your worktree branch before writing your report. An
+      uncommitted change is invisible to the merge and will silently not land.
 
       Report with keys "files", "tests_added", "commands_added", "deviations".
     agent:
@@ -613,7 +633,12 @@ stages:
       review) read those files by name, and a missing one degrades them
       silently instead of erroring.
 
-      THEN merge the code changes the way the orchestrator mandates, NOT by
+      THEN merge the code changes. Before merging, confirm each worktree
+      branch actually HAS commits (`git log --oneline {branch}..worktree-agent-<id>`);
+      an empty range means the agent never committed and the merge would be a
+      no-op that still reports success. After merging, confirm the files each
+      report claimed are present in the tree. Merge the way the orchestrator
+      mandates, NOT by
       copying files. The
       /workflow skill (.claude/skills/workflow/SKILL.md, "isolation: worktree
       ... requires an explicit merge step") specifies:

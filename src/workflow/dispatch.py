@@ -67,12 +67,20 @@ def _read_paths(stage: ResolvedStage, ws: str) -> list[str]:
     if not stage.spec.reads_from:
         return []
     if _is_isolated(stage):
-        paths = [
-            f"<your-cwd>/inputs/{name}.json (copied in by the orchestrator)"
-            for name in stage.spec.reads_from
+        # The orchestrator mirrors each upstream stage's declared writes_to
+        # under inputs/, preserving relative paths. Do NOT name a single
+        # synthetic <name>.json per dependency: a stage may declare several
+        # outputs of different types (design.md AND design.json), and naming
+        # one would tell the agent to read a file that does not exist while
+        # silently omitting the rest.
+        return [
+            "<your-cwd>/inputs/ — every output of these upstream stages, "
+            "copied in before you start, at the same relative path the "
+            "upstream stage declared (e.g. an upstream `outputs/design.md` "
+            f"arrives as `<your-cwd>/inputs/outputs/design.md`): "
+            f"{', '.join(stage.spec.reads_from)}",
+            "<your-cwd>/inputs/stages/ — each upstream stage's result JSON",
         ]
-        paths.append("<your-cwd>/inputs/")
-        return paths
     paths = [f"{ws}/stages/*-{name}.json" for name in stage.spec.reads_from]
     paths.append(f"{ws}/outputs/")
     return paths
@@ -231,10 +239,14 @@ def _validate(stage: ResolvedStage, wf: str, ws: str) -> str:
     if wp:
         lines += _section("Output\nWrite results to", wp)
     else:
+        # Same isolated-root rule as _write_paths: a validate stage with no
+        # explicit writes_to must not be sent to the shared workspace, or the
+        # parent waits for files outside the agent's worktree.
+        val_root = "<your-cwd>" if _is_isolated(stage) else ws
         lines += [
             "## Output",
-            f"Write findings to: {ws}/validation/{stage.spec.name}-findings.json",
-            f"Write summary to: {ws}/validation/{stage.spec.name}-summary.md",
+            f"Write findings to: {val_root}/validation/{stage.spec.name}-findings.json",
+            f"Write summary to: {val_root}/validation/{stage.spec.name}-summary.md",
             "",
         ]
     lines.append(_completion(stage, ws))

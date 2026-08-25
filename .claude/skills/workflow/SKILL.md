@@ -120,11 +120,26 @@ Generate a `RUN_ID` in the format `{workflow_name}-{YYYYMMDD}-{8_hex_chars}`.
 
    a. **Copy the stage's inputs IN before spawning it.** An isolated agent
       cannot read `{workspace}` either — the boundary applies in both
-      directions. For each name in the stage's `reads_from`, copy that
-      upstream stage's output into `<agent-cwd>/inputs/<name>.json` before
-      signalling proceed. The prompt built by the engine already points an
-      isolated agent at `<your-cwd>/inputs/`, so skipping this leaves it
-      reading an empty directory.
+      directions.
+
+      Copy **every declared output of every upstream stage**, preserving its
+      relative path: an upstream `outputs/design.md` arrives as
+      `<agent-cwd>/inputs/outputs/design.md`. Do not collapse a dependency to
+      one synthetic `<name>.json` — a stage may declare several outputs of
+      different types (`design.md` AND `design.json`), and naming only one
+      points the agent at a file that does not exist while silently dropping
+      the rest. Copy each upstream stage's result JSON to
+      `<agent-cwd>/inputs/stages/<name>.json` as well.
+
+      The prompt built by the engine already points an isolated agent at
+      `<your-cwd>/inputs/`, so skipping this leaves it reading an empty
+      directory.
+
+      **Watch for bare paths in the stage description.** A description is
+      embedded in the prompt verbatim, so an instruction like "read
+      `outputs/design.md`" overrides the isolation-aware input list — it
+      resolves against the orchestrator's CWD, i.e. the shared tree. A stage
+      that is isolated must refer to its inputs by absolute own-cwd path.
 
    b. **Copy back each agent's outputs — as part of THAT stage's completion,
       before releasing any dependent stage.** An isolated agent writes to
@@ -142,11 +157,25 @@ Generate a `RUN_ID` in the format `{workflow_name}-{YYYYMMDD}-{8_hex_chars}`.
       returns, fail the stage — downstream stages read those files by name,
       and a missing one degrades them quietly instead of erroring.
 
-   c. **Merge the worktree branch** so the code changes land:
+   c. **Merge the worktree branch** so the code changes land.
+
+   `git merge` moves **commits**, not uncommitted files. An agent that edits
+   its worktree and returns without committing leaves nothing to merge — the
+   merge succeeds against an empty branch and the stage reports success while
+   no code lands. Any stage whose agent writes code must therefore instruct it
+   to commit before finishing, and you must verify the branch is non-empty
+   before merging and that the expected files exist after:
 
    ```bash
+   git log --oneline <target-branch>..worktree-agent-{id}   # must be non-empty
    git merge --no-ff worktree-agent-{id} -m "merge stage {stage_name}"
    ```
+
+   **Branch names.** An isolated agent runs on the generated
+   `worktree-agent-<id>` branch, NOT on the workflow's target branch. A stage
+   guard that requires `git branch --show-current` to equal a target branch can
+   never pass inside an isolated worktree. Verify the target branch in the
+   parent context, before spawning and before merging.
 
    Read-only agents (researcher, reviewer, Explore, unit-validator) need
    none of these steps.
