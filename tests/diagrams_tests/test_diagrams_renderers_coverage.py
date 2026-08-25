@@ -27,26 +27,7 @@ from unittest.mock import MagicMock, patch
 # ---------------------------------------------------------------------------
 
 
-def _make_renderer(timeout: int = 60):
-    """Return a LocalRenderer with mmdc path mocked out."""
-    from diagrams.renderers import LocalRenderer
-
-    with patch("shutil.which", return_value="/fake/mmdc"):
-        return LocalRenderer(timeout=timeout)
-
-
-def _make_success_result() -> MagicMock:
-    result = MagicMock()
-    result.returncode = 0
-    result.stderr = b""
-    return result
-
-
-def _make_failed_result(stderr: bytes = b"mmdc error") -> MagicMock:
-    result = MagicMock()
-    result.returncode = 1
-    result.stderr = stderr
-    return result
+from tests.diagrams_tests._renderer_helpers import FAKE_MMDC, make_renderer
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +119,7 @@ class TestLocalRendererIsAvailable(unittest.TestCase):
 
 class TestGetMermaidText(unittest.TestCase):
     def setUp(self):
-        self.renderer = _make_renderer()
+        self.renderer = make_renderer()
 
     def test_string_input_returned_as_is(self):
         result = self.renderer._get_mermaid_text("flowchart LR\n    A-->B")
@@ -162,12 +143,12 @@ class TestBuildCommand(unittest.TestCase):
     def setUp(self):
         from diagrams.renderers import RenderOptions
 
-        self.renderer = _make_renderer()
+        self.renderer = make_renderer()
         self.RenderOptions = RenderOptions
 
     def test_minimal_args_produces_base_cmd(self):
         cmd = self.renderer._build_command("/in.mmd", "/out.svg", self.RenderOptions())
-        self.assertEqual(cmd, ["/fake/mmdc", "-i", "/in.mmd", "-o", "/out.svg"])
+        self.assertEqual(cmd, [FAKE_MMDC, "-i", "/in.mmd", "-o", "/out.svg"])
 
     def test_background_appended(self):
         cmd = self.renderer._build_command("/in.mmd", "/out.svg", self.RenderOptions(background="white"))
@@ -234,7 +215,7 @@ class TestBuildCommand(unittest.TestCase):
 
 class TestLocalRendererRunFileNotFound(unittest.TestCase):
     def setUp(self):
-        self.renderer = _make_renderer()
+        self.renderer = make_renderer()
 
     def test_file_not_found_raises_local_renderer_error(self):
         from diagrams.renderers import LocalRendererError
@@ -289,7 +270,7 @@ class TestInferFormat(unittest.TestCase):
 
 class TestLocalRendererRender(unittest.TestCase):
     def setUp(self):
-        self.renderer = _make_renderer()
+        self.renderer = make_renderer()
 
     def _fake_run_write_file(self, cmd: list[str]) -> None:
         out_path = cmd[cmd.index("-o") + 1]
@@ -353,7 +334,7 @@ class TestLocalRendererRender(unittest.TestCase):
 
 class TestLocalRendererRenderToFile(unittest.TestCase):
     def setUp(self):
-        self.renderer = _make_renderer()
+        self.renderer = make_renderer()
 
     def test_render_to_file_returns_output_path(self):
         def fake_run(cmd):
@@ -408,7 +389,7 @@ class TestLocalRendererRenderToFile(unittest.TestCase):
 
 class TestLocalRendererValidateSyntax(unittest.TestCase):
     def setUp(self):
-        self.renderer = _make_renderer()
+        self.renderer = make_renderer()
 
     def test_valid_diagram_returns_true_none(self):
         with patch.object(self.renderer, "render", return_value=b"<svg/>"):
