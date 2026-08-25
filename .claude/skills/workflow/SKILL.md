@@ -168,28 +168,52 @@ message so they run concurrently.
 
 **`description` is required on every Agent call.**
 
+Three different stage representations exist, and they spell the same fields
+differently. Read every field through these accessors rather than
+dereferencing attributes directly — a compiled-manifest entry is a plain dict
+with no `.spec` or `.agent`, so `stage.agent.role` raises `AttributeError` on
+it:
+
+| Field | `ResolvedStage` (parsed) | `resolutions` entry (`compile --format json`) | `dispatch/*.json` |
+|---|---|---|---|
+| role | `stage.spec.agent.role` | `agent_role` | `agent_type` |
+| model | `stage.spec.agent.model` | `agent_model` | `model` |
+| isolation | `stage.spec.agent.isolation` | `agent_isolation` | `isolation` |
+| name | `stage.spec.name` | `stage` | `stage_name` |
+
 ```python
+def _field(stage, attr_path, *dict_keys):
+    """Read one field from any stage representation."""
+    if isinstance(stage, dict):
+        for k in dict_keys:
+            if stage.get(k) is not None:
+                return stage[k]
+        return None
+    obj = stage
+    for part in attr_path.split("."):
+        obj = getattr(obj, part, None)
+        if obj is None:
+            return None
+    return obj
+
+role      = _field(stage, "spec.agent.role",      "agent_role", "agent_type")
+model     = _field(stage, "spec.agent.model",     "agent_model", "model")
+isolation = _field(stage, "spec.agent.isolation", "agent_isolation", "isolation")
+
 agent_kwargs = dict(
     description=f"Stage {stage_name} — {stage_kind}",
-    subagent_type=ROLE_MAP[stage.agent.role],
+    subagent_type=ROLE_MAP[role],
     run_in_background=True,
     prompt="...",
 )
 if team_name:
     agent_kwargs["name"] = stage_name
     agent_kwargs["team_name"] = team_name
-# REQUIRED: a stage declaring `agent.isolation: worktree` must receive it here.
-# Normalize first — the two stage representations spell this differently, and
-# `compile --format json` yields plain dicts with no `.agent` attribute:
-#   - compiled manifest: resolutions entry, key "agent_isolation"
-#   - parsed definition: stage.agent.isolation
-isolation = (
-    stage.get("agent_isolation")
-    if isinstance(stage, dict)
-    else getattr(stage.agent, "isolation", None)
-)
-# Omitting this is what made `isolation: worktree` a no-op: the YAML read as
-# isolated while parallel code-writers shared one tree and interleaved edits.
+if model:
+    agent_kwargs["model"] = model
+# REQUIRED. Omitting this is what made `isolation: worktree` a no-op: the YAML
+# read as isolated while parallel code-writers shared one tree and interleaved
+# edits to the same files.
 if isolation:
     agent_kwargs["isolation"] = isolation
 Agent(**agent_kwargs)
@@ -200,7 +224,7 @@ it. A workflow whose stages say `isolation: worktree` but whose agents share a
 tree will silently produce interleaved edits, and any later `git merge
 worktree-agent-*` step will fail because no such branch was ever created.
 
-Map `stage.agent.role` to `subagent_type`:
+Map the resolved `role` (see the accessor table above) to `subagent_type`:
 
 | Agent Role | subagent_type |
 |------------|---------------|
@@ -214,7 +238,7 @@ Map `stage.agent.role` to `subagent_type`:
 | `cross-unit-validator` | `cross-unit-validator` |
 | `fact-checker` | `fact-checker` |
 
-If `stage.agent.model` is set explicitly in the YAML, pass `model=` on the
+If the resolved `model` is set explicitly in the YAML, pass `model=` on the
 Agent call. Otherwise omit it and inherit the session model.
 
 #### 2b. Build Agent Prompts
@@ -617,24 +641,20 @@ If a stage has `fan_out` defined, check `fan_out.mode`:
 2. Parse JSON and extract the array at `fan_out.field`.
 3. For each item, spawn a separate background agent:
    ```python
+   # Same accessors as the single-agent path — a compiled-manifest stage is a
+   # plain dict with no `.agent`, so read role/isolation through _field().
+   role = _field(stage, "spec.agent.role", "agent_role", "agent_type")
+   isolation = _field(stage, "spec.agent.isolation", "agent_isolation", "isolation")
    fan_kwargs = dict(
        description=f"Stage {stage_name} — {item[fan_out.key]}",
-       subagent_type=ROLE_MAP[stage.agent.role],
+       subagent_type=ROLE_MAP[role],
        run_in_background=True,
        prompt="...",  # substitute {fan_out.key} value into description + writes_to
    )
    if team_name:
        fan_kwargs["team_name"] = team_name
        fan_kwargs["name"] = f"{stage_name}-{item[fan_out.key]}"
-   # Same rule as single-agent stages: isolation must reach Agent(), and the
-   # value must be normalized first because a compiled-manifest stage is a
-   # plain dict with no `.agent` attribute. Fan-out writers sharing one tree is
-   # the worst case: N agents, same files.
-   isolation = (
-       stage.get("agent_isolation")
-       if isinstance(stage, dict)
-       else getattr(stage.agent, "isolation", None)
-   )
+   # Fan-out writers sharing one tree is the worst case: N agents, same files.
    if isolation:
        fan_kwargs["isolation"] = isolation
    Agent(**fan_kwargs)
