@@ -30,18 +30,70 @@ if ! FILE=$(jq -er ".tool_input.file_path" <<< "$PAYLOAD" 2>/dev/null); then
   exit 2
 fi
 
+# A non-string .file_path is NOT a parse failure as far as jq is concerned.
+#
+# `{"file_path": []}` and `{"file_path": {}}` are truthy JSON values, so `jq -er`
+# exits 0 and prints "[]" or "{}". `{"file_path": 0}` prints "0". None of those match
+# any pattern below, so the hook exited 0 and allowed a write it had never actually
+# inspected -- the same spurious-ALLOW shape the parse check above exists to prevent,
+# arriving through a door that check does not watch.
+FILE_TYPE=$(jq -r '.tool_input.file_path | type' <<< "$PAYLOAD" 2>/dev/null || echo "unknown")
+if [ "$FILE_TYPE" != "string" ]; then
+  echo "Blocked: .tool_input.file_path is a $FILE_TYPE, not a string." >&2
+  echo "Failing closed rather than allowing a write the hook cannot read." >&2
+  exit 2
+fi
+
+# An empty or whitespace-only path names nothing the hook can judge. Fail closed for
+# the same reason as the non-string case.
+if [ -z "${FILE//[[:space:]]/}" ]; then
+  echo "Blocked: .tool_input.file_path is empty." >&2
+  echo "Failing closed rather than allowing an uninspected write." >&2
+  exit 2
+fi
+
+# Protected DIRECTORY segments, checked FIRST.
+#
+# CHANGED: the template carve-out below used to run before this. It returns early with
+# exit 0, so any basename that merely looked like a template exempted the whole path
+# from every directory rule underneath it -- `.ssh/.env.example` and
+# `.git/hooks/.env.sample` were both allowed writes into directories this hook exists
+# to protect. A carve-out for "this FILE is a harmless template" must never be able to
+# vouch for the DIRECTORY the file sits in.
+#
+# Writing into .git/ by hand corrupts repository state in ways that are not
+# recoverable with ordinary git commands. Use git itself.
+DIR_PATTERNS=(
+  ".ssh/"
+  ".gnupg/"
+  ".aws/"
+  ".git/"
+)
+
+for p in "${DIR_PATTERNS[@]}"; do
+  if [[ "$FILE" == *"$p"* ]]; then
+    echo "Blocked: $FILE writes into the protected directory segment $p" >&2
+    echo "No filename exempts a write into this directory, template-looking or not." >&2
+    exit 2
+  fi
+done
+
 # Checked-in templates are safe -- they carry placeholder values and exist to be
 # edited. Carved out before the .env substring test below, which would otherwise
-# catch every one of them. Same logic as the reference and as the read-side hook.
-case "$FILE" in
+# catch every one of them.
+#
+# CHANGED: matched on the exact BASENAME rather than as a `*.env.example` glob over
+# the whole path. The glob form also accepted `.env.example.bak`, which is a real
+# config file someone copied, not a template. Same reasoning as the Bash-side hook.
+case "${FILE##*/}" in
+  .env.example|.env.template|.env.sample) exit 0 ;;
   *.env.example|*.env.template|*.env.sample) exit 0 ;;
 esac
 
 # Matching is a case-SENSITIVE substring test against the path, so "credentials.ini"
-# also matches "credentials.ini.bak" and ".git/" matches any path segment containing
-# it. Over-blocking is the safe direction: the cost of a false positive is one
-# clarifying question, the cost of a false negative is a destroyed credential file
-# that nothing in this repo can regenerate.
+# also matches "credentials.ini.bak". Over-blocking is the safe direction: the cost of
+# a false positive is one clarifying question, the cost of a false negative is a
+# destroyed credential file that nothing in this repo can regenerate.
 PATTERNS=(
   # This repo's credential set, from core/constants.py and mail/config_resolver.py.
   "credentials.ini"
@@ -51,16 +103,17 @@ PATTERNS=(
   "token.json"
   # Universal secrets.
   ".env"
-  ".ssh/"
-  ".gnupg/"
   ".aws/credentials"
   ".npmrc"
   "id_rsa"
   "id_ed25519"
+  # Key material. .pem is the generic PKCS/OpenSSL spelling; .p8 and .p12 are used by
+  # this repo specifically -- apple_music loads a MusicKit private key as .p8, and
+  # phone resolves a device supervision identity as .p12. A leaked .p8 signs Apple
+  # Music API tokens; a leaked .p12 can re-supervise a device.
   ".pem"
-  # Writing into .git/ by hand corrupts repository state in ways that are not
-  # recoverable with ordinary git commands. Use git itself.
-  ".git/"
+  ".p8"
+  ".p12"
 )
 
 for p in "${PATTERNS[@]}"; do

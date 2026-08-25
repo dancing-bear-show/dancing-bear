@@ -29,18 +29,38 @@ Reads the payload on stdin, inspects `.tool_input.command`, and blocks:
 1. **Destructive commands** — `DROP TABLE`, `DROP DATABASE`, `TRUNCATE`,
    `git push --force`/`-f`, `git reset --hard`, and `rm` with recursive+force
    pointed at a protected path.
-2. **Shell reads of credential files** via
-   `cat bat less more head tail nl xxd od strings grep rg ag awk sed jq cut sort uniq`,
-   including inside `$(...)` and backticks.
-3. **Shell writes** via `>`, `>|`, `2>` and
-   `tee cp mv install dd truncate ln`. Appending (`>>`, `tee -a`, `tee --append`)
-   is deliberately allowed — that is how a new profile section gets added to
-   `credentials.ini` without destroying the existing ones.
+2. **Any command that names a protected path as an operand** — reads, writes,
+   deletes, and copies alike, regardless of which command word precedes the path.
+3. **Globs and unresolvable expansions** pointed into a credential-bearing directory.
+
+Appending to `credentials.ini` (`>>`, `tee -a`, `tee --append`) is the one carve-out.
+
+#### Operands, not command words
+
+The check keys off the **path**, not the command. An earlier version paired a fixed
+reader list against a filename in one regex —
+`(cat|less|grep|…)[^|;&]*credentials\.ini` — which has two holes that cannot be
+closed by extending the list:
+
+- **The list can never be complete.** `base64 ~/.config/credentials.ini` discloses the
+  file as thoroughly as `cat` does, and so does
+  `python3 -c 'print(open("…credentials.ini").read())'`. Every binary on the box is
+  another entry someone has to remember to add.
+- **The spelling has to match.** `/bin/cat credentials.ini` and `\cat credentials.ini`
+  both run cat; neither matches a bare `cat` anchored at a command boundary.
+
+So any bare mention of a protected path as an operand blocks. The cost is that
+`git commit -m "docs: describe credentials.ini setup"` is blocked too — see
+[Over-blocking is deliberate](#over-blocking-is-deliberate).
 
 ### `block-protected-paths.sh` — PreToolUse, matcher `Write|Edit`
 
 Reads `.tool_input.file_path` and blocks writes to the same credential set, plus
-`.git/` and `*.pem`. Substring matching, case-sensitive.
+`.git/` and key material. Substring matching, case-sensitive.
+
+Protected **directory** segments (`.ssh/`, `.gnupg/`, `.aws/`, `.git/`) are checked
+**before** the template carve-out. A filename that looks like a template must never
+vouch for the directory it sits in — `.ssh/.env.example` is a write into `.ssh/`.
 
 ### Protected files
 
@@ -56,14 +76,88 @@ directory, `$XDG_CONFIG_HOME`, then `~/.config`) and `src/mail/config_resolver.p
 | `msal_flow.json` | in-flight MSAL device-code flow |
 
 Plus universal secrets: `.ssh/`, `.gnupg/`, `.aws/credentials`, `.npmrc`, `id_rsa`,
-`id_ed25519`, `.env` and `.env.*`.
+`id_ed25519`, `.env` and `.env.*`, and key material `.pem`, `.p8`, `.p12`.
+
+`.p8` and `.p12` are not generic additions — this repo uses both. `apple_music` loads
+a MusicKit private key as `.p8`, and `phone` resolves a device supervision identity as
+`.p12`. A leaked `.p8` signs Apple Music API tokens; a leaked `.p12` can re-supervise a
+device.
 
 Checked-in templates — `.env.example`, `.env.template`, `.env.sample` — are **not**
-blocked. They carry placeholders and exist to be read and edited.
+blocked. The exemption matches the **exact basename**, not a substring: a path merely
+*containing* `.env.example` is a real config file, not a template.
+`/tmp/client.env.example.bak` and `.env.example.bak` are both blocked. (The earlier
+version deleted the `.env.example` substring from the whole command before matching,
+which turned `cat /tmp/client.env.example.bak` into `cat /tmp/client.bak` and made a
+real secret file invisible to every pattern.)
 
 Filenames are matched bare rather than as full paths, because the directory varies
 with `$XDG_CONFIG_HOME` and `$CREDENTIALS`, and a copy of `credentials.ini` sitting
 in `/tmp` is exactly as sensitive as the original.
+
+### Configured credential paths
+
+**The guards match filenames, not the live configuration.** This is a deliberate
+constraint, and it has a real edge that you should know about.
+
+`src/core/constants.py` accepts `$CREDENTIALS` as a **full file path**, so the active
+credential store can be named anything:
+
+```bash
+CREDENTIALS=/tmp/my-secrets.ini ./bin/mail labels sync
+```
+
+A filename-matching hook cannot see that `/tmp/my-secrets.ini` is a credential file.
+Likewise, a profile in `credentials.ini` can point `credentials`, `token`, or
+`outlook_token` at an arbitrarily named file.
+
+**The choice made here: constrain and document, rather than resolve at runtime.**
+Deriving the active paths would mean the hook parsing `credentials.ini` on every Bash
+call — reading the very file it exists to protect, on the hot path of every tool call,
+and failing open whenever that parse fails. That trades a narrow gap for a broader one.
+
+Instead the hook does two things:
+
+1. **Blocks the variable names outright.** `$CREDENTIALS`, `$OUTLOOK_TOKEN`,
+   `$GOOGLE_APPLICATION_CREDENTIALS`, `$GMAIL_TOKEN`, and `$MSAL_FLOW` are blocked
+   wherever they appear, with no path-shape requirement — the variable *is* the path,
+   so `cat $CREDENTIALS` has no `/` to key off.
+2. **Blocks unresolvable expansions** into `$XDG_CONFIG_HOME`, `.config`, `.ssh`,
+   `.gnupg`, `.aws`, `.claude`, and `/etc`.
+
+**What this means for you:** keep credential files under a config directory and use
+the standard filenames. A credential file with a custom name in an unprotected
+directory — `/opt/data/my-secrets.ini` — is **not** covered by these hooks. If you
+must use one, add its basename to `DB_SECRET_FILES` in `block-destructive-bash.sh` and
+to `PATTERNS` in `block-protected-paths.sh`.
+
+### The append carve-out
+
+`>>` and `tee -a` onto `credentials.ini` are allowed. That is how a new profile
+section gets added without destroying the existing ones, and blocking it would
+contradict CLAUDE.md's "Never overwrite `~/.config/credentials.ini`" — a rule about
+truncation, whose sanctioned alternative is appending.
+
+The carve-out is **scoped to `credentials.ini` and nothing else.** It is checked on the
+basename, and it exempts only that one token; every other path in the same command is
+still checked. Appending to a token file corrupts the JSON and invalidates the session;
+appending to `id_rsa` corrupts a private key; `echo x >> .env` extends a secret file
+outright. None of those have the justification that earned `credentials.ini` its
+exemption.
+
+### Over-blocking is deliberate
+
+When a construct cannot be analyzed safely — a glob, an unresolvable variable
+expansion in a protected-looking context, a `~otheruser` that cannot be expanded — the
+hook **blocks** and tells you to run the command yourself with a leading `!`.
+
+The hook cannot expand a glob without executing shell code from an untrusted payload,
+and `cat ~/.config/*` is strictly *worse* than naming `credentials.ini`, because it
+discloses every token file at once. Refusing is the only safe answer.
+
+A false positive costs one clarifying question. A false negative costs a disclosed
+OAuth refresh token, which cannot be un-printed. The messages say this explicitly so
+the block reads as a design decision rather than a bug.
 
 ### `statusline.sh`
 
@@ -79,31 +173,70 @@ Context bar is green under 50%, yellow at 50%, red at 80%. When
 
 The agent/worktree prefix matters here specifically: sessions run under
 `.claude/worktrees/` by default, subagents get their own isolated worktrees, and the
-directory name alone does not tell you which branch's worktree you are in.
+directory name alone does not tell you which branch's worktree you are in. The agent
+name wins when both are present — inside a subagent, *which* subagent is the more
+specific fact.
 
 ## Contract
 
 Both guards: **exit 2 blocks** the tool call and shows stderr to Claude, **exit 0
 allows**. Both run under `set -u` and require `jq`.
 
-A payload that cannot be parsed **fails closed** (exit 2). An unparseable payload
-means the hook cannot see what it is approving, and a hook that approves blind is
-worse than no hook — the failure of the inspecting step must not become an ALLOW.
+**Everything fails closed.** A payload that cannot be parsed, a field that is present
+but not a string (`{}`, `[]`, `0`, `true`), and an empty or whitespace-only field all
+exit 2.
+
+The non-string case is worth calling out because it is not caught by a parse check:
+`jq -er` treats `{}` and `[]` as truthy JSON and exits 0, printing `"{}"`. That value
+then matches no pattern, and the hook exited 0 — approving a call it had never
+inspected. The failure of the inspecting step must never become an ALLOW.
 
 ## Running the tests
+
+The suites run automatically as part of `make test` and CI, via
+`tests/infra/test_guard_hooks.py`, which shells out to them and is picked up by
+unittest discovery. Nothing extra needs wiring when a case is added.
+
+To run them directly:
+
+```bash
+make hooks-test
+```
+
+or one at a time:
 
 ```bash
 bash .claude/hooks/tests/block-destructive-bash.test.sh
 bash .claude/hooks/tests/block-protected-paths.test.sh
+bash .claude/hooks/tests/statusline.test.sh
 ```
 
 Exit 0 = all pass, 1 = any failure. Each prints `ok`/`FAIL` per case and a final
-`ALL PASS`. Pass a path as argument 1 to test an installed copy instead of the
-repo one:
+count plus `ALL PASS`. Pass a path as argument 1 to test an installed copy instead of
+the repo one:
 
 ```bash
 bash .claude/hooks/tests/block-destructive-bash.test.sh ~/.claude/hooks/block-destructive-bash.sh
 ```
+
+### Three exit states, not two
+
+`tests/_harness.sh` classifies `0` as ALLOW, `2` as BLOCK, and **anything else as a
+test failure**, reported with its actual exit code.
+
+Both suites used to fold every non-2 code into ALLOW. A hook that dies on `set -u`
+exits 1; one whose `jq` is missing exits 127. Under the old classifier all of those
+were reported as `ok ALLOW` on any case expecting ALLOW — so a hook that had stopped
+running at all still printed `ALL PASS` across the entire allow half of the suite.
+That is the same fail-open shape the hooks themselves were fixed for, reproduced in
+the thing meant to detect it.
+
+### Adding a new suite
+
+Drop a `*.test.sh` in `.claude/hooks/tests/` and add its name to `SUITES` in
+`tests/infra/test_guard_hooks.py`. A test in that file fails if a suite exists on disk
+but is not wired in — the failure being prevented is a suite that passes when run by
+hand and is never invoked by anything automated.
 
 **The test cases must stay in these files.** The hooks block their own test payloads
 — an agent cannot type `echo "[mail.x]" > ~/.config/credentials.ini` into a Bash call
@@ -182,17 +315,49 @@ equivalent spelling through: `rm -fr /`, `rm --recursive --force /`, `rm -rf //`
 
 This port normalizes the flags (bundled short flags checked characterwise, so `-rvf`
 and `-Rf` count), extracts the actual operands, expands `~`/`$HOME`, collapses
-repeated slashes, and compares against a protected-prefix list: `/`, `$HOME`,
-`/Users`, `/etc`, `/usr`, `/var`, `/System`, `/Library`, `/opt`, `/bin`, `/sbin`,
-`/Applications`. Paths under a temp dir or under the repo checkout are allowed, and
-every `rm` in a compound command is checked, not just the first. A path is dangerous
-because of where it points, not how the flags were typed.
+repeated slashes, **resolves `.` and `..` textually**, and compares against a
+protected-prefix list: `/`, `$HOME`, `/Users`, `/home`, `/etc`, `/usr`, `/var`,
+`/System`, `/Library`, `/opt`, `/bin`, `/sbin`, `/Applications`, `/private`.
 
-**Fail closed on unparseable payloads.** The original's `CMD=$(jq -r ...)` yielded an
-empty string when jq failed, every pattern then missed, and the hook exited 0 — a
-spurious ALLOW produced by the failure of the very thing meant to inspect the
-command. Both guards now use `jq -er` and exit 2 when the field is missing, null, or
-the payload is not JSON.
+`..` resolution matters on its own: `rm -rf /tmp/../etc` is `rm -rf /etc`, and the
+literal `/tmp/` head made it look like allowed scratch space. `realpath` is not used —
+it resolves symlinks against the live filesystem and returns *empty* for a nonexistent
+path, and an empty result compared against the protected list passes silently.
+
+`/home` and `/private` are additions. `/home` is where Linux keeps user homes (CI runs
+there). `/private` is the macOS root that `/tmp`, `/etc`, and `/var` are all symlinks
+into, so `rm -rf /private/etc` reached the same inode as `rm -rf /etc` while dodging
+the check for it.
+
+**Temp roots are protected; only their descendants are scratch.** The carve-out allows
+`/tmp/?*` — at least one character past the slash. The roots themselves fell through
+it and were not in the protected list either, so `rm -rf /tmp` was allowed outright,
+taking out every other session's scratch directory.
+
+**Protected home subtrees are carved back out of the `$HOME/*` allow.** `$HOME/*` was
+an unconditional allow on the reasoning that `~/.cache/foo` is disposable. So is
+`~/.ssh` under that rule — every private key on the machine. `~/.ssh`, `~/.gnupg`,
+`~/.aws`, `~/.config`, and `~/.claude` are blocked.
+
+**`.claude/worktrees` is protected, and so is a relative path that escapes the
+checkout.** `rm -rf ..` from a session worktree resolves to `.claude/worktrees/`,
+holding every other session's uncommitted work — and lands under `$HOME`, which the
+"under home but not home itself" branch allowed. A relative target containing `..` is
+blocked when it resolves outside the repo root; `rm -rf build/../out` still works.
+
+**Escaped and path-qualified command names count.** `\rm -rf /` runs rm with alias
+expansion suppressed. The command-boundary character class did not include the
+backslash, so the regex saw no rm at all.
+
+**`git push -f` needs no trailing space.** The pattern was `push.*-f ` — so
+`git push -f`, the shortest and most likely spelling of the thing being blocked, fell
+straight through while `git push -f origin main` was caught. A flag at the end of the
+command has no trailing space.
+
+**Fail closed on unparseable *and* non-string payloads.** The original's
+`CMD=$(jq -r ...)` yielded an empty string when jq failed, every pattern then missed,
+and the hook exited 0. Both guards now use `jq -er`, check the field's JSON `type`,
+and reject empty strings.
 
 **Statusline shows unknown as unknown.** The original used
 `(.context_window.used_percentage // 0)`, so an absent `.context_window` rendered a
@@ -201,9 +366,10 @@ window. That is the worst kind of wrong reading: confident, plausible, and point
 the opposite direction from the truth. A session at 85% looked like a session at 0%,
 which is exactly when the number matters most.
 
-**Template carve-out extended to the Write/Edit hook.** The original applied the
-`.env.example`/`.template`/`.sample` exclusion only on the Bash read path, so editing
-a checked-in template was blocked by the path hook. Both hooks now share the carve-out.
+**Template carve-out extended to the Write/Edit hook, and tightened everywhere.** The
+original applied the exclusion only on the Bash read path. Both hooks now share it —
+matched on the exact basename, after the protected-directory check, never as a
+substring scrub.
 
 **Repo-specific credential set.** The original guarded a `.env` /
 Google-Workspace stack (`secrets/`, `credentials*` as a bare substring). Those were

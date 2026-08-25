@@ -138,6 +138,20 @@ bin-wrappers:
 bin-wrappers-check:
 	@$(PYTHON) bin/_gen_wrappers.py --check
 
+# The .claude/hooks guard suites, for running them directly.
+#
+# `make test` and CI already cover these through tests/infra/test_guard_hooks.py,
+# which shells out to the same scripts and is picked up by unittest discovery. This
+# target exists for iterating on a hook without paying for the whole Python suite --
+# it is a convenience, not the enforcement point. Adding a new *.test.sh needs no
+# change here or in CI; the wrapper discovers the directory and fails if a suite on
+# disk is not wired in.
+.PHONY: hooks-test
+hooks-test:
+	@for s in .claude/hooks/tests/*.test.sh; do \
+		echo "== $$s"; bash "$$s" || exit 1; \
+	done
+
 deadcode: venv
 	@$(PIP) install -q -e ".[dev]"
 	@$(PY) -m vulture --config pyproject.toml

@@ -13,7 +13,9 @@
 # Exit:  0 = all pass, 1 = at least one failure. Requires jq.
 
 HOOK="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/block-protected-paths.sh}"
-fail=0
+
+# shellcheck source=./_harness.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_harness.sh"
 
 if [ ! -f "$HOOK" ]; then
   echo "hook not found: $HOOK" >&2
@@ -23,15 +25,17 @@ echo "testing: $HOOK"
 echo
 
 run() { # run <BLOCK|ALLOW> <file_path>
-  local expect="$1" path="$2" rc got
+  local expect="$1" path="$2" rc
   jq -n --arg p "$path" '{tool_name:"Write",tool_input:{file_path:$p,content:"x"}}' | bash "$HOOK" >/dev/null 2>&1
   rc=$?
-  got=ALLOW; [ "$rc" -eq 2 ] && got=BLOCK
-  if [ "$got" = "$expect" ]; then
-    printf 'ok    %-5s  %s\n' "$got" "$path"
-  else
-    printf 'FAIL  want=%s got=%s  %s\n' "$expect" "$got" "$path"; fail=1
-  fi
+  _record "$expect" "$(_classify "$rc")" "$path"
+}
+
+run_raw() { # run_raw <BLOCK|ALLOW> <label> <raw-json>
+  local expect="$1" label="$2" payload="$3" rc
+  printf '%s' "$payload" | bash "$HOOK" >/dev/null 2>&1
+  rc=$?
+  _record "$expect" "$(_classify "$rc")" "$label"
 }
 
 echo "--- this repo's credential files (want BLOCK) ---"
@@ -51,6 +55,7 @@ run BLOCK "$HOME/.ssh/config"
 run BLOCK "$HOME/.ssh/id_ed25519"
 run BLOCK "$HOME/.gnupg/secring.gpg"
 run BLOCK "$HOME/.aws/credentials"
+run BLOCK "$HOME/.aws/config"
 run BLOCK "$HOME/.npmrc"
 run BLOCK "/etc/ssl/server.pem"
 run BLOCK "certs/client.pem"
@@ -59,16 +64,65 @@ run BLOCK "backend/.env.local"
 run BLOCK "$HOME/.config/.env.production"
 
 echo
+echo "--- REGRESSION 14: .p8 and .p12 key material (want BLOCK) ---"
+# apple_music loads a MusicKit private key as .p8; phone resolves a device
+# supervision identity as .p12. A leaked .p8 signs Apple Music API tokens; a leaked
+# .p12 can re-supervise a device. Neither extension was in the protected set.
+run BLOCK "$HOME/.config/AuthKey_ABC123.p8"
+run BLOCK "certs/supervision.p12"
+run BLOCK "$HOME/Library/supervision-identity.p12"
+run BLOCK "keys/musickit.p8"
+# Matching is a substring test by design, so `.p8` mid-path blocks too. That is the
+# over-blocking direction this hook chooses on purpose: one clarifying question costs
+# less than a signed-token key leaking through a filename nobody thought to guard.
+run BLOCK "docs/chapter.p8.md"
+
+echo
 echo "--- git internals (want BLOCK) ---"
 run BLOCK ".git/config"
 run BLOCK ".git/HEAD"
 run BLOCK "/Users/me/code/dancing-bear/.git/hooks/pre-commit"
 
 echo
+echo "--- REGRESSION 11: template names cannot vouch for a protected DIRECTORY ---"
+# The template carve-out used to run FIRST and `exit 0` early, so any basename that
+# looked like a template exempted the entire path from every directory rule below it.
+# A carve-out for "this FILE is harmless" must never vouch for the directory it is in.
+run BLOCK ".ssh/.env.example"
+run BLOCK "$HOME/.ssh/.env.template"
+run BLOCK ".git/.env.sample"
+run BLOCK ".git/hooks/.env.example"
+run BLOCK "$HOME/.gnupg/.env.example"
+run BLOCK "$HOME/.aws/.env.sample"
+
+echo
+echo "--- REGRESSION 17: template exemption is exact, not a suffix substring ---"
+# `.env.example.bak` is a copy of a real config, not a template.
+run BLOCK ".env.example.bak"
+run BLOCK "backend/.env.template.old"
+run BLOCK "prod.env.sample.real"
+
+echo
+echo "--- REGRESSION 8: non-string and empty file_path fail closed (want BLOCK) ---"
+# `jq -er` succeeds on [] and {} -- they are truthy JSON. The value then matches no
+# pattern and the hook exited 0, approving a write it never inspected.
+run_raw BLOCK 'file_path is an array'  '{"tool_name":"Write","tool_input":{"file_path":[],"content":"x"}}'
+run_raw BLOCK 'file_path is an object' '{"tool_name":"Write","tool_input":{"file_path":{},"content":"x"}}'
+run_raw BLOCK 'file_path is a number'  '{"tool_name":"Write","tool_input":{"file_path":0,"content":"x"}}'
+run_raw BLOCK 'file_path is a bool'    '{"tool_name":"Write","tool_input":{"file_path":false,"content":"x"}}'
+run_raw BLOCK 'file_path is empty'     '{"tool_name":"Write","tool_input":{"file_path":"","content":"x"}}'
+run_raw BLOCK 'file_path is whitespace' '{"tool_name":"Write","tool_input":{"file_path":"  ","content":"x"}}'
+run_raw BLOCK 'file_path is null'      '{"tool_name":"Write","tool_input":{"file_path":null,"content":"x"}}'
+run_raw BLOCK 'file_path is absent'    '{"tool_name":"Write","tool_input":{"content":"x"}}'
+run_raw BLOCK 'payload is not JSON'    'this is not json'
+run_raw BLOCK 'payload is empty'       ''
+
+echo
 echo "--- checked-in templates (want ALLOW) ---"
 run ALLOW ".env.example"
 run ALLOW "backend/.env.template"
 run ALLOW "config/.env.sample"
+run ALLOW "docs/deploy/.env.example"
 
 echo
 echo "--- ordinary source paths (want ALLOW) ---"
@@ -82,13 +136,19 @@ run ALLOW "CLAUDE.md"
 run ALLOW "config/filters_unified.example.yaml"
 run ALLOW "out/filters.gmail.from_unified.yaml"
 run ALLOW ".claude/hooks/README.md"
+run ALLOW ".claude/hooks/block-destructive-bash.sh"
 run ALLOW "src/workflow/compiler.py"
 run ALLOW "Makefile"
+run ALLOW ".github/workflows/ci.yml"
 # "credentials" appearing in a docs filename is prose, not a credential file.
 run ALLOW "docs/credentials-setup.md"
 # .gitignore is a normal tracked file -- it must not trip the ".git/" segment rule.
 run ALLOW ".gitignore"
+run ALLOW ".gitattributes"
+# ".p8"/".p12" need the leading dot, so an identifier containing "p8" is not a key.
+run ALLOW "src/slides/p8_layout.py"
+run ALLOW "src/phone/p12_reader.py"
 
 echo
-[ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES PRESENT"
-exit "$fail"
+_summary "block-protected-paths"
+exit $?
