@@ -210,6 +210,15 @@ stages:
       # description saying "Do NOT modify any file", nothing more.
       access: read-write
       tools: [Read, Grep, Glob, Bash, Write]
+    # `outputs` with mode: generate is what routes this stage to the agent
+    # dispatcher. Without it CompositeDispatcher._needs_agent() returns False
+    # for a non-validate stage and `workflow run --execute` sends it to
+    # LocalDispatcher, which has no CLI commands here and marks it succeeded
+    # without ever spawning the agent.
+    outputs:
+      - name: survey
+        mode: generate
+        description: Ground-truth contracts of the existing pipeline machinery.
     writes_to:
       - outputs/survey.json
     validates_output:
@@ -380,6 +389,15 @@ stages:
       role: reviewer
       access: read-write
       tools: [Read, Grep, Glob, Write]
+    # `outputs` with mode: generate is what routes this stage to the agent
+    # dispatcher. Without it CompositeDispatcher._needs_agent() returns False
+    # for a non-validate stage and `workflow run --execute` sends it to
+    # LocalDispatcher, which has no CLI commands here and marks it succeeded
+    # without ever spawning the agent.
+    outputs:
+      - name: design
+        mode: generate
+        description: Implementation plan plus its structured design.json counterpart.
     writes_to:
       - outputs/design.md
       - outputs/design.json
@@ -470,6 +488,15 @@ stages:
       role: code-writer
       isolation: worktree
       access: read-write
+    # `outputs` with mode: generate is what routes this stage to the agent
+    # dispatcher. Without it CompositeDispatcher._needs_agent() returns False
+    # for a non-validate stage and `workflow run --execute` sends it to
+    # LocalDispatcher, which has no CLI commands here and marks it succeeded
+    # without ever spawning the agent.
+    outputs:
+      - name: producer-report
+        mode: generate
+        description: Files, tests and deviations from the producer implementation.
     writes_to:
       - outputs/producer-report.json
     validates_output:
@@ -529,6 +556,15 @@ stages:
       role: code-writer
       isolation: worktree
       access: read-write
+    # `outputs` with mode: generate is what routes this stage to the agent
+    # dispatcher. Without it CompositeDispatcher._needs_agent() returns False
+    # for a non-validate stage and `workflow run --execute` sends it to
+    # LocalDispatcher, which has no CLI commands here and marks it succeeded
+    # without ever spawning the agent.
+    outputs:
+      - name: consumer-report
+        mode: generate
+        description: Files, tests and deviations from the consumer implementation.
     writes_to:
       - outputs/consumer-report.json
     validates_output:
@@ -592,13 +628,6 @@ stages:
       checkout and produces a false green indistinguishable from a real one.
       Skip only if run_tests={run_tests} is "false".
 
-      Then make the verdict checkable rather than self-reported. Run this and
-      paste its output into your summary; a non-zero exit means the round trip
-      did NOT pass, regardless of what you wrote in the file:
-        python3 -c "import json,sys; d=json.load(open(sys.argv[1])); e=d.get('events_expected'); g=d.get('events_exported'); ok=bool(d.get('round_trip_passed')) and e==g; print('ROUND_TRIP_VERDICT:', 'PASS' if ok else 'FAIL', '| expected=', e, '| exported=', g); sys.exit(0 if ok else 1)" {workspace}/outputs/integration.json
-      The engine's has_key check only verifies a key EXISTS — it cannot catch
-      round_trip_passed: false. This command is the actual gate.
-
       Write {workspace}/outputs/integration.json with keys "files_landed"
       (from git, not from the reports), "report_discrepancies" (files git shows
       that a report omitted, or vice versa), "conflicts_resolved",
@@ -607,9 +636,28 @@ stages:
       round_trip_passed may be true ONLY if events_exported equals
       events_expected, every skipped event is justified, and the key-by-key
       field comparison matched. If false, record precisely which key mismatched.
+
+      ONLY NOW, with that file written, make the verdict checkable rather than
+      self-reported. Run this and paste its output into your summary; a non-zero
+      exit means the round trip did NOT pass, regardless of what you wrote in
+      the file:
+        python3 -c "import json,sys; d=json.load(open(sys.argv[1])); e=d.get('events_expected'); g=d.get('events_exported'); ok=bool(d.get('round_trip_passed')) and e==g; print('ROUND_TRIP_VERDICT:', 'PASS' if ok else 'FAIL', '| expected=', e, '| exported=', g); sys.exit(0 if ok else 1)" {workspace}/outputs/integration.json
+      The engine's has_key check only verifies a key EXISTS — it cannot catch
+      round_trip_passed: false. This command is the actual gate. Running it
+      before integration.json exists would fail on a missing file rather than
+      on a failed round trip, so the order matters.
     agent:
       role: code-writer
       access: read-write
+    # `outputs` with mode: generate is what routes this stage to the agent
+    # dispatcher. Without it CompositeDispatcher._needs_agent() returns False
+    # for a non-validate stage and `workflow run --execute` sends it to
+    # LocalDispatcher, which has no CLI commands here and marks it succeeded
+    # without ever spawning the agent.
+    outputs:
+      - name: integration
+        mode: generate
+        description: Merge result, copied-back reports, and the round-trip verdict.
     writes_to:
       - outputs/integration.json
     validates_output:
@@ -663,6 +711,15 @@ stages:
     agent:
       role: code-writer
       access: read-write
+    # `outputs` with mode: generate is what routes this stage to the agent
+    # dispatcher. Without it CompositeDispatcher._needs_agent() returns False
+    # for a non-validate stage and `workflow run --execute` sends it to
+    # LocalDispatcher, which has no CLI commands here and marks it succeeded
+    # without ever spawning the agent.
+    outputs:
+      - name: protocol-fix
+        mode: generate
+        description: Action taken on the CalendarProvider protocol.
     writes_to:
       - outputs/protocol-fix.json
     validates_output:
@@ -900,7 +957,17 @@ stages:
       what must change.
 
       Do NOT open a PR, commit, or push. That is the human's call.
+      Write the summary to {workspace}/outputs/summary.md.
     agent:
       role: doc-writer
       access: read-write
       tools: [Read, Write]
+    # See the note on survey-current-state: without a generate-mode output this
+    # publish stage routes to LocalDispatcher and "succeeds" without writing a
+    # summary — the human gate would present nothing.
+    outputs:
+      - name: summary
+        mode: generate
+        description: Human-facing readiness summary.
+    writes_to:
+      - outputs/summary.md

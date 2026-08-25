@@ -53,7 +53,7 @@ This prints the compiled manifest as JSON. The top-level keys are:
 | Key | Contents |
 |---|---|
 | `groups` | `[{group, stages, parallelism}]` — `stages` is a comma-joined string, in execution order |
-| `resolutions` | one entry per stage: `{stage, template_resolved, guide_resolved, cli_commands, agent_role, agent_model, agent_isolation}` |
+| `resolutions` | one entry per stage: `{stage, index, kind, executor, human_gate, sub_workflow, template_resolved, guide_resolved, cli_commands, agent_role, agent_model, agent_isolation}` — everything needed to dispatch without re-reading the YAML |
 | `contract_warnings_detail` | `[{stage, upstream, message}]` |
 
 Read `groups` for execution order and `resolutions` for each stage's agent
@@ -138,10 +138,12 @@ Iterate through `groups` (from the compiled manifest) in order. For each group:
 
 #### 2a. Spawn Agents
 
-**Inline stages run directly — no agent spawned.** Check `stage.spec.executor`:
+**Inline stages run directly — no agent spawned.** Check the stage's executor
+(via `_field()` below — on a compiled-manifest entry it is the `executor` key,
+not an attribute):
 
 ```python
-if stage.spec.executor == "inline":
+if executor == "inline":
     # Run Bash commands from the stage description directly.
     # Write output files with the Write tool.
     # Write stage result JSON to {workspace}/stages/{index:03d}-{stage_name}.json.
@@ -205,9 +207,16 @@ def _field(stage, attr_path, *dict_keys):
             return None
     return obj
 
-role      = _field(stage, "spec.agent.role",      "agent_role", "agent_type")
-model     = _field(stage, "spec.agent.model",     "agent_model", "model")
-isolation = _field(stage, "spec.agent.isolation", "agent_isolation", "isolation")
+# Resolve EVERY field through the accessor — including the ones used by the
+# inline check and the result-file path above, which are otherwise undefined
+# on the compiled-manifest path.
+stage_name = _field(stage, "spec.name",     "stage", "stage_name")
+stage_kind = _field(stage, "spec.kind",     "kind")
+index      = _field(stage, "index",         "index", "stage_index")
+executor   = _field(stage, "spec.executor", "executor")
+role       = _field(stage, "spec.agent.role",      "agent_role", "agent_type")
+model      = _field(stage, "spec.agent.model",     "agent_model", "model")
+isolation  = _field(stage, "spec.agent.isolation", "agent_isolation", "isolation")
 
 agent_kwargs = dict(
     description=f"Stage {stage_name} — {stage_kind}",

@@ -52,7 +52,7 @@ def _fragment_bytes(
 # schema change is still served and silently lacks the new fields — e.g. a
 # pre-existing cache would drop agent_isolation, making `isolation: worktree` a
 # no-op again for any workflow that had already been compiled once.
-_COMPILE_PAYLOAD_SCHEMA = 2
+_COMPILE_PAYLOAD_SCHEMA = 3
 
 
 def _compile_cache_path(
@@ -138,9 +138,16 @@ def _build_compile_payload(path: str) -> dict:
     resolutions = [{
         "stage": name, "template_resolved": r.template_content is not None,
         "guide_resolved": r.guide_content is not None, "cli_commands": len(r.cli_commands),
-        # Agent spec is surfaced so the orchestrator can spawn from the manifest
-        # rather than re-reading the YAML. isolation in particular must reach
-        # the Agent() call, or `isolation: worktree` silently does nothing.
+        # Everything the orchestrator needs to dispatch a stage without
+        # re-reading the YAML. Omitting any of these forces it back to the
+        # parsed definition, which defeats the point of a compiled manifest —
+        # and isolation in particular must reach the Agent() call, or
+        # `isolation: worktree` silently does nothing.
+        "index": r.index,
+        "kind": r.spec.kind.value,
+        "executor": r.spec.executor,
+        "human_gate": r.spec.human_gate,
+        "sub_workflow": r.spec.sub_workflow or None,
         "agent_role": r.spec.agent.role if r.spec.agent else None,
         "agent_model": r.spec.agent.model if r.spec.agent else None,
         "agent_isolation": r.spec.agent.isolation if r.spec.agent else None,

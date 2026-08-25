@@ -299,6 +299,22 @@ class TestBuildCompilePayload(unittest.TestCase):
         self.assertIsNone(res["agent_model"])
         self.assertIsNone(res["agent_isolation"])
 
+    def test_resolution_carries_dispatch_metadata(self) -> None:
+        """A resolution must carry everything needed to dispatch a stage.
+
+        The skill's documented compile-to-spawn path reads stage name, index,
+        kind and executor from this payload. A missing key forces the
+        orchestrator back to the parsed YAML, which defeats the manifest.
+        """
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = str(_write_yaml(tmp_dir, _MINIMAL_YAML))
+            payload = _build_compile_payload(path)
+        res = {r["stage"]: r for r in payload["resolutions"]}["gather"]
+        for key in ("index", "kind", "executor", "human_gate", "sub_workflow"):
+            self.assertIn(key, res)
+        self.assertEqual(res["kind"], "gather")
+        self.assertEqual(res["index"], 0)
+
     def test_cache_key_includes_payload_schema_version(self) -> None:
         """A payload-schema bump must invalidate caches written by the old one.
 
