@@ -323,6 +323,40 @@ class TestSummaryPluralization(unittest.TestCase):
         self.assertIn("(2 samples)", two.summary())
 
 
+class TestMaskValueEdgeCases(unittest.TestCase):
+    """Branches of the sample masker that ordinary change records miss."""
+
+    SECRET = "yyyy3333444455556666"
+
+    def _flag_all(self, changes, baseline):
+        return "leaks", list(changes)
+
+    def _sample(self, change):
+        report = evaluate_invariants([change], {}, [self._flag_all])
+        return report.violations[0].samples[0]
+
+    def test_non_string_key_does_not_crash_or_mask(self):
+        # A change record keyed by an int is unusual but legal; the key
+        # cannot be sensitive, and normalizing it must not raise.
+        sample = self._sample({1: "plain", "op": "sync"})
+        self.assertEqual(sample[1], "plain")
+        self.assertEqual(sample["op"], "sync")
+
+    def test_tuple_values_are_masked_elementwise(self):
+        sample = self._sample({"token": ("a", self.SECRET)})
+        self.assertIsInstance(sample["token"], tuple)
+        self.assertNotIn(self.SECRET, str(sample["token"]))
+
+    def test_tuple_under_insensitive_key_keeps_benign_values(self):
+        sample = self._sample({"tags": ("alpha", "beta")})
+        self.assertEqual(sample["tags"], ("alpha", "beta"))
+
+    def test_deeply_nested_mix_is_masked_throughout(self):
+        change = {"a": [{"b": ("c", {"api_key": self.SECRET})}]}
+        report = evaluate_invariants([change], {}, [self._flag_all])
+        self.assertNotIn(self.SECRET, json.dumps(report.to_dict(), default=str))
+
+
 class TestSamplesAreImmutable(unittest.TestCase):
     """Evidence in a returned report must not be editable after the fact.
 
@@ -633,13 +667,24 @@ class TestCheckLabelIsSafe(unittest.TestCase):
     report, and a custom __repr__ is user code that can raise -- which would
     escape the handler whose whole job is to stop a buggy check from
     aborting the run.
+
+    TOKEN is deliberately OPAQUE. An earlier version used a "ghp_"-shaped
+    value, which mask_text catches by pattern -- so the partial test passed
+    even when _check_label fell back to repr(), the exact bug it guards.
     """
 
-    TOKEN = "ghp_DDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+    TOKEN = "wwww4444555566667777"
 
     @staticmethod
     def _boom(changes, baseline, api_key=None):
         raise RuntimeError("boom")
+
+    def test_token_is_not_caught_by_pattern_alone(self):
+        # Guards the guard: if mask_text redacted TOKEN on its own, every
+        # assertion below would pass regardless of _check_label's behaviour.
+        from core.secrets import mask_text
+
+        self.assertIn(self.TOKEN, mask_text(self.TOKEN))
 
     def test_partial_bound_args_are_not_serialized(self):
         import functools
@@ -685,6 +730,11 @@ class TestCheckLabelIsSafe(unittest.TestCase):
 
         report = evaluate_invariants([{"id": "1"}], {}, [Hostile(), ok])
         self.assertEqual(len(report.violations), 1)
+        # Assert the type-name fallback actually fired. Without this the
+        # test would pass even if the label were empty or wrong -- it would
+        # only prove the run continued, not that the hostile repr was
+        # sidestepped rather than swallowed some other way.
+        self.assertEqual(report.violations[0].samples[0]["check"], "Hostile")
 
 
 class TestCheckErrorMasking(unittest.TestCase):
