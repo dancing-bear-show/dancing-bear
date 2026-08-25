@@ -81,8 +81,12 @@ def _parse_agent(data: dict[str, Any], source: str) -> AgentSpec:
     unknown = set(data) - _KNOWN_AGENT_KEYS
     if unknown:
         known = ", ".join(sorted(_KNOWN_AGENT_KEYS))
+        # sort by str: YAML permits non-string keys, so a block mixing `1:` and
+        # `timeout:` would make a bare sorted() raise TypeError instead of the
+        # parse error this branch promises.
+        listed = sorted((str(k) for k in unknown))
         raise WorkflowParseError(
-            f"{source}: agent has unknown key(s) {sorted(unknown)} (valid: {known})"
+            f"{source}: agent has unknown key(s) {listed} (valid: {known})"
         )
     return AgentSpec(
         role=data["role"],

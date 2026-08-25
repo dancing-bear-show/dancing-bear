@@ -48,8 +48,17 @@ Parse `--params` arguments into a dict. Then compile the workflow:
 .venv/bin/python bin/workflow compile <WORKFLOW_PATH> --format json
 ```
 
-This prints the compiled manifest as JSON. Parse it to get `parallel_groups`
-and `resolved_stages`. If compile fails, report the error and stop.
+This prints the compiled manifest as JSON. The top-level keys are:
+
+| Key | Contents |
+|---|---|
+| `groups` | `[{group, stages, parallelism}]` — `stages` is a comma-joined string, in execution order |
+| `resolutions` | one entry per stage: `{stage, template_resolved, guide_resolved, cli_commands, agent_role, agent_model, agent_isolation}` |
+| `contract_warnings_detail` | `[{stage, upstream, message}]` |
+
+Read `groups` for execution order and `resolutions` for each stage's agent
+spec — including `agent_isolation`, which must reach `Agent()` (see step 2a).
+If compile fails, report the error and stop.
 
 **If `--execute` is NOT set (dry-run):** print the execution plan and stop:
 
@@ -116,7 +125,7 @@ Generate a `RUN_ID` in the format `{workflow_name}-{YYYYMMDD}-{8_hex_chars}`.
    ```
    Do NOT spawn an agent — agents cannot invoke skills.
 
-Iterate through `parallel_groups` in order. For each group:
+Iterate through `groups` (from the compiled manifest) in order. For each group:
 
 #### 2a. Spawn Agents
 
@@ -170,16 +179,19 @@ if team_name:
     agent_kwargs["name"] = stage_name
     agent_kwargs["team_name"] = team_name
 # REQUIRED: a stage declaring `agent.isolation: worktree` must receive it here.
-# Read it from whichever stage representation you built above — the same object
-# `stage.agent.role` came from. If you are working from the compiled manifest
-# rather than the parsed definition, the field is named `agent_isolation` on the
-# stage's `resolutions` entry:
-#     isolation = stage.agent.isolation            # parsed definition
-#     isolation = resolution["agent_isolation"]    # compiled manifest
+# Normalize first — the two stage representations spell this differently, and
+# `compile --format json` yields plain dicts with no `.agent` attribute:
+#   - compiled manifest: resolutions entry, key "agent_isolation"
+#   - parsed definition: stage.agent.isolation
+isolation = (
+    stage.get("agent_isolation")
+    if isinstance(stage, dict)
+    else getattr(stage.agent, "isolation", None)
+)
 # Omitting this is what made `isolation: worktree` a no-op: the YAML read as
 # isolated while parallel code-writers shared one tree and interleaved edits.
-if stage.agent.isolation:
-    agent_kwargs["isolation"] = stage.agent.isolation
+if isolation:
+    agent_kwargs["isolation"] = isolation
 Agent(**agent_kwargs)
 ```
 
@@ -614,12 +626,17 @@ If a stage has `fan_out` defined, check `fan_out.mode`:
    if team_name:
        fan_kwargs["team_name"] = team_name
        fan_kwargs["name"] = f"{stage_name}-{item[fan_out.key]}"
-   # Same rule as single-agent stages: isolation must reach Agent() — read it
-   # from the same stage representation used for `stage.agent.role` above, or
-   # `resolution["agent_isolation"]` if working from the compiled manifest.
-   # Fan-out writers sharing one tree is the worst case: N agents, same files.
-   if stage.agent.isolation:
-       fan_kwargs["isolation"] = stage.agent.isolation
+   # Same rule as single-agent stages: isolation must reach Agent(), and the
+   # value must be normalized first because a compiled-manifest stage is a
+   # plain dict with no `.agent` attribute. Fan-out writers sharing one tree is
+   # the worst case: N agents, same files.
+   isolation = (
+       stage.get("agent_isolation")
+       if isinstance(stage, dict)
+       else getattr(stage.agent, "isolation", None)
+   )
+   if isolation:
+       fan_kwargs["isolation"] = isolation
    Agent(**fan_kwargs)
    ```
 4. All fan-out agents run in parallel (same group).

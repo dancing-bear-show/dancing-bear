@@ -613,6 +613,21 @@ class TestParseAgentIsolation(unittest.TestCase):
                     self._parse_agent({"role": "code-writer", "isolation": bad})
                 self.assertIn("invalid isolation", str(ctx.exception))
 
+    def test_mixed_type_unknown_keys_raise_parse_error(self) -> None:
+        """YAML permits non-string keys; sorting them must not raise TypeError.
+
+        An agent block with both `1:` and `timeout:` reaches the unknown-key
+        branch as {1, "timeout"}, where a bare sorted() would raise TypeError
+        instead of the parse error the branch promises.
+        """
+        from workflow.parser_errors import WorkflowParseError
+
+        with self.assertRaises(WorkflowParseError) as ctx:
+            self._parse_agent({"role": "code-writer", 1: "a", "timeout": 2})
+        msg = str(ctx.exception)
+        self.assertIn("unknown key(s)", msg)
+        self.assertIn("timeout", msg)
+
     def test_non_string_isolation_raises_parse_error(self) -> None:
         from workflow.parser_errors import WorkflowParseError
 
