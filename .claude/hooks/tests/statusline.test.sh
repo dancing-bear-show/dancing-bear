@@ -72,6 +72,20 @@ assert_raw_contains() {
   fi
 }
 
+# assert_not_raw_contains <label> <payload> <forbidden-raw-substring>
+# The raw counterpart of assert_not_contains, for asserting a colour is ABSENT next to
+# a specific piece of text.
+assert_not_raw_contains() {
+  local label="$1" payload="$2" bad="$3" out
+  out=$(_render "$payload")
+  if [[ "$out" != *"$bad"* ]]; then
+    printf 'ok    %s\n' "$label"; pass_count=$((pass_count + 1))
+  else
+    printf 'FAIL  %s\n      must NOT contain raw (escaped): %q\n      got: %q\n' "$label" "$bad" "$out"
+    fail=1; fail_count=$((fail_count + 1))
+  fi
+}
+
 FULL='{"model":{"display_name":"Opus 5"},
        "cost":{"total_cost_usd":1.239,"total_lines_added":120,"total_lines_removed":34,
                "total_duration_ms":4500000,"total_api_duration_ms":95000},
@@ -101,7 +115,20 @@ echo "--- absent context window renders UNKNOWN, never 0% ---"
 NO_CTX='{"model":{"display_name":"Opus 5"},"cost":{"total_cost_usd":0}}'
 assert_contains     "unknown percent renders --" "$NO_CTX" "--"
 assert_not_contains "unknown percent is NOT 0%"  "$NO_CTX" "0%"
-assert_raw_contains "unknown bar is dim"         "$NO_CTX" "$DIM_ESC"
+RESET_ESC=$'\033[0m'
+DOT_BAR='··········'
+# The exact ${DIM}${bar}${RESET} fragment, not a bare search for DIM_ESC anywhere in the
+# line. DIM is emitted for every separator regardless, so searching the whole line
+# proved only that separators exist -- it passed even when the unknown bar rendered
+# GREEN, which is precisely the confident-and-false reading this case was written to
+# catch. Asserting the colour is adjacent to the bar is the only form that tests it.
+assert_raw_contains "unknown bar is dim"         "$NO_CTX" "${DIM_ESC}${DOT_BAR}${RESET_ESC}"
+assert_raw_contains "null-percent bar is dim" \
+  '{"context_window":{"used_percentage":null},"cost":{"total_cost_usd":0}}' \
+  "${DIM_ESC}${DOT_BAR}${RESET_ESC}"
+# And the inverse: the unknown bar must not be coloured as if the value were known.
+assert_not_raw_contains "unknown bar is not green"  "$NO_CTX" "${GREEN_ESC}${DOT_BAR}"
+assert_not_raw_contains "unknown bar is not red"    "$NO_CTX" "${RED_ESC}${DOT_BAR}"
 assert_contains     "unknown bar uses dots"      "$NO_CTX" "··········"
 assert_not_contains "unknown bar has no fill"    "$NO_CTX" "█"
 
@@ -147,6 +174,24 @@ assert_contains "truncated JSON"        '{"model":{"disp'  "unreadable payload"
 assert_contains "JSON array payload"    '[1,2,3]'          "unreadable payload"
 # A bare scalar is valid JSON but has no fields; it must not render a fake status.
 assert_not_contains "scalar payload shows no fake cost" '"hello"' '$0.00'
+
+# REGRESSION: a top-level `null` is VALID JSON, and `null.model.display_name` is `null`
+# in jq rather than an error -- so every `// fallback` fired, jq exited 0, and the
+# unreadable-payload branch was never reached. The result was a completely plausible
+# status line: a real branch, a real directory, "?" for the model, "$0.00", "0m (0s
+# api)". Nothing about it looked wrong, which is the whole problem. Same confident-and-
+# false failure as the `// 0` percentage the reference was fixed for, arriving through
+# the one door that check does not watch.
+assert_contains     "null payload is unreadable"        'null' "unreadable payload"
+assert_not_contains "null payload shows no fake cost"   'null' '$0.00'
+assert_not_contains "null payload shows no fake model"  'null' "?"
+assert_contains     "number payload is unreadable"      '3'    "unreadable payload"
+assert_contains     "true payload is unreadable"        'true' "unreadable payload"
+assert_contains     "string payload is unreadable"      '"hello"' "unreadable payload"
+assert_contains     "array payload is unreadable"       '[1,2,3]' "unreadable payload"
+# An object with no known fields is still an object: fallbacks are the right answer
+# there, and it must NOT be reported as unreadable.
+assert_not_contains "empty object is not unreadable"    '{}' "unreadable payload"
 
 echo
 echo "--- agent / worktree prefix precedence ---"

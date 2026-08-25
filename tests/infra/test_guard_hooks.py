@@ -15,9 +15,22 @@ the suites stay runnable by hand exactly as the README documents. `make test`,
 all three go through discovery.
 
 The suites are self-contained bash and require only `jq`. When `jq` or `bash` is
-missing the test SKIPS rather than passes -- a missing tool is an unknown result,
-not a passing one, and silently passing here would recreate the same blind spot in
-a different place.
+missing the test FAILS.
+
+WHY FAIL RATHER THAN SKIP
+-------------------------
+This used to call ``skipTest``, on the reasoning that a missing tool is an unknown
+result rather than a passing one. That reasoning is right about the result and wrong
+about the consequence: unittest reports a skipped test as a green run, CI goes green,
+and nobody reads the skip line. A runner without ``jq`` would therefore report success
+having exercised not one guard -- the precise fail-open shape that both hooks and the
+``_harness.sh`` classifier were rewritten to eliminate, reproduced one level up in the
+thing that runs them.
+
+A tool these tests require is a dependency, not an environmental accident. ``jq`` is
+installed explicitly in ``.github/workflows/ci.yml`` so that failing here is safe:
+if it ever goes missing, the correct signal is a red build naming the missing tool,
+not a silent pass.
 """
 
 from __future__ import annotations
@@ -53,8 +66,16 @@ class TestGuardHookSuites(unittest.TestCase):
 
     def _run_suite(self, name: str) -> None:
         missing = _missing_tool()
-        if missing is not None:
-            self.skipTest(f"{missing} not on PATH; cannot run the hook shell suites")
+        self.assertIsNone(
+            missing,
+            msg=(
+                f"{missing} is not on PATH, so the guard-hook suites cannot run. "
+                "This is a failure, not a skip: a skipped run reports green while "
+                "exercising none of the guards, which is exactly the fail-open "
+                "behaviour these hooks exist to prevent. Install it "
+                "(macOS: brew install jq) -- CI installs it in ci.yml."
+            ),
+        )
 
         suite: Path = TESTS_DIR / name
         self.assertTrue(suite.is_file(), f"missing hook suite: {suite}")

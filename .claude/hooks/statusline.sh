@@ -31,7 +31,21 @@ DIM='\033[2m'
 # Absent now yields the sentinel "?" and renders as a dim "--" bar. Unknown looks
 # unknown. The same reasoning applies to the model name, which keeps the original's
 # "?" fallback.
+#
+# The `if type == "object"` guard is what rejects a top-level scalar.
+#
+# A literal `null` payload is VALID JSON, and `null.model.display_name` is `null` in jq
+# rather than an error -- so every `// fallback` below fired, jq exited 0, and the
+# unreadable-payload branch was never reached. The result was a fully plausible status
+# line: a real branch name, a real directory, "?" for the model, "$0.00", "0m (0s api)".
+# Nothing about it looked wrong, which is the entire problem -- the same "confident and
+# false" failure the `// 0` removal above was made to prevent, arriving through the one
+# door that check does not watch. `3`, `"hello"`, and `[1,2,3]` behave the same way
+# (the array errors on field access, but only by luck of jq's typing rules, not by
+# design). A payload that is not an object has no fields to fall back FROM, so it is
+# unreadable by definition and must say so.
 VALUES=$(echo "$input" | jq -r '
+  if type != "object" then error("not an object") else . end |
   (.model.display_name // "?"),
   (.cost.total_cost_usd // 0),
   (.workspace.current_dir // "."),

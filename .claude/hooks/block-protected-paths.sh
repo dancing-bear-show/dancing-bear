@@ -78,6 +78,41 @@ for p in "${DIR_PATTERNS[@]}"; do
   fi
 done
 
+# The guard's own source, and the settings file that wires it up.
+#
+# This hook protected credential files while leaving ITSELF writable, which makes every
+# other rule in the file advisory: a Write to .claude/hooks/block-protected-paths.sh
+# replacing the body with `exit 0`, or an edit to .claude/settings.json removing the
+# PreToolUse entry, disarms the guard, and the very next tool call is judged by the
+# disarmed version. block-destructive-bash.sh had the same hole on the Bash side
+# (`echo x > .claude/hooks/...`); both halves are closed together, because closing one
+# door of a pair is what these two files keep learning the hard way.
+#
+# Scoped to hooks/ and settings*.json rather than all of .claude/: agents legitimately
+# write skills, agent definitions, and workflow YAML under .claude/, and blocking those
+# would make the guard unusable. Only the enforcing machinery is off-limits. Editing
+# these files is a deliberate act the user can do themselves.
+case "$FILE" in
+  *.claude/hooks/*|.claude/hooks/*)
+    echo "Blocked: $FILE modifies the guard hooks themselves." >&2
+    echo "A hook that can rewrite its own source enforces nothing -- the next tool call would be" >&2
+    echo "judged by the rewritten version. Edit these files yourself outside the session." >&2
+    exit 2
+    ;;
+esac
+case "${FILE##*/}" in
+  settings.json|settings.local.json|settings*.json)
+    case "$FILE" in
+      *.claude/*|.claude/*)
+        echo "Blocked: $FILE is the settings file that wires up the guard hooks." >&2
+        echo "Removing the PreToolUse entry disarms every protection in them. Edit it yourself" >&2
+        echo "outside the session." >&2
+        exit 2
+        ;;
+    esac
+    ;;
+esac
+
 # Checked-in templates are safe -- they carry placeholder values and exist to be
 # edited. Carved out before the .env substring test below, which would otherwise
 # catch every one of them.

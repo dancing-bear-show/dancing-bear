@@ -103,6 +103,35 @@ run BLOCK "backend/.env.template.old"
 run BLOCK "prod.env.sample.real"
 
 echo
+echo "--- REGRESSION 19: the guard's own machinery is not writable (want BLOCK) ---"
+# This hook protected credential files while leaving ITSELF writable, which makes every
+# other rule advisory: a Write replacing the body with `exit 0`, or an edit to
+# .claude/settings.json removing the PreToolUse entry, disarms the guard -- and the very
+# next tool call is judged by the disarmed version. Every protection here is downstream
+# of these paths, so they have to hold first or none of the rest is worth anything.
+run BLOCK ".claude/hooks/block-protected-paths.sh"
+run BLOCK ".claude/hooks/block-destructive-bash.sh"
+run BLOCK ".claude/hooks/statusline.sh"
+run BLOCK ".claude/hooks/tests/block-protected-paths.test.sh"
+run BLOCK ".claude/settings.json"
+run BLOCK ".claude/settings.local.json"
+run BLOCK "/Users/me/code/dancing-bear/.claude/hooks/block-destructive-bash.sh"
+# The hooks' own README is inside hooks/ and is blocked with them. Documentation that
+# describes the guard sits close enough to the guard that the simple rule wins over a
+# carve-out nobody would remember to keep correct.
+run BLOCK ".claude/hooks/README.md"
+# Scoped to the enforcing machinery only: agents legitimately author skills, agent
+# definitions, and workflow YAML under .claude/, and blocking those makes the guard
+# unusable rather than safe.
+run ALLOW ".claude/skills/dancing-bear-rules/SKILL.md"
+run ALLOW ".claude/agents/code-writer.md"
+run ALLOW ".claude/workflows/optimize-code.yaml"
+run ALLOW ".claude/WRITING_GUIDE.md"
+# A settings.json OUTSIDE .claude/ is an ordinary project file (VS Code, tsconfig-alikes).
+run ALLOW "settings.json"
+run ALLOW ".vscode/settings.json"
+
+echo
 echo "--- REGRESSION 8: non-string and empty file_path fail closed (want BLOCK) ---"
 # `jq -er` succeeds on [] and {} -- they are truthy JSON. The value then matches no
 # pattern and the hook exited 0, approving a write it never inspected.
@@ -135,8 +164,6 @@ run ALLOW "README.md"
 run ALLOW "CLAUDE.md"
 run ALLOW "config/filters_unified.example.yaml"
 run ALLOW "out/filters.gmail.from_unified.yaml"
-run ALLOW ".claude/hooks/README.md"
-run ALLOW ".claude/hooks/block-destructive-bash.sh"
 run ALLOW "src/workflow/compiler.py"
 run ALLOW "Makefile"
 run ALLOW ".github/workflows/ci.yml"

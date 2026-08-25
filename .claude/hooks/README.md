@@ -75,8 +75,29 @@ directory, `$XDG_CONFIG_HOME`, then `~/.config`) and `src/mail/config_resolver.p
 | `outlook_token.json` | Outlook refresh token |
 | `msal_flow.json` | in-flight MSAL device-code flow |
 
-Plus universal secrets: `.ssh/`, `.gnupg/`, `.aws/credentials`, `.npmrc`, `id_rsa`,
-`id_ed25519`, `.env` and `.env.*`, and key material `.pem`, `.p8`, `.p12`.
+Plus universal secrets: `.ssh`, `.gnupg`, `.aws/credentials`, `.npmrc`, `id_rsa`,
+`id_ed25519`, the `.env` family, and key material `.pem`, `.p8`, `.p12`.
+
+Directory names match at a **directory boundary** — a following `/` *or end of
+string*. Spelling them `\.ssh/` with a required trailing slash meant the directory
+itself never matched its own pattern, because path normalization strips exactly that
+slash before comparing: `rm -rf /home/alice/.ssh` fell through to the "under some
+home, more than one level deep" allow branch and deleted another account's key store.
+
+The `.env` family is `.env`, `.env.<suffix>`, `.envrc`, and the dash/underscore
+spellings `.env-production` / `.env_local`. `.envrc` is direnv's file and routinely
+holds exported API keys. Both hooks accept the same set: when the Bash side matched
+only `.env` and dot-suffixes, a file the Write tool refused to create could still be
+read with `cat`.
+
+Naming a protected **directory** blocks too, not just a file inside one. A directory
+operand carries no filename to match, so `cp -r ~/.config /tmp` and
+`tar czf /tmp/x.tgz ~/.ssh` — which copy every credential and key at once — matched
+nothing at all. Bare `~`, `$HOME`, and `$XDG_CONFIG_HOME` count as protected
+directories for the same reason. The cost is that `ls -la ~/.config` is now blocked;
+narrowing the rule to permit it would require a list of safe command words, which is
+the construct [Operands, not command words](#operands-not-command-words) exists to
+remove.
 
 `.p8` and `.p12` are not generic additions — this repo uses both. `apple_music` loads
 a MusicKit private key as `.p8`, and `phone` resolves a device supervision identity as
@@ -145,11 +166,47 @@ appending to `id_rsa` corrupts a private key; `echo x >> .env` extends a secret 
 outright. None of those have the justification that earned `credentials.ini` its
 exemption.
 
+### The guards protect themselves
+
+`.claude/hooks/` and `.claude/settings*.json` are blocked by **both** hooks, for
+writes and for shell redirects alike.
+
+This is the bootstrap case. Nothing else in either file matters if the file itself is
+writable: rewriting `block-destructive-bash.sh` to `exit 0`, or deleting the
+`PreToolUse` entry from `settings.json`, disarms the guard — and the very next tool
+call is judged by the disarmed version. Every protection here is downstream of these
+two paths.
+
+The scope is the **enforcing machinery only**. Agents legitimately author skills, agent
+definitions and workflow YAML under `.claude/`, and blocking those would make the guard
+unusable rather than safe. A `settings.json` outside `.claude/` is an ordinary project
+file and stays writable.
+
+### Nested shells fail closed
+
+`sh -c`, `bash -c`, `zsh -c`, `eval`, and `xargs` into a shell are **blocked
+outright**, without inspecting what they would run.
+
+The inner script is parsed by another shell under rules these hooks do not implement.
+Quoting was enough to hide the most destructive command in the vocabulary: with quotes
+missing from the command-boundary class, `sh -c 'rm -rf /'` produced no `rm` call at
+all. Adding quotes to that class fixes *that* spelling and does not generalize —
+`sh -c "$SCRIPT"` and a base64-decoded pipeline have no text to inspect until the outer
+shell runs, and inspecting a string that does not exist yet is not something a static
+check can do. `xargs rm` stays allowed: its operands are visible, and the `rm` check
+reads them.
+
 ### Over-blocking is deliberate
 
 When a construct cannot be analyzed safely — a glob, an unresolvable variable
-expansion in a protected-looking context, a `~otheruser` that cannot be expanded — the
-hook **blocks** and tells you to run the command yourself with a leading `!`.
+expansion in a protected-looking context, a `~otheruser` that cannot be expanded, an
+unexpanded `$VAR` as an `rm` target — the hook **blocks** and tells you to run the
+command yourself with a leading `!`.
+
+The `rm`-target case is worth naming: only `$HOME` was ever expanded, so
+`TARGET=/; rm -rf "$TARGET"` left a literal `$TARGET` with no leading slash, which
+resolved against `$PWD` into a path comfortably inside the workspace. The most
+dangerous possible value for that variable was the one the check failed to consider.
 
 The hook cannot expand a glob without executing shell code from an untrusted payload,
 and `cat ~/.config/*` is strictly *worse* than naming `credentials.ini`, because it
@@ -316,18 +373,52 @@ equivalent spelling through: `rm -fr /`, `rm --recursive --force /`, `rm -rf //`
 This port normalizes the flags (bundled short flags checked characterwise, so `-rvf`
 and `-Rf` count), extracts the actual operands, expands `~`/`$HOME`, collapses
 repeated slashes, **resolves `.` and `..` textually**, and compares against a
-protected-prefix list: `/`, `$HOME`, `/Users`, `/home`, `/etc`, `/usr`, `/var`,
-`/System`, `/Library`, `/opt`, `/bin`, `/sbin`, `/Applications`, `/private`.
+protected-prefix list: `/`, `$HOME`, `/Users`, `/home`, `/root`, `/etc`, `/usr`,
+`/var`, `/System`, `/Library`, `/opt`, `/bin`, `/sbin`, `/Applications`, `/private`.
+Descendants are protected alongside the roots — `/opt` without `/opt/*` guarded the
+empty parent while `rm -rf /opt/homebrew` removed an entire package manager.
 
 `..` resolution matters on its own: `rm -rf /tmp/../etc` is `rm -rf /etc`, and the
 literal `/tmp/` head made it look like allowed scratch space. `realpath` is not used —
 it resolves symlinks against the live filesystem and returns *empty* for a nonexistent
 path, and an empty result compared against the protected list passes silently.
 
-`/home` and `/private` are additions. `/home` is where Linux keeps user homes (CI runs
-there). `/private` is the macOS root that `/tmp`, `/etc`, and `/var` are all symlinks
-into, so `rm -rf /private/etc` reached the same inode as `rm -rf /etc` while dodging
-the check for it.
+`/home`, `/root` and `/private` are additions. `/home` is where Linux keeps user homes
+(CI runs there). `/root` is the root account's home — not under `/home`, so none of the
+`/home/<user>` reasoning reached it, and on a runner where `$HOME` is `/home/runner`
+the `$HOME` entry does not cover it either. `/private` is the macOS root that `/tmp`,
+`/etc`, and `/var` are all symlinks into, so `rm -rf /private/etc` reached the same
+inode as `rm -rf /etc` while dodging the check for it.
+
+**Symlinked components are resolved, because `rm` follows them.** Every comparison
+above is textual, but `ln -s / /tmp/root` makes `rm -rf /tmp/root/etc` read as an
+ordinary `/tmp` descendant — carved out as scratch — while actually deleting `/etc`.
+The guard walks *down* the path resolving only components that **already exist**,
+stopping at the first that does not: an existing prefix is resolvable, and a
+nonexistent tail cannot contain a symlink because a symlink is a thing that exists.
+This is why plain `realpath` is wrong here for a second reason beyond the one above —
+deleting a not-yet-created path is ordinary. Checks then judge the *resolved* target,
+so `/tmp/root/etc` is blocked as `/etc` on its own merits while
+`/tmp/scratch/build` resolves to `/private/tmp/scratch/build` and stays allowed.
+Both spellings of each temp root are listed for exactly that reason.
+
+**`rm` is matched however it is spelled.** A bare `rm` at a command boundary missed
+`/bin/rm -rf /` and `"rm" -rf /`, which run the same binary — the same
+path-qualification hole the [operands, not command words](#operands-not-command-words)
+rewrite closed for readers, never carried across to the `rm` detector until now.
+
+**Line continuations are spliced before any scan.** The scans are line-oriented, so
+`rm \`⏎`  -rf /` arrived as `rm \` (a call with no flags) plus `  -rf /` (no `rm` at
+all). Neither half looked dangerous; the shell ran the whole thing. The splice is done
+in bash rather than `sed`, because BSD and GNU `sed` disagree about labels and `N` in a
+one-liner, and a splice that silently no-ops on one platform is worse than none.
+
+**The repository itself is protected**, both `.git` and the checkout root. `.git`
+holds every unpushed commit and reflog entry; the file-level rules covered
+`.git/config` while the whole directory was free to delete. The root falls through the
+`"$ROOT"/?*` workspace carve-out by construction (one character past the slash), and a
+checkout under `$HOME` then matched the "under some home, more than one level deep"
+allow — the same shape as the temp-roots bug, in a different place.
 
 **Temp roots are protected; only their descendants are scratch.** The carve-out allows
 `/tmp/?*` — at least one character past the slash. The roots themselves fell through

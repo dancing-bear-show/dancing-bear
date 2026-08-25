@@ -16,6 +16,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # jq is what the .claude/hooks shell suites parse their payloads with, and
+      # tests/infra/test_guard_hooks.py now FAILS rather than skips when it is absent
+      # (a skip reports green while exercising none of the guards). ubuntu-latest
+      # currently ships jq preinstalled, so this is belt-and-braces -- but an implicit
+      # dependency on a runner image is exactly the kind of thing that disappears in a
+      # version bump, and the failure would then look like a broken guard rather than a
+      # missing tool. Declaring it keeps the hard failure honest.
+      - name: Install jq (required by the guard-hook suites)
+        run: |
+          command -v jq >/dev/null 2>&1 || {
+            sudo apt-get update && sudo apt-get install -y jq
+          }
+          jq --version
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
