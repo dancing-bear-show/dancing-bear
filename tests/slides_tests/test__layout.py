@@ -104,12 +104,15 @@ class TestResolveLayout(unittest.TestCase):
         result = self.mixin._resolve_layout(layouts, content)
         self.assertIs(result, bullet_layout)
 
-    def test_dict_falls_back_to_fallback_key(self):
+    def test_dict_unknown_layout_raises(self):
+        """Unknown layout name raises ValueError instead of silently falling back."""
         fallback = MagicMock()
-        layouts = {RESERVED_LAYOUT_KEY: fallback}
-        content = SlideContent(title="T", layout="unknown_layout")
-        result = self.mixin._resolve_layout(layouts, content)
-        self.assertIs(result, fallback)
+        layouts = {RESERVED_LAYOUT_KEY: fallback, LAYOUT_BULLET: MagicMock()}
+        content = SlideContent(title="My Slide", layout="bulets")
+        with self.assertRaises(ValueError) as ctx:
+            self.mixin._resolve_layout(layouts, content)
+        self.assertIn("bulets", str(ctx.exception))
+        self.assertIn("My Slide", str(ctx.exception))
 
     def test_none_layout_uses_default_layout_key(self):
         bullet_layout = MagicMock()

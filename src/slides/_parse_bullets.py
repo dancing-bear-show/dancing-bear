@@ -87,7 +87,9 @@ _BULLET_PARSERS: tuple[tuple[type | tuple[type, ...], Callable[[Any], BulletItem
 def _parse_bullets(raw_bullets: list[object]) -> list[BulletItem]:
     """Parse bullet items from YAML data into BulletItem objects.
 
-    Values of an unsupported type are skipped rather than raising.
+    Raises:
+        ValueError: If a bullet item has an unrecognized type (not dict, list,
+            tuple, or str).
     """
     bullets: list[BulletItem] = []
     for b in raw_bullets:
@@ -95,6 +97,11 @@ def _parse_bullets(raw_bullets: list[object]) -> list[BulletItem]:
             if isinstance(b, types):
                 bullets.append(parser(b))
                 break
+        else:
+            raise ValueError(
+                f"Unrecognized bullet item type {type(b).__name__!r}: {b!r}; "
+                "expected dict, list, tuple, or str"
+            )
     return bullets
 
 

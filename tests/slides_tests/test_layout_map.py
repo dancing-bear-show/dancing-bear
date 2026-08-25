@@ -321,17 +321,19 @@ class TestResolveLayout(unittest.TestCase):
         result = self.generator._resolve_layout(layouts, content)
         self.assertIs(result, section_layout)
 
-    def test_dict_layout_falls_back_to_default(self) -> None:
-        """When content.layout is not in the dict, fallback layout is used."""
+    def test_dict_unknown_layout_raises(self) -> None:
+        """When content.layout is not in the dict, ValueError is raised."""
         bullet_layout = MagicMock(name="BulletLayout")
         fallback = MagicMock(name="Fallback")
         layouts = {
             "bullet": bullet_layout,
             RESERVED_LAYOUT_KEY: fallback,
         }
-        content = SlideContent(title="Unknown", layout="custom_unknown")
-        result = self.generator._resolve_layout(layouts, content)
-        self.assertIs(result, fallback)
+        content = SlideContent(title="Unknown Slide", layout="custom_unknown")
+        with self.assertRaises(ValueError) as ctx:
+            self.generator._resolve_layout(layouts, content)
+        self.assertIn("custom_unknown", str(ctx.exception))
+        self.assertIn("Unknown Slide", str(ctx.exception))
 
 
 class TestGenerateWithLayoutMap(unittest.TestCase):

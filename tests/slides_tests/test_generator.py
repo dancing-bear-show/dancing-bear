@@ -2267,5 +2267,52 @@ class TestInferLayoutMapFromTemplate(unittest.TestCase):
         self.assertIsNone(result)
 
 
+class TestPopulateSlideTableRejection(unittest.TestCase):
+    """Tests for _populate_slide rejecting TableSlide with rows but no headers."""
+
+    def setUp(self):
+        self.generator = SlideGenerator(template_path=None)
+
+    def test_table_slide_no_headers_raises(self):
+        """_populate_slide raises ValueError for a TableSlide with rows but no headers."""
+        slide = MagicMock()
+        content = TableSlide(
+            title="Missing Headers",
+            headers=[],
+            rows=[["cell1", "cell2"]],
+        )
+        theme_color = MagicMock()
+        with self.assertRaises(ValueError) as ctx:
+            self.generator._populate_slide(slide, content, theme_color)
+        msg = str(ctx.exception)
+        self.assertIn("Missing Headers", msg)
+        self.assertIn("no headers", msg)
+
+    def test_table_slide_with_headers_does_not_raise(self):
+        """_populate_slide does not raise when a TableSlide has both headers and rows."""
+        slide = MagicMock()
+        content = TableSlide(
+            title="Good Table",
+            headers=["Col A", "Col B"],
+            rows=[["a", "b"]],
+        )
+        theme_color = MagicMock()
+        with patch.object(self.generator, "_populate_table_slide") as mock_table:
+            with patch.object(self.generator, "_apply_notes"):
+                self.generator._populate_slide(slide, content, theme_color)
+        mock_table.assert_called_once()
+
+    def test_table_slide_no_rows_no_headers_does_not_raise(self):
+        """An empty TableSlide (no rows, no headers) is not an error — no data is lost."""
+        slide = MagicMock()
+        content = TableSlide(title="Empty Table", headers=[], rows=[])
+        theme_color = MagicMock()
+        # No rows → no data loss → falls through to bullet renderer without raising
+        with patch.object(self.generator, "_populate_bullet_slide") as mock_bullet:
+            with patch.object(self.generator, "_apply_notes"):
+                self.generator._populate_slide(slide, content, theme_color)
+        mock_bullet.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

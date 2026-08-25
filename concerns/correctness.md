@@ -437,3 +437,30 @@ changes — new functions, modified logic, CLI `run()` methods, and datetime han
 - **check**: Verify that `ConfigParser.read(path)` return values are checked. `read()` swallows permission and open errors and returns an empty list, so an unreadable file is indistinguishable from a successfully parsed empty one.
 - **triggers**: `cp.read(path)` where the result is discarded; helpers that walk candidate config files and use "the first readable one"; credential-resolution search orders.
 - **example**: An unreadable `credentials.ini` (mode 000) makes `cp.read()` return `[]`, so a caller treats it as the first readable file and returns an empty config — shadowing a later file that *is* readable. Fix: `if not cp.read(path): return None` so an unreadable file is treated as absent, as `core/constants.py:_parse_ini_file` now does.
+
+### silent-unrecognized-value-fallback
+- **severity**: major
+- **check**: Verify that a well-typed but unrecognized or incomplete field value (an unknown enum-like string, a required sub-field left empty) either raises or is surfaced by validation, rather than silently falling back to a default or being routed to the wrong handler while `validate` still reports OK.
+- **triggers**: Dict/YAML field lookups compared against a small fixed set of accepted string values with no `else: raise` branch (`if x == "foo": ... elif x == "bar": ... else: use default`); dict-based dispatch (`layouts.get(name, fallback)`, `handlers.get(kind, default_handler)`) keyed on a user-supplied string; `isinstance(content, SomeType) and content.some_field` gating which renderer runs, where a falsy-but-present `some_field` silently reroutes to a different renderer instead of raising; a `validate`/`lint` subcommand that checks structural shape (types, required keys) but does not check enum-like field values against the accepted set.
+- **example**:
+  ```python
+  # bad — unknown layout name silently falls back, and validate never catches it
+  def _resolve_layout(self, layouts, content):
+      layout_name = content.layout or DEFAULT_LAYOUT_KEY
+      if layout_name in layouts:
+          return layouts[layout_name]
+      return layouts[_FALLBACK_LAYOUT_KEY]  # no error for a typo'd layout: bullets
+
+  # bad — TableSlide with rows but no headers is silently rendered as a bullet
+  # slide, losing every row, and cmd_validate still prints "Validation: OK"
+  if isinstance(content, TableSlide) and content.headers:
+      self._populate_table_slide(slide, content, theme_color)
+  else:
+      self._populate_bullet_slide(slide, content, theme_color, ...)
+
+  # good — reject at parse/validate time instead of silently degrading at render time
+  if layout_name not in VALID_LAYOUTS:
+      raise ValueError(f"Unknown layout {layout_name!r}; expected one of {VALID_LAYOUTS}")
+  if isinstance(content, TableSlide) and not content.headers:
+      raise ValueError(f"Table slide {content.title!r} has rows but no headers")
+  ```

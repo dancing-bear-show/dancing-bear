@@ -210,6 +210,8 @@ def cmd_generate(args) -> int:
 @app.argument("yaml_file", help="Path to YAML deck definition")
 def cmd_validate(args) -> int:
     """Validate a YAML deck definition and print a summary."""
+    from .schema import TableSlide
+
     yaml_path = Path(args.yaml_file)
     if not yaml_path.exists():
         print(f"Error: YAML file not found: {args.yaml_file}", file=sys.stderr)
@@ -219,6 +221,25 @@ def cmd_validate(args) -> int:
         deck = sys.modules[__name__].load_deck_from_yaml(args.yaml_file)
     except Exception as e:
         print(f"Validation failed: {e}", file=sys.stderr)
+        return 1
+
+    from .constants import VALID_LAYOUTS
+
+    errors: list[str] = []
+    for i, slide in enumerate(deck.slides, start=1):
+        if slide.layout not in VALID_LAYOUTS:
+            errors.append(
+                f"Slide {i} {slide.title!r}: unknown layout {slide.layout!r}; "
+                f"expected one of {VALID_LAYOUTS}"
+            )
+        if isinstance(slide, TableSlide) and slide.rows and not slide.headers:
+            errors.append(
+                f"Slide {i} {slide.title!r}: table slide has rows but no headers"
+            )
+
+    if errors:
+        for err in errors:
+            print(f"Validation error: {err}", file=sys.stderr)
         return 1
 
     meta = deck.metadata
