@@ -483,6 +483,49 @@ class TestApiKeyMasking(unittest.TestCase):
                 text = f"https://svc.example/?{param}={self.SECRET}"
                 self.assertNotIn(self.SECRET, mask_text(text))
 
+    def test_bare_key_value_pairs_are_masked(self):
+        # No ? or & to mark these as query params, and no JSON quoting --
+        # the shape exception and log text actually takes.
+        from core.secrets import mask_text
+
+        for param in ("api_key", "apikey", "api-key", "API_KEY", "api_secret"):
+            with self.subTest(param=param):
+                self.assertNotIn(
+                    self.SECRET, mask_text(f"{param}={self.SECRET}")
+                )
+
+    def test_bare_pair_masked_inside_a_sentence(self):
+        from core.secrets import mask_text
+
+        text = f"connection failed (api_key={self.SECRET}) after 3 tries"
+        masked = mask_text(text)
+        self.assertNotIn(self.SECRET, masked)
+        # Surrounding context survives so the message stays diagnostic.
+        self.assertIn("connection failed", masked)
+        self.assertIn("after 3 tries", masked)
+
+    def test_similar_but_harmless_keys_are_not_masked(self):
+        # Widening a shared regex risks over-masking: these are not secrets
+        # and redacting them would degrade every log line in the repo.
+        from core.secrets import mask_text
+
+        for pair in (
+            "api_version=2",
+            "api_keys_count=4",
+            "monkey=banana",
+            "key=value",
+        ):
+            with self.subTest(pair=pair):
+                self.assertEqual(mask_text(pair), pair)
+
+    def test_bare_pair_reaches_retry_error_message(self):
+        # End-to-end: the finding was reported against the retry surfaces,
+        # so assert there and not only at the helper.
+        from core.retry import RetryExhaustedError
+
+        exc = RuntimeError(f"upstream rejected api_key={self.SECRET}")
+        self.assertNotIn(self.SECRET, str(RetryExhaustedError(2, exc)))
+
 
 class TestCheckLabelIsSafe(unittest.TestCase):
     """The check label must not serialize arbitrary repr output.

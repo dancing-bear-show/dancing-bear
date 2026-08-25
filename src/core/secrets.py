@@ -89,8 +89,15 @@ def mask_text(text: str) -> str:
     # Common header variants
     s = re.sub(r"(?i)(X-API-KEY\s*:\s*)(\S+)", _REDACTED, s)
     s = re.sub(r"(?i)(X-Auth-Token\s*:\s*)(\S+)", _REDACTED, s)
-    # Token=... pairs
-    s = re.sub(r"(?i)(token\s*=\s*)([\w.~+/=-]+)", _REDACTED, s)
+    # Bare key=value pairs, with no ? or & to mark them as query params.
+    # Exception and log text routinely reads "api_key=abc123" or
+    # "connection failed (apikey=abc123)", which the query-param and JSON
+    # rules below both miss.
+    s = re.sub(
+        r"(?i)((?:api[_-]?key|api[_-]?secret|token)\s*=\s*)([\w.~+/=-]+)",
+        _REDACTED,
+        s,
+    )
     # JSON fields
     s = re.sub(r"(?i)(\"(?:api[_-]?token|api[_-]?key|token|access[_-]?token|secret|client_secret|password)\"\s*:\s*\")(.*?)(\")", r"\1***REDACTED***\3", s)
     # GitHub tokens
