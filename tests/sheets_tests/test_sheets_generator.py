@@ -304,3 +304,33 @@ class TestUncoveredGeneratorPaths(unittest.TestCase):
             out = str(Path(tmp) / "authored.xlsx")
             generate_xlsx(wb, out)
             self.assertEqual(load_workbook(out).properties.creator, "Alice")
+
+
+class TestPRFeedbackFixes(unittest.TestCase):
+    """Regressions found in review of PR #238."""
+
+    def test_short_content_reaches_the_documented_minimum(self) -> None:
+        # Previously seeded from MIN_COLUMN_WIDTH then added +2, so the real
+        # floor was MIN + 2 and the documented lower bound was unreachable.
+        gen = SheetGenerator()
+        self.assertEqual(gen._calculate_column_width(["X"]), MIN_COLUMN_WIDTH)
+        self.assertEqual(gen._calculate_column_width([""]), MIN_COLUMN_WIDTH)
+        self.assertEqual(gen._calculate_column_width([None]), MIN_COLUMN_WIDTH)
+
+    def test_content_longer_than_minimum_still_gets_buffer(self) -> None:
+        gen = SheetGenerator()
+        value = "A" * (MIN_COLUMN_WIDTH + 5)
+        self.assertEqual(
+            gen._calculate_column_width([value]), len(value) + 2
+        )
+
+    def test_zero_freeze_clears_an_inherited_freeze(self) -> None:
+        # A template workbook may arrive with panes already frozen; freeze_rows: 0
+        # must actually unfreeze rather than leave the template's value in place.
+        from openpyxl import Workbook
+
+        gen = SheetGenerator()
+        ws = Workbook().active
+        ws.freeze_panes = "B3"
+        gen._apply_freeze_panes(ws, 0, 0)
+        self.assertIsNone(ws.freeze_panes)

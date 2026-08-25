@@ -211,12 +211,17 @@ class SheetGenerator:
         Inspects every value (header + data), takes the longest string
         representation, adds a small readability buffer, then clamps to
         MIN_COLUMN_WIDTH..MAX_COLUMN_WIDTH.
+
+        The buffer is added before clamping, not after seeding from the
+        floor: seeding ``max_len`` at MIN_COLUMN_WIDTH made the effective
+        minimum MIN_COLUMN_WIDTH + 2, so a column of short values could
+        never actually reach the documented lower bound.
         """
-        max_len = MIN_COLUMN_WIDTH
+        content_len = 0
         for value in values:
             if value is not None:
-                max_len = max(max_len, len(str(value)))
-        return min(max_len + 2, MAX_COLUMN_WIDTH)
+                content_len = max(content_len, len(str(value)))
+        return max(MIN_COLUMN_WIDTH, min(content_len + 2, MAX_COLUMN_WIDTH))
 
     def _resolve_column_widths(self, sheet: SheetTab) -> list[int]:
         """Return a list of column widths for the sheet.
@@ -242,8 +247,14 @@ class SheetGenerator:
 
         The freeze pane cell in Excel is the first unfrozen cell, so
         freezing 1 row and 0 columns anchors at A2.
+
+        Zero rows and columns clears the freeze rather than returning
+        early: when generating onto a template workbook, an early return
+        would leave the template's own frozen panes in place, so
+        ``freeze_rows: 0`` in the YAML would silently fail to disable them.
         """
         if freeze_rows <= 0 and freeze_cols <= 0:
+            ws.freeze_panes = None
             return
         col_letter = get_column_letter(freeze_cols + 1) if freeze_cols > 0 else "A"
         ws.freeze_panes = f"{col_letter}{freeze_rows + 1}"
