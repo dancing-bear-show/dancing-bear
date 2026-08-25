@@ -323,6 +323,88 @@ class TestSummaryPluralization(unittest.TestCase):
         self.assertIn("(2 samples)", two.summary())
 
 
+class TestOffendingSampleMasking(unittest.TestCase):
+    """Offending items are the caller's change records and may carry secrets.
+
+    A change describing an API call carries the URL or headers that would
+    make it, so an unmasked sample puts a live key in to_dict() output.
+    """
+
+    TOKEN = "ghp_EEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"
+
+    def _flag_all(self, changes, baseline):
+        return "leaks_secret", list(changes)
+
+    def test_secret_in_a_sample_value_is_masked(self):
+        changes = [{"op": "sync", "url": f"https://x.example?api_key={self.TOKEN}"}]
+        report = evaluate_invariants(changes, {}, [self._flag_all])
+        self.assertNotIn(self.TOKEN, json.dumps(report.to_dict()))
+
+    def test_samples_attribute_is_masked_too(self):
+        # samples is public on the dataclass, so reading it directly must
+        # give the same guarantee to_dict() does.
+        changes = [{"url": f"https://x.example?api_key={self.TOKEN}"}]
+        report = evaluate_invariants(changes, {}, [self._flag_all])
+        self.assertNotIn(self.TOKEN, report.violations[0].samples[0]["url"])
+
+    def test_nested_structures_are_masked(self):
+        changes = [{
+            "meta": {"headers": {"Authorization": f"Bearer {self.TOKEN}"}},
+            "items": [f"token={self.TOKEN}"],
+        }]
+        report = evaluate_invariants(changes, {}, [self._flag_all])
+        self.assertNotIn(self.TOKEN, json.dumps(report.to_dict()))
+
+    def test_structure_and_non_secret_values_survive(self):
+        changes = [{"op": "sync", "count": 5, "ok": True, "tags": ["a", "b"]}]
+        report = evaluate_invariants(changes, {}, [self._flag_all])
+        sample = report.violations[0].samples[0]
+        self.assertEqual(sample["op"], "sync")
+        self.assertEqual(sample["count"], 5)
+        self.assertIs(sample["ok"], True)
+        self.assertEqual(sample["tags"], ["a", "b"])
+
+    def test_non_string_leaves_are_untouched(self):
+        changes = [{"value": None, "ratio": 1.5}]
+        report = evaluate_invariants(changes, {}, [self._flag_all])
+        sample = report.violations[0].samples[0]
+        self.assertIsNone(sample["value"])
+        self.assertEqual(sample["ratio"], 1.5)
+
+
+class TestApiKeyMasking(unittest.TestCase):
+    """api_key/apikey were absent from the shared masking patterns.
+
+    They are the most common spellings in public API query strings, so a
+    masked-looking URL still carried the key.
+    """
+
+    SECRET = "SECRETVALUE123456"
+
+    def test_query_spellings_are_masked(self):
+        from core.secrets import mask_text
+
+        for param in ("api_key", "apikey", "apiKey", "api-key"):
+            with self.subTest(param=param):
+                text = f"GET https://svc.example/?{param}={self.SECRET}"
+                self.assertNotIn(self.SECRET, mask_text(text))
+
+    def test_json_field_is_masked(self):
+        from core.secrets import mask_text
+
+        self.assertNotIn(
+            self.SECRET, mask_text(f'{{"api_key": "{self.SECRET}"}}')
+        )
+
+    def test_previously_covered_params_still_masked(self):
+        from core.secrets import mask_text
+
+        for param in ("access_token", "token", "client_secret"):
+            with self.subTest(param=param):
+                text = f"https://svc.example/?{param}={self.SECRET}"
+                self.assertNotIn(self.SECRET, mask_text(text))
+
+
 class TestCheckLabelIsSafe(unittest.TestCase):
     """The check label must not serialize arbitrary repr output.
 

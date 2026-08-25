@@ -26,6 +26,12 @@ SENSITIVE_PARAM_KEYS = {
     "ghp_token",
     "x_api_key",
     "x-api-key",
+    # api_key/apikey are the most common spellings in public API query
+    # strings and were absent here, so a masked-looking URL still carried
+    # the key. Matching is case-insensitive at the call sites.
+    "api_key",
+    "apikey",
+    "api-key",
     "aws_access_key_id",
     "aws_secret_access_key",
     "aws_session_token",
@@ -86,7 +92,7 @@ def mask_text(text: str) -> str:
     # Token=... pairs
     s = re.sub(r"(?i)(token\s*=\s*)([\w.~+/=-]+)", _REDACTED, s)
     # JSON fields
-    s = re.sub(r"(?i)(\"(?:api[_-]?token|token|access[_-]?token|secret|client_secret|password)\"\s*:\s*\")(.*?)(\")", r"\1***REDACTED***\3", s)
+    s = re.sub(r"(?i)(\"(?:api[_-]?token|api[_-]?key|token|access[_-]?token|secret|client_secret|password)\"\s*:\s*\")(.*?)(\")", r"\1***REDACTED***\3", s)
     # GitHub tokens
     s = re.sub(r"gh[pousr]_[A-Za-z0-9]{20,}", "gh_***REDACTED***", s)
     # Atlassian tokens

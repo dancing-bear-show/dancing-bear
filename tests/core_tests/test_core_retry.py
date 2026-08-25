@@ -585,6 +585,17 @@ class TestCredentialMasking(unittest.TestCase):
         self.assertIn("5 attempt", str(err))
         self.assertIn("plain failure", str(err))
 
+    def test_api_key_query_param_is_masked(self) -> None:
+        # api_key/apikey were missing from the shared patterns, so this
+        # message looked masked while still carrying the key.
+        from core.retry import RetryExhaustedError
+
+        secret = "SECRETVALUE123456"
+        for param in ("api_key", "apikey", "apiKey"):
+            with self.subTest(param=param):
+                exc = RuntimeError(f"GET https://svc.example/?{param}={secret}")
+                self.assertNotIn(secret, str(RetryExhaustedError(2, exc)))
+
     def test_traceback_carries_no_unmasked_context(self) -> None:
         # The masked message is only worth something if the unmasked original
         # cannot ride along in the printed traceback via __context__.

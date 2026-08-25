@@ -111,6 +111,36 @@ class PreflightReport:
         return "\n".join(lines)
 
 
+def _mask_sample(sample: dict[str, Any]) -> dict[str, Any]:
+    """Return ``sample`` with credential-bearing string values masked.
+
+    Offending items are the caller's own change records, and a change that
+    describes an API call carries the URL or headers that would make it --
+    so an unmasked sample lands a live key in ``to_dict()`` output. Masking
+    happens here rather than at the boundary because ``samples`` is public
+    on the dataclass, so a caller reading ``violation.samples`` directly
+    gets the same guarantee ``to_dict()`` does.
+
+    Structure is preserved so the sample stays useful as evidence: only
+    string leaves change, and nesting, keys, and non-string values are
+    untouched.
+    """
+    return {key: _mask_value(value) for key, value in sample.items()}
+
+
+def _mask_value(value: Any) -> Any:
+    """Recursively mask string leaves inside a sample value."""
+    if isinstance(value, str):
+        return mask_text(value)
+    if isinstance(value, dict):
+        return {k: _mask_value(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_mask_value(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_mask_value(v) for v in value)
+    return value
+
+
 def _check_label(check: object) -> str:
     """Return a safe identifying label for a check function.
 
@@ -216,7 +246,7 @@ def evaluate_invariants(
             InvariantViolation(
                 code=code,
                 message=message,
-                samples=offending[:max_samples],
+                samples=[_mask_sample(s) for s in offending[:max_samples]],
             )
         )
 
