@@ -548,5 +548,61 @@ class TestHttpBackoffCeiling(unittest.TestCase):
             self.assertEqual(delay, 30)
 
 
+class TestCredentialMasking(unittest.TestCase):
+    """Retry surfaces must not leak credentials from exception text.
+
+    A retried call is typically an HTTP/API request, so its exception often
+    quotes the failing URL or auth header. Both the log line and the
+    RetryExhaustedError message go through mask_text.
+    """
+
+    LEAKY = (
+        "HTTP 401 for https://api.example.com/v1"
+        "?access_token=ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    )
+
+    def test_exhausted_error_message_is_masked(self) -> None:
+        from core.retry import RetryExhaustedError
+
+        err = RetryExhaustedError(3, RuntimeError(self.LEAKY))
+        self.assertNotIn("ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", str(err))
+        self.assertIn("REDACTED", str(err))
+
+    def test_exhausted_error_keeps_the_original_exception(self) -> None:
+        # Masking is for display; callers inspecting last_exception still get
+        # the untouched object.
+        from core.retry import RetryExhaustedError
+
+        original = RuntimeError(self.LEAKY)
+        err = RetryExhaustedError(3, original)
+        self.assertIs(err.last_exception, original)
+        self.assertEqual(str(err.last_exception), self.LEAKY)
+
+    def test_exhausted_error_still_reports_attempt_count(self) -> None:
+        from core.retry import RetryExhaustedError
+
+        err = RetryExhaustedError(5, RuntimeError("plain failure"))
+        self.assertIn("5 attempt", str(err))
+        self.assertIn("plain failure", str(err))
+
+    def test_retry_log_line_is_masked(self) -> None:
+        from core.retry import retry
+
+        leaky = self.LEAKY
+
+        @retry(max_attempts=2, delay=0.0, raise_on_exhausted=False)
+        def fails() -> None:
+            raise RuntimeError(leaky)
+
+        with self.assertLogs("core.retry", level="WARNING") as captured:
+            with patch("core.retry.time.sleep"):
+                with self.assertRaises(RuntimeError):
+                    fails()
+
+        joined = "\n".join(captured.output)
+        self.assertNotIn("ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", joined)
+        self.assertIn("REDACTED", joined)
+
+
 if __name__ == "__main__":
     unittest.main()

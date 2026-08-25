@@ -30,6 +30,8 @@ import random
 import time
 from typing import Callable
 
+from core.secrets import mask_text
+
 __all__ = [
     "RetryExhaustedError",
     "exponential_backoff",
@@ -51,12 +53,19 @@ class RetryExhaustedError(Exception):
 
     Carries the attempt count and the last exception so callers can inspect
     or re-raise the underlying failure without losing it.
+
+    The message text is masked, because this decorator is meant for API and
+    other I/O callers whose exceptions routinely quote a request URL or an
+    auth header -- printing an unmasked one leaks the credential into logs
+    and tracebacks. ``last_exception`` keeps the original object intact for
+    callers that need it.
     """
 
     def __init__(self, attempts: int, last_exception: Exception) -> None:
         self.attempts = attempts
         self.last_exception = last_exception
-        super().__init__(f"Failed after {attempts} attempt(s). Last error: {last_exception}")
+        detail = mask_text(str(last_exception))
+        super().__init__(f"Failed after {attempts} attempt(s). Last error: {detail}")
 
 
 # ---------------------------------------------------------------------------
@@ -191,13 +200,16 @@ def retry(
                     if on_retry is not None:
                         on_retry(attempt, exc)
                     else:
+                        # Masked: a retried call is usually an HTTP or API
+                        # request, and its exception text often quotes the URL
+                        # or auth header that failed.
                         _logger.warning(
                             "Retry %d/%d for %s after %s: %s",
                             attempt + 1,
                             max_attempts - 1,
                             func.__name__,
                             type(exc).__name__,
-                            exc,
+                            mask_text(str(exc)),
                         )
                     if callable(backoff):
                         sleep_for = backoff(attempt)
