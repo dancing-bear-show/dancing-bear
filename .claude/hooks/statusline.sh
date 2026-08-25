@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+# Claude Code statusLine renderer.
+#
+# Reads the statusline JSON payload on stdin and prints one line:
+#   [agent|wt:name] branch │ dir │ context-bar % │ +added/-removed │ model │ $cost │ duration (api wait)
+#
+# Wire it up with the statusLine block in settings.json -- see hooks/README.md.
+
+input=$(cat)
+
+RESET='\033[0m'
+CYAN='\033[36m'
+GREEN='\033[32m'
+YELLOW='\033[33m'
+RED='\033[31m'
+MAGENTA='\033[35m'
+BLUE='\033[34m'
+DIM='\033[2m'
+
+# One jq call, newline-delimited. Deliberately not ten calls: the statusline renders
+# on every turn, and each jq process is a fork -- ten of them is a visible hitch.
+#
+# CHANGED FROM THE REFERENCE: context percentage no longer defaults to 0.
+#
+# The original used `(.context_window.used_percentage // 0)`, so an absent
+# .context_window rendered a full green bar reading "0%" -- indistinguishable from a
+# genuinely empty context window. That is the worst kind of wrong reading: confident,
+# plausible, and pointing the opposite direction from the truth. A session at 85%
+# looked like a session at 0%, which is precisely when you most need the number.
+#
+# Absent now yields the sentinel "?" and renders as a dim "--" bar. Unknown looks
+# unknown. The same reasoning applies to the model name, which keeps the original's
+# "?" fallback.
+VALUES=$(echo "$input" | jq -r '
+  (.model.display_name // "?"),
+  (.cost.total_cost_usd // 0),
+  (.workspace.current_dir // "."),
+  (if (.context_window.used_percentage | type) == "number"
+     then (.context_window.used_percentage | floor) else "?" end),
+  (.cost.total_lines_added // 0),
+  (.cost.total_lines_removed // 0),
+  (.cost.total_duration_ms // 0),
+  (.cost.total_api_duration_ms // 0),
+  (.agent.name // ""),
+  (.worktree.name // "")
+' 2>/dev/null)
+
+# A payload that is not JSON at all leaves VALUES empty. Render a marker rather than
+# a line of blanks and zeroes that reads like a real status.
+if [ -z "$VALUES" ]; then
+  echo -e "${DIM}(statusline: unreadable payload)${RESET}"
+  exit 0
+fi
+
+MODEL=$(sed -n '1p' <<< "$VALUES")
+COST=$(sed -n '2p' <<< "$VALUES")
+DIR=$(sed -n '3p' <<< "$VALUES")
+PERCENT=$(sed -n '4p' <<< "$VALUES")
+LINES_ADD=$(sed -n '5p' <<< "$VALUES")
+LINES_REM=$(sed -n '6p' <<< "$VALUES")
+DURATION_MS=$(sed -n '7p' <<< "$VALUES")
+API_MS=$(sed -n '8p' <<< "$VALUES")
+AGENT=$(sed -n '9p' <<< "$VALUES")
+WORKTREE=$(sed -n '10p' <<< "$VALUES")
+
+BRANCH=""
+if git rev-parse --git-dir > /dev/null 2>&1; then
+    BRANCH=$(git branch --show-current 2>/dev/null)
+fi
+BRANCH=${BRANCH:-"no-repo"}
+
+DIR_NAME=${DIR##*/}
+
+# Context bar. Green under 50%, yellow at 50%, red at 80% -- thresholds unchanged
+# from the reference. The "?" branch is the new unknown state.
+BAR_WIDTH=10
+if [ "$PERCENT" = "?" ]; then
+    BAR_COLOR="$DIM"
+    BAR=$(printf '%*s' "$BAR_WIDTH" '' | tr ' ' '·')
+    PERCENT_FMT="--"
+else
+    FILLED=$((PERCENT * BAR_WIDTH / 100))
+    EMPTY=$((BAR_WIDTH - FILLED))
+    if [ "$PERCENT" -ge 80 ]; then
+        BAR_COLOR="$RED"
+    elif [ "$PERCENT" -ge 50 ]; then
+        BAR_COLOR="$YELLOW"
+    else
+        BAR_COLOR="$GREEN"
+    fi
+    BAR=$(printf '%*s' "$FILLED" '' | tr ' ' '█')$(printf '%*s' "$EMPTY" '' | tr ' ' '░')
+    PERCENT_FMT="${PERCENT}%"
+fi
+
+COST_FMT=$(printf "%.2f" "$COST" 2>/dev/null || echo "?")
+
+DURATION_MIN=$((DURATION_MS / 60000))
+if [ "$DURATION_MIN" -ge 60 ]; then
+    DURATION_FMT="$((DURATION_MIN / 60))h$((DURATION_MIN % 60))m"
+else
+    DURATION_FMT="${DURATION_MIN}m"
+fi
+
+API_SEC=$((API_MS / 1000))
+if [ "$API_SEC" -ge 60 ]; then
+    API_FMT="$((API_SEC / 60))m$((API_SEC % 60))s"
+else
+    API_FMT="${API_SEC}s"
+fi
+
+LINES_CHANGED="${GREEN}+${LINES_ADD}${RESET}/${RED}-${LINES_REM}${RESET}"
+
+# Agent / worktree prefix.
+#
+# This matters more in dancing-bear than in the original repo: sessions run under
+# .claude/worktrees/ by default (`claude -w`), subagents get their own isolated
+# worktrees, and the directory name alone does not tell you which branch's worktree
+# you are looking at. Committing to the wrong worktree is the mistake this prefix is
+# here to prevent.
+PREFIX=""
+if [ -n "$AGENT" ]; then
+    PREFIX="${MAGENTA}${AGENT}${RESET} ${DIM}│${RESET} "
+elif [ -n "$WORKTREE" ]; then
+    PREFIX="${MAGENTA}wt:${WORKTREE}${RESET} ${DIM}│${RESET} "
+fi
+
+LEFT="${PREFIX}${CYAN}${BRANCH}${RESET} ${DIM}│${RESET} ${BLUE}${DIR_NAME}${RESET} ${DIM}│${RESET} ${BAR_COLOR}${BAR}${RESET} ${PERCENT_FMT}"
+RIGHT="${LINES_CHANGED} ${DIM}│${RESET} ${MAGENTA}${MODEL}${RESET} ${DIM}│${RESET} ${GREEN}\$${COST_FMT}${RESET} ${DIM}│${RESET} ${DIM}${DURATION_FMT} (${API_FMT} api)${RESET}"
+
+echo -e "${LEFT} ${DIM}│${RESET} ${RIGHT}"
