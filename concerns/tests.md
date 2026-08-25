@@ -277,3 +277,16 @@ source files introduce new `sys.exit()` paths, HTTP clients, or mock boundaries.
 - **check**: Verify that a test asserting a path is "outside the checkout" derives the repo root from `__file__` or a project constant rather than from `Path.cwd()`. The working directory at test time is not the checkout, so the assertion can be vacuous or spuriously fail.
 - **triggers**: Assertions like `not str(result).startswith(str(Path.cwd()))` or `Path.cwd() not in result.parents` used to prove a path escapes the repo; tests validating default output-directory placement.
 - **example**: `tests/core_tests/test_core_paths.py` asserted the default data home is outside `Path.cwd()`. Run the suite from `~` and `~/.local/share/dancing-bear` *is* under `cwd`, so the test fails while the code is correct. Fix: derive the root via `Path(__file__).resolve()` and assert the result is not under it.
+
+### unittest-example-pytest-flag
+- **severity**: major
+- **check**: Verify that `python3 -m unittest` invocations shown in docs, skills, and workflow YAML use only unittest's own flags (`-f`/`--failfast`, `-v`, `-q`, `-k`, `-b`, `-c`) — not pytest-only flags such as `-x` for failfast. `-x` is unrecognized by both `unittest` and `unittest discover` and errors immediately.
+- **triggers**: `python3 -m unittest` or `python3 -m unittest discover` example commands in `.md`/`.yaml` files that include a bare `-x` flag; `test_cmd` default values or examples in workflow `trigger.params` blocks; copy-pasted test invocation snippets in SKILL.md files.
+- **example**:
+  ```yaml
+  # bad — -x is pytest syntax; unittest rejects it with "unrecognized arguments: -x"
+  test_cmd: ""  # e.g. "python3 -m unittest tests/core/ -x -q"
+
+  # good — -f is unittest's failfast flag
+  test_cmd: ""  # e.g. "python3 -m unittest tests/core/ -f -q"
+  ```
