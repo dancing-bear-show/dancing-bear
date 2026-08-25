@@ -1,0 +1,837 @@
+name: calendar-plan-symmetry
+version: "1.0"
+description: >
+  Make the calendar plan format symmetric by adding an Outlook plan *producer*
+  and a Gmail-side plan *consumer*, both implemented against the existing
+  core.pipeline OO triad (Consumer -> Processor -> Producer).
+
+  Context — what already exists, verified against the tree at authoring time:
+
+    - src/core/pipeline.py defines BaseProducer (line 70), SafeProcessor
+      (line 115), and run_pipeline (line 143). Of the 15 .py files in
+      src/calendars/outlook_pipelines/, 13 import from core.pipeline — every
+      module except __init__.py (star re-exports only) and _context.py (plain
+      @dataclass context objects). This abstraction is real and load-bearing;
+      build on it, do not replace it.
+    - src/calendars/outlook_pipelines/_base.py:56 defines EventIterationProcessor,
+      a second-level template method already shared by the remove and verify
+      pipelines. It IS the plan-consumer base class. A new consumer subclasses it
+      and implements _init_accumulator / _handle_event / _finalize.
+    - outlook list-one-offs (outlook_pipelines/events.py) is already a partial
+      plan producer: it ends in dump_config(path, {"events": rows}). It filters
+      to single instances only via _is_one_off() at events.py:41.
+    - src/calendars/importer/base.py:12 defines CalendarProvider(Protocol) whose
+      docstring claims "Both Gmail and Outlook backends implement this
+      interface". That claim is FALSE. Grep confirms zero production
+      implementors; the only conformant classes are FakeGmailBackend and
+      FakeOutlookBackend, test stubs in
+      tests/calendars_tests/outlook/test_outlook_scan_processor.py:228-248.
+    - There is NO Google Calendar support: no auth/calendar scope in
+      src/mail/gmail_api.py:24 (six gmail.* scopes only), no calendar/v3 client
+      anywhere. The gmail command group scans *email* and emits YAML plans; it
+      is a plan producer, not a calendar backend.
+    - Gmail *send* IS available today: send_message_raw and create_draft_raw
+      exist at src/mail/gmail_api.py:409/415, and gmail.compose + gmail.send are
+      already in SCOPES. An .ics-draft consumer needs no new scope or dep.
+
+  Design decision this workflow encodes: the abstraction seam is the plan file,
+  not a provider interface. plan.yaml is already load-bearing across four
+  commands (add-from-config, verify-from-config, remove-from-config,
+  update-locations). Producers and consumers get TWO shallow hierarchies, not
+  one unified CalendarBackend base — forcing them together reproduces the
+  CalendarProvider mistake: an interface that exists to look symmetric and is
+  implemented by nothing real.
+
+  Target shape:
+
+    BaseProducer
+    └── PlanWriterProducer          (new — shared dump_config plan emission)
+        ├── OutlookExportProducer   (new)
+        └── GmailScanProducer       (exists — rehomed onto shared base)
+
+    SafeProcessor
+    └── EventIterationProcessor     (exists — plan consumer base)
+        ├── OutlookVerifyProcessor  (exists)
+        ├── OutlookRemoveProcessor  (exists)
+        └── <new Gmail consumer>    (per consumer_kind param)
+
+  Stage dependency graph:
+
+    survey-current-state
+          |
+    design-and-plan  [human gate]
+          |
+    +-----+------------------+
+    |                        |
+    implement-producer   implement-consumer   (parallel, isolated worktrees)
+    |                        |
+    +-----+------------------+
+          |
+    integrate-and-test
+          |
+    fix-protocol-lie
+          |
+    verify-lint-and-agentic
+          |
+    sad-path-coverage
+          |
+    review
+          |
+    human-gate
+
+metadata:
+  author: dancing-bear
+  created: "2026-08-24"
+
+trigger:
+  source: manual
+  params:
+    # Which Gmail-side consumer to build. Cost varies by an order of magnitude:
+    #   ics_draft  — plan -> .ics invite drafted via existing create_draft_raw.
+    #                Buildable today. No new scope, no new dependency.
+    #   verify_mail — read-only: check a plan's events against scanned receipts,
+    #                inverting verify.py's duplicate/missing logic. Cheapest.
+    #   google_calendar — REQUIRES auth/calendar scope + calendar/v3 client +
+    #                recurrence/category mapping. Weeks of work and forces
+    #                re-consent for every existing Gmail token. Do NOT select
+    #                this without an explicit decision to take that on.
+    consumer_kind: "ics_draft"
+    # "true" deletes CalendarProvider outright; "false" amends its docstring to
+    # state it has no production implementors. This choice is made up front and
+    # is deliberately not conditional on anything the run discovers — but the
+    # survey stage re-verifies the zero-implementor premise, and fix-protocol-lie
+    # must abort if that premise turned out to be false.
+    delete_dead_protocol: "false"
+    run_tests: "true"
+    # Feature branch to create/verify before any stage mutates the tree. The
+    # workflow must never write to main.
+    branch: "feat/calendar-plan-symmetry"
+    pr_title: "feat(calendars): symmetric plan producer/consumer on shared pipeline base"
+
+workspace_dir: "{work_dir}/calendar-plan-symmetry"
+
+stages:
+
+  # ===========================================================================
+  # G0: Survey — establish ground truth before designing anything
+  # ===========================================================================
+
+  - name: survey-current-state
+    kind: gather
+    depends_on: []
+    description: >
+      Read the existing pipeline machinery and record its real contracts. Do NOT
+      modify any file in this stage.
+
+      Read in full:
+        - src/core/pipeline.py                        (SafeProcessor, BaseProducer, run_pipeline)
+        - src/calendars/outlook_pipelines/_base.py    (EventIterationProcessor, load_events_config)
+        - src/calendars/outlook_pipelines/events.py   (the partial producer)
+        - src/calendars/outlook_pipelines/verify.py   (a consumer subclass)
+        - src/calendars/outlook_pipelines/remove.py   (the other consumer subclass)
+        - src/calendars/gmail_pipelines.py            (CalendarEvent, GmailScanProducer)
+        - src/calendars/importer/base.py              (the hollow Protocol)
+        - src/calendars/outlook_service.py            (ListEventsRequest)
+
+      Record, as JSON at {workspace}/outputs/survey.json with keys:
+        - "plan_schema": the exact key set a plan event may carry. Derive it from
+          what consumers actually read — normalize_event() in calendars/model.py
+          plus the keys verify.py and remove.py access (subject, repeat, byday,
+          start_time, end_time, calendar, location, ...). Quote file:line for each.
+        - "producer_contract": how GmailScanProducer and the list-one-offs
+          producer each emit YAML today, and exactly where they differ.
+        - "consumer_contract": the three methods EventIterationProcessor requires
+          and what each returns.
+        - "recurrence_gap": the core technical risk of the producer. Establish
+          precisely, from the code:
+            * list_events_in_range (core/outlook/calendar.py:200) hits Graph's
+              /calendarView, which EXPANDS series into occurrences. Its own
+              docstring says so. Occurrences carry seriesMasterId and type but
+              NOT recurrence.pattern / recurrence.range.
+            * Confirm whether ANY read path returns a series master. At
+              authoring time there was none — no get_event, no /me/events
+              listing. _event_endpoint (calendar.py:80) can build
+              a /me/events/<event-id> URL but is only used for POST/PATCH/DELETE.
+            * The only recurrence code in the repo is write-side:
+              _build_recurrence_pattern (core/outlook/_recurrence.py:10)
+              accepts ONLY daily / weekly / absoluteMonthly and raises
+              ValueError otherwise. Graph additionally emits relativeMonthly,
+              absoluteYearly and relativeYearly.
+          Record which Graph recurrence pattern types have NO representable
+          plan form. Do not hand-wave: the producer cannot be designed without
+          this.
+        - "recurrence_read_options": given the above, enumerate the concrete
+          ways to obtain a real recurrence rule, with the cost of each — e.g.
+          adding a series-master GET (/me/events/<seriesMasterId>, reusing
+          _event_endpoint), or a $select/$expand on a /me/events listing.
+          Inferring the rule statistically from observed occurrences is NOT an
+          option; say so explicitly if it appears attractive, because it is
+          unsound for windows that clip a series and for series with exceptions.
+        - "verify_coverage": read OutlookVerifyProcessor._handle_event
+          (outlook_pipelines/verify.py:52) and record EXACTLY which plan events
+          it inspects and which it silently ignores. This determines whether
+          verify-from-config can serve as a round-trip proof at all.
+        - "dump_config_call_sites": every site emitting a plan file, file:line.
+          Also record, for each of GmailScanProducer and
+          OutlookListOneOffsProducer, whether it writes via self._writer or a
+          bare print(), and whether the dump is conditional. Two producers that
+          emit differently do not share a body, and that decides whether a
+          shared PlanWriterProducer is real or hollow.
+
+      Verify and record whether the claims in this workflow's description still
+      hold, under key "premises_still_true" (object of claim -> boolean):
+      zero CalendarProvider production implementors, no auth/calendar scope, no
+      calendar/v3 client. If any has changed, say so explicitly — a stale
+      premise invalidates the design stage and, for the implementor claim,
+      fix-protocol-lie.
+
+      Branch safety — do this FIRST, before reading anything. Run:
+        git branch --show-current
+      Record the result under key "branch". If it is "main", FAIL this stage
+      immediately with a message telling the operator to check out {branch}
+      first. Do NOT attempt to create or switch the branch here: this stage is
+      read-only, and a later stage cannot rely on inheriting a branch switch
+      anyway — each stage is a fresh agent session.
+
+      Every stage below that mutates the tree (implement-producer,
+      implement-consumer, integrate-and-test, fix-protocol-lie) re-checks this
+      independently, because that is the only place the guarantee can hold.
+
+      Also record "consumer_kind_requested": the literal value of
+      consumer_kind={consumer_kind}. If it is "google_calendar", set
+      "escalate_google_calendar": true — the design stage's human gate is where
+      that decision gets made, and no implementation stage may start until a
+      human has approved taking on a new OAuth scope and forced re-consent.
+    agent:
+      role: researcher
+      # writes_to is non-empty, so access must be read-write; the tools list
+      # is what actually keeps this stage from editing source.
+      access: read-write
+      tools: [Read, Grep, Glob, Bash, Write]
+    writes_to:
+      - outputs/survey.json
+    validates_output:
+      - path: outputs/survey.json
+        checks:
+          - is_json
+          - is_dict
+          - "has_key:recurrence_gap"
+          - "has_key:recurrence_read_options"
+          - "has_key:verify_coverage"
+          - "has_key:plan_schema"
+          - "has_key:premises_still_true"
+          - "has_key:branch"
+
+  # ===========================================================================
+  # G1: Design — decide the class shape, gate before writing code
+  # ===========================================================================
+
+  - name: design-and-plan
+    kind: propose
+    human_gate: true
+    depends_on: [survey-current-state]
+    reads_from: [survey-current-state]
+    description: >
+      Read outputs/survey.json and write a concrete implementation plan to
+      {workspace}/outputs/design.md.
+
+      The plan MUST specify:
+
+        1. PlanWriterProducer — its module path, the exact BaseProducer hook it
+           overrides (_produce_success), and its signature.
+
+           Do NOT justify this by counting dump_config call sites. A bare count
+           is not evidence: ~25 exist repo-wide, so any ">=2 sites" bar is met
+           before this workflow starts and cannot discriminate. Justify it ONLY
+           by showing the candidate producers share an actual BODY. Use
+           survey.json.dump_config_call_sites: if GmailScanProducer writes via
+           self._writer and OutlookListOneOffsProducer uses a bare print() with
+           a conditional dump, they do NOT share an implementation, and a shared
+           base would be a wrapper over two different behaviours — exactly the
+           hollow abstraction this workflow exists to avoid.
+
+           State one of: (a) they share a body — quote the common logic and
+           extract it; or (b) they do not — DROP PlanWriterProducer entirely and
+           have OutlookExportProducer subclass BaseProducer directly. Option (b)
+           is a fine outcome. Recommending it is not a failure of this stage.
+
+        2. OutlookExportProducer + its processor — how a real recurrence rule is
+           obtained and reversed into flat repeat/byday/start_time/end_time.
+
+           Read survey.json.recurrence_gap and recurrence_read_options FIRST.
+           /calendarView returns expanded occurrences WITHOUT recurrence.pattern,
+           so the producer cannot get a rule from the listing the existing
+           pipelines use. Choose and specify a real read path (e.g. a
+           series-master GET via /me/events/<seriesMasterId>), including the new
+           service method it requires. If your design instead infers recurrence
+           from observed occurrences, this stage FAILS — that is unsound for
+           clipped windows and series with exceptions, and must not ship in a
+           backup-shaped feature.
+
+           Name the failure modes explicitly and give each a behaviour (emit,
+           skip-with-warning, or fail loudly):
+             - Graph pattern types with no plan representation. Per
+               _recurrence.py:10 the write path supports only daily / weekly /
+               absoluteMonthly, so relativeMonthly ("first Monday monthly"),
+               absoluteYearly and relativeYearly have NO representable form.
+               A silently dropped series is the worst outcome; prefer failing
+               loudly or emitting an explicit unsupported marker.
+             - series with exceptions or cancelled occurrences
+             - all-day events
+             - events spanning a DST boundary
+             - timezone normalization
+           Whatever is skipped MUST be counted and surfaced in the producer's
+           output, never dropped silently.
+
+        3. The consumer selected by consumer_kind={consumer_kind} — its
+           EventIterationProcessor subclass, and what its accumulator holds.
+           If consumer_kind is google_calendar, STOP and escalate to the human
+           gate: that path needs a new OAuth scope and forces re-consent, which
+           is a decision the workflow must not make on its own.
+
+        4. Round-trip contract — and it must be capable of FAILING.
+
+           "verify-from-config recognises every event" is NOT a valid proof.
+           Per survey.json.verify_coverage, OutlookVerifyProcessor._handle_event
+           (verify.py:52) early-returns unless the event is weekly WITH a byday,
+           so one-offs, daily, monthly and all-day events are never counted. A
+           producer that exports zero events — or fabricates repeat: weekly with
+           an invented byday — passes that check exactly like a correct one.
+
+           Specify instead a field-level equivalence assertion: for a fixture
+           calendar of KNOWN composition (at least one one-off, one weekly
+           series, one all-day event, and one pattern type the plan format
+           cannot represent), export a plan and assert
+             (a) the exported event COUNT equals the expected count, with any
+                 skipped events explicitly enumerated and justified, and
+             (b) each exported event's fields match the expected values
+                 key-by-key.
+           State the exact fixture composition and expected output here so
+           integrate-and-test cannot weaken it. Passing verify-from-config is a
+           secondary smoke check, not the criterion.
+
+        5. CLI surface: new subcommand name(s) under the outlook group, their
+           flags, and confirmation they follow the positional-subcommand
+           convention. Any mutating command needs --dry-run.
+
+           An exported plan contains real calendar contents — subjects,
+           locations, times — i.e. personal data. State where it is written by
+           default. Per project rules that MUST be core.paths.output_dir(...)
+           outside the checkout, never a relative path that lands in the repo.
+           State also that no fixture committed to tests/ may contain real
+           calendar or mailbox data, and that no stage may log event bodies,
+           recipients, or tokens.
+
+           If consumer_kind is google_calendar and
+           survey.json.escalate_google_calendar is true, present that decision
+           at this stage's human gate explicitly — new OAuth scope, forced
+           re-consent for every existing Gmail token — and state that the
+           implementation stages must not run until it is approved.
+
+        6. Explicit non-goals. State that no unified CalendarBackend base is
+           being introduced, and why.
+
+      Also write {workspace}/outputs/design.json with keys "files_to_create",
+      "files_to_modify", "new_cli_commands", "risks" (list of
+      {risk, mitigation}), and "failure_modes" so downstream stages can read the
+      plan structurally.
+
+      "failure_modes" MUST be a non-empty list of
+      {mode, expected_behaviour, why} where expected_behaviour is exactly one of
+      "emit", "skip-with-warning", or "fail-loudly". It must contain at least
+      every mode listed in item 2 above. sad-path-coverage checks the
+      implementation against THIS list — prose in design.md is not machine
+      readable and will not be used. Omitting a mode here means nothing will
+      ever test it.
+    agent:
+      # 'Plan' is NOT in dispatch.py's KNOWN_ROLES nor SKILL.md's ROLE_MAP —
+      # using it raises KeyError at dispatch. reviewer is the mapped read-only
+      # analysis role.
+      role: reviewer
+      access: read-write
+      tools: [Read, Grep, Glob, Write]
+    writes_to:
+      - outputs/design.md
+      - outputs/design.json
+    validates_output:
+      - path: outputs/design.json
+        checks:
+          - is_json
+          - is_dict
+          - "has_key:files_to_create"
+          - "has_key:risks"
+          # failure_modes is what sad-path-coverage checks against. It must be a
+          # structured list here, not prose in design.md, or the sad-path stage
+          # has nothing to verify and passes vacuously.
+          - "has_key:failure_modes"
+
+  # ===========================================================================
+  # G2: Implement — producer and consumer in parallel, isolated worktrees
+  # ===========================================================================
+
+  - name: implement-producer
+    kind: execute
+    depends_on: [design-and-plan]
+    reads_from: [design-and-plan, survey-current-state]
+    description: >
+      BRANCH GUARD — run this before any edit:
+        git branch --show-current
+      If it prints "main", STOP and fail this stage. Never mutate main.
+      A fresh agent session does not inherit an earlier stage's branch, so
+      this check must happen here, not only in the survey stage.
+
+      Implement the Outlook plan producer exactly as specified in
+      outputs/design.md. Work in an isolated worktree.
+
+      Build:
+        - PlanWriterProducer — ONLY if design.md concluded the candidate
+          producers share an actual body. If design.md chose option (b), do not
+          create it; subclass BaseProducer directly.
+        - OutlookExportProducer and its SafeProcessor
+        - the recurrence read path design.md specified (e.g. a series-master
+          GET on OutlookService) — /calendarView alone cannot supply a rule
+        - the new outlook subcommand wired via run_pipeline()
+
+      Follow the established pattern precisely: a @dataclass Request, a
+      RequestConsumer alias, a @dataclass Result, a SafeProcessor subclass
+      overriding _process_safe, and a BaseProducer subclass overriding
+      _produce_success. Mirror outlook_pipelines/events.py for structure.
+
+      Reuse ListEventsRequest and DateWindowResolver rather than reimplementing
+      window resolution. Import ListEventsRequest from calendars.outlook_service,
+      as events.py, remove.py, verify.py and others already do — but note the
+      class is DEFINED in core/outlook/models.py and only re-exported through
+      outlook_service.py:19. If it ever needs modifying, edit
+      core/outlook/models.py, not outlook_service.py. DateWindowResolver is
+      defined at src/calendars/pipeline_base.py:72.
+
+      Reusing those does NOT extend to the recurrence rule. list_events_in_range
+      returns /calendarView occurrences with no recurrence.pattern, so a NEW read
+      method is required — add it to the service per design.md rather than
+      inferring a rule from the occurrences you can see.
+
+      Handle every recurrence failure mode design.md enumerated. Where the design
+      says fail loudly, raise — do not silently skip. Every skipped event must be
+      counted and reported. Per project rules, a bare "except Exception: pass"
+      needs a "# nosec B110/B112" comment stating intent.
+
+      Write unit tests under tests/calendars_tests/outlook/ covering: a one-off
+      event, a recurring series reversed to byday/start_time from a real
+      series-master payload, an all-day event, and EACH unrepresentable pattern
+      type (relativeMonthly, absoluteYearly, relativeYearly) asserting the
+      chosen loud behaviour rather than a silent drop. Assert exported field
+      values key-by-key, not merely that some output was produced. Use fakes for
+      the Graph service exactly as the existing tests do — never hit the network.
+
+      Report created/modified files to {workspace}/outputs/producer-report.json
+      with keys "files", "tests_added", "commands_added", "deviations"
+      (anything you did differently from design.md, with reasoning).
+    agent:
+      role: code-writer
+      isolation: worktree
+      access: read-write
+    writes_to:
+      - outputs/producer-report.json
+    validates_output:
+      - path: outputs/producer-report.json
+        checks: [is_json, is_dict, "has_key:files", "has_key:deviations"]
+
+  - name: implement-consumer
+    kind: execute
+    depends_on: [design-and-plan]
+    reads_from: [design-and-plan, survey-current-state]
+    description: >
+      BRANCH GUARD — run this before any edit:
+        git branch --show-current
+      If it prints "main", STOP and fail this stage. Never mutate main.
+      A fresh agent session does not inherit an earlier stage's branch, so
+      this check must happen here, not only in the survey stage.
+
+      Implement the Gmail-side plan consumer for consumer_kind={consumer_kind},
+      exactly as specified in outputs/design.md. Work in an isolated worktree.
+
+      Subclass EventIterationProcessor from
+      src/calendars/outlook_pipelines/_base.py and implement _init_accumulator,
+      _handle_event, and _finalize. Do not duplicate the load/iterate/normalize
+      loop — that is what the base class exists for. If the base class does not
+      fit the consumer's shape, STOP and record why in "deviations" rather than
+      forcing it.
+
+      For ics_draft: build the .ics payload and draft via create_draft_raw
+      (src/mail/gmail_api.py:415). Default to DRAFT, never send. Any send path
+      must be behind an explicit non-default flag. Do not add OAuth scopes —
+      gmail.compose is already granted.
+
+      For verify_mail: read-only. Report matched/missing per plan event,
+      mirroring verify.py's duplicate/missing accumulator shape.
+
+      For google_calendar: do not proceed. Fail the stage with a message
+      pointing at the human gate — this path was to be escalated at design time.
+
+      Write tests under tests/calendars_tests/ with fakes for all mail calls;
+      never hit the network or touch a real mailbox.
+
+      Report to {workspace}/outputs/consumer-report.json with keys "files",
+      "tests_added", "commands_added", "deviations".
+    agent:
+      role: code-writer
+      isolation: worktree
+      access: read-write
+    writes_to:
+      - outputs/consumer-report.json
+    validates_output:
+      - path: outputs/consumer-report.json
+        checks: [is_json, is_dict, "has_key:files", "has_key:deviations"]
+
+  # ===========================================================================
+  # G3: Integrate — merge both worktrees, prove the round trip
+  # ===========================================================================
+
+  - name: integrate-and-test
+    kind: execute
+    depends_on: [implement-producer, implement-consumer]
+    reads_from: [implement-producer, implement-consumer, design-and-plan]
+    description: >
+      BRANCH GUARD — run this before any edit:
+        git branch --show-current
+      If it prints "main", STOP and fail this stage. Never mutate main.
+      A fresh agent session does not inherit an earlier stage's branch, so
+      this check must happen here, not only in the survey stage.
+
+      Both prior stages ran in ISOLATED WORKTREES; their edits are NOT in this
+      branch and never merge back automatically.
+
+      Merge them the way the orchestrator mandates, NOT by copying files. The
+      /workflow skill (.claude/skills/workflow/SKILL.md, "isolation: worktree
+      ... requires an explicit merge step") specifies:
+        git merge --no-ff worktree-agent-<agent-id> -m "merge stage <stage-name>"
+      Merge implement-producer first, then implement-consumer, so any conflict
+      surfaces as a real conflict with markers rather than a silent overwrite.
+
+      Do NOT drive the merge from each report's "files" list — that is the
+      implementing agent's unverified self-claim. Establish the true file set
+      from git itself (git diff --name-only against the merge base) and compare
+      it to the reports. A file the report omitted but git shows, or vice versa,
+      is a discrepancy to record, not to ignore.
+
+      Expect conflicts in src/calendars/cli/main.py (~402 lines, registers both
+      outlook_group and gmail_group) and in _base.py or gmail_pipelines.py if
+      PlanWriterProducer was extracted. Resolve them explicitly.
+
+      Then run the acceptance test from design.md item 4 — the field-level
+      equivalence assertion against a fixture calendar of known composition.
+      Assert exported COUNT equals expected count, enumerate every skipped
+      event with its reason, and compare each event's fields key-by-key.
+      Passing verify-from-config is a smoke check only: it ignores everything
+      that is not weekly-with-byday, so it cannot on its own establish the
+      round trip. Use fakes; do not touch a live calendar or mailbox.
+
+      Run the suite with `make test`. NEVER run bare `python3 -m unittest` — in a
+      worktree an inherited PYTHONPATH silently resolves imports to the main
+      checkout and produces a false green indistinguishable from a real one.
+      Skip only if run_tests={run_tests} is "false".
+
+      Write {workspace}/outputs/integration.json with keys "files_landed"
+      (from git, not from the reports), "report_discrepancies" (files git shows
+      that a report omitted, or vice versa), "conflicts_resolved",
+      "round_trip_passed" (boolean), "events_expected", "events_exported",
+      "events_skipped" (list of {event, reason}), and "test_summary".
+      round_trip_passed may be true ONLY if events_exported equals
+      events_expected, every skipped event is justified, and the key-by-key
+      field comparison matched. If false, record precisely which key mismatched.
+    agent:
+      role: code-writer
+      access: read-write
+    writes_to:
+      - outputs/integration.json
+    validates_output:
+      - path: outputs/integration.json
+        checks: [is_json, is_dict, "has_key:round_trip_passed", "has_key:files_landed"]
+
+  # ===========================================================================
+  # G4: Retire the dead abstraction
+  # ===========================================================================
+
+  - name: fix-protocol-lie
+    kind: execute
+    depends_on: [integrate-and-test]
+    reads_from: [integrate-and-test, survey-current-state]
+    description: >
+      BRANCH GUARD — run this before any edit:
+        git branch --show-current
+      If it prints "main", STOP and fail this stage. Never mutate main.
+      A fresh agent session does not inherit an earlier stage's branch, so
+      this check must happen here, not only in the survey stage.
+
+      CalendarProvider at src/calendars/importer/base.py:12 documents itself as
+      implemented by "both Gmail and Outlook backends". Leaving a false claim is
+      worse than having no abstraction: it reads as done, and its passing tests
+      certify only that two test stubs match a Protocol.
+
+      GUARD — check first: read survey.json.premises_still_true. If the
+      zero-production-implementor premise came back false, a real implementor
+      now exists and this stage's whole basis is void. Do NOT delete or annotate
+      anything; write "action_taken": "aborted — premise no longer holds" and
+      report it. Otherwise proceed.
+
+      If delete_dead_protocol={delete_dead_protocol} is "true":
+        Remove CalendarProvider and the TestCalendarProviderProtocol class at
+        tests/calendars_tests/outlook/test_outlook_scan_processor.py:218. Grep
+        for every reference first, including the three mentions in
+        src/calendars/README.md, and update them all atomically. Per project
+        rules, leave NO backwards-compatible re-export shim.
+
+      Otherwise (default):
+        Amend the docstring to state plainly that it has no production
+        implementors and is aspirational, cross-referencing the new
+        producer/consumer classes as the pattern actually in use. Do not silently
+        keep the false claim.
+
+      Either way, update the three CalendarProvider references in
+      src/calendars/README.md and document the new commands there.
+
+      Write {workspace}/outputs/protocol-fix.json with keys "action_taken",
+      "files_modified", "references_updated".
+    agent:
+      role: code-writer
+      access: read-write
+    writes_to:
+      - outputs/protocol-fix.json
+    validates_output:
+      - path: outputs/protocol-fix.json
+        checks: [is_json, is_dict, "has_key:action_taken"]
+
+  # ===========================================================================
+  # G5: Verify — lint, tests, and the agentic-schema contract
+  # ===========================================================================
+
+  - name: verify-lint-and-agentic
+    kind: validate
+    depends_on: [fix-protocol-lie]
+    reads_from: [fix-protocol-lie, integrate-and-test]
+    description: >
+      Verify the integrated result. Record findings; fix only what is trivially
+      mechanical (import order, formatting).
+
+      1. Lint: run `make lint`. Do NOT run bare `ruff check` — there is no ruff
+         on PATH; CI lints through qlty's pinned build. Do NOT trust
+         `qlty check` run from inside .claude/worktrees/: qlty.toml excludes
+         **/.claude/**, so it scans zero files while printing "No issues".
+         An empty result from this worktree means excluded, not clean.
+
+      2. Tests: `make test` (never bare python3 -m unittest — see G3).
+
+      3. Agentic schema: the project requires --agentic output to never drift
+         from the real CLI. Run:
+           ./bin/calendar --agentic --agentic-format json
+         and confirm every new subcommand appears with accurate help text.
+
+      4. Wrapper dispatch: `make bin-wrappers-check` if that target exists.
+
+      5. Confirm no new dependency was added to pyproject.toml. The project is
+         dependency-light by constraint. Flag any addition as blocking.
+
+      Write {workspace}/outputs/verification.json with keys "lint_clean"
+      (boolean), "tests_passed" (boolean), "agentic_accurate" (boolean),
+      "new_dependencies" (list), "blocking_issues" (list). Report failures
+      faithfully — a false green here defeats the whole stage.
+    agent:
+      role: reviewer
+      # read-write + explicit Write: the stage has a non-empty writes_to, and a
+      # read-only spec with no tools list is the write-stage-missing-write-tool
+      # concern. Read/Grep/Glob/Bash are for inspection only — these stages must
+      # not Edit source.
+      access: read-write
+      tools: [Read, Grep, Glob, Bash, Write]
+    # NOTE: kind: validate builds its prompt from validation.criteria and
+    # domain_rules ONLY — dispatch.py's _validate() never reads
+    # stage.description. Every actionable instruction must live in criteria
+    # below, or it is silently dropped at dispatch.
+    validation:
+      strategy: unit
+      criteria:
+        - "Lint: run `make lint` and confirm it is clean. Do NOT run a bare `ruff check` — there is no ruff on PATH; CI lints via qlty's pinned build."
+        - "Do NOT trust `qlty check` run from inside .claude/worktrees/ — .qlty/qlty.toml excludes **/.claude/**, so it scans zero files while printing 'No issues'. An empty result there means excluded, not clean."
+        - "Tests: run `make test` and confirm it passes. NEVER run a bare `python3 -m unittest` in a worktree — an inherited PYTHONPATH resolves imports to the main checkout and yields a false green."
+        - "Agentic schema: run `./bin/calendar --agentic --agentic-format json` and confirm every new subcommand appears with accurate help text (the project requires --agentic never drifts from the real CLI)."
+        - "Run `make bin-wrappers-check` if that make target exists."
+        - "Confirm no new runtime dependency was added to pyproject.toml — the project is dependency-light by constraint. Any addition is a blocking finding."
+        - "Confirm the exported plan default output path is core.paths.output_dir(...) outside the checkout, not a relative in-repo path, since exported plans contain personal calendar data."
+        - "Confirm no test fixture contains real calendar or mailbox data, and no log line emits event bodies, recipients, or tokens."
+        - "Confirm integration.json reports events_exported == events_expected with every skipped event justified — not merely that verify-from-config passed."
+        - "Write findings to {workspace}/outputs/verification.json with keys lint_clean (boolean), tests_passed (boolean), agentic_accurate (boolean), new_dependencies (list), blocking_issues (list). Report failures faithfully; a false green defeats this stage."
+    writes_to:
+      - outputs/verification.json
+    validates_output:
+      - path: outputs/verification.json
+        checks: [is_json, is_dict, "has_key:blocking_issues", "has_key:tests_passed"]
+
+  # ===========================================================================
+  # G6: Sad-path coverage — every named failure mode must have a test that
+  # asserts its loud behaviour. This feature's whole risk is silent data loss
+  # on export, and only a sad-path test catches that. A passing suite proves
+  # the happy path works; it says nothing about what happens to a series the
+  # plan format cannot represent.
+  # ===========================================================================
+
+  - name: sad-path-coverage
+    kind: validate
+    # depends_on lists only the immediate predecessor; design-and-plan and the
+    # two implement-* stages are transitive ancestors, so their outputs exist by
+    # the time this runs. That reachability IS enforced, at parse time:
+    # _validate_reads_from_ordering (parser_validate.py:71, wired in at
+    # parser.py:88) computes each stage's transitive depends_on closure and
+    # raises WorkflowParseError on any reads_from outside it. (The compiler's
+    # validate_dag_contracts is a separate, weaker check — existence and
+    # declared writes_to only.)
+    depends_on: [verify-lint-and-agentic]
+    reads_from: [verify-lint-and-agentic, design-and-plan, implement-producer, implement-consumer]
+    description: >
+      Classify every test added by this change as happy-path or sad-path and
+      fail on any design-named failure mode that has no sad-path test.
+      (kind: validate — see the criteria below; description is not dispatched.)
+    # kind: validate builds its prompt from validation.criteria ONLY —
+    # dispatch.py's _validate() never reads stage.description.
+    validation:
+      strategy: unit
+      criteria:
+        - "Build the failure-mode list from BOTH sources and take the union. (1) outputs/design.json key failure_modes — a structured list the design stage is required to emit; if that key is missing or empty, that is itself a BLOCKING finding, because it means the design named no failure modes for a feature whose primary risk is silent data loss. (2) The fixed floor below. Never derive the list from design.md prose alone — free text is not a contract, and an empty derived list would make this stage pass while proving nothing."
+        - "Fixed floor — these modes are REQUIRED members of the list regardless of what design.json says: relativeMonthly, absoluteYearly, relativeYearly (Graph pattern types with no plan representation, per _recurrence.py:10), series with exceptions or cancelled occurrences, all-day events, DST-boundary events, timezone normalization. Add any further modes design.json names. If design.json omits a floor mode, record that omission as a finding AND still check the mode."
+        - "Collect every test method added by this change. Use the tests_added lists in outputs/producer-report.json and outputs/consumer-report.json, then confirm against git: run `git diff --name-only` and inspect the test files actually touched. A test claimed in a report but absent from git is a blocking finding, and vice versa."
+        - "Classify each added test as happy-path (asserts correct output for valid input) or sad-path (asserts behaviour for invalid, unsupported, boundary, or error input). A test that merely imports a module or asserts a call did not raise is NEITHER — count it as neither and flag it, since project rules forbid tests that exist only to raise a coverage number."
+        - "For each failure mode, record whether a sad-path test asserts the design's chosen behaviour for it. Asserting a silent skip where the design said fail loudly does NOT satisfy the mode — the assertion must match the specified behaviour."
+        - "Any failure mode with zero matching sad-path tests is a BLOCKING finding. Do not soften this: an unrepresentable recurrence type that is silently dropped, with no test proving it is not, is precisely the defect this stage exists to catch."
+        - "Verify the round-trip fixture from design.md item 4 actually contains a pattern type the plan format cannot represent. A fixture of only representable events cannot exercise the skip path, so a green round-trip against it proves nothing about data loss."
+        - "Report the happy:sad ratio for the added tests. A ratio with no sad-path tests at all is blocking regardless of the mode-by-mode result."
+        - "Write findings to {workspace}/outputs/sad-path-coverage.json with keys: failure_modes (list of {mode, expected_behaviour, covered (boolean), tests (list of test names)}), tests_classified (list of {test, file, classification}), happy_count, sad_count, neither_count, uncovered_modes (list), blocking_issues (list), and passed (boolean)."
+        - "Set passed=true ONLY if uncovered_modes is empty AND sad_count > 0 AND design.json carried a non-empty failure_modes list. Otherwise set passed=false and put the reason in blocking_issues. Be aware the engine's has_key check only verifies a key EXISTS, not that a list is empty — so a populated uncovered_modes will NOT be caught mechanically. You are the enforcement. Do not set passed=true with a non-empty uncovered_modes; a downstream reviewer reads this field and will treat true as meaning every named failure mode is tested."
+        - "Run this to make the verdict checkable rather than self-reported, and paste its output into your summary: python3 -c \"import json,sys; d=json.load(open(sys.argv[1])); u=d.get('uncovered_modes') or []; s=d.get('sad_count',0); ok=(not u) and s>0; print('SAD_PATH_VERDICT:', 'PASS' if ok else 'FAIL', '| uncovered=', u, '| sad_count=', s); sys.exit(0 if ok else 1)\" {workspace}/outputs/sad-path-coverage.json"
+    agent:
+      role: reviewer
+      # read-write + explicit Write: the stage has a non-empty writes_to, and a
+      # read-only spec with no tools list is the write-stage-missing-write-tool
+      # concern. Read/Grep/Glob/Bash are for inspection only — these stages must
+      # not Edit source.
+      access: read-write
+      tools: [Read, Grep, Glob, Bash, Write]
+    writes_to:
+      - outputs/sad-path-coverage.json
+    validates_output:
+      - path: outputs/sad-path-coverage.json
+        # NOTE: has_key verifies presence only (output_checks.py:116) — it
+        # cannot assert uncovered_modes is EMPTY. The real gate is the
+        # SAD_PATH_VERDICT command in the criteria, whose exit code is
+        # non-zero when a mode is uncovered, plus the explicit `passed`
+        # boolean that review and human-gate both read.
+        checks:
+          - is_json
+          - is_dict
+          - "has_key:failure_modes"
+          - "has_key:uncovered_modes"
+          - "has_key:blocking_issues"
+          - "has_key:passed"
+
+  # ===========================================================================
+  # G7: Review
+  # ===========================================================================
+
+  - name: review
+    kind: validate
+    depends_on: [sad-path-coverage]
+    reads_from: [sad-path-coverage, verify-lint-and-agentic, design-and-plan, integrate-and-test]
+    description: >
+      Adversarial read of the integrated change against outputs/design.md.
+      Read-only — report, do not fix.
+
+      Focus on:
+        - Did the implementation follow the design, or did "deviations" in the
+          two reports quietly change the architecture?
+        - Is PlanWriterProducer genuinely shared, or a base class with one real
+          subclass? If the latter, recommend deleting it. This workflow exists
+          partly to avoid repeating the CalendarProvider mistake — do not let a
+          new hollow abstraction ship in its place.
+        - Does the consumer actually use EventIterationProcessor's template
+          methods, or does it bypass them and re-implement the loop?
+        - Recurrence correctness: is any event category silently dropped on
+          export? Cross-check against survey.json.recurrence_gap.
+        - Do the tests assert behaviour, or do they import modules to raise a
+          coverage number? Per project rules the latter is not acceptable.
+        - Happy-path vs sad-path balance. List each new test and classify it.
+          Every failure mode design.md enumerated must have a test asserting the
+          chosen loud behaviour — unrepresentable pattern types
+          (relativeMonthly, absoluteYearly, relativeYearly), series exceptions
+          and cancelled occurrences, all-day events, DST boundaries, timezone
+          normalization, and a plan file that fails to parse. A failure mode
+          named in the design with no corresponding sad-path test is a blocking
+          finding: this feature's whole risk is silent data loss, and only
+          sad-path tests catch that. If the repo's sad-path tooling would help,
+          note that workflows/tests/categorize-test-cases.yaml classifies
+          existing methods and emits a sad-path gap matrix.
+        - Any credential, token, or mailbox content in logs or output.
+
+      Write findings to {workspace}/outputs/review.json with key "findings"
+      (list of {severity, file, line, issue, suggestion}) using severities
+      blocking / suggestion / nice-to-have, plus "verdict" (ship / fix-first).
+    # NOTE: as with verify-lint-and-agentic, kind: validate drops
+    # stage.description at dispatch — the criteria below are what the agent
+    # actually receives.
+    validation:
+      strategy: unit
+      criteria:
+        - "Read outputs/design.md and compare the integrated change against it. Read-only: report findings, do not fix."
+        - "Check the 'deviations' key in producer-report.json and consumer-report.json — did an implementer quietly change the architecture the design specified?"
+        - "Is PlanWriterProducer genuinely shared, or a base class with one real subclass? If the latter, recommend deleting it. This workflow exists partly to avoid repeating the CalendarProvider hollow-abstraction mistake — do not let a new one ship in its place. If design.md chose to drop it, confirm it was in fact not created."
+        - "Does the consumer actually use EventIterationProcessor's template methods (_init_accumulator/_handle_event/_finalize), or does it bypass them and re-implement the load/iterate/normalize loop?"
+        - "Recurrence correctness: confirm the producer obtains a real recurrence rule (e.g. a series-master fetch) and does NOT infer one from expanded /calendarView occurrences. Cross-check against survey.json.recurrence_gap."
+        - "Is any event category silently dropped on export? Every skipped event must be counted and surfaced. Silent data loss in a backup-shaped feature is a blocking finding."
+        - "Do the tests assert behaviour, or merely import modules to raise a coverage number? The latter violates project rules."
+        - "Read outputs/sad-path-coverage.json. Sad-path classification is owned by that stage — do not redo it. If passed is false, or uncovered_modes is non-empty, carry each uncovered mode into your findings as BLOCKING. Do not trust passed=true on its own: re-check it against uncovered_modes and sad_count, since the engine cannot enforce emptiness. Treat a non-zero neither_count (tests asserting nothing meaningful) as a finding too."
+        - "Any credential, token, mailbox content, or real calendar data in logs, fixtures, or output is a blocking finding."
+        - "Write findings to {workspace}/outputs/review.json with key 'findings' (list of {severity, file, line, issue, suggestion}; severities blocking/suggestion/nice-to-have) and key 'verdict' (ship or fix-first)."
+    agent:
+      role: reviewer
+      # read-write + explicit Write: the stage has a non-empty writes_to, and a
+      # read-only spec with no tools list is the write-stage-missing-write-tool
+      # concern. Read/Grep/Glob/Bash are for inspection only — these stages must
+      # not Edit source.
+      access: read-write
+      tools: [Read, Grep, Glob, Bash, Write]
+    writes_to:
+      - outputs/review.json
+    validates_output:
+      - path: outputs/review.json
+        checks: [is_json, is_dict, "has_key:findings", "has_key:verdict"]
+
+  # ===========================================================================
+  # G7: Human gate
+  # ===========================================================================
+
+  - name: human-gate
+    kind: publish
+    human_gate: true
+    depends_on: [review]
+    reads_from: [review, sad-path-coverage, verify-lint-and-agentic, integrate-and-test, design-and-plan]
+    description: >
+      Summarize for the human decision. Present:
+        - what was built (new files, new CLI commands)
+        - round_trip_passed, lint_clean, tests_passed, agentic_accurate
+        - every blocking finding from review.json, verbatim
+        - sad-path-coverage.json's "passed" boolean, the happy:sad test ratio,
+          and, verbatim, every entry in its uncovered_modes — each one is a
+          failure mode the design named and nothing tests. Never summarize
+          these away, and never report passed=true while uncovered_modes is
+          non-empty; if those two disagree, say so and treat it as not ready.
+        - all "deviations" recorded by the two implementation stages
+        - the action taken on CalendarProvider
+        - what was NOT built (notably Google Calendar, unless explicitly chosen)
+
+      State plainly whether this is ready for a PR titled "{pr_title}". Do not
+      soften a failed check. If round_trip_passed is false, uncovered_modes is
+      non-empty, or any blocking finding stands, say it is not ready and name
+      what must change.
+
+      Do NOT open a PR, commit, or push. That is the human's call.
+    agent:
+      role: doc-writer
+      access: read-write
+      tools: [Read, Write]
