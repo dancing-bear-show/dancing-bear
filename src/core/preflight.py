@@ -111,6 +111,31 @@ class PreflightReport:
         return "\n".join(lines)
 
 
+def _check_label(check: object) -> str:
+    """Return a safe identifying label for a check function.
+
+    Never falls back to ``repr(check)``. A ``functools.partial`` has no
+    ``__name__``, so a repr fallback would serialize its bound arguments --
+    an API key passed as a partial argument would land verbatim in the
+    report. A custom ``__repr__`` is also arbitrary user code that can raise,
+    and raising here would escape the very handler that exists to stop a
+    buggy check from aborting the run.
+
+    Falls back to the wrapped function's name for a partial, then to the
+    type name, both of which are structural rather than value-bearing.
+    """
+    name = getattr(check, "__name__", None)
+    if isinstance(name, str) and name:
+        return mask_text(name)
+
+    inner = getattr(check, "func", None)  # functools.partial
+    inner_name = getattr(inner, "__name__", None)
+    if isinstance(inner_name, str) and inner_name:
+        return f"partial({mask_text(inner_name)})"
+
+    return type(check).__name__
+
+
 def _plural(count: object, noun: str) -> str:
     """Return ``noun`` pluralized for ``count`` (regular -s nouns only)."""
     return noun if count == 1 else f"{noun}s"
@@ -174,7 +199,7 @@ def evaluate_invariants(
                     message=error_message,
                     samples=[
                         {
-                            "check": getattr(check, "__name__", repr(check)),
+                            "check": _check_label(check),
                             "error": mask_text(str(exc)),
                             "traceback": mask_text(traceback.format_exc()),
                         }

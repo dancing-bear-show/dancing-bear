@@ -323,6 +323,67 @@ class TestSummaryPluralization(unittest.TestCase):
         self.assertIn("(2 samples)", two.summary())
 
 
+class TestCheckLabelIsSafe(unittest.TestCase):
+    """The check label must not serialize arbitrary repr output.
+
+    A repr fallback leaks a functools.partial's bound arguments into the
+    report, and a custom __repr__ is user code that can raise -- which would
+    escape the handler whose whole job is to stop a buggy check from
+    aborting the run.
+    """
+
+    TOKEN = "ghp_DDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+
+    @staticmethod
+    def _boom(changes, baseline, api_key=None):
+        raise RuntimeError("boom")
+
+    def test_partial_bound_args_are_not_serialized(self):
+        import functools
+
+        check = functools.partial(self._boom, api_key=self.TOKEN)
+        report = evaluate_invariants([{"id": "1"}], {}, [check])
+        self.assertNotIn(self.TOKEN, json.dumps(report.to_dict()))
+
+    def test_partial_still_identifies_the_wrapped_function(self):
+        # Safety must not cost the diagnostic value the label exists for.
+        import functools
+
+        check = functools.partial(self._boom, api_key=self.TOKEN)
+        report = evaluate_invariants([{"id": "1"}], {}, [check])
+        self.assertIn("_boom", report.violations[0].samples[0]["check"])
+
+    def test_raising_repr_does_not_escape_the_handler(self):
+        class Hostile:
+            def __call__(self, changes, baseline):
+                raise RuntimeError("boom")
+
+            def __repr__(self):
+                raise ValueError("repr exploded")
+
+        report = evaluate_invariants([{"id": "1"}], {}, [Hostile()])
+        self.assertFalse(report.passed)
+        self.assertEqual(report.violations[0].samples[0]["check"], "Hostile")
+
+    def test_plain_function_label_is_its_name(self):
+        report = evaluate_invariants([{"id": "1"}], {}, [self._boom])
+        self.assertEqual(report.violations[0].samples[0]["check"], "_boom")
+
+    def test_other_checks_still_run_after_a_hostile_one(self):
+        class Hostile:
+            def __call__(self, changes, baseline):
+                raise RuntimeError("boom")
+
+            def __repr__(self):
+                raise ValueError("repr exploded")
+
+        def ok(changes, baseline):
+            return "clean", []
+
+        report = evaluate_invariants([{"id": "1"}], {}, [Hostile(), ok])
+        self.assertEqual(len(report.violations), 1)
+
+
 class TestCheckErrorMasking(unittest.TestCase):
     """A crashing check must not leak credentials into the report.
 
