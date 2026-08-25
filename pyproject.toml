@@ -46,11 +46,23 @@ slides = [
   "python-pptx>=1.0.0",
   "Pillow>=10.0.0",
 ]
+# rumps backs the macOS menubar app (src/telemetry/_menubar_app*.py), which
+# raised RuntimeError on a clean install because the dep was never declared.
+# macOS-only (PyObjC), hence the sys_platform marker so ubuntu CI installs cleanly.
+menubar = [
+  "rumps==0.4.0; sys_platform == 'darwin'",
+]
 dev = [
   "pytest==9.1.1",
   "vulture==2.16",
   # Self-reference so the textual pin lives only in [tui].
   "personal-assistants[tui]",
+  # Self-reference so `telemetry menubar` is runnable in a dev install on macOS.
+  # Unlike [tui]/[slides], this is NOT a coverage fix: _menubar_app.py guards the
+  # import and falls back to rumps = None, so the mixins import (and report their
+  # real, low coverage) with or without it. Their gap is missing tests, not a
+  # missing dep.
+  "personal-assistants[menubar]",
   # Self-reference so the slides extra is installed wherever coverage runs —
   # an undeclared optional dep reports 0% coverage indistinguishably from
   # untested code (the [tui] extra hit this trap once; see CLAUDE.md).

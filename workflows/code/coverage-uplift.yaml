@@ -74,7 +74,11 @@ trigger:
     test_path: "tests/"
     pr_title: "chore(coverage): uplift uncovered lines + consolidate test helpers"
     pr_body_sources: "{workspace}/validation/domain-test-results.md and {workspace}/validation/corrections-applied.md"
-    test_cmd: "python3 -m unittest discover -s tests/ -t . -q"
+    # PYTHONPATH is pinned deliberately: a bare `python3 -m unittest` inside a
+    # git worktree resolves core/mail/worker to the MAIN checkout's source via
+    # an inherited PYTHONPATH, so the suite passes against unmodified code — a
+    # false green indistinguishable from a real one. See CLAUDE.md.
+    test_cmd: "PYTHONPATH=\"$PWD/src\" python3 -m unittest discover -s tests/ -t . -q"
 
 workspace_dir: "{work_dir}/coverage-uplift"
 
@@ -122,14 +126,17 @@ stages:
       Run coverage.py to get per-file coverage metrics, sorted by uncovered
       lines descending so the highest-yield files appear first.
 
-      Step 1 — run test suite with coverage (main branch baseline):
-        coverage run -m unittest discover -q 2>/dev/null || true
-        coverage report --include="{source_root}*" --format=json \
-          > {workspace}/analysis/coverage-raw.json
+      Step 1 — run test suite with coverage (main branch baseline).
+      PYTHONPATH must be pinned or the run measures the wrong checkout:
+        PYTHONPATH="$PWD/src" coverage run -m unittest discover -s tests -t . -q || true
+        coverage json -o {workspace}/analysis/coverage-raw.json
 
         Always run against the current main branch state. This is the
         authoritative pre-work baseline. The delta stage (coverage-delta, G23)
         will compare this against post-PR coverage after CI runs.
+
+        The baseline and coverage-delta MUST use identical commands — a
+        different discover root or include filter makes the delta meaningless.
 
       Step 2 — filter to source files only:
         Keep only rows whose path starts with {source_root}.
@@ -304,35 +311,49 @@ stages:
       Fan out: spawn one researcher per domain in {workspace}/design/domain-list.json.
       Each agent scans only its domain's test directory.
 
+      Repo layout notes (this suite is stdlib unittest, NOT pytest — there are
+      no conftest.py files and no tests/helpers/ package; do not assume either):
+        - Per-domain tests live in tests/{domain}_tests/ (note the _tests
+          suffix), e.g. tests/mail_tests/, tests/telemetry_tests/.
+        - Shared helpers live in tests/fixtures.py (TempDirMixin, temp_yaml_file,
+          capture_stdout, write_csv, ...) and tests/fakes/*.py (docx, gmail,
+          outlook fakes). These are the equivalent of a helpers package.
+        - If tests/{domain}_tests/ does not exist, record it via
+          "test_dir_exists": false and set recommendation "no_action" rather
+          than reporting empty findings as if the directory had been scanned.
+
       Each researcher agent must:
 
-        1. Read tests/helpers/README.md to know what shared factories already exist.
-        2. Read tests/helpers/*.py to catalog existing shared factory signatures.
-        3. For the assigned {domain}:
-           a. Check whether tests/{domain}/conftest.py exists.
+        1. Read tests/README.md and tests/AGENTS.md for suite conventions.
+        2. Read tests/fixtures.py and list tests/fakes/ to catalog the existing
+           shared helper surface (function/class names and signatures).
+        3. For the assigned {domain}, with DIR = tests/{domain}_tests:
+           a. Confirm DIR exists; if not, stop and report test_dir_exists false.
            b. Grep for make_* factory definitions:
-                grep -rn "^def make_" tests/{domain}/
+                grep -rn "^def make_" DIR/
            c. Grep for make_* usage counts to find factories defined but
               rarely called:
-                grep -rn "make_" tests/{domain}/
+                grep -rn "make_" DIR/
            d. Check for manual dict construction patterns that should be
               factories instead:
-                grep -rn "^    {\"" tests/{domain}/
-                grep -rn '= \{$' tests/{domain}/
-           e. Compare domain factories against tests/helpers/ — flag any
-              that duplicate a shared factory (same shape, different name).
+                grep -rn "^    {\"" DIR/
+                grep -rn '= \{$' DIR/
+           e. Compare domain factories against tests/fixtures.py and
+              tests/fakes/ — flag any that duplicate an existing shared helper
+              (same shape, different name).
 
         4. Write per-domain findings to
            {workspace}/design/reuse-shards/{domain}.json:
              {
                "domain": "{domain}",
-               "has_conftest": true|false,
+               "test_dir": "tests/{domain}_tests",
+               "test_dir_exists": true|false,
                "defined_factories": ["make_alert", ...],
                "low_use_factories": [
-                 { "name": "make_alert", "defined_in": "conftest.py", "call_count": 1 }
+                 { "name": "make_alert", "defined_in": "test_foo.py", "call_count": 1 }
                ],
                "duplicate_of_shared": [
-                 { "name": "make_alert", "matches_shared": "tests/helpers/alerts.py::make_alert" }
+                 { "name": "write_temp_yaml", "matches_shared": "tests/fixtures.py::temp_yaml_file" }
                ],
                "manual_dict_files": ["test_consumer.py"],
                "missing_core_factories": ["make_incident"],
@@ -365,14 +386,17 @@ stages:
       Aggregate across all domains:
         shared_extraction_candidates:
           Any factory where 2+ domain shards define it (same name or same
-          shape). Recommend extracting to tests/helpers/.
+          shape). Recommend extracting to tests/fixtures.py (or a new module
+          under tests/fakes/ when it is a fake object rather than a helper).
 
         missing_factories:
           Flatten all shard[].missing_core_factories into one list, each
           entry tagged with its domain.
 
-        domains_missing_conftest:
-          All domains where has_conftest == false.
+        domains_missing_test_dir:
+          All domains where test_dir_exists == false. These need a
+          tests/<domain>_tests/ package (with __init__.py) created before
+          any test files can be added.
 
         manual_dict_hotspots:
           Domains where manual_dict_files is non-empty — these should have
@@ -386,18 +410,18 @@ stages:
           "shared_extraction_candidates": [
             {
               "factory": "make_alert",
-              "defined_in": ["tests/aws/conftest.py", "tests/pagerduty/conftest.py"],
-              "recommendation": "extract to tests/helpers/alerts.py"
+              "defined_in": ["tests/mail_tests/test_foo.py", "tests/metals_tests/test_bar.py"],
+              "recommendation": "extract to tests/fixtures.py"
             }
           ],
           "missing_factories": [
             {
-              "domain": "pagerduty",
-              "factory": "make_incident",
+              "domain": "metals",
+              "factory": "make_receipt",
               "reason": "No factory found; tests construct dicts manually in 4 files"
             }
           ],
-          "domains_missing_conftest": ["newdomain1"],
+          "domains_missing_test_dir": ["newdomain1"],
           "manual_dict_hotspots": ["domain2"],
           "no_action_needed": ["domain3", "domain4"]
         }
@@ -443,16 +467,16 @@ stages:
           what mocking strategy fits the domain)
 
       ## Reuse Consolidation
-      - Factories to extract to tests/helpers/ (with source domains)
-      - Missing factories to create in domain conftests before writing tests
-      - Domains that need a conftest.py scaffolded
+      - Factories to extract to tests/fixtures.py or tests/fakes/ (with source domains)
+      - Missing factories to create in domain test packages before writing tests
+      - Domains that need a tests/<domain>_tests/ package scaffolded
 
       ## Parallel Work Plan
       Which domains can run tester agents concurrently (no shared imports or
-      conftest writes that would conflict):
+      shared-helper writes that would conflict):
         Group A: [domain1, domain2, domain3]   — fully independent
         Group B: [domain4, domain5]            — independent of A
-        Sequential: [domain6]                  — must run after conftest extraction
+        Sequential: [domain6]                  — must run after factory extraction
 
       ## Skip List
       Domains or files excluded with a one-line reason each.
@@ -489,37 +513,51 @@ stages:
 
         1. Read {workspace}/design/plan.md for its domain's section.
         2. Read {workspace}/design/reuse-map.json for its domain's factory
-           and conftest requirements.
+           requirements.
         3. Read {workspace}/design/targets.json for the ordered file list.
 
+        This suite is stdlib unittest, NOT pytest. Do not create conftest.py
+        files and do not use pytest fixtures or @pytest.mark.parametrize.
+        Domain tests live in tests/<domain>_tests/ (note the _tests suffix);
+        shared helpers live in tests/fixtures.py and tests/fakes/.
+
         4. Reuse consolidation first (before writing any tests):
-           a. If the domain is in reuse-map.json[].domains_missing_conftest,
-              scaffold tests/<domain>/conftest.py with standard imports and
-              a module-level docstring.
-           b. For each factory in reuse-map.json[].missing_factories for
-              this domain, add a make_* factory to the domain conftest.
-           c. Do NOT extract to tests/helpers/ in this stage — that is out of
-              scope for the tester agent. Flag it in the summary instead.
+           a. If the domain is in reuse-map.json[].domains_missing_test_dir,
+              create tests/<domain>_tests/ with an __init__.py.
+           b. For each factory in reuse-map.json[].missing_factories for this
+              domain, add a make_* factory to a module-level helper in the
+              domain's test package (e.g. tests/<domain>_tests/_factories.py),
+              not to a conftest.
+           c. Do NOT edit tests/fixtures.py or tests/fakes/ in this stage —
+              cross-domain extraction is out of scope for the tester agent.
+              Flag it in the summary instead.
 
         5. For each file in targets.json[domain].files (priority order):
            a. Read the source file.
            b. Read existing test file (if any) — never overwrite passing tests.
            c. Write or extend tests following project conventions:
-                - make_* factories from conftest — never manual dict construction
+                - make_* factories / tests.fixtures helpers — never manual dict construction
                 - subTest() loops for multi-scenario cases (unittest has no @parametrize)
                 - Specific assertions (assertEqual, assertIn, assertIsInstance)
                 - run_cli_with_capture for CLI subcommand tests
                 - Patch at the call site (where it is used), not where defined
                 - No assertTrue(x is not None) — use assertIsNotNone(x)
-           d. After each file: python3 -m unittest discover -s tests/<domain> -t . -q
-              Fix import errors or assertion failures before the next file.
+                - Every test must assert behaviour. Never write a test whose only
+                  purpose is to import a module and raise its coverage number.
+           d. After each file, verify with the Bash tool:
+                PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/<domain>_tests -t . -q
+              PYTHONPATH MUST be pinned. A bare `python3 -m unittest` in a git
+              worktree resolves imports to a DIFFERENT checkout via an inherited
+              PYTHONPATH, so tests pass against unmodified source — a false green
+              indistinguishable from a real one. Fix import errors or assertion
+              failures before moving to the next file.
 
         6. Write per-domain summary to {workspace}/coverage/<domain>-summary.md:
              ## <domain> Coverage Expansion
              | File | Before % | Tests Added | Status |
              |------|----------|-------------|--------|
              | ... | 30% | 8 | PASS |
-             Factories added to conftest: [list]
+             Factories added: [list]
              Files still below threshold: [list with reason]
     agent:
       role: tester
@@ -552,11 +590,13 @@ stages:
         Extract domain names from filenames (e.g., aws-summary.md → aws).
 
       Step 2 — per-domain test run:
-        For each domain:
-          python3 -m unittest discover -s tests/<domain> -t . -q
+        For each domain (PYTHONPATH must be pinned — a bare `python3 -m unittest`
+        in a worktree silently resolves imports to a different checkout and
+        reports a false green):
+          PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/<domain>_tests -t . -q
 
         Fix failures:
-          - Missing factory: add make_* to tests/<domain>/conftest.py
+          - Missing factory: add make_* to tests/<domain>_tests/_factories.py
           - Import error: check that the source path in the test matches
             the actual module path (Read the source file to verify)
           - Assertion failure: read the source to understand the expected output
@@ -613,10 +653,12 @@ stages:
             has meaningful test coverage (not just import-smoke tests)
           - No new test file introduced with coverage < 60% of its own lines
 
-        Factory and conftest hygiene:
-          - New conftest.py files have module-level docstrings
+        Factory and helper hygiene:
+          - New test modules have module-level docstrings
           - make_* factories have type-annotated return values
-          - No duplicate factory names across domain conftest and tests/helpers/
+          - No duplicate factory names across a domain's test package and
+            tests/fixtures.py / tests/fakes/
+          - No conftest.py or pytest fixtures introduced (this is a unittest suite)
 
       Write findings to {workspace}/validation/quality-review-findings.json:
         {
@@ -637,7 +679,8 @@ stages:
         - All tests use make_* factories; no manual dict construction
         - All assertions are specific (not assertTrue with a boolean expression)
         - Every targeted file has substantive tests, not just smoke imports
-        - All new conftest.py files have docstrings and typed factory signatures
+        - All new test modules have docstrings and typed factory signatures
+        - No conftest.py or pytest fixtures introduced (this is a unittest suite)
       max_revisions: 1
     required: true
     writes_to:
@@ -659,7 +702,8 @@ stages:
 
       For each critical finding:
         - Apply the fix described in the "fix" field
-        - Re-run python3 -m unittest discover -s tests/<domain> -t . -q for the affected domain
+        - Re-run PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/<domain>_tests -t . -q
+          for the affected domain (PYTHONPATH must be pinned — see test_cmd note)
         - Confirm green before moving to the next finding
 
       For each minor finding:
@@ -720,10 +764,11 @@ stages:
         Read {workspace}/analysis/coverage-baseline.json.
         Record baseline total_uncovered_lines and per-file uncovered_lines.
 
-      Step 2 — run coverage against current HEAD:
-        coverage run -m unittest discover -q 2>/dev/null || true
-        coverage report --include="{source_root}*" --format=json \
-          > {workspace}/analysis/coverage-current.json
+      Step 2 — run coverage against current HEAD. Use the SAME command shape as
+      the coverage-discover baseline (pinned PYTHONPATH, same discover root),
+      otherwise the before/after delta compares two different measurements:
+        PYTHONPATH="$PWD/src" coverage run -m unittest discover -s tests -t . -q || true
+        coverage json -o {workspace}/analysis/coverage-current.json
 
       Step 3 — compute delta:
         For each file in the baseline that was targeted in design/targets.json:

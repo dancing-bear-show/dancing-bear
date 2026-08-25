@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
+from tests.diagrams_tests._renderer_helpers import make_failed_result, make_renderer
+
 if TYPE_CHECKING:
     from diagrams.renderers import LocalRenderer, RenderRequest
 
@@ -31,10 +33,7 @@ class TestLocalRendererRunTimeout(unittest.TestCase):
     """LocalRenderer._run() raises LocalRendererError on TimeoutExpired."""
 
     def _make_renderer(self) -> "LocalRenderer":
-        from diagrams.renderers import LocalRenderer
-
-        with patch("shutil.which", return_value="/usr/local/bin/mmdc"):
-            return LocalRenderer(timeout=5)
+        return make_renderer(timeout=5)
 
     def test_timeout_expired_raises_local_renderer_error(self):
         from diagrams.renderers import LocalRendererError
@@ -62,16 +61,10 @@ class TestLocalRendererRunNonZeroExit(unittest.TestCase):
     """LocalRenderer._run() raises LocalRendererError when mmdc exits non-zero."""
 
     def _make_renderer(self) -> "LocalRenderer":
-        from diagrams.renderers import LocalRenderer
-
-        with patch("shutil.which", return_value="/usr/local/bin/mmdc"):
-            return LocalRenderer()
+        return make_renderer()
 
     def _make_failed_result(self, stderr: bytes = b"mmdc error output") -> MagicMock:
-        result = MagicMock()
-        result.returncode = 1
-        result.stderr = stderr
-        return result
+        return make_failed_result(stderr)
 
     def test_nonzero_returncode_raises_local_renderer_error(self):
         from diagrams.renderers import LocalRendererError
