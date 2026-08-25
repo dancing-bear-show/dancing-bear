@@ -59,10 +59,18 @@ class TestGuardHookSuites(unittest.TestCase):
         suite: Path = TESTS_DIR / name
         self.assertTrue(suite.is_file(), f"missing hook suite: {suite}")
 
+        # encoding/errors are pinned rather than left to the locale. statusline.sh
+        # emits box-drawing and middle-dot characters, and text=True alone decodes
+        # with the locale's preferred encoding -- ASCII on a CI runner with no
+        # LANG set, which raises UnicodeDecodeError on the first '·' and turns a
+        # passing suite into an error. errors="replace" keeps a decoding problem
+        # from masking the assertion the test actually makes.
         proc = subprocess.run(  # nosec B603 - trusted in-repo script, no user input
             ["bash", str(suite)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=str(repo_root()),
             timeout=180,
         )

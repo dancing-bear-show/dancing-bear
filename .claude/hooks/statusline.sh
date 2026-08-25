@@ -71,12 +71,26 @@ BRANCH=${BRANCH:-"no-repo"}
 
 DIR_NAME=${DIR##*/}
 
+# Repeat a (possibly multi-byte) string N times.
+#
+# NOT `printf '%*s' N '' | tr ' ' '<char>'`, which is the obvious spelling and is
+# wrong: tr translates BYTES, so under a non-UTF-8 locale (LANG unset on a CI
+# runner, LC_ALL=C) it maps each space to only the FIRST byte of the character.
+# '·' is c2b7, so a 10-wide bar came out as ten 0xc2 bytes -- invalid UTF-8 that
+# renders as mojibake locally and crashed the Python test wrapper's decode in CI.
+# Bash string ops carry the whole character regardless of locale.
+_repeat() {
+    local out='' i
+    for ((i = 0; i < $2; i++)); do out+="$1"; done
+    printf '%s' "$out"
+}
+
 # Context bar. Green under 50%, yellow at 50%, red at 80% -- thresholds unchanged
 # from the reference. The "?" branch is the new unknown state.
 BAR_WIDTH=10
 if [ "$PERCENT" = "?" ]; then
     BAR_COLOR="$DIM"
-    BAR=$(printf '%*s' "$BAR_WIDTH" '' | tr ' ' '·')
+    BAR=$(_repeat '·' "$BAR_WIDTH")
     PERCENT_FMT="--"
 else
     FILLED=$((PERCENT * BAR_WIDTH / 100))
@@ -88,7 +102,7 @@ else
     else
         BAR_COLOR="$GREEN"
     fi
-    BAR=$(printf '%*s' "$FILLED" '' | tr ' ' '█')$(printf '%*s' "$EMPTY" '' | tr ' ' '░')
+    BAR="$(_repeat '█' "$FILLED")$(_repeat '░' "$EMPTY")"
     PERCENT_FMT="${PERCENT}%"
 fi
 
