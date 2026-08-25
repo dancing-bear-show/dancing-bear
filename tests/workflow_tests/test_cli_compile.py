@@ -284,6 +284,33 @@ class TestBuildCompilePayload(unittest.TestCase):
             payload = _build_compile_payload(path)
         self.assertEqual(payload["name"], "compile-test-wf")
 
+    def test_resolution_carries_agent_spec(self) -> None:
+        """Agent role/model/isolation reach the manifest.
+
+        The orchestrator spawns agents from this payload, so a stage's
+        isolation must survive compilation — otherwise `isolation: worktree`
+        parses fine and still never reaches the Agent() call.
+        """
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = str(_write_yaml(tmp_dir, _MINIMAL_YAML))
+            payload = _build_compile_payload(path)
+        res = {r["stage"]: r for r in payload["resolutions"]}["gather"]
+        self.assertEqual(res["agent_role"], "researcher")
+        self.assertIsNone(res["agent_model"])
+        self.assertIsNone(res["agent_isolation"])
+
+    def test_resolution_carries_worktree_isolation(self) -> None:
+        yaml_src = _MINIMAL_YAML.replace(
+            "      role: researcher\n",
+            "      role: code-writer\n      isolation: worktree\n",
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = str(_write_yaml(tmp_dir, yaml_src))
+            payload = _build_compile_payload(path)
+        res = {r["stage"]: r for r in payload["resolutions"]}["gather"]
+        self.assertEqual(res["agent_isolation"], "worktree")
+        self.assertEqual(res["agent_role"], "code-writer")
+
     def test_payload_total_stages_matches_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = str(_write_yaml(tmp_dir, _MINIMAL_YAML))

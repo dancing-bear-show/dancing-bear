@@ -169,8 +169,20 @@ agent_kwargs = dict(
 if team_name:
     agent_kwargs["name"] = stage_name
     agent_kwargs["team_name"] = team_name
+# REQUIRED: a stage declaring `agent.isolation: worktree` must receive it here.
+# The compiled manifest exposes it as `agent_isolation` on the stage's
+# resolutions entry. Omitting this is what made `isolation: worktree` a no-op:
+# the YAML read as isolated while parallel code-writers shared one tree and
+# interleaved edits to the same files.
+if stage.agent.isolation:
+    agent_kwargs["isolation"] = stage.agent.isolation
 Agent(**agent_kwargs)
 ```
+
+**Never drop `isolation`.** If a stage declares it, the spawned agent must get
+it. A workflow whose stages say `isolation: worktree` but whose agents share a
+tree will silently produce interleaved edits, and any later `git merge
+worktree-agent-*` step will fail because no such branch was ever created.
 
 Map `stage.agent.role` to `subagent_type`:
 
@@ -598,6 +610,10 @@ If a stage has `fan_out` defined, check `fan_out.mode`:
    if team_name:
        fan_kwargs["team_name"] = team_name
        fan_kwargs["name"] = f"{stage_name}-{item[fan_out.key]}"
+   # Same rule as single-agent stages: isolation must reach Agent(). Fan-out
+   # writers sharing one tree is the worst case — N agents, same files.
+   if stage.agent.isolation:
+       fan_kwargs["isolation"] = stage.agent.isolation
    Agent(**fan_kwargs)
    ```
 4. All fan-out agents run in parallel (same group).

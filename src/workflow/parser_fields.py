@@ -45,6 +45,10 @@ def _parse_trigger(data: dict[str, Any], source: str) -> TriggerSpec:
     )
 
 
+_VALID_ISOLATIONS = frozenset({"worktree"})
+_KNOWN_AGENT_KEYS = frozenset({"role", "model", "tools", "access", "isolation"})
+
+
 def _parse_agent(data: dict[str, Any], source: str) -> AgentSpec:
     if not isinstance(data, dict):
         raise WorkflowParseError(f"{source}: 'agent' must be a mapping")
@@ -61,11 +65,27 @@ def _parse_agent(data: dict[str, Any], source: str) -> AgentSpec:
         raise WorkflowParseError(
             f"{source}: agent has invalid access '{access_str}' (valid: {valid})"
         ) from None
+    isolation = data.get("isolation")
+    if isolation is not None and isolation not in _VALID_ISOLATIONS:
+        valid = ", ".join(sorted(_VALID_ISOLATIONS))
+        raise WorkflowParseError(
+            f"{source}: agent has invalid isolation '{isolation}' (valid: {valid})"
+        )
+    # Reject unknown keys rather than dropping them. A silently ignored
+    # 'isolation: worktree' let parallel code-writers interleave edits in one
+    # tree while the workflow read as if they were isolated.
+    unknown = set(data) - _KNOWN_AGENT_KEYS
+    if unknown:
+        known = ", ".join(sorted(_KNOWN_AGENT_KEYS))
+        raise WorkflowParseError(
+            f"{source}: agent has unknown key(s) {sorted(unknown)} (valid: {known})"
+        )
     return AgentSpec(
         role=data["role"],
         model=data.get("model"),
         tools=tuple(str(t) for t in tools),
         access=access,
+        isolation=isolation,
     )
 
 

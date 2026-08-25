@@ -257,6 +257,7 @@ def build_dispatch_instruction(
         "stage_index": stage.index,
         "workflow_name": workflow_name,
         "model": stage.spec.agent.model,
+        "isolation": stage.spec.agent.isolation,
         "prompt": build_agent_prompt(stage, workflow_name, workspace_dir),
         "workspace_dir": ws,
         "writes_to": list(stage.spec.writes_to),

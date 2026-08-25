@@ -149,28 +149,32 @@ general workflow concerns live in `workflow.md`.
 - **fix**: Write Haiku agent output directly to `{workspace}/outputs/...` paths. If the session's harness blocks workspace writes for Haiku, promote to `model: sonnet` or use an `executor: inline` copy stage after the fan-out to move files from a local staging path into the workspace.
 - **example**: An `extract-evidence` fan-out stage uses `role: researcher-haiku` and instructs agents to `Write evidence-staging/{stage_name}.json` (repo-local). In a session where Haiku's Write tool is harness-blocked for repo paths, every agent reports "Permission denied" and the staging dir remains empty, causing all downstream agents to SKIP. Fix: point agents to `{workspace}/outputs/evidence/{stage_name}.json` instead.
 
-### agent-isolation-key-misplaced
+### agent-isolation-wrong-key-or-value
 - **severity**: critical
-- **check**: Verify that fan-out stages declare `isolation: work-dir` under `fan_out:` (`FanOutSpec.isolation`), not under `agent:`. Both `AgentSpec` and `FanOutSpec` have an `isolation` field and both are parsed by the engine; the distinction matters because the workflow skill reads `fan_out.isolation` when orchestrating worker_queue fan-outs (`fan_out.mode: worker_queue`). For non-fan-out single-agent stages, `agent.isolation: work-dir` is the correct and valid location.
-- **triggers**: Fan-out stages (`fan_out.mode: worker_queue` or `fan_out.mode: agent`) where `isolation: work-dir` appears under the `agent:` block rather than the `fan_out:` block; any stage using the literal value `isolation: worktree` anywhere (not a supported value — the YAML field uses `work-dir`; the Agent tool parameter uses `worktree`).
+- **check**: Verify that stage isolation is declared as `isolation: worktree` under `agent:`. This is the ONLY supported form. `FanOutSpec` has no `isolation` field (see `models.py`), so `fan_out.isolation` is not parsed by anything, and `work-dir` is not a recognised value anywhere in the engine.
+- **triggers**: `isolation:` appearing under a `fan_out:` block; the value `work-dir` anywhere; any misspelling of the `isolation` key.
+- **note**: Since `_parse_agent` rejects unknown agent keys, a misspelled key now raises `WorkflowParseError` at parse time rather than being silently dropped. An `isolation:` under `fan_out:` is still silently ignored — `_parse_fan_out` does not read it.
 - **example**:
   ```yaml
-  # bad — isolation under agent: is ignored for fan-out stages;
-  # the workflow skill reads fan_out.isolation, not agent.isolation,
-  # when spawning worker_queue agents
+  # bad — fan_out.isolation is not a parsed field; silently ignored
   agent:
     role: researcher
-    model: haiku
-    isolation: work-dir
   fan_out:
     mode: worker_queue
+    isolation: work-dir
 
-  # good — isolation belongs under fan_out: for fan-out stages
+  # bad — "work-dir" is not a supported value; raises WorkflowParseError
   agent:
-    role: researcher
-    model: haiku
-  fan_out:
-    mode: worker_queue
+    role: code-writer
     isolation: work-dir
+
+  # good — the only supported form, for fan-out and single-agent stages alike
+  agent:
+    role: code-writer
+    isolation: worktree
   ```
-  For non-fan-out single-agent stages, `agent.isolation: work-dir` is correct and IS used (`dispatch.py` reads `stage.spec.agent.isolation`).
+  The parsed value is carried into the compiled manifest as `agent_isolation`
+  and must be passed to `Agent(isolation=...)` by the orchestrator; see
+  `.claude/skills/workflow/SKILL.md`. A stage that declares isolation but whose
+  agent does not receive it runs in the shared tree, which is how parallel
+  code-writers end up interleaving edits to the same file.

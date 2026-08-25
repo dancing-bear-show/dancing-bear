@@ -190,6 +190,25 @@ class TestBuildDispatchInstruction(unittest.TestCase):
                 str(Path(tmp_dir).resolve()),
             )
 
+    # (g) isolation key is present in the payload and carries the agent's value
+    def test_isolation_worktree_carried_through(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = make_agent_spec(role="code-writer", isolation="worktree")
+            stage = make_stage_spec(name="isolated-stage", agent=agent)
+            resolved = make_resolved_stage(spec=stage, index=0)
+            result = build_dispatch_instruction(resolved, "test-workflow", tmp_dir)
+            self.assertIn("isolation", result)
+            self.assertEqual(result["isolation"], "worktree")
+
+    def test_isolation_none_carried_through(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = make_agent_spec(role="researcher", isolation=None)
+            stage = make_stage_spec(name="non-isolated-stage", agent=agent)
+            resolved = make_resolved_stage(spec=stage, index=0)
+            result = build_dispatch_instruction(resolved, "test-workflow", tmp_dir)
+            self.assertIn("isolation", result)
+            self.assertIsNone(result["isolation"])
+
 
 # ---------------------------------------------------------------------------
 # build_group_dispatch

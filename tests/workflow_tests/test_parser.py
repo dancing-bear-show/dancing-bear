@@ -587,6 +587,93 @@ class TestSubWorkflow(unittest.TestCase):
         self.assertEqual(stage.kind, StageKind.sub_workflow)
 
 
+# ---------------------------------------------------------------------------
+# _parse_agent — isolation field and unknown-key rejection
+# ---------------------------------------------------------------------------
+
+
+class TestParseAgentIsolation(unittest.TestCase):
+    """Tests for _parse_agent isolation parsing and unknown-key rejection."""
+
+    def _parse_agent(self, data: dict) -> object:
+        from workflow.parser_fields import _parse_agent
+        return _parse_agent(data, source="test.yaml")
+
+    # (b) isolation: worktree is parsed through to AgentSpec.isolation
+    def test_isolation_worktree_parsed(self) -> None:
+        spec = self._parse_agent({"role": "code-writer", "isolation": "worktree"})
+        self.assertEqual(spec.isolation, "worktree")
+
+    # (c) isolation absent — defaults to None
+    def test_isolation_absent_defaults_to_none(self) -> None:
+        spec = self._parse_agent({"role": "researcher"})
+        self.assertIsNone(spec.isolation)
+
+    # (d) invalid isolation value raises with message naming valid option
+    def test_invalid_isolation_raises(self) -> None:
+        with self.assertRaises(Exception) as ctx:
+            self._parse_agent({"role": "researcher", "isolation": "sandbox"})
+        msg = str(ctx.exception)
+        self.assertIn("sandbox", msg)
+        self.assertIn("worktree", msg)
+
+    # (e) unknown agent key raises — realistic typo "isolaton" (missing 'i')
+    def test_unknown_key_typo_raises(self) -> None:
+        with self.assertRaises(Exception) as ctx:
+            self._parse_agent({"role": "code-writer", "isolaton": "worktree"})
+        msg = str(ctx.exception)
+        self.assertIn("isolaton", msg)
+
+    # (e) a completely foreign unknown key also raises
+    def test_unknown_key_raises_naming_key(self) -> None:
+        with self.assertRaises(Exception) as ctx:
+            self._parse_agent({"role": "researcher", "timeout": "30s"})
+        msg = str(ctx.exception)
+        self.assertIn("timeout", msg)
+
+    # (f) all four previously-valid keys still parse without raising
+    def test_role_only_parses(self) -> None:
+        spec = self._parse_agent({"role": "researcher"})
+        self.assertEqual(spec.role, "researcher")
+
+    def test_model_key_parses(self) -> None:
+        spec = self._parse_agent({"role": "code-writer", "model": "sonnet"})
+        self.assertEqual(spec.model, "sonnet")
+
+    def test_tools_key_parses(self) -> None:
+        spec = self._parse_agent({"role": "reviewer", "tools": ["Read", "Bash"]})
+        self.assertEqual(spec.tools, ("Read", "Bash"))
+
+    def test_access_key_parses(self) -> None:
+        spec = self._parse_agent({"role": "code-writer", "access": "read-write"})
+        self.assertEqual(spec.access.value, "read-write")
+
+    # (h) end-to-end: workflow YAML with agent.isolation: worktree parses correctly
+    def test_e2e_isolation_worktree_in_yaml(self) -> None:
+        yaml_str = """\
+name: iso-test
+version: "0.1"
+description: Isolation round-trip test
+trigger:
+  source: manual
+stages:
+  - name: write-stage
+    kind: execute
+    description: Isolated code-writer stage
+    agent:
+      role: code-writer
+      isolation: worktree
+"""
+        wf = parse_workflow_str(yaml_str)
+        self.assertEqual(len(wf.stages), 1)
+        self.assertEqual(wf.stages[0].agent.isolation, "worktree")
+
+    # (h) stage without isolation key yields isolation=None end-to-end
+    def test_e2e_isolation_absent_in_yaml(self) -> None:
+        wf = parse_workflow_str(_minimal_yaml())
+        self.assertIsNone(wf.stages[0].agent.isolation)
+
+
 class TestDagSharedDependency(unittest.TestCase):
     def test_validate_dag_shared_dependency_does_not_raise(self) -> None:
         yaml_str = """\

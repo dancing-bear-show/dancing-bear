@@ -126,6 +126,12 @@ def _build_compile_payload(path: str) -> dict:
     resolutions = [{
         "stage": name, "template_resolved": r.template_content is not None,
         "guide_resolved": r.guide_content is not None, "cli_commands": len(r.cli_commands),
+        # Agent spec is surfaced so the orchestrator can spawn from the manifest
+        # rather than re-reading the YAML. isolation in particular must reach
+        # the Agent() call, or `isolation: worktree` silently does nothing.
+        "agent_role": r.spec.agent.role if r.spec.agent else None,
+        "agent_model": r.spec.agent.model if r.spec.agent else None,
+        "agent_isolation": r.spec.agent.isolation if r.spec.agent else None,
     } for name, r in manifest.resolved_stages.items()]
     warnings = [{"stage": w.stage, "upstream": w.upstream, "message": w.message}
                 for w in contract_warnings]

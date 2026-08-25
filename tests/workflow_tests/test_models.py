@@ -174,6 +174,18 @@ class TestAgentSpec(unittest.TestCase):
         spec = make_agent_spec(tools=("Bash", "Edit"))
         self.assertIsInstance(spec.tools, tuple)
 
+    def test_isolation_defaults_to_none(self) -> None:
+        spec = AgentSpec(role="code-writer")
+        self.assertIsNone(spec.isolation)
+
+    def test_isolation_worktree(self) -> None:
+        spec = AgentSpec(role="code-writer", isolation="worktree")
+        self.assertEqual(spec.isolation, "worktree")
+
+    def test_isolation_none_explicit(self) -> None:
+        spec = AgentSpec(role="researcher", isolation=None)
+        self.assertIsNone(spec.isolation)
+
 
 # ---------------------------------------------------------------------------
 # OutputSpec
