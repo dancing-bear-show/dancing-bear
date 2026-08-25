@@ -35,6 +35,7 @@ not a silent pass.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess  # nosec B404 - runs trusted in-repo shell suites
 import unittest
@@ -50,6 +51,13 @@ SUITES = (
     "block-destructive-bash.test.sh",
     "block-protected-paths.test.sh",
     "statusline.test.sh",
+)
+
+# The summary line every suite ends with, e.g. "statusline: 76 passed, 0 failed, 76 total".
+# Parsed rather than merely searched for "ALL PASS" -- see _assert_ran_cases below.
+_SUMMARY_RE = re.compile(
+    r"^\S+: (?P<passed>\d+) passed, (?P<failed>\d+) failed, (?P<total>\d+) total$",
+    re.MULTILINE,
 )
 
 
@@ -109,29 +117,54 @@ class TestGuardHookSuites(unittest.TestCase):
             0,
             msg=f"\n--- {name} ---\n{proc.stdout}\n{proc.stderr}",
         )
-        # An empty run is not a passing run. A suite whose cases were all deleted, or
-        # that exited before running anything, exits 0 and would otherwise read as
-        # green -- the same fail-open shape the suites themselves guard against.
+        # "ALL PASS" is necessary but NOT sufficient -- see _assert_ran_cases, which
+        # checks that cases actually ran and that all of them passed.
         self.assertIn("ALL PASS", proc.stdout, msg=proc.stdout)
+        self._assert_ran_cases(name, proc.stdout)
 
-    def test_block_destructive_bash_suite(self) -> None:
-        """Bash guard: credential reads/writes, rm -rf targets, malformed payloads."""
-        self._run_suite("block-destructive-bash.test.sh")
+    def _assert_ran_cases(self, name: str, stdout: str) -> None:
+        """A suite that ran zero cases has not tested anything.
 
-    def test_block_protected_paths_suite(self) -> None:
-        """Write/Edit guard: credential paths, .git/, key material, templates."""
-        self._run_suite("block-protected-paths.test.sh")
+        ``ALL PASS`` alone is not evidence of a passing run. ``_summary`` prints it
+        whenever no case FAILED, and a suite whose cases were all deleted -- or that
+        exited before reaching them -- fails nothing. Both counters sit at zero, the
+        exit code is 0, and every layer above reports green having exercised not one
+        guard. ``_harness.sh`` now refuses that case at the source; this asserts the
+        same thing here so the wrapper cannot be satisfied by a suite that silently
+        stopped running cases.
+        """
+        match = _SUMMARY_RE.search(stdout)
+        if match is None:
+            self.fail(f"{name} printed no parsable summary line:\n{stdout}")
+        passed = int(match.group("passed"))
+        failed = int(match.group("failed"))
+        total = int(match.group("total"))
+        self.assertGreater(
+            total,
+            0,
+            msg=f"{name} ran zero cases -- an empty suite is not a passing suite",
+        )
+        self.assertEqual(
+            passed,
+            total,
+            msg=f"{name} reported {failed} failure(s) of {total}:\n{stdout}",
+        )
 
-    def test_statusline_suite(self) -> None:
-        """Statusline: unknown-vs-zero context, thresholds, prefix precedence."""
-        self._run_suite("statusline.test.sh")
+    def test_each_suite_on_disk_is_listed_and_passes(self) -> None:
+        """Every *.test.sh is in SUITES, and every entry in SUITES runs and passes.
 
-    def test_every_suite_in_the_directory_is_wired_in(self) -> None:
-        """A new *.test.sh must be added to SUITES, not left unrun.
+        CONSOLIDATED from three hand-written per-suite methods plus a separate
+        directory-match test. That arrangement checked the SUITES tuple against disk
+        but never ITERATED it: execution came from the three methods, so a suite added
+        to the tuple with no matching ``test_*`` method satisfied the equality check
+        and was never run. The tuple looked like the source of truth while the method
+        list actually was one, and the two could drift silently in the direction that
+        loses coverage.
 
-        The failure this prevents is the one that made this wrapper necessary in the
-        first place: a suite that exists, passes when run by hand, and is never
-        invoked by anything automated.
+        Driving both the membership check and the execution from SUITES means a name
+        can only be in one of three states: absent from the tuple (the directory check
+        fails), present and passing, or present and failing. There is no fourth state
+        where it is listed and quietly skipped.
         """
         on_disk = {p.name for p in TESTS_DIR.glob("*.test.sh")}
         self.assertEqual(
@@ -139,6 +172,13 @@ class TestGuardHookSuites(unittest.TestCase):
             set(SUITES),
             msg="hook suites on disk do not match the SUITES tuple in this file",
         )
+        # Guards the guard: an emptied SUITES would make the assertEqual above pass
+        # against an emptied directory and run nothing at all.
+        self.assertTrue(SUITES, msg="SUITES is empty -- no hook suite would run")
+
+        for name in SUITES:
+            with self.subTest(suite=name):
+                self._run_suite(name)
 
 
 if __name__ == "__main__":

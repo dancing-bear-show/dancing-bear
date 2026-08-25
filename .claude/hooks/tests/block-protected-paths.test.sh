@@ -177,5 +177,25 @@ run ALLOW "src/slides/p8_layout.py"
 run ALLOW "src/phone/p12_reader.py"
 
 echo
+echo "--- template exemption is an EXACT basename (want BLOCK) ---"
+# CHANGED BEHAVIOUR, matching the same change in block-destructive-bash.sh. The carve-out
+# also accepted a `*.env.example` wildcard, while the comment above it and the README
+# both defined it as an EXACT basename exemption. Any file whose name merely ENDED in
+# `.env.sample` was therefore writable regardless of what it held, so a real secret only
+# had to be named `prod.env.sample` to opt into the carve-out.
+#
+# Kept identical to the Bash half deliberately: the two halves of this pair disagreeing
+# about what counts as a template is how a file one door refuses becomes reachable
+# through the other.
+run BLOCK "foo.env.example"
+run BLOCK "prod.env.sample"
+run BLOCK "client.env.template"
+run BLOCK "backend/service.env.example"
+# The three exact basenames stay writable, at any depth.
+run ALLOW ".env.example"
+run ALLOW "backend/.env.template"
+run ALLOW "config/.env.sample"
+
+echo
 _summary "block-protected-paths"
 exit $?

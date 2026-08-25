@@ -8,16 +8,47 @@
 #
 # Contract: exit 2 blocks the tool call and shows stderr to Claude. Exit 0 allows.
 #
+# SCOPE: THIS IS AN ACCIDENT GUARD, NOT A SECURITY BOUNDARY
+# ---------------------------------------------------------
+# Read this before extending anything below, and before describing this file to anyone
+# as a protection.
+#
+# What it does: stops a mistyped `rm -rf /` and an agent reflexively `cat`-ing a
+# credential file. Within that, it works.
+#
+# What it does NOT do: resist a determined bypass. This file pattern-matches the command
+# STRING. Bash's grammar is richer than the matcher, and much of what the shell will run
+# does not exist as text when the hook reads it. All of these reach the shell today:
+#
+#   rm${IFS}-rf /              whitespace synthesized from a variable
+#   r\m -rf /                  escape consumed during word expansion
+#   R=rm; $R -rf /             command word supplied by a variable
+#   rm $FLAGS /                recursive+force supplied by a variable
+#   cat /tmp/credentials'.'ini filename assembled from adjacent quoted spans
+#   python3 -c '...'           a non-shell interpreter that can spawn anything
+#
+# Four rounds of adversarial review found 68 holes of this shape; each round's fixes
+# exposed the next round's. That is not a backlog, it is the design's limit -- a regex
+# approximating a shell parser diverges from it at the edges, and the edges are where
+# these live. The decision is to keep the promise narrow rather than keep hardening.
+#
+# Anything that genuinely must not happen needs enforcement the shell cannot reach:
+# filesystem permissions, a sandbox, or credentials that are not on disk at all. See the
+# "Known gaps (won't fix)" section in README.md.
+#
 # WHY THIS HOOK EXISTS AT ALL
 # ---------------------------
 # settings.json `permissions.deny` entries like Read(**/credentials.ini) bind the
 # READ TOOL. They say nothing about `cat ~/.config/credentials.ini`, which is a Bash
 # call and walks straight past every one of them. Same for Edit(**/credentials.ini)
 # versus `echo x > ~/.config/credentials.ini`. A deny rule is a routing decision
-# inside the harness; the shell is a different door. This hook is the enforcing
-# layer on that door -- and unlike a deny rule, which a project-level settings file
-# can override, a PreToolUse hook exiting 2 cannot be overridden from inside the
-# session.
+# inside the harness; the shell is a different door, and this hook watches it.
+#
+# On "cannot be overridden": the MECHANISM is robust -- a PreToolUse hook exiting 2
+# blocks the call, and a project-level settings file cannot switch it off the way it can
+# a deny rule. The COVERAGE is not, per the scope note above. An unbypassable mechanism
+# wrapped around an approximate matcher is still an approximate guard, and conflating the
+# two is how this file came to be described as something it is not.
 #
 # DESIGN NOTE: OPERANDS, NOT COMMAND WORDS
 # ----------------------------------------
@@ -162,7 +193,17 @@ UNIVERSAL_SECRETS="\\.ssh$DIR_BOUNDARY|\\.gnupg$DIR_BOUNDARY|\\.aws/credentials|
 # git commands cannot undo. block-protected-paths.sh already guards this on the
 # Write/Edit side; without the Bash half, `echo x > .git/config` walks past it -- the
 # exact tool-versus-shell gap this whole file exists to close.
-REPO_INTERNALS='\.git/'
+#
+# CHANGED: spelled with DIR_BOUNDARY rather than a bare trailing slash. `\.git/` matches
+# only DESCENDANTS, so an operand that is exactly `.git` matched nothing here, fell
+# through to the workspace carve-out, and was allowed -- `cp -r .git /tmp` and
+# `tar czf /tmp/x.tgz .git` copy every object, every branch and every reflog entry out
+# of the repository wholesale. The directory itself discloses strictly more than any one
+# file under it, so protecting only `.git/config` and leaving `.git` open had it exactly
+# backwards. Same end-of-token bug DIR_BOUNDARY was introduced for on `.ssh` and
+# `.gnupg`; this is the third place it has appeared, which is why the boundary is a
+# shared constant rather than a literal repeated per pattern.
+REPO_INTERNALS="\\.git$DIR_BOUNDARY"
 
 # The guard's own source, and the settings file that wires it up.
 #
@@ -241,6 +282,28 @@ PROTECTED_DIR_SEGMENTS_SOFT='(^|/)\.config(/|$)'
 # this repo regenerates it. Matching on the operand covers `rm`, `shred`, `unlink`,
 # `rsync`, `chmod`, and whatever the next one turns out to be, without an edit here.
 
+# Constructs that can change the working directory before a later command runs.
+#
+# WHY THIS EXISTS: every relative `rm` operand is resolved against the HOOK PROCESS's
+# $PWD, because that is the only cwd this file can see. The shell that actually runs the
+# command may be somewhere else entirely by the time `rm` executes:
+#
+#   cd / && rm -rf etc
+#
+# `etc` resolved to `<repo>/etc`, matched the "inside the agent's own workspace" allow,
+# and exited 0 -- while the shell, standing in `/`, removed `/etc`. The hook was not
+# wrong about the string; it was answering the question relative to the wrong directory.
+# `pushd`, a `cd` inside a subshell, and `--directory`-style flags on the invoking tool
+# all produce the same divergence.
+#
+# Modelling shell directory state is not attempted. Tracking cwd across `&&`, `;`, `|`,
+# subshells, functions and conditionals is writing the shell parser this file has
+# repeatedly demonstrated it cannot be, and a cwd model that is wrong in one branch is
+# worse than none -- it would produce a CONFIDENT wrong answer instead of a refusal. So
+# a relative rm target in a command that can move is refused outright. An absolute path
+# is unaffected, and naming the target absolutely is the fix the block message asks for.
+CD_CONSTRUCTS="${CMD_START}(cd|pushd|popd|chdir)([[:space:]]|$)"
+
 # Checked-in templates are safe: they carry placeholder values and exist to be read
 # and diffed against a real config.
 #
@@ -250,10 +313,22 @@ PROTECTED_DIR_SEGMENTS_SOFT='(^|/)\.config(/|$)'
 # file containing real secrets, now invisible to every pattern. Same for
 # `echo x > .env.example.bak`. The carve-out now applies per-token and only to a token
 # that IS a template path, never to one that merely contains a template-looking span.
+#
+# CHANGED AGAIN: the `*.env.example` wildcard arm is gone. The comment above and the
+# README both describe this carve-out as an EXACT basename exemption, and the wildcard
+# quietly made it something broader: any file whose name merely ENDS in `.env.example`
+# was exempt, so `foo.env.example`, `prod.env.sample` and `client.env.template` were all
+# waved through. Those are not checked-in templates -- a template is the file the repo
+# ships, and it is named `.env.example`. A real secret only has to be named
+# `prod.env.sample` to become unreadable to every rule below this point, which is a
+# carve-out an attacker (or an ordinary sloppy filename) can opt INTO.
+#
+# The three exact basenames are what the repo actually ships and what the documentation
+# promises. Anything else named to resemble them is judged on its merits like any other
+# path.
 _is_template() {
   case "${1##*/}" in
     .env.example|.env.template|.env.sample) return 0 ;;
-    *.env.example|*.env.template|*.env.sample) return 0 ;;
   esac
   return 1
 }
@@ -364,9 +439,62 @@ _normalize_target() {
   esac
   # Collapse repeated slashes so `//` and `///` land on `/` like the kernel treats them.
   target=$(sed -E 's#/+#/#g' <<< "$target")
+  # Drop `./` segments, which name the same directory they sit in and are invisible to
+  # the kernel. See _lexical_normalize below for why this matters.
+  target=$(sed -E 's#(^|/)\./#\1#g' <<< "$target")
   # A trailing slash is cosmetic: `/etc/` is `/etc`. Keep bare "/" intact.
   [ "$target" != "/" ] && target="${target%/}"
   printf '%s' "$target"
+}
+
+# Resolve `..` textually WITHOUT making the path absolute.
+#
+# _resolve_dots (below) also handles `..`, but it anchors a relative path to $PWD and
+# returns an absolute result. The operand check in section 3 matches patterns like
+# `\.claude/hooks/` and `\.git(/|$)` against the token as written, so an absolute
+# rewrite is both unnecessary there and actively harmful -- it would make every ordinary
+# relative token carry the full worktree prefix.
+#
+# WHY THIS EXISTS: `_normalize_target` collapsed repeated slashes but nothing collapsed
+# `.` or `..` for an ORDINARY operand, only for `rm` targets. So one inert dot segment
+# turned every path rule in section 3 off:
+#
+#   echo x > .claude/./hooks/block-destructive-bash.sh
+#
+# GUARD_INTERNALS is `\.claude/hooks/`, and `.claude/./hooks/` does not contain that
+# substring -- while the shell opens exactly the file the pattern names. The guard could
+# therefore be rewritten to `exit 0` through the one path it protects hardest, which
+# makes every other rule in this file advisory. The same trick reaches `.git/./config`
+# and `~/.ssh/./id_rsa`.
+#
+# `..` is collapsed here too, for the same reason and with one deliberate limit: a
+# leading `..` that climbs above the token's own root cannot be resolved without knowing
+# the cwd, so it is left in place rather than guessed at. Section 3 matches on segments
+# anywhere in the token, so an unresolved leading `..` costs nothing there.
+_lexical_normalize() {
+  local path="$1" out="" seg lead=""
+  case "$path" in
+    /*) lead="/" ;;
+  esac
+  local IFS='/'
+  # shellcheck disable=SC2086
+  for seg in $path; do
+    case "$seg" in
+      ""|".") continue ;;
+      "..")
+        # Nothing to climb from (or only unresolved `..` so far): keep it literal.
+        # Otherwise drop the last segment. `${out%/*}` leaves `out` unchanged when
+        # there is no slash, so a single-segment `out` is cleared explicitly.
+        case "$out" in
+          ""|".."|*/..) out="${out:+$out/}.." ;;
+          */*) out="${out%/*}" ;;
+          *) out="" ;;
+        esac
+        ;;
+      *) out="${out:+$out/}$seg" ;;
+    esac
+  done
+  printf '%s' "$lead$out"
 }
 
 # Resolve `.` and `..` segments textually, without touching the filesystem.
@@ -542,6 +670,26 @@ if grep -qE "${CMD_START}${RM_NAME}([[:space:]]|$)" <<< "$CMD"; then
       # and neither is caught by the absolute-prefix rules below -- both land under
       # $HOME, which the "under home but not home itself" branch allows.
       WORKSPACE_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' "$PWD")
+
+      # A relative target is only meaningful if the command cannot move first. See
+      # CD_CONSTRUCTS above: `cd / && rm -rf etc` resolved `etc` against the hook's own
+      # $PWD, landed inside the workspace, and was allowed -- while the shell removed
+      # /etc. Refuse rather than guess at the runtime cwd.
+      case "$RAW_TARGET" in
+        /*) ;;
+        *)
+          if grep -qE "$CD_CONSTRUCTS" <<< "$CMD"; then
+            echo "Blocked: 'rm -rf $RAW_TARGET' is a RELATIVE path in a command that also changes directory." >&2
+            echo "This guard resolves relative targets against its own working directory, but the shell" >&2
+            echo "will have moved by the time rm runs -- 'cd / && rm -rf etc' reads as a path inside the" >&2
+            echo "checkout here and deletes /etc there. Tracking the shell's cwd is not something this" >&2
+            echo "hook can do correctly, so it refuses instead of guessing." >&2
+            echo "Name the target as an absolute path, or run it yourself with a leading ! in the prompt." >&2
+            exit 2
+          fi
+          ;;
+      esac
+
       case "$RAW_TARGET" in
         /*) ;;
         *..*)
@@ -957,7 +1105,14 @@ while IFS= read -r raw; do
     # in _normalize_target is what makes `credentials\.ini` match the credentials.ini
     # patterns at all, so a check that skips normalization is a check with a backslash
     # hole in it.
-    NORM=$(_normalize_target "$candidate")
+    #
+    # _lexical_normalize then collapses `.` and `..` segments. Without it a single inert
+    # dot segment turned every path rule below off: `.claude/./hooks/...` names the same
+    # file as `.claude/hooks/...` to the shell but matches neither GUARD_INTERNALS nor
+    # REPO_INTERNALS as a substring. The `rm` operand path already normalized dots; this
+    # is the same normalization applied to ordinary operands, which is where it was
+    # missing. See the function's own comment for the full case.
+    NORM=$(_lexical_normalize "$(_normalize_target "$candidate")")
 
     # Protected DIRECTORY segments, checked BEFORE the template carve-out.
     #

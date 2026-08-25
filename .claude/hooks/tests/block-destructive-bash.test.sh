@@ -665,5 +665,83 @@ run ALLOW 'for f in src/*.py; do echo "$f"; done'
 run ALLOW 'echo "$PWD"'
 
 echo
+echo "--- REGRESSION 39: .git as a whole-directory operand (want BLOCK) ---"
+# REPO_INTERNALS was `\.git/`, which matches only DESCENDANTS. An operand that is
+# exactly `.git` matched nothing, fell through to the workspace carve-out, and was
+# allowed -- so `echo x > .git/config` was blocked while copying the ENTIRE object
+# database, every branch and every reflog entry out of the repo was not. The directory
+# discloses strictly more than any single file under it.
+run BLOCK 'cp -r .git /tmp'
+run BLOCK 'tar czf /tmp/x.tgz .git'
+run BLOCK 'cp -r ./.git /tmp/stolen'
+run BLOCK 'rsync -a .git /tmp/'
+run BLOCK 'cat .git/config'
+# The boundary is a real boundary: these are ordinary files whose names merely START
+# with ".git", and blocking them would break routine work.
+run ALLOW 'cat .gitignore'
+run ALLOW 'cat .gitmodules'
+run ALLOW 'ls .github/workflows'
+run ALLOW 'git status'
+run ALLOW 'git log --oneline -5'
+
+echo
+echo "--- REGRESSION 40: dot segments do not defeat path rules (want BLOCK) ---"
+# _normalize_target collapsed repeated slashes but nothing collapsed `.` or `..` for an
+# ORDINARY operand -- only for rm targets. GUARD_INTERNALS is the substring
+# `\.claude/hooks/`, and `.claude/./hooks/` does not contain it, while naming exactly
+# the same file to the shell. One inert dot segment let the guard rewrite its own source
+# to `exit 0`, which makes every other rule in the hook advisory.
+run BLOCK 'echo x > .claude/./hooks/block-destructive-bash.sh'
+run BLOCK 'echo x > .claude/hooks/../hooks/block-destructive-bash.sh'
+run BLOCK 'cat .git/./config'
+run BLOCK 'cat ~/.ssh/./id_rsa'
+run BLOCK 'cat ~/.config/./credentials.ini'
+run BLOCK 'echo x > .claude/./settings.json'
+# Ordinary relative paths that contain dot segments must still work.
+run ALLOW 'cat ./README.md'
+run ALLOW 'ls ./src/mail'
+run ALLOW 'python3 ./bin/foo.py'
+run ALLOW 'cat ../README.md'
+
+echo
+echo "--- REGRESSION 41: relative rm target under a cd (want BLOCK) ---"
+# A relative rm operand is resolved against the HOOK's $PWD, but the shell has moved by
+# the time rm runs. `cd / && rm -rf etc` normalized to `<repo>/etc`, matched the
+# workspace allow, and exited 0 -- while the shell, standing in /, removed /etc.
+# Modelling shell cwd is not attempted; a relative target in a command that can move is
+# refused instead. See CD_CONSTRUCTS in the hook.
+run BLOCK 'cd / && rm -rf etc'
+run BLOCK 'cd /usr && rm -rf lib'
+run BLOCK 'cd /; rm -rf etc'
+run BLOCK 'pushd / && rm -rf etc'
+run BLOCK 'cd /var && rm -rf log'
+# An ABSOLUTE target is unaffected by where the shell stands, so scratch cleanup after a
+# cd is still allowed -- naming the path absolutely is the fix the block message asks
+# for.
+run ALLOW 'cd /tmp && rm -rf /tmp/claude-scratch/build'
+# And a relative target with no cd anywhere in the command keeps working.
+run ALLOW 'rm -rf build'
+run ALLOW 'rm -rf build/../out'
+run ALLOW 'cd src && ls'
+
+echo
+echo "--- REGRESSION 42: template exemption is an EXACT basename (want BLOCK) ---"
+# CHANGED BEHAVIOUR. `_is_template` also accepted a `*.env.example` wildcard, while its
+# own comment and the README both defined the carve-out as an EXACT basename exemption.
+# The wildcard made the code disagree with the documentation in the dangerous direction:
+# any file whose name merely ENDS in `.env.sample` was exempt from every rule below the
+# carve-out, so a real secret only had to be named `prod.env.sample` to opt INTO it.
+# A template is the file the repo ships, and it is named `.env.example`.
+run BLOCK 'cat foo.env.example'
+run BLOCK 'echo x > prod.env.sample'
+run BLOCK 'cat client.env.template'
+run BLOCK 'cat backend/service.env.example'
+# The three exact basenames stay readable, at any depth.
+run ALLOW 'cat .env.example'
+run ALLOW 'cat backend/.env.template'
+run ALLOW 'cat config/.env.sample'
+run ALLOW 'cp config/.env.sample /tmp/.env.sample'
+
+echo
 _summary "block-destructive-bash"
 exit $?

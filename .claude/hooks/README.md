@@ -3,6 +3,49 @@
 Three scripts: two PreToolUse guards that block access to this repo's credential
 files and to destructive commands, plus a statusline renderer.
 
+## What these hooks are, and what they are not
+
+**These hooks prevent accidents.** A mistyped `rm -rf /`, an agent reflexively running
+`cat ~/.config/credentials.ini` because reading a config file is the obvious next step,
+a `git reset --hard` that discards an afternoon of uncommitted work. That is the whole
+promise, and within it they work well.
+
+**They are not a security boundary.** They do not resist a determined bypass, and they
+should not be described, deployed, or relied on as though they do.
+
+The reason is structural, not a backlog item. The Bash guard inspects a command by
+pattern-matching the command *string*. Bash's grammar is richer than any matcher: the
+shell expands, quotes, escapes, splits and substitutes before a single byte reaches the
+program, and much of what it will eventually run does not exist as text at the moment
+the hook reads it. Concretely, all of these reach the shell:
+
+```bash
+rm${IFS}-rf /              # $IFS supplies the whitespace; there is no literal "rm -rf /"
+r\m -rf /                  # backslash inside the word: bash reads "rm", the regex does not
+/bin/sh -c "$SCRIPT"       # path-qualified, so the nested-shell check's command-boundary
+                           # match misses it -- and the payload does not exist as text
+                           # until $SCRIPT expands anyway
+cat /tmp/credentials'.'ini # quote-concatenation splits the filename mid-token
+rm $FLAGS /                # the flags arrive from a variable, so recursive+force is invisible
+cat /tmp/notes             # ...where /tmp/notes was symlinked to credentials.ini in an
+                           # EARLIER call. The operand names no protected path, and the
+                           # hook sees one command at a time.
+```
+
+Four rounds of adversarial review found sixty-eight distinct holes of this shape, and
+each round's fixes exposed the next round's. A fifth round would find more. The pattern
+matcher is an approximation of a shell parser, and the gap between the two is where all
+of these live. Extending the patterns narrows the gap; it does not close it.
+
+**So: anything that genuinely must not happen needs enforcement somewhere the shell
+cannot reach.** Filesystem permissions (`chmod 600`, an unreadable-by-this-user file), a
+sandbox or container that does not have the credential mounted, or — best — credentials
+that are not on disk in the first place, held in a keychain or fetched per-use from a
+secrets manager. A hook that inspects a string is the wrong layer for a guarantee.
+
+See [Known gaps (won't fix)](#known-gaps-wont-fix) for the specific classes left open
+and why each one stays that way.
+
 ## Why hooks and not just `permissions.deny`
 
 `permissions.deny` rules bind **tools**, not the shell.
@@ -14,11 +57,48 @@ cat ~/.config/credentials.ini    is a Bash call — the deny rule never sees it
 
 The same gap exists on the write side: `Edit(**/credentials.ini)` says nothing about
 `echo x > ~/.config/credentials.ini`. Deny rules are a routing decision inside the
-harness; the shell is a different door. These hooks are the enforcing layer on that
-door — and unlike a deny rule, which a project-level settings file can override, a
-PreToolUse hook exiting 2 cannot be overridden from inside the session.
+harness; the shell is a different door — and these hooks watch that door.
 
-Use both. The deny rules give a cheap early exit; the hooks are what actually holds.
+A note on what "cannot be overridden" means here, because it is easy to overread. The
+*mechanism* is robust: a PreToolUse hook exiting 2 blocks the call, and unlike a deny
+rule, a project-level settings file cannot switch it off. The *coverage* is not: the hook
+only blocks what it recognizes, and the section above is about everything it does not
+recognize. An unbypassable mechanism wrapped around an approximate matcher is still an
+approximate guard.
+
+Use both. The deny rules give a cheap early exit and cover the `Read` tool, which neither
+hook matches; the hooks cover the shell.
+
+## Known gaps (won't fix)
+
+These are open, and closing them is not planned. They are listed so the shape of what is
+uncovered is legible — a reader should be able to see the boundary, not discover it.
+
+They are not a TODO list. Each is a consequence of the design's limit: a pattern matcher
+reading a command string cannot evaluate what the shell will do to that string. Fixing
+them individually means writing a bash parser, and four rounds of that produced sixty-eight
+findings and no convergence. The line is drawn here deliberately.
+
+| Gap | Example | Why it stays open |
+|---|---|---|
+| Shell-synthesized whitespace | `rm${IFS}-rf /` | The token separator comes from a variable, so no literal `rm -rf` exists in the string to match. |
+| Escaped or quoted command names | `r\m -rf /`, `r"m" -rf /` | Bash strips the escape or quote during word expansion and runs `rm`. Un-escaping the whole command first would corrupt legitimately quoted operands. |
+| Quote-concatenated paths | `cat /tmp/credentials'.'ini` | The filename is assembled from adjacent quoted spans. The tokenizer treats quotes as boundaries, so no single token spells `credentials.ini`. |
+| Variable-supplied commands and flags | `R=rm; $R -rf /`, `rm $FLAGS /` | The command word or the recursive+force flags do not exist until expansion. The hook cannot see a value it does not evaluate. |
+| Qualified nested-shell evaluators | `/bin/sh -c "$SCRIPT"` | A *bare* `sh -c` / `eval` fails closed, but the nested-shell check anchors the shell name at a command boundary, so a `/bin/`-qualified spelling does not match it. Widening that pattern to accept any path prefix is a one-line change that also matches far more than intended; the inner payload is unreadable either way when it comes from a variable. |
+| Non-shell evaluators | `python3 -c "…"`, `perl -e`, `node -e` | Every interpreter on the box can spawn a subprocess. Blocking them all would block ordinary work; enumerating them is exactly the command-word list this hook was rewritten to abolish. |
+| Symlinked operands for reads and writes | `cat /tmp/notes` after `ln -s …/credentials.ini /tmp/notes` | The operand names no protected path, and the link was created in a *previous* tool call the hook never sees. `rm` targets do resolve symlinks; ordinary read/write operands do not. |
+| `..` resolved before symlinks, not with them | `a/../b` where `a` is a link | Path normalization is textual and runs first, so it can disagree with what the kernel resolves. Resolving against the live filesystem instead reintroduces the empty-result hole textual resolution was written to avoid. |
+| `TMPDIR` pointing somewhere unusual | `TMPDIR=/some/dir` in the environment | The scratch carve-out honours `$TMPDIR`, which the hook inherits rather than validates. A caller who controls the hook's environment influences which paths count as scratch. |
+| Unquoted-token glob expansion | `cat *.ini`, `rm -rf *` | What a glob matches is decided by the filesystem at run time. Globs pointed *into* a known credential directory are blocked; a bare glob in the working directory is too common in legitimate use to refuse. |
+
+Two structural limits sit underneath the table and are worth stating plainly:
+
+- **The hook sees one command at a time.** It has no memory of previous tool calls, so
+  any two-step setup — create a link, write a script, export a variable, then use it — is
+  invisible by construction.
+- **The hook cannot run the shell.** Every expansion it does perform (`~`, `$HOME`, `.`,
+  `..`) is a textual imitation, and imitations diverge at the edges.
 
 ## The scripts
 
@@ -105,12 +185,25 @@ a MusicKit private key as `.p8`, and `phone` resolves a device supervision ident
 device.
 
 Checked-in templates — `.env.example`, `.env.template`, `.env.sample` — are **not**
-blocked. The exemption matches the **exact basename**, not a substring: a path merely
-*containing* `.env.example` is a real config file, not a template.
-`/tmp/client.env.example.bak` and `.env.example.bak` are both blocked. (The earlier
-version deleted the `.env.example` substring from the whole command before matching,
-which turned `cat /tmp/client.env.example.bak` into `cat /tmp/client.bak` and made a
-real secret file invisible to every pattern.)
+blocked. The exemption matches the **exact basename**: those three names and nothing
+else. A path merely *containing* or *ending in* one of them is a real config file, not a
+template, and stays blocked. So `.env.example` and `backend/.env.template` are readable,
+while `/tmp/client.env.example.bak`, `.env.example.bak`, `foo.env.example` and
+`prod.env.sample` are not.
+
+Two earlier versions were looser, in the same direction:
+
+- A substring scrub deleted `.env.example` from the whole command before matching, so
+  `cat /tmp/client.env.example.bak` became `cat /tmp/client.bak` — a real secret file,
+  invisible to every pattern.
+- A `*.env.example` wildcard then exempted any basename *ending* in a template name,
+  while this section and the code comments both already said "exact". A secret only had
+  to be named `prod.env.sample` to opt into the carve-out, which is an exemption the file
+  being guarded gets to choose for itself.
+
+Both hooks now carry the same three-name list. They are kept in sync deliberately: the
+two halves disagreeing about what a template is, is how a file one door refuses becomes
+reachable through the other.
 
 Filenames are matched bare rather than as full paths, because the directory varies
 with `$XDG_CONFIG_HOME` and `$CREDENTIALS`, and a copy of `credentials.ini` sitting
@@ -288,12 +381,26 @@ running at all still printed `ALL PASS` across the entire allow half of the suit
 That is the same fail-open shape the hooks themselves were fixed for, reproduced in
 the thing meant to detect it.
 
+### A zero-case run is a failure
+
+`_summary` prints `NO CASES RAN` and returns 1 when both counters are zero.
+
+`ALL PASS` was previously printed whenever nothing had *failed*, which a suite with every
+case deleted also satisfies — both counters at zero, exit 0, green through the shell
+suite, `make test`, and CI alike. The Python wrapper additionally parses the summary line
+and asserts a positive total, so an empty suite cannot read as a passing one at either
+layer. Same fail-open shape as the classifier note above, one level further out.
+
 ### Adding a new suite
 
 Drop a `*.test.sh` in `.claude/hooks/tests/` and add its name to `SUITES` in
-`tests/infra/test_guard_hooks.py`. A test in that file fails if a suite exists on disk
-but is not wired in — the failure being prevented is a suite that passes when run by
-hand and is never invoked by anything automated.
+`tests/infra/test_guard_hooks.py`.
+
+`SUITES` is the single source of truth: one test both compares it against the directory
+listing and iterates it with `subTest` to run each suite. Previously the tuple was only
+compared while execution came from three hand-written `test_*` methods, so a name added
+to the tuple with no matching method passed the comparison and was never run — listed and
+silently skipped. Driving both from the same tuple removes that state.
 
 **The test cases must stay in these files.** The hooks block their own test payloads
 — an agent cannot type `echo "[mail.x]" > ~/.config/credentials.ini` into a Bash call
@@ -349,6 +456,15 @@ Matching deny rules to pair with the hooks:
   "Read(**/token.json)",
   "Read(**/outlook_token.json)",
   "Read(**/msal_flow.json)",
+  "Read(**/.env)",
+  "Read(**/.env.*)",
+  "Read(**/.envrc)",
+  "Read(**/.npmrc)",
+  "Read(**/*.pem)",
+  "Read(**/*.p8)",
+  "Read(**/*.p12)",
+  "Read(**/id_rsa)",
+  "Read(**/id_ed25519)",
   "Read(~/.ssh/**)",
   "Read(~/.gnupg/**)",
   "Read(~/.aws/**)",
@@ -357,8 +473,26 @@ Matching deny rules to pair with the hooks:
   "Edit(**/token.json)",
   "Edit(**/outlook_token.json)",
   "Edit(**/msal_flow.json)"
+],
+"allow": [
+  "Read(**/.env.example)",
+  "Read(**/.env.template)",
+  "Read(**/.env.sample)"
 ]
 ```
+
+**Why the `Read` list is longer than the `Edit` list.** The two hooks cover different
+tools, and `Read` is covered by neither: `block-protected-paths.sh` matches `Write|Edit`,
+and `block-destructive-bash.sh` matches `Bash`. A direct `Read` tool call on `.env`,
+`.npmrc`, a `.pem`/`.p8`/`.p12` key, or `id_rsa` goes through no hook at all — only these
+deny rules stand in front of it. Files the Bash hook refuses to `cat` were still readable
+through the `Read` tool until these entries existed.
+
+The `allow` block restores the three checked-in templates, which `Read(**/.env.*)` would
+otherwise catch. It lists the three exact names rather than a `*.env.example` glob, for
+the same reason both hooks do: a wildcard exemption is one an arbitrary file can opt into
+just by being named `prod.env.sample`. Allow rules take precedence over deny rules, so
+`.env.example` stays readable while `prod.env.sample` does not.
 
 ## Deviations from the reference implementation
 

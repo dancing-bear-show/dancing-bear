@@ -53,10 +53,31 @@ _record() {
 }
 
 # _summary <suite-name>
+#
+# A ZERO-CASE RUN IS A FAILURE, NOT A PASS.
+#
+# `fail` starts at 0 and only a recorded failure raises it, so a suite that ran nothing
+# at all -- every case deleted, an early `exit` above the cases, a `run` helper renamed
+# so no case matched -- reached here with both counters at zero, printed ALL PASS, and
+# returned 0. The Python wrapper asserts on the string "ALL PASS", so that empty suite
+# read green through every layer: the shell suite, `make test`, and CI.
+#
+# That is the same fail-open shape as the classifier note above, one level out. The
+# failure of the thing meant to do the checking was reported as the checking having
+# succeeded. A suite that exercised no guard has not shown that any guard works.
+#
+# Enforced here rather than in each suite so a NEW suite gets it by construction -- the
+# suites that need this guard most are the ones nobody remembered to wire it into.
 _summary() {
   echo
   printf '%s: %d passed, %d failed, %d total\n' \
     "$1" "$pass_count" "$fail_count" "$((pass_count + fail_count))"
+  if [ "$((pass_count + fail_count))" -eq 0 ]; then
+    echo "NO CASES RAN"
+    printf 'A suite that ran zero cases has not tested anything. Reporting this as a pass\n'
+    printf 'is how an empty suite stays green -- see the note in tests/_harness.sh.\n'
+    return 1
+  fi
   if [ "$fail" -eq 0 ]; then
     echo "ALL PASS"
   else

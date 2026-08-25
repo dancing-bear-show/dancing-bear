@@ -44,7 +44,24 @@ DIM='\033[2m'
 # (the array errors on field access, but only by luck of jq's typing rules, not by
 # design). A payload that is not an object has no fields to fall back FROM, so it is
 # unreadable by definition and must say so.
-VALUES=$(echo "$input" | jq -r '
+#
+# `printf '%s'` rather than `echo`: echo is unspecified for a leading `-` (bash's
+# builtin eats `-n`/`-e`/`-E` as flags) and for backslash escapes, and it appends a
+# newline the payload did not contain. A statusline payload is arbitrary JSON arriving
+# from outside this script, so none of those are hypothetical -- `printf '%s'` passes
+# the bytes through unchanged.
+#
+# The `if !` capture is what makes a PARTIAL jq failure readable. jq streams its outputs
+# as it produces them, so a payload like `{"context_window":"bad"}` prints the first
+# three values and THEN errors on the type comparison. VALUES came back non-empty, the
+# emptiness check below was skipped, and the script rendered a line with an empty
+# PERCENT -- which is not a number, so `[ "$PERCENT" -ge 80 ]` printed
+# `[: : integer expected` to the terminal and the bar rendered with a blank percentage.
+# A half-filled VALUES is exactly as unreadable as an empty one; the difference is that
+# the empty case announced itself and the partial case emitted a broken status line plus
+# shell errors. Testing jq's EXIT STATUS covers both, where testing its output covered
+# only one.
+if ! VALUES=$(printf '%s' "$input" | jq -r '
   if type != "object" then error("not an object") else . end |
   (.model.display_name // "?"),
   (.cost.total_cost_usd // 0),
@@ -57,10 +74,14 @@ VALUES=$(echo "$input" | jq -r '
   (.cost.total_api_duration_ms // 0),
   (.agent.name // ""),
   (.worktree.name // "")
-' 2>/dev/null)
+' 2>/dev/null); then
+  echo -e "${DIM}(statusline: unreadable payload)${RESET}"
+  exit 0
+fi
 
-# A payload that is not JSON at all leaves VALUES empty. Render a marker rather than
-# a line of blanks and zeroes that reads like a real status.
+# A payload that is not JSON at all leaves VALUES empty even when jq exits 0 (an empty
+# input produces no output and no error). Still checked separately from the exit status
+# above: the two failures are different and neither implies the other.
 if [ -z "$VALUES" ]; then
   echo -e "${DIM}(statusline: unreadable payload)${RESET}"
   exit 0

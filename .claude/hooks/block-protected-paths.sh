@@ -11,9 +11,18 @@
 # same files on the Bash side. Both are needed: a deny rule and a hook that only
 # watches one door leave the other one open.
 #
+# SCOPE: this is an ACCIDENT guard, not a security boundary. It stops a reflexive write
+# to a credential file. It matches path STRINGS, so a symlinked path, a path assembled
+# from an expansion the hook cannot evaluate, or a write routed through the Bash tool
+# instead of Write/Edit are all outside what it can see. See the "Known gaps (won't fix)"
+# section in README.md; anything that genuinely must not happen needs filesystem
+# permissions or a sandbox rather than a string check.
+#
 # Note this duplicates part of permissions.deny (which already denies Write/Edit on
-# **/credentials.ini and friends). The hook is the enforcing layer: deny rules can be
-# overridden by a project-level settings file, a PreToolUse hook exiting 2 cannot.
+# **/credentials.ini and friends). The MECHANISM here is the sturdier of the two: deny
+# rules can be overridden by a project-level settings file, a PreToolUse hook exiting 2
+# cannot. That says nothing about coverage -- an unbypassable hook still only blocks the
+# paths it recognizes.
 
 set -u
 
@@ -120,9 +129,18 @@ esac
 # CHANGED: matched on the exact BASENAME rather than as a `*.env.example` glob over
 # the whole path. The glob form also accepted `.env.example.bak`, which is a real
 # config file someone copied, not a template. Same reasoning as the Bash-side hook.
+#
+# CHANGED AGAIN: the `*.env.example` arm is gone too. It kept the whole-path glob's
+# problem in a smaller form -- any basename ENDING in `.env.example` was exempt, so
+# `foo.env.example` and `prod.env.sample` were writable regardless of what they held.
+# The comment above and the README both define this as an EXACT basename exemption; the
+# wildcard made the code disagree with both, and a secret only had to be named
+# `prod.env.sample` to opt into the carve-out. A template is the file the repo ships,
+# and it is named `.env.example`. Kept in sync with _is_template in
+# block-destructive-bash.sh: the two halves of the pair disagreeing about what a
+# template is, is how a file one door refuses becomes readable through the other.
 case "${FILE##*/}" in
   .env.example|.env.template|.env.sample) exit 0 ;;
-  *.env.example|*.env.template|*.env.sample) exit 0 ;;
 esac
 
 # Matching is a case-SENSITIVE substring test against the path, so "credentials.ini"

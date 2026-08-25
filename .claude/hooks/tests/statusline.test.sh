@@ -225,5 +225,60 @@ for p in "$FULL" 'not json' '' '{}'; do
 done
 
 echo
+echo "--- a PARTIAL jq failure is unreadable, not half-rendered ---"
+# REGRESSION. jq streams its outputs as it produces them, so a payload that is a valid
+# JSON OBJECT but holds a wrong-typed field printed the first few values and THEN errored.
+# VALUES came back non-empty, the emptiness check was skipped, and the script rendered a
+# status line with an EMPTY percentage -- plus `[: : integer expected` on stderr, because
+# an empty string is not a number to `[ -ge ]`. The check now tests jq's EXIT STATUS,
+# which covers the partial case and the empty case alike.
+#
+# assert_clean_stderr is a separate helper because _render discards stderr, and stderr is
+# precisely what was wrong here: the visible symptom was shell errors leaking into the
+# terminal on every prompt redraw.
+assert_clean_stderr() {
+  local label="$1" payload="$2" err
+  err=$(printf '%s' "$payload" | bash "$SCRIPT" 2>&1 >/dev/null)
+  if [ -z "$err" ]; then
+    printf 'ok    %s\n' "$label"; pass_count=$((pass_count + 1))
+  else
+    printf 'FAIL  %s\n      stderr must be empty, got: %s\n' "$label" "$err"
+    fail=1; fail_count=$((fail_count + 1))
+  fi
+}
+
+PARTIAL='{"context_window":"bad"}'
+assert_contains       "wrong-typed context_window renders the unreadable marker" "$PARTIAL" "unreadable payload"
+assert_clean_stderr   "wrong-typed context_window emits no shell errors"         "$PARTIAL"
+assert_not_contains   "no half-rendered bar for a partial jq failure"            "$PARTIAL" "%"
+
+# The same shape through other fields that feed an arithmetic or printf context.
+PARTIAL_COST='{"cost":{"total_duration_ms":"soon"}}'
+assert_clean_stderr "wrong-typed duration emits no shell errors" "$PARTIAL_COST"
+
+# Payloads that were already handled must stay handled, and stay quiet.
+assert_clean_stderr "non-JSON payload is quiet"      'not json'
+assert_clean_stderr "empty payload is quiet"         ''
+assert_clean_stderr "scalar payload is quiet"        '3'
+assert_clean_stderr "null payload is quiet"          'null'
+assert_clean_stderr "a good payload is quiet"        "$FULL"
+
+# A leading dash is why the jq input is `printf '%s'` rather than `echo`: bash's echo
+# eats -n/-e/-E as flags, so a payload starting with one was silently altered before jq
+# ever saw it. It is unreadable either way, but for an honest reason now.
+assert_contains     "leading-dash payload renders the marker" '-e {"broken"' "unreadable payload"
+assert_clean_stderr "leading-dash payload is quiet"           '-e {"broken"'
+
+echo
+echo "--- a good payload still renders normally after the exit-status change ---"
+# The guard against over-correcting: testing jq's exit status must not turn ordinary
+# payloads into markers. The last two jq fields (agent, worktree) are legitimately empty
+# strings on most real payloads, so anything counting lines here would misfire.
+MINIMAL='{"context_window":{"used_percentage":42},"cost":{"total_cost_usd":1.5}}'
+assert_contains     "minimal payload renders its percentage" "$MINIMAL" "42%"
+assert_not_contains "minimal payload is not marked unreadable" "$MINIMAL" "unreadable payload"
+assert_contains     "full payload still renders its model"   "$FULL" "Opus 5"
+
+echo
 _summary "statusline"
 exit $?
