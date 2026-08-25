@@ -29,9 +29,17 @@ SENSITIVE_PARAM_KEYS = {
     # api_key/apikey are the most common spellings in public API query
     # strings and were absent here, so a masked-looking URL still carried
     # the key. Matching is case-insensitive at the call sites.
+    #
+    # Every spelling the bare-pair regex in mask_text() recognizes must
+    # also appear here: mask_url() consults only this set, so a spelling
+    # covered by one and not the other leaks through whichever path the
+    # caller happens to take.
     "api_key",
     "apikey",
     "api-key",
+    "api_secret",
+    "apisecret",
+    "api-secret",
     "aws_access_key_id",
     "aws_secret_access_key",
     "aws_session_token",

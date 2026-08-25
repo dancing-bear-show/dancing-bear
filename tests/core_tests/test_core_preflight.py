@@ -483,6 +483,29 @@ class TestApiKeyMasking(unittest.TestCase):
                 text = f"https://svc.example/?{param}={self.SECRET}"
                 self.assertNotIn(self.SECRET, mask_text(text))
 
+    def test_every_bare_pair_spelling_is_also_masked_in_urls(self):
+        """The two masking paths must agree on what counts as a secret.
+
+        mask_text() matches a bare-pair regex; mask_url() consults
+        SENSITIVE_PARAM_KEYS. A spelling covered by one and not the other
+        leaks through whichever path the caller happens to take -- which is
+        exactly how api_secret regressed after being added to the regex
+        alone. Driving both from one list makes the drift fail here rather
+        than in production.
+        """
+        from core.secrets import mask_text, mask_url
+
+        for spelling in (
+            "api_key", "apikey", "api-key",
+            "api_secret", "apisecret", "api-secret",
+            "token",
+        ):
+            with self.subTest(spelling=spelling):
+                bare = mask_text(f"{spelling}={self.SECRET}")
+                url = mask_url(f"https://svc.example/v1?{spelling}={self.SECRET}")
+                self.assertNotIn(self.SECRET, bare, "bare pair leaked")
+                self.assertNotIn(self.SECRET, url, "url query leaked")
+
     def test_bare_key_value_pairs_are_masked(self):
         # No ? or & to mark these as query params, and no JSON quoting --
         # the shape exception and log text actually takes.
