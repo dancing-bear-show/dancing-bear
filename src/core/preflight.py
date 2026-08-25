@@ -37,6 +37,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from core.secrets import mask_text
+
 __all__ = [
     "InvariantViolation",
     "PreflightReport",
@@ -161,6 +163,11 @@ def evaluate_invariants(
             # not one offending item among many but the sole diagnostic for a
             # check that crashed. Truncating it under max_samples=0 would report
             # "a check failed" with no way to tell which one or why.
+            #
+            # Both the message and the traceback are masked. A check commonly
+            # wraps an HTTP or API call, so its exception text and the source
+            # lines quoted in the traceback can carry a URL query token or auth
+            # header -- and this report is built to be serialized via to_dict().
             violations.append(
                 InvariantViolation(
                     code=error_code,
@@ -168,8 +175,8 @@ def evaluate_invariants(
                     samples=[
                         {
                             "check": getattr(check, "__name__", repr(check)),
-                            "error": str(exc),
-                            "traceback": traceback.format_exc(),
+                            "error": mask_text(str(exc)),
+                            "traceback": mask_text(traceback.format_exc()),
                         }
                     ],
                 )

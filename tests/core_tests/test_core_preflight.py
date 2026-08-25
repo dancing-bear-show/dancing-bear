@@ -323,5 +323,47 @@ class TestSummaryPluralization(unittest.TestCase):
         self.assertIn("(2 samples)", two.summary())
 
 
+class TestCheckErrorMasking(unittest.TestCase):
+    """A crashing check must not leak credentials into the report.
+
+    Checks commonly wrap an HTTP or API call, and this report is built to be
+    serialized via to_dict(), so both the exception text and the traceback
+    (which quotes source lines) go through mask_text.
+    """
+
+    TOKEN = "ghp_CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+
+    def _raising_check(self, changes, baseline):
+        raise RuntimeError(
+            f"HTTP 401 for https://api.example.com?access_token={self.TOKEN}"
+        )
+
+    def test_error_text_is_masked(self):
+        report = evaluate_invariants([{"id": "1"}], {}, [self._raising_check])
+        sample = report.violations[0].samples[0]
+        self.assertNotIn(self.TOKEN, sample["error"])
+        self.assertIn("REDACTED", sample["error"])
+
+    def test_traceback_is_masked(self):
+        report = evaluate_invariants([{"id": "1"}], {}, [self._raising_check])
+        sample = report.violations[0].samples[0]
+        self.assertNotIn(self.TOKEN, sample["traceback"])
+
+    def test_serialized_report_carries_no_token(self):
+        report = evaluate_invariants([{"id": "1"}], {}, [self._raising_check])
+        self.assertNotIn(self.TOKEN, json.dumps(report.to_dict()))
+
+    def test_summary_carries_no_token(self):
+        report = evaluate_invariants([{"id": "1"}], {}, [self._raising_check])
+        self.assertNotIn(self.TOKEN, report.summary())
+
+    def test_check_name_is_still_identifiable(self):
+        # Masking must not cost the diagnostic value the sample exists for.
+        report = evaluate_invariants([{"id": "1"}], {}, [self._raising_check])
+        sample = report.violations[0].samples[0]
+        self.assertIn("_raising_check", sample["check"])
+        self.assertIn("HTTP 401", sample["error"])
+
+
 if __name__ == "__main__":
     unittest.main()

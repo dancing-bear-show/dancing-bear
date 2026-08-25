@@ -585,6 +585,32 @@ class TestCredentialMasking(unittest.TestCase):
         self.assertIn("5 attempt", str(err))
         self.assertIn("plain failure", str(err))
 
+    def test_traceback_carries_no_unmasked_context(self) -> None:
+        # The masked message is only worth something if the unmasked original
+        # cannot ride along in the printed traceback via __context__.
+        import traceback as tb_mod
+
+        from core.retry import RetryExhaustedError, retry
+
+        leaky = self.LEAKY
+
+        @retry(max_attempts=2, delay=0.0)
+        def fails() -> None:
+            raise RuntimeError(leaky)
+
+        with patch("core.retry.time.sleep"):
+            with self.assertRaises(RetryExhaustedError) as ctx:
+                fails()
+
+        err = ctx.exception
+        rendered = "".join(
+            tb_mod.format_exception(type(err), err, err.__traceback__)
+        )
+        self.assertNotIn("ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", rendered)
+        self.assertIsNone(err.__context__)
+        # The original is still reachable for callers that want it.
+        self.assertIsInstance(err.last_exception, RuntimeError)
+
     def test_retry_log_line_is_masked(self) -> None:
         from core.retry import retry
 

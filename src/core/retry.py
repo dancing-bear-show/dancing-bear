@@ -219,7 +219,16 @@ def retry(
                         )
                     time.sleep(sleep_for)
             if raise_on_exhausted:
-                raise RetryExhaustedError(max_attempts, last_exc)  # type: ignore[arg-type]
+                # `from None` suppresses the implicit __context__ chain. The
+                # raise already sits outside the except block, so the context
+                # happens to be clear today -- but the masked message is only
+                # worth anything if an unmasked original cannot ride along in
+                # the printed traceback, and that should not depend on where
+                # this statement sits. last_exc stays reachable via
+                # RetryExhaustedError.last_exception for callers that want it.
+                raise RetryExhaustedError(max_attempts, last_exc) from None  # type: ignore[arg-type]
+            # Re-raising the original is the documented opt-out: the caller
+            # asked for the underlying exception, so it is not masked here.
             raise last_exc  # type: ignore[misc]
         return wrapper
     return decorator
