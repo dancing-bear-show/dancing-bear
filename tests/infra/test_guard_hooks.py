@@ -65,7 +65,13 @@ class TestGuardHookSuites(unittest.TestCase):
         # LANG set, which raises UnicodeDecodeError on the first '·' and turns a
         # passing suite into an error. errors="replace" keeps a decoding problem
         # from masking the assertion the test actually makes.
-        proc = subprocess.run(  # nosec B603 - trusted in-repo script, no user input
+        # B607: "bash" is resolved from PATH deliberately. /bin/bash does not exist
+        # on NixOS, and the Linux CI runner and macOS dev machines put it in
+        # different places. Anyone who can alter PATH for this process can already
+        # edit the test file, so the partial path adds no new exposure. The nosec
+        # must stay on the flagged line below -- bandit ignores it on a preceding
+        # comment line, exactly like NOSONAR.
+        proc = subprocess.run(  # nosec B603 B607 - trusted in-repo script, no user input
             ["bash", str(suite)],
             capture_output=True,
             text=True,
