@@ -62,21 +62,45 @@ def _read_paths(stage: ResolvedStage, ws: str) -> list[str]:
 _WORKSPACE_SUBDIRS = ("outputs/", "validation/", "stages/", "dispatch/")
 
 
+def _is_isolated(stage: ResolvedStage) -> bool:
+    """True if this stage's agent runs in its own git worktree."""
+    agent = stage.spec.agent
+    return bool(agent and agent.isolation)
+
+
 def _write_paths(stage: ResolvedStage, ws: str) -> list[str]:
+    """Absolute output paths for the agent's prompt.
+
+    An isolated agent cannot write the shared workspace, so it is directed to
+    the same relative layout under its OWN cwd; the orchestrator copies those
+    files back. Pointing an isolated agent at ``{ws}/...`` produces a prompt it
+    cannot satisfy while the orchestrator waits on files that never appear.
+    """
+    root = "<your-cwd>" if _is_isolated(stage) else ws
     paths: list[str] = []
     for f in stage.spec.writes_to:
         if any(f.startswith(prefix) for prefix in _WORKSPACE_SUBDIRS):
-            paths.append(f"{ws}/{f}")
+            paths.append(f"{root}/{f}")
         else:
-            paths.append(f"{ws}/outputs/{f}")
+            paths.append(f"{root}/outputs/{f}")
     return paths
 
 
 def _completion(stage: ResolvedStage, ws: str) -> str:
-    result_path = f"{ws}/stages/{stage.index:03d}-{stage.spec.name}.json"
+    root = "<your-cwd>" if _is_isolated(stage) else ws
+    result_path = f"{root}/stages/{stage.index:03d}-{stage.spec.name}.json"
+    isolated_note = (
+        "\n\nYou are running in your OWN git worktree. Write every path above "
+        "as an absolute path under your own cwd — NOT under the shared "
+        "workspace, and never as a bare relative path (that resolves against "
+        "the orchestrator's cwd, outside your worktree). The orchestrator "
+        "copies your outputs/ and stages/ files back after you finish."
+        if _is_isolated(stage)
+        else ""
+    )
     return (
         "## Completion\n"
-        f"When done, write your stage result to: {result_path}\n\n"
+        f"When done, write your stage result to: {result_path}{isolated_note}\n\n"
         f"Use this structure:\n```json\n"
         f"{_RESULT_FMT.format(name=stage.spec.name, index=stage.index)}\n```"
     )
@@ -100,7 +124,11 @@ def _header(stage: ResolvedStage, workflow_name: str, verb: str = "executing") -
         ),
         "",
         (
-            "**No external side effects**: Write ONLY to the workspace directory. "
+            "**No external side effects**: Write ONLY to your own worktree cwd "
+            "(you are running isolated; the orchestrator copies your files back). "
+            "Only stages with kind=publish are authorized to create external resources."
+            if _is_isolated(stage)
+            else "**No external side effects**: Write ONLY to the workspace directory. "
             "Only stages with kind=publish are authorized to create external resources."
         ),
         "",
@@ -120,7 +148,8 @@ def _header(stage: ResolvedStage, workflow_name: str, verb: str = "executing") -
 
 def _gather(stage: ResolvedStage, wf: str, ws: str) -> str:
     lines = _header(stage, wf)
-    lines += ["## Workspace", f"Write all output to: {ws}/outputs/", ""]
+    write_root = "<your-cwd>" if _is_isolated(stage) else ws
+    lines += ["## Workspace", f"Write all output to: {write_root}/outputs/", ""]
     if stage.cli_commands:
         lines += _section("CLI Commands\nRun these commands and capture their output", [f"`{c}`" for c in stage.cli_commands])
     wp = _write_paths(stage, ws)

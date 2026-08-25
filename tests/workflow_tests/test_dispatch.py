@@ -57,6 +57,39 @@ class TestKnownRoles(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
+class TestBuildAgentPromptIsolation(unittest.TestCase):
+    """An isolated agent's prompt must not point at the shared workspace.
+
+    It cannot write there, and the orchestrator waits on files that would
+    never appear — the stage deadlocks instead of failing.
+    """
+
+    def _prompt(self, isolation: str | None) -> str:
+        from workflow.models import AgentSpec
+
+        spec = make_stage_spec(
+            name="iso",
+            agent=AgentSpec(role="code-writer", isolation=isolation),
+            writes_to=("outputs/report.json",),
+        )
+        return build_agent_prompt(make_resolved_stage(spec=spec, index=1), "wf", "/ws")
+
+    def test_isolated_prompt_has_no_workspace_paths(self) -> None:
+        prompt = self._prompt("worktree")
+        self.assertNotIn("/ws/", prompt)
+        self.assertIn("<your-cwd>", prompt)
+
+    def test_isolated_prompt_explains_copy_back(self) -> None:
+        prompt = self._prompt("worktree")
+        self.assertIn("OWN git worktree", prompt)
+        self.assertIn("copies your outputs/", prompt)
+
+    def test_non_isolated_prompt_still_uses_workspace(self) -> None:
+        prompt = self._prompt(None)
+        self.assertIn("/ws/outputs/report.json", prompt)
+        self.assertNotIn("<your-cwd>", prompt)
+
+
 class TestBuildAgentPromptGather(unittest.TestCase):
     def test_contains_stage_name(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

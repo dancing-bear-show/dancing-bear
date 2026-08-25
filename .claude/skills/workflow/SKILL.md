@@ -108,12 +108,21 @@ Generate a `RUN_ID` in the format `{workflow_name}-{YYYYMMDD}-{8_hex_chars}`.
    outputs and code changes travel separately, and missing either one fails
    silently rather than loudly.
 
-   a. **Copy back each agent's outputs.** An isolated agent writes to
-      `<its-cwd>/outputs/`, never to `{workspace}` (see the workspace-lock
-      exception below). Copy those files into `{workspace}/outputs/` yourself.
-      If a declared `writes_to` file is missing after this, fail the stage —
-      downstream stages read those files by name, and a missing one degrades
-      them quietly instead of erroring.
+   a. **Copy back each agent's outputs — as part of THAT stage's completion,
+      before releasing any dependent stage.** An isolated agent writes to
+      `<its-cwd>/outputs/` and `<its-cwd>/stages/`, never to `{workspace}`
+      (see the workspace-lock exception below). As soon as the agent returns,
+      copy those files into `{workspace}/outputs/` and
+      `{workspace}/stages/` yourself.
+
+      Do NOT defer this to a later stage. The completion check in 2c waits for
+      each declared `writes_to` path under `{workspace}`; if the copy-back is
+      deferred, that file never appears, the stage never completes, and the
+      very stage meant to do the copying is never scheduled — a deadlock.
+
+      If a declared `writes_to` file is missing from the agent's cwd after it
+      returns, fail the stage — downstream stages read those files by name,
+      and a missing one degrades them quietly instead of erroring.
 
    b. **Merge the worktree branch** so the code changes land:
 

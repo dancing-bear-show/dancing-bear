@@ -478,8 +478,11 @@ stages:
       to write the shared workspace, and the write will prompt or fail), and do
       NOT use a bare relative path (that resolves against the orchestrator's
       CWD, i.e. the shared repo tree, leaking outside your worktree).
-      The orchestrator copies your outputs/ back into {workspace}/outputs/
-      during integrate-and-test, along with your code changes.
+      The orchestrator copies your outputs/ back into {workspace}/outputs/ as
+      part of THIS stage's completion — not later. (Deferring it to
+      integrate-and-test would deadlock: the completion check waits for the
+      report under {workspace}, so this stage would never finish and the stage
+      meant to copy it would never run.)
 
       Report created/modified files with keys "files", "tests_added",
       "commands_added", "deviations" (anything you did differently from
@@ -549,7 +552,7 @@ stages:
         <your-cwd>/outputs/consumer-report.json
       Do NOT write {workspace}/... and do NOT use a bare relative path; see the
       producer stage for why. The orchestrator copies your outputs/ back into
-      {workspace}/outputs/ during integrate-and-test.
+      {workspace}/outputs/ as part of THIS stage's completion, not later.
 
       Report with keys "files", "tests_added", "commands_added", "deviations".
     agent:
@@ -589,13 +592,13 @@ stages:
       Both prior stages ran in ISOLATED WORKTREES; their edits are NOT in this
       branch and never merge back automatically.
 
-      FIRST, copy back each isolated agent's report. Per the isolated-agent path
-      protocol they wrote to <their-cwd>/outputs/, never to {workspace}. For
-      each of implement-producer and implement-consumer, locate its worktree and
-      copy <that-cwd>/outputs/*-report.json into {workspace}/outputs/. If a
-      report is missing, say so and FAIL this stage — downstream stages
-      (sad-path-coverage, review) read those files by name and a missing one
-      silently degrades them rather than erroring.
+      FIRST, confirm both isolated reports are present at
+      {workspace}/outputs/producer-report.json and consumer-report.json. The
+      orchestrator copies them back at each implementation stage's completion,
+      so if either is missing something went wrong upstream — say so and FAIL
+      this stage rather than proceeding. Downstream stages (sad-path-coverage,
+      review) read those files by name, and a missing one degrades them
+      silently instead of erroring.
 
       THEN merge the code changes the way the orchestrator mandates, NOT by
       copying files. The
