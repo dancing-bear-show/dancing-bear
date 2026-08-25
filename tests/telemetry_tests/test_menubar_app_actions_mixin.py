@@ -173,10 +173,14 @@ class TestCopyToClipboard(unittest.TestCase):
         mock_appkit_ns = MagicMock()
         mock_appkit_ns.generalPasteboard.return_value = mock_pb
 
-        # Patch _HAS_APPKIT to True and provide a fake NSPasteboard
+        # create=True is required: NSPasteboard/NSPasteboardTypeString are only
+        # bound when the AppKit import succeeds. On Linux CI the except-ImportError
+        # branch runs, so the names do not exist on the module and a plain patch
+        # raises AttributeError before the test body runs.
         with patch("telemetry._menubar_app_actions._HAS_APPKIT", True), \
-             patch("telemetry._menubar_app_actions.NSPasteboard", mock_appkit_ns), \
-             patch("telemetry._menubar_app_actions.NSPasteboardTypeString", "public.utf8-plain-text"):
+             patch("telemetry._menubar_app_actions.NSPasteboard", mock_appkit_ns, create=True), \
+             patch("telemetry._menubar_app_actions.NSPasteboardTypeString",
+                   "public.utf8-plain-text", create=True):
             ActionsMixin._copy_to_clipboard("appkit text")
 
         mock_pb.clearContents.assert_called_once()
@@ -193,8 +197,9 @@ class TestCopyToClipboard(unittest.TestCase):
         def fake_run(cmd, **_kw):
             pbcopy_calls.append(cmd)
 
+        # create=True: NSPasteboard is unbound on non-macOS (see note above).
         with patch("telemetry._menubar_app_actions._HAS_APPKIT", True), \
-             patch("telemetry._menubar_app_actions.NSPasteboard", mock_appkit_ns), \
+             patch("telemetry._menubar_app_actions.NSPasteboard", mock_appkit_ns, create=True), \
              patch("subprocess.run", fake_run):
             ActionsMixin._copy_to_clipboard("fallback text")
 

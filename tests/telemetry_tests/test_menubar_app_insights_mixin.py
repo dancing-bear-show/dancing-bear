@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace as NS
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from telemetry._menubar_app_insights import InsightsMixin
 from telemetry._menubar_config import _MAX_TIPS_LIMIT
@@ -256,6 +256,18 @@ class TestRenderInsights_WasteSummaryNotDict(unittest.TestCase):
 
 class TestMakeTipClickHandler(unittest.TestCase):
     """_make_tip_click_handler: copy-to-clipboard path when no claude_rule."""
+
+    def setUp(self):
+        # _handler imports rumps unconditionally at its top, before any branch
+        # runs — so every test here needs the module present, not just the ones
+        # reaching rumps.alert(). rumps is macOS-only (the [menubar] extra is
+        # marked sys_platform == 'darwin'), so on Linux CI the bare import
+        # raises ModuleNotFoundError. Stub it for the whole class to keep these
+        # tests platform-independent.
+        self.mock_rumps = MagicMock()
+        patcher = patch.dict("sys.modules", {"rumps": self.mock_rumps})
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_fix_hint_copies_and_notifies_when_no_rule(self):
         host = _make_host()
