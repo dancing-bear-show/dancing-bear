@@ -12,6 +12,7 @@ from slides.constants import (
     LAYOUT_SECTION,
     LAYOUT_TITLE_ONLY,
     RESERVED_LAYOUT_KEY as _FALLBACK_LAYOUT_KEY,
+    VALID_LAYOUTS,
     theme_color_map,
 )
 from slides.schema import SlideContent
@@ -228,16 +229,17 @@ class LayoutMixin:
         Raises:
             ValueError: If the layout name is not in the resolved layout map.
         """
-        from slides.constants import VALID_LAYOUTS
-
         if not isinstance(layouts, dict):
             return layouts
         layout_name = content.layout or DEFAULT_LAYOUT_KEY
         if layout_name in layouts:
             return layouts[layout_name]
-        # layout_name not in layouts: reject — do not silently fall back.
-        # Only VALID_LAYOUTS names are accepted; the _FALLBACK_LAYOUT_KEY is an
-        # internal sentinel, not a user-facing name.
+        # Reject rather than silently falling back. Accepted names are the keys
+        # this presentation actually resolved, which may differ from
+        # VALID_LAYOUTS depending on the template; VALID_LAYOUTS is only the
+        # fallback for the error message when the map resolved no usable keys.
+        # Deck-level enforcement of VALID_LAYOUTS lives in cli.cmd_validate.
+        # _FALLBACK_LAYOUT_KEY is an internal sentinel, not a user-facing name.
         valid = sorted(k for k in layouts if k != _FALLBACK_LAYOUT_KEY) or VALID_LAYOUTS
         raise ValueError(
             f"Slide {content.title!r}: unknown layout {layout_name!r}; "
