@@ -17,6 +17,8 @@ from unittest.mock import patch
 
 from phone import agentic as _agentic_module
 
+from tests.fixtures import make_path_mock
+
 
 class TestCliPathExists(unittest.TestCase):
     """Tests for _cli_path_exists."""
@@ -46,9 +48,13 @@ class TestFlowMapConditionalBranches(unittest.TestCase):
     """
 
     def _flow_map_with(self, true_paths: list[list[str]]) -> str:
-        """Run _flow_map with a controlled set of existing paths."""
-        def exists(path: list[str]) -> bool:
-            return path in true_paths
+        """Run _flow_map with a controlled set of existing paths.
+
+        Delegates to the shared make_path_mock helper, which takes a set of
+        tuples; call sites here read better with lists, so the conversion
+        happens once here rather than at each of them.
+        """
+        exists = make_path_mock({tuple(p) for p in true_paths})
 
         with patch.object(_agentic_module, "_cli_path_exists", side_effect=exists):
             return _agentic_module._flow_map()

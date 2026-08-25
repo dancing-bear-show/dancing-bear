@@ -5,7 +5,8 @@ Targets uncovered lines in the 69.7% baseline:
   - _fragment_stage_names (prefix matching, no-prefix, no-includes)
   - _build_known_vars (exclusive_fragment_vars vs shared vars)
   - _stage_undeclared_refs (fan_out.key suppression, non-StageSpec input)
-  - _check_var_refs (fragment stage skipped)
+  - _check_var_refs (fragment-only vars not warned — see the note above that
+    test; the suppression happens in _build_known_vars, not the skip guard)
   - _release_dependents / _bfs_advance (DAG wiring)
   - _check_cli_commands (pattern extraction, dedup, check_commands gate)
   - _cmd_warning (field and stage shape)
@@ -457,7 +458,12 @@ class TestCheckCliCommands(unittest.TestCase):
         result = LintResult(file="test.yaml")
         with patch("workflow.linter.subprocess.run", return_value=mock_proc) as mock_run:
             _check_cli_commands(defn, result)
+
+        # The probe count is the behaviour under test — two stages naming the
+        # same command must be probed once — but pin the observable result too,
+        # so the test fails if dedup ever starts swallowing real warnings.
         self.assertEqual(mock_run.call_count, 1)
+        self.assertEqual(result.warnings, [])
 
     def test_non_workflow_definition_is_noop(self) -> None:
         result = LintResult(file="test.yaml")
@@ -538,7 +544,14 @@ class TestLintWorkflowCheckCommandsGate(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# _check_var_refs -- fragment stage skipping (line 253)
+# Fragment-only vars are not warned about.
+#
+# Note on mechanism: this is suppressed in _build_known_vars, not by the
+# `if stage.name in fragment_names: continue` guard in _check_var_refs.
+# _build_known_vars folds exclusive_fragment_vars into the known set, so the
+# ref never reaches the warning path at all. Disabling that guard does NOT
+# make this test fail — verified by mutation — so do not read a passing test
+# here as coverage of the guard itself.
 # ---------------------------------------------------------------------------
 
 
@@ -551,18 +564,58 @@ class TestCheckVarRefsFragmentSkip(unittest.TestCase):
                 "    description: Uses {fragment_only_var}\n    agent:\n      role: researcher\n",
                 encoding="utf-8",
             )
+            # Written as a literal block rather than concatenated escapes so the
+            # YAML structure — and where the fragment path is spliced in — is
+            # readable at a glance. Doubled braces escape the f-string so
+            # {fragment_only_var} reaches the linter intact.
             wf = Path(tmp) / "wf.yaml"
             wf.write_text(
-                "name: test-wf\nversion: \"1.0\"\ndescription: Test\ntrigger:\n"
-                "  source: manual\n  params:\n    team: myteam\ninclude:\n"
-                "  - path: " + str(frag) + "\n    prefix: my\nstages:\n"
-                "  - name: my-frag-stage\n    kind: gather\n"
-                "    description: Uses {fragment_only_var}\n    agent:\n      role: researcher\n",
+                f"""name: test-wf
+version: "1.0"
+description: Test
+trigger:
+  source: manual
+  params:
+    team: myteam
+include:
+  - path: {frag}
+    prefix: my
+stages:
+  - name: my-frag-stage
+    kind: gather
+    description: Uses {{fragment_only_var}}
+    agent:
+      role: researcher
+""",
                 encoding="utf-8",
             )
             result = lint_workflow(wf)
+
+        # The fragment-prefixed stage must not be warned about.
         fov_warnings = [w for w in result.warnings if "fragment_only_var" in w.message]
         self.assertEqual(len(fov_warnings), 0)
+
+        # Asserting only the above is not enough: it also passes when nothing
+        # warns for unrelated reasons. Pin the contrast — a NON-fragment stage
+        # referencing an undeclared var must still warn, which is what proves
+        # the skip is scoped to fragment stages rather than suppressing
+        # everything.
+        with tempfile.TemporaryDirectory() as tmp2:
+            wf2 = Path(tmp2) / "wf.yaml"
+            wf2.write_text(
+                _minimal_yaml(extra=(
+                    "  - name: caller-stage\n"
+                    "    kind: gather\n"
+                    "    description: Uses {caller_only_var}\n"
+                    "    agent:\n"
+                    "      role: researcher\n"
+                )),
+                encoding="utf-8",
+            )
+            result2 = lint_workflow(wf2)
+
+        caller_warnings = [w for w in result2.warnings if "caller_only_var" in w.message]
+        self.assertEqual(len(caller_warnings), 1)
 
 
 if __name__ == "__main__":

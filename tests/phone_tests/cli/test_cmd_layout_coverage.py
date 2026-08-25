@@ -238,20 +238,20 @@ class TestCmdValidateLayout(unittest.TestCase):
     def test_device_layout_valid_passes_apps_to_validator(self):
         from phone.cli.cmd_layout import cmd_validate_layout
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as layout_f:
-            json.dump([["com.apple.safari"], ["com.apple.maps"]], layout_f)
-            layout_path = layout_f.name
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as device_f:
-            json.dump(["com.apple.safari", "com.apple.maps"], device_f)
-            device_path = device_f.name
-        try:
+        # Both files live in one TemporaryDirectory so cleanup is atomic even
+        # if the assertion fails — two separate delete=False handles needed
+        # four unlink calls across nested finally blocks to get this right.
+        with tempfile.TemporaryDirectory() as tmp:
+            layout_path = Path(tmp) / "layout.json"
+            layout_path.write_text(json.dumps([["com.apple.safari"], ["com.apple.maps"]]))
+            device_path = Path(tmp) / "device.json"
+            device_path.write_text(json.dumps(["com.apple.safari", "com.apple.maps"]))
+
             result = cmd_validate_layout(
-                self._make_args(layout_path, device_layout=device_path)
+                self._make_args(str(layout_path), device_layout=str(device_path))
             )
+
             self.assertEqual(result, 0)
-        finally:
-            Path(layout_path).unlink(missing_ok=True)
-            Path(device_path).unlink(missing_ok=True)
 
 
 class TestUpdatePlanWithFolders(unittest.TestCase):
