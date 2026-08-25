@@ -147,9 +147,53 @@ Iterate through `groups` (from the compiled manifest) in order. For each group:
 
 #### 2a. Spawn Agents
 
-**Inline stages run directly — no agent spawned.** Check the stage's executor
-(via `_field()` below — on a compiled-manifest entry it is the `executor` key,
-not an attribute):
+**Normalize the stage's fields FIRST.** Three stage representations exist and
+they spell the same fields differently, so every check below — including the
+inline-executor check and the resume result-file path — reads through these
+accessors. A compiled-manifest entry is a plain dict with no `.spec` or
+`.agent`, so `stage.agent.role` raises `AttributeError` on it:
+
+| Field | `ResolvedStage` (parsed) | `resolutions` entry (`compile --format json`) | `dispatch/*.json` |
+|---|---|---|---|
+| name | `stage.spec.name` | `stage` | `stage_name` |
+| index | `stage.index` | `index` | `stage_index` |
+| kind | `stage.spec.kind` | `kind` | `kind` |
+| executor | `stage.spec.executor` | `executor` | — |
+| role | `stage.spec.agent.role` | `agent_role` | `agent_type` |
+| model | `stage.spec.agent.model` | `agent_model` | `model` |
+| isolation | `stage.spec.agent.isolation` | `agent_isolation` | `isolation` |
+
+```python
+def _field(stage, attr_path, *dict_keys):
+    """Read one field from any stage representation."""
+    if isinstance(stage, dict):
+        for k in dict_keys:
+            if stage.get(k) is not None:
+                return stage[k]
+        return None
+    obj = stage
+    for part in attr_path.split("."):
+        obj = getattr(obj, part, None)
+        if obj is None:
+            return None
+    return obj
+
+# Resolve EVERY field through the accessor before any check below uses it —
+# including the inline-executor check and the resume result-file path, which
+# would otherwise raise NameError on the compiled-manifest path.
+stage_name = _field(stage, "spec.name",     "stage", "stage_name")
+stage_kind = _field(stage, "spec.kind",     "kind")
+index      = _field(stage, "index",         "index", "stage_index")
+executor   = _field(stage, "spec.executor", "executor")
+role       = _field(stage, "spec.agent.role",      "agent_role", "agent_type")
+model      = _field(stage, "spec.agent.model",     "agent_model", "model")
+isolation  = _field(stage, "spec.agent.isolation", "agent_isolation", "isolation")
+
+```
+
+**Inline stages run directly — no agent spawned.** Check the `executor`
+resolved above (on a compiled-manifest entry it is a dict key, not an
+attribute):
 
 ```python
 if executor == "inline":
@@ -188,45 +232,7 @@ message so they run concurrently.
 
 **`description` is required on every Agent call.**
 
-Three different stage representations exist, and they spell the same fields
-differently. Read every field through these accessors rather than
-dereferencing attributes directly — a compiled-manifest entry is a plain dict
-with no `.spec` or `.agent`, so `stage.agent.role` raises `AttributeError` on
-it:
-
-| Field | `ResolvedStage` (parsed) | `resolutions` entry (`compile --format json`) | `dispatch/*.json` |
-|---|---|---|---|
-| role | `stage.spec.agent.role` | `agent_role` | `agent_type` |
-| model | `stage.spec.agent.model` | `agent_model` | `model` |
-| isolation | `stage.spec.agent.isolation` | `agent_isolation` | `isolation` |
-| name | `stage.spec.name` | `stage` | `stage_name` |
-
 ```python
-def _field(stage, attr_path, *dict_keys):
-    """Read one field from any stage representation."""
-    if isinstance(stage, dict):
-        for k in dict_keys:
-            if stage.get(k) is not None:
-                return stage[k]
-        return None
-    obj = stage
-    for part in attr_path.split("."):
-        obj = getattr(obj, part, None)
-        if obj is None:
-            return None
-    return obj
-
-# Resolve EVERY field through the accessor — including the ones used by the
-# inline check and the result-file path above, which are otherwise undefined
-# on the compiled-manifest path.
-stage_name = _field(stage, "spec.name",     "stage", "stage_name")
-stage_kind = _field(stage, "spec.kind",     "kind")
-index      = _field(stage, "index",         "index", "stage_index")
-executor   = _field(stage, "spec.executor", "executor")
-role       = _field(stage, "spec.agent.role",      "agent_role", "agent_type")
-model      = _field(stage, "spec.agent.model",     "agent_model", "model")
-isolation  = _field(stage, "spec.agent.isolation", "agent_isolation", "isolation")
-
 agent_kwargs = dict(
     description=f"Stage {stage_name} — {stage_kind}",
     subagent_type=ROLE_MAP[role],
