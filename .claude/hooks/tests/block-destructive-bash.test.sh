@@ -34,6 +34,28 @@ run() { # run <BLOCK|ALLOW> <command>
   _record "$expect" "$(_classify "$rc")" "$cmd"
 }
 
+# Cases whose EXPECTED result depends on the platform's filesystem layout.
+#
+# `/private/tmp` and `/private/var` are the canonical spellings of the macOS temp
+# roots; on Linux they are ordinary unremarkable paths, so the guard correctly
+# BLOCKS them there while correctly ALLOWING them here. Same for `/Users/<name>`,
+# which is a home directory on macOS and nothing in particular on a Linux runner.
+#
+# Asserting the macOS answer unconditionally is what turned a passing suite red in
+# CI: the hook was right both times and the test was wrong on one of them. Deleting
+# the cases would lose real coverage of the scratch carve-out on the platform this
+# repo is developed on, so they are gated instead of dropped.
+IS_DARWIN=0
+[ "$(uname -s)" = "Darwin" ] && IS_DARWIN=1
+
+run_darwin() { # run_darwin <BLOCK|ALLOW> <command>
+  if [ "$IS_DARWIN" -eq 1 ]; then
+    run "$1" "$2"
+  else
+    printf 'skip  %-5s  %s (macOS-only path layout)\n' "$1" "$2"
+  fi
+}
+
 # run_raw feeds a literal JSON payload rather than building one from a string, so the
 # non-string and malformed cases can be expressed at all.
 run_raw() { # run_raw <BLOCK|ALLOW> <label> <raw-json>
@@ -349,7 +371,12 @@ echo "--- REGRESSION 26: a NAMED sibling worktree is protected (want BLOCK) ---"
 # one named worktree is the targeted version of the thing the broad form was blocked
 # for, and it destroys another session's uncommitted work just as permanently.
 run BLOCK 'rm -rf .claude/worktrees/other-session'
-run BLOCK 'rm -rf ~/code/dancing-bear/.claude/worktrees/wf-abc'
+# Absolute spelling of the same protection. The path only resolves inside REPO_ROOT
+# on a machine whose checkout is literally ~/code/dancing-bear, so asserting BLOCK
+# unconditionally fails on a CI runner that checks out elsewhere -- the guard is
+# right there, the hardcoded path is not. The relative case above covers the rule
+# portably; this one adds the absolute spelling where the layout matches.
+run_darwin BLOCK 'rm -rf ~/code/dancing-bear/.claude/worktrees/wf-abc'
 run BLOCK 'rm -rf .claude/worktrees'
 run BLOCK 'rm -rf .claude'
 
@@ -496,8 +523,8 @@ run ALLOW 'rm -rf /tmp/claude-scratch/build'
 # blocking it as a system path; listing only the canonical one would let `rm -rf
 # /var/tmp` -- every other session's scratch -- fall through the root check.
 run ALLOW 'rm -rf /var/tmp/build'
-run ALLOW 'rm -rf /private/var/tmp/build'
-run ALLOW 'rm -rf /private/tmp/claude-501/work'
+run_darwin ALLOW 'rm -rf /private/var/tmp/build'
+run_darwin ALLOW 'rm -rf /private/tmp/claude-501/work'
 run BLOCK 'rm -rf /var/tmp'
 run BLOCK 'rm -rf /private/var/tmp'
 run BLOCK 'rm -rf /private/tmp'
@@ -580,14 +607,14 @@ run BLOCK 'cd /tmp && rm -rf /tmp/ok; rm -rf /'
 echo
 echo "--- rm -rf FALSE POSITIVES the reference blocked; must now ALLOW ---"
 run ALLOW 'rm -rf /tmp/scratch'
-run ALLOW 'rm -rf /private/tmp/claude-501/work'
+run_darwin ALLOW 'rm -rf /private/tmp/claude-501/work'
 run ALLOW 'rm -rf /var/tmp/build'
 run ALLOW 'rm -rf /tmp/claude-scratch/build'
 run ALLOW 'rm -rf out/'
 run ALLOW 'rm -rf ./build'
 run ALLOW 'rm -rf .venv'
 run ALLOW 'rm -rf ~/.cache/dancing-bear'
-run ALLOW 'rm -rf /Users/briansherwin/scratch/thing'
+run_darwin ALLOW 'rm -rf /Users/briansherwin/scratch/thing'
 run ALLOW 'rm -f somefile.txt'
 run ALLOW 'rm -rf node_modules'
 run ALLOW 'rm -rf htmlcov .coverage'
