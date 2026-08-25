@@ -15,6 +15,7 @@ python:
   whatsapp: {module: whatsapp, doc: "Thin wrapper to run the WhatsApp CLI."}
   wifi: {module: wifi, doc: "Thin wrapper to run the Wi-Fi CLI."}
   slides: {module: slides, doc: "Thin wrapper to run the Slides CLI."}
+  sheets: {module: sheets, doc: "Thin wrapper to run the Sheets CLI."}
   maker: {module: maker, doc: "Thin wrapper to run the Maker CLI."}
   assistant: {module: core.assistant_cli, doc: "Unified assistant entry point (dispatches to app CLIs)."}
   charts: {module: charts, doc: "Thin wrapper to run the Charts CLI (render time-series charts from JSON)."}

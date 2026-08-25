@@ -42,6 +42,7 @@ src/                      # all Python source packages (installable via package-
   charts/                 # render time-series charts from JSON (line/bar/area/dual)
   diagrams/               # Mermaid diagram generation (flowchart/sequence/gantt/pie; telemetry cost/token pies)
   slides/                 # generate PowerPoint decks from YAML deck definitions
+  sheets/                 # generate styled .xlsx spreadsheets from YAML workbook definitions
   workflow/               # YAML DAG workflow engine (parse/compile/run/lint/list/status)
   core/                   # shared helpers
   telemetry/              # Claude Code session telemetry (cost, tokens, TUI)
