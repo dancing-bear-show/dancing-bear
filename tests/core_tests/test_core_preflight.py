@@ -323,6 +323,45 @@ class TestSummaryPluralization(unittest.TestCase):
         self.assertIn("(2 samples)", two.summary())
 
 
+class TestSamplesAreImmutable(unittest.TestCase):
+    """Evidence in a returned report must not be editable after the fact.
+
+    frozen=True blocks attribute reassignment but not mutation of a list
+    held in the attribute, so `violation.samples.append(...)` silently
+    rewrote evidence that PreflightReport also references. A tuple closes
+    that hole.
+    """
+
+    @staticmethod
+    def _flag_all(changes, baseline):
+        return "leaks", list(changes)
+
+    def _report(self):
+        return evaluate_invariants([{"id": "1"}], {}, [self._flag_all])
+
+    def test_samples_is_a_tuple(self):
+        self.assertIsInstance(self._report().violations[0].samples, tuple)
+
+    def test_samples_cannot_be_appended_to(self):
+        samples = self._report().violations[0].samples
+        with self.assertRaises(AttributeError):
+            samples.append({"injected": "yes"})
+
+    def test_check_error_samples_are_also_a_tuple(self):
+        def boom(changes, baseline):
+            raise RuntimeError("boom")
+
+        report = evaluate_invariants([{"id": "1"}], {}, [boom])
+        self.assertIsInstance(report.violations[0].samples, tuple)
+
+    def test_to_dict_still_emits_a_json_list(self):
+        # The dict claims to be JSON-serializable, so a caller inspecting it
+        # before serializing should see a list rather than a tuple.
+        payload = self._report().to_dict()
+        self.assertIsInstance(payload["violations"][0]["samples"], list)
+        json.dumps(payload)
+
+
 class TestSensitiveKeyMasking(unittest.TestCase):
     """A bare value under a sensitive key must be redacted.
 
@@ -482,6 +521,43 @@ class TestApiKeyMasking(unittest.TestCase):
             with self.subTest(param=param):
                 text = f"https://svc.example/?{param}={self.SECRET}"
                 self.assertNotIn(self.SECRET, mask_text(text))
+
+    def test_all_three_masking_paths_agree_on_every_sensitive_key(self):
+        """Every key in the shared set must mask on all three paths.
+
+        mask_url, mask_headers and the preflight sample masker each answer
+        "is this name sensitive?" -- and each used to answer it from its
+        own list. A name in one list and not another was redacted on one
+        path and emitted on the other, which is how x_auth_token,
+        proxy_authorization, private_key and session_token leaked through
+        mask_url while preflight redacted them.
+
+        Driving the loop off SENSITIVE_PARAM_KEYS rather than a literal
+        list means a key added later is covered here automatically.
+        """
+        from core.secrets import SENSITIVE_PARAM_KEYS, mask_headers, mask_url
+
+        secret = "opaquevalue987654"
+
+        def flag_all(changes, baseline):
+            return "leaks", list(changes)
+
+        for key in sorted(SENSITIVE_PARAM_KEYS):
+            with self.subTest(key=key):
+                self.assertNotIn(
+                    secret,
+                    mask_url(f"https://svc.example/v1?{key}={secret}"),
+                    "mask_url leaked",
+                )
+                self.assertNotIn(
+                    secret,
+                    json.dumps(mask_headers({key: secret})),
+                    "mask_headers leaked",
+                )
+                report = evaluate_invariants([{key: secret}], {}, [flag_all])
+                self.assertNotIn(
+                    secret, json.dumps(report.to_dict()), "preflight leaked"
+                )
 
     def test_every_bare_pair_spelling_is_also_masked_in_urls(self):
         """The two masking paths must agree on what counts as a secret.

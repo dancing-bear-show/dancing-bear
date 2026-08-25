@@ -8,9 +8,10 @@ spreads retries across time, reducing collision probability without requiring
 coordination between threads.
 
 This module provides three complementary backoff functions and a single
-well-parameterised ``@retry`` decorator. The decorator accepts a callable
-``backoff`` strategy so callers can plug in any of the three functions (or a
-custom one) without a separate wrapper per flavour.
+well-parameterised ``@retry`` decorator. Its ``backoff`` parameter takes
+either a float — used as the exponential multiplier — or a callable, so
+callers can plug in any of the three functions (or a custom one) without a
+separate wrapper per flavour.
 
 Design choices:
 - stdlib-only (functools, logging, random, time) — no dependency on anything

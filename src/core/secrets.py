@@ -43,7 +43,67 @@ SENSITIVE_PARAM_KEYS = {
     "aws_access_key_id",
     "aws_secret_access_key",
     "aws_session_token",
+    # Header and body spellings. These rarely appear as query params, but
+    # "rarely" is not "never" -- and keeping them out of the shared set was
+    # itself the bug: core.preflight treated them as sensitive while
+    # mask_url() did not, so the same credential was redacted on one path
+    # and emitted on the other.
+    "x_auth_token",
+    "proxy_authorization",
+    "private_key",
+    "session_token",
 }
+
+# Canonical redaction marker. Callers that build their own replacement
+# string should use this rather than re-typing the literal, so the marker
+# can change in one place.
+REDACTED = "***REDACTED***"
+
+# SENSITIVE_PARAM_KEYS with -/_ folded together, so header names
+# ("X-Auth-Token") and query/body names ("x_auth_token") resolve to the
+# same entry. Computed once; every masker compares against this.
+_NORMALIZED_SENSITIVE_KEYS = {k.replace("-", "_") for k in SENSITIVE_PARAM_KEYS}
+
+# Suffixes that mark a key as a credential regardless of its prefix, so
+# vendor-specific names are covered without enumerating every service.
+# Deliberately narrow: "key" alone is not here, because "sort_key" and
+# "primary_key" are not secrets and redacting them would make logs worse.
+_SENSITIVE_KEY_SUFFIXES = (
+    "_token",
+    "_secret",
+    "_password",
+    "_api_key",
+    "_apikey",
+    "_credential",
+    "_credentials",
+)
+
+
+def is_sensitive_key(key: object) -> bool:
+    """Return True when a key name marks its value as a credential.
+
+    The single place that answers "is this name sensitive?". Header
+    masking, URL masking, and structured-sample masking all route through
+    it, so a key added to SENSITIVE_PARAM_KEYS takes effect everywhere at
+    once. Keeping separate lists per masker was a real bug: a name present
+    in one and absent from another was redacted on one path and emitted on
+    the other.
+
+    Case and ``-``/``_`` are folded, so ``X-Auth-Token``, ``x_auth_token``
+    and ``X_AUTH_TOKEN`` all match.
+    """
+    if not isinstance(key, str):
+        return False
+    normalized = key.strip().lower().replace("-", "_")
+    if normalized in _NORMALIZED_SENSITIVE_KEYS:
+        return True
+    # Vendor headers are open-ended -- "Music-User-Token", "X-Shopify-
+    # Access-Token" -- so an exact list will always trail the services
+    # actually called. A name ending in one of these words is a credential
+    # by convention, and treating it as one costs a redacted log line at
+    # worst. (Apple Music's Music-User-Token leaked past the old exact
+    # list while being sent on every request in apple_music/client.py.)
+    return any(normalized.endswith(suffix) for suffix in _SENSITIVE_KEY_SUFFIXES)
 
 
 def _mask_value(value: str) -> str:
@@ -63,7 +123,10 @@ def mask_headers(headers: dict[str, str]) -> dict[str, str]:
     masked: dict[str, str] = {}
     for k, v in (headers or {}).items():
         lk = (k or "").strip().lower()
-        if lk in {"authorization", "proxy-authorization", "x-api-key", "x-auth-token"}:
+        # Normalized against the shared key set rather than a private list:
+        # a header name absent here but present in SENSITIVE_PARAM_KEYS was
+        # redacted in URLs and emitted in headers.
+        if is_sensitive_key(lk):
             masked[k] = _mask_value(v)
         else:
             masked[k] = v
@@ -77,12 +140,21 @@ def mask_url(url: str) -> str:
         items = []
         for k, v in qs:
             lk = (k or "").strip().lower()
-            if lk in SENSITIVE_PARAM_KEYS:
+            if is_sensitive_key(lk):
                 items.append(f"{k}=***REDACTED***")
             else:
                 items.append(f"{k}={v}")
         query = "&".join(items)
-        return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
+        # A password in the netloc (https://user:pw@host) survived here:
+        # only the query string was inspected, and urlunsplit reassembled
+        # the netloc verbatim.
+        netloc = parts.netloc
+        if parts.password:
+            host = parts.hostname or ""
+            if parts.port:
+                host = f"{host}:{parts.port}"
+            netloc = f"{parts.username or ''}:{REDACTED}@{host}"
+        return urlunsplit((parts.scheme, netloc, parts.path, query, parts.fragment))
     except Exception:
         return url
 
@@ -102,14 +174,35 @@ def mask_text(text: str) -> str:
     # "connection failed (apikey=abc123)", which the query-param and JSON
     # rules below both miss.
     s = re.sub(
-        r"(?i)((?:api[_-]?key|api[_-]?secret|token)\s*=\s*)([\w.~+/=-]+)",
+        r"(?i)((?:api[_.-]?key|api[_.-]?secret|token|password|passwd"
+        r"|client[_.-]?secret|private[_.-]?key|secret)\s*=\s*)([\w.~+/=-]+)",
         _REDACTED,
+        s,
+    )
+    # Credentials embedded in a URI netloc: postgres://user:pw@host/db.
+    # Database drivers and HTTP clients quote the whole URI when auth
+    # fails, so this is one of the likeliest shapes to reach a log. The
+    # username is kept -- it identifies which account failed.
+    s = re.sub(
+        r"(?i)([a-z][a-z0-9+.-]*://)([^:@/\s]+):([^@/\s]+)@",
+        r"\1\2:" + REDACTED + "@",
         s,
     )
     # JSON fields
     s = re.sub(r"(?i)(\"(?:api[_-]?token|api[_-]?key|token|access[_-]?token|secret|client_secret|password)\"\s*:\s*\")(.*?)(\")", r"\1***REDACTED***\3", s)
     # GitHub tokens
     s = re.sub(r"gh[pousr]_[A-Za-z0-9]{20,}", "gh_***REDACTED***", s)
+    # Vendor tokens recognizable by shape alone, so they are caught even
+    # with no key= context around them.
+    s = re.sub(r"\bxox[bpaso]-[A-Za-z0-9-]{10,}", "xox-" + REDACTED, s)
+    s = re.sub(r"\b[sr]k_(?:live|test)_[A-Za-z0-9]{10,}", "sk_" + REDACTED, s)
+    s = re.sub(r"\bsk-[A-Za-z0-9_-]{32,}", "sk-" + REDACTED, s)
+    # PEM blocks. DOTALL via [\s\S] so the body spans lines.
+    s = re.sub(
+        r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----",
+        "-----BEGIN PRIVATE KEY-----" + REDACTED + "-----END PRIVATE KEY-----",
+        s,
+    )
     # Atlassian tokens
     s = re.sub(r"AT[A-Za-z0-9]{20,}", "AT***REDACTED***", s)
     # AWS keys in text

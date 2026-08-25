@@ -11,7 +11,7 @@ from typing import Any
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from core.retry import jitter_backoff
-from core.secrets import mask_headers, mask_url
+from core.secrets import mask_headers, mask_text, mask_url
 
 # ---------------------------------------------------------------------------
 # Env var names and defaults
@@ -175,7 +175,7 @@ class HttpClient:
         if self.logger.isEnabledFor(logging.DEBUG):
             self.logger.debug(
                 "%s %s network error: %s (attempt %d/%d)",
-                method, mask_url(url), exc, attempt + 1, self.retries,
+                method, mask_url(url), mask_text(str(exc)), attempt + 1, self.retries,
             )
         if attempt < self.retries - 1:
             self._sleep_for_retry(attempt, None)

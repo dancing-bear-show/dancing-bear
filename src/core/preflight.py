@@ -37,22 +37,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from core.secrets import SENSITIVE_PARAM_KEYS, mask_text
-
-# Reuses the shared key set rather than a second list that would drift from
-# it. Normalized to underscores once here so lookups stay cheap; the extra
-# entries are header spellings that never appear as query params.
-_SENSITIVE_KEYS = {k.replace("-", "_") for k in SENSITIVE_PARAM_KEYS} | {
-    # Header spellings mask_headers already treats as sensitive but which
-    # never appear as query params, so SENSITIVE_PARAM_KEYS omits them.
-    "x_auth_token",
-    "proxy_authorization",
-    "api_secret",
-    "private_key",
-    "session_token",
-}
-
-_REDACTED_VALUE = "***REDACTED***"
+from core.secrets import REDACTED, is_sensitive_key, mask_text
 
 __all__ = [
     "InvariantViolation",
@@ -80,7 +65,13 @@ class InvariantViolation:
     message: str
     """Human-readable description of what the invariant checks."""
 
-    samples: list[dict[str, Any]]
+    samples: tuple[dict[str, Any], ...]
+    """Representative offending items, capped by ``max_samples``.
+
+    A tuple, not a list: ``frozen=True`` blocks attribute reassignment but
+    not mutation of a list held in the attribute, so evidence in a report
+    that has already been returned could still be appended to or cleared.
+    """
     """Representative offending items (capped by ``max_samples``)."""
 
     def to_dict(self) -> dict[str, Any]:
@@ -88,7 +79,10 @@ class InvariantViolation:
         return {
             "code": self.code,
             "message": self.message,
-            "samples": self.samples,
+            # list(), not the tuple itself: json.dumps would serialize
+            # either as an array, but a caller inspecting this dict before
+            # serializing should see the JSON shape it claims to return.
+            "samples": list(self.samples),
         }
 
 
@@ -143,18 +137,6 @@ def _mask_sample(sample: dict[str, Any]) -> dict[str, Any]:
     return {key: _mask_value(value, key) for key, value in sample.items()}
 
 
-def _is_sensitive_key(key: object) -> bool:
-    """Return True when a mapping key marks its value as a credential.
-
-    Normalizes ``-``/``_`` and case so ``X-Api-Key``, ``api_key`` and
-    ``APIKEY`` all match the shared key set.
-    """
-    if not isinstance(key, str):
-        return False
-    normalized = key.strip().lower().replace("-", "_")
-    return normalized in _SENSITIVE_KEYS
-
-
 def _mask_value(value: Any, key: object = None) -> Any:
     """Recursively mask string leaves inside a sample value.
 
@@ -166,8 +148,8 @@ def _mask_value(value: Any, key: object = None) -> Any:
     a structured change record.
     """
     if isinstance(value, str):
-        if _is_sensitive_key(key):
-            return _REDACTED_VALUE
+        if is_sensitive_key(key):
+            return REDACTED
         return mask_text(value)
     if isinstance(value, dict):
         return {k: _mask_value(v, k) for k, v in value.items()}
@@ -266,13 +248,13 @@ def evaluate_invariants(
                 InvariantViolation(
                     code=error_code,
                     message=error_message,
-                    samples=[
+                    samples=(
                         {
                             "check": _check_label(check),
                             "error": mask_text(str(exc)),
                             "traceback": mask_text(traceback.format_exc()),
-                        }
-                    ],
+                        },
+                    ),
                 )
             )
             continue
@@ -285,7 +267,7 @@ def evaluate_invariants(
             InvariantViolation(
                 code=code,
                 message=message,
-                samples=[_mask_sample(s) for s in offending[:max_samples]],
+                samples=tuple(_mask_sample(s) for s in offending[:max_samples]),
             )
         )
 

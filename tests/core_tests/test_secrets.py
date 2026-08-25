@@ -192,5 +192,163 @@ class MaskTextTests(unittest.TestCase):
         self.assertIn("AT***REDACTED***", result)
 
 
+class TestUriEmbeddedCredentials(unittest.TestCase):
+    """user:password@host survived both maskers.
+
+    mask_url inspected only the query string and urlunsplit reassembled the
+    netloc verbatim; mask_text had no pattern for the shape at all. Database
+    drivers and HTTP clients quote the whole URI when auth fails, so this is
+    one of the likeliest shapes to reach a log.
+    """
+
+    PW = "s3cr3tpassword"
+
+    def test_mask_url_redacts_netloc_password(self):
+        out = mask_url(f"https://user:{self.PW}@api.example.com/endpoint")
+        self.assertNotIn(self.PW, out)
+        # The username identifies which account failed, so it is kept.
+        self.assertIn("user", out)
+        self.assertIn("api.example.com", out)
+
+    def test_mask_url_preserves_port(self):
+        out = mask_url(f"https://user:{self.PW}@db.host:5432/path")
+        self.assertNotIn(self.PW, out)
+        self.assertIn("5432", out)
+
+    def test_mask_url_leaves_credential_free_url_alone(self):
+        url = "https://api.example.com/v1?page=2"
+        self.assertEqual(mask_url(url), url)
+
+    def test_mask_text_redacts_connection_string(self):
+        text = f"connection failed: postgres://dbuser:{self.PW}@db.host/mydb"
+        out = mask_text(text)
+        self.assertNotIn(self.PW, out)
+        self.assertIn("dbuser", out)
+
+    def test_mask_text_covers_any_scheme(self):
+        for scheme in ("postgres", "mysql", "redis", "amqp", "https"):
+            with self.subTest(scheme=scheme):
+                text = f"{scheme}://u:{self.PW}@host/db"
+                self.assertNotIn(self.PW, mask_text(text))
+
+    def test_uri_without_password_is_untouched(self):
+        text = "postgres://dbuser@db.host/mydb"
+        self.assertEqual(mask_text(text), text)
+
+
+class TestVendorTokenShapes(unittest.TestCase):
+    """Tokens recognizable by shape, with no key= context around them."""
+
+    def test_slack_token(self):
+        self.assertNotIn(
+            "12345-67890-abcdefghijklmnop",
+            mask_text("auth failed with xoxb-12345-67890-abcdefghijklmnop"),
+        )
+
+    def test_stripe_tokens(self):
+        for tok in ("sk_live_abcdefghij1234567890", "rk_test_abcdefghij1234567890"):
+            with self.subTest(tok=tok):
+                self.assertNotIn(tok, mask_text(f"charge failed: {tok}"))
+
+    def test_openai_token(self):
+        tok = "sk-" + "a" * 40
+        self.assertNotIn(tok, mask_text(f"request rejected: {tok}"))
+
+    def test_pem_private_key_block(self):
+        pem = (
+            "-----BEGIN RSA PRIVATE KEY-----\n"
+            "MIIEowIBAAKCAQEAsecretkeymaterial\n"
+            "-----END RSA PRIVATE KEY-----"
+        )
+        out = mask_text(f"failed to load key:\n{pem}")
+        self.assertNotIn("MIIEowIBAAKCAQEAsecretkeymaterial", out)
+
+
+class TestBareCredentialPairs(unittest.TestCase):
+    """password=/secret=/client_secret= in unstructured text.
+
+    The JSON and query-param rules already covered these key names; the
+    bare key=value shape that exception text actually takes did not.
+    """
+
+    SECRET = "opaquevalue987654"
+
+    def test_password_style_keys_are_masked(self):
+        for key in ("password", "passwd", "secret", "client_secret", "private_key"):
+            with self.subTest(key=key):
+                self.assertNotIn(
+                    self.SECRET, mask_text(f"{key}={self.SECRET}")
+                )
+
+    def test_dot_separated_spelling_is_masked(self):
+        self.assertNotIn(self.SECRET, mask_text(f"api.key={self.SECRET}"))
+
+
+class TestNoOverMasking(unittest.TestCase):
+    """Widening these patterns must not redact ordinary log content.
+
+    Over-masking is the quieter failure: nobody files a bug because a log
+    line says ***REDACTED*** too often, but every log in the repo gets
+    worse.
+    """
+
+    def test_benign_key_value_pairs_survive(self):
+        for text in (
+            "api_version=2",
+            "sort_key=name",
+            "primary_key=id",
+            "public_key_id=42",
+            "monkey=banana",
+            "key=value",
+            "secretary=alice",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(mask_text(text), text)
+
+    def test_ordinary_urls_and_prose_survive(self):
+        for text in (
+            "https://example.com/path?page=2&limit=50",
+            "GET https://api.example.com/v1/users/123 -> 200",
+            "Traceback (most recent call last):",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(mask_text(text), text)
+
+    def test_benign_key_names_are_not_sensitive(self):
+        from core.secrets import is_sensitive_key
+
+        for key in ("sort_key", "primary_key", "keyboard", "tokenizer", "id"):
+            with self.subTest(key=key):
+                self.assertFalse(is_sensitive_key(key))
+
+
+class TestHeaderMaskingUsesSharedPolicy(unittest.TestCase):
+    """mask_headers had its own 4-name list and missed live credentials.
+
+    apple_music/client.py sends Music-User-Token on every request, and
+    http.py logs headers at DEBUG through mask_headers -- so the token was
+    emitted while Authorization beside it was redacted.
+    """
+
+    def test_vendor_token_header_is_masked(self):
+        out = mask_headers(
+            {"Authorization": "Bearer devtok", "Music-User-Token": "usertok456"}
+        )
+        self.assertNotIn("usertok456", str(out))
+        self.assertNotIn("devtok", str(out))
+
+    def test_shared_key_set_applies_to_headers(self):
+        from core.secrets import SENSITIVE_PARAM_KEYS
+
+        for key in sorted(SENSITIVE_PARAM_KEYS):
+            with self.subTest(key=key):
+                out = mask_headers({key: "opaquevalue987654"})
+                self.assertNotIn("opaquevalue987654", str(out))
+
+    def test_benign_headers_pass_through(self):
+        headers = {"Accept": "application/json", "User-Agent": "dancing-bear/1.0"}
+        self.assertEqual(mask_headers(headers), headers)
+
+
 if __name__ == "__main__":
     unittest.main()
