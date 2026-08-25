@@ -10,7 +10,8 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
-from core.secrets import mask_headers, mask_url
+from core.retry import jitter_backoff
+from core.secrets import mask_headers, mask_text, mask_url
 
 # ---------------------------------------------------------------------------
 # Env var names and defaults
@@ -22,6 +23,10 @@ DEFAULT_HTTP_TIMEOUT = 30.0
 DEFAULT_HTTP_RETRIES = 3
 
 _RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+
+# Hard ceiling on a self-computed retry delay, in seconds. A server-supplied
+# Retry-After may exceed it; our own backoff may not.
+_MAX_RETRY_BACKOFF = 10.0
 
 
 @dataclass
@@ -141,8 +146,19 @@ class HttpClient:
             )
 
     def _sleep_for_retry(self, attempt: int, retry_after: int | None) -> None:
-        backoff = min(2 ** attempt, 10)
-        delay = max(backoff, retry_after) if retry_after is not None else backoff
+        # Jitter spreads concurrent retries so the up-to-16 threads in
+        # core/parallel.py stop backing off in lockstep against a shared rate
+        # limit. jitter_backoff applies its +/-30% band *after* its own clamp,
+        # so it can return up to 13s for a 10s max_delay -- clamp again here to
+        # keep the hard ceiling the previous min(2 ** attempt, 10) guaranteed.
+        computed = min(
+            jitter_backoff(attempt, base_delay=1.0, multiplier=2.0, max_delay=_MAX_RETRY_BACKOFF),
+            _MAX_RETRY_BACKOFF,
+        )
+        # A server-supplied Retry-After is a hard floor: jitter must not reduce
+        # the delay below what the server requested, and the ceiling above does
+        # not apply to it -- the server's instruction wins over our own cap.
+        delay = max(computed, retry_after) if retry_after is not None else computed
         time.sleep(delay)
 
     def _should_retry_response(self, resp: Any, method: str, url: str, attempt: int) -> bool:
@@ -159,7 +175,7 @@ class HttpClient:
         if self.logger.isEnabledFor(logging.DEBUG):
             self.logger.debug(
                 "%s %s network error: %s (attempt %d/%d)",
-                method, mask_url(url), exc, attempt + 1, self.retries,
+                method, mask_url(url), mask_text(str(exc)), attempt + 1, self.retries,
             )
         if attempt < self.retries - 1:
             self._sleep_for_retry(attempt, None)
