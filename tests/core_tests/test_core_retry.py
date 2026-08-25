@@ -429,10 +429,6 @@ class TestHttpSleepForRetryWithJitter(unittest.TestCase):
             self.assertLessEqual(delay, upper, f"delay {delay} exceeded expected upper bound")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestPRFeedbackFixes(unittest.TestCase):
     """Regressions found in review of PR #237."""
 
@@ -550,3 +546,7 @@ class TestHttpBackoffCeiling(unittest.TestCase):
         # The server's instruction wins over our own cap.
         for delay in self._sleeps_for(attempt=1, retry_after=30, samples=20):
             self.assertEqual(delay, 30)
+
+
+if __name__ == "__main__":
+    unittest.main()
