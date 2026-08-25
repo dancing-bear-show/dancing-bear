@@ -205,6 +205,23 @@ def mask_url(url: str) -> str:
 
 _REDACTED = r"\1***REDACTED***"
 
+# Key names recognized inside a mapping literal. Shared by the JSON and
+# Python-repr forms so the two spellings cannot drift apart.
+_MAPPING_KEY_ALTERNATION = (
+    r"api[_.-]?token|api[_.-]?key|api[_.-]?secret|token"
+    r"|access[_.-]?token|refresh[_.-]?token|secret|client[_.-]?secret"
+    r"|private[_.-]?key|password|passwd"
+)
+
+# Group 1 spans the opening quote, key, separator and opening value quote.
+# Group 2 is the key quote and group 3 the value quote; \3 closes the value
+# with the same character that opened it, so a single-quoted value cannot be
+# terminated by a stray double quote inside it.
+_MAPPING_FIELD_RE = re.compile(
+    r"(?i)((['\"])(?:" + _MAPPING_KEY_ALTERNATION + r")\2\s*:\s*(['\"]))"
+    r".*?\3"
+)
+
 
 def mask_text(text: str) -> str:
     s = text or ""
@@ -232,18 +249,21 @@ def mask_text(text: str) -> str:
     # fails, so this is one of the likeliest shapes to reach a log. The
     # username is kept -- it identifies which account failed.
     s = re.sub(
-        r"(?i)([a-z][a-z0-9+.-]*://)([^:@/\s]+):([^@/\s]+)@",
+        # The password group is greedy up to the LAST '@' before the host,
+        # not the first: an unescaped '@' in a password ("u:p@ssw0rd@host")
+        # otherwise ended the match early and left "ssw0rd@host" in the
+        # output. mask_url gets this right via rpartition; this is the text
+        # path saying the same thing.
+        r"(?i)([a-z][a-z0-9+.-]*://)([^:@/\s]+):([^/\s]+)@",
         r"\1\2:" + REDACTED + "@",
         s,
     )
-    # JSON fields
-    s = re.sub(
-        r"(?i)(\"(?:api[_.-]?token|api[_.-]?key|api[_.-]?secret|token"
-        r"|access[_.-]?token|refresh[_.-]?token|secret|client[_.-]?secret"
-        r"|private[_.-]?key|password|passwd)\"\s*:\s*\")(.*?)(\")",
-        r"\1***REDACTED***\3",
-        s,
-    )
+    # Mapping fields, in both JSON ("k": "v") and Python repr ('k': 'v')
+    # form. An exception carrying a dict stringifies as repr, so a
+    # double-quote-only rule left RuntimeError({'api_key': ...}) unmasked
+    # in the RetryExhaustedError message built from it. The quote style is
+    # captured and backreferenced so the two forms cannot be mixed.
+    s = _MAPPING_FIELD_RE.sub(r"\1***REDACTED***\3", s)
     # GitHub tokens
     s = re.sub(r"gh[pousr]_[A-Za-z0-9]{20,}", "gh_***REDACTED***", s)
     # Vendor tokens recognizable by shape alone, so they are caught even

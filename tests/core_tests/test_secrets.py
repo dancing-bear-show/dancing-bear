@@ -256,6 +256,73 @@ class TestUriEmbeddedCredentials(unittest.TestCase):
         text = "postgres://dbuser@db.host/mydb"
         self.assertEqual(mask_text(text), text)
 
+    def test_mask_text_password_containing_an_at_sign(self):
+        # The password group stopped at the FIRST '@', so an unescaped '@'
+        # in the password ended the match early and left the tail visible.
+        out = mask_text("connect failed: postgres://u:p@ssw0rd@host/db")
+        self.assertNotIn("ssw0rd", out)
+        self.assertIn("host/db", out)
+
+    def test_mask_text_password_with_several_at_signs(self):
+        out = mask_text("mysql://u:a@b@c@host:3306/db")
+        self.assertNotIn("a@b@c", out)
+        self.assertIn("host:3306/db", out)
+
+    def test_mask_url_preserves_ipv6_host(self):
+        # Rebuilding from parts.hostname would drop the brackets.
+        out = mask_url(f"https://user:{self.PW}@[2001:db8::1]:8080/path")
+        self.assertNotIn(self.PW, out)
+        self.assertIn("[2001:db8::1]:8080", out)
+
+
+class TestMappingLiteralMasking(unittest.TestCase):
+    """Both JSON and Python-repr mapping forms must mask.
+
+    An exception carrying a dict stringifies as repr with single quotes, so
+    a double-quote-only rule left RuntimeError({'api_key': ...}) unmasked
+    in the RetryExhaustedError message built from it.
+    """
+
+    SECRET = "opaquevalue987654"
+
+    def test_python_repr_dict_is_masked(self):
+        text = f"RuntimeError({{'api_key': '{self.SECRET}'}})"
+        self.assertNotIn(self.SECRET, mask_text(text))
+
+    def test_json_form_still_masked(self):
+        text = f'{{"api_key": "{self.SECRET}"}}'
+        self.assertNotIn(self.SECRET, mask_text(text))
+
+    def test_both_quote_styles_across_key_names(self):
+        for key in ("api_key", "api_secret", "token", "password", "client_secret"):
+            for quote in ("'", '"'):
+                with self.subTest(key=key, quote=quote):
+                    text = f"{{{quote}{key}{quote}: {quote}{self.SECRET}{quote}}}"
+                    self.assertNotIn(self.SECRET, mask_text(text))
+
+    def test_quote_styles_are_not_mixed(self):
+        # A single-quoted value must be closed by a single quote, so a
+        # stray double quote inside it cannot terminate the match early.
+        text = "{'api_key': 'has\"double\"inside'}"
+        out = mask_text(text)
+        self.assertNotIn("has", out)
+        self.assertTrue(out.endswith("'}"), out)
+
+    def test_reaches_retry_error_message(self):
+        from core.retry import RetryExhaustedError
+
+        exc = RuntimeError(f"rejected: {{'api_key': '{self.SECRET}'}}")
+        self.assertNotIn(self.SECRET, str(RetryExhaustedError(2, exc)))
+
+    def test_benign_mapping_fields_survive(self):
+        for text in (
+            "{'api_version': '2'}",
+            '{"name": "widget"}',
+            "{'sort_key': 'name'}",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(mask_text(text), text)
+
 
 class TestVendorTokenShapes(unittest.TestCase):
     """Tokens recognizable by shape, with no key= context around them."""
