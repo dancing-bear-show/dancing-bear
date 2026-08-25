@@ -657,11 +657,16 @@ stages:
       self-reported. Run this and paste its output into your summary; a non-zero
       exit means the round trip did NOT pass, regardless of what you wrote in
       the file:
-        python3 -c "import json,sys; d=json.load(open(sys.argv[1])); e=d.get('events_expected'); g=d.get('events_exported'); ok=bool(d.get('round_trip_passed')) and e==g; print('ROUND_TRIP_VERDICT:', 'PASS' if ok else 'FAIL', '| expected=', e, '| exported=', g); sys.exit(0 if ok else 1)" {workspace}/outputs/integration.json
+        python3 -c "import json,sys; d=json.load(open(sys.argv[1])); e=d.get('events_expected'); g=d.get('events_exported'); ok=isinstance(e,int) and isinstance(g,int) and e==g and bool(d.get('round_trip_passed')); print('ROUND_TRIP_VERDICT:', 'PASS' if ok else 'FAIL', '| expected=', e, '| exported=', g); sys.exit(0 if ok else 1)" {workspace}/outputs/integration.json
       The engine's has_key check only verifies a key EXISTS — it cannot catch
       round_trip_passed: false. This command is the actual gate. Running it
       before integration.json exists would fail on a missing file rather than
       on a failed round trip, so the order matters.
+
+      Note the isinstance(int) checks: omitting BOTH counts would otherwise
+      make them None == None and pass, so an incomplete report claiming
+      round_trip_passed: true would clear a gate designed to be unfakeable.
+      Both counts must be real integers.
     agent:
       role: code-writer
       access: read-write
@@ -678,7 +683,19 @@ stages:
       - outputs/integration.json
     validates_output:
       - path: outputs/integration.json
-        checks: [is_json, is_dict, "has_key:round_trip_passed", "has_key:files_landed"]
+        # The count keys are in the contract because the ROUND_TRIP_VERDICT
+        # command compares them: if both were simply absent, None == None and
+        # an incomplete report would pass. has_key cannot check the VALUES —
+        # the verdict command does that — but it guarantees they are present
+        # for it to check.
+        checks:
+          - is_json
+          - is_dict
+          - "has_key:round_trip_passed"
+          - "has_key:files_landed"
+          - "has_key:events_expected"
+          - "has_key:events_exported"
+          - "has_key:events_skipped"
 
   # ===========================================================================
   # G4: Retire the dead abstraction
