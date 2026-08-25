@@ -15,12 +15,20 @@ from calendars.importer.web_parser_vendors_rh import (
 )
 from calendars.importer.model import ScheduleItem
 
-# Availability probe only — bs4 is an optional [calendars] extra, so the
-# bs4-dependent tests below skip when it is absent. Import the module rather
-# than aliasing a symbol: binding BeautifulSoup here would be unused and needs
-# a noqa to silence a warning that is, in fact, correct.
+# Availability probe: bs4 is an optional [calendars] extra, so the
+# bs4-dependent tests below skip when it is absent.
+#
+# The import is deliberately unused — whether it raises IS the signal — hence
+# the noqa. Static analysers flag this as an unused import; that is a false
+# positive here, not a defect to fix.
+#
+# importlib.util.find_spec would avoid the binding but is NOT equivalent: it
+# reports whether a module is discoverable, not whether it imports cleanly. A
+# module that is present but fails on import reports available and the guarded
+# tests then run and fail. Verified against the no-bs4 CI simulation, where
+# find_spec returns True while the import raises.
 try:
-    import bs4  # noqa: F401  # probe: presence is the signal, module unused
+    import bs4  # noqa: F401  # probe: the ImportError is the signal
     _BS4_AVAILABLE = True
 except ImportError:
     _BS4_AVAILABLE = False
