@@ -430,14 +430,18 @@ class Resume(_Item):
                     type(self.contact).__name__,
                 )
             return
+        # Gate on absence, not falsiness: a present-but-falsy top-level key
+        # ("name": "") is a value the input genuinely had. Promoting over it
+        # would both substitute the value and, via discard(), drop the key
+        # from to_dict() -- breaking the round-trip contract.
         for key in _CONTACT_PROMOTED:
             value = self.contact.get(key)
-            if value and not getattr(self, key, ""):
+            if value and key not in self._present:
                 setattr(self, key, value)
                 # A promoted value is derived, not an original top-level key;
                 # replaying it would add a key the input never had.
                 self._present.discard(key)
         links = self.contact.get("links")
-        if isinstance(links, list) and not self.links:
+        if isinstance(links, list) and "links" not in self._present:
             self.links = links
             self._present.discard("links")
