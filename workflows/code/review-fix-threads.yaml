@@ -1,0 +1,759 @@
+# Autonomous PR review-thread remediation.
+#
+#   init
+#     |
+#   fetch-threads                (fragment: shared/pr-review-threads.yaml)
+#     |
+#   triage-threads
+#     |
+#   fix-dispatch                 (groups threads BY FILE — same-file edits must not race)
+#     |
+#   fix-threads                  (native fan_out: one thread-fixer agent per file group)
+#     |
+#   fix-aggregate                (merges per-thread results; flags missing ones)
+#     |
+#   verify-fixes
+#     |
+#   check-prose
+#     |
+#   update-pr-description        (fragment: shared/pr-describe.yaml)
+#     |
+#   resolve-threads
+#     |
+#   report
+#
+# Runs unattended end to end. There is no human gate: replies are posted and
+# threads are resolved without confirmation. That is the point of the workflow,
+# and it is also its main risk — see resolve-threads for what constrains it.
+
+name: review-fix-threads
+version: "1.0"
+description: >
+  Fetch every review thread on a pull request (Copilot and human, resolved and
+  unresolved, inline and PR-level), triage each one, fan out a fixer agent per
+  actionable thread, verify the result, cover new behaviour on both happy and
+  sad paths, refresh the PR title and description against the writing guide,
+  then reply to and resolve every thread.
+
+  Fully autonomous — no human gates. Every thread ends in a terminal state with
+  a posted reply explaining its disposition.
+
+metadata:
+  author: dancing-bear
+  created: "2026-08-26"
+
+trigger:
+  source: manual
+  params:
+    pr_number: ""                 # required; auto-detected from branch if blank
+    test_cmd: "make test"         # full-suite command for verify-fixes
+    include_resolved: "false"     # "true" re-triages already-resolved threads
+    max_threads: "12"             # fan-out ceiling; overflow is deferred and reported, never dropped
+                                  # Agents share ONE worktree. Fan-out is per file
+                                  # group, so this bounds concurrent editors of the
+                                  # same tree. Raising it far past ~12 invites .pyc
+                                  # and lint-rewrite contention between agents.
+
+workspace_dir: "{work_dir}/review-fix-threads-{pr_number}"
+
+stages:
+
+  # ===========================================================================
+  # Bootstrap
+  # ===========================================================================
+
+  - name: init
+    kind: gather
+    description: >
+      Bootstrap the workspace and confirm the PR is addressable.
+
+      Step 1 — create directories:
+        mkdir -p {workspace}/outputs/fixes
+        mkdir -p {workspace}/outputs/replies
+        mkdir -p {workspace}/validation
+
+      Step 2 — resolve the PR number. If {pr_number} is non-empty, use it.
+      If blank, detect it from the current branch:
+        GITHUB_TOKEN= gh pr view --json number -q .number
+      If that fails or returns nothing, exit non-zero with the message
+      "no PR for the current branch — pass pr_number explicitly". Do not guess
+      a number and do not fall back to "most recent PR".
+
+      Step 3 — confirm the PR is open and record its head SHA:
+        GITHUB_TOKEN= gh pr view <PR> --json number,state,title,headRefOid,headRefName
+
+      Write {workspace}/outputs/pr-context.json with number, state, title,
+      head_sha, and head_branch.
+
+      If state is not OPEN, exit non-zero: resolving threads on a merged or
+      closed PR is not a meaningful action.
+
+      Step 4 — confirm the local checkout is on the PR's head branch:
+        git branch --show-current
+      If it does not match head_branch, exit non-zero with both values in the
+      message. Every fixer agent edits the working tree; fixing a PR from the
+      wrong branch writes changes that will never reach it.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - pr-context.json
+
+  # ===========================================================================
+  # Triage
+  # ===========================================================================
+
+  - name: triage-threads
+    kind: propose
+    depends_on: [fetch-threads]
+    reads_from: [fetch-threads, init]
+    description: >
+      Decide what to do with each thread in {workspace}/outputs/threads.json.
+
+      Step 1 — read the threads file and the PR diff:
+        Read {workspace}/outputs/threads.json
+        GITHUB_TOKEN= gh pr diff {pr_number}
+
+      Step 2 — select the candidate set:
+        - Threads with is_resolved true are excluded unless
+          {include_resolved} is "true".
+        - Threads with source "review-body" or "issue-comment" have no
+          thread_id and cannot be resolved. Include them for triage only if
+          they contain a specific actionable ask; otherwise mark them
+          "context" and carry them no further.
+        - Threads whose latest_author_kind is "human" and whose last comment
+          post-dates every bot comment carry the most weight: a human has
+          already engaged, and their instruction supersedes the bot's.
+
+      Step 3 — classify each candidate into exactly one directive:
+
+        "fix"      — the comment identifies a real problem with a concrete
+                     change that would resolve it. Default for specific,
+                     correct, in-scope comments.
+        "reject"   — the comment is wrong, or describes behaviour that is
+                     intentional. Requires evidence: the file:line facts that
+                     refute it. "I disagree" is not evidence.
+        "moot"     — the code the comment refers to no longer exists, or a
+                     later commit already fixed it.
+                     Absence from the diff is NOT sufficient evidence. A diff
+                     you could not fully read, or that was truncated, makes
+                     "I cannot see it" indistinguishable from "it is gone" —
+                     and marking a live concern moot closes it with a
+                     confident, wrong explanation.
+                     To classify moot you must cite positive evidence in
+                     "evidence": either the commit SHA that removed or fixed
+                     the code (git log -S "<snippet>" --oneline), or a Read of
+                     the file at the current HEAD showing the construct is
+                     absent. If you cannot produce that, use "fix" or "defer".
+                     Never use moot to avoid a hard fix.
+        "defer"    — a real problem, but out of scope for this PR (it predates
+                     the branch, or fixing it means a change the PR was not
+                     opened to make). Must name what should happen instead.
+        "context"  — not an ask at all: a summary, an acknowledgement, a
+                     "looks good". No action, no reply.
+
+      Read the full comment chain before classifying. A thread that opens with
+      a bot nit and ends with the author writing "already handled in the
+      follow-up commit" is "moot", not "fix".
+
+      Step 4 — enforce the fan-out ceiling. The ceiling bounds concurrent
+      AGENTS, and fix-dispatch groups threads by file — so count DISTINCT FILE
+      PATHS among the "fix" threads, not threads. Ten threads on one file is
+      one agent and is under the ceiling.
+
+      If the count of distinct paths exceeds {max_threads}, keep threads
+      belonging to the first {max_threads} paths ordered by severity
+      (correctness > security > maintainability > style) and re-classify the
+      remainder as "defer" with reason "exceeded max_threads ceiling of
+      {max_threads}". Record the overflow count explicitly in the summary —
+      a silently truncated fan-out reads as a completed run.
+
+      Step 5 — write {workspace}/outputs/triage.json:
+        {
+          "pr_number": "{pr_number}",
+          "counts": {"fix": N, "reject": N, "moot": N, "defer": N, "context": N},
+          "overflow_deferred": N,
+          "threads": [
+            {
+              "thread_id": "PRRT_kwDO...",
+              "path": "src/foo.py",
+              "line": 216,
+              "is_outdated": false,
+              "author_kind": "bot",
+              "directive": "fix",
+              "severity": "correctness|security|maintainability|style",
+              "ask": "one sentence stating precisely what the reviewer wants",
+              "reason": "why this directive — required for reject/moot/defer",
+              "evidence": "file:line facts, required for reject",
+              "resolvable": true
+            }
+          ]
+        }
+
+      Also write a compact {workspace}/outputs/triage-summary.md table.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - triage.json
+      - triage-summary.md
+
+  # ===========================================================================
+  # Fix — one agent per actionable thread
+  # ===========================================================================
+
+  - name: fix-dispatch
+    kind: gather
+    executor: inline
+    depends_on: [triage-threads]
+    reads_from: [triage-threads, fetch-threads]
+    description: >
+      Build the fan-out index for the fixer agents. One item per FILE, not per
+      thread — this is what serialises same-file edits.
+
+      Step 1 — read {workspace}/outputs/triage.json and
+      {workspace}/outputs/threads.json.
+
+      Step 2 — select threads with directive "fix". If there are none, write an
+      index with total 0 and an empty items list and exit 0. A PR whose threads
+      are all context or moot is a valid, complete run.
+
+      Step 3 — group the selected threads by their `path`. Every thread sharing
+      a path goes into ONE item, ordered oldest comment first.
+
+      Grouping by file is the whole point of this stage. Two agents editing one
+      file concurrently is a lost-update race: the second agent's Edit is based
+      on a read that predates the first agent's write, so it silently reverts
+      it. Prose telling agents to "coordinate" cannot prevent that — only
+      putting same-file threads in the same agent can. Threads with a null path
+      (PR-level) each get their own item.
+
+      Step 4 — for each group, embed the FULL thread objects from threads.json
+      (entire comment chain, not just the opening comment) plus the triage entry
+      for each. The fixer must see what a human already said in the thread.
+
+      Write {workspace}/outputs/fix-index.json:
+        {
+          "total": N,
+          "items": [
+            {
+              "index": "0",
+              "data": {
+                "path": "src/resume/docx_sidebar_sections.py",
+                "threads": [
+                  {
+                    "thread_id": "PRRT_kwDO...",
+                    "line": 216,
+                    "is_outdated": false,
+                    "ask": "...",
+                    "severity": "correctness",
+                    "comments": [ ... full chain ... ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      Index width = len(str(max(total-1, 0))) digits, zero-padded.
+
+      Build the index with an inline python3 script so it is written atomically.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - fix-index.json
+
+  - name: fix-threads
+    kind: execute
+    depends_on: [fix-dispatch]
+    reads_from: [fix-dispatch, triage-threads, fetch-threads]
+    fan_out:
+      source: fix-dispatch
+      field: items
+      key: index
+      mode: agent
+    description: >
+      You are fixing the review threads for file group {index} from the fan-out
+      index at {workspace}/outputs/fix-index.json.
+
+      Read that file and select the item whose "index" equals {index}. Your
+      group contains one file path and every thread anchored to it. Fix each of
+      those threads, in order, in a single pass over the file — you own this
+      file for the duration of the stage; no other agent is editing it.
+
+      Read the whole comment chain of each thread before editing. The opening
+      comment is often not the operative one: a human may have narrowed the ask,
+      disagreed with the bot, or said "just do X instead". The last substantive
+      instruction wins.
+
+      Your agent definition (.claude/agents/thread-fixer.md) governs the rest:
+      fix only what each thread asked, cover new behaviour on both happy and sad
+      paths, run the narrowest relevant test with PYTHONPATH set to this
+      checkout, and never reply to or resolve a thread.
+
+      When a thread is is_outdated its line is null — locate the code by the
+      comment's description, and report action "moot" if it is genuinely gone
+      rather than inventing a fix.
+
+      Write ONE result file per thread to
+      {workspace}/outputs/fixes/<thread_id>.json, using the schema in your agent
+      definition. A thread you decline to fix still gets a result file with
+      action "rejected" or "moot" and its evidence — a missing file is
+      indistinguishable from a crashed agent, and the aggregator treats it as
+      one.
+
+      Actions "rejected" and "moot" are successful outcomes. Exit non-zero only
+      if you could not process the group at all.
+    agent:
+      role: thread-fixer
+      model: sonnet
+      tools: [Read, Edit, Write, Bash]
+      access: read-write
+    required: true
+    # No writes_to: per-item fan-out outputs land at outputs/fixes/<thread_id>.json,
+    # one per thread rather than a fixed set of paths. fix-aggregate is the stage
+    # that declares a concrete artifact, and it reconciles missing files explicitly.
+
+  - name: fix-aggregate
+    kind: gather
+    executor: inline
+    depends_on: [fix-threads]
+    # fix-threads is deliberately absent from reads_from: it is a fan-out and
+    # declares no writes_to, because its outputs are one file per thread at
+    # outputs/fixes/<thread_id>.json rather than a fixed set of paths. The
+    # depends_on above still orders it after the fan-out completes; this stage
+    # globs that directory and reconciles it against fix-index.json.
+    reads_from: [fix-dispatch, triage-threads]
+    description: >
+      Merge the per-thread result files into one aggregate.
+
+      Step 1 — read every {workspace}/outputs/fixes/*.json.
+
+      Step 2 — read {workspace}/outputs/fix-index.json and compute which
+      expected thread_ids have no result file. Record them in missing_results.
+      Do not silently drop them: a thread whose agent crashed must never be
+      reported as handled, and must never be resolved downstream.
+
+      Step 3 — write {workspace}/outputs/fix-results.json:
+        {
+          "total_expected": N,
+          "total_results": N,
+          "by_action": {"fixed": N, "rejected": N, "moot": N, "deferred": N},
+          "files_changed": ["src/foo.py"],
+          "tests_added": ["tests/..."],
+          "missing_results": ["PRRT_..."],
+          "failed_tests": ["PRRT_... (test_result=fail)"],
+          "results": [ <each per-thread result object, verbatim> ]
+        }
+
+      Use an inline python3 script. Do not re-run tests or edit source here —
+      this stage only merges.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - fix-results.json
+
+  # ===========================================================================
+  # Verify
+  # ===========================================================================
+
+  - name: verify-fixes
+    kind: execute
+    depends_on: [fix-aggregate]
+    reads_from: [fix-aggregate, triage-threads]
+    description: >
+      Confirm the aggregate of all fixes leaves the tree green. Individual
+      fixers ran narrow tests; this stage owns the full run.
+
+      Step 1 — full test suite:
+        {test_cmd}
+      Use `make test` rather than a bare `python3 -m unittest`: in a worktree an
+      inherited PYTHONPATH resolves imports to the main checkout, and the suite
+      passes against code you did not change. That false green is
+      indistinguishable from a real one.
+
+      Step 2 — lint the changed files:
+        make lint
+      There is no standalone `ruff` on PATH, and `~/.qlty/bin/qlty check` inside
+      .claude/worktrees/ scans zero files while printing "No issues" — neither
+      absence is a passing lint.
+
+      Step 3 — coverage on new behaviour. Verify against the tree, not the
+      report. happy_path_covered and sad_path_covered are booleans written by
+      the same agent whose work you are auditing, and its own definition tells
+      it to set them — so reading them back proves nothing.
+
+      For every result with action "fixed" that lists tests_added:
+        - Read each named test from disk.
+        - Confirm a sad-path assertion actually exists: an assertRaises, or an
+          assertEqual/assertIn on the rejected or boundary input the reviewer's
+          comment described. A test that only exercises valid input is a
+          happy-path test no matter what the result JSON claims.
+        - Record a coverage_gap when the assertion is absent.
+
+      For every result with action "fixed" and NO tests_added, read
+      coverage_note and confirm the change really is non-behavioural (a
+      comment, a docstring, a rename with no call-site semantics). A behaviour
+      change excused as non-behavioural is a coverage_gap.
+
+      This is the gap the stage exists to catch: a bounds check tested only
+      in-bounds asserts nothing about the bug it fixed.
+
+      Step 4 — if the suite is red, read the failures and determine whether they
+      come from this run's fixes or predate them (compare against the PR's base).
+      Apply at most one targeted round of corrections to failures this run
+      caused, then re-run once. Do not loop.
+
+      Write {workspace}/validation/verify-results.json:
+        {
+          "tests": "pass|fail", "test_output_tail": "...",
+          "lint": "pass|fail", "lint_violations": [],
+          "coverage_gaps": [{"thread_id": "...", "missing": "sad-path"}],
+          "retry_count": 0,
+          "preexisting_failures": [],
+          "all_green": true
+        }
+
+      Set all_green false if tests fail, lint fails, any coverage_gaps remain,
+      or fix-results.json lists any missing_results or failed_tests.
+
+      Then, whenever all_green is false, after writing the file:
+        - report THIS STAGE as failed: write "status": "failed" in your stage
+          result JSON and put the reason in "errors". The completion template
+          you were handed pre-fills "status": "success" — override it. A stage
+          that reports success while writing all_green: false lets the run
+          continue, and the next stages post replies and resolve threads.
+        - exit non-zero.
+
+      Exiting non-zero is what actually protects the PR. This stage is
+      required: true, and the orchestrator halts the whole run as soon as a
+      required stage fails (src/workflow/orchestrator.py:220) — so a red tree
+      means resolve-threads never runs, and nothing is posted or resolved.
+      Writing all_green: false and exiting 0 would let the run continue and
+      leave that safety property resting on a downstream stage remembering to
+      re-read this file. Write the file AND exit non-zero.
+    agent:
+      role: tester
+      model: sonnet
+      tools: [Read, Edit, Bash, Write]
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - full test suite passes via make test
+        - make lint exits clean on changed files
+        - every behaviour-changing fix has both happy-path and sad-path coverage
+        - no fix result is missing from fix-results.json
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/verify-results.json
+
+  # ===========================================================================
+  # Prose check on the replies
+  # ===========================================================================
+
+  - name: check-prose
+    kind: execute
+    depends_on: [verify-fixes]
+    reads_from: [fix-aggregate, triage-threads]
+    description: >
+      Check every reply that is about to be posted to GitHub against
+      .claude/WRITING_GUIDE.md. These replies are outward-facing and permanent;
+      this is the last point at which they can be fixed.
+
+      Step 1 — read .claude/WRITING_GUIDE.md in full.
+
+      Step 2 — collect the reply text for every thread that will receive one:
+        - "fixed" threads: reply_text from {workspace}/outputs/fixes/*.json
+        - "rejected"/"moot"/"defer" threads: compose the reply now from the
+          triage entry's reason and evidence. These have no fixer agent, so
+          nobody has written their reply yet.
+        - "context" threads: no reply.
+
+      Step 3 — rewrite any reply that violates the guide. The failures that
+      recur in generated review replies:
+        - Sycophantic openings: "Great catch!", "Good point!" — cut entirely
+        - Hollow enthusiasm and exclamation marks
+        - Hedging stacks: "this might potentially be an issue"
+        - Passive voice: "the check was added" → "added the check"
+        - Over-explaining a one-line change across a paragraph
+        - Bold for general emphasis
+      A reply states what changed and where, or why nothing changed. Two
+      sentences is usually right. A rejection must carry its evidence — a bare
+      "this is intentional" is not a reply a reviewer can act on.
+
+      Step 4 — write {workspace}/outputs/replies/final-replies.json:
+        {
+          "replies": [
+            {"thread_id": "...", "directive": "fix",
+             "text": "final reply text", "rewritten": true,
+             "violations_fixed": ["sycophantic opening"]}
+          ],
+          "no_reply": ["PRRT_... (context)"]
+        }
+
+      Every thread with directive fix, reject, moot, or defer must appear in
+      replies. A thread that is about to be resolved with no explanation is the
+      failure mode this workflow most needs to avoid — resolving silently is
+      how an autonomous agent loses a reviewer's trust.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - every fix/reject/moot/defer thread has a non-empty reply
+        - no reply contains a sycophantic opening or exclamation mark
+        - every rejection reply cites concrete evidence
+      max_revisions: 1
+    required: true
+    writes_to:
+      - replies/final-replies.json
+
+  # ===========================================================================
+  # Resolve
+  # ===========================================================================
+
+  - name: resolve-threads
+    kind: publish
+    depends_on: [update-pr-description]
+    reads_from: [check-prose, verify-fixes, triage-threads, fix-aggregate]
+    description: >
+      Post the replies and resolve the threads. This is the only stage that
+      mutates the PR conversation, and it runs unattended — everything below
+      is what keeps that safe.
+
+      Step 0 — abort gate. Read {workspace}/validation/verify-results.json.
+      Abort unless it parses AND contains all_green exactly true. A missing
+      file, a parse error, an unexpected shape, or an absent all_green key all
+      count as NOT green — fail closed. The gate protects an irreversible
+      action, so "I could not tell" must behave identically to "it is red".
+
+      On abort: post NO replies and resolve NO threads. Write
+      resolution.json with status "blocked" and the reason, then exit non-zero.
+      Resolving a thread asserts the concern was handled; asserting that on a
+      red tree is a false claim posted under the author's name.
+
+      Do not assume the tree is green because you were reached. The upstream
+      halt depends on verify-fixes reporting itself failed, and a stage's
+      status is self-reported against a template that pre-fills "success" — so
+      an agent that saw red tests can still have let the run continue. This
+      gate is the last thing standing between a red tree and a resolved thread.
+      Read the file and decide for yourself.
+
+      Step 1 — read {workspace}/outputs/replies/final-replies.json,
+      {workspace}/outputs/triage.json, and {workspace}/outputs/fix-results.json.
+
+      If final-replies.json is missing or unparseable, abort exactly as in
+      Step 0 — status "blocked", exit non-zero. Do not compose replacement
+      replies here. Composing prose at the moment of posting is how an
+      unattended run says something nobody reviewed; check-prose owns that
+      text, and its absence means the run is not ready to post.
+
+      Step 1a — build the do-not-resolve set. A thread goes in it when any of
+      these hold, regardless of what triage intended:
+        - its thread_id appears in fix-results.json "missing_results"
+          (the fixer crashed; nobody knows whether the code was changed)
+        - its result has action "fixed" with test_result "fail" or "not-run"
+        - it has no entry in final-replies.json
+        - resolvable is false (no thread_id — review bodies and PR-level
+          comments cannot be resolved)
+      Threads in this set are reported in "skipped" with the reason. They are
+      never replied to as fixed and never resolved. An unresolved thread costs
+      a human thirty seconds; a thread resolved on an unverified fix costs them
+      the bug.
+
+      Step 2 — resolve owner/repo (never hardcode):
+        NWO=$(GITHUB_TOKEN= gh repo view --json nameWithOwner -q .nameWithOwner)
+        OWNER=${NWO%%/*}; REPO=${NWO##*/}
+
+      Step 3 — post replies. The do-not-resolve set from Step 1a applies here
+      too, not only to resolution: a thread whose fix was never verified must
+      not receive a reply claiming what was fixed.
+
+      For each thread in the do-not-resolve set, post nothing at all if the
+      fixer crashed (missing_results — you do not know what, if anything, was
+      changed). For a fix whose test_result was "fail" or "not-run", replace
+      the fixer's reply_text with a factual status instead of its claim:
+      what was changed, and that it is not yet verified. Then leave the thread
+      open. A reply asserting a verified fix on an unverified change is the
+      single most damaging thing this workflow can emit — it tells a reviewer
+      to stop looking.
+
+      Before posting anything, check whether this run already ran. Reply and
+      resolve are two separate API calls and are not atomic: a run that died
+      between them leaves a thread replied-to but unresolved, and a re-run that
+      does not check will post a second near-identical reply.
+
+      Re-read the thread's current comments (threads.json has them as of
+      fetch-threads; re-fetch if this is a retry). Skip the reply for any
+      thread whose latest comment already matches the reply you are about to
+      post, and go straight to resolving it. Record those in resolution.json
+      as "already_replied" so the report distinguishes them from fresh posts.
+
+      For every remaining thread, post its reply into that specific thread.
+      Reply into the thread, not as a new top-level PR comment — a detached
+      comment does not show up where the reviewer raised the concern:
+
+        GITHUB_TOKEN= gh api graphql -f query='
+        mutation($threadId:ID!,$body:String!){
+          addPullRequestReviewThreadReply(
+            input:{pullRequestReviewThreadId:$threadId, body:$body}
+          ){ comment{ id url } }
+        }' -F threadId="<thread_id>" -F body="<reply text>"
+
+      Pass the body via -F, never interpolated into the query string: reply text
+      contains backticks and quotes that would break the GraphQL document.
+
+      Step 4 — resolve each thread whose directive is fix, reject, or moot AND
+      whose reply posted successfully.
+
+      Deferred threads are replied to but NOT resolved. A defer says the
+      concern is real and someone should still act on it — resolving it closes
+      real feedback that nobody has looked at. This matters most for threads
+      deferred by the max_threads ceiling: that is a scheduling outcome, not a
+      judgement about the comment, and resolving on it would hide the overflow
+      the ceiling was supposed to surface. Record them in "skipped" with reason
+      "deferred — left open deliberately".
+
+      Resolve mutation:
+
+        GITHUB_TOKEN= gh api graphql -f query='
+        mutation($threadId:ID!){
+          resolveReviewThread(input:{threadId:$threadId}){
+            thread{ id isResolved }
+          }
+        }' -F threadId="<thread_id>"
+
+      Order matters: reply first, resolve second. A resolve that lands without
+      its reply leaves a silently closed thread, which is the outcome this
+      workflow is built to prevent. If a reply fails to post, skip the resolve
+      for that thread and record it.
+
+      Never resolve:
+        - threads with directive "context" (nothing was asked)
+        - threads with resolvable false (review bodies and issue comments have
+          no thread_id — resolveReviewThread will fail on them)
+        - threads whose fixer reported action "fixed" but whose test_result was
+          "fail" or "not-run"
+
+      Verify the mutation response: check thread.isResolved is true rather than
+      trusting exit code 0. A GraphQL error returns HTTP 200 with an errors
+      array, so `gh` exits 0 on a failed mutation.
+
+      Step 5 — write {workspace}/outputs/resolution.json:
+        {
+          "status": "ok|partial|blocked",
+          "replied": [{"thread_id": "...", "comment_url": "..."}],
+          "resolved": ["PRRT_..."],
+          "skipped": [{"thread_id": "...", "reason": "..."}],
+          "failed": [{"thread_id": "...", "error": "..."}]
+        }
+
+      Step 6 — re-fetch to confirm the PR's actual state:
+        GITHUB_TOKEN= gh api graphql -f query='
+        query($owner:String!,$name:String!,$pr:Int!,$after:String){
+          repository(owner:$owner,name:$name){
+            pullRequest(number:$pr){
+              reviewThreads(first:100, after:$after){
+                pageInfo{ hasNextPage endCursor }
+                nodes{ id isResolved }
+              }
+            }
+          }
+        }' -F owner="$OWNER" -F name="$REPO" -F pr={pr_number}
+
+      Page it: while pageInfo.hasNextPage is true, re-run passing
+      -F after="<endCursor>" and merge the nodes before counting.
+
+      This stage exists to report what is actually true on the PR rather than
+      what the run intended, so an undercount here defeats its purpose: a
+      truncated re-fetch reports fewer unresolved threads than exist and makes
+      a partial run read as a complete one. If you cannot complete the
+      pagination, set "unresolved_after": null and record the reason rather
+      than reporting a count you know is short.
+
+      Record the post-run unresolved count in resolution.json as
+      "unresolved_after". Report the observed state, not the intended one.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - resolution.json
+
+  # ===========================================================================
+  # Report
+  # ===========================================================================
+
+  - name: report
+    kind: publish
+    depends_on: [resolve-threads]
+    reads_from: [resolve-threads, verify-fixes, triage-threads, fix-aggregate, update-pr-description]
+    description: >
+      Write the run summary to {workspace}/outputs/report.md.
+
+      Read triage.json, fix-results.json, verify-results.json,
+      pr-describe-result.json, and resolution.json. Report what the artifacts
+      say, not what the workflow intended.
+
+      Sections:
+        Threads — total, and the count per directive
+        Fixes — files changed, tests added, per-thread action
+        Rejections — each rejected thread with its evidence, so a human can
+          audit the calls the workflow made on their behalf
+        Deferred — including any overflow past max_threads, with what should
+          happen to them
+        Verification — test and lint status, any coverage gaps
+        PR metadata — old and new title, whether the description was updated
+        Resolution — replied, resolved, skipped, failed, and unresolved_after
+
+      Follow .claude/WRITING_GUIDE.md. State counts and outcomes plainly. If
+      anything failed or was skipped, say so in the summary rather than only in
+      a table further down — a run that resolved 8 of 12 threads is a partial
+      success and must read as one.
+
+      Close with a per-thread table: thread_id (short), path:line, directive,
+      action, replied, resolved.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - report.md
+
+include:
+  # Triple-source thread fetch (GraphQL threads + review bodies + issue comments).
+  # Injects: fetch-threads
+  - path: workflows/shared/pr-review-threads.yaml
+    prefix: ""
+    depends_on: [init]
+    reads_from: [init]
+
+  # Title/description regeneration against the writing guide.
+  # Injects: update-pr-description. Runs after prose check, before resolve, so
+  # the PR reads correctly before its threads are closed.
+  - path: workflows/shared/pr-describe.yaml
+    prefix: ""
+    depends_on: [check-prose]
+    reads_from: [check-prose, verify-fixes, triage-threads, fix-aggregate]

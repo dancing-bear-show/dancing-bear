@@ -158,13 +158,30 @@ stages:
             query($owner:String!,$name:String!,$pr:Int!){
               repository(owner:$owner,name:$name){
                 pullRequest(number:$pr){
-                  reviewThreads(first:100){nodes{
-                    isResolved
-                    comments(first:50){nodes{author { login } body path line}}
-                  }}
+                  reviewThreads(first:100){
+                    pageInfo{ hasNextPage endCursor }
+                    nodes{
+                      isResolved
+                      comments(first:50){
+                        totalCount
+                        pageInfo{ hasNextPage endCursor }
+                        nodes{author { login } body path line}
+                      }
+                    }
+                  }
                 }
               }
             }' -F owner="$OWNER" -F name="$REPO" -F pr=<PR>
+          # Paginate BOTH levels, each with its own cursor from the pageInfo
+          # blocks above:
+          #   threads  — while reviewThreads.pageInfo.hasNextPage, re-run with
+          #              reviewThreads(first:100, after:"<endCursor>")
+          #   comments — while a thread's comments.pageInfo.hasNextPage, re-run
+          #              that thread with comments(first:50, after:"<endCursor>")
+          # Silent truncation is the failure mode here — a PR with >100 threads
+          # looks identical to a clean one, and this stage mines patterns from
+          # counts, so dropped threads skew the result rather than erroring.
+          # Record any page you could not fetch in skipped-prs.json.
           # 2. REST inline (diff-line) comments — Copilot inline feedback lives here
           gh api "repos/$OWNER/$REPO/pulls/<PR>/comments"
           # 3. REST PR-level (conversation) comments — served by the issues endpoint;

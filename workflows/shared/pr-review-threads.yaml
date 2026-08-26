@@ -1,0 +1,180 @@
+# Shared workflow fragment — not runnable standalone.
+# Include via:
+#   include:
+#     - path: workflows/shared/pr-review-threads.yaml
+#       prefix: ""
+#       depends_on: [init]
+#       reads_from: []
+#
+# Stage injected: {prefix}-fetch-threads  (bare "fetch-threads" when prefix is "")
+#
+# Caller must set trigger.params: pr_number
+#
+# Output: {workspace}/outputs/threads.json, {workspace}/outputs/threads-summary.md
+#
+# Why this fragment exists: three separate call sites had three divergent,
+# partly-wrong implementations of "get the review threads". bin/pr-assistant
+# reads only comments(first:1) and filters to the Copilot bot, so a human
+# reply inside a thread is invisible to it. update-review-concerns.yaml caps
+# reviewThreads at 100 with no pagination check. Neither reconciles the two
+# spellings GitHub uses for the same bot across its two APIs. This fragment is
+# the single correct implementation; callers include it rather than re-deriving.
+fragment: true
+name: pr-review-threads
+version: "1.0"
+description: >
+  Shared PR review-thread fetch fragment. Collects every review comment on a
+  pull request from all three surfaces GitHub exposes them on — GraphQL review
+  threads (inline, threaded, with resolution state), REST review bodies
+  (top-level review summaries that belong to no thread), and REST issue
+  comments (PR-level conversation) — and normalises them into one thread list
+  with stable IDs, full comment chains, and author classification.
+
+  Read-only. Never resolves, replies to, or otherwise mutates a thread.
+
+  Params consumed from trigger.params: {pr_number}.
+
+stages:
+
+  - name: fetch-threads
+    kind: gather
+    depends_on: []      # overridden by include.depends_on
+    reads_from: []      # overridden by include.reads_from
+    description: >
+      Fetch and normalise every review thread on PR {pr_number}.
+
+      All GitHub access uses the native `gh` CLI. A stale GITHUB_TOKEN in the
+      environment silently breaks auth, so prefix every gh command with
+      `GITHUB_TOKEN=` to force gh to use its own keyring credentials.
+
+      Step 0 — resolve owner/repo FIRST. Never hardcode or guess the owner:
+        NWO=$(GITHUB_TOKEN= gh repo view --json nameWithOwner -q .nameWithOwner)
+        OWNER=${NWO%%/*}
+        REPO=${NWO##*/}
+      Every command below uses $OWNER/$REPO.
+
+      Step 1 — GraphQL review threads (the primary source).
+      Request the FULL comment chain per thread, not just the first comment —
+      a thread where the author already replied "fixed in abc123" or a human
+      pushed back on the bot must be triaged on the whole exchange, not the
+      opening line:
+
+        GITHUB_TOKEN= gh api graphql -f query='
+        query($owner:String!,$name:String!,$pr:Int!){
+          repository(owner:$owner,name:$name){
+            pullRequest(number:$pr){
+              reviewThreads(first:100){
+                totalCount
+                pageInfo{ hasNextPage endCursor }
+                nodes{
+                  id isResolved isOutdated isCollapsed
+                  path line startLine diffSide
+                  comments(first:50){
+                    totalCount
+                    pageInfo{ hasNextPage endCursor }
+                    nodes{ databaseId author { login } body createdAt url }
+                  }
+                }
+              }
+            }
+          }
+        }' -F owner="$OWNER" -F name="$REPO" -F pr={pr_number}
+
+      Write the raw response to {workspace}/outputs/threads-raw.json.
+
+      PAGINATION IS NOT OPTIONAL, at BOTH levels. A PR that silently truncates
+      looks identical to a clean one.
+
+      Threads: if reviewThreads.pageInfo.hasNextPage is true, re-run with
+      `reviewThreads(first:100, after:"<endCursor>")` until it is false, and
+      merge the nodes.
+
+      Comments within a thread: if a thread's comments.pageInfo.hasNextPage is
+      true (equivalently, comments.totalCount exceeds 50), page that thread's
+      comments with `comments(first:50, after:"<its endCursor>")` until
+      exhausted. Both cursors come from the pageInfo blocks in the query above
+      — do not assume a page boundary without reading the cursor that goes
+      with it.
+
+      A truncated comment chain is worse here than a truncated thread list: it
+      silently drops the LATEST comments, which are exactly the ones carrying a
+      human's correction or an "already fixed" note that should override the
+      opening comment.
+
+      Step 2 — REST review bodies. Top-level review summaries belong to no
+      thread, so Step 1 cannot see them, and Copilot puts its overall verdict
+      there:
+        GITHUB_TOKEN= gh api "repos/$OWNER/$REPO/pulls/{pr_number}/reviews"
+
+      Step 3 — REST issue comments (PR-level conversation):
+        GITHUB_TOKEN= gh api "repos/$OWNER/$REPO/issues/{pr_number}/comments"
+
+      Step 4 — normalise into one list. Author classification must handle BOTH
+      spellings GitHub returns for the same account: GraphQL reports the
+      Copilot reviewer as "copilot-pull-request-reviewer" while REST reports
+      "copilot-pull-request-reviewer[bot]". Strip any trailing "[bot]" before
+      comparing, or bot threads will be misclassified as human on one surface.
+
+      Classify each thread's author_kind as:
+        "bot"   — login (suffix-stripped) is copilot-pull-request-reviewer,
+                  github-actions, or any login ending in "[bot]"
+        "human" — everything else
+
+      Write {workspace}/outputs/threads.json:
+        {
+          "pr_number": "{pr_number}",
+          "repo": "$OWNER/$REPO",
+          "counts": {
+            "total": N, "unresolved": N, "resolved": N,
+            "outdated": N, "bot": N, "human": N
+          },
+          "truncated": false,
+          "threads": [
+            {
+              "thread_id": "PRRT_kwDO...",   // GraphQL node id — required to resolve
+              "source": "graphql-thread|review-body|issue-comment",
+              "author_kind": "bot|human",
+              "author": "copilot-pull-request-reviewer",
+              "is_resolved": false,
+              "is_outdated": false,
+              "path": "src/foo.py",           // null for PR-level
+              "line": 216,                    // null when outdated — see below
+              "comments": [
+                {"author": "...", "body": "...", "created_at": "...",
+                 "url": "...", "database_id": 123}
+              ],
+              "opening_body": "the first comment's full text",
+              "latest_author_kind": "bot|human"
+            }
+          ]
+        }
+
+      Only threads from Step 1 carry a resolvable thread_id. Entries from Steps
+      2 and 3 have thread_id null — they are context for triage and CANNOT be
+      resolved via resolveReviewThread. Mark them source accordingly so a
+      downstream stage never tries.
+
+      A note that downstream triage depends on: GitHub returns line: null for
+      any thread where isOutdated is true, because the anchored line no longer
+      exists in the current diff. Do not drop these threads and do not invent a
+      line number for them. Carry them through with line: null and
+      is_outdated: true so triage can decide on the comment text alone.
+
+      Step 5 — write a compact human-readable index to
+      {workspace}/outputs/threads-summary.md: one line per thread with
+      thread_id (short), author_kind, resolution state, path:line, and the
+      first 100 characters of the opening comment.
+
+      If the PR has zero threads, write threads.json with an empty threads list
+      and correct zero counts, then exit 0. That is a valid outcome, not a
+      failure.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Write, Read]
+      access: read-write
+    required: true
+    writes_to:
+      - threads.json
+      - threads-raw.json
+      - threads-summary.md

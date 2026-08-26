@@ -376,6 +376,7 @@ Never use a bare `sleep` loop in a Bash tool call to wait for a condition.
 | `critic` | Opus | Adversarial critique of plans, workflow designs, architecture decisions |
 | `haiku-reviewer` | Haiku | Concern-sweep fan-out stages; writes JSON findings, no Bash |
 | `workflow-author` | Sonnet | Authoring and editing workflow YAML DAGs |
+| `thread-fixer` | Sonnet | One PR review thread per agent; fixes only what that thread asked, never resolves it |
 
 **Spawn teammates** for multi-file changes, test writing, code review, research. Use `isolation: "worktree"` for agents that write code (`code-writer`, `tester`, `ci-fixer`). Read-only agents (`reviewer`, `researcher`, `Explore`, `Plan`, `fact-checker`, validators) do not need isolation.
 
