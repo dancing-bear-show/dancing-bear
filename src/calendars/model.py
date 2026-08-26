@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.collections import dedupe
+
 
 def _coerce_str(v: Any) -> str | None:
     if v is None:
@@ -35,13 +37,7 @@ def _normalize_byday(v: Any) -> list[str] | None:
         toks = [str(t).strip() for t in v if str(t).strip()]
     else:
         return None
-    out: list[str] = []
-    seen = set()
-    for t in toks:
-        code = _tok_to_day_code(t, DAY_MAP)
-        if code not in seen:
-            out.append(code)
-            seen.add(code)
+    out = dedupe([_tok_to_day_code(t, DAY_MAP) for t in toks])
     return out or None
 
 

@@ -27,6 +27,8 @@ try:
 except Exception:  # pragma: no cover - defensive fallback  # nosec B110 - best-effort path resolution
     QUEUE_ROOT = Path("_data/queue")
 
+QUEUE_FOLDERS: tuple[str, ...] = ("pending", "processing", "done", "error")
+
 
 def _ensure_dirs(root: Path = QUEUE_ROOT) -> dict[str, Path]:
     paths = {
@@ -310,7 +312,7 @@ def requeue_error(
 def find_job_path_by_id(job_id: str, root: Path = QUEUE_ROOT) -> Path | None:
     """Return the path for a job id across folders or None."""
     paths = _ensure_dirs(root)
-    for folder in ("pending", "processing", "done", "error"):
+    for folder in QUEUE_FOLDERS:
         p = _job_path(paths[folder], job_id)
         if p.exists():
             return p

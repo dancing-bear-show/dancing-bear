@@ -13,6 +13,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from core.collections import dedupe
+
 
 SECTION_PATTERNS = {
     "experience": re.compile(r"^\s*(experience|work history|employment)\s*$", re.I),
@@ -309,15 +311,7 @@ def _parse_skills(lines: list[str]) -> list[str]:
     text = " ".join(lines)
     # split by pipes, commas, semicolons, or bullet points
     parts = [p.strip() for p in re.split(r"[|,;•·]\s*", text) if p.strip()]
-    # dedupe while preserving order
-    seen = set()
-    skills = []
-    for p in parts:
-        key = p.lower()
-        if key not in seen:
-            seen.add(key)
-            skills.append(p)
-    return skills
+    return dedupe(parts, key_fn=str.lower)
 
 
 def parse_resume_text(text: str) -> dict[str, Any]:

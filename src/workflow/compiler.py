@@ -14,6 +14,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from core.cli_errors import CLIError, ExitCode
+from core.fileutil import safe_read_text
 from core.date_utils import iso_now
 from workflow.models import (
     OutputMode,
@@ -271,7 +272,7 @@ def _load_referenced_file(
 ) -> str:
     """Load a stage-referenced file (template or writing guide)."""
     path = project_root / ref
-    content = _load_file_content(path)
+    content = safe_read_text(path)
     if content is None:
         raise WorkflowCompileError(
             f"Stage '{stage_name}': {kind} not found at {path}"
@@ -389,10 +390,3 @@ def resolve_params(template: str, params: dict[str, str]) -> str:
         result = result.replace(f"{{{key}}}", value)
     return result
 
-
-def _load_file_content(path: Path) -> str | None:
-    """Read file content, return None if not found."""
-    try:
-        return path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return None

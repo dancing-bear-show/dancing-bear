@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from core.cli_output import emit_one
+from core.paths import output_dir
 from core.pipeline import run_pipeline
 
 from ..helpers import LayoutLoadError, load_layout, read_yaml, write_yaml
@@ -183,7 +184,7 @@ def cmd_export_device(args) -> int:
 def cmd_iconmap(args) -> int:
     """Download raw icon layout from device via cfgutil."""
     fmt = getattr(args, "format", "json")
-    out_default = "out/ios.iconmap.json" if fmt == "json" else "out/ios.iconmap.plist"
+    out_default = str(output_dir("phone") / ("ios.iconmap.json" if fmt == "json" else "ios.iconmap.plist"))
     out_path = Path(getattr(args, "out", None) or out_default)
     request = IconmapRequest(
         udid=getattr(args, "udid", None) or os.environ.get("IOS_DEVICE_UDID"),

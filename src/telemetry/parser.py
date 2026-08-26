@@ -6,6 +6,8 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from core.date_utils import parse_iso_utc
 from typing import Any, Iterator
 
 
@@ -72,17 +74,7 @@ def _parse_ts(raw: str) -> datetime | None:
     Handles trailing Z and converts all results to UTC so timestamps are
     always comparable regardless of the original offset.
     """
-    try:
-        if raw.endswith("Z"):
-            raw = raw[:-1] + "+00:00"
-        dt = datetime.fromisoformat(raw)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        else:
-            dt = dt.astimezone(timezone.utc)
-        return dt
-    except (ValueError, AttributeError):
-        return None
+    return parse_iso_utc(raw)
 
 
 def _process_assistant_record(stats: SessionStats, msg: dict[str, Any]) -> None:

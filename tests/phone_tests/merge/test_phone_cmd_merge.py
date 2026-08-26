@@ -274,11 +274,11 @@ class TestCmdReorg(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as d:
             dp = Path(d)
-            # dry-run uses existing layout at the fixed default path; patch cwd
-            # by writing the layout where reorg looks and chdir into temp.
-            (dp / "out").mkdir()
-            _write_layout(dp / "out")
-            with _chdir(dp), patch("phone.cli.cmd_merge.subprocess.run") as run:
+            # dry-run uses existing layout at the default path; patch output_dir
+            # so the default resolves inside the temp directory.
+            _write_layout(dp)
+            with patch("phone.cli.cmd_merge.output_dir", return_value=dp), \
+                 patch("phone.cli.cmd_merge.subprocess.run") as run:
                 args = make_args(
                     device_label="bcsphone", udid=None, keep="",
                     out=None, no_install=False, dry_run=True,
@@ -295,18 +295,18 @@ class TestCmdReorg(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as d:
             dp = Path(d)
-            (dp / "out").mkdir()
 
             # export + build run via subprocess; make them succeed and have the
             # export step produce the layout file reorg reads next.
-            layout_target = dp / "out" / "ios.IconState.yaml"
+            # Patch output_dir so default paths resolve inside the temp directory.
+            layout_target = dp / "ios.IconState.yaml"
 
             def fake_run(cmd, *a, **k):
                 if "export-device" in cmd:
                     layout_target.write_text(yaml.safe_dump(_LAYOUT))
                 return _cfg_result(0)
 
-            with _chdir(dp), \
+            with patch("phone.cli.cmd_merge.output_dir", return_value=dp), \
                  patch("phone.cli.cmd_merge.subprocess.run", side_effect=fake_run), \
                  patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"):
                 args = make_args(

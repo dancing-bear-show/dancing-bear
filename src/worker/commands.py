@@ -19,6 +19,7 @@ from worker._helpers import (
     ISO_DATETIME_FORMAT,
 )
 from worker import queue_ops as q
+from worker.queue_ops import QUEUE_FOLDERS
 from worker.queue_metrics import counts, status
 
 logger = logging.getLogger(__name__)
@@ -103,7 +104,7 @@ class StatusCommand:
 
         lines = [
             f"Queue root: {status.get('root')}",
-            f"Counts: pending={counts.get('pending', 0)} processing={counts.get('processing', 0)} done={counts.get('done', 0)} error={counts.get('error', 0)}",
+            "Counts: " + " ".join(f"{f}={counts.get(f, 0)}" for f in QUEUE_FOLDERS),
             f"Pending by priority: {status.get('pending_by_priority', {})}",
             f"Oldest pending wait: {status.get('oldest_pending_wait_sec', 0)}s",
             f"Next scheduled in: {nxt_txt}",
@@ -167,7 +168,7 @@ class ShowCommand:
         jid = str(args.id)
         root = q.QUEUE_ROOT
 
-        for folder in ["pending", "processing", "done", "error"]:
+        for folder in QUEUE_FOLDERS:
             p = root / folder / f"{jid}.json"
             if p.exists():
                 out.print(p.read_text(encoding="utf-8"))

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from core.paths import output_dir
 from core.pipeline import (
     RequestConsumer,
     SafeProcessor,
@@ -15,6 +16,8 @@ from core.pipeline import (
 from .helpers import read_yaml, write_yaml
 from .pipeline_export import BaseProducer, _build_manifest_from_export
 from .profile import ProfileMetadata
+
+_DEVICE_ICON_STATE_PATH = output_dir("phone") / "device.IconState.yaml"
 
 
 # -----------------------------------------------------------------------------
@@ -100,7 +103,7 @@ class ManifestFromDeviceProcessor(
         if not exp:
             raise ValueError("Could not derive export from device layout")
 
-        export_path = payload.export_out or Path("out/device.IconState.yaml")
+        export_path = payload.export_out or _DEVICE_ICON_STATE_PATH
         manifest = _build_manifest_from_export(exp, str(export_path))
 
         return ManifestFromDeviceResult(
@@ -117,7 +120,7 @@ class ManifestFromDeviceProducer(BaseProducer):
     ) -> None:
         # Write export if path specified or default
         if payload.export_document:
-            export_path = payload.export_out or Path("out/device.IconState.yaml")
+            export_path = payload.export_out or _DEVICE_ICON_STATE_PATH
             export_path.parent.mkdir(parents=True, exist_ok=True)
             write_yaml(payload.export_document, export_path)
         # Write manifest

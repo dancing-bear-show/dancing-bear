@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from core.cli_output import emit_one, emit_rows
+from core.date_utils import parse_iso_utc
 from telemetry.otel.cli._format_helpers import add_data_dir_argument, add_format_argument, get_work_dir
 from telemetry.otel.menubar_provider import (
     OtelDisplayData,
@@ -278,9 +279,9 @@ def _stage_cost_if_recent(p: Path, cutoff: datetime) -> float | None:
         finished_raw = data.get("finished_at", "")
         if not finished_raw:
             return None
-        finished = datetime.fromisoformat(finished_raw.replace("Z", "+00:00"))
-        if finished.tzinfo is None:
-            finished = finished.replace(tzinfo=timezone.utc)
+        finished = parse_iso_utc(finished_raw)
+        if finished is None:
+            return None
         if finished < cutoff:
             return None
         meta = data.get("metadata", {})

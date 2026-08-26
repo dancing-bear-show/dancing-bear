@@ -5,6 +5,8 @@ import argparse
 import time
 from collections import Counter, defaultdict
 
+from core.retry import exponential_backoff
+
 from ..utils.senders import extract_domain, extract_sender_email, is_protected_email
 
 
@@ -126,7 +128,7 @@ def _delete_label_with_retry(client, label_id: str, name: str, max_retries: int 
             return True
         except Exception as e:
             last_err = e
-            time.sleep(1.5 * (2 ** attempt))
+            time.sleep(exponential_backoff(attempt, base_delay=1.5, multiplier=2.0))
     print(f"Warning: failed to delete label {name}: {last_err}")
     return False
 

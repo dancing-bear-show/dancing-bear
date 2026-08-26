@@ -8,6 +8,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from core.paths import output_dir
+
 from ..device import find_cfgutil_path, map_udid_to_ecid
 from ..helpers import read_yaml, write_yaml
 from ..layout_merge import merge_folders, verify_conservation
@@ -119,8 +121,8 @@ def cmd_reorg(args) -> int:
     keep_csv = getattr(args, "keep", "") or ""
     out_profile = Path(getattr(args, "out", None) or "out/ios.merged.mobileconfig")
 
-    layout_path = Path("out/ios.IconState.yaml")
-    plan_path = Path("out/ios.plan.merged.yaml")
+    layout_path = output_dir("phone") / "ios.IconState.yaml"
+    plan_path = output_dir("phone") / "ios.plan.merged.yaml"
     keep = [s.strip() for s in keep_csv.split(",") if s.strip()] if keep_csv else []
 
     rc = _reorg_export(dry_run, udid, layout_path)
