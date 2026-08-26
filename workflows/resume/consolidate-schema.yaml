@@ -21,11 +21,23 @@
 # model, so changing the model afterwards would invalidate the conversion
 # fixtures.
 #
+# MIGRATION DEPTH — full migration, decided up front, not at the gate.
+# Renderers and filters consume dataclasses; from_dict/to_dict sit at the I/O
+# boundary so the on-disk JSON/YAML format never changes. Attribute access
+# replaces .get(), so a mistyped field raises AttributeError instead of
+# silently returning None.
+#
+# Be honest about the size: no production file imports the dataclasses today
+# (only CandidateData, which is `dict[str, Any]`), so this introduces types
+# into the runtime path for the first time — 13 source files, ~55 `data.get(`
+# call sites, ~8 test files. The narrower alternative (validate at the
+# boundary, leave renderers on dicts) was considered and rejected in favour of
+# the stronger guarantee.
+#
 # NON-GOALS. This workflow does not adopt pydantic (the repo is
 # dependency-light and currently has near-zero runtime deps), does not port
-# reactive-resume's 15 templates, and does not change any public CLI flag.
-# The dict remains the wire format; dataclasses become the typed contract
-# over it.
+# reactive-resume's 15 templates, does not change any public CLI flag, and
+# does not change the on-disk JSON/YAML format.
 #
 # DAG:
 #   init
@@ -66,11 +78,17 @@ description: >
   real sections, adds multi-role-per-company support, emits a JSON Schema, then
   implements DOCX->PDF export behind an optional dependency.
 
-  Two rules are load-bearing. First, the dict stays the wire format — this is a
-  typing and validation layer over existing data, not a rewrite, and no public
-  CLI flag changes. Second, tests must be majority sad-path: a schema whose
-  tests only feed it well-formed input has verified nothing, because the entire
-  point of the schema is catching malformed input.
+  Two rules are load-bearing. First, the on-disk JSON/YAML format never
+  changes: from_dict/to_dict sit at the I/O boundary, so every existing profile
+  and plan file keeps working while the runtime path becomes typed end to end.
+  Second, tests must be majority sad-path: a schema whose tests only feed it
+  well-formed input has verified nothing, because the entire point of the
+  schema is catching malformed input.
+
+  This is a full migration — renderers and filters take dataclasses, not dicts.
+  It touches 13 source files and ~55 call sites, and it is the first time these
+  types enter the runtime path at all. migrate-callsites is sequenced
+  boundary-first and tested group-by-group for that reason.
 
   The PDF half is deliberately cheap (subprocess to LibreOffice, ~80 LOC)
   rather than a renderer. Its risk is not code, it is fidelity: the sidebar
@@ -246,12 +264,26 @@ stages:
         4. The JSON Schema emitter approach (~150 LOC, stdlib only — walk
            dataclass fields via dataclasses.fields() and map types).
         5. BACKWARD COMPATIBILITY: exactly how existing dict data keeps working.
-           The dict stays the wire format. State which functions gain validation
-           and whether validation is advisory (warn) or enforcing (raise) —
-           recommend advisory first, since enforcing could break a real render
+           JSON/YAML on disk stays dict-shaped — from_dict/to_dict at the I/O
+           boundary is what preserves every existing profile, plan, and
+           alignment file. State which functions gain validation and whether
+           validation is advisory (warn) or enforcing (raise) — recommend
+           advisory first, since enforcing could break a real render
            mid-job-application.
-        6. What this does NOT do: no pydantic, no CLI flag changes, no
-           renderer rewrites beyond key access.
+        6. THE MIGRATION DEPTH IS ALREADY DECIDED: full migration. Renderers
+           and filters consume DATACLASSES, not dicts. Do not re-open this at
+           the gate; design to it. Concretely that means:
+             - from_dict() at every read boundary (read_yaml_or_json callers)
+             - to_dict() at every write boundary (write_yaml_or_json callers)
+             - the 13 modules listed in sections.md's call-site inventory take
+               typed objects as parameters, not dict[str, Any]
+             - merge_profiles (parsing_experience_text.py:345) returns a typed
+               Resume rather than a merged dict
+           Attribute access replaces .get(), so a mistyped field becomes an
+           AttributeError at import/call time instead of a silent None — that
+           is the entire point of choosing this depth.
+        7. What this does NOT do: no pydantic, no CLI flag changes, no change
+           to the on-disk JSON/YAML format.
 
       Ask the human to confirm: field naming, the roles design, and
       advisory-vs-enforcing validation.
@@ -385,29 +417,68 @@ stages:
     depends_on: [test-schema]
     reads_from: [audit-sections, impl-schema]
     description: >
-      Migrate the call sites found in {workspace}/sections.md to use the typed
-      schema instead of bare string-key dict access.
+      FULL MIGRATION — renderers and filters consume dataclasses, not dicts.
+      This is the largest stage in the workflow. Scope it honestly before
+      starting.
 
-      Priority order (highest drift risk first):
-        1. src/resume/priority.py:67 — the hardcoded 8-key tuple becomes a
-           schema-derived list. This is the single clearest drift site.
-        2. src/resume/docx_sidebar_sections.py:331 — renderer dispatch table
-        3. src/resume/docx_renderers.py + docx_sections_*.py
-        4. src/resume/skills_filter.py, experience_filter.py
-        5. src/resume/templating.py DEFAULT_TEMPLATE
+      MEASURED SCOPE (verify against {workspace}/sections.md; these numbers were
+      taken from the repo when this workflow was written):
+        - 42 .py files under src/resume/
+        - 13 of them read section keys off dicts, via ~55 `data.get(` calls:
+            cli/main.py, docx_base.py, docx_sections_exp.py,
+            docx_sections_simple.py, docx_sections_skills.py,
+            docx_sidebar_sections.py, docx_standard.py, docx_writer.py,
+            experience_filter.py, experience_summary.py, overlays.py,
+            skills_filter.py, summarizer.py
+        - ~8 test files exercise those paths
+        - 26 read_yaml_or_json/write_yaml_or_json call sites are the I/O
+          boundary where from_dict/to_dict must sit
+
+      This is NOT a mechanical rename. Before this workflow, NO production file
+      imported the Resume/Experience/Education dataclasses — only CandidateData,
+      which is just `dict[str, Any]`. The runtime path is entirely dicts today,
+      so this stage introduces these types into it for the first time.
+
+      Work in this order, running `make test` after EACH group. Do not batch —
+      a break is far cheaper to localise when three files changed than thirty:
+
+        1. Boundary first. from_dict() at every read_yaml_or_json caller,
+           to_dict() at every write_yaml_or_json caller, and make
+           merge_profiles (parsing_experience_text.py:345) return a typed
+           Resume. Nothing downstream can be typed until its input is.
+        2. priority.py's hardcoded 8-key tuple becomes a schema-derived list.
+           This is the clearest drift site in the codebase.
+        3. Filters: skills_filter.py, experience_filter.py, overlays.py,
+           summarizer.py, experience_summary.py.
+        4. Renderers: docx_writer.py, docx_standard.py, docx_base.py,
+           docx_sections_*.py, docx_sidebar_sections.py. Largest group; expect
+           the most churn here.
+        5. cli/main.py last — it wires the others together, so it should be the
+           final signature change.
 
       Rules:
-        - Update ALL call sites atomically. No compatibility shims, no
-          re-export facades — project rules forbid both.
-        - Preserve rendering output byte-for-byte where behaviour is unchanged.
-          This is a typing migration, not a redesign.
+        - Update ALL call sites atomically per group. No compatibility shims,
+          no re-export facades, no dict/dataclass union parameters — project
+          rules forbid the first two and the third defeats the migration.
+        - Attribute access replaces .get(). A mistyped field must raise
+          AttributeError rather than silently returning None. That failure mode
+          is the entire justification for choosing full migration.
+        - Rendering output must stay byte-identical where behaviour is
+          unchanged. Verify by rendering a fixture before and after and
+          diffing the extracted text — this is a representation change, not a
+          formatting change.
         - Renderers must handle multi-role experience. A promoted role should
           render sensibly in BOTH the standard and sidebar layouts.
-        - If a call site turns out to depend on an untyped key the schema
-          missed, STOP and report it rather than quietly adding an Any field.
+        - Update test files in the same commit as the source they cover. A test
+          still passing a dict to a now-typed function is a false green.
+        - If a call site depends on an untyped key the schema missed, STOP and
+          report it. Do NOT add an `Any` field to keep moving — that
+          reintroduces exactly the drift this workflow exists to remove.
 
-      Run `make test` after each file group, not just at the end — a break is
-      far cheaper to localize early.
+      If the group-by-group test runs show the change is materially larger than
+      the numbers above, STOP and report rather than pushing through. A partial
+      migration that leaves half the renderers on dicts is worse than either
+      end state.
 
       COMMIT BEFORE FINISHING. You run in your own git worktree; `git merge` moves commits, not uncommitted files. If you edit files and return without committing, the downstream merge-worktrees stage finds an empty branch and the run halts. Stage your files by name (never `git add -A`) and commit with a conventional message.
     agent:
@@ -584,6 +655,16 @@ stages:
           rationalising the shortfall.
         - every section key from sections.md now has a dataclass
         - priority.py no longer hardcodes a section-key tuple
+        - FULL MIGRATION IS COMPLETE, not partial. Count the remaining
+          `data.get(` call sites in src/resume/ and compare against the ~55
+          recorded in sections.md:
+            grep -rn "data\.get(" src/resume/ | wc -l
+          A handful may legitimately survive at the I/O boundary (inside
+          from_dict, or reading a raw parse result before it is typed) — name
+          each survivor and justify it. A large residue means renderers are
+          still on dicts, which is the half-migrated state the plan explicitly
+          rejects: report it as a FAIL, not as progress.
+        - no function signature accepts a dict-or-dataclass union
         - `grep -rn "presentations\|coursework\|technologies" src/resume/`
           shows no remaining bare string-key dispatch
 
