@@ -31,7 +31,7 @@ description: >
   That constraint is checked twice, deliberately, because the survey is an
   agent's search and can miss things: critique-design rejects a plan that
   reimplements what the survey found, and integration-review runs an
-  INDEPENDENT duplicate sweep over the code that was actually written — greping
+  INDEPENDENT duplicate sweep over the code that was actually written — grepping
   each new symbol against src/ rather than trusting prior-art.json. The survey
   could only guess at names before the code existed; the second sweep sees the
   real thing. A determined false negative can still get through both, so treat
@@ -799,7 +799,7 @@ stages:
         - "Each new subcommand responds to --help with exit code 0 — run `./bin/<cli> <subcommand> --help`"
         - "Agentic-schema drift: RUN `./bin/<cli> --agentic --agentic-format json` for each CLI touched and record its exit code. Do not decide from reading the source whether the CLI 'supports' a schema — running it is the test. If it exits 0, the new subcommand MUST appear in the output or this is a critical finding (the schema has drifted from the real CLI). If it exits non-zero, record the exit code and the CLI name as evidence that the CLI has no agentic schema; a conclusion asserted without the command output does not satisfy this criterion"
         - "`git status --porcelain` shows only files claimed by the three manifests, design.json shared_files, or the migrations' call-site lists. Ignore paths under out/ and the workflow's own workspace — those are run artifacts, not source changes. Compare against the pre-run state where known: an unexpected modified file under src/, bin/, or tests/ means a stage wrote outside its partition and is a critical finding"
-        - "No credential, token, or absolute home-directory path appears in any new file — grep the diff for sk-, ghp_, AKIA, and /Users/"
+        - "No credential, token, or absolute home-directory path appears in any new file. Grep the diff with one case-sensitive alternation covering all of: sk-, ghp_, gho_, AKIA, eyJ (JWT header), and the absolute home prefixes /Users/ AND /home/ — macOS uses the former and Linux CI runners the latter, so checking only one silently passes half the cases. Also flag any occurrence of the literal expanded value of $HOME. Report each hit as critical"
         - "Write findings to {workspace}/validation/verify-findings.json as [{\"id\":\"V-001\",\"status\":\"pass\"|\"fail\",\"claim\":\"...\",\"severity\":\"critical\"|\"minor\"|\"info\",\"source\":\"<command run>\",\"fix\":\"...\"}], and record each command's actual exit code in the source field"
       max_revisions: 2
     required: true

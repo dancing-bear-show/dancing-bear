@@ -181,6 +181,24 @@ stages:
       Transcripts are personal data. Do not copy credentials, tokens, API keys,
       or file contents that look like secrets into prompt-corpus.json — redact
       any such span to "[redacted]" and continue.
+
+      Apply at minimum these patterns to every text field before writing it.
+      A prose instruction to "redact secrets" is not enough on its own; these
+      are the concrete ones, verified in use:
+        sk-[A-Za-z0-9_-]{16,}                                   -> [redacted]
+        ghp_[A-Za-z0-9]{20,}  and  gho_[A-Za-z0-9]{20,}         -> [redacted]
+        AKIA[0-9A-Z]{12,}                                       -> [redacted]
+        eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+   -> [redacted]
+        (?i)(api[_-]?key|token|password|secret|bearer)\s*[=:]\s*\S+  -> \1=[redacted]
+      Redact absolute home paths too — both /Users/<name>/ and /home/<name>/,
+      since macOS and Linux differ and a corpus mined on one may be read on the
+      other. Replace the user segment, not the whole path, so the path stays
+      legible: /Users/[user]/...
+
+      Record the total number of redactions performed in the output's "notes"
+      field. Zero redactions across a large corpus is more likely a broken
+      pattern set than a genuinely clean one — say so rather than reporting it
+      as clean.
     agent:
       role: researcher
       model: sonnet

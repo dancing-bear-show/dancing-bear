@@ -107,7 +107,17 @@ stages:
         }}
 
       Redact anything resembling a credential, token, or API key to
-      "[redacted]" before writing it into the output.
+      "[redacted]" before writing it into the output. This stage captures raw
+      bash commands and error text, which is where secrets most often appear in
+      a transcript, so apply concrete patterns rather than judgement alone:
+        sk-[A-Za-z0-9_-]{16,}                                   -> [redacted]
+        ghp_[A-Za-z0-9]{20,}  and  gho_[A-Za-z0-9]{20,}         -> [redacted]
+        AKIA[0-9A-Z]{12,}                                       -> [redacted]
+        eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+   -> [redacted]
+        (?i)(api[_-]?key|token|password|secret|bearer)\s*[=:]\s*\S+  -> \1=[redacted]
+      Redact the user segment of absolute home paths in both /Users/<name>/ and
+      /home/<name>/ form — macOS and Linux differ, and checking only one leaks
+      on the other. Record the redaction count in the output.
 
       If a session's JSONL cannot be found, record it in a "missing" array
       rather than dropping it silently — a missing transcript changes what the
