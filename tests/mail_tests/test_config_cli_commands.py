@@ -143,7 +143,7 @@ class TestRunCacheStatsAndClear(unittest.TestCase):
                 patch(f"{module}.RequestConsumer"):
             mock_processor_cls.return_value.process.return_value = envelope
 
-            import mail.config_cli.commands as commands
+            from mail.config_cli import commands
 
             entry_point = getattr(commands, entry_point_name)
             args = SimpleNamespace(cache="/tmp/cache")  # nosec B108 - test-only temp file, not a security concern
