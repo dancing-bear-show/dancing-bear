@@ -79,12 +79,16 @@ class TestLocationExtraction(unittest.TestCase):
     """Locations outside the US "City, ST" form were silently dropped."""
 
     def test_matches_non_us_location(self):
-        """Regression: "Richmond Hill, Ontario, Canada" matched nothing."""
+        """Regression: a "City, Region, Country" location matched nothing.
+
+        The pattern required a two-letter state code, so anything outside the
+        US "City, ST" form was silently dropped and `location` came back empty.
+        """
         m = _PAT_LOCATION.search(
-            "brian@example.com | (416) 801-8094 | Richmond Hill, Ontario, Canada"
+            "jane@example.com | (555) 010-0202 | Springfield, Ontario, Canada"
         )
         self.assertIsNotNone(m)
-        self.assertEqual(m.group(0), "Richmond Hill, Ontario, Canada")
+        self.assertEqual(m.group(0), "Springfield, Ontario, Canada")
 
     def test_matches_us_state_abbreviation(self):
         """The original supported form must keep working."""
