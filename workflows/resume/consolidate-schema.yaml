@@ -1,0 +1,706 @@
+# Consolidate the resume data model into one typed schema, then add PDF export.
+#
+# Two problems, one workflow, in dependency order.
+#
+# PROBLEM 1 — model drift. src/resume/model.py formally defines 4 sections
+# (name/summary/skills/experience/education). The dict path actually carries
+# ~11: priority.py:67 filters technologies, interests, presentations, languages,
+# coursework, summary, teaching, certifications; docx_sidebar_sections.py
+# renders presentations; projects and coursework appear in templates. Those
+# extra sections have no type, no validation, and no documented shape — they
+# exist only as string keys spread across renderers. A typo in a renderer key
+# is currently a silent no-op that renders an empty section.
+#
+# PROBLEM 2 — Experience is flat. One title per entry, so a promotion at one
+# employer cannot be represented without duplicating the company.
+#
+# PROBLEM 3 — PDF export is unimplemented. cli/main.py:313 raises
+# "PDF rendering planned for future; use .docx output."
+#
+# Schema lands BEFORE PDF on purpose: PDF converts documents built from the
+# model, so changing the model afterwards would invalidate the conversion
+# fixtures.
+#
+# NON-GOALS. This workflow does not adopt pydantic (the repo is
+# dependency-light and currently has near-zero runtime deps), does not port
+# reactive-resume's 15 templates, and does not change any public CLI flag.
+# The dict remains the wire format; dataclasses become the typed contract
+# over it.
+#
+# DAG:
+#   init
+#     |
+#   audit-sections ──────────┐  (gather — ground truth: which keys are real)
+#     |                      |
+#   design-schema            |  (propose, human_gate — shape review before code)
+#     |                      |
+#   impl-schema              |  (execute — dataclasses + emitter)
+#     |                      |
+#   test-schema              |  (execute — unit tests, sad-path majority)
+#     |                      |
+#   migrate-callsites <──────┘  (execute — renderers/filters use the schema)
+#     |
+#   test-e2e-data               (execute — round-trip real data end to end)
+#     |
+#   cov-* [fragment]            (expand-coverage — close gaps to {min_coverage})
+#     |
+#   cr-validate-code [fragment] (review against concerns/ guides)
+#     |
+#   verify-schema               (validate — suite + lint + coverage + ratio)
+#     |
+#   impl-pdf                    (execute — docx -> pdf, optional dep)
+#     |
+#   test-pdf                    (execute — tests w/ injected runner, no binary)
+#     |
+#   verify-pdf-fidelity         (validate, human_gate — LOOK at the PDFs)
+#     |
+#   report                      (publish — what changed, what is still open)
+
+name: consolidate-resume-schema
+version: "1.0"
+description: >
+  Consolidates src/resume's data model into a single typed schema covering all
+  real sections, adds multi-role-per-company support, emits a JSON Schema, then
+  implements DOCX->PDF export behind an optional dependency.
+
+  Two rules are load-bearing. First, the dict stays the wire format — this is a
+  typing and validation layer over existing data, not a rewrite, and no public
+  CLI flag changes. Second, tests must be majority sad-path: a schema whose
+  tests only feed it well-formed input has verified nothing, because the entire
+  point of the schema is catching malformed input.
+
+  The PDF half is deliberately cheap (subprocess to LibreOffice, ~80 LOC)
+  rather than a renderer. Its risk is not code, it is fidelity: the sidebar
+  layout is a borderless shaded table, which is exactly what DOCX->PDF
+  converters render worst. That is why the final gate makes a human look at
+  the output instead of trusting an exit code.
+
+metadata:
+  author: dancing-bear
+  created: "2026-08-26"
+
+trigger:
+  source: manual
+  params:
+    out_dir: "src/resume/_data/schema-consolidation"   # gitignored; fixtures may carry PII
+    sample_resume: ""        # OPTIONAL: a real resume DOCX/PDF for the e2e stage
+    min_sad_path_ratio: "0.5"   # >=50% of new tests must exercise failure modes
+    skip_pdf: "false"        # "true" runs the schema half only
+    # --- consumed by the shared fragments below ---
+    source_root: "src/resume/"
+    test_path: "tests/resume_tests/"
+    min_coverage: "80"
+    extra_checks: >
+      Resume-specific review rules, beyond the shared guides:
+        - No re-export facades or compatibility shims. Call sites are updated
+          directly (project rule).
+        - No public CLI flag or subcommand changed; no dict wire-format key
+          renamed.
+        - No new runtime dependency. Stdlib only; optional deps lazily imported.
+        - Every subprocess call carries an argv list (never a shell string) and
+          a `# nosec` comment stating intent.
+        - No bare `except Exception: pass/continue` without a `# nosec B110/B112`
+          comment explaining the intent.
+        - No test whose only assertion is that a module imports.
+        - PII: no real resume data written under tests/ or any tracked path.
+
+workspace_dir: "{out_dir}"
+
+include:
+  # Coverage expansion on the schema half — closes gaps rather than only
+  # asserting them. Runs after the e2e test lands so it sees the true picture.
+  # Injects: cov-identify-gaps -> cov-expand-coverage-files -> cov-verify-coverage
+  - path: workflows/shared/expand-coverage.yaml
+    prefix: cov
+    depends_on: [test-e2e-data]
+    reads_from: [test-e2e-data, test-schema]
+
+  # Single-pass code review against the canonical guides in concerns/.
+  # Chosen over code-review-swarm deliberately: the swarm needs a pr_number and
+  # a PR diff, and this workflow reviews a worktree before any PR exists.
+  # Scope here (~4-8 changed files) is what validate-code is built for.
+  # Injects: cr-validate-code
+  - path: workflows/shared/validate-code.yaml
+    prefix: cr
+    depends_on: [cov-verify-coverage]
+    reads_from: [migrate-callsites, impl-schema, test-schema, test-e2e-data]
+
+stages:
+
+  # ==========================================================================
+  # Stage 1: init — workspace + baseline health
+  # ==========================================================================
+  - name: init
+    kind: gather
+    description: >
+      Create the workspace:
+
+        mkdir -p {workspace}
+
+      Confirm PII placement is safe:
+
+        git check-ignore -v {workspace}
+
+      If the path is NOT ignored, STOP. Resume fixtures carry names, phone
+      numbers, and emails; writing them to a tracked path would commit PII.
+
+      Then establish baseline health BEFORE touching anything. Run and record:
+
+        make check-env          # imports must resolve to THIS checkout
+        make test               # full suite, record pass/fail counts
+
+      Write {workspace}/baseline.md with the test counts and current coverage
+      for src/resume/.
+
+      CRITICAL: use `make test`, never bare `python3 -m unittest`. An inherited
+      PYTHONPATH silently resolves `resume` to the MAIN checkout and produces a
+      false green that is indistinguishable from a real one. If `make check-env`
+      fails, STOP and report it — every downstream verification would be
+      meaningless.
+
+      Also record whether a DOCX->PDF converter exists:
+
+        which soffice libreoffice pandoc 2>/dev/null || echo "NONE"
+
+      None is expected and is not a failure; impl-pdf handles absence. Record
+      it so verify-pdf-fidelity knows whether it can actually render.
+    agent:
+      role: researcher
+      model: haiku
+      tools: [Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - "{workspace}/baseline.md"
+
+  # ==========================================================================
+  # Stage 2: audit-sections — ground truth on which keys are real
+  # ==========================================================================
+  - name: audit-sections
+    kind: gather
+    depends_on: [init]
+    description: >
+      Establish the ACTUAL set of section keys the code reads and writes. Do
+      not guess from model.py — it is known incomplete. Grep the source.
+
+      Known starting points (verify each, find the rest):
+        - src/resume/model.py            — the 4 formally typed sections
+        - src/resume/priority.py:67      — filters 8 keys incl. teaching,
+                                           certifications, coursework
+        - src/resume/docx_sidebar_sections.py:331 — renderer dispatch table
+        - src/resume/docx_renderers.py, docx_sections_*.py
+        - src/resume/templating.py       — DEFAULT_TEMPLATE section list
+        - src/resume/config/*.yaml       — real template files
+        - src/resume/skills_filter.py, experience_filter.py
+
+      For EVERY section key found, record in {workspace}/sections.md:
+        - the key name
+        - every file:line that reads or writes it
+        - its observed item shape (field names, types, required vs optional)
+        - whether it is a list of strings, list of dicts, or a scalar
+        - any key read under two different shapes in different files —
+          these are latent bugs and the schema must reconcile them
+
+      Also record every field of the experience item, and specifically how a
+      promotion within one company is represented today (it is not — confirm
+      that and note what callers would need).
+
+      Be exhaustive. A key missed here becomes an untyped key that survives the
+      whole consolidation, which defeats the point.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write, Grep]
+      access: read-write
+    required: true
+    writes_to:
+      - "{workspace}/sections.md"
+
+  # ==========================================================================
+  # Stage 3: design-schema — shape review BEFORE any code
+  # ==========================================================================
+  - name: design-schema
+    kind: propose
+    human_gate: true
+    depends_on: [audit-sections]
+    reads_from: [audit-sections]
+    description: >
+      Propose the schema shape and STOP for human review. Changing dataclass
+      field names after the renderers are migrated is expensive; changing them
+      now is free.
+
+      Write {workspace}/schema-design.md containing:
+
+        1. Every section as a proposed dataclass, with field names, types, and
+           defaults. Flag each field required vs optional.
+        2. The multi-role experience design. Recommended shape: Experience gains
+           `roles: list[Role]` where Role carries title/start/end, while
+           company/location stay on Experience. State explicitly how a
+           single-role entry stays representable so existing data does not break.
+        3. The reconciliation decision for any key found with two shapes.
+        4. The JSON Schema emitter approach (~150 LOC, stdlib only — walk
+           dataclass fields via dataclasses.fields() and map types).
+        5. BACKWARD COMPATIBILITY: exactly how existing dict data keeps working.
+           The dict stays the wire format. State which functions gain validation
+           and whether validation is advisory (warn) or enforcing (raise) —
+           recommend advisory first, since enforcing could break a real render
+           mid-job-application.
+        6. What this does NOT do: no pydantic, no CLI flag changes, no
+           renderer rewrites beyond key access.
+
+      Ask the human to confirm: field naming, the roles design, and
+      advisory-vs-enforcing validation.
+
+      Do NOT write implementation code in this stage.
+    agent:
+      role: Plan
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - "{workspace}/schema-design.md"
+
+  # ==========================================================================
+  # Stage 4: impl-schema — dataclasses + JSON Schema emitter
+  # ==========================================================================
+  - name: impl-schema
+    kind: execute
+    depends_on: [design-schema]
+    reads_from: [design-schema, audit-sections]
+    description: >
+      Implement the approved design from {workspace}/schema-design.md.
+
+      Extend src/resume/model.py (or add src/resume/schema.py if model.py would
+      exceed ~300 lines — check the repo's decompose norms) with:
+        - a dataclass per section key from sections.md
+        - Role + multi-role Experience per the approved design
+        - a Resume aggregate covering all sections
+        - from_dict()/to_dict() round-trip helpers preserving unknown keys
+          (dropping unknown keys would silently discard user data)
+        - a to_json_schema() emitter, stdlib only
+
+      Constraints, all enforced by project rules:
+        - Python 3.11, stdlib only. No pydantic, no new runtime deps.
+        - No re-export facades. Update call sites directly.
+        - Do not change any public CLI flag or subcommand.
+        - Do not rename existing dict keys — the wire format is frozen.
+        - Lazy-import anything optional.
+
+      Do NOT migrate call sites yet — that is migrate-callsites. This stage
+      only adds the schema layer, so the suite must stay green without it
+      being used.
+
+      Run `make test` before finishing. A red suite here means the schema
+      addition broke something, and that must be fixed before proceeding.
+    agent:
+      role: code-writer
+      model: inherit
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+      isolation: worktree
+    required: true
+    writes_to:
+      - "src/resume/model.py"
+
+  # ==========================================================================
+  # Stage 5: test-schema — unit tests, majority sad-path
+  # ==========================================================================
+  - name: test-schema
+    kind: execute
+    depends_on: [impl-schema]
+    reads_from: [impl-schema, design-schema]
+    description: >
+      Write unit tests for the new schema under tests/resume_tests/model/.
+
+      MANDATORY RATIO: at least {min_sad_path_ratio} of new test methods must
+      be sad-path. Count them and state the ratio in your final report. A
+      schema tested only on well-formed input has verified nothing — catching
+      malformed input is its entire purpose.
+
+      HAPPY PATH (the minority):
+        - each section round-trips dict -> dataclass -> dict unchanged
+        - multi-role experience preserves role order
+        - single-role experience still works (regression guard)
+        - to_json_schema() emits valid JSON Schema for every section
+        - unknown keys survive the round trip
+
+      SAD PATH (the majority) — for each, assert the SPECIFIC failure, never
+      just "it raised something":
+        - missing required field
+        - wrong type per field (str where list expected, dict where str, None)
+        - empty list where items expected
+        - a role with an end date before its start date
+        - malformed date strings ("2024-13-45", "yesterday", "")
+        - deeply nested wrong shape (experience -> roles -> wrong item type)
+        - a key present under BOTH observed shapes from sections.md
+        - unicode and RTL text in name/company fields
+        - very long strings (a 10k-char bullet)
+        - null bytes and control characters in text fields
+        - empty resume (every section absent)
+        - a section present but set to null
+
+      Use the existing tests/resume_tests/fixtures.py helpers rather than
+      hand-rolling fixtures. Follow the file layout already in
+      tests/resume_tests/.
+
+      Every test must assert BEHAVIOUR. Do not write import-only tests to
+      inflate coverage — project rules forbid it.
+
+      Verify with `make test`. Never bare python3 -m unittest.
+    agent:
+      role: tester
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+      isolation: worktree
+    required: true
+    writes_to:
+      - "tests/resume_tests/model/"
+
+  # ==========================================================================
+  # Stage 6: migrate-callsites — renderers/filters read through the schema
+  # ==========================================================================
+  - name: migrate-callsites
+    kind: execute
+    depends_on: [test-schema]
+    reads_from: [audit-sections, impl-schema]
+    description: >
+      Migrate the call sites found in {workspace}/sections.md to use the typed
+      schema instead of bare string-key dict access.
+
+      Priority order (highest drift risk first):
+        1. src/resume/priority.py:67 — the hardcoded 8-key tuple becomes a
+           schema-derived list. This is the single clearest drift site.
+        2. src/resume/docx_sidebar_sections.py:331 — renderer dispatch table
+        3. src/resume/docx_renderers.py + docx_sections_*.py
+        4. src/resume/skills_filter.py, experience_filter.py
+        5. src/resume/templating.py DEFAULT_TEMPLATE
+
+      Rules:
+        - Update ALL call sites atomically. No compatibility shims, no
+          re-export facades — project rules forbid both.
+        - Preserve rendering output byte-for-byte where behaviour is unchanged.
+          This is a typing migration, not a redesign.
+        - Renderers must handle multi-role experience. A promoted role should
+          render sensibly in BOTH the standard and sidebar layouts.
+        - If a call site turns out to depend on an untyped key the schema
+          missed, STOP and report it rather than quietly adding an Any field.
+
+      Run `make test` after each file group, not just at the end — a break is
+      far cheaper to localize early.
+    agent:
+      role: code-writer
+      model: inherit
+      tools: [Read, Write, Edit, Bash, Grep]
+      access: read-write
+      isolation: worktree
+    required: true
+    writes_to:
+      - "src/resume/"
+
+  # ==========================================================================
+  # Stage 7: test-e2e-data — real data, all the way through
+  # ==========================================================================
+  - name: test-e2e-data
+    kind: execute
+    depends_on: [migrate-callsites]
+    reads_from: [migrate-callsites, design-schema]
+    description: >
+      Prove the schema survives a full real pipeline, not just unit tests.
+      Unit tests pass on data shaped the way the author imagined; this stage
+      uses data shaped the way it actually is.
+
+      Build an e2e test at tests/resume_tests/test_e2e_schema_roundtrip.py that
+      walks the REAL pipeline:
+
+        extract -> validate -> align -> filter -> render -> re-extract -> compare
+
+      Concretely:
+        1. Start from a resume. If {sample_resume} is set, use it. Otherwise
+           build a synthetic-but-realistic fixture exercising EVERY section
+           from sections.md, including a multi-role promotion.
+        2. Run `./bin/assistant resume extract` -> candidate JSON.
+        3. Load through the schema; assert every section survived with the
+           right type.
+        4. Run `align` against a job YAML; assert alignment output is
+           structurally valid.
+        5. Run the FilterPipeline (overlays, skill filter, experience filter,
+           priority threshold); assert no section is silently dropped.
+        6. Render to DOCX.
+        7. Re-extract text from the rendered DOCX and assert every section that
+           went in comes out. This is the load-bearing assertion: it catches a
+           section that types cleanly but renders to nothing.
+
+      SAD PATH e2e cases (required, not optional):
+        - a resume with an empty section -> renders without crashing, does not
+          emit a stray empty heading
+        - a resume where every optional section is absent -> minimal doc
+        - a corrupted candidate.json (truncated mid-object) -> a CLEAR error,
+          not a traceback
+        - a multi-role entry where one role lacks a title
+        - a section key present with the wrong shape -> caught with a message
+          naming the offending key
+
+      If {sample_resume} is set, it is PII: write derived artifacts only under
+      {workspace}, never into tests/. Any committed fixture must be synthetic.
+
+      Verify with `make test`.
+    agent:
+      role: tester
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+      isolation: worktree
+    required: true
+    writes_to:
+      - "tests/resume_tests/test_e2e_schema_roundtrip.py"
+
+  # ==========================================================================
+  # Stage 8: verify-schema — suite, lint, coverage, ratio
+  # ==========================================================================
+  - name: verify-schema
+    kind: validate
+    depends_on: [cr-validate-code]
+    reads_from: [init, test-schema, test-e2e-data, cov-verify-coverage, cr-validate-code]
+    description: >
+      Verify the schema half before any PDF work begins. Report measured
+      numbers, never impressions.
+
+      First, consume the fragment outputs rather than re-deriving them:
+        - {workspace}/validation/code-review-findings.json from cr-validate-code
+          — every "critical" finding is a STOP. Report each one and halt.
+          "minor" findings are reported but do not block.
+        - the cov-verify-coverage result for measured per-file coverage.
+
+      Run and record each:
+
+        make check-env      # MUST pass — otherwise every result below is void
+        make test           # compare against {workspace}/baseline.md
+        make cov            # coverage for src/resume/
+        make lint           # ruff via the qlty-pinned build
+
+      Checks, each pass/fail:
+        - test count >= baseline (no test silently deleted)
+        - zero failures, zero errors
+        - coverage on new/changed files >= {min_coverage}% (cross-check the
+          cov-verify-coverage result; report the measured number, and if the
+          two disagree, trust `make cov` and say so)
+        - zero "critical" entries in code-review-findings.json
+        - lint clean
+        - sad-path ratio in new tests >= {min_sad_path_ratio} — count the test
+          methods yourself, do not trust the prior stage's self-report
+        - every section key from sections.md now has a dataclass
+        - priority.py no longer hardcodes a section-key tuple
+        - `grep -rn "presentations\|coursework\|technologies" src/resume/`
+          shows no remaining bare string-key dispatch
+
+      TRAP — qlty in this worktree. .qlty/qlty.toml excludes **/.claude/**, so
+      `qlty check` inside .claude/worktrees/ scans ZERO files and prints
+      "No issues". That is exclusion, not cleanliness. Use `make lint`. If you
+      run qlty at all, run it from the main checkout, and treat a suspiciously
+      empty result as a broken environment.
+
+      Write {workspace}/verify-schema.md with every number. If any check fails,
+      report the specific failure and STOP — do not proceed to PDF on a red
+      schema.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - "{workspace}/verify-schema.md"
+
+  # ==========================================================================
+  # Stage 9: impl-pdf — DOCX -> PDF behind an optional dependency
+  # ==========================================================================
+  - name: impl-pdf
+    kind: execute
+    depends_on: [verify-schema]
+    reads_from: [verify-schema, init]
+    description: >
+      Skip this stage entirely if {skip_pdf} is "true".
+
+      Implement PDF export by converting the rendered DOCX. Do NOT write a PDF
+      renderer — reactive-resume's equivalent is 21,062 LOC, and conversion
+      gets most of the value for ~80.
+
+      Replace the branch at src/resume/cli/main.py:312-313, which currently
+      raises "PDF rendering planned for future; use .docx output."
+
+      Add src/resume/pdf_convert.py:
+        - convert_docx_to_pdf(src, dst, *, run_func=None) -> None
+        - follow the injectable-runner pattern already used in
+          src/core/gh_cli.py, so tests run WITHOUT the binary installed
+        - resolve the converter lazily: soffice, then libreoffice, then pandoc
+        - subprocess call needs a `# nosec` comment explaining intent, per
+          project rules on bandit
+        - never pass user input as a shell string; use an argv list
+
+      Wire into render: write DOCX to a temp path, convert, clean up. On
+      success the user gets only the PDF unless they asked for both.
+
+      ERROR HANDLING — this is most of the value here:
+        - no converter found -> a CLIError naming the three binaries tried and
+          how to install one. NOT a traceback, NOT a silent DOCX fallback.
+          Silently producing a DOCX when the user asked for a PDF is exactly
+          the kind of silent failure project rules forbid.
+        - converter present but exits non-zero -> surface its stderr
+        - converter hangs -> timeout, then a clear message
+        - converter exits 0 but produces no file (LibreOffice does this) ->
+          detect and fail loudly
+
+      Keep it optional: the repo is dependency-light and LibreOffice is ~700MB.
+      Nothing about the DOCX path may start requiring it.
+    agent:
+      role: code-writer
+      model: inherit
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+      isolation: worktree
+    required: false
+    writes_to:
+      - "src/resume/pdf_convert.py"
+      - "src/resume/cli/main.py"
+
+  # ==========================================================================
+  # Stage 10: test-pdf — tests that pass without the binary
+  # ==========================================================================
+  - name: test-pdf
+    kind: execute
+    depends_on: [impl-pdf]
+    reads_from: [impl-pdf]
+    description: >
+      Skip if {skip_pdf} is "true".
+
+      Write tests at tests/resume_tests/test_pdf_convert.py. They MUST pass on
+      a machine with no converter installed — CI has none. Inject a fake
+      run_func; never shell out for real.
+
+      Same ratio rule: >= {min_sad_path_ratio} sad-path. Error handling is
+      nearly the whole surface here, so this should land well above the floor.
+
+      HAPPY PATH:
+        - a fake runner reporting success and producing a file -> PDF at dst
+        - converter resolution prefers soffice, falls back in documented order
+        - argv is a list, never a shell string (assert on the call args)
+
+      SAD PATH:
+        - no converter on PATH -> CLIError naming all three binaries, with
+          install guidance; assert the message content, not just the type
+        - converter exits non-zero -> stderr surfaced in the error
+        - converter exits 0 but writes NO output file -> loud failure
+        - converter times out -> clear message, no hang
+        - output path unwritable (permissions) -> clear error
+        - source DOCX missing -> clear error before the converter is invoked
+        - a path containing spaces/quotes/unicode -> passed safely, no shell
+          injection (this is why argv-not-string matters)
+        - dst exists already -> documented behaviour, asserted
+
+      Also assert the CLI contract: `render --out x.pdf` no longer raises the
+      old "planned for future" message.
+
+      Verify with `make test`.
+    agent:
+      role: tester
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+      isolation: worktree
+    required: false
+    writes_to:
+      - "tests/resume_tests/test_pdf_convert.py"
+
+  # ==========================================================================
+  # Stage 11: verify-pdf-fidelity — a human LOOKS at the output
+  # ==========================================================================
+  - name: verify-pdf-fidelity
+    kind: validate
+    human_gate: true
+    depends_on: [test-pdf]
+    reads_from: [impl-pdf, init]
+    description: >
+      Skip if {skip_pdf} is "true".
+
+      A green test suite proves the plumbing works. It does NOT prove the PDF
+      looks right, and fidelity is the actual risk here.
+
+      Per {workspace}/baseline.md, this machine may have no converter. If none
+      is installed, report that plainly, mark fidelity UNVERIFIED, and tell the
+      human what to install. Do NOT claim the feature works.
+
+      If a converter IS available, render both layouts to PDF:
+        - the standard layout (expected to convert cleanly)
+        - the SIDEBAR layout — the real risk. src/resume/docx_sidebar.py builds
+          two columns as a borderless table with cell shading, and borderless
+          table edges, cell shading, and repeating headers are precisely what
+          DOCX->PDF converters render worst.
+
+      Write both PDFs under {workspace} and report, per layout:
+        - page count matches the DOCX
+        - the sidebar column is present, correctly positioned and shaded
+        - no visible table borders where the DOCX had none
+        - fonts substituted or preserved
+        - no text clipped at column or page boundaries
+        - links still clickable
+        - a multi-role experience entry renders sensibly
+
+      Then STOP and present findings. Ask the human to decide:
+        (a) fidelity acceptable — ship it
+        (b) standard layout only; sidebar gated behind a warning
+        (c) fidelity inadequate — keep DOCX-only and reopen the renderer question
+
+      Do not resolve this yourself. "The exit code was 0" is not evidence a
+      resume looks right, and a subtly broken resume is worse than none.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    required: false
+    writes_to:
+      - "{workspace}/pdf-fidelity.md"
+
+  # ==========================================================================
+  # Stage 12: report — what changed, what is still open
+  # ==========================================================================
+  - name: report
+    kind: publish
+    depends_on: [verify-pdf-fidelity]
+    reads_from: [verify-schema, verify-pdf-fidelity, audit-sections, init, cr-validate-code]
+    description: >
+      Write {workspace}/report.md summarizing the run. Measured numbers only —
+      pull them from verify-schema.md and pdf-fidelity.md rather than
+      restating stage intentions.
+
+      Include:
+        - sections typed: before (4) -> after (N)
+        - multi-role experience: supported, with the shape used
+        - call sites migrated, by file
+        - tests added, with the measured sad-path ratio
+        - coverage before -> after on src/resume/
+        - code-review findings: critical (must be 0) and minor, with what was
+          done about each minor
+        - PDF: implemented / skipped / fidelity-blocked, and for which layouts
+        - JSON Schema: emitted, and where it lands
+
+      Then state honestly what is NOT done:
+        - any section key still untyped
+        - any call site left on bare string keys
+        - whether PDF fidelity was actually verified or only assumed
+        - whether the sidebar layout survived conversion
+        - anything deferred, and why
+
+      Be specific about gaps. A report claiming completeness the run did not
+      achieve is worse than one listing three known gaps — the next person
+      acts on this document.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - "{workspace}/report.md"
