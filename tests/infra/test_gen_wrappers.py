@@ -41,31 +41,32 @@ class TestGenWrappers(unittest.TestCase):
         self.assertIn("Unchanged: phone", proc.stdout)
 
 
-class TestGeneratePython(unittest.TestCase):
-    """Tests for Python wrapper generation."""
+class TestGenerateRouter(unittest.TestCase):
+    """Tests for router generation."""
 
-    def test_generate_python_standard_module(self):
-        """Test generating a standard module wrapper."""
+    def test_generate_router_standard_module(self):
+        """Router contains the non-dotted dispatch branch for standard modules."""
         import sys
         sys.path.insert(0, str(repo_root() / "bin"))
-        from _gen_wrappers import generate_python
+        from _gen_wrappers import generate_router
 
-        content = generate_python("mail", {"module": "mail", "doc": "Mail CLI."})
+        content = generate_router({"mail": "mail"})
         self.assertIn("#!/usr/bin/env python3", content)
-        self.assertIn('"""Mail CLI."""', content)
-        self.assertIn("from mail.__main__ import main", content)
-        self.assertIn("raise SystemExit(main())", content)
+        self.assertIn('"mail": "mail"', content)
+        # Router uses __main__ import for non-dotted modules
+        self.assertIn("__main__", content)
+        self.assertIn("raise SystemExit(_main())", content)
 
-    def test_generate_python_core_module(self):
-        """Test generating a core.* module wrapper (uses different import)."""
+    def test_generate_router_core_module(self):
+        """Router contains the dotted dispatch branch for core.* modules."""
         import sys
         sys.path.insert(0, str(repo_root() / "bin"))
-        from _gen_wrappers import generate_python
+        from _gen_wrappers import generate_router
 
-        content = generate_python("assistant", {"module": "core.assistant_cli", "doc": "Unified CLI."})
-        self.assertIn("from core.assistant_cli import main", content)
-        # Should NOT import from __main__ for dotted modules
-        self.assertNotIn(".__main__", content)
+        content = generate_router({"assistant": "core.assistant_cli"})
+        self.assertIn('"assistant": "core.assistant_cli"', content)
+        # Router handles dotted modules via the '.' in module check
+        self.assertIn('if "." in module:', content)
 
 
 class TestLoadConfig(unittest.TestCase):
