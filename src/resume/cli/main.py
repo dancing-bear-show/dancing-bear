@@ -560,6 +560,87 @@ def cmd_experience_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def _read_docx_document(path: str) -> "tuple[str, list[str]] | None":
+    """Return (document.xml text, archive member names), or None after reporting.
+
+    Errors are printed to stderr and signalled as None so both docx-text modes
+    share one set of failure messages.
+    """
+    import sys as _sys
+    import zipfile
+
+    try:
+        zf = zipfile.ZipFile(path)
+    except FileNotFoundError:
+        print(f"docx-text: file not found: {path}", file=_sys.stderr)
+        return None
+    except zipfile.BadZipFile:
+        print(f"docx-text: not a valid .docx (zip) file: {path}", file=_sys.stderr)
+        return None
+    with zf:
+        names = list(zf.namelist())
+        try:
+            blob = zf.read("word/document.xml")
+        except KeyError:
+            print(f"docx-text: word/document.xml not found in {path}", file=_sys.stderr)
+            return None
+
+    # A DOCX body is UTF-8 by convention, not by guarantee -- the XML
+    # declaration may name another encoding. Decoding strictly would reject a
+    # readable document over one stray byte, so fall back to latin-1, which
+    # cannot fail and leaves the ASCII markup this command greps for intact.
+    try:
+        return blob.decode("utf-8"), names
+    except UnicodeDecodeError:
+        print(
+            f"docx-text: {path} is not valid UTF-8; decoded as latin-1 "
+            "(non-ASCII characters may be wrong)",
+            file=_sys.stderr,
+        )
+        return blob.decode("latin-1"), names
+
+
+def _print_docx_structure(raw: str, names: list[str]) -> None:
+    """Print counts of layout markup that commonly breaks resume extraction.
+
+    Tables, text boxes and multi-column sections are the shapes a naive
+    paragraph walk silently misreads, so an auditor needs the counts before
+    trusting extracted text.
+    """
+    print("tables:", raw.count("<w:tbl>"))
+    print("textboxes:", raw.count("<w:txbxContent>"))
+    print("columns:", raw.count("<w:cols"))
+    print("parts:", [n for n in names if "header" in n or "footer" in n])
+
+
+@app.command("docx-text", help="Dump visible text from a .docx file (for verification)")
+@app.argument("path", help="Path to the .docx file")
+@app.argument("--structure", action="store_true",
+              help="Report layout markup counts (tables/textboxes/columns) instead of text")
+def cmd_docx_text(args: argparse.Namespace) -> int:
+    """Extract the visible text of a .docx file, or describe its layout markup.
+
+    Strips XML tags and paragraph markers; unescapes HTML entities.
+    Exits nonzero with a message on stderr if the file is missing or not a zip.
+    """
+    import html
+    import re
+
+    result = _read_docx_document(args.path)
+    if result is None:
+        return 1
+    raw, names = result
+
+    if args.structure:
+        _print_docx_structure(raw, names)
+        return 0
+
+    raw = re.sub(r"</w:p>", "\n", raw)
+    raw = re.sub(r"<[^>]+>", "", raw)
+    print(html.unescape(raw))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Main entry point for the Resume Assistant CLI."""
     return app.run_with_assistant(

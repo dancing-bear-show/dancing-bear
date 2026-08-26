@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+"""Repo-relative path safety guard.
+
+Verifies a path is safe to write back into: inside the repo root, not inside
+.git/, and an existing regular file. Applies a syntactic pre-filter first
+(rejects absolute paths and paths with ".." segments).
+
+Usage:
+  path-guard <repo_root> <candidate_path>
+
+Exit 0 = safe. Exit 1 = refused (reason on stderr). Exit 2 = usage error.
+"""
+import os
+import sys
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_VENV_PY = _REPO_ROOT / ".venv" / "bin" / "python3"
+_VENV_PY_REAL = os.path.realpath(str(_VENV_PY)) if _VENV_PY.exists() else ""
+if (
+    _VENV_PY.exists()
+    and sys.prefix == sys.base_prefix  # no venv active
+    and os.path.realpath(sys.executable) != _VENV_PY_REAL
+    and os.environ.get("_DANCING_BEAR_VENV_EXEC") != _VENV_PY_REAL
+):
+    os.environ["_DANCING_BEAR_VENV_EXEC"] = _VENV_PY_REAL
+    os.execv(str(_VENV_PY), [str(_VENV_PY)] + sys.argv)
+
+SRC_ROOT = _REPO_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+from core.path_guard import main  # noqa: E402
+
+if __name__ == "__main__":
+    raise SystemExit(main())

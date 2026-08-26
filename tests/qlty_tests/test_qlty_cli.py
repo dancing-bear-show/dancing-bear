@@ -352,6 +352,89 @@ class AgenticTests(unittest.TestCase):
         self.assertIn("scan", out)
 
 
+class RuleFilterTests(unittest.TestCase):
+    """--rule limits output without breaking the worktree-exclusion guard."""
+
+    def test_filter_to_single_rule_keeps_only_matching_findings(self):
+        findings = [
+            make_finding(rule="file-complexity", path="src/a.py"),
+            make_finding(rule="function-parameters", path="src/b.py"),
+        ]
+        runner = FakeRunner({Source.SMELLS: [result_of(findings)]})
+        with _patched_scanner(runner):
+            code, out = run_cli(["scan", "--smells-only", "--rule", "file-complexity"])
+        self.assertEqual(code, 0)
+        self.assertIn("file-complexity", out)
+        self.assertNotIn("function-parameters", out)
+
+    def test_filter_to_multiple_rules_keeps_all_matching(self):
+        findings = [
+            make_finding(rule="file-complexity", path="src/a.py"),
+            make_finding(rule="function-parameters", path="src/b.py"),
+            make_finding(rule="similar-code", path="src/c.py"),
+        ]
+        runner = FakeRunner({Source.SMELLS: [result_of(findings)]})
+        with _patched_scanner(runner):
+            code, out = run_cli([
+                "scan", "--smells-only",
+                "--rule", "file-complexity",
+                "--rule", "function-parameters",
+            ])
+        self.assertEqual(code, 0)
+        self.assertIn("file-complexity", out)
+        self.assertIn("function-parameters", out)
+        self.assertNotIn("similar-code", out)
+
+    def test_unknown_rule_yields_zero_findings_without_error(self):
+        # An unrecognised rule name is a no-match, not an error.
+        runner = FakeRunner({Source.SMELLS: [result_of([make_finding()])]})
+        with _patched_scanner(runner):
+            code, _ = run_cli(["scan", "--smells-only", "--rule", "no-such-rule"])
+        self.assertEqual(code, 0)
+
+    def test_no_rule_flag_returns_all_findings(self):
+        # Default: no filtering.
+        findings = [
+            make_finding(rule="file-complexity", path="src/a.py"),
+            make_finding(rule="function-parameters", path="src/b.py"),
+        ]
+        runner = FakeRunner({Source.SMELLS: [result_of(findings)]})
+        with _patched_scanner(runner):
+            code, out = run_cli(["scan", "--smells-only"])
+        self.assertEqual(code, 0)
+        self.assertIn("file-complexity", out)
+        self.assertIn("function-parameters", out)
+
+    def test_expect_min_uses_raw_total_not_filtered_total(self):
+        # Filtering to a rule with zero matches must not trip --expect-min;
+        # the guard is for the worktree-exclusion trap, not for rule coverage.
+        findings = [make_finding(rule="file-complexity", path="src/a.py")]
+        runner = FakeRunner({Source.SMELLS: [result_of(findings)]})
+        with _patched_scanner(runner):
+            code, _, err = run_cli_streams([
+                "scan", "--smells-only",
+                "--rule", "no-such-rule",
+                "--expect-min", "1",
+            ])
+        # Raw total is 1, which meets --expect-min 1, so no error despite 0 filtered.
+        self.assertEqual(code, 0)
+        self.assertNotIn("expected at least", err)
+
+    def test_rule_filter_json_output_reflects_filtered_set(self):
+        findings = [
+            make_finding(rule="file-complexity", path="src/a.py"),
+            make_finding(rule="function-parameters", path="src/b.py"),
+        ]
+        runner = FakeRunner({Source.SMELLS: [result_of(findings)]})
+        with _patched_scanner(runner):
+            _, out = run_cli([
+                "scan", "--smells-only", "--format", "json",
+                "--rule", "file-complexity",
+            ])
+        payload = json.loads(out)
+        self.assertEqual(payload["total"], 1)
+
+
 class MetaTests(unittest.TestCase):
     def test_bin_name_does_not_shadow_the_real_binary(self):
         from qlty.meta import META

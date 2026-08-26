@@ -218,16 +218,13 @@ stages:
            Derive module_path from the path relative to src/: strip the src/
            prefix, replace / with ., strip .py.
 
-        e. Re-score the file, sending stderr to a SEPARATE file so a tool
-           failure stays visible without corrupting the JSON on stdout:
-             ~/.qlty/bin/qlty smells <path> --json 2>/tmp/qlty-err.txt | \
-               python3 -c "import json,sys; d=json.load(sys.stdin); \
-                 [print(i['value']) for i in d if i['ruleKey']=='file-complexity']"
-           Never use `2>&1` with --json: qlty writes progress spinners
-           ("[0/3] Analyzing...") to stderr, and merging the streams makes
-           json.load fail on every file. If parsing fails or output is empty,
-           read /tmp/qlty-err.txt and report the failure rather than treating
-           the file as unscored.
+        e. Re-score the file:
+             ./bin/qlty-assistant scan --smells-only --rule file-complexity \
+               --format csv <path>
+           The "value" column is the score. Judge by exit code: a nonzero
+           exit is a scan failure and must be reported. Exit 0 with only the
+           header row means the file is no longer flagged — that is a
+           "cleared" result, not a failure.
            Record before and after. If the score did not drop, note why — an
            honest "complexity is irreducible without behavior change" is an
            acceptable outcome and is better than a contrived refactor.
@@ -500,10 +497,10 @@ stages:
         The same tests/ prohibition applies here: never --fix a test file.
 
       Step 2 — complexity rescore, the actual success measure:
-        ~/.qlty/bin/qlty smells --all --json 2>/dev/null | \
-          python3 -c "import json,sys; d=json.load(sys.stdin); \
-            [print(i['value'], i['location']['path']) for i in d \
-             if i['ruleKey']=='file-complexity']" | sort -rn
+        ./bin/qlty-assistant scan --smells-only --rule file-complexity \
+          --format csv | sort -t, -k6 -rn
+        (CSV sorts by path; the -k6 sort ranks by the "value" column so the
+        worst offenders read first. The header row sorts to the bottom.)
 
         For every file this workflow touched, compare against the "before"
         value in {targets_file}:

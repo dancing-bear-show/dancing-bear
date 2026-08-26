@@ -46,20 +46,26 @@ stages:
       from the {complexity_floor} trigger param — the targets file is the
       single source of truth for the plan that was approved.
 
-      For each entry, verify the path exists. Rescore it, keeping stderr so a
-      tool failure is visible:
-        ~/.qlty/bin/qlty smells <path> --json 2>/tmp/qlty-err.txt | python3 -c "import json,sys; d=json.load(sys.stdin); [print(i['value']) for i in d if i['ruleKey']=='file-complexity']"
-                      # stderr goes to a SEPARATE file, never merged into stdout:
-                      # qlty writes progress spinners ("[0/3] Analyzing...") to stderr,
-                      # and merging them corrupts the JSON stream so EVERY file fails to
-                      # parse. On a parse failure or empty output, read /tmp/qlty-err.txt
-                      # for the real error and classify the entry as ERROR (never "drop").
+      For each entry, verify the path exists. Rescore it with:
+        ./bin/qlty-assistant scan --smells-only --rule file-complexity \
+          --format csv <path>
+
+      The CSV has a header row plus one row per finding; the "value" column is
+      the file-complexity score and "file" is the path.
+
+      Use the EXIT CODE, not the row count, to tell failure from success:
+        exit 0, a score row     — file still flagged; compare to the floor
+        exit 0, header row only — no finding; the file is genuinely cleared
+        nonzero exit            — the scan itself failed; this is an ERROR
+      A header-only CSV at exit 0 is a real result, NOT a tool failure. The
+      old JSON pipeline could not tell these apart; this one can, so do not
+      classify an empty result as ERROR.
 
       Classify each entry into exactly one of three outcomes:
         keep  — file exists and scores at or above the floor
-        drop  — file is gone, or genuinely scores below the floor
-        ERROR — qlty failed, returned unparseable output, or emitted no
-                file-complexity entry for a file that still exists
+        drop  — file is gone, scores below the floor, or is no longer
+                flagged at all (header-only CSV at exit 0)
+        ERROR — the scan exited nonzero, or returned unparseable output
       An ERROR is NOT a drop. Record ERROR entries with their stderr text,
       keep them in the file list, and flag them.
 

@@ -637,31 +637,38 @@ stages:
                 the one the recorded plan assumed. If the two disagree, note
                 it and use the targets file's value.
 
-                For each entry, verify the path exists. Rescore it, capturing
-                stderr to a SEPARATE file so a tool failure stays visible
-                WITHOUT corrupting the JSON on stdout:
-                  ~/.qlty/bin/qlty smells <path> --json 2>/tmp/qlty-err.txt | \
-                    python3 -c "import json,sys; d=json.load(sys.stdin); \
-                      [print(i['value']) for i in d if i['ruleKey']=='file-complexity']"
+                For each entry, verify the path exists. Rescore it with:
+                  ./bin/qlty-assistant scan --smells-only \
+                    --rule file-complexity --format csv <path>
 
-                Do NOT use `2>&1` here. qlty writes progress spinners
-                ("[0/3] Analyzing...") to stderr, so merging the streams makes
-                json.load fail on EVERY file — verified. Keep them separate and
-                read /tmp/qlty-err.txt when parsing fails or output is empty.
+                The CSV has a header row plus one row per finding; the "value"
+                column is the file-complexity score and "file" is the path.
+                The wrapper owns qlty's stderr handling, so there is no stream
+                to redirect and no JSON to hand-parse.
+
+                Use the EXIT CODE, not the row count, to tell failure from
+                success:
+                  exit 0, a score row     — still flagged; compare to the floor
+                  exit 0, header row only — no finding; genuinely cleared
+                  nonzero exit            — the scan failed; this is an ERROR
+                A header-only CSV at exit 0 is a real result, NOT a tool
+                failure. The old JSON pipeline could not tell these apart;
+                this one can, so never classify an empty result as ERROR.
 
                 Classify each entry into exactly one of three outcomes — do
                 NOT collapse the last two:
                   - keep    — file exists and scores at or above the floor
-                  - drop    — file is gone, or genuinely scores below the
-                              floor (already fixed by an earlier group)
-                  - ERROR   — qlty failed, returned unparseable output, or
-                              emitted no file-complexity entry for a file
-                              that still exists
-                An ERROR is NOT a drop. Suppressing stderr and treating empty
-                output as "below floor" would silently remove a live target
-                from the sweep and report it as already resolved. Record every
-                ERROR entry in the output with its stderr text, keep it in the
-                file list, and flag it so the reduce stage can decide.
+                  - drop    — file is gone, scores below the floor, or is no
+                              longer flagged at all (header-only CSV at exit
+                              0 — already fixed by an earlier group)
+                  - ERROR   — the scan exited nonzero, or returned
+                              unparseable output
+                An ERROR is NOT a drop. A failed scan reported as "below
+                floor" would silently remove a live target from the sweep and
+                report it as already resolved — which is why the exit code,
+                not the row count, decides. Record every ERROR entry in the
+                output with its stderr text, keep it in the file list, and
+                flag it so the reduce stage can decide.
 
                 Write {workspace}/outputs/targets.json with the surviving
                 file list, each entry keeping path, complexity (rescored),

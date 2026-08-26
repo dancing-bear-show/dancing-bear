@@ -167,20 +167,20 @@ stages:
       {workspace}/outputs/writeback-result.md noting "No revisions applied —
       original file at {target} left unchanged." Exit 0.
 
-      Otherwise: before writing back, verify {target} is safe. A syntactic
-      check on the path string (rejecting absolute paths and ".." segments)
-      is not sufficient on its own — a repo-relative path can still be a
-      symlink pointing outside the repo, or point inside the repo's own
-      .git/ metadata directory, or not exist as a real file at all (e.g.
-      pointing at a directory, a FIFO, or nothing). Reject {target} outright
-      if it is absolute (starts with "/") or contains a ".." segment BEFORE
-      running the check below, as a cheap first filter. Then resolve the
-      real path and confirm ALL of: (a) it stays within the repo root, (b)
-      it does NOT resolve inside <repo_root>/.git/, and (c) it is an
-      existing regular file (not a directory, not missing, not a special
-      file), via this single-line check (run via the Bash tool):
-        python3 -c "import os,sys,stat; repo=os.path.realpath('.'); git_dir=os.path.join(repo,'.git'); t=os.path.realpath(sys.argv[1]); in_repo=(t==repo or t.startswith(repo+os.sep)); in_git=(t==git_dir or t.startswith(git_dir+os.sep)); is_file=os.path.exists(t) and stat.S_ISREG(os.stat(t).st_mode); sys.exit(0 if (in_repo and not in_git and is_file) else 1)" "{target}"
-      If the syntactic pre-filter or this check fails, write
+      Otherwise: before writing back, verify {target} is safe by running
+      this check (via the Bash tool):
+        ./bin/path-guard "$(pwd)" "{target}"
+
+      Exit 0 means safe; nonzero means refuse, with the reason on stderr.
+      The guard rejects absolute paths and ".." segments syntactically, then
+      resolves symlinks and confirms the path (a) stays within the repo root,
+      (b) does NOT resolve inside <repo_root>/.git/, and (c) is an existing
+      regular file — not a directory, a FIFO, or nothing. A syntactic check
+      alone would not catch a repo-relative symlink pointing outside the
+      repo, which is why the resolution step is not optional.
+      See src/core/path_guard.py; do not re-implement these checks inline.
+
+      If the guard refuses, write
       {workspace}/outputs/writeback-result.md noting "Writeback refused —
       {target} is not a safe, existing repo file outside .git/" and leave
       every file unchanged. Exit 0.

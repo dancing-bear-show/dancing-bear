@@ -52,6 +52,8 @@ def _scan_arguments(func):
         app.argument("--check-only", action="store_true", help="Run only qlty check"),
         app.argument("--changed", action="store_true", help="Scan only changed files (default: all)"),
         app.argument("--no-include-tests", action="store_true", help="Exclude test files from smells (default: included)"),
+        app.argument("--rule", action="append", dest="rules", metavar="RULE",
+                     help="Limit output to this rule (repeatable; unknown rule yields empty)"),
         app.argument("paths", nargs="*", help="Limit scan to these paths"),
     ):
         func = add(func)
@@ -85,7 +87,20 @@ def _sources(args) -> tuple[Source, ...]:
     return (Source.CHECK, Source.SMELLS)
 
 
-def _run_scan(args) -> ScanResult:
+def _rule_filter(args) -> tuple[str, ...]:
+    """Normalized rule filter from --rule flags; empty means no filtering."""
+    rules = getattr(args, "rules", None)
+    return tuple(rules) if rules else ()
+
+
+def _run_scan(args) -> tuple[ScanResult, ScanResult]:
+    """Run a scan and return (raw_result, filtered_result).
+
+    The raw result is used for --expect-min: the worktree-exclusion guard
+    must fire on the actual scan total, not the post-filter total. Filtering
+    to a rule with zero matches would otherwise trip the guard in a healthy
+    environment, turning a valid usage of --rule into a false alarm.
+    """
     request = ScanRequest(
         # F1: default to --all. Diff-only is opt-in, because `qlty check`
         # defaulting to changed-files-only reports "No issues" on a clean
@@ -95,10 +110,11 @@ def _run_scan(args) -> ScanResult:
         paths=tuple(getattr(args, "paths", ()) or ()),
         sources=_sources(args),
     )
-    return _build_scanner().scan(
+    raw = _build_scanner().scan(
         request,
         rescan_until_stable=getattr(args, "rescan_until_stable", False),
     )
+    return raw, raw.filter_by_rules(_rule_filter(args))
 
 
 def _expect_min_failure(result: ScanResult, expect_min: Optional[int]) -> Optional[str]:
@@ -140,10 +156,13 @@ def cmd_scan(args) -> int:
     ``QltyError`` is deliberately not caught: it is a ``CLIError``, so CLIApp's
     handler renders its message and hint on stderr and maps its exit code.
     """
-    result = _run_scan(args)
+    raw, result = _run_scan(args)
     _emit(_render_scan(result, args.format))
 
-    failure = _expect_min_failure(result, args.expect_min)
+    # --expect-min guards against the worktree-exclusion trap (zero findings from
+    # an excluded path look identical to a clean repo). Apply it to the raw scan
+    # total, not the post-filter total, so --rule never causes a false alarm.
+    failure = _expect_min_failure(raw, args.expect_min)
     if failure:
         print(f"error: {failure}", file=sys.stderr)
         return ExitCode.ERROR
@@ -192,7 +211,7 @@ def cmd_triage(args) -> int:
 
     ``QltyError`` propagates to CLIApp's handler; see ``cmd_scan``.
     """
-    result = _run_scan(args)
+    raw, result = _run_scan(args)
     entries = _build_triage(result)
 
     if args.format == "json":
@@ -204,7 +223,8 @@ def cmd_triage(args) -> int:
     else:
         _emit(report.render_triage_text(entries, result))
 
-    failure = _expect_min_failure(result, args.expect_min)
+    # --expect-min: apply to raw total, same reasoning as cmd_scan.
+    failure = _expect_min_failure(raw, args.expect_min)
     if failure:
         print(f"error: {failure}", file=sys.stderr)
         return ExitCode.ERROR

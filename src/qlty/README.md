@@ -9,9 +9,15 @@ per-rule remediation strategy attached. Classification only — this domain neve
 ./bin/qlty-assistant scan
 ./bin/qlty-assistant scan --changed --format json
 ./bin/qlty-assistant scan --expect-min 1 --rescan-until-stable
+./bin/qlty-assistant scan --smells-only --rule file-complexity --format json src/
+./bin/qlty-assistant scan --smells-only --rule file-complexity --rule boolean-logic
 ./bin/qlty-assistant triage
 ./bin/qlty-assistant rules --counts
 ```
+
+`--rule` is repeatable. An unknown rule name yields zero findings, not an error.
+`--expect-min` applies to the raw scan total (pre-filter) so `--rule` never trips
+the worktree-exclusion guard.
 
 Never invoked as `./bin/qlty` — that would shadow the real binary on `PATH`.
 
