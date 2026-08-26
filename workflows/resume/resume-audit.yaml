@@ -782,12 +782,23 @@ stages:
           phrase reaches the reader twice — exactly what this stage prevents
           everywhere else.
       So: for any finding whose role is "document", dedupe on
-      concern_id + role instead, and additionally cross-check its representative
-      bullet against per-bullet findings. When a per-bullet finding quotes the
-      same text, record the document-scoped finding's concern_id in the
-      per-bullet survivor's `also_flagged_as` and keep BOTH — the document-level
-      pattern is a distinct fact about the resume, not a duplicate of one
-      instance of it. Say so in `why` so the reader understands why both appear.
+      concern_id + role + bullet_text, and additionally cross-check its
+      representative bullet against per-bullet findings.
+
+      All three fields are needed. Dropping bullet_text and keying on
+      concern_id + role alone would be too coarse in the other direction: one
+      concern can legitimately produce several document-level findings — two
+      different over-used opening verbs, or two distinct cadence patterns — and
+      they would collapse into one, silently discarding real findings. Adding
+      concern_id to the key is what prevents the original collision, where two
+      findings from DIFFERENT concerns quoting the same representative bullet
+      destroyed each other.
+
+      When a per-bullet finding quotes the same text, record the
+      document-scoped finding's concern_id in the per-bullet survivor's
+      `also_flagged_as` and keep BOTH — the document-level pattern is a distinct
+      fact about the resume, not a duplicate of one instance of it. Say so in
+      `why` so the reader understands why both appear.
 
       RANK — sort by severity (critical, then major, then minor), and within a
       severity by role in document order so the reader can walk the document top
