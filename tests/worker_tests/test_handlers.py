@@ -5,7 +5,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from worker.handlers import REGISTRY, handle_workflow_stage
+from worker._helpers import get_repo_root
+from worker.handlers import REGISTRY, _is_allowed_bin, handle_workflow_stage
 
 
 def _make_job(payload: dict) -> dict:
@@ -174,6 +175,36 @@ class TestHandleWorkflowStageErrors(unittest.TestCase):
         job = _make_job({"script": "  ", "cli_commands": []})
         ok, _ = handle_workflow_stage(job)
         self.assertFalse(ok)
+
+
+class TestGetRepoRoot(unittest.TestCase):
+    """Regression guards for worker._helpers.get_repo_root.
+
+    These exercise the real filesystem rather than a patched root: the bug they
+    guard against was invisible to every existing test precisely because those
+    tests patch get_repo_root. telemetry.otel.config._get_repo_root had the
+    identical defect and carries the same guards.
+    """
+
+    def test_repo_root_is_not_src(self) -> None:
+        # get_repo_root previously used parents[1], landing at <repo>/src.
+        root = get_repo_root()
+        self.assertNotEqual(root.name, "src")
+
+    def test_repo_root_contains_bin_dir(self) -> None:
+        # Every caller in worker.handlers builds `get_repo_root() / "bin"`.
+        root = get_repo_root()
+        self.assertTrue((root / "bin").is_dir(), f"Expected {root / 'bin'} to be a directory")
+
+    def test_allowlisted_bin_resolves(self) -> None:
+        # The user-visible symptom: with the root one level short, every
+        # allowlisted command was rejected because <repo>/src/bin does not exist.
+        self.assertTrue(_is_allowed_bin("worker"))
+
+    def test_non_allowlisted_bin_still_rejected(self) -> None:
+        # The allowlist boundary must survive the path fix.
+        self.assertFalse(_is_allowed_bin("evil"))
+        self.assertFalse(_is_allowed_bin("/bin/sh"))
 
 
 if __name__ == "__main__":

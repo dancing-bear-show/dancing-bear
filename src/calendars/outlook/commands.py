@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from core.auth import build_outlook_service_from_args
+from core.collections import dedupe
 from core.date_utils import DAY_MAP
 from core.pipeline import BaseProducer, SafeProcessor, run_pipeline
 from ..outlook_service import EventCreationParams, RecurringEventCreationParams
@@ -395,15 +396,11 @@ def _scan_enrich_items(extracted: list) -> None:
 
 def _scan_dedup_events(extracted: list) -> list:
     """Deduplicate extracted events by (subject, byday, start_time, end_time)."""
-    seen: set = set()
-    events = []
-    for item in extracted:
+    def _key(item: dict) -> tuple:
         ev = item["event"]
-        key = (ev.get("subject"), tuple(ev.get("byday") or []), ev.get("start_time"), ev.get("end_time"))
-        if key not in seen:
-            seen.add(key)
-            events.append(ev)
-    return events
+        return (ev.get("subject"), tuple(ev.get("byday") or []), ev.get("start_time"), ev.get("end_time"))
+
+    return [item["event"] for item in dedupe(extracted, key_fn=_key)]
 
 
 @dataclass

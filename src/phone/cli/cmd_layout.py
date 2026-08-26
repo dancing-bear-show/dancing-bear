@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from core.cli_output import emit_one
+from core.paths import output_dir
 from core.pipeline import run_pipeline
 
 from ..helpers import LayoutLoadError, load_layout, read_yaml, write_yaml
@@ -164,14 +165,14 @@ def cmd_export(args) -> int:
         "Deprecated: 'phone export' uses Finder backups. Use 'phone export-device' or 'phone iconmap'.",
         file=sys.stderr,
     )
-    out_path = Path(getattr(args, "out", None) or "out/ios.IconState.yaml")
+    out_path = Path(getattr(args, "out", None) or output_dir("phone") / "ios.IconState.yaml")
     request = ExportRequest(backup=getattr(args, "backup", None), out_path=out_path)
     return run_pipeline(request, ExportProcessor, ExportProducer)
 
 
 def cmd_export_device(args) -> int:
     """Export layout from attached device via cfgutil to YAML."""
-    out_path = Path(getattr(args, "out", None) or "out/ios.IconState.yaml")
+    out_path = Path(getattr(args, "out", None) or output_dir("phone") / "ios.IconState.yaml")
     request = ExportDeviceRequest(
         udid=getattr(args, "udid", None) or os.environ.get("IOS_DEVICE_UDID"),
         ecid=getattr(args, "ecid", None),
@@ -183,7 +184,7 @@ def cmd_export_device(args) -> int:
 def cmd_iconmap(args) -> int:
     """Download raw icon layout from device via cfgutil."""
     fmt = getattr(args, "format", "json")
-    out_default = "out/ios.iconmap.json" if fmt == "json" else "out/ios.iconmap.plist"
+    out_default = str(output_dir("phone") / ("ios.iconmap.json" if fmt == "json" else "ios.iconmap.plist"))
     out_path = Path(getattr(args, "out", None) or out_default)
     request = IconmapRequest(
         udid=getattr(args, "udid", None) or os.environ.get("IOS_DEVICE_UDID"),
@@ -196,7 +197,7 @@ def cmd_iconmap(args) -> int:
 
 def cmd_plan(args) -> int:
     """Scaffold a plan YAML (pins + folders) from current layout."""
-    out_path = Path(getattr(args, "out", None) or "out/ios.plan.yaml")
+    out_path = Path(getattr(args, "out", None) or output_dir("phone") / "ios.plan.yaml")
     request = PlanRequest(
         layout=getattr(args, "layout", None),
         backup=getattr(args, "backup", None),
@@ -208,7 +209,7 @@ def cmd_plan(args) -> int:
 def cmd_checklist(args) -> int:
     """Generate manual move checklist from plan + current layout."""
     plan_path = Path(args.plan)
-    out_path = Path(getattr(args, "out", None) or "out/ios.checklist.txt")
+    out_path = Path(getattr(args, "out", None) or output_dir("phone") / "ios.checklist.txt")
     request = ChecklistRequest(
         plan_path=plan_path,
         layout=getattr(args, "layout", None),
@@ -242,7 +243,7 @@ def cmd_prune(args) -> int:
         limit=int(getattr(args, "limit", 50)),
         threshold=float(getattr(args, "threshold", 1.0)),
         mode=getattr(args, "mode", "offload"),
-        out_path=Path(getattr(args, "out", "out/ios.unused.prune_checklist.txt")),
+        out_path=Path(getattr(args, "out", None) or output_dir("phone") / "ios.unused.prune_checklist.txt"),
     )
     return run_pipeline(request, PruneProcessor, PruneProducer)
 
@@ -298,7 +299,7 @@ def cmd_auto_folders(args) -> int:
         print(err, file=sys.stderr)
         return err.code
 
-    plan_path = Path(getattr(args, "plan", "out/ipad.plan.yaml"))
+    plan_path = Path(getattr(args, "plan", None) or output_dir("phone") / "ipad.plan.yaml")
     keep = _parse_keep_list(getattr(args, "keep", "") or "")
 
     # Load existing plan or scaffold a fresh one

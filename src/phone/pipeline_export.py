@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from core.cli_output import emit_one
+from core.paths import output_dir
 from core.pipeline import (
     BaseProducer as _CoreBaseProducer,
     RequestConsumer,
@@ -286,7 +287,7 @@ class PruneRequest:
     limit: int = 50
     threshold: float = 1.0
     mode: str = "offload"  # "offload" or "delete"
-    out_path: Path = Path("out/ios.unused.prune_checklist.txt")
+    out_path: Path = field(default_factory=lambda: output_dir("phone") / "ios.unused.prune_checklist.txt")
 
 
 PruneRequestConsumer = RequestConsumer[PruneRequest]

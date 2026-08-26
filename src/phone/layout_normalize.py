@@ -10,6 +10,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from core.collections import dedupe
+
 Item = dict[str, Any]
 
 
@@ -171,13 +173,7 @@ def _iter_all_app_ids(layout: NormalizedLayout):
 
 def list_all_apps(layout: NormalizedLayout) -> list[str]:
     """Return a de-duplicated list of all bundle IDs in layout (dock + pages)."""
-    seen: set = set()
-    result = []
-    for a in _iter_all_app_ids(layout):
-        if a not in seen:
-            seen.add(a)
-            result.append(a)
-    return result
+    return dedupe(list(_iter_all_app_ids(layout)))
 
 
 def _compute_first_page_map(

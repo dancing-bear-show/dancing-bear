@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from core.paths import output_dir
 from core.pipeline import Processor, ResultEnvelope
 
 from .consumers import (
@@ -170,7 +171,7 @@ def _sync_gmail_signatures(payload, sigs: dict, result: SignaturesSyncResult) ->
 def _write_ios_asset(default_html: str | None, sigs: dict) -> Path | None:
     """Write iOS signature asset if configured."""
     if default_html and sigs.get("ios") is not None:
-        out = Path("signatures_assets/ios_signature.html")
+        out = output_dir("mail") / "signatures_assets" / "ios_signature.html"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(default_html, encoding="utf-8")
         return out
@@ -180,7 +181,7 @@ def _write_ios_asset(default_html: str | None, sigs: dict) -> Path | None:
 def _write_outlook_note(default_html: str | None, sigs: dict) -> Path | None:
     """Write Outlook readme if signatures configured."""
     if sigs.get("outlook") or default_html:
-        note = Path("signatures_assets/OUTLOOK_README.txt")
+        note = output_dir("mail") / "signatures_assets" / "OUTLOOK_README.txt"
         note.parent.mkdir(parents=True, exist_ok=True)
         note.write_text(
             "Outlook signatures are not exposed via Microsoft Graph v1.0.\n"

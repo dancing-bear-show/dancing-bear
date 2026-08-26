@@ -30,8 +30,13 @@ FIELD_UPDATED_AT = "updated_at"
 
 
 def get_repo_root() -> Path:
-    """Return the repo root (two levels above this file: worker/_helpers.py -> repo/)."""
-    return Path(__file__).resolve().parents[1]
+    """Return the dancing-bear repo root (three levels above src/worker/_helpers.py).
+
+    parents[1] is <repo>/src, not <repo>. Landing one level short makes every
+    `get_repo_root() / "bin"` lookup point at a nonexistent <repo>/src/bin,
+    which silently rejects valid bin/* commands as disallowed.
+    """
+    return Path(__file__).resolve().parents[2]
 
 
 def get_worker_state_dir(subdir: str = "queue") -> Path:

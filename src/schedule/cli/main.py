@@ -24,6 +24,7 @@ from core.cli_output import OutputWriter
 from core.constants import FMT_DAY_START, FMT_DAY_END
 from core.auth import build_outlook_service_from_args
 from core.cli_framework import CLIApp
+from core.paths import output_dir
 from core.cli_help_text import HELP_START_DATE
 from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
 
@@ -244,9 +245,9 @@ def _emit_agentic(fmt: str, compact: bool) -> int:
 @app.command("plan", help="Generate a canonical schedule plan from sources")
 @app.argument("--source", action="append", default=[], help="Source path/URL (repeatable); supports CSV/XLSX/PDF/website")
 @app.argument("--kind", choices=["auto", "csv", "xlsx", "pdf", "website"], default="auto", help="Force parser kind (default auto)")
-@app.argument("--out", default="out/schedule.plan.yaml", help="Output YAML path (default out/schedule.plan.yaml)")
+@app.argument("--out", default=None, help="Output YAML path (default: schedule data dir)")
 def cmd_plan(args: argparse.Namespace) -> int:
-    out_path = Path(getattr(args, "out", "out/schedule.plan.yaml"))
+    out_path = Path(getattr(args, "out", None) or output_dir("schedule") / "schedule.plan.yaml")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     sources = getattr(args, "source", []) or []
     request = PlanRequest(sources=sources, kind=getattr(args, "kind", None), out_path=out_path)

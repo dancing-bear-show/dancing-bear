@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from core.cli_output import emit_rows
+from core.date_utils import parse_iso_utc
 from telemetry.otel.cli._format_helpers import add_format_argument, get_work_dir
 from telemetry.timeutil import parse_window
 
@@ -158,9 +159,9 @@ def _load_stage_if_in_window(p: Path, cutoff: datetime) -> dict | None:
         finished_raw = data.get("finished_at", "")
         if not isinstance(finished_raw, str) or not finished_raw:
             return None
-        finished = datetime.fromisoformat(finished_raw.replace("Z", "+00:00"))
-        if finished.tzinfo is None:
-            finished = finished.replace(tzinfo=timezone.utc)
+        finished = parse_iso_utc(finished_raw)
+        if finished is None:
+            return None
         if finished < cutoff:
             return None
         meta = data.get("metadata", {})
@@ -219,13 +220,9 @@ def _earliest_started_at(stages: list[dict]) -> str:
         raw = s.get("started_at", "")
         if not isinstance(raw, str) or not raw:
             continue
-        try:
-            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
+        dt = parse_iso_utc(raw)
+        if dt is not None:
             dts.append(dt)
-        except ValueError:
-            pass
     return min(dts).isoformat() if dts else ""
 
 

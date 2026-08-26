@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import time
 
 from core.pipeline import Producer, ResultEnvelope
+from core.retry import exponential_backoff
 
 from ..providers.base import BaseProvider
 from ..utils.batch import apply_in_chunks
@@ -145,6 +146,6 @@ class FiltersPruneProducer(Producer[ResultEnvelope[FiltersPruneResult]]):
                 return True
             except Exception as exc:  # pragma: no cover - retry logging
                 last_err = exc
-                time.sleep(1.5 * (2 ** attempt))
+                time.sleep(exponential_backoff(attempt, base_delay=1.5, multiplier=2.0))
         print(f"Warning: failed to delete filter id={fid}: {last_err}")
         return False
