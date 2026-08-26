@@ -1,0 +1,251 @@
+# Telemetry review — analyze recent Claude Code sessions from transcript files
+# to identify token waste, recurring errors, and feature opportunities.
+#
+# Data flow:
+#   [pm fragment: pm-index-sessions → pm-extract-prompts → pm-score-efficiency]
+#   → gather-transcripts → analyze → report
+#   → [vtr fragment: vtr-validate → vtr-render]
+#   → [docs fragment: docs-detect-surface-changes → docs-update-docs → docs-verify-docs]
+#
+# Advisory only. Feature proposals are recorded as a backlog; nothing is built.
+
+name: telemetry-review
+version: "1.0"
+description: >
+  Analyze recent Claude Code sessions from transcript files to identify token
+  waste, recurring errors, and feature opportunities. Produces a structured
+  report with ranked findings and implementation proposals, then records the
+  accepted proposals in the repo's documentation.
+
+  Narrower and cheaper than domain-recommender.yaml: this one diagnoses what is
+  going wrong in sessions (errors, waste, friction), while domain-recommender
+  systematically proposes new CLI surface. Run this one for a regular health
+  check; run domain-recommender when planning what to build next.
+
+metadata:
+  author: dancing-bear
+  created: "2026-08-26"
+
+trigger:
+  source: manual
+  params:
+    since: "2d"                # Time window for analysis (e.g. 2d, 7d, 24h)
+    min_prompts: "3"           # Minimum prompts per session to include
+    projects_dir: "~/.claude/projects"
+    primary_artifact: "findings.json"
+    report_artifact: "telemetry-review.md"
+    validation_criteria: "session count and total cost match sessions-index.json|each error pattern frequency is supported by transcript-analysis.json|token waste estimates are arithmetically plausible|all file paths in feature proposals resolve to existing files|no session ids, costs, or dates are fabricated"
+    docs_change_source: "findings.json"
+    docs_backlog_doc: "docs/telemetry-findings-backlog.md"
+
+workspace_dir: "{work_dir}/telemetry-review"
+
+include:
+  # Stages injected: pm-index-sessions → pm-extract-prompts → pm-score-efficiency
+  # Produces: sessions-index.json, agents-index.json, prompt-corpus.json,
+  #           efficiency-scores.json
+  - path: workflows/shared/prompt-mine-transcripts.yaml
+    prefix: pm
+    depends_on: []
+    reads_from: []
+  # Stages injected: vtr-validate → vtr-render
+  - path: workflows/shared/validate-then-render.yaml
+    prefix: vtr
+    depends_on: [report]
+    reads_from: [analyze, report]
+  # Stages injected: docs-detect-surface-changes → docs-approve-doc-plan
+  #                  → docs-update-docs → docs-verify-docs
+  # docs-approve-doc-plan is a human_gate: it is the ONLY gate in this workflow,
+  # and it stands between analysis and any write to a tracked repo file.
+  # docs-detect-surface-changes additionally gates on vtr-findings.json so a
+  # failed/skipped vtr-render (required:false upstream) cannot yield docs built
+  # from uncorrected data.
+  - path: workflows/shared/sync-docs-on-land.yaml
+    prefix: docs
+    depends_on: [vtr-render]
+    reads_from: [analyze, vtr-validate, vtr-render]
+
+stages:
+
+  # ===========================================================================
+  # Stage 1: Deep-parse the top sessions by cost (error and repetition mining)
+  # ===========================================================================
+
+  - name: gather-transcripts
+    kind: gather
+    depends_on: [pm-score-efficiency]
+    reads_from: [pm-index-sessions, pm-extract-prompts]
+    description: >
+      Parse the top 10 sessions by cost from sessions-index.json.
+      Deduplicate by session_id before taking the top 10.
+
+      For each session, locate the JSONL file under {projects_dir} using the
+      session_id field:
+        Glob(pattern="{projects_dir}/**/<session_id>.jsonl")
+
+      Read through the raw JSONL records to extract:
+
+        - bash commands that returned non-zero exit codes (tool_result with
+          is_error: true or content containing "Error" / "error:")
+        - repeated identical tool calls (same tool + same input appearing 2+ times)
+        - CLI flag mistakes (commands containing "invalid", "unrecognized",
+          "no such option", "unexpected extra argument")
+        - count of ./bin/llm familiar invocations per session
+
+      Write transcript-analysis.json with one object per session:
+        {{
+          "session_id": "...",
+          "project_path": "...",
+          "total_cost": 1.23,
+          "errors": [
+            {{"tool": "Bash", "command": "...", "snippet": "first 200 chars of error"}}
+          ],
+          "repeated_calls": [
+            {{"tool": "...", "count": 3, "input_preview": "..."}}
+          ],
+          "familiarize_count": 2
+        }}
+
+      Redact anything resembling a credential, token, or API key to
+      "[redacted]" before writing it into the output.
+
+      If a session's JSONL cannot be found, record it in a "missing" array
+      rather than dropping it silently — a missing transcript changes what the
+      downstream counts mean.
+    agent:
+      role: researcher
+      model: sonnet
+      tools:
+        - Glob
+        - Read
+        - Write
+      access: read-write
+    outputs:
+      - name: transcript-analysis
+        mode: generate
+        description: >
+          Parse top 10 sessions by cost from sessions-index.json, read each
+          JSONL to extract errors / repeated calls / familiarize counts, and
+          write transcript-analysis.json.
+    required: true
+    writes_to:
+      - transcript-analysis.json
+
+  # ===========================================================================
+  # Stage 2: Analyze — synthesize findings
+  # ===========================================================================
+
+  - name: analyze
+    kind: execute
+    depends_on: [gather-transcripts]
+    reads_from: [pm-index-sessions, pm-score-efficiency, gather-transcripts]
+    description: >
+      Read all gathered data and produce a structured findings.json.
+
+      Sources to read:
+        sessions-index.json      — session list with cost and token counts
+        efficiency-scores.json   — cache hit rates and per-prompt costs
+        transcript-analysis.json — per-session errors, repeated calls, familiarize counts
+
+      Produce findings.json with the following top-level keys:
+
+      error_patterns (top 5):
+        Each entry: {{ "rank": 1, "pattern": "...", "frequency": N,
+                      "example_command": "...", "fix": "..." }}
+        Look for: repeated CLI flag errors, wrong -- separator usage,
+        missing arguments, shell quoting issues, non-zero exit codes
+        on the same tool across sessions.
+
+      token_waste (top 5):
+        Each entry: {{ "rank": 1, "pattern": "...", "estimated_tokens": N,
+                      "sessions_affected": N, "description": "..." }}
+        Look for: high familiarize call counts (>1 per session), repeated
+        identical Bash calls, cold cache tiers from efficiency-scores.json,
+        sessions with very high output_tokens relative to task complexity.
+
+      feature_proposals (top 5):
+        Each entry: {{ "rank": 1, "title": "...", "problem": "...",
+                      "proposal": "...", "file_path": "...",
+                      "estimated_lines": N }}
+        Focus on concrete repo improvements: new CLI flags, new subcommands,
+        agentic schema fixes, error message improvements.
+        Every proposal must name a file path that exists — verify each one
+        before writing it. A proposal pointing at a nonexistent file is a
+        defect, not a suggestion.
+
+      workflow_improvements (list):
+        Each entry: {{ "finding": "...", "suggestion": "..." }}
+        Patterns that make agentic workflows non-deterministic: ambiguous
+        instructions, missing output format specs, unclear dependency chains.
+
+      summary:
+        {{ "sessions_analyzed": N, "total_cost_usd": N,
+          "top_cost_session": "session_id", "analysis_window": "{since}" }}
+
+      Every number written here must trace to one of the source files. Do not
+      estimate a figure the data does not support — omit the entry instead.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools:
+        - Read
+        - Bash
+        - Write
+      access: read-write
+    outputs:
+      - name: findings
+        mode: generate
+        description: >
+          Synthesize gathered data into findings.json with error_patterns,
+          token_waste, feature_proposals, workflow_improvements, and summary.
+    required: true
+    writes_to:
+      - findings.json
+
+  # ===========================================================================
+  # Stage 3: Report — structured markdown with ranked findings
+  # ===========================================================================
+
+  - name: report
+    kind: execute
+    depends_on: [analyze]
+    reads_from: [analyze, pm-index-sessions, pm-score-efficiency]
+    description: >
+      Read findings.json and sessions-index.json, then write
+      {report_artifact} — a structured markdown document suitable for sharing.
+
+      Structure:
+        # Telemetry Review — {since} window
+        ## Summary (session count, total cost, date range)
+        ## Top Error Patterns (ranked table with fix for each)
+        ## Token Waste (ranked table with estimated savings per session)
+        ## Feature Proposals (ranked list with code sketch and ROI)
+        ## Workflow Improvements (bulleted list)
+        ## Appendix: Session Cost Table (top 10 sessions)
+
+      For each feature proposal, include:
+        - The specific file to modify (repo-relative path under src/)
+        - A 3-5 line pseudocode sketch of the implementation
+        - Estimated tokens saved per session if implemented
+
+      Writing rules:
+        - Professional, neutral, fact-based. No hype, no filler.
+        - Imperative mood for proposals ("add --flag X", not "we could add").
+        - All numbers trace directly to findings.json or sessions-index.json.
+        - Mark any figure derived from a default or fallback as "estimated".
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools:
+        - Read
+        - Write
+      access: read-write
+    outputs:
+      - name: report
+        mode: generate
+        description: >
+          Write {report_artifact} to the workspace following the structure and
+          writing rules in the stage description.
+    required: true
+    writes_to:
+      - telemetry-review.md

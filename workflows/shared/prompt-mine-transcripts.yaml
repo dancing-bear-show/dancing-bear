@@ -1,0 +1,244 @@
+# Shared workflow fragment — not runnable standalone.
+# Include via:
+#   include:
+#     - path: workflows/shared/prompt-mine-transcripts.yaml
+#       prefix: pm
+#       depends_on: []
+#       reads_from: []
+#
+# Stages injected: pm-index-sessions → pm-extract-prompts → pm-score-efficiency
+#
+# Produces four workspace files consumed by callers:
+#   sessions-index.json      — session metadata with cost/token breakdown
+#   agents-index.json        — per-agent-type cost and token breakdown
+#   prompt-corpus.json       — extracted user prompts with session context
+#   efficiency-scores.json   — per-session and per-prompt token efficiency metrics
+#
+# Caller must set trigger.params:
+#   since        — time window (e.g. "30d", "7d")
+#   min_prompts  — minimum prompt count per session to include (default: "3")
+#   projects_dir — root dir for Claude Code project transcripts (default: "~/.claude/projects")
+#
+# Used by: domain-recommender, telemetry-review.
+fragment: true
+name: prompt-mine-transcripts
+version: "1.0"
+description: >
+  Shared transcript mining fragment. Indexes recent Claude Code sessions,
+  extracts user prompts from JSONL transcripts, and computes token efficiency
+  metrics. Downstream stages can build pattern libraries, propose CLI surface
+  additions, or produce cost-reduction reports from these canonical outputs.
+
+  Read-only with respect to the repo — this fragment never mutates source,
+  telemetry data, or any workflow YAML. It only writes into {workspace}.
+
+stages:
+
+  # ===========================================================================
+  # Stage 1: Index sessions — session metadata with cost/token breakdown
+  # ===========================================================================
+
+  - name: index-sessions
+    kind: gather
+    depends_on: []      # overridden by include.depends_on
+    reads_from: []      # overridden by include.reads_from
+    description: >
+      Collect the full session index for the given time window.
+
+      Run:
+        ./bin/telemetry sessions --since {since} --format json --projects-dir {projects_dir}
+
+      The --projects-dir flag is REQUIRED here. extract-prompts globs transcripts
+      under {projects_dir}; if this stage indexes the default directory while
+      that stage searches an overridden one, every glob misses, prompt-corpus.json
+      comes back empty, and nothing errors.
+
+      Write the full JSON response (including the "sessions" array) to
+      sessions-index.json in the workspace. Preserve the envelope — callers
+      need session_count, total_cost, and the per-session token breakdown.
+
+      Also run:
+        ./bin/telemetry agents --since {since} --format json --projects-dir {projects_dir}
+
+      Write the full JSON response to agents-index.json. This gives per-agent-type
+      cost and token breakdown useful for identifying expensive recurring agents.
+
+      If either command fails (non-zero exit), write a minimal valid structure
+      so downstream stages can still run:
+        sessions-index.json fallback: {"session_count": 0, "total_cost": 0, "sessions": [], "degraded": true, "notes": "<the command's stderr>"}
+        agents-index.json fallback: {"agents": [], "degraded": true, "notes": "<the command's stderr>"}
+
+      Partial data is better than no data, but it must be LABELLED. Always set
+      "degraded": true on a fallback and record the actual stderr in "notes".
+      Downstream stages check that flag to distinguish "the window genuinely
+      contained no sessions" from "the telemetry command failed" — those look
+      identical in a zeroed file and lead to opposite conclusions.
+    agent:
+      role: researcher
+      model: sonnet
+      tools:
+        - Bash
+        - Write
+      access: read-write
+    outputs:
+      - name: sessions-index
+        mode: generate
+        description: >
+          Write ./bin/telemetry sessions --since {since} --format json output
+          to sessions-index.json. Write ./bin/telemetry agents output to
+          agents-index.json.
+    required: true
+    writes_to:
+      - sessions-index.json
+      - agents-index.json
+
+  # ===========================================================================
+  # Stage 2: Extract prompts — user messages + task descriptions from JSONL
+  # ===========================================================================
+
+  - name: extract-prompts
+    kind: gather
+    depends_on: [index-sessions]
+    reads_from: [index-sessions]
+    description: >
+      Parse sessions-index.json to get the top 20 sessions by total_cost.
+      Deduplicate by session_id before taking the top 20 — the sessions array
+      may contain the same session_id at multiple cost rows; keep only the first
+      occurrence per session_id after sorting by total_cost descending.
+
+      For each session:
+
+        1. Locate the JSONL transcript at:
+             {projects_dir}/<project_slug>/<session_id>.jsonl
+           where <project_slug> is derived from the project_path by replacing
+           "/" with "-" and stripping the leading slash. Also check for the
+           session file directly under {projects_dir}/ (some sessions are
+           stored flat). Use the Glob tool:
+             Glob(pattern="{projects_dir}/**/<session_id>.jsonl")
+
+        2. Read the JSONL file with the Read tool and parse each line in-context.
+           No shell required — the Read tool handles file access. For each line:
+           - Parse the JSON record
+           - If role == "user" and the content is a non-empty string (not a
+             tool_result), extract as a user prompt
+           - If type == "agent_start" or the record contains a "description"
+             field at top level, extract as an agent task description
+
+        3. Skip sessions with fewer than {min_prompts} user prompts.
+
+        4. For each extracted prompt, record:
+           {
+             "session_id": "...",
+             "project_path": "...",
+             "session_cost": 1.23,
+             "prompt_index": 4,
+             "role": "user" | "agent_task",
+             "text": "...",          # full prompt text, max 2000 chars
+             "token_estimate": N,    # len(text) // 4 as rough estimate
+             "tool_calls_after": N   # count of tool_use blocks in the same assistant turn
+           }
+
+      Write the full list to prompt-corpus.json as:
+        {
+          "since": "{since}",
+          "sessions_sampled": N,
+          "total_prompts": N,
+          "prompts": [...]
+        }
+
+      If a JSONL file is >20MB, read only the first 50,000 lines to avoid
+      memory pressure. Note this truncation in the output's "notes" field.
+
+      Transcripts are personal data. Do not copy credentials, tokens, API keys,
+      or file contents that look like secrets into prompt-corpus.json — redact
+      any such span to "[redacted]" and continue.
+    agent:
+      role: researcher
+      model: sonnet
+      tools:
+        - Glob
+        - Read
+        - Write
+      access: read-write
+    outputs:
+      - name: prompt-corpus
+        mode: generate
+        description: >
+          Parse top 20 sessions by cost from sessions-index.json, read each
+          JSONL to extract user prompts and agent task descriptions, and write
+          prompt-corpus.json.
+    required: true
+    writes_to:
+      - prompt-corpus.json
+
+  # ===========================================================================
+  # Stage 3: Score efficiency — token cost per prompt outcome
+  # ===========================================================================
+
+  - name: score-efficiency
+    kind: execute
+    depends_on: [extract-prompts]
+    reads_from: [index-sessions, extract-prompts]
+    description: >
+      Read sessions-index.json, agents-index.json, and prompt-corpus.json.
+      Compute token efficiency metrics and write efficiency-scores.json.
+
+      First: if sessions-index.json has "degraded": true, propagate it. Set
+      "degraded": true and copy its "notes" into efficiency-scores.json's
+      summary, and do not compute derived rates from zeroed inputs — emit zeros
+      with the flag set. Every downstream consumer must be able to tell that the
+      numbers are absent rather than genuinely zero.
+
+      Per-session metrics (join on session_id):
+        input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens
+        cache_hit_rate = cache_read_tokens / (cache_read_tokens + input_tokens)
+          → if cache_read_tokens + input_tokens == 0, set to 0.0
+        cost_per_prompt = total_cost / max(num_prompts, 1)
+        output_per_input_ratio = output_tokens / max(input_tokens, 1)
+        efficiency_tier:
+          "hot"   — cache_hit_rate >= 0.90
+          "warm"  — cache_hit_rate >= 0.60
+          "cold"  — cache_hit_rate < 0.60
+
+      Per-agent-type metrics (from agents-index.json):
+        avg_cost_per_call = est_cost / max(calls, 1)
+        output_density = output_tokens / max(cache_read_tokens + input_tokens, 1)
+
+      Top-10 most expensive prompts (from prompt-corpus.json):
+        Rank prompts by: token_estimate * tool_calls_after
+        For each: session_id, prompt_index, text (first 300 chars), score
+
+      Write efficiency-scores.json:
+        {
+          "summary": {
+            "sessions_analyzed": N,
+            "total_cost_usd": F,
+            "avg_cache_hit_rate": F,
+            "avg_cost_per_prompt": F
+          },
+          "session_scores": [...],
+          "agent_scores": [...],
+          "expensive_prompts": [...]
+        }
+
+      All arithmetic must use safe division (never divide by zero).
+      If sessions-index.json or prompt-corpus.json is missing or empty,
+      write a minimal efficiency-scores.json with zeros and a "notes" field
+      explaining the gap.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools:
+        - Read
+        - Write
+      access: read-write
+    outputs:
+      - name: efficiency-scores
+        mode: generate
+        description: >
+          Join sessions-index.json, agents-index.json, and prompt-corpus.json;
+          compute cache hit rates, per-prompt costs, agent densities, and the
+          top-10 expensive prompts; write efficiency-scores.json.
+    required: true
+    writes_to:
+      - efficiency-scores.json
