@@ -348,7 +348,9 @@ class TestValidateCliCommand(unittest.TestCase):
         with patch("workflow.linter.subprocess.run", side_effect=FileNotFoundError):
             result = _validate_cli_command("nonexistent", "sub", "stage1")
         self.assertIsNotNone(result)
-        assert result is not None  # narrows LintWarning | None for mypy
+        # nosec B101 - type narrowing for mypy only; assertIsNotNone above is
+        # the real runtime check, so losing this under -O is harmless.
+        assert result is not None  # nosec B101
         self.assertIsInstance(result, LintWarning)
         self.assertIn("command not found", result.message)
         self.assertIn("nonexistent", result.message)
@@ -360,7 +362,9 @@ class TestValidateCliCommand(unittest.TestCase):
         ):
             result = _validate_cli_command("mail", "labels", "stage1")
         self.assertIsNotNone(result)
-        assert result is not None  # narrows LintWarning | None for mypy
+        # nosec B101 - type narrowing for mypy only; assertIsNotNone above is
+        # the real runtime check, so losing this under -O is harmless.
+        assert result is not None  # nosec B101
         self.assertIn("timeout", result.message)
         self.assertIn("mail labels", result.message)
 
@@ -368,7 +372,9 @@ class TestValidateCliCommand(unittest.TestCase):
         with patch("workflow.linter.subprocess.run", side_effect=OSError("perm")):
             result = _validate_cli_command("mail", "labels", "stage1")
         self.assertIsNotNone(result)
-        assert result is not None  # narrows LintWarning | None for mypy
+        # nosec B101 - type narrowing for mypy only; assertIsNotNone above is
+        # the real runtime check, so losing this under -O is harmless.
+        assert result is not None  # nosec B101
         self.assertIn("OSError", result.message)
 
     def test_returncode_zero_returns_none(self) -> None:
@@ -388,7 +394,9 @@ class TestValidateCliCommand(unittest.TestCase):
         with patch("workflow.linter.subprocess.run", return_value=mock_proc):
             result = _validate_cli_command("mail", "badcmd", "stage1")
         self.assertIsNotNone(result)
-        assert result is not None  # narrows LintWarning | None for mypy
+        # nosec B101 - type narrowing for mypy only; assertIsNotNone above is
+        # the real runtime check, so losing this under -O is harmless.
+        assert result is not None  # nosec B101
         self.assertIn("command not found", result.message)
 
     def test_nonzero_without_invalid_choice_returns_none(self) -> None:
@@ -411,7 +419,9 @@ class TestValidateCliCommand(unittest.TestCase):
                 result = _validate_cli_command("docs", "search", "stage1")
         mock_run.assert_not_called()
         self.assertIsNotNone(result)
-        assert result is not None  # narrows LintWarning | None for mypy
+        # nosec B101 - type narrowing for mypy only; assertIsNotNone above is
+        # the real runtime check, so losing this under -O is harmless.
+        assert result is not None  # nosec B101
         self.assertIn("command not found", result.message)
 
     def test_allowlisted_sub_existing_bin_returns_none(self) -> None:

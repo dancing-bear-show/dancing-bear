@@ -75,7 +75,7 @@ class DestAndTokensForFilterTests(TestCase):
 
     def test_first_add_becomes_dest(self):
         f = {"match": {"from": "a@b.com"}, "action": {"add": ["First", "Second"]}}
-        dest, toks = _dest_and_tokens_for_filter(f)
+        dest, _ = _dest_and_tokens_for_filter(f)
         self.assertEqual("First", dest)
 
 
@@ -274,7 +274,7 @@ class ScoreExportedFiltersTests(TestCase):
 
     def test_non_simple_filters_excluded_from_count(self):
         exported = [{"criteria": {"query": "has:attachment"}}]
-        total, covered, missing = _score_exported_filters(exported, {})
+        total, _, _ = _score_exported_filters(exported, {})
         self.assertEqual(0, total)
 
     def test_covered_and_uncovered_counted_correctly(self):
@@ -364,7 +364,7 @@ class AuditFiltersProcessorEdgeCaseTests(TestCase):
             self.assertEqual(0.0, result.payload.percentage)
 
     def test_percentage_reflects_uncovered_fraction(self):
-        """percentage = not_covered / simple_total * 100."""
+        """Percentage is the uncovered fraction of simple filters, times 100."""
         with tempfile.TemporaryDirectory() as tmpdir:
             in_path = self._write_yaml(
                 tmpdir,
