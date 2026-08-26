@@ -16,13 +16,15 @@
 #     |
 #   extract-document  (resume extract -> document.json + extraction guard)
 #     |
-#     +-------------------+-------------------+-------------------+-------------------+
-#     |                   |                   |                   |                   |
-#   audit-copy-quality  audit-quantification  audit-credibility  audit-ats-parseability  audit-staleness
-#     |                   |                   |                   |                   |
-#     +-------------------+-------------------+-------------------+-------------------+
+#     +----------+----------+----------+----------+----------+
+#     |          |          |          |          |          |
+#   audit-     audit-     audit-     audit-ats- audit-     audit-
+#   copy-      quantifi-  credi-     parse-     stale-     voice
+#   quality    cation     bility     ability    ness
+#     |          |          |          |          |          |
+#     +----------+----------+----------+----------+----------+
 #     |
-#   consolidate  (merge 5 lanes, dedupe, rank by severity)
+#   consolidate  (merge 6 lanes, dedupe, rank by severity)
 #     |
 #   fact-check-findings  (execute — kill false positives before the human sees them)
 #     |
@@ -32,10 +34,10 @@ name: resume-audit
 version: "1.0"
 description: >
   Adversarial review of an existing resume document. Extracts the resume into
-  structured data, fans out five concern-scoped audit lanes in parallel
-  (copy quality, quantification, credibility, ATS parseability, staleness),
-  consolidates and de-duplicates their findings, fact-checks every finding
-  against the actual document, and reports what is wrong ranked by severity —
+  structured data, fans out six concern-scoped audit lanes in parallel
+  (copy quality, quantification, credibility, ATS parseability, staleness, and
+  voice), consolidates and de-duplicates their findings, fact-checks every
+  finding against the actual document, and reports what is wrong by severity —
   each finding carrying a concrete suggested rewrite, not just a complaint.
 
   This workflow is READ-ONLY on the resume. It never edits the audited
@@ -59,6 +61,7 @@ description: >
     - findings-credibility.json
     - findings-ats.json
     - findings-staleness.json
+    - findings-voice.json           repetition + generated-prose tells
     - findings-consolidated.json    merged, deduped, severity-ranked
     - findings-verified.json        surviving findings after fact-check
     - audit-report.md               the human-facing report
@@ -103,7 +106,7 @@ stages:
 
       Fail loudly if {resume_file} is empty or the file is missing — every
       downstream stage audits that one document, so an absent input produces
-      five lanes of findings about nothing.
+      six lanes of findings about nothing.
     agent:
       role: researcher
       model: haiku
@@ -119,7 +122,7 @@ stages:
     kind: gather
     depends_on: [init]
     description: >
-      Write {workspace}/outputs/guides.md — the single contract all five audit
+      Write {workspace}/outputs/guides.md — the single contract all six audit
       lanes and the fact-checker are held to.
 
       Read these two files:
@@ -135,7 +138,9 @@ stages:
          resume-bullet-terminal-period (minor), resume-first-person-pronoun
          (major), resume-inconsistent-tech-naming (minor),
          resume-date-inconsistency (major), resume-unverifiable-metric
-         (critical).
+         (critical), resume-verb-repetition (minor),
+         resume-bullet-template-repetition (minor), resume-llm-cadence (minor),
+         resume-hedged-impact (major).
 
       2. SCOPE EXCEPTIONS, VERBATIM — this section is load-bearing and must be
          copied word for word, not summarized. It includes at least:
@@ -155,6 +160,21 @@ stages:
            - the unverifiable-metric provenance rule: phrase findings as
              "confirm this figure" and cite the conflicting value. The reviewer
              cannot verify external facts and must not assert a number is false.
+           - the verb-repetition exception: do NOT flag a verb repeated across
+             roles when it is the literal name of the work and no honest
+             synonym exists. Flag only when substitution would not change the
+             claim.
+           - the template-repetition threshold: TWO bullets sharing a shape is
+             normal parallelism and is not a finding. The concern is a whole
+             list marching in lockstep — 3+ in one role.
+           - the llm-cadence technical-term exception: a term is not a tell
+             when it is the actual technical word ("robust statistics",
+             genuinely "comprehensive test coverage"). Judge by whether
+             deleting the word loses information.
+           - the hedged-impact shared-credit exception: genuine shared credit
+             is honest. "Contributed to" on a large open-source project is
+             accurate and must NOT be flagged into a false claim of sole
+             ownership. The defect is hedging work the candidate owned.
          Losing an exception here turns into a false positive downstream, and a
          report padded with false positives gets discarded whole.
 
@@ -165,7 +185,7 @@ stages:
          the canonical vendor spellings, the one-date-format rule, and the
          section ordering list.
 
-      4. FINDINGS SCHEMA — state it here verbatim so all five lanes emit the
+      4. FINDINGS SCHEMA — state it here verbatim so all six lanes emit the
          same shape. Mismatched shapes crash consolidate.
 
            {
@@ -187,10 +207,10 @@ stages:
          think is missing, or "improve" it. This YAML is the authoritative
          schema; guides.md is a transcription of it.
 
-         This matters because five parallel lanes and one consumer all bind to
+         This matters because six parallel lanes and one consumer all bind to
          the copy in guides.md, which is generated per run. A single renamed key
-         here desynchronizes all five lanes identically, and consolidate would
-         report that as five separate lane defects rather than one schema
+         here desynchronizes all six lanes identically, and consolidate would
+         report that as six separate lane defects rather than one schema
          defect — a misleading diagnosis of a single upstream typo. If the
          schema ever needs to change, change it in this YAML, not in the
          transcription.
@@ -238,7 +258,7 @@ stages:
         - no role title starts with a bullet glyph
         - each role has a non-empty company and at least one bullet
 
-      If any check fails, report the specific defect and STOP. Five audit lanes
+      If any check fails, report the specific defect and STOP. Six audit lanes
       reporting on mangled data would waste the reader's attention on parser
       artifacts and hide the real defects underneath them.
 
@@ -260,7 +280,7 @@ stages:
       - extraction-notes.md
 
   # ==========================================================================
-  # Parallel audit lanes — five independent concern scopes.
+  # Parallel audit lanes — six independent concern scopes.
   # Each lane writes ONLY its own findings file. Never the merged output:
   # a lane declaring consolidate's file is marked failed despite succeeding.
   # ==========================================================================
@@ -583,7 +603,108 @@ stages:
       - findings-staleness.json
 
   # ==========================================================================
-  # Stage 4: consolidate — merge the five lanes, dedupe, rank
+  # Stage 3f: audit-voice — repetition and generated-prose tells
+  # ==========================================================================
+  - name: audit-voice
+    kind: execute
+    depends_on: [extract-document, load-concerns]
+    reads_from: [extract-document, load-concerns]
+    description: >
+      Audit the document for repetition and the cadence of generated prose.
+      This lane is different from the others in one way that governs how to
+      read it: every other lane judges bullets ONE AT A TIME, and these defects
+      are invisible that way. A bullet can be individually flawless and still
+      be the fourth in a row with the same shape. Read the document as a whole
+      and compare bullets against each other.
+
+      READ FIRST: {workspace}/outputs/guides.md.
+
+      Concern IDs you own, all defined in concerns/resume-copy.md:
+        - resume-verb-repetition (minor) — the same opening verb or lemma
+          across 3+ bullets in the document, or 3+ within one role. Report the
+          verb, the count, and every role it appears in. Do not flag a verb
+          that is the literal name of the work with no honest synonym.
+        - resume-bullet-template-repetition (minor) — 3+ bullets in one role
+          sharing a syntactic template, most often
+          "<Verb> <object> by <gerund> <method>, resulting in <metric>". Two
+          bullets sharing a shape is parallelism, not a finding; a whole list
+          in lockstep is. The fix is structural, so the suggested_rewrite must
+          change the SHAPE of one bullet, not swap its synonyms.
+          `suggested_rewrite` is a single string, so rewrite the ONE bullet
+          quoted in `bullet_text` — the clearest instance — and describe the
+          pattern for the rest in `why`. A rewrite spanning several bullets
+          cannot be carried by the schema, and one concrete rewrite plus a named
+          pattern is more actionable than a paragraph of advice.
+        - resume-llm-cadence (minor) — tricolons where two adjectives carry the
+          claim, "not just X, but Y", intensifier use of seamlessly / robust /
+          comprehensive / holistic / streamlined, an em dash used for dramatic
+          pause, a participial scene-set opener ("Recognizing the need for...").
+          A term is not a tell when it is the actual technical word — judge by
+          whether deleting it loses information.
+        - resume-hedged-impact (major) — "helped to", "played a key role in",
+          "was instrumental in", "supported efforts to", "approximately" before
+          a figure the candidate should know exactly. Genuine shared credit is
+          honest and must not be flagged into a false claim of sole ownership;
+          the defect is hedging work the candidate actually owned.
+          Do NOT flag "contributed to" — it is an opener word and belongs
+          entirely to audit-copy-quality's resume-bullet-weak-opener, which
+          carries the shared-credit exception for it. Listing it here too would
+          make one bullet a mandatory finding for that lane and a mandatory
+          non-finding for this one.
+
+      BOUNDARIES WITH OTHER LANES — respect these so the reader gets one
+      actionable finding per defect. Crossing a boundary does not lose the
+      finding (consolidate merges same-role/same-text duplicates and preserves
+      both concern IDs in `also_flagged_as`); it produces a report where the
+      same bullet is argued about twice under competing rules, and where a lane
+      claims a defect another lane owns and defines differently:
+        - resume-banned-phrase belongs to audit-copy-quality. That concern owns
+          the fixed vocabulary list; this lane owns rhythm and construction. Do
+          not report the same span under both.
+        - resume-bullet-weak-opener belongs to audit-copy-quality. When a hedge
+          OPENS the bullet it is theirs; report resume-hedged-impact only for a
+          hedge appearing mid-bullet.
+        - Quantification is audit-quantification's. A missing metric is not
+          your finding; a metric softened by "approximately" is.
+
+      Rank by span, not by count. The same verb twice in one role is a lapse.
+      The same template across every bullet in the document is the finding that
+      makes a reader stop believing a human wrote it, and it should be reported
+      as one document-level finding naming every affected role rather than as
+      one finding per bullet.
+
+      Set `role` to the specific role when a finding is local to it, or to
+      "document" when the pattern spans roles — a repetition finding scoped to
+      a single bullet has lost the information that makes it actionable.
+
+      For a "document"-scoped finding, set `bullet_text` to ONE verbatim
+      offending bullet — the clearest instance of the pattern, copied exactly
+      from document.json — and name the other affected roles and bullets in
+      `why`. Never invent a line, concatenate several bullets, or leave the
+      field empty to represent a span. This mirrors what audit-ats-parseability
+      already does for structural findings, and it is not optional: the
+      fact-checker drops any finding whose `bullet_text` is not verbatim and
+      does not belong to the named role, so a synthesized or empty value would
+      make it discard precisely the findings this lane exists to produce.
+
+      When `role` is "document", the fact-checker's role check is satisfied by
+      the quoted bullet existing anywhere in document.json, since "document" is
+      the whole document rather than a mis-attribution.
+
+      Write {workspace}/outputs/findings-voice.json using the schema in
+      section 4 of guides.md, with lane set to "voice". Write a findings array
+      of length zero if the copy reads as human-written and varied.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - findings-voice.json
+
+  # ==========================================================================
+  # Stage 4: consolidate — merge the six lanes, dedupe, rank
   # ==========================================================================
   - name: consolidate
     kind: execute
@@ -593,23 +714,26 @@ stages:
       - audit-credibility
       - audit-ats-parseability
       - audit-staleness
+      - audit-voice
     reads_from:
       - audit-copy-quality
       - audit-quantification
       - audit-credibility
       - audit-ats-parseability
       - audit-staleness
+      - audit-voice
       - load-concerns
     description: >
-      Merge the five lane files into one ranked list.
+      Merge the six lane files into one ranked list.
 
-      Read all five, in this fixed order so the output is deterministic across
+      Read all six, in this fixed order so the output is deterministic across
       runs:
         {workspace}/outputs/findings-copy-quality.json
         {workspace}/outputs/findings-quantification.json
         {workspace}/outputs/findings-credibility.json
         {workspace}/outputs/findings-ats.json
         {workspace}/outputs/findings-staleness.json
+        {workspace}/outputs/findings-voice.json
 
       Read them by their explicit names as listed — do not glob the directory.
       A missing file is an error worth reporting, not a lane to skip silently:
@@ -622,16 +746,16 @@ stages:
       malformed findings, keep the valid ones from the same file, and record
       what you dropped.
 
-      DISTINGUISH A SCHEMA DEFECT FROM LANE DEFECTS. If ALL FIVE lanes fail
+      DISTINGUISH A SCHEMA DEFECT FROM LANE DEFECTS. If ALL SIX lanes fail
       validation the same way — the same key missing, the same key misspelled,
       the same nesting wrong — that is one upstream defect in guides.md's
-      section 4, not five independent lane failures. Five parallel lanes do not
+      section 4, not six independent lane failures. Six parallel lanes do not
       make the identical mistake by coincidence; they were all reading the same
       transcribed schema. Report it once as a SCHEMA DEFECT, naming the specific
       divergence from the schema in load-concerns' own description (the
       authoritative copy), and say plainly that the lanes behaved correctly
-      against a bad contract. Reporting five lane defects would send the human
-      to debug five prompts instead of one transcription error.
+      against a bad contract. Reporting six lane defects would send the human
+      to debug six prompts instead of one transcription error.
 
       DEDUPE — lanes overlap by design and the same defect surfaces more than
       once. Two findings are duplicates when they name the same role and the
@@ -645,6 +769,36 @@ stages:
 
       A bullet that is both too long and opens weakly is ONE finding for the
       reader to act on, not two. Merging them is the point of this stage.
+
+      DOCUMENT-SCOPED FINDINGS NEED A DIFFERENT KEY. audit-voice and
+      audit-ats-parseability emit findings with role "document" and one
+      representative bullet. Applying the role+bullet_text key to those breaks
+      both ways:
+        - Two unrelated document-scoped findings that happen to quote the same
+          representative bullet are NOT duplicates. Destroying one as a false
+          duplicate loses a real finding.
+        - A document-scoped finding never collides with a per-bullet finding on
+          the same text, so a bullet flagged for both cadence and a banned
+          phrase reaches the reader twice — exactly what this stage prevents
+          everywhere else.
+      So: for any finding whose role is "document", dedupe on
+      concern_id + role + bullet_text, and additionally cross-check its
+      representative bullet against per-bullet findings.
+
+      All three fields are needed. Dropping bullet_text and keying on
+      concern_id + role alone would be too coarse in the other direction: one
+      concern can legitimately produce several document-level findings — two
+      different over-used opening verbs, or two distinct cadence patterns — and
+      they would collapse into one, silently discarding real findings. Adding
+      concern_id to the key is what prevents the original collision, where two
+      findings from DIFFERENT concerns quoting the same representative bullet
+      destroyed each other.
+
+      When a per-bullet finding quotes the same text, record the
+      document-scoped finding's concern_id in the per-bullet survivor's
+      `also_flagged_as` and keep BOTH — the document-level pattern is a distinct
+      fact about the resume, not a duplicate of one instance of it. Say so in
+      `why` so the reader understands why both appear.
 
       RANK — sort by severity (critical, then major, then minor), and within a
       severity by role in document order so the reader can walk the document top
@@ -718,6 +872,12 @@ stages:
         2. ROLE IS RIGHT — the quoted text must actually belong to the named
            role. A bullet attributed to the wrong employer sends the reader
            editing the wrong section.
+           EXCEPTION: `role` set to "document" is a legitimate scope, not a
+           mis-attribution — audit-ats-parseability and audit-voice both use it
+           for patterns that span roles. For those, require only that the quoted
+           bullet appears verbatim SOMEWHERE in document.json. Dropping them for
+           "wrong role" would discard every structural and repetition finding in
+           the report.
         3. RULE ACTUALLY BROKEN — re-apply the concern's own check from
            guides.md. Count the words yourself for a too-long finding. Confirm
            the opener is genuinely on the banned list. Confirm the banned phrase
@@ -732,6 +892,22 @@ stages:
                in the document
              - it flags first person in LinkedIn About copy
              - it asserts a metric is false rather than asking for confirmation
+             - it flags a repeated verb that is the literal name of the work
+               with no honest synonym (three migration roles opening "Migrated")
+             - it reports template repetition across only TWO bullets — that is
+               parallelism, and the concern requires 3+ in one role
+             - it flags a cadence term used as the actual technical word
+               ("robust statistics", genuinely comprehensive coverage), where
+               deleting it would lose information
+             - it flags "contributed to" under resume-hedged-impact, which does
+               not own that phrase — resume-bullet-weak-opener does
+             - it flags shared credit accurately describing work the candidate
+               did not solely own
+
+         The last five cover audit-voice, the most subjective lane in this
+         workflow. Apply them with the same force as the original five: a
+         report padded with arguable style findings gets discarded whole, and
+         these concerns are the easiest in the set to over-fire.
 
       Also check the rewrite, because a bad rewrite discredits a true finding:
         - suggested_rewrite must be concrete replacement text, not advice.
