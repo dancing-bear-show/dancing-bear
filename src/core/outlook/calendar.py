@@ -395,6 +395,15 @@ class OutlookCalendarMixin(_OutlookCalendarHost):
             params.event_id, params.calendar_id, params.calendar_name, {"subject": params.subject}
         )
 
+    def get_event(self, event_id: str) -> dict[str, Any] | None:
+        """Fetch a single event (including series masters) by ID."""
+        url = self._event_endpoint(None, event_id)
+        r = _requests().get(url, headers=self._headers())
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        return r.json()
+
     def delete_event(
         self,
         event_id: str,

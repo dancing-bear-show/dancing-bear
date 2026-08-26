@@ -55,6 +55,9 @@ from ..outlook_pipelines import (
     OutlookMailListProcessor,
     OutlookMailListProducer,
     OutlookMailListRequest,
+    OutlookExportProcessor,
+    OutlookExportProducer,
+    OutlookExportRequest,
 )
 from ..scan_common import (
     RANGE_PAT,
@@ -469,6 +472,25 @@ class OutlookScanProducer(BaseProducer):
                     f"calendar={ev.get('calendar') or '<default>'}"
                 )
             self._writer.print("Use --out plan.yaml to write YAML.")
+
+
+def run_outlook_export_plan(args: argparse.Namespace) -> int:
+    svc = _build_outlook_service(args)
+    if not svc:
+        return 1
+    from core.paths import output_dir
+    out_raw = getattr(args, "out", None)
+    out_path = Path(out_raw) if out_raw else output_dir("calendars") / "plan.yaml"
+    request = OutlookExportRequest(
+        service=svc,
+        calendar=getattr(args, "calendar", None),
+        from_date=getattr(args, "from_date", None),
+        to_date=getattr(args, "to_date", None),
+        out_path=out_path,
+        dry_run=bool(getattr(args, "dry_run", False)),
+        verbose=bool(getattr(args, "verbose", False)),
+    )
+    return run_pipeline(request, OutlookExportProcessor, OutlookExportProducer)
 
 
 def run_outlook_scan_classes(args: argparse.Namespace) -> int:
