@@ -188,12 +188,19 @@ class _RetryPolicy:
 
         ``call`` only lands here after an attempt was caught -- either via the
         ``break`` on the last attempt, or by exhausting a loop that
-        ``max_attempts >= 1`` guarantees ran at least once. Asserting that
-        invariant lets both raises drop their ``# type: ignore``, and turns a
-        future control-flow change that broke it into a clear AssertionError
-        rather than a confusing ``raise None``.
+        ``max_attempts >= 1`` guarantees ran at least once. Checking that
+        invariant explicitly lets both raises drop their ``# type: ignore``,
+        and turns a future control-flow change that broke it into a clear
+        error rather than a confusing ``raise None``.
+
+        This is a plain ``if``/``raise`` rather than an ``assert`` on purpose:
+        ``assert`` is stripped under ``python -O``, which would resurrect
+        exactly the ``raise None`` this guard exists to prevent. The
+        type-narrowing asserts elsewhere in this repo are safe to strip;
+        a guard on a raise path is not.
         """
-        assert last_exc is not None, "exhausted() called with no caught exception"
+        if last_exc is None:  # pragma: no cover - unreachable via call()
+            raise RuntimeError("exhausted() called with no caught exception")
         if self.raise_on_exhausted:
             # `from None` suppresses the implicit __context__ chain. The
             # raise already sits outside the except block, so the context
