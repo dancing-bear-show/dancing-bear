@@ -79,13 +79,15 @@ class _Item:
     ``extra``/``_present`` machinery plus generic ``from_dict``/``to_dict``.
     """
 
-    #: Unknown keys preserved verbatim, in input order.
+    #: Unknown keys preserved verbatim.
     extra: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
     #: Declared field names present in the source dict, plus alias markers.
     _present: set[str] = field(default_factory=set, repr=False, compare=False)
+    #: Input key order, replayed by to_dict so a save does not reshuffle the file.
+    _order: list[str] = field(default_factory=list, repr=False, compare=False)
 
     #: Field names that are bookkeeping, not part of the on-disk shape.
-    _INTERNAL: ClassVar[frozenset[str]] = frozenset({"extra", "_present"})
+    _INTERNAL: ClassVar[frozenset[str]] = frozenset({"extra", "_present", "_order"})
     #: Alternate input spellings, keyed by canonical field name.
     _ALIASES: ClassVar[dict[str, tuple[str, ...]]] = {}
 
@@ -130,7 +132,7 @@ class _Item:
                 present.add(f"{_ALIAS_MARK}{name}={key}")
 
         extra = {k: v for k, v in data.items() if k not in consumed}
-        return cls(extra=extra, _present=present, **kwargs)
+        return cls(extra=extra, _present=present, _order=list(data), **kwargs)
 
     @classmethod
     def _match_key(cls, data: dict[str, Any], name: str) -> str | None:
@@ -155,13 +157,22 @@ class _Item:
         return cls()
 
     def to_dict(self) -> dict[str, Any]:
-        """Inverse of :meth:`from_dict`, key-for-key."""
-        out: dict[str, Any] = {}
-        for name in self._declared():
-            if name not in self._present:
-                continue
-            out[self._replayed_key(name)] = _emit(getattr(self, name))
-        out.update(self.extra)
+        """Inverse of :meth:`from_dict`, key-for-key and in input key order.
+
+        Order is preserved because these documents are saved back as JSON/YAML;
+        emitting declaration order instead would reshuffle a hand-maintained
+        file and turn a no-op save into a whole-file diff.
+        """
+        emitted = {
+            self._replayed_key(name): _emit(getattr(self, name))
+            for name in self._declared()
+            if name in self._present
+        }
+        emitted.update(self.extra)
+
+        out = {key: emitted.pop(key) for key in self._order if key in emitted}
+        # Fields set after construction have no recorded position; append them.
+        out.update(emitted)
         return out
 
     def _replayed_key(self, name: str) -> str:
