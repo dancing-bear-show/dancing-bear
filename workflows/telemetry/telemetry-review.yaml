@@ -211,8 +211,18 @@ stages:
     depends_on: [analyze]
     reads_from: [analyze, pm-index-sessions, pm-score-efficiency]
     description: >
-      Read findings.json and sessions-index.json, then write
-      {report_artifact} — a structured markdown document suitable for sharing.
+      Read findings.json and sessions-index.json, then write the DRAFT report to
+      {workspace}/outputs/telemetry-review-draft.md — a structured markdown
+      document.
+
+      Write exactly that filename, spelled literally. Do NOT write
+      {report_artifact} here: `writes_to` receives no trigger-param
+      substitution (only `description` and cli_commands do), so a
+      param-named output would leave the agent writing one filename while the
+      orchestrator waits for another, and the stage would never complete. The
+      downstream vtr-render stage owns {report_artifact} — it applies the
+      validation corrections and renders the final shareable report from this
+      draft.
 
       Structure:
         # Telemetry Review — {since} window
@@ -244,8 +254,12 @@ stages:
       - name: report
         mode: generate
         description: >
-          Write {report_artifact} to the workspace following the structure and
-          writing rules in the stage description.
+          Write outputs/telemetry-review-draft.md following the structure and
+          writing rules in the stage description. The literal filename must
+          match writes_to below — vtr-render owns {report_artifact}.
     required: true
     writes_to:
-      - telemetry-review.md
+      # Literal filename, deliberately distinct from {report_artifact}: writes_to
+      # gets no {param} substitution, so it must never be spelled as a param.
+      # vtr-render reads this draft and renders {report_artifact} from it.
+      - telemetry-review-draft.md
