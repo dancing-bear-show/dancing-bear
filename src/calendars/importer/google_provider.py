@@ -27,6 +27,7 @@ Unsupported:
 """
 from __future__ import annotations
 
+import datetime as _dt
 import re
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -64,6 +65,31 @@ def _parse_rrule(rrule_str: str) -> dict[str, Any]:
         key, _, val = part.partition("=")
         params[key.upper()] = val
     return params
+
+
+def _shift_date(date_str: str, days: int) -> str:
+    """Return ``date_str`` (YYYY-MM-DD) shifted by ``days``, or it unchanged.
+
+    An unparseable or empty value is returned as-is rather than raising: the
+    caller is normalising a boundary, not validating the event.
+    """
+    s = (date_str or "").strip()
+    if not s:
+        return s
+    try:
+        return (_dt.date.fromisoformat(s) + _dt.timedelta(days=days)).isoformat()
+    except ValueError:
+        return s
+
+
+def _exclusive_end_to_inclusive(end_date: str) -> str:
+    """Google all-day end.date (exclusive) -> plan end (inclusive)."""
+    return _shift_date(end_date, -1)
+
+
+def _inclusive_end_to_exclusive(end_date: str) -> str:
+    """Plan all-day end (inclusive) -> Google end.date (exclusive)."""
+    return _shift_date(end_date, 1)
 
 
 def _until_to_date(until_val: str) -> str:
@@ -199,9 +225,12 @@ class GoogleCalendarProvider:
         end_obj = ev.get("end") or {}
 
         if "date" in start_obj:
-            # All-day event
+            # All-day event. Google's end.date is EXCLUSIVE (the day after the
+            # last covered day); the plan format's end is INCLUSIVE, so a
+            # one-day event is start == end there. Passing Google's value
+            # through unchanged stretches every all-day event by a day.
             start = start_obj["date"]
-            end = end_obj.get("date") or ""
+            end = _exclusive_end_to_inclusive(end_obj.get("date") or "")
         else:
             start = start_obj.get("dateTime") or ""
             end = end_obj.get("dateTime") or ""
@@ -378,9 +407,10 @@ class GoogleCalendarProvider:
             body["start"] = {"dateTime": event.start, "timeZone": tz}
             body["end"] = {"dateTime": event.end, "timeZone": tz}
         else:
-            # All-day event
+            # All-day event: convert the plan's INCLUSIVE end back to Google's
+            # EXCLUSIVE end, the inverse of the read path above.
             body["start"] = {"date": event.start}
-            body["end"] = {"date": event.end}
+            body["end"] = {"date": _inclusive_end_to_exclusive(event.end)}
 
         # Recurrence
         if event.repeat:

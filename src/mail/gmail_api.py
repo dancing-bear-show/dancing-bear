@@ -60,15 +60,20 @@ class GmailClient(ConfigCacheMixin):
     def _load_token(self) -> Any:
         """Load stored credentials from token_path, or None if missing/invalid.
 
-        When the token file exists but its recorded scopes are a strict subset of
-        SCOPES (i.e. new scopes have been added since the token was minted), a
-        clear message is printed naming the missing scopes and directing the user
-        to run ``./bin/mail auth`` to re-consent.  The method then returns None so
-        the caller falls through to ``_run_auth_flow_and_save``.
+        When the token file exists but its recorded scopes are a strict subset
+        of SCOPES (new scopes added since the token was minted), records the
+        missing scopes on ``self._stale_scopes`` and returns None.
+
+        Returning None alone is NOT enough to prevent a browser: authenticate()
+        cannot distinguish "no token" from "stale token" by that signal, and
+        would run the interactive flow for both. The separate attribute is what
+        lets authenticate() hard-stop instead — see its ``allow_interactive``
+        parameter.
 
         A token file that does not exist at all is a first-time-auth case and
-        produces no warning — it is handled silently downstream.
+        sets no stale marker.
         """
+        self._stale_scopes = []
         if not os.path.exists(self.token_path):
             return None
         try:
@@ -93,11 +98,7 @@ class GmailClient(ConfigCacheMixin):
             required_scopes = set(SCOPES)
             missing = required_scopes - token_scopes
             if missing:
-                missing_list = ", ".join(sorted(missing))
-                print(
-                    f"Stored token is missing scope(s): {missing_list}. "
-                    "Run `./bin/mail auth` to re-consent and update the token."
-                )
+                self._stale_scopes = sorted(missing)
                 return None
 
         return creds
@@ -125,11 +126,30 @@ class GmailClient(ConfigCacheMixin):
             token.write(creds.to_json())
         return creds
 
-    def authenticate(self) -> None:
+    def authenticate(self, allow_interactive: bool = False) -> None:
+        """Authenticate, refreshing or minting a token as needed.
+
+        ``allow_interactive`` must be True to open a browser for a token whose
+        scopes are stale. Only the explicit ``mail auth`` entrypoint passes it;
+        every other command hard-stops with an AuthError naming the missing
+        scopes, so adding a scope cannot ambush an unrelated command (or an
+        unattended job) with a consent screen it never asked for.
+
+        A missing token file is unaffected — first-time auth still prompts, as
+        it always has.
+        """
         ensure_google_api()
 
         creds = self._refresh_token(self._load_token())
         if creds is None:
+            stale = getattr(self, "_stale_scopes", []) or []
+            if stale and not allow_interactive:
+                from core.cli_errors import AuthError
+
+                raise AuthError(
+                    "Stored token is missing scope(s): " + ", ".join(stale),
+                    hint="Run `./bin/mail auth` to re-consent and update the token.",
+                )
             creds = self._run_auth_flow_and_save()
 
         self.creds = creds

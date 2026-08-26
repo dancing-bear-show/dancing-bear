@@ -70,12 +70,22 @@ def _timed_event(
     return ev
 
 
-def _allday_event(ev_id: str, summary: str, date: str) -> dict[str, Any]:
+def _allday_event(ev_id: str, summary: str, date: str, days: int = 1) -> dict[str, Any]:
+    """Build an all-day event the way calendar/v3 really returns one.
+
+    Google's end.date is EXCLUSIVE — the day AFTER the last covered day — so a
+    single-day event on 2026-07-01 comes back as end.date 2026-07-02. The
+    earlier fixture set end == start, which no real response does, and so could
+    not catch an off-by-one in the exclusive->inclusive conversion.
+    """
+    import datetime as _d
+
+    start = _d.date.fromisoformat(date)
     return {
         "id": ev_id,
         "summary": summary,
         "start": {"date": date},
-        "end": {"date": date},
+        "end": {"date": (start + _d.timedelta(days=days)).isoformat()},
     }
 
 
@@ -481,6 +491,28 @@ class TestAddEvent(unittest.TestCase):
         self.assertIn("INTERVAL=2", rrule_line)
 
 
+def _scopes() -> list[str]:
+    from mail.gmail_api import SCOPES
+
+    return list(SCOPES)
+
+
+def _write_token(scopes: list[str]) -> str:
+    """Write a temp token file recording ``scopes``; return its path."""
+    token_data = {
+        "token": "fake_access_token",
+        "refresh_token": "fake_refresh_token",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "client_id": "fake_client_id",
+        "client_secret": "fake_client_secret",
+        "scopes": scopes,
+        "expiry": "2099-01-01T00:00:00Z",
+    }
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        json.dump(token_data, f)
+        return f.name
+
+
 class TestScopeRegression(unittest.TestCase):
     """Verify that the calendar scope is present in SCOPES and stale detection works."""
 
@@ -527,9 +559,51 @@ class TestScopeRegression(unittest.TestCase):
                 result = client._load_token()
 
             self.assertIsNone(result, "_load_token must return None for stale scopes")
-            output = buf.getvalue()
-            self.assertIn("calendar", output.lower(), "Message must name the missing scope")
-            self.assertIn("./bin/mail auth", output, "Message must direct user to ./bin/mail auth")
+            self.assertIn(
+                "https://www.googleapis.com/auth/calendar",
+                getattr(client, "_stale_scopes", []),
+                "_load_token must record which scopes are missing",
+            )
+
+            # Returning None is not enough on its own: authenticate() cannot
+            # tell "no token" from "stale token" by that signal alone, and
+            # would open a browser for both. The default path must hard-stop.
+            from core.cli_errors import AuthError
+
+            with self.assertRaises(AuthError) as ctx:
+                client.authenticate()
+            self.assertIn("calendar", str(ctx.exception).lower())
+        finally:
+            os.unlink(token_path)
+
+    def test_stale_scope_does_not_launch_browser_by_default(self) -> None:
+        """A non-auth command must never be ambushed by a consent screen."""
+        stale = [s for s in _scopes() if s != "https://www.googleapis.com/auth/calendar"]
+        token_path = _write_token(stale)
+        try:
+            from core.cli_errors import AuthError
+            from mail.gmail_api import GmailClient
+
+            client = GmailClient(credentials_path="/dev/null", token_path=token_path)
+            with patch.object(GmailClient, "_run_auth_flow_and_save") as flow:
+                with self.assertRaises(AuthError):
+                    client.authenticate()
+            flow.assert_not_called()
+        finally:
+            os.unlink(token_path)
+
+    def test_explicit_auth_entrypoint_may_re_consent(self) -> None:
+        """`mail auth` opts in, so re-consent stays possible."""
+        stale = [s for s in _scopes() if s != "https://www.googleapis.com/auth/calendar"]
+        token_path = _write_token(stale)
+        try:
+            from mail.gmail_api import GmailClient
+
+            client = GmailClient(credentials_path="/dev/null", token_path=token_path)
+            with patch.object(GmailClient, "_run_auth_flow_and_save") as flow:
+                with patch("mail.gmail_api.build"):
+                    client.authenticate(allow_interactive=True)
+            flow.assert_called_once()
         finally:
             os.unlink(token_path)
 
