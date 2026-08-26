@@ -2,20 +2,31 @@
 #
 # Two problems, one workflow, in dependency order.
 #
-# PROBLEM 1 — model drift. src/resume/model.py formally defines 4 sections
+# PROBLEM 1 — model drift. src/resume/model.py formally defined 4 sections
 # (name/summary/skills/experience/education). The dict path actually carries
-# ~11: priority.py:67 filters technologies, interests, presentations, languages,
-# coursework, summary, teaching, certifications; docx_sidebar_sections.py
-# renders presentations; projects and coursework appear in templates. Those
-# extra sections have no type, no validation, and no documented shape — they
-# exist only as string keys spread across renderers. A typo in a renderer key
-# is currently a silent no-op that renders an empty section.
+# 22, as measured by the audit-sections stage: priority.py:67 filters
+# technologies, interests, presentations, languages, coursework, summary,
+# teaching, certifications; docx_sidebar_sections.py renders presentations;
+# projects and coursework appear in templates. Those extra sections have no
+# type, no validation, and no documented shape — they exist only as string keys
+# spread across renderers. A typo in a renderer key is currently a silent no-op
+# that renders an empty section.
 #
-# PROBLEM 2 — Experience is flat. One title per entry, so a promotion at one
-# employer cannot be represented without duplicating the company.
-#
-# PROBLEM 3 — PDF export is unimplemented. cli/main.py:313 raises
+# PROBLEM 2 — PDF export is unimplemented. cli/main.py:313 raises
 # "PDF rendering planned for future; use .docx output."
+#
+# DEFERRED AT THE HUMAN GATE — multi-role experience. Earlier revisions of this
+# workflow treated "a promotion at one employer needs `roles: list[Role]`
+# nesting" as PROBLEM 2 and scoped the whole run around it. The design-schema
+# gate deliberately dropped it: no current production data contains a
+# promotion, so the abstraction would ship unexercised. `ExperienceEntry` stays
+# FLAT — no `roles:` nesting, no `group_id` marker. The additive follow-up,
+# when real promotion data appears, is a `group_id` field on the flat entry,
+# which is backward-compatible; retrofitting nesting after migrate-callsites
+# would not have been. This was a decision, not an oversight, and downstream
+# stages must not reintroduce it on their own initiative. A stage that
+# encounters real promotion data should STOP and report rather than design for
+# it mid-run.
 #
 # Schema lands BEFORE PDF on purpose: PDF converts documents built from the
 # model, so changing the model afterwards would invalidate the conversion
@@ -29,10 +40,17 @@
 #
 # Be honest about the size: no production file imports the dataclasses today
 # (only CandidateData, which is `dict[str, Any]`), so this introduces types
-# into the runtime path for the first time — 13 source files, ~55 `data.get(`
-# call sites, ~8 test files. The narrower alternative (validate at the
-# boundary, leave renderers on dicts) was considered and rejected in favour of
-# the stronger guarantee.
+# into the runtime path for the first time — 13 source files, ~69 call sites,
+# ~8 test files. The narrower alternative (validate at the boundary, leave
+# renderers on dicts) was considered and rejected in favour of the stronger
+# guarantee.
+#
+# The ~69 figure is the audited one and supersedes the ~55 earlier revisions
+# recorded. ~55 counted only call sites on a `data`-named variable; the audit
+# found ~14 more on a `candidate`-named parameter (keyword_match.py, aligner.py)
+# that the original grep missed. Because ~69 is too many for one edit, the gate
+# carried forward a constraint: migrate-callsites is SPLIT BY FILE GROUP —
+# parsers, then renderers, then filters/aligner/keyword_match.
 #
 # NON-GOALS. This workflow does not adopt pydantic (the repo is
 # dependency-light and currently has near-zero runtime deps), does not port
@@ -75,20 +93,24 @@ name: consolidate-resume-schema
 version: "1.0"
 description: >
   Consolidates src/resume's data model into a single typed schema covering all
-  real sections, adds multi-role-per-company support, emits a JSON Schema, then
-  implements DOCX->PDF export behind an optional dependency.
+  22 real sections, emits a JSON Schema, then implements DOCX->PDF export
+  behind an optional dependency. Multi-role-per-company support was deferred at
+  the design-schema gate — see the DEFERRED note in the header comment.
 
   Two rules are load-bearing. First, the on-disk JSON/YAML format never
   changes: from_dict/to_dict sit at the I/O boundary, so every existing profile
   and plan file keeps working while the runtime path becomes typed end to end.
   Second, tests must be majority sad-path: a schema whose tests only feed it
   well-formed input has verified nothing, because the entire point of the
-  schema is catching malformed input.
+  schema is catching malformed input. Note that validation is ADVISORY (gate
+  decision 3): from_dict warns and never raises, so a sad-path test asserts
+  graceful tolerance, not an exception.
 
   This is a full migration — renderers and filters take dataclasses, not dicts.
-  It touches 13 source files and ~55 call sites, and it is the first time these
+  It touches 13 source files and ~69 call sites, and it is the first time these
   types enter the runtime path at all. migrate-callsites is sequenced
-  boundary-first and tested group-by-group for that reason.
+  boundary-first, split by file group, and tested group-by-group for that
+  reason.
 
   The PDF half is deliberately cheap (subprocess to LibreOffice, ~80 LOC)
   rather than a renderer. Its risk is not code, it is fidelity: the sidebar
@@ -216,6 +238,9 @@ stages:
       Establish the ACTUAL set of section keys the code reads and writes. Do
       not guess from model.py — it is known incomplete. Grep the source.
 
+      (This stage runs BEFORE impl-schema, so src/resume/model.py is still the
+      pre-migration file here. impl-schema replaces it with schema.py.)
+
       Known starting points (verify each, find the rest):
         - src/resume/model.py            — the 4 formally typed sections
         - src/resume/priority.py:67      — filters 8 keys incl. teaching,
@@ -236,7 +261,16 @@ stages:
 
       Also record every field of the experience item, and specifically how a
       promotion within one company is represented today (it is not — confirm
-      that and note what callers would need).
+      that and note what callers would need). Record it as a FINDING only:
+      multi-role support is deferred (see the header), so do not let this
+      observation expand the design. If you find real production data that
+      actually contains a promotion, STOP and report — that fact would reopen
+      a gate decision and is not yours to design around.
+
+      Count call sites explicitly, and do not anchor on a `data`-named
+      variable: several files reach the same section keys through a parameter
+      named `candidate` (keyword_match.py, aligner.py). Report the total, not
+      just the `data.get(` subset.
 
       Be exhaustive. A key missed here becomes an untyped key that survives the
       whole consolidation, which defeats the point.
@@ -266,27 +300,39 @@ stages:
 
         1. Every section as a proposed dataclass, with field names, types, and
            defaults. Flag each field required vs optional.
-        2. The multi-role experience design. Recommended shape: Experience gains
-           `roles: list[Role]` where Role carries title/start/end, while
-           company/location stay on Experience. State explicitly how a
-           single-role entry stays representable so existing data does not break.
+        2. The experience design. `ExperienceEntry` is FLAT — title, company,
+           start, end, location, priority, bullets. Do NOT propose a
+           `roles: list[Role]` nesting or a `group_id` marker: multi-role was
+           deferred at this gate because no production data exercises it. Note
+           the deferral and the additive `group_id` follow-up so the reader
+           knows it was decided, then move on.
         3. The reconciliation decision for any key found with two shapes.
+           Note that three keys are deliberately left UNTYPED and that is the
+           approved outcome, not a gap: `skills` (list[str]), `teaching`
+           (heterogeneous str-or-dict), and `contact` (an overlay-input-only
+           dict that overlays.py already flattens before it reaches Resume).
+           Record the reason for each; a later stage must not silently type
+           them without saying so.
         4. The JSON Schema emitter approach (~150 LOC, stdlib only — walk
            dataclass fields via dataclasses.fields() and map types).
         5. BACKWARD COMPATIBILITY: exactly how existing dict data keeps working.
            JSON/YAML on disk stays dict-shaped — from_dict/to_dict at the I/O
            boundary is what preserves every existing profile, plan, and
-           alignment file. State which functions gain validation and whether
-           validation is advisory (warn) or enforcing (raise) — recommend
-           advisory first, since enforcing could break a real render
-           mid-job-application.
+           alignment file. State which functions gain validation. Validation is
+           ADVISORY: from_dict warns via `logging` and never raises, every field
+           carries a default so nothing is strictly required, and there is no
+           date validation. Enforcing mode is an opt-in follow-up once
+           migrate-callsites has fully landed — enforcing now could raise
+           mid-render on real data, and a resume that will not render is a worse
+           failure than one that renders with a warning.
         6. THE MIGRATION DEPTH IS ALREADY DECIDED: full migration. Renderers
            and filters consume DATACLASSES, not dicts. Do not re-open this at
            the gate; design to it. Concretely that means:
              - from_dict() at every read boundary (read_yaml_or_json callers)
              - to_dict() at every write boundary (write_yaml_or_json callers)
              - the 13 modules listed in sections.md's call-site inventory take
-               typed objects as parameters, not dict[str, Any]
+               typed objects as parameters, not dict[str, Any] — ~69 call
+               sites, migrated in file groups, not one edit
              - merge_profiles (parsing_experience_text.py:345) returns a typed
                Resume rather than a merged dict
            Attribute access replaces .get(), so a mistyped field becomes an
@@ -295,8 +341,16 @@ stages:
         7. What this does NOT do: no pydantic, no CLI flag changes, no change
            to the on-disk JSON/YAML format.
 
-      Ask the human to confirm: field naming, the roles design, and
-      advisory-vs-enforcing validation.
+      Ask the human to confirm: field naming, the multi-role deferral, and
+      advisory validation.
+
+      OUT OF SCOPE, do not fold into this design:
+        - priority.py never filters `teaching`, so `--min-priority` silently
+          does nothing for that section. Real bug, separate change, needs its
+          own regression test. Do NOT fix it inside this migration.
+        - The keyword_match.py str() coercions are already fixed and merged
+          (PR #271, e6791cc). Do not re-fix them; design the item type to match
+          what keyword_normalize.item_text / item_match_text already expect.
 
       Do NOT write implementation code in this stage.
     agent:
@@ -318,14 +372,41 @@ stages:
     description: >
       Implement the approved design from {workspace}/schema-design.md.
 
-      Extend src/resume/model.py (or add src/resume/schema.py if model.py would
-      exceed ~300 lines — check the repo's decompose norms) with:
-        - a dataclass per section key from sections.md
-        - Role + multi-role Experience per the approved design
+      Replace src/resume/model.py with two new modules. model.py is DELETED,
+      not left behind as a re-export facade — the no-facade rule is a hard
+      project rule, so every importer is updated directly in the same change.
+
+        src/resume/schema.py       — the dataclasses
+        src/resume/schema_emit.py  — the JSON Schema emitter
+
+      schema.py contains:
+        - a dataclass per section key from sections.md (22 keys; 17 typed, and
+          `skills`/`teaching`/`contact` deliberately left untyped per the
+          approved design — do not type them without saying so)
+        - a FLAT ExperienceEntry (title, company, start, end, location,
+          priority, bullets). No Role type, no `roles:` nesting, no `group_id`:
+          multi-role was deferred at the gate. Do not add it back.
         - a Resume aggregate covering all sections
         - from_dict()/to_dict() round-trip helpers preserving unknown keys
           (dropping unknown keys would silently discard user data)
-        - a to_json_schema() emitter, stdlib only
+
+      schema_emit.py contains the to_json_schema() emitter, stdlib only.
+
+      VALIDATION IS ADVISORY. from_dict reports shape violations through
+      `logging.getLogger(__name__).warning` and NEVER raises. Every field has a
+      default, so no field is required; there is no date validation. A
+      malformed input must still yield a usable object.
+
+      Two round-trip details that are easy to get wrong and are part of the
+      contract:
+        - Preserve input key ORDER on to_dict(). Emitting declaration order
+          round-trips every key and value correctly but reorders the document,
+          which turns a no-op save into a whole-file diff.
+        - Do not coerce a value that was legitimately another type.
+          `presentations[].year` is an `int` in real data and must stay an int;
+          the renderers stringify it at display time. Track which declared
+          fields were actually present so absent stays absent and defaults are
+          never invented on output.
 
       Constraints, all enforced by project rules:
         - Python 3.11, stdlib only. No pydantic, no new runtime deps.
@@ -377,27 +458,59 @@ stages:
       and drags the measured ratio down. Do not rename a happy-path test to
       game the count.
 
+      READ THIS BEFORE WRITING A SINGLE SAD-PATH TEST. Validation is ADVISORY.
+      from_dict warns via `logging` and never raises; every field has a default,
+      so no field is required and there is no date validation. "Rejects" in the
+      `test_rejects_*` prefix therefore means "handles the rejected shape
+      GRACEFULLY" — it does not mean an exception is raised. The prefix is a
+      counting contract, kept because a later stage greps for it; it is not a
+      claim about control flow.
+
+      Concretely: an `assertRaises` test here would PASS only if the advisory
+      policy had been broken. Do not write one. For every malformed input,
+      assert instead:
+        - from_dict does NOT raise
+        - the returned object is still usable (attribute access works, the
+          other sections are intact)
+        - the documented fallback occurred (the default value, or the value
+          preserved verbatim)
+        - a warning was emitted, captured with `assertLogs` on the schema
+          module's logger
+
       HAPPY PATH (the minority):
         - each section round-trips dict -> dataclass -> dict unchanged
-        - multi-role experience preserves role order
-        - single-role experience still works (regression guard)
+        - round-trip preserves input KEY ORDER, not declaration order
+        - a flat experience entry round-trips with all fields intact
+        - `presentations[].year` given as an int stays an int (it is an int in
+          real data and is deliberately not coerced to str)
+        - a field absent from the input stays absent on output rather than
+          being materialised from its default
         - to_json_schema() emits valid JSON Schema for every section
-        - unknown keys survive the round trip
+        - unknown keys survive the round trip, at the top level and inside
+          nested experience, bullet and skills-group items
 
-      SAD PATH (the majority) — for each, assert the SPECIFIC failure, never
-      just "it raised something":
-        - missing required field
+      SAD PATH (the majority) — for each, assert the specific graceful outcome
+      per the four bullets above, never just "it did not crash":
+        - a declared field absent entirely (its default applies, no raise)
         - wrong type per field (str where list expected, dict where str, None)
         - empty list where items expected
-        - a role with an end date before its start date
-        - malformed date strings ("2024-13-45", "yesterday", "")
-        - deeply nested wrong shape (experience -> roles -> wrong item type)
+        - a non-dict where an item dict was expected (coerced, with a warning)
+        - a non-list where a section list was expected (ignored, with a warning)
         - a key present under BOTH observed shapes from sections.md
+        - an untyped section (`skills`, `teaching`, `contact`) carrying an
+          unexpected shape — it must pass through without loss
         - unicode and RTL text in name/company fields
         - very long strings (a 10k-char bullet)
         - null bytes and control characters in text fields
         - empty resume (every section absent)
         - a section present but set to null
+
+      Do NOT write tests for these — the schema does not implement them, so
+      they would encode a contract that was explicitly not built:
+        - an end date before a start date (no date validation exists)
+        - malformed date strings ("2024-13-45", "yesterday")
+        - anything reaching through `experience -> roles` (multi-role was
+          deferred; there is no `roles` field)
 
       Use the existing tests/resume_tests/fixtures.py helpers rather than
       hand-rolling fixtures. Follow the file layout already in
@@ -431,10 +544,10 @@ stages:
       This is the largest stage in the workflow. Scope it honestly before
       starting.
 
-      MEASURED SCOPE (verify against {workspace}/sections.md; these numbers were
-      taken from the repo when this workflow was written):
+      MEASURED SCOPE (verify against {workspace}/sections.md; these numbers are
+      the audited ones):
         - 42 .py files under src/resume/
-        - 13 of them read section keys off dicts, via ~55 `data.get(` calls:
+        - 13 of them read section keys off dicts, via ~69 call sites:
             cli/main.py, docx_base.py, docx_sections_exp.py,
             docx_sections_simple.py, docx_sections_skills.py,
             docx_sidebar_sections.py, docx_standard.py, docx_writer.py,
@@ -443,6 +556,17 @@ stages:
         - ~8 test files exercise those paths
         - 26 read_yaml_or_json/write_yaml_or_json call sites are the I/O
           boundary where from_dict/to_dict must sit
+
+      The ~69 breaks down as ~55 `data.get(` calls plus ~14 more reached
+      through a parameter named `candidate` — keyword_match.py and aligner.py.
+      Earlier revisions of this workflow recorded only the ~55 subset. Grepping
+      for `data\.get(` alone will therefore UNDERCOUNT the work by about a
+      fifth and make a partial migration look complete.
+
+      SPLIT BY FILE GROUP — carried forward as a constraint from the gate.
+      ~69 sites is too many for one edit. Migrate parsers first, then
+      renderers, then filters/aligner/keyword_match, committing and running
+      `make test` between groups.
 
       This is NOT a mechanical rename. Before this workflow, NO production file
       imported the Resume/Experience/Education dataclasses — only CandidateData,
@@ -463,27 +587,45 @@ stages:
         4. Renderers: docx_writer.py, docx_standard.py, docx_base.py,
            docx_sections_*.py, docx_sidebar_sections.py. Largest group; expect
            the most churn here.
-        5. cli/main.py last — it wires the others together, so it should be the
+        5. keyword_match.py and aligner.py — the ~14 sites reached through a
+           `candidate`-named parameter rather than `data`. These are the ones a
+           `data\.get(` grep does not see; skipping them leaves the migration
+           silently partial. Change only the parameter typing here: the str()
+           coercions in keyword_match.py are already fixed (PR #271).
+        6. cli/main.py last — it wires the others together, so it should be the
            final signature change.
 
       Rules:
         - Update ALL call sites atomically per group. No compatibility shims,
           no re-export facades, no dict/dataclass union parameters — project
           rules forbid the first two and the third defeats the migration.
-        - Attribute access replaces .get(). A mistyped field must raise
-          AttributeError rather than silently returning None. That failure mode
-          is the entire justification for choosing full migration.
+        - Attribute access replaces .get(). A field name mistyped IN CODE must
+          raise AttributeError rather than silently returning None. That
+          failure mode is the entire justification for choosing full migration.
+          This is orthogonal to from_dict's advisory policy: bad DATA warns and
+          never raises, while a bad attribute name in source is a hard error.
         - Rendering output must stay byte-identical where behaviour is
           unchanged. Verify by rendering a fixture before and after and
           diffing the extracted text — this is a representation change, not a
           formatting change.
-        - Renderers must handle multi-role experience. A promoted role should
-          render sensibly in BOTH the standard and sidebar layouts.
+        - Experience is FLAT. There is no `roles` list and no `group_id` to
+          render — multi-role was deferred at the gate. Do not add renderer
+          branches for a shape the schema does not have.
         - Update test files in the same commit as the source they cover. A test
           still passing a dict to a now-typed function is a false green.
         - If a call site depends on an untyped key the schema missed, STOP and
           report it. Do NOT add an `Any` field to keep moving — that
           reintroduces exactly the drift this workflow exists to remove.
+          `skills`, `teaching` and `contact` are the three EXPECTED untyped
+          keys — they are deliberate, so pass them through rather than
+          reporting them as misses.
+        - Do NOT re-fix the keyword_match.py str() coercions. They already
+          landed in PR #271 (e6791cc); keyword_normalize.item_text and
+          item_match_text are the current helpers and the schema's item type is
+          built to match what they expect.
+        - Do NOT fix priority.py's missing `teaching` filter here. It is a real
+          bug and explicitly out of scope for this run; it needs its own change
+          and regression test.
 
       If the group-by-group test runs show the change is materially larger than
       the numbers above, STOP and report rather than pushing through. A partial
@@ -520,8 +662,11 @@ stages:
 
       Concretely:
         1. Start from a resume. If {sample_resume} is set, use it. Otherwise
-           build a synthetic-but-realistic fixture exercising EVERY section
-           from sections.md, including a multi-role promotion.
+           build a synthetic-but-realistic fixture exercising EVERY one of the
+           22 sections from sections.md. Experience entries are FLAT — do not
+           construct a multi-role promotion; that shape does not exist. Two
+           entries at the same company is the closest real data gets, and it is
+           represented as two independent flat entries.
         2. Run `./bin/assistant resume extract` -> candidate JSON.
         3. Load through the schema; assert every section survived with the
            right type.
@@ -534,15 +679,19 @@ stages:
            went in comes out. This is the load-bearing assertion: it catches a
            section that types cleanly but renders to nothing.
 
-      SAD PATH e2e cases (required, not optional):
+      SAD PATH e2e cases (required, not optional). Validation is ADVISORY, so
+      these assert that the pipeline degrades gracefully, NOT that it raises:
         - a resume with an empty section -> renders without crashing, does not
           emit a stray empty heading
         - a resume where every optional section is absent -> minimal doc
         - a corrupted candidate.json (truncated mid-object) -> a CLEAR error,
-          not a traceback
-        - a multi-role entry where one role lacks a title
-        - a section key present with the wrong shape -> caught with a message
-          naming the offending key
+          not a traceback. This one IS an error path, but it belongs to the
+          JSON parser, not to schema validation.
+        - an experience entry missing its title -> still renders, with the
+          documented fallback, and a warning is logged
+        - a section key present with the wrong shape -> from_dict does not
+          raise, the section falls back to its default, a warning naming the
+          offending key is emitted, and the rest of the document still renders
 
       If {sample_resume} is set, it is PII: write derived artifacts only under
       {workspace}, never into tests/. Any committed fixture must be synthetic.
@@ -566,7 +715,8 @@ stages:
   # test-schema, migrate-callsites and test-e2e-data all run with
   # `isolation: worktree`; their edits live on ephemeral worktree branches and
   # do NOT merge back automatically. verify-schema would then run make
-  # test/cov/lint against a parent tree still holding the ORIGINAL model.py —
+  # test/cov/lint against a parent tree still holding the ORIGINAL model.py
+  # (which impl-schema deletes and replaces with schema.py/schema_emit.py) —
   # and pass, because nothing broke, because nothing changed. That false green
   # is indistinguishable from a real one, which is what makes it dangerous.
   - name: merge-worktrees
@@ -604,8 +754,12 @@ stages:
       merge did what its exit code implies. Check, and record each result in
       {workspace}/merge-report.md:
 
-        - src/resume/model.py contains the new dataclasses (grep for the new
-          section class names from schema-design.md)
+        - src/resume/schema.py contains the new dataclasses (grep for the new
+          section class names from schema-design.md) and
+          src/resume/schema_emit.py contains the JSON Schema emitter
+        - src/resume/model.py is GONE. impl-schema deletes it rather than
+          leaving a re-export facade, so a model.py still present after the
+          merge means the migration is half-landed, not that it succeeded.
         - tests/resume_tests/model/ exists and is non-empty
         - tests/resume_tests/test_e2e_schema_roundtrip.py exists
         - git status is clean (no unmerged paths)
@@ -663,17 +817,31 @@ stages:
           Report both raw numbers and the quotient. If the quotient is below
           the threshold, that is a FAIL — say so with the numbers rather than
           rationalising the shortfall.
-        - every section key from sections.md now has a dataclass
-        - priority.py no longer hardcodes a section-key tuple
-        - FULL MIGRATION IS COMPLETE, not partial. Count the remaining
-          `data.get(` call sites in src/resume/ and compare against the ~55
-          recorded in sections.md:
+        - all 22 section keys from sections.md are accounted for on Resume:
+          17 typed, plus `skills`, `teaching` and `contact` deliberately left
+          untyped with reasons recorded in schema-design.md §1. Those three are
+          a PASS, not a gap. If a stage typed one of them anyway without saying
+          so, that is a finding — report it.
+        - src/resume/model.py no longer exists and nothing imports it
+        - priority.py no longer hardcodes a section-key tuple. Note that
+          priority.py's missing `teaching` filter is a KNOWN, out-of-scope bug
+          for this run — do not report its continued absence as a failure of
+          this migration, and do not fix it here.
+        - FULL MIGRATION IS COMPLETE, not partial. Compare the remaining call
+          sites against the ~69 recorded in sections.md — NOT against ~55.
+          ~55 counts only the `data`-named subset; ~14 further sites reach the
+          same section keys through a parameter named `candidate`
+          (keyword_match.py, aligner.py). Grepping `data\.get(` alone would
+          measure a migration of ~55 as complete while roughly a fifth of the
+          real call sites are untouched, so this check must cover both:
             grep -rn "data\.get(" src/resume/ | wc -l
-          A handful may legitimately survive at the I/O boundary (inside
-          from_dict, or reading a raw parse result before it is typed) — name
-          each survivor and justify it. A large residue means renderers are
-          still on dicts, which is the half-migrated state the plan explicitly
-          rejects: report it as a FAIL, not as progress.
+            grep -rn "candidate\.get(" src/resume/ | wc -l
+          Report both numbers and their sum. A handful may legitimately survive
+          at the I/O boundary (inside from_dict, or reading a raw parse result
+          before it is typed) — name each survivor and justify it. A large
+          residue means renderers are still on dicts, which is the half-migrated
+          state the plan explicitly rejects: report it as a FAIL, not as
+          progress.
         - no function signature accepts a dict-or-dataclass union
         - `grep -rn "presentations\|coursework\|technologies" src/resume/`
           shows no remaining bare string-key dispatch
@@ -826,7 +994,9 @@ stages:
         - fonts substituted or preserved
         - no text clipped at column or page boundaries
         - links still clickable
-        - a multi-role experience entry renders sensibly
+        - experience entries render sensibly, including two flat entries at the
+          same company (multi-role nesting was deferred; there is no promoted
+          role shape to check)
 
       Then STOP and present findings. Ask the human to decide:
         (a) fidelity acceptable — ship it
@@ -857,9 +1027,12 @@ stages:
       restating stage intentions.
 
       Include:
-        - sections typed: before (4) -> after (N)
-        - multi-role experience: supported, with the shape used
-        - call sites migrated, by file
+        - sections typed: before (4) -> after (N of 22), and the three
+          deliberately untyped (`skills`, `teaching`, `contact`) with reasons
+        - multi-role experience: DEFERRED at the design-schema gate, with the
+          rationale (no production data exercises it) and the additive
+          `group_id` follow-up. Report it as a recorded decision, not a gap.
+        - call sites migrated, by file, against the audited ~69 total
         - tests added, with the measured sad-path ratio
         - coverage before -> after on src/resume/
         - code-review findings: critical (must be 0) and minor, with what was
@@ -868,8 +1041,12 @@ stages:
         - JSON Schema: emitted, and where it lands
 
       Then state honestly what is NOT done:
-        - any section key still untyped
-        - any call site left on bare string keys
+        - any section key still untyped BEYOND the three deliberate ones
+        - any call site left on bare string keys (check both `data.get(` and
+          `candidate.get(`; the latter is where a partial migration hides)
+        - the two known out-of-scope items, so the next person does not assume
+          they were handled: priority.py never filters `teaching`, and
+          enforcing validation remains an opt-in follow-up
         - whether PDF fidelity was actually verified or only assumed
         - whether the sidebar layout survived conversion
         - anything deferred, and why
