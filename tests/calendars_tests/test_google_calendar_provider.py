@@ -228,7 +228,7 @@ class TestRRULEParsing(unittest.TestCase):
     def test_byday_values_are_uppercase(self) -> None:
         """RRULE already uses uppercase; verify we don't accidentally lowercase them."""
         ev = _timed_event(
-            "r5", "Triathalon Prep",
+            "r5", "Triathlon Prep",
             "2026-05-01T06:00:00", "2026-05-01T07:00:00",
             recurrence=["RRULE:FREQ=WEEKLY;BYDAY=TU,TH,SA"],
         )
@@ -429,7 +429,9 @@ class TestAddEvent(unittest.TestCase):
             tz="America/Toronto",
             repeat="weekly",
             byday=["MO", "WE", "FR"],
-            interval=1,
+            # interval omitted: CalendarEvent's documented semantics are that
+            # 1 is represented as absent/None, so passing interval=1 here would
+            # contradict the shared model and could mask a normalization bug.
             range={"start_date": "2026-10-05", "until": "2026-12-31"},
         )
         result = provider.add_event(event)
@@ -489,6 +491,39 @@ class TestAddEvent(unittest.TestCase):
         _cal_id, body = svc.inserted[0]
         rrule_line = next(r for r in body["recurrence"] if "RRULE:" in r)
         self.assertIn("INTERVAL=2", rrule_line)
+
+
+class TestBuildRruleRefusesUnknownRepeat(unittest.TestCase):
+    """An unrecognised repeat must raise, not silently become WEEKLY.
+
+    Defaulting to WEEKLY persists a recurrence the caller never asked for —
+    writing a wrong rule into a real calendar, which is worse than the
+    read-side degradation this provider already refuses.
+    """
+
+    def test_unknown_repeat_raises(self) -> None:
+        from calendars.gmail_pipelines import CalendarEvent
+        from calendars.importer.google_provider import _build_rrule
+
+        event = CalendarEvent(
+            id="", subject="Anniversary", start="2026-06-15T12:00:00",
+            end="2026-06-15T13:00:00", calendar="primary", repeat="yearly",
+        )
+        with self.assertRaises(ValueError) as ctx:
+            _build_rrule(event)
+        self.assertIn("yearly", str(ctx.exception))
+
+    def test_known_repeats_still_build(self) -> None:
+        from calendars.gmail_pipelines import CalendarEvent
+        from calendars.importer.google_provider import _build_rrule
+
+        for repeat, freq in (("daily", "DAILY"), ("weekly", "WEEKLY"), ("monthly", "MONTHLY")):
+            with self.subTest(repeat=repeat):
+                event = CalendarEvent(
+                    id="", subject="X", start="2026-06-15T12:00:00",
+                    end="2026-06-15T13:00:00", calendar="primary", repeat=repeat,
+                )
+                self.assertIn(f"FREQ={freq}", _build_rrule(event))
 
 
 def _scopes() -> list[str]:

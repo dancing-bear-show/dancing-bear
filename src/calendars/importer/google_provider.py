@@ -422,9 +422,22 @@ class GoogleCalendarProvider:
 
 
 def _build_rrule(event: CalendarEvent) -> str:
-    """Build an RRULE value string from a CalendarEvent's recurrence fields."""
+    """Build an RRULE value string from a CalendarEvent's recurrence fields.
+
+    Raises ValueError for a repeat value with no RRULE equivalent. Defaulting
+    to WEEKLY would persist a recurrence the caller never asked for — writing a
+    wrong rule into a real calendar, which is worse than the read-side
+    degradation this provider already refuses. Callers reach here only when
+    event.repeat is set, so an unrecognised value is a genuine error.
+    """
     freq_map_rev = {"daily": "DAILY", "weekly": "WEEKLY", "monthly": "MONTHLY"}
-    freq = freq_map_rev.get(event.repeat or "", "WEEKLY")
+    repeat = (event.repeat or "").lower()
+    if repeat not in freq_map_rev:
+        raise ValueError(
+            f"Cannot build an RRULE for repeat={event.repeat!r}; "
+            f"supported values are {sorted(freq_map_rev)}"
+        )
+    freq = freq_map_rev[repeat]
 
     parts = [f"FREQ={freq}"]
 

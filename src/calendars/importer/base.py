@@ -33,8 +33,12 @@ class CalendarProvider(Protocol):
         lines.  Skipped events are recorded in ``provider.skipped`` and never
         returned in a degraded form.
 
-    Both implementors expose a ``skipped`` attribute that callers may inspect
-    after ``list_events`` to see what was dropped; the list is reset on each call.
+    ``skipped`` is NOT part of this Protocol. Both current implementors happen
+    to expose it, and a caller holding a concrete provider may inspect it after
+    ``list_events`` to see what was dropped (the list resets each call) — but
+    code typed against ``CalendarProvider`` must not assume it exists. The
+    Protocol specifies ``list_events`` and ``add_event``, nothing more. Promote
+    it into the Protocol only if a provider-agnostic caller genuinely needs it.
 
     Test conformance
     ----------------
