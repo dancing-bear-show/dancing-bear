@@ -310,6 +310,12 @@ class OutlookExportProcessor(SafeProcessor[OutlookExportRequest, OutlookExportRe
                 continue
 
             if plan_ev is None:
+                # Unreachable today: the ptype guard above already skips every
+                # unsupported pattern, and that is the only case where
+                # _reverse_recurrence returns None. Kept deliberately — if the
+                # two checks ever drift apart, the alternative to this branch is
+                # appending None to acc.events and silently corrupting the plan.
+                # A skipped series is recoverable; a malformed one is not.
                 acc.skipped.append({
                     "seriesMasterId": master_id,
                     "subject": subject,
@@ -322,6 +328,10 @@ class OutlookExportProcessor(SafeProcessor[OutlookExportRequest, OutlookExportRe
             exdates = []
             for occ in occurrences:
                 if occ.get("isCancelled") or (occ.get("type") or "").lower() == "exceptionoccurrence":
+                    # originalStart is the originally-scheduled date, set by Graph
+                    # only when an occurrence was rescheduled; a plain cancellation
+                    # carries just start.dateTime. The exdate must name the slot the
+                    # series would have occupied, so prefer originalStart.
                     st = (occ.get("originalStart") or (occ.get("start") or {}).get("dateTime") or "")
                     date_only = st.split("T", 1)[0] if "T" in st else st
                     if date_only:

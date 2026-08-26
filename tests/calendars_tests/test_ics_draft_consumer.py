@@ -497,5 +497,29 @@ class TestIcsDraftMultipleEvents(unittest.TestCase):
         self.assertIn("SUMMARY:Event C", result.ics_payload)
 
 
+class TestCLIIcsDraftCommand(unittest.TestCase):
+    """`outlook ics-draft` is reachable through the real parser with correct dests."""
+
+    def test_ics_draft_command_registered(self):
+        from calendars.cli.main import app
+
+        parser = app.build_parser()
+        args = parser.parse_args(
+            ["outlook", "ics-draft", "--config", "plan.yaml", "--recipient", "a@b.com"]
+        )
+        self.assertEqual(args.config, "plan.yaml")
+        self.assertEqual(args.recipient, "a@b.com")
+        self.assertEqual(args.subject, "Calendar Plan")
+        self.assertFalse(args.dry_run)
+
+    def test_ics_draft_requires_config_and_recipient(self):
+        """Both --config and --recipient are required; omitting them exits non-zero."""
+        from calendars.cli.main import app
+
+        parser = app.build_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["outlook", "ics-draft"])
+
+
 if __name__ == "__main__":
     unittest.main()
