@@ -16,7 +16,7 @@ from resume.keyword_normalize import (
     KeywordInfo,
     KeywordMatchResult,
     SynonymRegistry,
-    item_text,
+    item_match_text,
 )
 
 
@@ -41,8 +41,8 @@ def _summary_text(summary: Any) -> str:
     instead of the prose.
     """
     if isinstance(summary, list):
-        return " ".join(t for t in (item_text(x) for x in summary) if t)
-    return item_text(summary)
+        return " ".join(t for t in (item_match_text(x) for x in summary) if t)
+    return item_match_text(summary)
 
 
 class KeywordMatchEngine(SynonymRegistry):
@@ -236,7 +236,7 @@ class KeywordMatchEngine(SynonymRegistry):
                 self._match_text_against_keywords(results, title_text, f"exp[{i}].title")
             for bullet in exp.get("bullets") or []:
                 self._match_text_against_keywords(
-                    results, item_text(bullet), f"exp[{i}].bullet"
+                    results, item_match_text(bullet), f"exp[{i}].bullet"
                 )
 
     def collect_matches_from_candidate(self, candidate: dict[str, Any]) -> dict[str, KeywordMatchResult]:
@@ -246,7 +246,9 @@ class KeywordMatchEngine(SynonymRegistry):
         if summary:
             self._match_text_against_keywords(results, summary, "summary")
         for skill in candidate.get("skills") or []:
-            self._match_text_against_keywords(results, str(skill), "skills")
+            self._match_text_against_keywords(
+                results, item_match_text(skill), "skills"
+            )
         self._collect_exp_matches(results, candidate)
         return results
 
@@ -264,7 +266,7 @@ class KeywordMatchEngine(SynonymRegistry):
         title_text = f"{exp.get('title', '')} {exp.get('company', '')}".strip()
         role_score = self._score_title(title_text)
         for bullet in exp.get("bullets") or []:
-            text = item_text(bullet)
+            text = item_match_text(bullet)
             if any(self._keyword_hits(text, canon, expand_synonyms=True) for canon in self._keywords):
                 role_score += 1
         return role_score

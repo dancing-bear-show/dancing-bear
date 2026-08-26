@@ -120,3 +120,26 @@ def item_text(item: Any) -> str:
     if isinstance(item, dict):
         return str(item.get("text") or item.get("line") or item.get("name") or "")
     return str(item or "")
+
+
+def item_match_text(item: Any) -> str:
+    """Return all searchable prose of an item, for keyword matching.
+
+    Differs from :func:`item_text` deliberately. item_text returns an item's
+    DISPLAY text, so a skill renders as "Kubernetes". Matching wants every word
+    a keyword could legitimately hit, and skills carry their detail in a
+    separate ``desc`` field:
+
+        {"name": "Kubernetes", "desc": "cluster ops and resilient deployment",
+         "priority": 0.9}
+
+    Matching on the name alone would miss a posting keyword appearing only in
+    the description, so this joins both.
+    """
+    if not isinstance(item, dict):
+        return str(item or "")
+    values = [
+        str(item.get(key) or "")
+        for key in ("text", "line", "name", "desc", "description")
+    ]
+    return " ".join(v for v in values if v)

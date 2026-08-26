@@ -26,7 +26,7 @@ from __future__ import annotations
 import unittest
 
 from resume.keyword_matcher import KeywordMatcher
-from resume.keyword_normalize import item_text
+from resume.keyword_normalize import item_match_text, item_text
 
 
 def _matcher(*skills: str) -> KeywordMatcher:
@@ -61,6 +61,34 @@ class TestItemText(unittest.TestCase):
         for value in (None, "", {}, {"priority": 0.9}):
             with self.subTest(value=value):
                 self.assertEqual(item_text(value), "")
+
+
+class TestItemMatchText(unittest.TestCase):
+    """The matching extractor is deliberately wider than item_text."""
+
+    def test_joins_name_and_desc(self):
+        """Skills keep their substance in desc; matching needs both."""
+        out = item_match_text(
+            {"name": "Kubernetes", "desc": "cluster ops", "priority": 0.9}
+        )
+        self.assertIn("Kubernetes", out)
+        self.assertIn("cluster ops", out)
+
+    def test_differs_from_item_text_on_purpose(self):
+        """Display text drops desc; match text keeps it."""
+        skill = {"name": "Kubernetes", "desc": "cluster ops", "priority": 0.9}
+        self.assertEqual(item_text(skill), "Kubernetes")
+        self.assertIn("cluster ops", item_match_text(skill))
+
+    def test_rejects_emitting_key_names_or_priority(self):
+        out = item_match_text({"text": "Ran Kafka", "priority": 0.9})
+        for artefact in ("priority", "0.9", "{", "'"):
+            self.assertNotIn(artefact, out)
+
+    def test_invalid_inputs_yield_empty_string(self):
+        for value in (None, "", {}, {"priority": 0.9}):
+            with self.subTest(value=value):
+                self.assertEqual(item_match_text(value), "")
 
 
 class TestMatchingPriorityShapedBullets(unittest.TestCase):
@@ -98,18 +126,60 @@ class TestMatchingPriorityShapedBullets(unittest.TestCase):
         self.assertGreater(scores[0][1], 0, "priority-shaped bullet scored zero")
 
     def test_rejects_matching_dict_repr_tokens(self):
-        """'priority' and 'text' must NOT match — they are repr artefacts.
+        """Repr artefacts must NOT match, across summary, experience AND skills.
 
-        Under the old str(item) behaviour these appeared in the match text, so
-        a posting asking for either word scored a hit against a resume that
-        never used it.
+        Under the old str(item) behaviour every key name in the dict appeared
+        in the match text, so a posting asking for any of them scored a hit
+        against a resume that never used the word. Skills carry the widest key
+        set ({name, desc, priority}), so they are included here — that path had
+        its own str(skill) call that the first fix missed.
         """
-        res = _matcher("priority", "text").collect_matches_from_candidate(
-            self.CANDIDATE
-        )
+        candidate = dict(self.CANDIDATE)
+        candidate["skills"] = [
+            {"name": "Kubernetes", "desc": "cluster ops", "priority": 0.9}
+        ]
+        res = _matcher(
+            "priority", "text", "desc", "name"
+        ).collect_matches_from_candidate(candidate)
         self.assertEqual(
             sorted(res.keys()), [], f"repr artefacts matched: {sorted(res)}"
         )
+
+    def test_matches_keyword_in_priority_shaped_skill_name(self):
+        """Regression: skills had their own str(skill) coercion."""
+        candidate = {
+            "skills": [
+                {"name": "Kubernetes", "desc": "cluster ops", "priority": 0.9}
+            ]
+        }
+        res = _matcher("Kubernetes").collect_matches_from_candidate(candidate)
+        self.assertIn("Kubernetes", res)
+
+    def test_matches_keyword_only_present_in_skill_desc(self):
+        """A keyword in the description must match, not just the name.
+
+        item_text returns display text ("Kubernetes") and would drop `desc`
+        entirely, so matching uses item_match_text, which joins both. Real
+        skills_groups items carry their substance in desc.
+        """
+        candidate = {
+            "skills": [
+                {
+                    "name": "Kubernetes",
+                    "desc": "cluster ops and resilient deployment patterns",
+                    "priority": 0.9,
+                }
+            ]
+        }
+        res = _matcher("resilient").collect_matches_from_candidate(candidate)
+        self.assertIn("resilient", res)
+
+    def test_plain_string_skills_still_match(self):
+        """The flat skills list must keep working."""
+        res = _matcher("Kafka").collect_matches_from_candidate(
+            {"skills": ["Kafka", "Terraform"]}
+        )
+        self.assertIn("Kafka", res)
 
     def test_plain_string_bullets_still_match(self):
         """The older flat shape must keep working — both are valid input."""
