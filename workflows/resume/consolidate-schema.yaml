@@ -42,6 +42,9 @@
 #     |
 #   test-e2e-data               (execute — round-trip real data end to end)
 #     |
+#   merge-worktrees             (execute — land isolated commits; without this
+#     |                          every verification below measures unchanged code)
+#     |
 #   cov-* [fragment]            (expand-coverage — close gaps to {min_coverage})
 #     |
 #   cr-validate-code [fragment] (review against concerns/ guides)
@@ -110,10 +113,12 @@ include:
   # Coverage expansion on the schema half — closes gaps rather than only
   # asserting them. Runs after the e2e test lands so it sees the true picture.
   # Injects: cov-identify-gaps -> cov-expand-coverage-files -> cov-verify-coverage
+  # Depends on merge-worktrees, NOT test-e2e-data: these stages are not
+  # isolated, so before the merge they would measure the unmodified parent tree.
   - path: workflows/shared/expand-coverage.yaml
     prefix: cov
-    depends_on: [test-e2e-data]
-    reads_from: [test-e2e-data, test-schema]
+    depends_on: [merge-worktrees]
+    reads_from: [merge-worktrees, test-e2e-data, test-schema]
 
   # Single-pass code review against the canonical guides in concerns/.
   # Chosen over code-review-swarm deliberately: the swarm needs a pr_number and
@@ -253,7 +258,7 @@ stages:
 
       Do NOT write implementation code in this stage.
     agent:
-      role: Plan
+      role: reviewer
       model: sonnet
       tools: [Read, Write, Bash]
       access: read-write
@@ -293,6 +298,8 @@ stages:
 
       Run `make test` before finishing. A red suite here means the schema
       addition broke something, and that must be fixed before proceeding.
+
+      COMMIT BEFORE FINISHING. You run in your own git worktree; `git merge` moves commits, not uncommitted files. If you edit files and return without committing, the downstream merge-worktrees stage finds an empty branch and the run halts. Stage your files by name (never `git add -A`) and commit with a conventional message.
     agent:
       role: code-writer
       model: inherit
@@ -301,7 +308,10 @@ stages:
       isolation: worktree
     required: true
     writes_to:
-      - "src/resume/model.py"
+      # Workspace-relative only. The real edit lands in the agent's own worktree
+      # and is merged back by merge-worktrees; a `src/...` entry here would
+      # resolve under {workspace}/outputs/ and never match the repo file.
+      - "outputs/impl-schema-summary.md"
 
   # ==========================================================================
   # Stage 5: test-schema — unit tests, majority sad-path
@@ -314,9 +324,16 @@ stages:
       Write unit tests for the new schema under tests/resume_tests/model/.
 
       MANDATORY RATIO: at least {min_sad_path_ratio} of new test methods must
-      be sad-path. Count them and state the ratio in your final report. A
-      schema tested only on well-formed input has verified nothing — catching
-      malformed input is its entire purpose.
+      be sad-path. A schema tested only on well-formed input has verified
+      nothing — catching malformed input is its entire purpose.
+
+      NAMING CONTRACT — this is what makes the ratio checkable rather than a
+      matter of opinion. Every sad-path test method MUST be named
+      `test_rejects_*` or `test_invalid_*`. Every happy-path method MUST NOT
+      use either prefix. verify-schema counts with grep against exactly these
+      prefixes, so a sad-path test named anything else is counted as happy-path
+      and drags the measured ratio down. Do not rename a happy-path test to
+      game the count.
 
       HAPPY PATH (the minority):
         - each section round-trips dict -> dataclass -> dict unchanged
@@ -348,6 +365,8 @@ stages:
       inflate coverage — project rules forbid it.
 
       Verify with `make test`. Never bare python3 -m unittest.
+
+      COMMIT BEFORE FINISHING. You run in your own git worktree; `git merge` moves commits, not uncommitted files. If you edit files and return without committing, the downstream merge-worktrees stage finds an empty branch and the run halts. Stage your files by name (never `git add -A`) and commit with a conventional message.
     agent:
       role: tester
       model: sonnet
@@ -356,7 +375,7 @@ stages:
       isolation: worktree
     required: true
     writes_to:
-      - "tests/resume_tests/model/"
+      - "outputs/test-schema-summary.md"
 
   # ==========================================================================
   # Stage 6: migrate-callsites — renderers/filters read through the schema
@@ -389,6 +408,8 @@ stages:
 
       Run `make test` after each file group, not just at the end — a break is
       far cheaper to localize early.
+
+      COMMIT BEFORE FINISHING. You run in your own git worktree; `git merge` moves commits, not uncommitted files. If you edit files and return without committing, the downstream merge-worktrees stage finds an empty branch and the run halts. Stage your files by name (never `git add -A`) and commit with a conventional message.
     agent:
       role: code-writer
       model: inherit
@@ -397,7 +418,7 @@ stages:
       isolation: worktree
     required: true
     writes_to:
-      - "src/resume/"
+      - "outputs/migrate-callsites-summary.md"
 
   # ==========================================================================
   # Stage 7: test-e2e-data — real data, all the way through
@@ -454,7 +475,72 @@ stages:
       isolation: worktree
     required: true
     writes_to:
-      - "tests/resume_tests/test_e2e_schema_roundtrip.py"
+      - "outputs/e2e-summary.md"
+
+  # ==========================================================================
+  # Stage 7b: merge-worktrees — land the isolated agents' commits
+  # ==========================================================================
+  #
+  # Without this stage every verification below is meaningless. impl-schema,
+  # test-schema, migrate-callsites and test-e2e-data all run with
+  # `isolation: worktree`; their edits live on ephemeral worktree branches and
+  # do NOT merge back automatically. verify-schema would then run make
+  # test/cov/lint against a parent tree still holding the ORIGINAL model.py —
+  # and pass, because nothing broke, because nothing changed. That false green
+  # is indistinguishable from a real one, which is what makes it dangerous.
+  - name: merge-worktrees
+    kind: execute
+    depends_on: [test-e2e-data]
+    reads_from: [impl-schema, test-schema, migrate-callsites, test-e2e-data]
+    description: >
+      Land the isolated stages' commits onto this workflow's working branch,
+      then prove they actually landed.
+
+      Per .claude/skills/workflow/SKILL.md rule 7, `git merge` moves COMMITS,
+      not uncommitted files. An isolated agent that edited its worktree without
+      committing leaves nothing to merge, and the merge silently succeeds
+      against an empty branch — reporting success while no code lands. So
+      verify emptiness first, and treat it as a failure, not a no-op.
+
+      For each isolated stage branch (worktree-agent-*) belonging to
+      impl-schema, test-schema, migrate-callsites and test-e2e-data:
+
+        git log --oneline <target-branch>..worktree-agent-<id>
+
+      If that output is EMPTY for a stage that was supposed to write code,
+      STOP and report which stage produced no commit. Do not merge, and do not
+      let the run continue to verification.
+
+      Otherwise merge each in dependency order:
+
+        git merge --no-ff worktree-agent-<id> -m "merge stage <stage_name>"
+
+      Resolve conflicts in favour of the later stage in DAG order
+      (migrate-callsites over impl-schema), since it was written against the
+      earlier stage's output.
+
+      Then PROVE the code is present in the working tree — do not assume the
+      merge did what its exit code implies. Check, and record each result in
+      {workspace}/merge-report.md:
+
+        - src/resume/model.py contains the new dataclasses (grep for the new
+          section class names from schema-design.md)
+        - tests/resume_tests/model/ exists and is non-empty
+        - tests/resume_tests/test_e2e_schema_roundtrip.py exists
+        - git status is clean (no unmerged paths)
+        - git log --oneline shows one merge commit per isolated stage
+
+      If any check fails, STOP. verify-schema measuring an unmerged tree is the
+      single worst outcome available to this workflow: it reports a green that
+      describes code nobody wrote.
+    agent:
+      role: code-writer
+      model: inherit
+      tools: [Bash, Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - "{workspace}/merge-report.md"
 
   # ==========================================================================
   # Stage 8: verify-schema — suite, lint, coverage, ratio
@@ -488,8 +574,14 @@ stages:
           two disagree, trust `make cov` and say so)
         - zero "critical" entries in code-review-findings.json
         - lint clean
-        - sad-path ratio in new tests >= {min_sad_path_ratio} — count the test
-          methods yourself, do not trust the prior stage's self-report
+        - sad-path ratio in new tests >= {min_sad_path_ratio}. Count
+          MECHANICALLY, do not judge by reading; and do not trust the prior
+          stage's self-report:
+            sad   = grep -rc "def test_rejects_\|def test_invalid_" <new test files>
+            total = grep -rc "def test_" <new test files>
+          Report both raw numbers and the quotient. If the quotient is below
+          the threshold, that is a FAIL — say so with the numbers rather than
+          rationalising the shortfall.
         - every section key from sections.md now has a dataclass
         - priority.py no longer hardcodes a section-key tuple
         - `grep -rn "presentations\|coursework\|technologies" src/resume/`
@@ -518,11 +610,10 @@ stages:
   # ==========================================================================
   - name: impl-pdf
     kind: execute
+    when: '"{skip_pdf}" does not contain "true"'
     depends_on: [verify-schema]
     reads_from: [verify-schema, init]
     description: >
-      Skip this stage entirely if {skip_pdf} is "true".
-
       Implement PDF export by converting the rendered DOCX. Do NOT write a PDF
       renderer — reactive-resume's equivalent is 21,062 LOC, and conversion
       gets most of the value for ~80.
@@ -560,27 +651,27 @@ stages:
       tools: [Read, Write, Edit, Bash]
       access: read-write
       isolation: worktree
-    required: false
+    required: true
     writes_to:
-      - "src/resume/pdf_convert.py"
-      - "src/resume/cli/main.py"
+      - "outputs/impl-pdf-summary.md"
 
   # ==========================================================================
   # Stage 10: test-pdf — tests that pass without the binary
   # ==========================================================================
   - name: test-pdf
     kind: execute
+    when: '"{skip_pdf}" does not contain "true"'
     depends_on: [impl-pdf]
     reads_from: [impl-pdf]
     description: >
-      Skip if {skip_pdf} is "true".
-
       Write tests at tests/resume_tests/test_pdf_convert.py. They MUST pass on
       a machine with no converter installed — CI has none. Inject a fake
       run_func; never shell out for real.
 
-      Same ratio rule: >= {min_sad_path_ratio} sad-path. Error handling is
-      nearly the whole surface here, so this should land well above the floor.
+      Same ratio rule and the same naming contract as test-schema: sad-path
+      methods are named `test_rejects_*` or `test_invalid_*` so verify can
+      count them with grep. Error handling is nearly the whole surface here, so
+      this should land well above the {min_sad_path_ratio} floor.
 
       HAPPY PATH:
         - a fake runner reporting success and producing a file -> PDF at dst
@@ -609,21 +700,20 @@ stages:
       tools: [Read, Write, Edit, Bash]
       access: read-write
       isolation: worktree
-    required: false
+    required: true
     writes_to:
-      - "tests/resume_tests/test_pdf_convert.py"
+      - "outputs/test-pdf-summary.md"
 
   # ==========================================================================
   # Stage 11: verify-pdf-fidelity — a human LOOKS at the output
   # ==========================================================================
   - name: verify-pdf-fidelity
     kind: validate
+    when: '"{skip_pdf}" does not contain "true"'
     human_gate: true
     depends_on: [test-pdf]
     reads_from: [impl-pdf, init]
     description: >
-      Skip if {skip_pdf} is "true".
-
       A green test suite proves the plumbing works. It does NOT prove the PDF
       looks right, and fidelity is the actual risk here.
 
@@ -659,7 +749,7 @@ stages:
       model: sonnet
       tools: [Bash, Read, Write]
       access: read-write
-    required: false
+    required: true
     writes_to:
       - "{workspace}/pdf-fidelity.md"
 
