@@ -282,7 +282,7 @@ def _load_structure(args: argparse.Namespace) -> dict | None:
 # --- render command ---
 @app.command("render", help="Render a DOCX resume from unified data with a YAML/JSON template")
 @app.argument("--data", required=True, help="Unified data file (YAML/JSON)")
-@app.argument("--template", help="Template config (YAML/JSON); REQUIRED to render sections beyond header")
+@app.argument("--template", help="Template config (YAML/JSON); defaults to summary/skills/experience/education")
 @app.argument("--seed", help="Seed criteria as JSON string or KEY=VALUE pairs (comma-separated)")
 @app.argument("--style-profile", help="Style profile JSON from 'style build' (optional)")
 @app.argument("--filter-skills-alignment", help="Alignment JSON to filter Skills to matched keywords")
@@ -296,7 +296,7 @@ def _load_structure(args: argparse.Namespace) -> dict | None:
 @app.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_render(args: argparse.Namespace) -> int:
     data = read_yaml_or_json(args.data)
-    template = load_template(args.template) if args.template else {}
+    template = load_template(args.template)
     seed = parse_seed_criteria(args.seed) if args.seed else {}
     seed = _extend_seed_with_style(seed, getattr(args, "style_profile", None))
 
