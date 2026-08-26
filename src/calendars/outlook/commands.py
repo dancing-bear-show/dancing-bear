@@ -519,8 +519,26 @@ def run_outlook_ics_draft(args: argparse.Namespace) -> int:
     gmail_client = None
     if not dry_run:
         try:
-            from core.auth import build_gmail_service_from_args
-            gmail_client = build_gmail_service_from_args(args)
+            # GmailClient, not GmailService: create_draft_raw lives on
+            # mail.gmail_api.GmailClient (gmail_api.py:415). GmailService
+            # (calendars/gmail_service.py) is a read-only scan wrapper with no
+            # draft methods, so building one here raises AttributeError at the
+            # point of draft creation — i.e. only on real runs, never in
+            # --dry-run, which is why it survived local testing.
+            from core.auth import resolve_gmail_credentials
+            from mail.gmail_api import GmailClient
+
+            creds_path, token_path = resolve_gmail_credentials(
+                getattr(args, "profile", None),
+                getattr(args, "credentials", None),
+                getattr(args, "token", None),
+            )
+            gmail_client = GmailClient(
+                credentials_path=creds_path,
+                token_path=token_path,
+                cache_dir=getattr(args, "cache", None),
+            )
+            gmail_client.authenticate()
         except Exception as exc:
             print(f"Failed to build Gmail client: {exc}")
             return 1

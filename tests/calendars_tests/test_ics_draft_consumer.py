@@ -16,7 +16,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from tests.fixtures import write_yaml
 
@@ -495,6 +495,80 @@ class TestIcsDraftMultipleEvents(unittest.TestCase):
         self.assertIn("SUMMARY:Event A", result.ics_payload)
         self.assertIn("SUMMARY:Event B", result.ics_payload)
         self.assertIn("SUMMARY:Event C", result.ics_payload)
+
+
+class TestGmailClientWiring(unittest.TestCase):
+    """The non-dry-run path must build a client that can actually create a draft.
+
+    Regression test: run_outlook_ics_draft originally used
+    build_gmail_service_from_args, which returns calendars.gmail_service.GmailService
+    — a read-only scan wrapper with no create_draft_raw. The command therefore
+    raised AttributeError on every real run while passing every --dry-run test,
+    because dry-run never touches the client.
+    """
+
+    def test_gmail_service_lacks_create_draft_raw(self):
+        """Pin the reason the old wiring was wrong, so it cannot silently return."""
+        from calendars.gmail_service import GmailService
+
+        self.assertFalse(
+            hasattr(GmailService, "create_draft_raw"),
+            "If GmailService gains create_draft_raw, revisit run_outlook_ics_draft",
+        )
+
+    def test_gmail_client_provides_create_draft_raw(self):
+        from mail.gmail_api import GmailClient
+
+        self.assertTrue(hasattr(GmailClient, "create_draft_raw"))
+
+    def test_non_dry_run_builds_a_draft_capable_client(self):
+        """The client handed to the processor must expose create_draft_raw."""
+        import argparse
+
+        from calendars.outlook import commands
+
+        captured = {}
+
+        def _capture(request, _proc, _prod):
+            captured["client"] = request.gmail_client
+            return 0
+
+        args = argparse.Namespace(
+            config="plan.yaml", recipient="a@b.com", subject="S",
+            dry_run=False, profile=None, credentials=None, token=None, cache=None,
+        )
+        fake_client = MagicMock()
+        with patch("mail.gmail_api.GmailClient", return_value=fake_client), \
+                patch("core.auth.resolve_gmail_credentials", return_value=("c.json", "t.json")), \
+                patch.object(commands, "run_pipeline", side_effect=_capture):
+            rc = commands.run_outlook_ics_draft(args)
+
+        self.assertEqual(rc, 0)
+        self.assertIs(captured["client"], fake_client)
+        fake_client.authenticate.assert_called_once()
+
+    def test_dry_run_builds_no_client_at_all(self):
+        """--dry-run must not construct or authenticate any Gmail client."""
+        import argparse
+
+        from calendars.outlook import commands
+
+        captured = {}
+
+        def _capture(request, _proc, _prod):
+            captured["client"] = request.gmail_client
+            return 0
+
+        args = argparse.Namespace(
+            config="plan.yaml", recipient="a@b.com", subject="S",
+            dry_run=True, profile=None, credentials=None, token=None, cache=None,
+        )
+        with patch("mail.gmail_api.GmailClient") as client_cls, \
+                patch.object(commands, "run_pipeline", side_effect=_capture):
+            commands.run_outlook_ics_draft(args)
+
+        self.assertIsNone(captured["client"])
+        client_cls.assert_not_called()
 
 
 class TestCLIIcsDraftCommand(unittest.TestCase):

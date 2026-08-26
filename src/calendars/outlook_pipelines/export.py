@@ -109,8 +109,26 @@ def _extract_time(dt_str: str) -> str:
     return ""
 
 
+def _date_part(dt_str: str | None) -> str:
+    """Return the YYYY-MM-DD prefix of an ISO datetime, or "" when absent."""
+    s = (dt_str or "").strip()
+    return s.split("T", 1)[0] if "T" in s else s
+
+
 def _is_all_day(ev: dict[str, Any]) -> bool:
-    """Return True if the event uses date-only start (all-day)."""
+    """Return True if the event is all-day.
+
+    Graph signals this two ways, and both must be honoured:
+      - a date-only start block ("date" with no "dateTime"), and
+      - the isAllDay flag alongside a normal dateTime block, which is what
+        /calendarView returns and what this repo's own write path emits
+        (core/outlook/calendar.py:254 sets isAllDay while keeping dateTime).
+    Checking only the date-only shape misclassifies every all-day event created
+    by add-from-config as a timed event, silently losing its all-day nature on
+    round-trip.
+    """
+    if ev.get("isAllDay"):
+        return True
     start = ev.get("start") or {}
     return "date" in start and "dateTime" not in start
 
@@ -232,9 +250,12 @@ def _convert_one_off(ev: dict[str, Any], svc: Any) -> dict[str, Any]:
     end_block = ev.get("end") or {}
 
     if _is_all_day(ev):
-        # All-day: use date strings, no start_time/end_time/tz
-        start_date = start.get("date") or ""
-        end_date = end_block.get("date") or ""
+        # All-day: emit date strings, no start_time/end_time/tz.
+        # An isAllDay event may carry either a date-only block or a full
+        # dateTime block (Graph does the latter); take the date part of
+        # whichever is present rather than emitting an empty start.
+        start_date = start.get("date") or _date_part(start.get("dateTime"))
+        end_date = end_block.get("date") or _date_part(end_block.get("dateTime"))
         if start_date:
             result["start"] = start_date
         if end_date:

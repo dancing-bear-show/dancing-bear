@@ -869,6 +869,83 @@ class TestDSTBoundaryExport(unittest.TestCase):
         self.assertEqual(ev["end_time"], "19:00")
 
 
+class TestAllDayDetection(unittest.TestCase):
+    """isAllDay events must not be misclassified as timed.
+
+    Graph's /calendarView returns all-day events as isAllDay=True alongside a
+    normal dateTime block — which is also what this repo's own write path emits
+    (core/outlook/calendar.py:254). Detecting only the date-only shape meant
+    every all-day event created by add-from-config round-tripped back as a
+    timed event, silently losing its all-day nature.
+    """
+
+    def _run(self, events):
+        from calendars.outlook_pipelines.export import (
+            OutlookExportProcessor,
+            OutlookExportRequest,
+        )
+
+        svc = MagicMock()
+        svc.list_events_in_range.return_value = events
+        svc.get_mailbox_timezone.return_value = "America/Toronto"
+        svc.get_event.side_effect = lambda _id: None
+        request = OutlookExportRequest(
+            service=svc, calendar=None, from_date="2026-05-01",
+            to_date="2026-05-31", out_path=None, dry_run=False, verbose=False,
+        )
+        envelope = OutlookExportProcessor().process(request)
+        self.assertTrue(envelope.ok())
+        return envelope.payload
+
+    def test_is_all_day_true_for_isallday_flag_with_datetime(self):
+        from calendars.outlook_pipelines.export import _is_all_day
+
+        ev = {
+            "isAllDay": True,
+            "start": {"dateTime": "2026-05-18T00:00:00", "timeZone": "America/Toronto"},
+        }
+        self.assertTrue(_is_all_day(ev))
+
+    def test_isallday_event_exports_dates_not_times(self):
+        """The Graph shape this repo itself writes must export as all-day."""
+        result = self._run([{
+            "type": "singleInstance",
+            "isAllDay": True,
+            "subject": "Holiday",
+            "start": {"dateTime": "2026-05-18T00:00:00", "timeZone": "America/Toronto"},
+            "end": {"dateTime": "2026-05-19T00:00:00", "timeZone": "America/Toronto"},
+            "location": {},
+        }])
+        self.assertEqual(result.event_count, 1)
+        ev = result.events[0]
+        self.assertEqual(ev["start"], "2026-05-18")
+        self.assertEqual(ev["end"], "2026-05-19")
+        # All-day events carry no clock time and no timezone.
+        self.assertNotIn("start_time", ev)
+        self.assertNotIn("end_time", ev)
+        self.assertNotIn("tz", ev)
+
+    def test_date_only_all_day_still_works(self):
+        """The original date-only shape must keep working."""
+        result = self._run([{
+            "type": "singleInstance",
+            "subject": "Holiday",
+            "start": {"date": "2026-05-18"},
+            "end": {"date": "2026-05-18"},
+            "location": {},
+        }])
+        ev = result.events[0]
+        self.assertEqual(ev["start"], "2026-05-18")
+        self.assertNotIn("tz", ev)
+
+    def test_timed_event_unaffected(self):
+        """An ordinary timed event must NOT be treated as all-day."""
+        result = self._run([DOCTOR_ONEOFF])
+        ev = result.events[0]
+        self.assertEqual(ev["start"], "2026-03-10T09:00:00")
+        self.assertEqual(ev["tz"], "America/Toronto")
+
+
 class TestResolveTzFallbackChain(unittest.TestCase):
     """GAP 3 — _resolve_tz fallback chain: event tz → mailbox tz → hardcoded fallback."""
 
