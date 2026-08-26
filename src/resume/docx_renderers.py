@@ -131,16 +131,24 @@ class BulletRenderer:
         return match_pos, match_kw
 
     def _bold_keywords(self, paragraph, text: str, keywords: list[str]):
-        """Add text with keywords bolded."""
+        """Add text with keywords bolded.
+
+        The loop already emits the remaining text before breaking, so the
+        trailing fallback must not run when it did. Previously both fired when
+        no keyword matched — `idx` was still 0 at the break — and every
+        unmatched bullet rendered its text TWICE, concatenated with no
+        separator ("...at scaleInstrumented and monitored...").
+        """
         lowered = text.lower()
         idx = 0
-        found_any = False
+        emitted = False
 
         while idx < len(text):
             match_pos, match_kw = self._find_earliest_keyword(lowered, text, keywords, idx)
 
             if match_pos is None:
                 paragraph.add_run(text[idx:])
+                emitted = True
                 break
 
             if match_pos > idx:
@@ -148,10 +156,10 @@ class BulletRenderer:
 
             br = paragraph.add_run(match_kw or "")
             br.bold = True
-            found_any = True
+            emitted = True
             idx = match_pos + len(match_kw or "")
 
-        if not found_any and idx == 0:
+        if not emitted:
             paragraph.add_run(text)
 
 

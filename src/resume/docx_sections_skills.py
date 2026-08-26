@@ -91,9 +91,18 @@ class SummarySectionRenderer(ListSectionRenderer):
         cfg: dict,
         keywords: list[str] | None,
     ) -> None:
-        """Split a string summary into bullet sentences."""
-        raw_items = [s.strip() for s in text.replace("\n", " ").split(".")]
-        items = [s for s in raw_items if s]
+        """Split a string summary into bullets.
+
+        Newlines win when present: the docx parser joins each source profile
+        bullet with "\\n", so those are the real item boundaries. Splitting such
+        a summary on "." instead would break every bullet containing an
+        abbreviation, a version number, or a trailing period. Sentence
+        splitting remains the fallback for single-line summaries.
+        """
+        if "\n" in text:
+            items = [s.strip() for s in text.split("\n") if s.strip()]
+        else:
+            items = [s.strip() for s in text.split(".") if s.strip()]
         max_sent = _safe_int_limit(cfg, "max_sentences")
         if max_sent > 0:
             items = items[:max_sent]
