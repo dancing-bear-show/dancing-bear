@@ -1,0 +1,793 @@
+# Adversarial quality audit of an EXISTING resume document.
+#
+# No job posting required. This is a standalone quality pass: fan out
+# concern-scoped reviewers over one rendered resume, consolidate their findings,
+# kill the false positives, and report what is wrong ranked by severity.
+#
+# READ-ONLY on the resume. This workflow never edits the audited document, the
+# profile YAML, or anything under src/resume/config. It produces findings and a
+# report; every fix is the human's to apply. `report` is the terminal stage —
+# nothing downstream renders, writes, or commits.
+#
+# DAG:
+#   init  (workspace + PII gitignore guard + resume file exists)
+#     |
+#   load-concerns  (concerns/resume-copy.md + RESUME_WRITING_GUIDE.md -> guides.md)
+#     |
+#   extract-document  (resume extract -> document.json + extraction guard)
+#     |
+#     +-------------------+-------------------+-------------------+-------------------+
+#     |                   |                   |                   |                   |
+#   audit-copy-quality  audit-quantification  audit-credibility  audit-ats-parseability  audit-staleness
+#     |                   |                   |                   |                   |
+#     +-------------------+-------------------+-------------------+-------------------+
+#     |
+#   consolidate  (merge 5 lanes, dedupe, rank by severity)
+#     |
+#   fact-check-findings  (execute — kill false positives before the human sees them)
+#     |
+#   report  (propose, human_gate — ranked findings + concrete rewrites)
+
+name: resume-audit
+version: "1.0"
+description: >
+  Adversarial review of an existing resume document. Extracts the resume into
+  structured data, fans out five concern-scoped audit lanes in parallel
+  (copy quality, quantification, credibility, ATS parseability, staleness),
+  consolidates and de-duplicates their findings, fact-checks every finding
+  against the actual document, and reports what is wrong ranked by severity —
+  each finding carrying a concrete suggested rewrite, not just a complaint.
+
+  This workflow is READ-ONLY on the resume. It never edits the audited
+  document or any profile YAML. The report stage is terminal.
+
+  False positives are the primary failure mode. concerns/resume-copy.md carries
+  explicit scope exceptions — do not flag tense on a role with `end: Present`;
+  skip roles with fewer than 3 bullets and the most distant role when scoring
+  quantification. Those exceptions are carried verbatim into guides.md and
+  enforced again in fact-check-findings, because flagging valid copy wastes the
+  reader's attention as surely as missing invalid copy does.
+
+  Outputs (all under the workspace, which must be a gitignored path because
+  resumes are PII):
+    - guides.md                     condensed concern + standards contract
+    - document.json                 the extracted resume
+    - findings-copy-quality.json    per-lane findings
+    - findings-quantification.json
+    - findings-credibility.json
+    - findings-ats.json
+    - findings-staleness.json
+    - findings-consolidated.json    merged, deduped, severity-ranked
+    - findings-verified.json        surviving findings after fact-check
+    - audit-report.md               the human-facing report
+
+metadata:
+  author: dancing-bear
+  created: "2026-08-26"
+
+trigger:
+  source: manual
+  params:
+    resume_file: ""       # REQUIRED: path to the resume DOCX/PDF/txt/md/html to audit
+    out_dir: "src/resume/_data/audit"   # gitignored per the PII policy
+    label: "current"      # short slug naming this audit run, e.g. "2026-08-draft"
+    min_severity: "minor" # lowest severity carried into the report: critical|major|minor
+
+workspace_dir: "{out_dir}/{label}"
+
+stages:
+
+  # ==========================================================================
+  # Stage 1: init — workspace, PII guard, input validation
+  # ==========================================================================
+  - name: init
+    kind: gather
+    description: >
+      Create the workspace:
+
+        mkdir -p {workspace}/outputs
+
+      Then confirm the PII placement is safe. Run:
+
+        git check-ignore -v {workspace}
+
+      If the path is NOT ignored, STOP and report it. A resume carries a name,
+      phone number, and email; extracting one into a tracked path would commit
+      PII. Do not proceed on an unignored path.
+
+      Then verify the audit target exists and is readable:
+
+        test -r "{resume_file}"
+
+      Fail loudly if {resume_file} is empty or the file is missing — every
+      downstream stage audits that one document, so an absent input produces
+      five lanes of findings about nothing.
+    agent:
+      role: researcher
+      model: haiku
+      tools: [Bash]
+      access: read-write
+    required: true
+    writes_to: []
+
+  # ==========================================================================
+  # Stage 2: load-concerns — the audit contract every lane is held to
+  # ==========================================================================
+  - name: load-concerns
+    kind: gather
+    depends_on: [init]
+    description: >
+      Write {workspace}/outputs/guides.md — the single contract all five audit
+      lanes and the fact-checker are held to.
+
+      Read these two files:
+        - concerns/resume-copy.md           (the enforceable checks)
+        - .claude/RESUME_WRITING_GUIDE.md   (the prescriptive standard behind them)
+
+      The file must contain four sections:
+
+      1. CONCERN IDS — every concern ID from concerns/resume-copy.md with its
+         severity and its one-line check, copied not paraphrased. At minimum:
+         resume-bullet-weak-opener (major), resume-bullet-unquantified (minor),
+         resume-banned-phrase (minor), resume-bullet-too-long (minor),
+         resume-bullet-terminal-period (minor), resume-first-person-pronoun
+         (major), resume-inconsistent-tech-naming (minor),
+         resume-date-inconsistency (major), resume-unverifiable-metric
+         (critical).
+
+      2. SCOPE EXCEPTIONS, VERBATIM — this section is load-bearing and must be
+         copied word for word, not summarized. It includes at least:
+           - the tense rule: do NOT flag tense on the current role (the entry
+             with `end: Present`); both readings are correct there. Only flag a
+             present-tense opener on a role that has ENDED.
+           - the quantification skip rule: skip roles with fewer than 3 bullets,
+             and skip the most distant role in the list.
+           - the banned-phrase scope exception: do not flag occurrences inside
+             the guide files themselves; exclude fenced code blocks and inline
+             code spans.
+           - the first-person exception: LinkedIn About copy SHOULD use first
+             person — the concern targets resume surfaces only.
+           - the abbreviation exception: an abbreviation inside a bullet is fine
+             once the canonical name appears earlier in the same document. Flag
+             only when no canonical mention exists anywhere.
+           - the unverifiable-metric provenance rule: phrase findings as
+             "confirm this figure" and cite the conflicting value. The reviewer
+             cannot verify external facts and must not assert a number is false.
+         Losing an exception here turns into a false positive downstream, and a
+         report padded with false positives gets discarded whole.
+
+      3. STANDARDS — from .claude/RESUME_WRITING_GUIDE.md: the strong-verb
+         opener list, the banned phrase table copied with BOTH columns (the
+         replacement matters, not just the prohibition), the 28-word ceiling,
+         the no-terminal-period rule, the >=50% per-role quantification target,
+         the canonical vendor spellings, the one-date-format rule, and the
+         section ordering list.
+
+      4. FINDINGS SCHEMA — state it here verbatim so all five lanes emit the
+         same shape. Mismatched shapes crash consolidate.
+
+           {
+             "lane": "<lane name>",
+             "findings": [
+               {
+                 "concern_id": "resume-bullet-weak-opener",
+                 "severity": "critical|major|minor",
+                 "role": "<company — title, or 'summary' / 'skills' / 'document'>",
+                 "bullet_text": "<the exact offending text, verbatim>",
+                 "why": "<one sentence: what rule it breaks and why that matters>",
+                 "suggested_rewrite": "<concrete replacement text, not advice>"
+               }
+             ]
+           }
+
+         Rules binding every lane:
+           - `severity` must be one of critical, major, minor — no other value.
+           - `concern_id` must come from section 1, or be a lane-local ID
+             declared in that lane's own description.
+           - `bullet_text` must be copied verbatim from document.json so the
+             fact-checker can string-match it. A paraphrase there is
+             indistinguishable from a hallucination.
+           - `suggested_rewrite` is REQUIRED and must be replacement text the
+             human could paste. "Add a metric" is not a rewrite; "Cut alert
+             volume 60% by replacing threshold alerts with SLO burn-rate
+             alerts" is.
+           - A lane with nothing to report writes a findings array of length
+             zero. It never omits the file.
+
+      Exit non-zero if either source file is missing — auditing without the
+      concern definitions would produce findings against invented rules.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - guides.md
+
+  # ==========================================================================
+  # Stage 3: extract-document — resume -> structured JSON, with a parser guard
+  # ==========================================================================
+  - name: extract-document
+    kind: execute
+    depends_on: [init]
+    description: >
+      Extract the audited resume into structured data:
+
+        ./bin/assistant resume extract --resume {resume_file} --out {workspace}/outputs/document.json
+
+      Then VALIDATE the extraction before any lane runs — this parser has
+      produced silently wrong output before, and auditing corrupted extraction
+      produces garbage findings that read exactly like real ones. Check:
+        - role count is plausible (compare against the source document)
+        - no role title starts with a bullet glyph
+        - each role has a non-empty company and at least one bullet
+
+      If any check fails, report the specific defect and STOP. Five audit lanes
+      reporting on mangled data would waste the reader's attention on parser
+      artifacts and hide the real defects underneath them.
+
+      Then write {workspace}/outputs/extraction-notes.md recording what the
+      guard observed: the role count, whether any title needed a glyph check,
+      any section present in the source document but absent from the JSON, and
+      any field that came through empty. audit-ats-parseability reads this file
+      as evidence — a section the parser could not read is itself the ATS
+      finding, because an ATS runs a parser no better than this one. Write the
+      file on every path, including the clean one (record "no anomalies").
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - document.json
+      - extraction-notes.md
+
+  # ==========================================================================
+  # Parallel audit lanes — five independent concern scopes.
+  # Each lane writes ONLY its own findings file. Never the merged output:
+  # a lane declaring consolidate's file is marked failed despite succeeding.
+  # ==========================================================================
+
+  # --------------------------------------------------------------------------
+  # Lane 1: audit-copy-quality
+  # --------------------------------------------------------------------------
+  - name: audit-copy-quality
+    kind: execute
+    depends_on: [extract-document, load-concerns]
+    reads_from: [extract-document, load-concerns]
+    description: >
+      Audit the prose mechanics of every bullet, summary, and headline in
+      {workspace}/outputs/document.json.
+
+      READ FIRST: {workspace}/outputs/guides.md. Section 2 (scope exceptions)
+      binds you as hard as section 1 does.
+
+      Concern IDs you own — do not emit findings under any other ID:
+        - resume-bullet-weak-opener (major) — ownership-distancing openers
+          ("Responsible for", "Helped", "Assisted", "Worked on", "Involved in",
+          "Participated in", "Tasked with", "Duties included", "Contributed
+          to"), a bullet opening with an article ("A", "An", "The"), or a gerund
+          opener ("Building", "Managing") where a finite verb belongs.
+          TENSE EXCEPTION: do NOT flag tense on the role with `end: Present`.
+          Both readings are correct there. Flag a present-tense opener only on a
+          role that has ENDED.
+        - resume-banned-phrase (minor) — "utilize", "leverage" (as a verb),
+          "facilitate", "spearheaded", "championed", "team player",
+          "self-starter", "results-driven", "detail-oriented", "proven track
+          record", "passionate about", "synergy", "best-in-class",
+          "world-class", "cutting-edge", "state-of-the-art", "various",
+          "several", "multiple" where a count is knowable. Flag EVERY instance,
+          not just the first. Take the replacement for each from the banned
+          phrase table in guides.md — that is your suggested_rewrite.
+        - resume-bullet-too-long (minor) — more than 28 whitespace-delimited
+          words, or two independent clauses each carrying their own metric.
+          Where the bullet holds two accomplishments, the rewrite is two
+          bullets, each with its own metric.
+        - resume-bullet-terminal-period (minor) — resume bullets are fragments
+          and take no terminal period. Determine the document's established
+          convention first: if most bullets already omit the period, flag the
+          minority that carry one. If the document is split, flag the terminal
+          periods uniformly and say so once rather than per bullet.
+        - resume-first-person-pronoun (major) — a standalone "I", "my", or "me",
+          or the candidate's own name, inside a bullet or summary.
+        - resume-inconsistent-tech-naming (minor) — non-canonical vendor
+          spelling ("terraform", "kafka", "postgres", "javascript", "github").
+          ABBREVIATION EXCEPTION: do NOT flag "k8s" or "OTel" inside a bullet if
+          the canonical name appears anywhere else in the document. Flag only
+          when no canonical mention exists anywhere.
+
+      Count words and check openers mechanically — read the actual strings from
+      document.json rather than estimating from memory of the document.
+
+      Write {workspace}/outputs/findings-copy-quality.json using the schema in
+      section 4 of guides.md, with lane set to "copy-quality". Write a findings
+      array of length zero if the copy is clean.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - findings-copy-quality.json
+
+  # --------------------------------------------------------------------------
+  # Lane 2: audit-quantification
+  # --------------------------------------------------------------------------
+  - name: audit-quantification
+    kind: execute
+    depends_on: [extract-document, load-concerns]
+    reads_from: [extract-document, load-concerns]
+    description: >
+      Score quantification per role against the >=50% target, honoring the
+      documented skip rules.
+
+      READ FIRST: {workspace}/outputs/guides.md.
+
+      Concern ID you own: resume-bullet-unquantified (minor).
+
+      Method — compute, do not estimate:
+        1. For each experience entry in document.json, count bullets containing
+           a digit, a spelled-out quantity, or a magnitude token (dollar sign,
+           percent sign, K, M, or x).
+        2. Report the ratio PER ROLE. A single unquantified bullet is fine; a
+           role where fewer than half carry a number is the finding.
+        3. SKIP RULES — apply both, and they are exclusions, not soft
+           preferences:
+             - skip any role with fewer than 3 bullets
+             - skip the most distant role in the list
+           A role you skipped produces NO finding. Do not emit a finding noting
+           that you skipped it.
+
+      For each role below target, the suggested_rewrite must be a concrete
+      rewritten bullet for the WEAKEST existing bullet in that role — one that
+      adds a metric the bullet's own text already implies. Where no metric is
+      inferable from the document, say so explicitly in the `why` field and make
+      the rewrite a bullet with a clearly marked placeholder rather than
+      inventing a number. Never fabricate a figure: an invented metric survives
+      review and fails a reference check, which is the worst outcome this
+      workflow can produce.
+
+      Set `role` to the role being scored and `bullet_text` to the verbatim text
+      of the weakest bullet you are proposing to rewrite. Put the measured ratio
+      (e.g. "1/4 bullets quantified, target >= 50%") in the `why` field.
+
+      Write {workspace}/outputs/findings-quantification.json using the schema in
+      section 4 of guides.md, with lane set to "quantification". Write a findings
+      array of length zero if every non-skipped role meets the target.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - findings-quantification.json
+
+  # --------------------------------------------------------------------------
+  # Lane 3: audit-credibility
+  # --------------------------------------------------------------------------
+  - name: audit-credibility
+    kind: execute
+    depends_on: [extract-document, load-concerns]
+    reads_from: [extract-document, load-concerns]
+    description: >
+      Apply one lens to the whole document: would this survive a reference
+      check? This lane finds the defects that pass a copy edit and fail in the
+      room.
+
+      READ FIRST: {workspace}/outputs/guides.md.
+
+      Concern IDs you own:
+        - resume-unverifiable-metric (critical) — a metric contradicting another
+          figure in the same document (the summary says "grew team to 9" while a
+          bullet says "grew team from 1 to 12"); a percentage above 100 for a
+          reduction; team-size or scale figures inconsistent between the summary
+          and the role bullets; a figure whose magnitude is implausible for the
+          role's seniority or tenure.
+        - resume-date-inconsistency (major) — mixed date formats within the
+          document (2021 vs Jan 2021 vs 01/2021); an `end` earlier than its
+          `start`; overlapping tenure at two full-time roles with no
+          explanation; a gap longer than six months between consecutive roles;
+          more than one entry with `end: Present`; a publication or talk dated
+          outside the tenure of the role it is attributed to.
+        - resume-vague-scope (major, lane-local ID) — a claim whose magnitude is
+          unstated where it decides whether the accomplishment is impressive:
+          "improved reliability", "reduced costs", "scaled the platform", "led
+          the migration" with no size, no baseline, and no outcome. Distinct
+          from unquantified bullets: this is a claim whose MEANING depends on a
+          number that is absent, not merely a bullet lacking one.
+        - resume-metric-no-baseline (minor, lane-local ID) — a number present
+          but meaningless without its baseline: "reduced latency by 200ms" (from
+          what?), "grew the team by 8" (from what?). The guide's rule is
+          explicit: "grew team from 1 to 9", not "grew team by 8".
+
+      PROVENANCE RULE — binding. You cannot verify external facts. Phrase every
+      metric finding as "confirm this figure" and cite the conflicting value you
+      found in the document. Never assert that a number is false. The candidate
+      may hold true evidence the document omits; asserting fabrication on
+      internal evidence alone is itself a defect.
+
+      Flag only what the document's own text supports as suspicious. A large
+      but internally consistent and plausible number is not a finding — treating
+      every impressive metric as suspect trains the reader to ignore this lane.
+
+      Write {workspace}/outputs/findings-credibility.json using the schema in
+      section 4 of guides.md, with lane set to "credibility". Write a findings
+      array of length zero if nothing is questionable.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - findings-credibility.json
+
+  # --------------------------------------------------------------------------
+  # Lane 4: audit-ats-parseability
+  # --------------------------------------------------------------------------
+  - name: audit-ats-parseability
+    kind: execute
+    depends_on: [extract-document, load-concerns]
+    reads_from: [extract-document, load-concerns]
+    description: >
+      Audit whether a machine can read this document. Most resumes are parsed
+      before a human sees them; a document that renders beautifully and parses
+      badly is filtered out silently.
+
+      READ FIRST: {workspace}/outputs/guides.md and
+      {workspace}/outputs/extraction-notes.md.
+
+      YOUR STRONGEST EVIDENCE is the extraction itself. The repo's own parser is
+      a reasonable proxy for an ATS parser: anything it lost, an ATS may lose
+      too. Compare {workspace}/outputs/document.json against the source document
+      at {resume_file} and treat every discrepancy as a candidate finding.
+
+      Concern IDs you own (all lane-local to this lane):
+        - ats-section-unparsed (critical) — a section visible in the source
+          document that is missing, empty, or truncated in document.json. This
+          is the highest-value finding in the lane: the content exists and the
+          machine did not see it.
+        - ats-nonstandard-heading (major) — a section heading an ATS will not
+          map to a known field. "Professional Experience", "Experience",
+          "Education", "Skills" map cleanly; "Where I've Made a Dent", "My
+          Journey", "Toolbox" do not. The rewrite is the conventional heading.
+        - ats-date-format-unparseable (major) — a date an ATS cannot parse into
+          a range: a bare year with no month where other roles carry months, a
+          non-standard separator, a dash character where a plain hyphen is
+          expected, or "Present" spelled inconsistently across roles. The guide
+          requires one format per document.
+        - ats-contact-block-malformed (major) — name, email, or phone that did
+          not extract cleanly, or contact details placed in a header or footer.
+          Content in a DOCX header or footer is invisible to many parsers, which
+          is how a resume arrives with no way to contact the candidate.
+        - ats-layout-hostile (major) — evidence of tables, multi-column layout,
+          or text boxes. These reorder or interleave text on extraction. Symptom
+          to look for in document.json: two unrelated lines merged into one
+          field, or bullets landing under the wrong role.
+        - ats-glyph-noise (minor) — bullet glyphs, private-use-area characters,
+          or ligatures leaking into extracted text values (a role title or
+          bullet beginning with a bullet glyph or a dash). A glyph inside the
+          text means the parser read decoration as content.
+
+      Inspect the source document for structural evidence rather than guessing.
+      For a DOCX, the presence of table or text-box markup is checkable:
+
+        python3 -c '
+        import sys, zipfile
+        z = zipfile.ZipFile(sys.argv[1])
+        x = z.read("word/document.xml").decode("utf-8")
+        print("tables:", x.count("<w:tbl>"))
+        print("textboxes:", x.count("<w:txbxContent>"))
+        print("columns:", x.count("<w:cols"))
+        print("parts:", [n for n in z.namelist() if "header" in n or "footer" in n])' "{resume_file}"
+
+      Pass the path as argv[1] as shown — never interpolate {resume_file} into
+      the Python source itself. That value is a user-supplied param, so a quote
+      character in it would break the literal and turn the snippet into an
+      injection point. If the source is not a DOCX, skip this probe and rely on
+      the extraction comparison; say which you used.
+
+      Write {workspace}/outputs/findings-ats.json using the schema in section 4
+      of guides.md, with lane set to "ats". For structural findings with no
+      single offending line, set `role` to "document" and `bullet_text` to the
+      heading or the nearest verbatim text; never invent a line to fill the
+      field.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - findings-ats.json
+
+  # --------------------------------------------------------------------------
+  # Lane 5: audit-staleness
+  # --------------------------------------------------------------------------
+  - name: audit-staleness
+    kind: execute
+    depends_on: [extract-document, load-concerns]
+    reads_from: [extract-document, load-concerns]
+    description: >
+      Audit what the document says about when it was last thought about. A
+      resume dates itself through its tooling vocabulary and its allocation of
+      space.
+
+      READ FIRST: {workspace}/outputs/guides.md.
+
+      Concern IDs you own (all lane-local to this lane):
+        - stale-technology (major) — a named technology that has been
+          superseded or has largely left production use, listed as a current
+          skill rather than confined to the historical role where it was used.
+          Judge by whether a reader would read it as current competence.
+        - stale-tooling-vocabulary (minor) — terminology that dates the author
+          even where the underlying skill is current: describing container
+          orchestration without naming the orchestrator, naming a CI product
+          that has since been renamed, or using a job title framing that has
+          fallen out of use.
+        - missing-recent-relevant-skill (major) — a capability strongly implied
+          by the recent roles but named nowhere in the skills section.
+          Recruiter and ATS matching is literal, so a skill the candidate
+          demonstrably has but never names cannot be matched. Evidence must come
+          from the document's own bullets — the rewrite is a skills-list entry,
+          and you must cite the bullet that supports it. Do NOT propose a skill
+          the document gives no evidence for; that is fabrication wearing a
+          different hat.
+        - ancient-role-overweighted (minor) — a role more than roughly fifteen
+          years old carrying as many bullets as a recent one. The guide's rule
+          is 3 to 6 bullets per role, weighted toward recent roles: a role from
+          fifteen years ago needs one or two. The rewrite names which bullets to
+          keep, and keeps the ones carrying metrics.
+        - skills-list-padded (minor) — a skills list containing entries with no
+          supporting evidence anywhere in the experience section, or so long
+          that the top items lose weight. Name the specific unsupported entries.
+
+      Anchor "recent" to the document's own most recent `end` date, not to
+      today. A resume last updated three years ago should be judged against the
+      state of practice it claims, and saying so is itself the useful finding.
+
+      Do not flag a technology merely for being old where the role itself is
+      old. A 2009 role naming a 2009 stack is accurate history. The finding is
+      an obsolete technology presented as CURRENT competence, or a recent role
+      described in vocabulary that has moved on.
+
+      Write {workspace}/outputs/findings-staleness.json using the schema in
+      section 4 of guides.md, with lane set to "staleness". Write a findings
+      array of length zero if the document reads current.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - findings-staleness.json
+
+  # ==========================================================================
+  # Stage 4: consolidate — merge the five lanes, dedupe, rank
+  # ==========================================================================
+  - name: consolidate
+    kind: execute
+    depends_on:
+      - audit-copy-quality
+      - audit-quantification
+      - audit-credibility
+      - audit-ats-parseability
+      - audit-staleness
+    reads_from:
+      - audit-copy-quality
+      - audit-quantification
+      - audit-credibility
+      - audit-ats-parseability
+      - audit-staleness
+      - load-concerns
+    description: >
+      Merge the five lane files into one ranked list.
+
+      Read all five, in this fixed order so the output is deterministic across
+      runs:
+        {workspace}/outputs/findings-copy-quality.json
+        {workspace}/outputs/findings-quantification.json
+        {workspace}/outputs/findings-credibility.json
+        {workspace}/outputs/findings-ats.json
+        {workspace}/outputs/findings-staleness.json
+
+      Read them by their explicit names as listed — do not glob the directory.
+      A missing file is an error worth reporting, not a lane to skip silently:
+      report which lane produced no file and continue with the rest.
+
+      Validate each file against section 4 of guides.md before merging. A lane
+      that emitted a wrong shape (an array where an object belongs, a severity
+      outside critical/major/minor, a finding missing suggested_rewrite) gets
+      reported as a lane defect rather than crashing the merge. Drop only the
+      malformed findings, keep the valid ones from the same file, and record
+      what you dropped.
+
+      DEDUPE — lanes overlap by design and the same defect surfaces more than
+      once. Two findings are duplicates when they name the same role and the
+      same bullet_text. On a duplicate:
+        - keep the finding with the HIGHEST severity (critical, then major,
+          then minor)
+        - preserve the losing finding's concern_id in an `also_flagged_as` list
+          on the survivor, so the report can say a bullet failed two checks
+        - keep the more specific suggested_rewrite; if one rewrite fixes both
+          concerns, prefer it and say so in the `why` field
+
+      A bullet that is both too long and opens weakly is ONE finding for the
+      reader to act on, not two. Merging them is the point of this stage.
+
+      RANK — sort by severity (critical, then major, then minor), and within a
+      severity by role in document order so the reader can walk the document top
+      to bottom. Drop anything below {min_severity}.
+
+      Write {workspace}/outputs/findings-consolidated.json with these keys:
+        - resume_file: the audited path
+        - lane_status: one entry per lane, each recording the lane name, whether
+          its file was present, how many findings it contributed, and how many
+          were dropped as malformed
+        - counts: critical, major, and minor totals
+        - findings: the ranked list, each in the section-4 schema plus an
+          optional `also_flagged_as` list of concern IDs
+
+      Report the count going in, the count after dedupe, and the count after the
+      {min_severity} cut, so a collapse in numbers is visible rather than silent.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - findings-consolidated.json
+
+  # ==========================================================================
+  # Stage 5: fact-check-findings — kill false positives before the human sees them
+  # ==========================================================================
+  # kind is execute, NOT validate, despite this being a verification stage.
+  # src/workflow/dispatch.py `_validate()` builds its prompt from scratch and
+  # never calls `_header()`, so `description` is dropped for kind: validate.
+  # This stage's contract — the typed `dropped` reason taxonomy, the verbatim
+  # bullet_text match rule, and the drop-rather-than-trust disposition — lives
+  # entirely in the description below and would be replaced by the generic
+  # "classify PASS/FAIL/WARN" prompt. The `dropped` array would then never be
+  # produced, silently removing this workflow's calibration record.
+  # Do not change this to kind: validate without moving the full contract into
+  # a `validation:` block with strategy and criteria.
+  - name: fact-check-findings
+    kind: execute
+    depends_on: [consolidate]
+    reads_from: [consolidate, extract-document, load-concerns]
+    description: >
+      Adversarially verify every finding in findings-consolidated.json against
+      the actual document, and write the survivors to
+      {workspace}/outputs/findings-verified.json.
+
+      This stage exists because false positives are this workflow's main failure
+      mode. A report the reader cannot trust gets discarded whole, taking the
+      true findings with it. Assume each finding is wrong until the document
+      proves it right.
+
+      For every finding, check all four:
+
+        1. TEXT EXISTS — bullet_text must appear verbatim in document.json.
+           A near-match is a paraphrase, and a paraphrase is indistinguishable
+           from a hallucination. Drop it.
+        2. ROLE IS RIGHT — the quoted text must actually belong to the named
+           role. A bullet attributed to the wrong employer sends the reader
+           editing the wrong section.
+        3. RULE ACTUALLY BROKEN — re-apply the concern's own check from
+           guides.md. Count the words yourself for a too-long finding. Confirm
+           the opener is genuinely on the banned list. Confirm the banned phrase
+           is present as claimed and used in the flagged sense ("leverage" as a
+           verb is a finding; "leverage" as a noun in a financial context is
+           not).
+        4. NO EXCEPTION APPLIES — section 2 of guides.md. Drop the finding if:
+             - it flags tense on a role with `end: Present`
+             - it flags quantification on a role with fewer than 3 bullets or on
+               the most distant role
+             - it flags an abbreviation whose canonical name appears elsewhere
+               in the document
+             - it flags first person in LinkedIn About copy
+             - it asserts a metric is false rather than asking for confirmation
+
+      Also check the rewrite, because a bad rewrite discredits a true finding:
+        - suggested_rewrite must be concrete replacement text, not advice.
+          Reject "add a metric here" — either supply a rewrite yourself or drop
+          the finding.
+        - the rewrite must not introduce a number absent from the document. A
+          fabricated metric shipped inside an audit report is the single worst
+          output this workflow can produce. Drop any such rewrite.
+        - the rewrite must not itself violate a rule in guides.md — no terminal
+          period, no banned phrase, no weak opener, 28 words or fewer.
+
+      Write findings-verified.json in the same shape as
+      findings-consolidated.json, plus a `dropped` array recording every
+      rejected finding with the reason it failed (text_not_found, wrong_role,
+      rule_not_broken, exception_applies, bad_rewrite, fabricated_metric). The
+      dropped list is the calibration record for this workflow — a lane that
+      produces mostly dropped findings has a broken prompt, and that is only
+      visible if the drops are kept.
+
+      Do not add findings here. This stage only removes and corrects.
+      Update the counts to reflect the survivors.
+    agent:
+      role: fact-checker
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - findings-verified.json
+
+  # ==========================================================================
+  # Stage 6: report — ranked findings, concrete rewrites, human gate. TERMINAL.
+  # ==========================================================================
+  - name: report
+    kind: propose
+    human_gate: true
+    depends_on: [fact-check-findings]
+    reads_from: [fact-check-findings, consolidate, extract-document]
+    description: >
+      Write {workspace}/outputs/audit-report.md from findings-verified.json,
+      present it, and STOP.
+
+      This workflow is READ-ONLY on the resume. Do not edit {resume_file}, any
+      profile YAML, or anything under src/resume/config. Do not render a new
+      document. Present the findings and let the human decide what to apply.
+
+      Structure the report:
+
+        ## Resume Audit — {label}
+
+        One paragraph: the document audited, how many findings survived
+        verification, and the single most consequential defect. Lead with the
+        thing that costs the candidate an interview.
+
+        ### Summary
+
+        A severity table with one row each for Critical, Major, and Minor, and
+        the count for each.
+
+        ### Findings
+
+        Ranked, critical first, grouped by role in document order. For each,
+        give the severity and concern_id, the role, the verbatim offending text
+        as a block quote, one sentence of why, and the concrete rewrite.
+
+        Where a finding was flagged by more than one lane, say so once and give
+        the single rewrite that resolves both.
+
+        ### Not Flagged
+
+        Name the checks that passed, briefly. A reader needs to know the
+        quantification ratio was measured and met, not merely that nothing
+        appeared under that heading — silence is ambiguous between "checked and
+        clean" and "never checked".
+
+        ### Verification Notes
+
+        How many findings the fact-check dropped and why, in one or two lines.
+        This is the reader's calibration for how much to trust the rest.
+
+      Then ask the human to decide:
+        (a) accept the findings and apply the rewrites themselves
+        (b) dispute specific findings — say which and why, so the concern
+            definitions can be tightened
+        (c) re-run a lane with a narrower scope
+
+      Report honestly. Twelve real findings beat forty padded ones: every false
+      positive spends the reader's attention and buys nothing. If the document
+      is in good shape, say that plainly rather than manufacturing findings to
+      justify the run.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - audit-report.md

@@ -1,0 +1,735 @@
+# Diff a resume profile against a LinkedIn export and draft LinkedIn-shaped copy.
+#
+# Resume and LinkedIn drift apart: a role gets updated in one place and not the
+# other, a metric is rounded differently, a title is shortened. A recruiter
+# comparing the two sees a credibility problem. This workflow finds that drift,
+# categorizes it, and drafts replacement copy sized for LinkedIn's surfaces.
+#
+# THIS WORKFLOW DOES NOT WRITE TO LINKEDIN. There is no API call, no credential,
+# no automation of linkedin.com anywhere in it. It emits copy for a human to
+# paste. It also does not rewrite the resume profile: MISSING ON RESUME items are
+# recommendations surfaced at the gate, never silent edits to the source of truth.
+#
+# DAG:
+#   init
+#     |
+#   load-guides (agent — LinkedIn ceilings + concern IDs -> guides.md)
+#     |
+#     +--------------------------+
+#     |                          |
+#   extract-linkedin        load-resume-profile
+#   (execute — export        (execute — profile overlays
+#    -> linkedin.json)        -> resume-experience.yaml)
+#     |                          |
+#     +--------------------------+
+#                 |
+#           diff-surfaces (execute — raw divergence -> divergence.json)
+#                 |
+#           classify-drift (execute — categorize + direction of truth)
+#                 |
+#           draft-linkedin-copy (execute — LinkedIn-shaped copy)
+#                 |
+#           check-copy (execute — ceilings, concern IDs, provenance; execute,
+#                       not validate — see the note above the stage)
+#                 |
+#           sync-report (propose, human_gate — table + copy to paste)
+
+name: profile-sync
+version: "1.0"
+description: >
+  Diffs a resume profile against a LinkedIn export, categorizes the divergence,
+  and drafts LinkedIn-shaped copy for the surfaces that need updating.
+
+  LinkedIn is a different genre from a resume, not a reformatted copy of one. It
+  has hard platform ceilings (headline 220 chars, About 2,600, per-role bullets
+  2,000, skills 50) and an inverted voice rule: resume copy forbids "I", while a
+  LinkedIn About section should use explicit first person. Copy written to resume
+  rules and pasted into LinkedIn reads as a pasted resume; copy over a ceiling is
+  silently truncated mid-word in the reader's feed.
+
+  The categorized diff is the point. A missing role is a chore; a CONTRADICTION
+  is a credibility failure. Per .claude/RESUME_WRITING_GUIDE.md: "Bullets may be
+  shortened for LinkedIn but must not contradict the resume — differing metrics
+  for the same accomplishment is a credibility failure", and "Dates in the resume
+  and on LinkedIn must match. Recruiters compare them." CONTRADICTION is
+  therefore ranked above every other class.
+
+  SCOPE — what this workflow will not do:
+    - It does NOT write to LinkedIn. No API, no credentials, no browser
+      automation. Output is copy for a human to paste.
+    - It does NOT modify the resume profile. Items LinkedIn has and the resume
+      lacks are surfaced as recommendations at the human gate.
+    - It does NOT invent support. Copy asserting anything absent from the resume
+      baseline fails check-copy, which exits non-zero.
+
+  Outputs (all under the workspace, which must be a gitignored path because
+  profiles are PII):
+    - guides.md               condensed ceilings, voice rules, concern IDs
+    - linkedin.json           parsed LinkedIn export
+    - resume-experience.yaml  resume-side job history
+    - divergence.json         raw field-level differences
+    - drift.json              categorized, ranked divergence
+    - linkedin-copy.md        drafted headline / About / per-role bullets
+    - copy-check.md           ceiling, concern, and provenance findings
+    - sync-report.md          the paste-ready report
+
+metadata:
+  author: dancing-bear
+  created: "2026-08-26"
+
+trigger:
+  source: manual
+  params:
+    profile: ""             # REQUIRED: profile overlay dir name under src/resume/config/profiles/<name>/
+    linkedin_export: ""     # REQUIRED: path to a LinkedIn export (txt/md/html/docx/pdf)
+    base_data: "src/resume/config/profiles/sample/profile.yaml"  # base data the profile overlays onto
+    out_dir: "src/resume/_data/profile-sync"   # gitignored per the PII policy
+    max_bullets: "6"        # max bullets per role pulled into the resume-side export
+
+workspace_dir: "{out_dir}/{profile}"
+
+stages:
+
+  # ==========================================================================
+  # Stage 1: init — workspace, PII guard, input existence
+  # ==========================================================================
+  - name: init
+    kind: gather
+    description: >
+      Create the workspace:
+
+        mkdir -p {workspace}
+
+      Then confirm the PII placement is safe. Run:
+
+        git check-ignore -v {workspace}
+
+      If the path is NOT ignored, STOP and report it. A LinkedIn export and a
+      resume profile together carry a name, location, employer history, and
+      often an email; writing them to a tracked path would commit PII. Do not
+      proceed on an unignored path.
+
+      Verify by COMMAND, not by reading .gitignore. Two separate rules cover
+      this tree — src/resume/.gitignore line 2 (`_data/`, covering everything
+      under it) and a redundant root entry — and the root file also carries a
+      narrower `profiles_private/` rule that is easy to misread as the only
+      coverage. Trust git check-ignore's answer over your reading of either file.
+
+      Then verify both required params are set and both inputs exist:
+
+        - {profile} must be non-empty, and the directory
+          src/resume/config/profiles/{profile}/ must exist and contain at least
+          one .yaml file. Use the Glob tool to confirm.
+        - {linkedin_export} must be non-empty and the file must exist.
+
+      Fail loudly and specifically if either is missing — name the param and the
+      path that failed, not a generic "missing input".
+
+      NOTE for the operator, worth reporting even on success: a real profile
+      under src/resume/config/profiles/<name>/ is IGNORED by root .gitignore
+      line 117 (`src/resume/config/profiles/*`, with only `sample/` and
+      `*.example.yaml` re-included). Files placed there look committed but are
+      silently skipped by `git add` unless forced. That is the correct, intended
+      behaviour for PII — but it means the profile overlay directory is local
+      state that will not survive a fresh clone. Report which profile directory
+      was resolved so the human knows what was actually read.
+    agent:
+      role: researcher
+      model: haiku
+      tools: [Bash, Glob]
+      access: read-write
+    required: true
+    writes_to: []
+
+  # ==========================================================================
+  # Stage 2: load-guides — the ceilings and rules both later stages are held to
+  # ==========================================================================
+  - name: load-guides
+    kind: gather
+    depends_on: [init]
+    description: >
+      Extract the rules that draft-linkedin-copy and check-copy must enforce,
+      and write them to {workspace}/guides.md.
+
+      Read these two files with the Read tool:
+        - .claude/RESUME_WRITING_GUIDE.md   (the prescriptive standard)
+        - concerns/resume-copy.md           (the enforceable checks)
+
+      Write a single condensed sheet containing:
+
+        1. THE LINKEDIN SURFACES TABLE, verbatim, from the "LinkedIn Surfaces"
+           section of RESUME_WRITING_GUIDE.md — all four rows with their limits
+           and notes. These are hard platform ceilings, and they are the numbers
+           check-copy enforces. Copy them; do not restate them from memory. If a
+           surface you need to draft has no ceiling listed in the guide, record
+           it as "no ceiling specified in the guide" — do NOT supply a number of
+           your own.
+
+        2. THE VOICE INVERSION, stated explicitly, because it is the rule most
+           likely to be applied backwards:
+             - Resume bullets: implied first person, never "I" (concern
+               resume-first-person-pronoun, severity major).
+             - LinkedIn About: explicit FIRST PERSON is preferred and correct
+               ("I build systems that..."). concerns/resume-copy.md carries an
+               explicit scope exception for it — that concern "targets resume
+               surfaces only". Record the exception next to the rule so a
+               downstream stage cannot flag correct About copy.
+
+        3. THE SURFACE-SPECIFIC COMPOSITION RULES from the same section:
+             - Headline: name the current role, the differentiator, and the top
+               two or three technologies; avoid a bare job title, which "wastes
+               the most-indexed field on the profile"; pipe-separated segments
+               scan well.
+             - About: open with the thesis, not a job history; prose in 3-5
+               short paragraphs; close with what you are working on now; avoid
+               bullet lists, which "read as a pasted resume".
+             - Experience bullets: the same bullet rules as the resume apply.
+             - Skills: 50 max, and the top 3 are pinned and weighted most in
+               search.
+
+        4. THE RESUME/PROFILE PARITY RULE, verbatim: every role, title, and date
+           on the resume should appear on LinkedIn; bullets may be shortened for
+           LinkedIn but must not contradict the resume; "differing metrics for
+           the same accomplishment is a credibility failure". Also record "Dates
+           in the resume and on LinkedIn must match. Recruiters compare them."
+           and the rule that skill names stay consistent between the resume YAML
+           and LinkedIn because search matching is literal.
+
+        5. THE BANNED PHRASE TABLE, verbatim — both columns. Downstream agents
+           need the replacement, not just the prohibition.
+
+        6. EVERY CONCERN ID from concerns/resume-copy.md with its severity and
+           one-line check, with special attention to the two LinkedIn ones —
+           linkedin-surface-over-limit and linkedin-resume-drift — including
+           linkedin-resume-drift's PROVENANCE RULE in full: do not report drift
+           against a field tagged `unverified`, `unverified-possibly-empty`, or
+           `dates_source: resume-not-linkedin`, because those record what could
+           not be READ, not what the profile SAYS. A field tagged
+           `presence_on_linkedin: absent-in-preview` IS reportable.
+
+      Record every scope exception alongside its rule. Flagging valid copy wastes
+      the human's attention at the gate as surely as missing invalid copy does,
+      and on this workflow the exceptions are where the false positives live.
+
+      Copy the rules; do not paraphrase them into something looser. This file is
+      the contract both downstream stages are held to, so drift here becomes
+      drift in the copy.
+
+      Exit non-zero if either source file is missing — running without the guides
+      would silently produce unchecked copy against invented ceilings.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - "guides.md"
+
+  # ==========================================================================
+  # Stage 3: extract-linkedin — the export -> structured data, with a sanity guard
+  # ==========================================================================
+  - name: extract-linkedin
+    kind: execute
+    depends_on: [load-guides]
+    description: >
+      Parse the LinkedIn export into structured data:
+
+        ./bin/assistant resume extract --linkedin {linkedin_export} --out {workspace}/linkedin.json
+
+      Then VALIDATE the extraction before continuing. This parser is regex and
+      meta-tag based over user-supplied HTML or text (src/resume/parsing_linkedin.py):
+      it reads name and headline from og:title and meta tags, splits the
+      description on the "·" separator, and hands the body to the shared
+      section-based text parser. A saved-from-browser HTML page, a copy-paste
+      that lost its section headings, or a locale that renders dates differently
+      all degrade it quietly rather than failing.
+
+      Check ALL of the following against the raw export, reading it with the Read
+      tool to compare:
+
+        - role count is plausible and matches what the export actually shows.
+          Zero roles, or one role when the export clearly lists several, means
+          the section headings were not recognised.
+        - every role has a non-empty company. Empty companies mean the
+          title/company line split failed.
+        - no role title starts with a bullet glyph (•, -, *, ·) or a stray digit
+          — a sign that list markup leaked into the parsed field.
+        - the parsed name and headline are non-empty and are not obviously page
+          chrome ("LinkedIn", "Sign Up", "See who you know").
+        - dates, where present, look like dates rather than fragments of a
+          sentence.
+
+      If ANY check fails, report the specific defect with the offending value and
+      STOP. Do not continue with partial data. The entire downstream purpose of
+      this workflow is detecting contradictions between two sources; a garbled
+      parse manufactures contradictions that do not exist, and a false
+      CONTRADICTION report is worse than no report because it sends the human to
+      "fix" a profile that was already correct.
+
+      A partial capture is normal and is NOT a parse failure. LinkedIn blocks
+      unauthenticated fetches, so an export often legitimately lacks the About
+      text or per-role bullets. Distinguish the two cases and record which
+      fields were genuinely absent from the export, following the provenance
+      vocabulary in src/resume/config/linkedin.example.yaml — `unverified`,
+      `unverified-possibly-empty`, `dates_source: resume-not-linkedin`. Write
+      those tags into linkedin.json alongside the parsed values. Downstream
+      stages must be able to tell "LinkedIn says something different" from
+      "we could not read what LinkedIn says", and that distinction only exists
+      if this stage records it.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - "linkedin.json"
+
+  # ==========================================================================
+  # Stage 4: load-resume-profile — profile overlays -> job history
+  # ==========================================================================
+  - name: load-resume-profile
+    kind: execute
+    depends_on: [load-guides]
+    description: >
+      Export the resume-side job history from the profile overlay.
+
+      IMPORTANT — this command MUST run with src/resume as the working directory.
+      `apply_profile_overlays` in src/resume/overlays.py resolves overlays against
+      a RELATIVE `Path("config")`, so `--profile {profile}` finds
+      config/profiles/{profile}/ only when the working directory is src/resume.
+
+      This is a verified silent failure, not a hypothetical. Run from the repo
+      root, the same command exits 0 and writes `experience: []` — an empty diff
+      that reads as a perfectly clean profile. Nothing warns you.
+
+      Note also that `./bin/assistant` is relative to the REPO ROOT, so
+      `cd src/resume && ./bin/assistant ...` fails with "no such file or
+      directory". Use an ABSOLUTE path to the binary. Capture the repo root
+      first, then invoke:
+
+        ROOT=$(git rev-parse --show-toplevel)
+        cd "$ROOT/src/resume" && "$ROOT/bin/assistant" resume experience export --data {base_data} --profile {profile} --max-bullets {max_bullets} --out {workspace}/resume-experience.yaml
+
+      Resolve {base_data} and {workspace} to ABSOLUTE paths before running, since
+      the command runs from a different directory than the workflow root. A
+      relative {workspace} would place the output under src/resume/ instead.
+
+      Note that `--profile` is dual-purpose on this command: it selects the
+      overlay directory AND acts as the output prefix. `--out` overrides the
+      latter, which is why it is passed explicitly here.
+
+      Then VERIFY the overlay actually applied — this is the silent-failure mode
+      that makes the rest of the workflow meaningless:
+
+        - the exported role list is non-empty
+        - the roles match src/resume/config/profiles/{profile}/experience.yaml,
+          not the base data's roles. Read both with the Read tool and compare
+          company names directly.
+        - each role has a title, company, and start date
+
+      If the export came back with the base data's roles instead of the profile's,
+      the overlay did not apply — STOP and report it rather than diffing the wrong
+      person's history against the LinkedIn export.
+
+      Also read the other profile files directly with the Read tool, since the
+      experience export covers only job history and the diff needs the rest:
+      profile.yaml (name, headline, summary, contact) and skills_groups.yaml.
+      Read education.yaml, certifications.yaml, and presentations.yaml if present.
+      Record their contents in the output file under clearly named keys so
+      diff-surfaces has one input rather than re-reading the profile tree.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write, Glob]
+      access: read-write
+    required: true
+    writes_to:
+      - "resume-experience.yaml"
+
+  # ==========================================================================
+  # Stage 5: diff-surfaces — raw, field-level divergence
+  # ==========================================================================
+  - name: diff-surfaces
+    kind: execute
+    depends_on: [extract-linkedin, load-resume-profile]
+    reads_from: [extract-linkedin, load-resume-profile, load-guides]
+    description: >
+      Produce a structured, field-level divergence report at
+      {workspace}/divergence.json. This stage RECORDS differences; it does not
+      judge them. Classification is the next stage's job — keep them separate so
+      the raw comparison stays auditable.
+
+      Compare {workspace}/linkedin.json against {workspace}/resume-experience.yaml
+      across every surface:
+
+        IDENTITY   name, headline, location
+        ABOUT      the LinkedIn About/summary text vs the resume summary
+        ROLES      matched on (company, title, dates). For each role compare
+                   title, company, start, end, and the substance of the bullets.
+        SKILLS     the resume skills groups vs the LinkedIn skills list,
+                   including which three appear first — LinkedIn pins the top 3
+                   and weights them most in search, so their identity matters,
+                   not just the total count.
+        EDUCATION  institution, degree, year
+        EXTRAS     certifications, presentations, publications
+
+      Match roles on company plus overlapping date range, NOT on exact title
+      string — a differing title on the same role is a finding to record, not a
+      reason to treat it as two unrelated roles. A role that matches nothing on
+      the other side is recorded as present-on-one-side.
+
+      For every difference emit an entry with:
+        - surface        one of the categories above
+        - field          the specific field
+        - resume_value   the value from the resume profile (or null)
+        - linkedin_value the value from the export (or null)
+        - provenance     the tag from linkedin.json for that field, if any
+
+      Carry the provenance tags through verbatim. A field tagged `unverified` or
+      `unverified-possibly-empty` recorded here as a plain null looks identical
+      to a field LinkedIn genuinely omits, and the next stage cannot recover the
+      difference once it is lost. This is the single most important thing this
+      stage does.
+
+      Compare metrics on VALUE, not string form. Extract numbers as whole tokens
+      ("$300K", "150+", "1 to 9"); "$300K" and "$300,000" are the same figure and
+      must not be recorded as a difference. But "$300K" and "$3M" ARE a
+      difference, and an important one.
+
+      Compare bullet substance on MEANING, not string equality. LinkedIn bullets
+      are legitimately shortened or rephrased. Record a bullet difference only
+      where the CLAIM differs — a different metric, a different scope, a
+      different outcome — not where the wording differs.
+
+      Write valid JSON and confirm it parses before exiting.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - "divergence.json"
+
+  # ==========================================================================
+  # Stage 6: classify-drift — categorize, rank, pick a direction of truth
+  # ==========================================================================
+  - name: classify-drift
+    kind: execute
+    depends_on: [diff-surfaces]
+    reads_from: [diff-surfaces, extract-linkedin, load-resume-profile, load-guides]
+    description: >
+      Read {workspace}/divergence.json and write {workspace}/drift.json,
+      assigning every entry exactly one category and a direction of truth.
+
+      CATEGORIES, in rank order — report them in this order, highest first:
+
+        1. CONTRADICTION — the two sources DISAGREE about the same fact. Dates,
+           titles, employer, or metrics that cannot both be true.
+
+           This is the dangerous class and the reason the workflow exists.
+           .claude/RESUME_WRITING_GUIDE.md: "Dates in the resume and on LinkedIn
+           must match. Recruiters compare them", and "Bullets may be shortened
+           for LinkedIn but must not contradict the resume — differing metrics
+           for the same accomplishment is a credibility failure."
+
+           Cover METRIC divergence, not only date/title/employer. The same
+           accomplishment carrying "$300K" on one surface and "$3M" on the other
+           is a CONTRADICTION even though nothing about the role's identity
+           differs, and it is exactly the failure the guide names. Date and title
+           mismatches cost offers; a contradicted metric fails a reference check.
+
+        2. MISSING ON LINKEDIN — the resume has it, LinkedIn does not. The
+           parity rule says every role, title, and date on the resume should
+           appear on LinkedIn. This is the class the drafted copy fixes.
+
+        3. MISSING ON RESUME — LinkedIn has it, the resume does not. Often
+           stale-but-real work worth RECLAIMING into the baseline. Treat these as
+           recommendations to the human, never as edits. This workflow does not
+           write to the resume profile.
+
+        4. VOICE DRIFT — same fact, inconsistent framing. Different phrasing for
+           the same accomplishment, a skill named canonically in one place and
+           abbreviated in the other, an inconsistent date format. Lowest rank:
+           real, worth fixing, but nobody loses an offer over it.
+
+      For each entry record:
+        - category            one of the four above
+        - severity            critical | major | minor
+        - direction_of_truth  "resume" | "linkedin" | "unknown"
+        - rationale           one line on why, naming the evidence
+        - surface, field, and both values, carried through from divergence.json
+
+      DIRECTION OF TRUTH — the resume profile is the declared source of truth
+      for the resume tree, so it is the default. But it is a DEFAULT, not a
+      certainty: a LinkedIn entry may simply be more current, and a role present
+      only on LinkedIn is usually real work missing from the baseline rather than
+      an error. Where the evidence does not settle it, say "unknown" and let the
+      human decide. A confidently wrong direction sends someone to overwrite the
+      correct copy with the stale one.
+
+      APPLY THE PROVENANCE RULE, from linkedin-resume-drift in
+      concerns/resume-copy.md. A field tagged `unverified`,
+      `unverified-possibly-empty`, or `dates_source: resume-not-linkedin` is NOT
+      drift and must NOT be categorized as one — those tags record what could not
+      be READ, not what the profile SAYS. Put them in a separate UNVERIFIED
+      section with a note that the capture was partial, so the human can re-check
+      those fields manually. A field tagged `presence_on_linkedin: absent-in-preview`
+      IS reportable as MISSING ON LINKEDIN.
+
+      Classifying an unreadable field as a contradiction is the highest-cost
+      error available here: it produces a confident, wrong report about a profile
+      that may be entirely correct, and it burns the human's trust in every other
+      finding in the table.
+
+      Write valid JSON and confirm it parses before exiting.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - "drift.json"
+
+  # ==========================================================================
+  # Stage 7: draft-linkedin-copy — LinkedIn-shaped copy for what needs updating
+  # ==========================================================================
+  - name: draft-linkedin-copy
+    kind: execute
+    depends_on: [classify-drift]
+    reads_from: [classify-drift, load-resume-profile, extract-linkedin, load-guides]
+    description: >
+      Write {workspace}/linkedin-copy.md — replacement copy for the LinkedIn
+      surfaces that need updating, ready for a human to paste.
+
+      READ FIRST: {workspace}/guides.md. The ceilings and voice rules in it are
+      the contract; check-copy enforces the same file, so anything violating it
+      comes straight back.
+
+      Draft copy ONLY for surfaces with a finding in drift.json categorized
+      CONTRADICTION or MISSING ON LINKEDIN, plus VOICE DRIFT where the fix is
+      genuinely an improvement. Leave a correct surface alone and say so — a
+      diff that rewrites everything makes the human re-review copy that was
+      already right, and they will stop reading.
+
+      Do NOT draft anything for MISSING ON RESUME items. Those are
+      recommendations for the resume baseline, surfaced at the gate for a human
+      decision. This workflow does not edit the resume profile.
+
+      THE HARD RULE — PROVENANCE: every claim in the drafted copy must trace to
+      the resume baseline in {workspace}/resume-experience.yaml. LinkedIn is a
+      public surface; a claim that appears there and nowhere in the baseline is
+      the same defect as a fabricated resume bullet, and it is more exposed.
+      Rewording a true claim into LinkedIn's voice is the entire point of this
+      stage; adding substance is not. If a surface needs a fact the baseline does
+      not support, leave it out and note the gap for the gate.
+
+      SURFACE RULES — these differ from resume rules, deliberately:
+
+        HEADLINE (220 chars): name the current role, the differentiator, and the
+        top two or three technologies. Do NOT write a bare job title — the guide
+        is explicit that it "wastes the most-indexed field on the profile".
+        Pipe-separated segments scan well. Front-load: the tail is what gets
+        truncated in search results.
+
+        ABOUT (2,600 chars): explicit FIRST PERSON — "I build systems that...".
+        This inverts the resume rule and is correct here; concerns/resume-copy.md
+        carries an explicit scope exception for LinkedIn About copy. Open with
+        the thesis, NOT a job history. Prose in 3-5 short paragraphs. Close with
+        what you are working on now. Do not write bullet lists — the guide notes
+        they "read as a pasted resume".
+
+        EXPERIENCE BULLETS (2,000 chars per role): the resume bullet rules apply
+        here — strong verb opener, one accomplishment per bullet, 28 words max,
+        no terminal period, at least half quantified, no banned phrases, and
+        implied first person rather than "I" (the About exception does not extend
+        to bullets). Bullets may be shorter than the resume's, but must not
+        contradict them: keep every metric identical to the baseline's.
+
+        SKILLS (50 max): if the skills list is a finding, propose the list and
+        name the intended top 3 explicitly, since LinkedIn pins those and weights
+        them most in search. Use canonical vendor spelling — Kubernetes, not k8s;
+        PostgreSQL, not postgres — because recruiter search matching is literal.
+
+      Count characters for every surface as you write and record the count next
+      to each block. Do not estimate; a headline at 231 characters is silently
+      truncated mid-word on the live profile, and the truncation lands on the
+      differentiator you front-loaded to protect.
+
+      For each block emit: the surface, the character count, the drafted copy,
+      and a one-line note on which drift.json finding it resolves.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - "linkedin-copy.md"
+
+  # ==========================================================================
+  # Stage 8: check-copy — ceilings, concern IDs, provenance
+  #
+  # kind: execute — DELIBERATE. Do NOT change this to kind: validate.
+  #
+  # This stage reads like a validate stage, so switching it looks like a
+  # correction. It is not. src/workflow/dispatch.py `_validate()` builds its
+  # prompt from scratch and never calls `_header()`, and `stage.spec.description`
+  # is only added inside `_header()`. A kind: validate stage's prompt is built
+  # from `validation.criteria` and `validation.domain_rules` ONLY, plus a generic
+  # "extract every verifiable claim, classify PASS/FAIL/WARN" instruction.
+  #
+  # Measured on this exact stage: as kind: validate, a 3,583-character
+  # description produced an 1,182-character prompt containing none of the four
+  # character ceilings, none of the provenance rule, and — most damaging — not
+  # the About first-person exception. Without that exception the stage flags
+  # every correctly written first-person About paragraph, rejecting the guide's
+  # own recommended phrasing. The failure is silent: no lint error, no runtime
+  # warning, just a generically weaker check.
+  #
+  # Tracked as `validate-kind-description-ignored` (major) in
+  # concerns/workflow-fanout.md. If this must become kind: validate, the COMPLETE
+  # contract below has to move into a `validation:` block with `strategy:` and
+  # `criteria:` first — a lossy summary defeats the stage.
+  # ==========================================================================
+  - name: check-copy
+    kind: execute
+    depends_on: [draft-linkedin-copy]
+    reads_from: [draft-linkedin-copy, classify-drift, load-resume-profile, load-guides]
+    description: >
+      Write {workspace}/copy-check.md with four sections. Compute, do not
+      estimate. Enforce {workspace}/guides.md — the same file draft-linkedin-copy
+      wrote against.
+
+      1. CEILING COMPLIANCE — measure every drafted block against the limits in
+         the LinkedIn Surfaces table in guides.md. Count characters
+         programmatically rather than trusting the counts the drafting stage
+         recorded; a stale or optimistic count is exactly what
+         linkedin-surface-over-limit exists to catch, and the concern explicitly
+         notes that a `chars:` field disagreeing with its `text:` hides an
+         over-limit value. Report measured vs limit for each surface.
+
+         If guides.md records "no ceiling specified in the guide" for a surface,
+         report it as UNSPECIFIED and do not enforce an invented number. Say so
+         plainly rather than substituting a plausible-looking limit.
+
+      2. CONCERN COMPLIANCE — check the drafted copy against the concern IDs in
+         guides.md, applying each one's scope correctly:
+           - linkedin-surface-over-limit (from section 1)
+           - resume-banned-phrase ("utilize", "leverage", "facilitate",
+             "spearheaded", "results-driven", "various", ...)
+           - resume-bullet-weak-opener (no "Responsible for", "Helped",
+             "Worked on", "Participated in", articles, or gerunds as openers)
+           - resume-bullet-too-long (>28 words)
+           - resume-bullet-terminal-period
+           - resume-bullet-unquantified (per-role ratio, target >= 50%)
+           - resume-inconsistent-tech-naming (canonical vendor spelling; an
+             abbreviation is acceptable inside a bullet only where the canonical
+             name appears elsewhere in the same copy)
+
+         DO NOT flag first-person pronouns in the ABOUT block. Explicit "I" is
+         the CORRECT voice there and concerns/resume-copy.md carries a scope
+         exception saying resume-first-person-pronoun "targets resume surfaces
+         only". Applying the resume's no-pronoun rule to About copy is the
+         highest-frequency false positive available on this workflow and would
+         reject the guide's own recommended phrasing. DO still flag "I" in
+         experience bullets, where the exception does not apply.
+
+      3. NO NEW CONTRADICTIONS — confirm the drafted copy does not itself
+         introduce drift. Every metric, date, title, and employer in the drafted
+         copy must match {workspace}/resume-experience.yaml exactly. Compare
+         numbers as whole tokens ("$300K", "150+"), not by splitting on
+         punctuation. It would be a poor outcome for a workflow that exists to
+         eliminate contradictions to emit new ones.
+
+      4. UNSUPPORTED CLAIMS — the integrity check, and the reason this stage can
+         block. For every claim in the drafted copy, confirm it traces to the
+         resume baseline. Compare on MEANING, not string equality: rewording a
+         true claim into LinkedIn's voice is the whole point, and only new
+         substance is a defect. Search the WHOLE baseline — summary, skills,
+         every role — since a fact may legitimately move between surfaces.
+
+         Classify each as:
+           - SUPPORTED:  same claim as the baseline, reworded for the surface
+           - NEW METRIC: a number with no counterpart in the baseline
+           - NEW CLAIM:  work asserted that the baseline does not contain
+
+      Exit non-zero if section 3 reports any mismatch or section 4 reports any
+      NEW METRIC or NEW CLAIM. These are not always fabrications — the candidate
+      may have something true the baseline omits — but that is the human's call
+      at the gate, never the drafting agent's. LinkedIn is public and indexed;
+      an unsupported claim there is more exposed than the same claim on a resume,
+      and it is the version a recruiter finds first.
+    agent:
+      role: fact-checker
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - "copy-check.md"
+
+  # ==========================================================================
+  # Stage 9: sync-report — the divergence table and the copy, for a human
+  # ==========================================================================
+  - name: sync-report
+    kind: propose
+    human_gate: true
+    depends_on: [check-copy]
+    reads_from: [check-copy, classify-drift, draft-linkedin-copy, extract-linkedin]
+    description: >
+      Write {workspace}/sync-report.md, present it, then STOP for the human.
+
+      This is the deliverable. Nothing downstream applies it: the human pastes
+      the copy into LinkedIn themselves. Write it to be acted on directly.
+
+      Show, in this order:
+
+        1. THE DIVERGENCE TABLE, ranked with CONTRADICTION first — surface,
+           field, resume value, LinkedIn value, direction of truth, and the
+           one-line rationale. Lead with contradictions even when there are only
+           one or two and dozens of lesser findings; the ranking IS the report's
+           value, and a contradiction buried under twenty voice-drift rows will
+           not get fixed.
+
+        2. THE DRAFTED COPY, per surface, each with its measured character count
+           against its ceiling, ready to paste. Say plainly which surfaces were
+           left alone because they were already correct.
+
+        3. RECLAIM CANDIDATES — the MISSING ON RESUME items. These are
+           recommendations for the resume baseline, NOT changes made. State
+           clearly that nothing was written to the resume profile and that
+           adopting any of them means editing
+           src/resume/config/profiles/{profile}/ by hand.
+
+        4. UNVERIFIED FIELDS — anything the export could not confirm, with a note
+           that a partial capture is normal because LinkedIn blocks
+           unauthenticated fetches. These are NOT drift. Tell the human which
+           fields to eyeball on the live profile, since the workflow genuinely
+           cannot see them.
+
+        5. ANY FINDINGS from copy-check.md — ceiling violations, concern hits,
+           or unsupported claims.
+
+      Then ask the human to decide:
+        (a) accept — paste the drafted copy into LinkedIn as-is
+        (b) revise — a specific block needs different framing
+        (c) reclaim — adopt one or more MISSING ON RESUME items into the resume
+            profile, which is a separate manual edit to the profile overlay
+        (d) abandon — the drift is not worth acting on right now
+
+      State plainly at the top that this workflow did not and cannot write to
+      LinkedIn, and did not modify the resume profile. Every change is manual.
+      A reader who assumes their profile was already updated will leave a
+      contradiction live on the surface a recruiter checks first.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - "sync-report.md"
