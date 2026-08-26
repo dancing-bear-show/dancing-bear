@@ -12,22 +12,36 @@ from calendars.gmail_pipelines import CalendarEvent
 class CalendarProvider(Protocol):
     """Protocol for calendar backends.
 
-    Production implementor
-    ----------------------
-    ``calendars.importer.outlook_provider.OutlookCalendarProvider`` is the
-    only production implementation of this protocol.  It is backed by the
-    Microsoft Graph API via ``core.outlook.OutlookCalendarMixin``.
+    Production implementors
+    -----------------------
+    Two production implementations exist:
 
-    No Gmail / Google Calendar implementor exists.  This repo has no
-    ``google.oauth2`` calendar scope, no ``calendar/v3`` client, and no
-    Google Calendar API auth flow — only the Gmail (``gmail.readonly`` /
-    ``gmail.compose``) scopes are present.  Implementing a second backend
-    would require adding those pieces first.
+    ``calendars.importer.outlook_provider.OutlookCalendarProvider``
+        Backed by the Microsoft Graph API via ``core.outlook.OutlookCalendarMixin``.
+        Skips events whose recurrence pattern has no plan representation
+        (``relativeMonthly``, ``absoluteYearly``, ``relativeYearly``); those are
+        recorded in ``provider.skipped`` and never returned in a degraded form.
+
+    ``calendars.importer.google_provider.GoogleCalendarProvider``
+        Backed by the Google Calendar API (calendar/v3) via
+        ``calendars.google_calendar_service.GoogleCalendarService``.  Requires
+        the ``https://www.googleapis.com/auth/calendar`` OAuth scope, which is
+        included in ``mail.gmail_api.SCOPES`` alongside the Gmail scopes (a
+        one-time re-consent is required for existing tokens).
+        Skips events whose recurrence pattern cannot be represented: ``FREQ=YEARLY``,
+        ``BYSETPOS``, ``BYMONTHDAY``, multiple RRULEs on one event, and ``RDATE``
+        lines.  Skipped events are recorded in ``provider.skipped`` and never
+        returned in a degraded form.
+
+    Both implementors expose a ``skipped`` attribute that callers may inspect
+    after ``list_events`` to see what was dropped; the list is reset on each call.
 
     Test conformance
     ----------------
     Structural conformance tests for the Outlook provider live in
     ``tests/calendars_tests/test_outlook_calendar_provider.py``.
+    Structural and functional conformance tests for the Google provider live in
+    ``tests/calendars_tests/test_google_calendar_provider.py``.
     Legacy shape-only stubs (FakeGmailBackend / FakeOutlookBackend) still
     appear in ``tests/calendars_tests/outlook/test_outlook_scan_processor.py``
     — they verify the protocol's surface but do not exercise any backend logic.

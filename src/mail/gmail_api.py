@@ -33,6 +33,8 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.compose",
     # Send-only (explicitly allow direct send)
     "https://www.googleapis.com/auth/gmail.send",
+    # Google Calendar read/write (used by GoogleCalendarProvider in calendars/)
+    "https://www.googleapis.com/auth/calendar",
 ]
 
 
@@ -55,13 +57,38 @@ class GmailClient(ConfigCacheMixin):
         self.cache_dir = cache_dir
 
     def _load_token(self) -> Any:
-        """Load stored credentials from token_path, or None if missing/invalid."""
+        """Load stored credentials from token_path, or None if missing/invalid.
+
+        When the token file exists but its recorded scopes are a strict subset of
+        SCOPES (i.e. new scopes have been added since the token was minted), a
+        clear message is printed naming the missing scopes and directing the user
+        to run ``./bin/mail auth`` to re-consent.  The method then returns None so
+        the caller falls through to ``_run_auth_flow_and_save``.
+
+        A token file that does not exist at all is a first-time-auth case and
+        produces no warning — it is handled silently downstream.
+        """
         if not os.path.exists(self.token_path):
             return None
         try:
-            return Credentials.from_authorized_user_file(self.token_path, SCOPES)
+            creds = Credentials.from_authorized_user_file(self.token_path, SCOPES)
         except Exception:  # nosec B110 - malformed/stale token file; re-authenticate below
             return None
+
+        # Detect stale scopes: token was minted before SCOPES was extended.
+        token_scopes: set[str] = set(getattr(creds, "scopes", None) or [])
+        if token_scopes:
+            required_scopes = set(SCOPES)
+            missing = required_scopes - token_scopes
+            if missing:
+                missing_list = ", ".join(sorted(missing))
+                print(
+                    f"Stored token is missing scope(s): {missing_list}. "
+                    "Run `./bin/mail auth` to re-consent and update the token."
+                )
+                return None
+
+        return creds
 
     @staticmethod
     def _refresh_token(creds: Any) -> Any:
