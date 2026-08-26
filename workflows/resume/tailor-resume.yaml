@@ -303,7 +303,9 @@ stages:
   # tuple[str, ...] — would lose the parts that make the fabrication gate work.
   # kind: execute routes through `_action` -> `_header`, which includes
   # `description` verbatim. See `validate-kind-description-ignored` in
-  # concerns/workflow-fanout.md. This stage still blocks: it exits non-zero.
+  # concerns/workflow-fanout.md. This stage blocks by writing its findings
+  # and then reporting "status": "failed" in its stage result — an exit
+  # code alone is never observed for an agent stage. See HOW TO BLOCK below.
   # ==========================================================================
   - name: check-copy
     kind: execute
