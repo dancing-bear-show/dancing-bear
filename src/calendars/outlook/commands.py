@@ -58,6 +58,9 @@ from ..outlook_pipelines import (
     OutlookExportProcessor,
     OutlookExportProducer,
     OutlookExportRequest,
+    IcsDraftProcessor,
+    IcsDraftProducer,
+    IcsDraftRequest,
 )
 from ..scan_common import (
     RANGE_PAT,
@@ -507,3 +510,26 @@ def run_outlook_scan_classes(args: argparse.Namespace) -> int:
         out=getattr(args, "out", None),
     )
     return run_pipeline(request, OutlookScanProcessor, OutlookScanProducer)
+
+
+def run_outlook_ics_draft(args: argparse.Namespace) -> int:
+    """Create a Gmail draft with a .ics attachment from a plan YAML file."""
+    dry_run = bool(getattr(args, "dry_run", False))
+
+    gmail_client = None
+    if not dry_run:
+        try:
+            from core.auth import build_gmail_service_from_args
+            gmail_client = build_gmail_service_from_args(args)
+        except Exception as exc:
+            print(f"Failed to build Gmail client: {exc}")
+            return 1
+
+    request = IcsDraftRequest(
+        config_path=Path(args.config),
+        recipient=args.recipient,
+        subject=args.subject,
+        dry_run=dry_run,
+        gmail_client=gmail_client,
+    )
+    return run_pipeline(request, IcsDraftProcessor, IcsDraftProducer)
