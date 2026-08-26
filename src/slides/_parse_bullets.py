@@ -133,8 +133,8 @@ def _body_line_to_bullet(line: str) -> BulletItem | None:
     if not lstripped.startswith(_BODY_SUB_BULLET_PREFIX):
         return BulletItem(text=stripped, level=0)
 
+    # Non-empty by construction: `stripped` is rstrip()ed, so a line matching the
+    # "- " prefix always has a non-space character after it.
     text = lstripped[len(_BODY_SUB_BULLET_PREFIX):]
-    if not text:
-        return None
     indent = len(stripped) - len(lstripped)
     return BulletItem(text=text, level=2 if indent >= 2 else 1)

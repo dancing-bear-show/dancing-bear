@@ -1,6 +1,7 @@
 """Tests for slides._layout — LayoutMixin."""
 
 import unittest
+import unittest.mock
 from unittest.mock import MagicMock
 
 from pptx.enum.dml import MSO_THEME_COLOR
@@ -280,3 +281,81 @@ class TestLayoutNameMap(unittest.TestCase):
 
     def test_section_header_maps_to_section(self):
         self.assertEqual(_LAYOUT_NAME_MAP["Section Header"], LAYOUT_SECTION)
+
+
+# ---------------------------------------------------------------------------
+# _build_master_layouts: duplicate semantic name — already-seen layout skipped
+# (partial branch 55->53)
+# ---------------------------------------------------------------------------
+
+class TestBuildMasterLayoutsDuplicate(unittest.TestCase):
+    """Cover the branch where a semantic name is already present in master_layouts."""
+
+    def test_first_occurrence_kept_when_duplicate_semantic(self):
+        """When two slide layouts share the same semantic name, the first one wins."""
+        from slides._layout import _build_master_layouts
+        # Two masters each with an OBJECT layout; the second OBJECT should be ignored
+        first_layout = _make_layout("OBJECT")
+        second_layout = _make_layout("OBJECT")
+        master1 = MagicMock()
+        master1.slide_layouts = [first_layout]
+        master2 = MagicMock()
+        master2.slide_layouts = [second_layout]
+        prs = MagicMock()
+        prs.slide_masters = [master1, master2]
+        result = _build_master_layouts(prs)
+        self.assertIs(result[LAYOUT_BULLET], first_layout)
+
+    def test_duplicate_semantic_within_single_master(self):
+        """Two layouts with the same pptx name in one master: first wins."""
+        from slides._layout import _build_master_layouts
+        first_layout = _make_layout("OBJECT")
+        second_layout = _make_layout("OBJECT")
+        master = MagicMock()
+        master.slide_layouts = [first_layout, second_layout]
+        prs = MagicMock()
+        prs.slide_masters = [master]
+        result = _build_master_layouts(prs)
+        self.assertIs(result[LAYOUT_BULLET], first_layout)
+
+
+# ---------------------------------------------------------------------------
+# _prepare_layout_map_mode: None layout_map raises ValueError (line 174)
+# and fallback key already present skips _pick_fallback_layout (line 179)
+# ---------------------------------------------------------------------------
+
+class TestPrepareLayoutMapMode(unittest.TestCase):
+    """Cover partial branches in _prepare_layout_map_mode."""
+
+    def setUp(self):
+        self.mixin = _Concrete()
+
+    def _make_deck(self, layout_map):
+        deck = MagicMock()
+        deck.metadata.layout_map = layout_map
+        return deck
+
+    def test_none_layout_map_raises_value_error(self):
+        """layout_map=None raises ValueError immediately (line 174)."""
+        prs = MagicMock()
+        deck = self._make_deck(None)
+        with self.assertRaises(ValueError) as ctx:
+            self.mixin._prepare_layout_map_mode(prs, deck, MSO_THEME_COLOR.LIGHT_2)
+        self.assertIn("layout_map", str(ctx.exception))
+
+    def test_fallback_key_already_present_skips_pick(self):
+        """When RESERVED_LAYOUT_KEY is already in the resolved layouts, _pick_fallback is not called (line 179->183)."""
+        from slides._layout import _FALLBACK_LAYOUT_KEY
+        prs = _make_prs(master_layout_names=["OBJECT"])
+        deck = self._make_deck({LAYOUT_BULLET: 0, _FALLBACK_LAYOUT_KEY: 0})
+
+        # Patch _resolve_layouts_from_master to return a dict that already has the key
+        sentinel_layout = MagicMock()
+        pre_built = {LAYOUT_BULLET: sentinel_layout, _FALLBACK_LAYOUT_KEY: sentinel_layout}
+        with unittest.mock.patch.object(
+            _Concrete, "_resolve_layouts_from_master", return_value=pre_built
+        ), unittest.mock.patch.object(
+            _Concrete, "_delete_all_slides"
+        ):
+            _, _, layouts, _ = self.mixin._prepare_layout_map_mode(prs, deck, MSO_THEME_COLOR.LIGHT_2)
+        self.assertIs(layouts[_FALLBACK_LAYOUT_KEY], sentinel_layout)

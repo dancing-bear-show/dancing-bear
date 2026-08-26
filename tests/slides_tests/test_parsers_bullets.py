@@ -2,7 +2,8 @@
 
 import unittest
 
-from slides._parse_bullets import _body_to_bullets, _parse_bullets
+from slides._parse_bullets import _body_line_to_bullet, _body_to_bullets, _parse_bullets
+from slides._parse_bullets import _validate_bullet_level
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +228,86 @@ class TestParseBulletsUnrecognizedType(unittest.TestCase):
             _parse_bullets([True])
         msg = str(ctx.exception)
         self.assertIn("bool", msg)
+
+
+# ---------------------------------------------------------------------------
+# _validate_bullet_level: bool and non-int-coercible rejection (lines 33, 36-37)
+# ---------------------------------------------------------------------------
+
+class TestValidateBulletLevel(unittest.TestCase):
+    """Tests for _validate_bullet_level — rejects bools and non-coercible types."""
+
+    def test_bool_true_raises_value_error(self):
+        """_validate_bullet_level rejects True (bool) with a ValueError."""
+        with self.assertRaises(ValueError) as ctx:
+            _validate_bullet_level(True)
+        self.assertIn("bool", str(ctx.exception))
+
+    def test_bool_false_raises_value_error(self):
+        """_validate_bullet_level rejects False (bool) with a ValueError."""
+        with self.assertRaises(ValueError) as ctx:
+            _validate_bullet_level(False)
+        self.assertIn("bool", str(ctx.exception))
+
+    def test_non_int_coercible_list_raises_value_error(self):
+        """_validate_bullet_level rejects a list (not coercible to int)."""
+        with self.assertRaises(ValueError) as ctx:
+            _validate_bullet_level([1])
+        msg = str(ctx.exception)
+        self.assertIn("list", msg)
+
+    def test_non_int_coercible_string_raises_value_error(self):
+        """_validate_bullet_level rejects a non-numeric string."""
+        with self.assertRaises(ValueError) as ctx:
+            _validate_bullet_level("high")
+        msg = str(ctx.exception)
+        self.assertIn("str", msg)
+
+    def test_valid_int_accepted(self):
+        """_validate_bullet_level accepts a plain int and returns it."""
+        self.assertEqual(_validate_bullet_level(2), 2)
+
+    def test_int_string_coerced(self):
+        """_validate_bullet_level coerces a numeric string to int."""
+        self.assertEqual(_validate_bullet_level("1"), 1)
+
+
+# ---------------------------------------------------------------------------
+# _body_line_to_bullet: sub-bullet prefix with empty text returns None (line 138)
+# ---------------------------------------------------------------------------
+
+class TestBodyLineToBullet(unittest.TestCase):
+    """Tests for _body_line_to_bullet — edge cases."""
+
+    def test_sub_bullet_prefix_only_becomes_level_zero(self):
+        """A line '- ' strips to '-' via rstrip, so it does NOT match the sub-bullet prefix."""
+        # The prefix "- " is 2 chars; rstrip("- ") -> "-" which doesn't start with "- "
+        # so it is treated as a plain level-0 bullet, not a sub-bullet.
+        result = _body_line_to_bullet("- ")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.level, 0)
+
+    def test_sub_bullet_prefix_with_text_returns_bullet_item(self):
+        """A line with "- text" returns a BulletItem with level 1."""
+        result = _body_line_to_bullet("- point")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.text, "point")
+
+    def test_plain_line_returns_level_zero_bullet(self):
+        """A line without the sub-bullet prefix returns a level-0 BulletItem."""
+        result = _body_line_to_bullet("plain text")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.level, 0)
+
+    def test_empty_line_returns_none(self):
+        """An empty line returns None (no bullet generated)."""
+        result = _body_line_to_bullet("")
+        self.assertIsNone(result)
+
+    def test_whitespace_only_line_returns_none(self):
+        """A whitespace-only line returns None."""
+        result = _body_line_to_bullet("   ")
+        self.assertIsNone(result)
 
 
 if __name__ == "__main__":

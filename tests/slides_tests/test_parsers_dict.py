@@ -158,5 +158,71 @@ class TestParseSlideBodyField(unittest.TestCase):
         result = _parse_slide(slide_data)
         self.assertEqual(result.bullets, [])
 
+# ---------------------------------------------------------------------------
+# load_deck_from_dict: slides key absent defaults to empty list (line 182)
+# ---------------------------------------------------------------------------
+
+class TestLoadDeckFromDictNoSlidesKey(unittest.TestCase):
+    """Tests for load_deck_from_dict when the 'slides' key is entirely absent."""
+
+    def test_no_slides_key_produces_empty_deck(self):
+        """When 'slides' key is absent, deck has zero slides (not a KeyError)."""
+        deck = load_deck_from_dict({})
+        self.assertEqual(deck.slides, [])
+
+    def test_slides_key_none_produces_empty_deck(self):
+        """When slides is explicitly None, deck has zero slides."""
+        deck = load_deck_from_dict({"slides": None})
+        self.assertEqual(deck.slides, [])
+
+
+# ---------------------------------------------------------------------------
+# _parse_slide: bullets: not-a-list ValueError (lines 56-60)
+# ---------------------------------------------------------------------------
+
+class TestParseSlideValueErrors(unittest.TestCase):
+    """Tests for _parse_slide error paths on invalid field types."""
+
+    def test_bullets_not_list_with_title_raises(self):
+        """bullets: as a non-list with a slide title includes title in message."""
+        with self.assertRaises(ValueError) as ctx:
+            _parse_slide({"title": "My Slide", "bullets": "not a list"})
+        self.assertIn("My Slide", str(ctx.exception))
+        self.assertIn("bullets", str(ctx.exception))
+
+    def test_bullets_not_list_without_title_raises(self):
+        """bullets: as a non-list without a slide title still raises ValueError."""
+        with self.assertRaises(ValueError) as ctx:
+            _parse_slide({"bullets": 42})
+        self.assertIn("bullets", str(ctx.exception))
+
+
+# ---------------------------------------------------------------------------
+# load_deck_from_dict: slides: not-a-list ValueError (lines 183-188)
+# ---------------------------------------------------------------------------
+
+class TestLoadDeckFromDictValueErrors(unittest.TestCase):
+    """Tests for load_deck_from_dict error paths on invalid slides field."""
+
+    def test_slides_not_list_with_deck_title_raises(self):
+        """slides: as a scalar with a deck title includes deck title in message."""
+        with self.assertRaises(ValueError) as ctx:
+            load_deck_from_dict({"title": "My Deck", "slides": "not a list"})
+        self.assertIn("My Deck", str(ctx.exception))
+        self.assertIn("slides", str(ctx.exception))
+
+    def test_slides_not_list_without_deck_title_raises(self):
+        """slides: as a scalar without deck title still raises ValueError."""
+        with self.assertRaises(ValueError) as ctx:
+            load_deck_from_dict({"slides": 99})
+        self.assertIn("slides", str(ctx.exception))
+
+    def test_slides_not_list_dict_value_raises(self):
+        """slides: as a dict (mapping not wrapped in a list) raises ValueError."""
+        with self.assertRaises(ValueError) as ctx:
+            load_deck_from_dict({"slides": {"title": "Orphan"}})
+        self.assertIn("slides", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
