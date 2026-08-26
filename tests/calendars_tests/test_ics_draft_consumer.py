@@ -516,10 +516,24 @@ class TestGmailClientWiring(unittest.TestCase):
             "If GmailService gains create_draft_raw, revisit run_outlook_ics_draft",
         )
 
-    def test_gmail_client_provides_create_draft_raw(self):
-        from mail.gmail_api import GmailClient
+    def test_non_dry_run_without_client_fails_loudly(self):
+        """dry_run=False with no client raises rather than silently doing nothing.
 
-        self.assertTrue(hasattr(GmailClient, "create_draft_raw"))
+        This is the other half of the wiring bug: if the client fails to build,
+        the run must stop, not produce a success envelope having created no draft.
+        """
+        request = IcsDraftRequest(
+            config_path="plan.yaml",
+            recipient="a@b.com",
+            subject="S",
+            dry_run=False,
+            gmail_client=None,
+        )
+        proc = IcsDraftProcessor()
+        with patch.object(proc, "_load_events", return_value=[{"subject": "X", "start": "2026-05-01T09:00:00", "end": "2026-05-01T10:00:00"}]):
+            with self.assertRaises(ValueError) as ctx:
+                proc._process_safe(request)
+        self.assertIn("gmail_client is required", str(ctx.exception))
 
     def test_non_dry_run_builds_a_draft_capable_client(self):
         """The client handed to the processor must expose create_draft_raw."""

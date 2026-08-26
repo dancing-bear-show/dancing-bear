@@ -869,6 +869,88 @@ class TestDSTBoundaryExport(unittest.TestCase):
         self.assertEqual(ev["end_time"], "19:00")
 
 
+class TestSupportedPatternsAndRangeTypes(unittest.TestCase):
+    """The supported-but-unasserted paths.
+
+    absoluteMonthly is in _SUPPORTED_PATTERNS and noEnd is a real range branch,
+    but neither was ever the target of an assertion — they only appeared as
+    incidental fixture data. An unasserted supported path is where a silent
+    wrong export hides: it does not raise, so nothing fails.
+    """
+
+    def _run_master(self, master, occurrence_subject="X"):
+        from calendars.outlook_pipelines.export import (
+            OutlookExportProcessor,
+            OutlookExportRequest,
+        )
+
+        occ = {
+            "type": "occurrence",
+            "subject": occurrence_subject,
+            "seriesMasterId": "m1",
+            "start": {"dateTime": "2026-01-06T10:00:00", "timeZone": "America/Toronto"},
+            "end": {"dateTime": "2026-01-06T11:00:00", "timeZone": "America/Toronto"},
+            "location": {},
+        }
+        svc = MagicMock()
+        svc.list_events_in_range.return_value = [occ]
+        svc.get_mailbox_timezone.return_value = "America/Toronto"
+        svc.get_event.side_effect = lambda _id: master
+        request = OutlookExportRequest(
+            service=svc, calendar=None, from_date="2026-01-01",
+            to_date="2026-12-31", out_path=None, dry_run=False, verbose=False,
+        )
+        envelope = OutlookExportProcessor().process(request)
+        self.assertTrue(envelope.ok())
+        return envelope.payload
+
+    def test_absolute_monthly_reverses_to_repeat_monthly(self):
+        """absoluteMonthly is supported and must export as repeat: monthly."""
+        master = {
+            "type": "seriesMaster",
+            "subject": "Rent",
+            "start": {"dateTime": "2026-01-01T09:00:00", "timeZone": "America/Toronto"},
+            "end": {"dateTime": "2026-01-01T09:30:00", "timeZone": "America/Toronto"},
+            "location": {},
+            "recurrence": {
+                "pattern": {"type": "absoluteMonthly", "interval": 1, "dayOfMonth": 1},
+                "range": {"type": "endDate", "startDate": "2026-01-01", "endDate": "2026-12-01"},
+            },
+        }
+        result = self._run_master(master, "Rent")
+        self.assertEqual(result.skipped, [])
+        self.assertEqual(result.event_count, 1)
+        ev = result.events[0]
+        self.assertEqual(ev["repeat"], "monthly")
+        self.assertEqual(ev["start_time"], "09:00")
+        self.assertEqual(ev["range"], {"start_date": "2026-01-01", "until": "2026-12-01"})
+        # A monthly series has no byday, and interval 1 is omitted.
+        self.assertNotIn("byday", ev)
+        self.assertNotIn("interval", ev)
+
+    def test_no_end_range_emits_start_date_only(self):
+        """noEnd must emit start_date with neither 'until' nor 'count'.
+
+        Inventing either would fabricate an end for a series that has none.
+        """
+        master = {
+            "type": "seriesMaster",
+            "subject": "Standup",
+            "start": {"dateTime": "2026-01-06T09:00:00", "timeZone": "America/Toronto"},
+            "end": {"dateTime": "2026-01-06T09:15:00", "timeZone": "America/Toronto"},
+            "location": {},
+            "recurrence": {
+                "pattern": {"type": "weekly", "daysOfWeek": ["monday"], "interval": 1},
+                "range": {"type": "noEnd", "startDate": "2026-01-06"},
+            },
+        }
+        result = self._run_master(master, "Standup")
+        ev = result.events[0]
+        self.assertEqual(ev["range"], {"start_date": "2026-01-06"})
+        self.assertNotIn("until", ev["range"])
+        self.assertNotIn("count", ev)
+
+
 class TestAllDayDetection(unittest.TestCase):
     """isAllDay events must not be misclassified as timed.
 
