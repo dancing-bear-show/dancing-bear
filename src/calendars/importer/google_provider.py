@@ -207,7 +207,16 @@ class GoogleCalendarProvider:
         new_id = (persisted.id if persisted else result.get("id")) or ""
         if persisted is not None and persisted.repeat:
             return replace(persisted, calendar=self.calendar_id)
-        return replace(event, id=new_id, calendar=self.calendar_id)
+        # Normalize interval on the way out. The caller's event is carried
+        # through verbatim here, so a submitted interval=1 would come back as 1
+        # while list_events() returns None for the same series — the two halves
+        # of this provider disagreeing about the shared model.
+        return replace(
+            event,
+            id=new_id,
+            calendar=self.calendar_id,
+            interval=event.interval if (event.interval or 0) > 1 else None,
+        )
 
     # ------------------------------------------------------------------
     # Internal helpers — list_events

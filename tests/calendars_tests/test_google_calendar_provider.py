@@ -559,25 +559,17 @@ class TestScopeRegression(unittest.TestCase):
             "Calendar scope must be present in mail.gmail_api.SCOPES",
         )
 
-    def test_stale_scope_detection_prints_message_and_returns_none(self) -> None:
-        """A stored token that lacks the calendar scope should print a message and return None."""
-        from mail.gmail_api import GmailClient, SCOPES
+    def test_stale_scope_records_missing_and_authenticate_raises(self) -> None:
+        """_load_token records the missing scopes; authenticate() raises.
 
-        # Build a fake token JSON that omits the calendar scope
-        stale_scopes = [s for s in SCOPES if s != "https://www.googleapis.com/auth/calendar"]
-        token_data = {
-            "token": "fake_access_token",
-            "refresh_token": "fake_refresh_token",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "client_id": "fake_client_id",
-            "client_secret": "fake_client_secret",
-            "scopes": stale_scopes,
-            "expiry": "2099-01-01T00:00:00Z",
-        }
+        It does not print — the message a user sees comes from the AuthError
+        hint raised by authenticate(). Naming the test for printing would
+        misdescribe the contract and make a failure harder to read.
+        """
+        from mail.gmail_api import GmailClient
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump(token_data, f)
-            token_path = f.name
+        stale_scopes = [s for s in _scopes() if s != "https://www.googleapis.com/auth/calendar"]
+        token_path = _write_token(stale_scopes)
 
         try:
             client = GmailClient(credentials_path="/dev/null", token_path=token_path)
@@ -589,9 +581,7 @@ class TestScopeRegression(unittest.TestCase):
             # the file records. A mocked version of this test passes against an
             # implementation that reads creds.scopes and can therefore never
             # detect a missing scope — which is exactly the bug it missed.
-            buf = io.StringIO()
-            with patch("sys.stdout", buf):
-                result = client._load_token()
+            result = client._load_token()
 
             self.assertIsNone(result, "_load_token must return None for stale scopes")
             self.assertIn(
