@@ -21,7 +21,7 @@ from typing import Callable
 from core.assistant import BaseAssistant
 from core.cli_errors import CLIError, ExitCode
 from core.cli_framework import CLIApp
-from core.paths import ENV_DATA_HOME, output_dir
+from core.paths import ENV_DATA_HOME, config_home, output_dir
 
 from core.textio import write_text
 
@@ -49,6 +49,13 @@ OUT_DIR_DOMAIN = "resume"
 OUT_DIR_HELP = (
     "Output directory (default: <data-home>/resume, "
     f"overridable with ${ENV_DATA_HOME})"
+)
+
+# --data help text; names the profile fallback so --help does not imply the
+# flag is mandatory when it is not.
+DATA_HELP = (
+    "Candidate data file (YAML/JSON). Defaults to "
+    "<config-home>/resume/<profile>/data.{json,yaml,yml}"
 )
 
 # Common extension constants
@@ -105,6 +112,46 @@ def _apply_filter_pipeline(data: dict, args: argparse.Namespace, min_priority: f
         )
         .with_priority_filter(min_priority)
         .execute()
+    )
+
+
+def _resolve_data(args: argparse.Namespace) -> str:
+    """Return the candidate data path, falling back to the profile's config.
+
+    ``--data`` wins when given — a user who names a path means it. Otherwise
+    the file is read from the profile directory under the config root:
+
+        <config-home>/resume/<profile>/data.{json,yaml,yml}
+
+    This mirrors how mail resolves its unified filter config, and how
+    ``--profile`` already selects credentials elsewhere. Without it, every
+    invocation had to repeat an absolute path to data that lives at a
+    predictable location, and ``--profile`` confusingly affected only the
+    OUTPUT filename while the input still had to be spelled out.
+
+    Config, not data-home: this file is user-authored source, and a resume
+    carries a name, phone number, and address, so it stays outside the
+    checkout for the same reason mail's filter rules do.
+    """
+    explicit = getattr(args, "data", None)
+    if explicit:
+        return str(explicit)
+
+    profile = getattr(args, "profile", None) or DEFAULT_PROFILE
+    base = config_home() / OUT_DIR_DOMAIN / profile
+    # is_file(), not exists(): a directory named data.json would otherwise
+    # satisfy the lookup and fail later inside the reader with a confusing
+    # IsADirectoryError instead of the actionable message below.
+    for name in ("data.json", "data.yaml", "data.yml"):
+        candidate = base / name
+        if candidate.is_file():
+            return str(candidate)
+
+    raise CLIError(
+        f"No --data given and no data file found for profile '{profile}'. "
+        f"Looked for data.json, data.yaml, data.yml under {base}. "
+        f"Pass --data <path>, or create {base / 'data.json'}.",
+        ExitCode.USAGE,
     )
 
 
@@ -168,7 +215,7 @@ def cmd_extract(args: argparse.Namespace) -> int:
 
 # --- summarize command ---
 @app.command("summarize", help="Build heuristically-derived summary output")
-@app.argument("--data", required=True, help="Unified data file (YAML/JSON)")
+@app.argument("--data", help=DATA_HELP)
 @app.argument("--seed", help="Seed criteria as JSON string or KEY=VALUE pairs (comma-separated)")
 @app.argument("--style-profile", help="Style profile JSON from 'style build' (optional)")
 @app.argument("--filter-skills-alignment", help="Alignment JSON to filter Skills")
@@ -179,7 +226,7 @@ def cmd_extract(args: argparse.Namespace) -> int:
 @app.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
 @app.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_summarize(args: argparse.Namespace) -> int:
-    data = read_yaml_or_json(args.data)
+    data = read_yaml_or_json(_resolve_data(args))
     data = _apply_filter_pipeline(data, args)
 
     seed = parse_seed_criteria(args.seed) if args.seed else {}
@@ -281,7 +328,7 @@ def _load_structure(args: argparse.Namespace) -> dict | None:
 
 # --- render command ---
 @app.command("render", help="Render a DOCX resume from unified data with a YAML/JSON template")
-@app.argument("--data", required=True, help="Unified data file (YAML/JSON)")
+@app.argument("--data", help=DATA_HELP)
 @app.argument("--template", help="Template config (YAML/JSON); defaults to summary/skills/experience/education")
 @app.argument("--seed", help="Seed criteria as JSON string or KEY=VALUE pairs (comma-separated)")
 @app.argument("--style-profile", help="Style profile JSON from 'style build' (optional)")
@@ -295,7 +342,7 @@ def _load_structure(args: argparse.Namespace) -> dict | None:
 @app.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
 @app.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_render(args: argparse.Namespace) -> int:
-    data = read_yaml_or_json(args.data)
+    data = read_yaml_or_json(_resolve_data(args))
     template = load_template(args.template)
     seed = parse_seed_criteria(args.seed) if args.seed else {}
     seed = _extend_seed_with_style(seed, getattr(args, "style_profile", None))
@@ -342,7 +389,7 @@ def cmd_structure(args: argparse.Namespace) -> int:
 
 # --- align command ---
 @app.command("align", help="Align unified candidate data with a job posting YAML/JSON")
-@app.argument("--data", required=True, help="Unified candidate data (YAML/JSON)")
+@app.argument("--data", help=DATA_HELP)
 @app.argument("--job", required=True, help="Job posting config (YAML/JSON)")
 @app.argument("--tailored", help="Optional path to write tailored candidate data (YAML/JSON)")
 @app.argument("--max-bullets", type=int, default=6, help="Max bullets per role in tailored output")
@@ -370,14 +417,14 @@ def cmd_align(args: argparse.Namespace) -> int:
 
 # --- candidate-init command ---
 @app.command("candidate-init", help="Generate a candidate skills YAML from unified data")
-@app.argument("--data", required=True, help="Unified candidate data (YAML/JSON)")
+@app.argument("--data", help=DATA_HELP)
 @app.argument("--include-experience", action="store_true", help="Include experience items and bullets")
 @app.argument("--max-bullets", type=int, default=3, help="Max bullets per role if including experience")
 @app.argument("--out", help="Output candidate YAML path (overrides --profile)")
 @app.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
 @app.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_candidate_init(args: argparse.Namespace) -> int:
-    data = read_yaml_or_json(args.data)
+    data = read_yaml_or_json(_resolve_data(args))
     # Overlay profile data onto candidate if profile is provided
     prof = getattr(args, "profile", None)
     if prof:
@@ -482,7 +529,7 @@ def cmd_experience_export(args: argparse.Namespace) -> int:
     if not args.data and not args.resume:
         raise SystemExit("Provide --data or --resume")
     if args.data:
-        data = read_yaml_or_json(args.data)
+        data = read_yaml_or_json(_resolve_data(args))
         prof = getattr(args, "profile", None)
         if prof:
             data = apply_profile_overlays(data, prof)
