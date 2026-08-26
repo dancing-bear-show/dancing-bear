@@ -664,7 +664,8 @@ def cmd_export_pdf(args: argparse.Namespace) -> int:
         raise CLIError(
             "DOCX to PDF conversion failed. Is LibreOffice installed?",
             ExitCode.ERROR,
-            hint="brew install --cask libreoffice",
+            hint="install LibreOffice and ensure 'soffice' is on PATH "
+            "(macOS: brew install --cask libreoffice)",
         )
 
     # LibreOffice writes <docx_stem>.pdf into the outdir, not the exact target.
