@@ -574,6 +574,90 @@ class TestRfc5545Compliance(unittest.TestCase):
         self.assertIn("UNTIL=20260630T235959Z", rrule)
 
 
+class TestFloatingDateTimes(unittest.TestCase):
+    """No 'Z' without a UTC conversion, and seconds are always padded.
+
+    Plan datetimes are local wall-clock times. Stamping 'Z' asserted UTC for a
+    value never converted to it, so a 9am Toronto appointment imported as 4am —
+    a silent five-hour shift with nothing to signal it.
+    """
+
+    def test_tzless_datetime_is_floating_not_utc(self):
+        from calendars.outlook_pipelines.ics_draft import _ical_dt
+
+        out = _ical_dt("2026-03-10T09:00:00", None)
+        self.assertEqual(out, "20260310T090000")
+        self.assertFalse(out.endswith("Z"), "wall-clock time must not claim UTC")
+
+    def test_tz_datetime_uses_tzid_and_no_z(self):
+        from calendars.outlook_pipelines.ics_draft import _ical_dt
+
+        self.assertEqual(
+            _ical_dt("2026-03-10T09:00:00", "America/Toronto"),
+            "TZID=America/Toronto:20260310T090000",
+        )
+
+    def test_seconds_are_padded_to_six_digits(self):
+        """The plan format admits HH:MM; RFC 5545 requires HHMMSS."""
+        from calendars.outlook_pipelines.ics_draft import _ical_dt
+
+        self.assertEqual(_ical_dt("2026-03-10T09:00", None), "20260310T090000")
+        self.assertEqual(
+            _ical_dt("2026-03-10T09:00", "America/Toronto"),
+            "TZID=America/Toronto:20260310T090000",
+        )
+
+    def test_offset_digits_never_leak_into_seconds(self):
+        """A trailing UTC offset must be stripped, not absorbed.
+
+        _ical_dt split only on '+', so a negative offset survived; the later
+        ':'-stripping then merged its digits into the time. Concretely,
+        '2026-03-10T09:00-05:00' produced '20260310T090005' — five seconds
+        invented out of the offset, with nothing to signal it.
+        """
+        from calendars.outlook_pipelines.ics_draft import _ical_dt
+
+        for iso in (
+            "2026-03-10T09:00-05:00",
+            "2026-03-10T09:00:00-05:00",
+            "2026-03-10T09:00:00+02:00",
+            "2026-03-10T09:00:00.123456",
+            "2026-03-10T09:00:00Z",
+        ):
+            with self.subTest(iso=iso):
+                self.assertEqual(_ical_dt(iso, None), "20260310T090000")
+
+    def test_one_off_vevent_without_tz_emits_floating(self):
+        from calendars.outlook_pipelines.ics_draft import _build_vevent
+
+        lines = _build_vevent({
+            "subject": "Doctor",
+            "start": "2026-03-10T09:00:00",
+            "end": "2026-03-10T10:00:00",
+        })
+        dtstart = next(x for x in lines if x.startswith("DTSTART"))
+        self.assertEqual(dtstart, "DTSTART:20260310T090000")
+
+    def test_recurring_vevent_without_tz_emits_floating(self):
+        """The recurring branch built its own 'Z' separately from _ical_dt."""
+        from calendars.outlook_pipelines.ics_draft import _build_vevent
+
+        lines = _build_vevent({
+            "subject": "Swim",
+            "repeat": "weekly",
+            "byday": ["MO"],
+            "start_time": "18:00",
+            "end_time": "19:00",
+            "range": {"start_date": "2026-01-05"},
+        })
+        dtstart = next(x for x in lines if x.startswith("DTSTART"))
+        dtend = next(x for x in lines if x.startswith("DTEND"))
+        self.assertFalse(dtstart.endswith("Z"), dtstart)
+        self.assertFalse(dtend.endswith("Z"), dtend)
+        self.assertIn("T180000", dtstart)
+        self.assertIn("T190000", dtend)
+
+
 class TestGmailClientWiring(unittest.TestCase):
     """The non-dry-run path must build a client that can actually create a draft.
 

@@ -109,20 +109,45 @@ def _ics_escape(value: str) -> str:
 
 
 def _ical_dt(iso: str, tz: str | None) -> str:
-    """Convert an ISO datetime string to the compact YYYYMMDDTHHMMSS[Z] form.
+    """Convert an ISO datetime string to the compact RFC 5545 DATE-TIME form.
 
-    Returns "TZID=X:YYYYMMDDTHHMMSS" when tz is set, else "YYYYMMDDTHHMMSSZ".
+    Returns "TZID=X:YYYYMMDDTHHMMSS" when tz is set, else a *floating*
+    "YYYYMMDDTHHMMSS" with no trailing "Z".
+
+    No "Z" without a conversion. Plan datetimes are local wall-clock times, so
+    stamping "Z" asserts UTC for a value never converted to it — a 9am Toronto
+    appointment would import as 4am. A floating DATE-TIME (RFC 5545 §3.3.5,
+    form 1) is the correct representation for a wall-clock time whose zone is
+    unknown: it means "this clock time, wherever the calendar is read".
+
+    Seconds are always padded: the plan format admits HH:MM, and RFC 5545
+    requires HHMMSS, so an unpadded value is malformed rather than merely
+    imprecise.
     """
-    # iso might be YYYY-MM-DDTHH:MM:SS or YYYY-MM-DDTHH:MM
-    clean = iso.rstrip("Z").split("+")[0]
+    # iso might be YYYY-MM-DDTHH:MM:SS or YYYY-MM-DDTHH:MM, optionally with a
+    # trailing offset. Strip the offset from the TIME part only: splitting the
+    # whole string on "-" would eat the date separators, and splitting only on
+    # "+" misses negative offsets entirely — "2026-03-10T09:00-05:00" then left
+    # the offset's digits to land in the seconds field as T090005.
+    clean = iso.rstrip("Z")
+    date_part, sep, time_part = clean.partition("T")
+    if not sep:
+        date_part, time_part = clean, ""
+    for marker in ("+", "-"):
+        if marker in time_part:
+            time_part = time_part.split(marker)[0]
     # Remove microseconds
-    if "." in clean:
-        clean = clean.split(".")[0]
-    # Replace - and : to get compact form YYYYMMDDTHHMMSS
-    compact = clean.replace("-", "").replace(":", "").replace(" ", "T")
+    if "." in time_part:
+        time_part = time_part.split(".")[0]
+    compact_date = date_part.replace("-", "").replace(" ", "")
+    compact_time = time_part.replace(":", "")
+    if compact_time:
+        compact = f"{compact_date}T{compact_time[:6].ljust(6, '0')}"
+    else:
+        compact = compact_date
     if tz:
         return f"TZID={tz}:{compact}"
-    return f"{compact}Z"
+    return compact
 
 
 def _ical_date(iso_date: str) -> str:
@@ -232,7 +257,9 @@ def _build_vevent(nev: dict[str, Any]) -> list[str]:
             if tz:
                 lines.append(f"DTSTART;TZID={tz}:{dtstart_val}")
             else:
-                lines.append(f"DTSTART:{dtstart_val}Z")
+                # Floating, not Z — see _ical_dt: a wall-clock time stamped as
+                # UTC without conversion shifts the event on import.
+                lines.append(f"DTSTART:{dtstart_val}")
         elif start_date:
             lines.append(f"DTSTART;VALUE=DATE:{_ical_date(start_date)}")
             dtstart_is_date = True
@@ -244,7 +271,7 @@ def _build_vevent(nev: dict[str, Any]) -> list[str]:
             if tz:
                 lines.append(f"DTEND;TZID={tz}:{dtend_val}")
             else:
-                lines.append(f"DTEND:{dtend_val}Z")
+                lines.append(f"DTEND:{dtend_val}")
 
     # Recurrence rule
     rrule = _build_rrule(nev, date_valued=dtstart_is_date)
