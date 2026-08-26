@@ -156,6 +156,69 @@ def _resolve_tz(start: dict[str, Any], svc: Any) -> tuple[str, str]:
     return _TZ_FALLBACK, "fallback"
 
 
+def _apply_recurrence_byday(
+    ev: dict[str, Any],
+    ptype: str,
+    pattern: dict[str, Any],
+) -> None:
+    """Populate ev["byday"] for weekly patterns if day codes are present."""
+    if ptype != "weekly":
+        return
+    raw_days = pattern.get("daysOfWeek") or []
+    byday = [_GRAPH_DAY_MAP[d.lower()] for d in raw_days if d.lower() in _GRAPH_DAY_MAP]
+    if byday:
+        ev["byday"] = byday
+
+
+def _apply_recurrence_range(
+    ev: dict[str, Any],
+    rng: dict[str, Any],
+) -> None:
+    """Populate ev["range"] and ev["count"] from a Graph recurrence range block."""
+    range_type = (rng.get("type") or "").lower()
+    start_date = rng.get("startDate") or ""
+    range_dict: dict[str, Any] = {}
+    if start_date:
+        range_dict["start_date"] = start_date
+    if range_type == "enddate":
+        end_date = rng.get("endDate") or ""
+        if end_date:
+            range_dict["until"] = end_date
+    elif range_type == "numbered":
+        count = rng.get("numberOfOccurrences")
+        if count is not None:
+            ev["count"] = int(count)
+    # noEnd: just start_date, no until/count
+    if range_dict:
+        ev["range"] = range_dict
+
+
+def _apply_recurrence_times(
+    ev: dict[str, Any],
+    master: dict[str, Any],
+    svc: Any,
+) -> None:
+    """Populate ev start_time/end_time and timezone from the series master.
+
+    Grouped with the tz lookup because both read the same master start block:
+    splitting them would mean resolving that block twice.
+    """
+    master_start = master.get("start") or {}
+    master_end = master.get("end") or {}
+    start_dt = master_start.get("dateTime") or ""
+    end_dt = master_end.get("dateTime") or ""
+    if start_dt:
+        ev["start_time"] = _extract_time(start_dt)
+    if end_dt:
+        ev["end_time"] = _extract_time(end_dt)
+
+    tz, tz_source = _resolve_tz(master_start, svc)
+    if tz:
+        ev["tz"] = tz
+    if tz_source != "event":
+        ev[_TZ_SOURCE_KEY] = tz_source
+
+
 def _reverse_recurrence(
     master: dict[str, Any],
     svc: Any,
@@ -189,47 +252,13 @@ def _reverse_recurrence(
         ev["interval"] = interval
 
     # byday (only meaningful for weekly)
-    if ptype == "weekly":
-        raw_days = pattern.get("daysOfWeek") or []
-        byday = [_GRAPH_DAY_MAP[d.lower()] for d in raw_days if d.lower() in _GRAPH_DAY_MAP]
-        if byday:
-            ev["byday"] = byday
+    _apply_recurrence_byday(ev, ptype, pattern)
 
-    # start_time / end_time from master start/end
-    master_start = master.get("start") or {}
-    master_end = master.get("end") or {}
-    start_dt = master_start.get("dateTime") or ""
-    end_dt = master_end.get("dateTime") or ""
-    if start_dt:
-        ev["start_time"] = _extract_time(start_dt)
-    if end_dt:
-        ev["end_time"] = _extract_time(end_dt)
-
-    # tz
-    tz, tz_source = _resolve_tz(master_start, svc)
-    if tz:
-        ev["tz"] = tz
-    if tz_source != "event":
-        ev[_TZ_SOURCE_KEY] = tz_source
+    # start_time / end_time / tz from master start/end
+    _apply_recurrence_times(ev, master, svc)
 
     # range
-    range_type = (rng.get("type") or "").lower()
-    start_date = rng.get("startDate") or ""
-    range_dict: dict[str, Any] = {}
-    if start_date:
-        range_dict["start_date"] = start_date
-    if range_type == "enddate":
-        end_date = rng.get("endDate") or ""
-        if end_date:
-            range_dict["until"] = end_date
-    elif range_type == "numbered":
-        count = rng.get("numberOfOccurrences")
-        if count is not None:
-            ev["count"] = int(count)
-    # noEnd: just start_date, no until/count
-
-    if range_dict:
-        ev["range"] = range_dict
+    _apply_recurrence_range(ev, rng)
 
     # location
     loc = ((master.get("location") or {}).get("displayName") or "").strip()
@@ -237,6 +266,45 @@ def _reverse_recurrence(
         ev["location"] = loc
 
     return ev
+
+
+def _convert_one_off_all_day(
+    start: dict[str, Any],
+    end_block: dict[str, Any],
+    result: dict[str, Any],
+) -> None:
+    """Populate result with all-day date fields (no time, no tz).
+
+    An isAllDay event may carry either a date-only block or a full dateTime
+    block (Graph does the latter); take the date part of whichever is present
+    rather than emitting an empty start.
+    """
+    start_date = start.get("date") or _date_part(start.get("dateTime"))
+    end_date = end_block.get("date") or _date_part(end_block.get("dateTime"))
+    if start_date:
+        result["start"] = start_date
+    if end_date:
+        result["end"] = end_date
+
+
+def _convert_one_off_timed(
+    start: dict[str, Any],
+    end_block: dict[str, Any],
+    svc: Any,
+    result: dict[str, Any],
+) -> None:
+    """Populate result with timed event fields (start, end, tz)."""
+    start_dt = start.get("dateTime") or ""
+    end_dt = end_block.get("dateTime") or ""
+    if start_dt:
+        result["start"] = start_dt
+    if end_dt:
+        result["end"] = end_dt
+    tz, tz_source = _resolve_tz(start, svc)
+    if tz:
+        result["tz"] = tz
+    if tz_source != "event":
+        result[_TZ_SOURCE_KEY] = tz_source
 
 
 def _convert_one_off(ev: dict[str, Any], svc: Any) -> dict[str, Any]:
@@ -251,33 +319,142 @@ def _convert_one_off(ev: dict[str, Any], svc: Any) -> dict[str, Any]:
 
     if _is_all_day(ev):
         # All-day: emit date strings, no start_time/end_time/tz.
-        # An isAllDay event may carry either a date-only block or a full
-        # dateTime block (Graph does the latter); take the date part of
-        # whichever is present rather than emitting an empty start.
-        start_date = start.get("date") or _date_part(start.get("dateTime"))
-        end_date = end_block.get("date") or _date_part(end_block.get("dateTime"))
-        if start_date:
-            result["start"] = start_date
-        if end_date:
-            result["end"] = end_date
+        _convert_one_off_all_day(start, end_block, result)
     else:
-        start_dt = start.get("dateTime") or ""
-        end_dt = end_block.get("dateTime") or ""
-        if start_dt:
-            result["start"] = start_dt
-        if end_dt:
-            result["end"] = end_dt
-        tz, tz_source = _resolve_tz(start, svc)
-        if tz:
-            result["tz"] = tz
-        if tz_source != "event":
-            result[_TZ_SOURCE_KEY] = tz_source
+        _convert_one_off_timed(start, end_block, svc, result)
 
     loc = ((ev.get("location") or {}).get("displayName") or "").strip()
     if loc:
         result["location"] = loc
 
     return result
+
+
+def _partition_events(
+    all_events: list[dict[str, Any]] | None,
+    is_one_off: Any,
+) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
+    """Split a raw event list into one-offs and occurrences grouped by master id.
+
+    Occurrences without a seriesMasterId are dropped: they are neither a
+    standalone event nor attributable to a series, so there is nothing to
+    export them against.
+    """
+    one_offs: list[dict[str, Any]] = []
+    by_master: dict[str, list[dict[str, Any]]] = {}
+    for ev in (all_events or []):
+        if is_one_off(ev):
+            one_offs.append(ev)
+            continue
+        mid = ev.get("seriesMasterId") or ""
+        if mid:
+            by_master.setdefault(mid, []).append(ev)
+    return one_offs, by_master
+
+
+def _validate_recurring_master(
+    master: dict[str, Any] | None,
+    master_id: str,
+    subject: str,
+) -> dict[str, Any] | None:
+    """Return a skip record if this master cannot be exported, else None.
+
+    Collects the three independent reject reasons -- missing master,
+    unsupported pattern type, absent interval -- so the caller reads as a
+    single "is this exportable?" question instead of three nested guards.
+    """
+    if master is None:
+        return {
+            "seriesMasterId": master_id,
+            "subject": subject,
+            "reason": "orphaned_master",
+        }
+
+    pattern = (master.get("recurrence") or {}).get("pattern") or {}
+    ptype_raw = pattern.get("type") or ""
+    if ptype_raw.lower() not in _SUPPORTED_PATTERNS:
+        return {
+            "seriesMasterId": master_id,
+            "subject": subject,
+            "pattern_type": ptype_raw,  # preserve original casing from Graph
+            "reason": "unsupported_pattern",
+        }
+
+    if "interval" not in pattern:
+        return {
+            "seriesMasterId": master_id,
+            "subject": subject,
+            "reason": "missing_interval",
+        }
+    return None
+
+
+def _collect_exdates(occurrences: list[dict[str, Any]]) -> list[str]:
+    """Return sorted unique exdates for cancelled/rescheduled occurrences.
+
+    originalStart is the originally-scheduled date, set by Graph only when an
+    occurrence was rescheduled; a plain cancellation carries just
+    start.dateTime. The exdate must name the slot the series would have
+    occupied, so prefer originalStart.
+    """
+    exdates = []
+    for occ in occurrences:
+        if not (occ.get("isCancelled") or (occ.get("type") or "").lower() == "exceptionoccurrence"):
+            continue
+        st = (occ.get("originalStart") or (occ.get("start") or {}).get("dateTime") or "")
+        date_only = st.split("T", 1)[0] if "T" in st else st
+        if date_only:
+            exdates.append(date_only)
+    return sorted(set(exdates))
+
+
+def _process_recurring_series(
+    master_id: str,
+    occurrences: list[dict[str, Any]],
+    svc: Any,
+    acc: "_ExportAccumulator",
+) -> None:
+    """Reverse one recurring series into a plan event, or record why it was skipped."""
+    rep = occurrences[0] if occurrences else {}
+    subject = rep.get("subject") or ""
+
+    master = svc.get_event(master_id)
+    skip = _validate_recurring_master(master, master_id, subject)
+    if skip is not None:
+        acc.skipped.append(skip)
+        return
+
+    try:
+        plan_ev = _reverse_recurrence(master, svc)
+    except ValueError as exc:
+        acc.skipped.append({
+            "seriesMasterId": master_id,
+            "subject": subject,
+            "reason": str(exc),
+        })
+        return
+
+    if plan_ev is None:
+        # Unreachable today: _validate_recurring_master already rejects every
+        # unsupported pattern, and that is the only case where
+        # _reverse_recurrence returns None. Kept deliberately -- if the two
+        # checks ever drift apart, the alternative to this branch is appending
+        # None to acc.events and silently corrupting the plan. A skipped series
+        # is recoverable; a malformed one is not.
+        pattern_type = ((master or {}).get("recurrence") or {}).get("pattern", {}).get("type") or ""
+        acc.skipped.append({
+            "seriesMasterId": master_id,
+            "subject": subject,
+            "pattern_type": pattern_type,
+            "reason": "unsupported_pattern",
+        })
+        return
+
+    exdates = _collect_exdates(occurrences)
+    if exdates:
+        plan_ev["exdates"] = exdates
+
+    _record_event(acc, plan_ev)
 
 
 class OutlookExportProcessor(SafeProcessor[OutlookExportRequest, OutlookExportResult]):
@@ -301,109 +478,16 @@ class OutlookExportProcessor(SafeProcessor[OutlookExportRequest, OutlookExportRe
         ))
 
         acc = _ExportAccumulator()
+        one_offs, by_master = _partition_events(all_events, self._is_one_off)
 
-        # Partition events
-        one_offs: list[dict[str, Any]] = []
-        by_master: dict[str, list[dict[str, Any]]] = {}
-
-        for ev in (all_events or []):
-            if self._is_one_off(ev):
-                one_offs.append(ev)
-            else:
-                mid = ev.get("seriesMasterId") or ""
-                if mid:
-                    by_master.setdefault(mid, []).append(ev)
-
-        # Process one-offs
         for ev in one_offs:
-            plan_ev = _convert_one_off(ev, svc)
-            _record_event(acc, plan_ev)
+            _record_event(acc, _convert_one_off(ev, svc))
 
-        # Process recurring series
         for master_id, occurrences in by_master.items():
             if master_id in acc.seen_masters:
                 continue
             acc.seen_masters.add(master_id)
-
-            # Pick representative occurrence for subject/error reporting
-            rep = occurrences[0] if occurrences else {}
-            subject = rep.get("subject") or ""
-
-            # Fetch series master
-            master = svc.get_event(master_id)
-            if master is None:
-                acc.skipped.append({
-                    "seriesMasterId": master_id,
-                    "subject": subject,
-                    "reason": "orphaned_master",
-                })
-                continue
-
-            recurrence = master.get("recurrence") or {}
-            pattern = recurrence.get("pattern") or {}
-            ptype_raw = pattern.get("type") or ""
-            ptype = ptype_raw.lower()
-
-            if ptype not in _SUPPORTED_PATTERNS:
-                acc.skipped.append({
-                    "seriesMasterId": master_id,
-                    "subject": subject,
-                    "pattern_type": ptype_raw,  # preserve original casing from Graph
-                    "reason": "unsupported_pattern",
-                })
-                continue
-
-            if "interval" not in pattern:
-                acc.skipped.append({
-                    "seriesMasterId": master_id,
-                    "subject": subject,
-                    "reason": "missing_interval",
-                })
-                continue
-
-            try:
-                plan_ev = _reverse_recurrence(master, svc)
-            except ValueError as exc:
-                reason = str(exc)
-                acc.skipped.append({
-                    "seriesMasterId": master_id,
-                    "subject": subject,
-                    "reason": reason,
-                })
-                continue
-
-            if plan_ev is None:
-                # Unreachable today: the ptype guard above already skips every
-                # unsupported pattern, and that is the only case where
-                # _reverse_recurrence returns None. Kept deliberately — if the
-                # two checks ever drift apart, the alternative to this branch is
-                # appending None to acc.events and silently corrupting the plan.
-                # A skipped series is recoverable; a malformed one is not.
-                acc.skipped.append({
-                    "seriesMasterId": master_id,
-                    "subject": subject,
-                    "pattern_type": ptype_raw,
-                    "reason": "unsupported_pattern",
-                })
-                continue
-
-            # Collect cancelled/exception occurrences as exdates
-            exdates = []
-            for occ in occurrences:
-                if occ.get("isCancelled") or (occ.get("type") or "").lower() == "exceptionoccurrence":
-                    # originalStart is the originally-scheduled date, set by Graph
-                    # only when an occurrence was rescheduled; a plain cancellation
-                    # carries just start.dateTime. The exdate must name the slot the
-                    # series would have occupied, so prefer originalStart.
-                    st = (occ.get("originalStart") or (occ.get("start") or {}).get("dateTime") or "")
-                    date_only = st.split("T", 1)[0] if "T" in st else st
-                    if date_only:
-                        exdates.append(date_only)
-
-            if exdates:
-                plan_ev["exdates"] = sorted(set(exdates))
-
-            _record_event(acc, plan_ev)
+            _process_recurring_series(master_id, occurrences, svc, acc)
 
         return OutlookExportResult(
             events=acc.events,
