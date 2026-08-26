@@ -4,7 +4,13 @@ from __future__ import annotations
 from typing import Any
 
 from core.cli_framework import CLIApp
-from core.cli_help_text import HELP_PAGE_SIZE, HELP_START_DATE, HELP_YAML_OUT
+from core.cli_help_text import (
+    HELP_FILTERS_YAML,
+    HELP_JSON,
+    HELP_PAGE_SIZE,
+    HELP_START_DATE,
+    HELP_YAML_OUT,
+)
 
 # One argparse argument: the flag names, plus the kwargs forwarded to
 # add_argument(). Values are heterogeneous (str, bool, int), hence Any.
@@ -14,6 +20,7 @@ ArgSpec = tuple[tuple[str, ...], dict[str, Any]]
 HELP_CLIENT_ID = "Azure app (client) ID"
 HELP_TENANT = "AAD tenant"
 HELP_TOKEN_CACHE = "Path to token cache JSON"  # nosec B105 - argparse help text, not a credential
+HELP_NO_REMINDERS = "No reminders"
 
 _ACCOUNTS_CONFIG: ArgSpec = (("--accounts-config",), {"default": "config/accounts.yaml"})
 _ACCOUNT: ArgSpec = (("--account",), {"help": "Account name for defaults"})
@@ -111,7 +118,7 @@ def register_outlook_commands(app: CLIApp) -> object:
         ]),
         ("rules.plan", "Plan Outlook rule changes from filters YAML", run_outlook_rules_plan, [
             *_OUTLOOK_AUTH_ARGS,
-            (("--config",), {"required": True, "help": "Filters YAML"}),
+            (("--config",), {"required": True, "help": HELP_FILTERS_YAML}),
             (("--use-cache",), {"action": "store_true"}),
             (("--cache-ttl",), {"type": int, "default": 600}),
             *_MOVE_TO_FOLDERS_ARGS,
@@ -120,7 +127,7 @@ def register_outlook_commands(app: CLIApp) -> object:
         ]),
         ("rules.sync", "Sync rules from filters YAML into Outlook Inbox", run_outlook_rules_sync, [
             *_OUTLOOK_AUTH_ARGS,
-            (("--config",), {"required": True, "help": "Filters YAML"}),
+            (("--config",), {"required": True, "help": HELP_FILTERS_YAML}),
             _DRY_RUN,
             *_MOVE_TO_FOLDERS_ARGS,
             _ACCOUNTS_CONFIG,
@@ -141,7 +148,7 @@ def register_outlook_commands(app: CLIApp) -> object:
         ]),
         ("rules.sweep", "Apply folder moves to existing messages", run_outlook_rules_sweep, [
             *_OUTLOOK_AUTH_ARGS,
-            (("--config",), {"required": True, "help": "Filters YAML"}),
+            (("--config",), {"required": True, "help": HELP_FILTERS_YAML}),
             (("--days",), {"type": int, "default": 30, "help": "Only sweep messages in last N days"}),
             (("--pages",), {"type": int, "default": 2, "help": "Pages to search per rule"}),
             (("--top",), {"type": int, "default": 25, "help": HELP_PAGE_SIZE}),
@@ -164,7 +171,7 @@ def register_outlook_commands(app: CLIApp) -> object:
             (("--location",), {"help": "Location display name"}),
             (("--body-html",), {"dest": "body_html", "help": "HTML body content"}),
             (("--all-day",), {"action": "store_true", "help": "Mark as all-day"}),
-            (("--no-reminder",), {"action": "store_true", "help": "No reminders"}),
+            (("--no-reminder",), {"action": "store_true", "help": HELP_NO_REMINDERS}),
             _ACCOUNTS_CONFIG,
             _ACCOUNT,
         ]),
@@ -184,14 +191,14 @@ def register_outlook_commands(app: CLIApp) -> object:
             (("--location",), {"help": "Location display name"}),
             (("--body-html",), {"dest": "body_html", "help": "HTML body content"}),
             (("--exdates",), {"help": "Comma-separated YYYY-MM-DD dates to exclude"}),
-            (("--no-reminder",), {"action": "store_true", "help": "No reminders"}),
+            (("--no-reminder",), {"action": "store_true", "help": HELP_NO_REMINDERS}),
             _ACCOUNTS_CONFIG,
             _ACCOUNT,
         ]),
         ("calendar.add-from-config", "Add events defined in a YAML file", run_outlook_calendar_add_from_config, [
             *_OUTLOOK_AUTH_ARGS,
             (("--config",), {"required": True, "help": "YAML with events: [] entries"}),
-            (("--no-reminder",), {"action": "store_true", "help": "No reminders"}),
+            (("--no-reminder",), {"action": "store_true", "help": HELP_NO_REMINDERS}),
             _ACCOUNTS_CONFIG,
             _ACCOUNT,
         ]),
@@ -236,7 +243,7 @@ def register_outlook_commands(app: CLIApp) -> object:
             (("--days",), {"type": int, "help": "Only messages from last N days (converted to --after)"}),
             (("--sender",), {"help": "Filter by sender using KQL from: term (email or domain, e.g. brightchamps.com)"}),
             (("--only-inbox",), {"action": "store_true", "help": "Restrict to Inbox folder"}),
-            (("--json",), {"action": "store_true", "help": "Output JSON"}),
+            (("--json",), {"action": "store_true", "help": HELP_JSON}),
             _ACCOUNTS_CONFIG,
             _ACCOUNT,
         ]),

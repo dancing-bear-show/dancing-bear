@@ -636,7 +636,7 @@ class TestScopeRegression(unittest.TestCase):
         """A token file that does not exist at all is a first-time-auth case — no warning."""
         from mail.gmail_api import GmailClient
 
-        client = GmailClient(credentials_path="/dev/null", token_path="/nonexistent/token.json")
+        client = GmailClient(credentials_path="/dev/null", token_path="/nonexistent/token.json")  # nosec B106 - deliberately nonexistent path, not a credential; this is the first-time-auth case
 
         buf = io.StringIO()
         with patch("sys.stdout", buf):

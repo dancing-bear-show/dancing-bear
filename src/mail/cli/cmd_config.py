@@ -9,6 +9,9 @@ from core.cli_framework import CLIApp
 # add_argument(). Values are heterogeneous (str, bool, int), hence Any.
 ArgSpec = tuple[tuple[str, ...], dict[str, Any]]
 
+# Repeated help-text strings extracted as module-level constants
+HELP_UNIFIED_IN = "Unified filters YAML (default: ~/.config/dancing-bear/filters_unified.yaml)"
+
 
 def register_config_commands(app: CLIApp) -> object:
     """Register all config subcommands on app and return the config group."""
@@ -33,7 +36,7 @@ def register_config_commands(app: CLIApp) -> object:
             (("--out-outlook",), {"required": True, "help": "Output Outlook categories YAML"}),
         ]),
         ("derive.filters", "Derive Gmail and Outlook filters YAML from unified", run_config_derive_filters, [
-            (("--in",), {"dest": "in_path", "help": "Unified filters YAML (default: ~/.config/dancing-bear/filters_unified.yaml)"}),
+            (("--in",), {"dest": "in_path", "help": HELP_UNIFIED_IN}),
             (("--out-gmail",), {"required": True, "help": "Output Gmail filters YAML"}),
             (("--out-outlook",), {"required": True, "help": "Output Outlook rules YAML"}),
             (("--outlook-move-to-folders",), {"action": "store_true", "dest": "outlook_move_to_folders", "default": True, "help": "Encode moveToFolder (default on)"}),
@@ -41,13 +44,13 @@ def register_config_commands(app: CLIApp) -> object:
             (("--outlook-archive-on-remove-inbox",), {"action": "store_true", "dest": "outlook_archive_on_remove_inbox", "help": "Move to Archive when INBOX removed"}),
         ]),
         ("optimize.filters", "Optimize unified configs by merging similar rules", run_config_optimize_filters, [
-            (("--in",), {"dest": "in_path", "help": "Unified filters YAML (default: ~/.config/dancing-bear/filters_unified.yaml)"}),
+            (("--in",), {"dest": "in_path", "help": HELP_UNIFIED_IN}),
             (("--out",), {"required": True, "help": "Output optimized YAML"}),
             (("--merge-threshold",), {"type": int, "default": 2, "help": "Minimum rules to merge"}),
             (("--preview",), {"action": "store_true", "help": "Print merge summary"}),
         ]),
         ("audit.filters", "Audit unified coverage vs provider exports", run_config_audit_filters, [
-            (("--in",), {"dest": "in_path", "help": "Unified filters YAML (default: ~/.config/dancing-bear/filters_unified.yaml)"}),
+            (("--in",), {"dest": "in_path", "help": HELP_UNIFIED_IN}),
             (("--export",), {"dest": "export_path", "required": True, "help": "Gmail exported filters YAML"}),
             (("--preview-missing",), {"action": "store_true", "help": "List missing rules"}),
         ]),
