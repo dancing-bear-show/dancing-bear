@@ -228,7 +228,7 @@ _CONTACT_MATCHERS: dict[str, Any] = {
 # Leading list markers seen in resume DOCX/PDF exports. These are document
 # formatting, not content: leaving them in means the renderer emits "• • text"
 # when it adds its own glyph, and a bare "•" leaks into extracted prose.
-_PAT_LEADING_BULLET = re.compile(r"^\s*[•·▪◦‣∙*•●▪]+\s*")
+_PAT_LEADING_BULLET = re.compile(r"^\s*[•·▪◦‣∙*●]+\s*")
 
 
 def strip_bullet_glyph(text: str) -> str:
