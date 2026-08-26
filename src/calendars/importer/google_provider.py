@@ -137,8 +137,9 @@ class GoogleCalendarProvider:
     ----------------------
     svc
         A ``GoogleCalendarService`` instance (or a test fake exposing
-        ``list_events(calendar_id, time_min, time_max) -> list[dict]`` and
-        ``insert_event(calendar_id, body) -> dict``).
+        ``list_events(calendar_id, time_min, time_max) -> list[dict]``,
+        ``insert_event(calendar_id, body) -> dict``, and optionally
+        ``get_calendar_timezone(calendar_id) -> str | None``).
     calendar_id
         Google Calendar identifier (e.g. ``"primary"`` or a full email).
         Defaults to ``"primary"``.
@@ -154,6 +155,11 @@ class GoogleCalendarProvider:
     svc: Any
     calendar_id: str = "primary"
     skipped: list[dict[str, Any]] = field(default_factory=list, init=False)
+    # Cached result of a one-time Calendars.get() lookup.  None means "not yet
+    # fetched"; an empty string means "lookup returned nothing".  Populated on
+    # the first add_event() call that needs it, so read-only list_events() usage
+    # never pays the extra network round-trip.
+    _calendar_tz_cache: str | None = field(default=None, init=False, repr=False)
 
     # ------------------------------------------------------------------
     # Protocol methods
@@ -401,6 +407,34 @@ class GoogleCalendarProvider:
     # Internal helpers — add_event
     # ------------------------------------------------------------------
 
+    def _resolve_tz(self, event_tz: str | None) -> str:
+        """Return the timezone to use for a timed event insert body.
+
+        Resolution order mirrors src/core/outlook/calendar.py ``_resolve_tz``:
+        1. Caller's explicit timezone (``event.tz``) when set and non-blank.
+        2. The target calendar's own timezone, fetched from the Calendars API
+           and cached on the instance so subsequent inserts pay no extra cost.
+        3. A sane local default (``America/Toronto``) rather than UTC, which
+           would silently shift events by hours for non-UTC users.
+
+        Never falls back to UTC: UTC is an acceptable explicit choice but a
+        terrible implicit one on the write path where the error is silent and
+        permanent (the event is already in the calendar by the time anyone
+        notices the wrong time).
+        """
+        if event_tz and event_tz.strip():
+            return event_tz.strip()
+        # Fetch calendar timezone once and cache it.  None means not yet tried;
+        # empty string means the lookup returned nothing.
+        if self._calendar_tz_cache is None:
+            fetched: str | None = None
+            if hasattr(self.svc, "get_calendar_timezone"):
+                fetched = self.svc.get_calendar_timezone(self.calendar_id)
+            self._calendar_tz_cache = fetched or ""
+        if self._calendar_tz_cache:
+            return self._calendar_tz_cache
+        return "America/Toronto"
+
     def _calendar_event_to_body(self, event: CalendarEvent) -> dict[str, Any]:
         """Translate a CalendarEvent into a calendar/v3 insert body dict."""
         body: dict[str, Any] = {
@@ -411,8 +445,9 @@ class GoogleCalendarProvider:
 
         # Start / end
         if "T" in (event.start or ""):
-            # Timed event
-            tz = event.tz or "UTC"
+            # Timed event: resolve timezone explicitly — never default to UTC.
+            # A UTC default silently shifts events by hours for non-UTC users.
+            tz = self._resolve_tz(event.tz)
             body["start"] = {"dateTime": event.start, "timeZone": tz}
             body["end"] = {"dateTime": event.end, "timeZone": tz}
         else:
