@@ -245,7 +245,11 @@ class TestResumeCLIRender(unittest.TestCase):
                 self.assertIn("State University", text)
 
     def test_render_pdf_raises_error(self):
-        """Test render with .pdf output exits with USAGE error (C5: CLIError replaces RuntimeError)."""
+        """Test render with .pdf output exits with USAGE error and directs user to export-pdf.
+
+        BLOCKER 1b: The stub message no longer contains uppercase "PDF"; assert on stable
+        behaviour — exit USAGE (2) and that the message points the user at export-pdf.
+        """
         data = {"name": "Test User"}
         with temp_yaml_file(data) as data_path:
             with tempfile.TemporaryDirectory() as tmpdir:
@@ -257,7 +261,9 @@ class TestResumeCLIRender(unittest.TestCase):
                 ])
                 # ExitCode.USAGE == 2 (C5 fix replaced RuntimeError with CLIError(..., ExitCode.USAGE))
                 self.assertEqual(proc.returncode, 2)
-                self.assertIn("PDF", proc.stderr)
+                # The stub message directs the user to the new subcommand; assert on that
+                # rather than on a specific casing that may change with future rewording.
+                self.assertIn("export-pdf", proc.stderr)
 
     def test_render_onepage_template_trims_roles_and_bullets(self):
         """E2E: the onepage template caps margins, roles, and bullets per role.
@@ -911,6 +917,170 @@ class TestResumeCLISummarizeExtended(unittest.TestCase):
                     "--out", out_path,
                 ])
                 self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+
+
+class TestResumeCLIExportPdf(unittest.TestCase):
+    """Test resume export-pdf subcommand.
+
+    BLOCKER 4 strategy: Option A (subprocess-based) for all tests.
+    All tests drive the CLI as a subprocess (matching the rest of this file).
+    The soffice-absent sad path is made hermetic by passing a PATH that
+    excludes soffice, which causes convert_docx_to_pdf's FileNotFoundError
+    branch to fire deterministically — no parent-process mocking needed.
+    """
+
+    # --------------------------------------------------------------------------
+    # Helpers
+    # --------------------------------------------------------------------------
+
+    @staticmethod
+    def _run_export_pdf(args: list[str], *, env: dict | None = None):
+        """Run `resume export-pdf <args>` as a subprocess.
+
+        When *env* is None, the inherited environment is used.  Pass a dict to
+        override the entire environment (e.g. to scrub PATH of soffice).
+        """
+        import subprocess  # nosec B404
+        cmd = [sys.executable, "-m", "resume", "export-pdf"] + args
+        return subprocess.run(  # nosec B603
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+
+    # --------------------------------------------------------------------------
+    # Happy path
+    # --------------------------------------------------------------------------
+
+    def test_export_pdf_happy_path_output_file_exists(self):
+        """Happy path: conversion succeeds and the output PDF exists at the resolved path.
+
+        Uses a real (but minimal) .docx created by python-docx so the file is
+        valid.  Requires soffice on PATH; skipped when absent.
+        """
+        import shutil
+        if not shutil.which("soffice"):
+            self.skipTest("soffice not installed — happy-path test skipped")
+        try:
+            from docx import Document  # noqa: F401
+        except Exception:
+            self.skipTest("python-docx not installed")
+
+        from docx import Document
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "myresume.docx")
+            out_path = os.path.join(tmpdir, "myresume.pdf")
+            Document().save(docx_path)
+
+            proc = self._run_export_pdf([
+                "--docx", docx_path,
+                "--out", out_path,
+            ])
+            self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+            self.assertTrue(os.path.exists(out_path), msg=f"PDF not found; stderr={proc.stderr}")
+
+    # --------------------------------------------------------------------------
+    # Sad path: soffice absent / conversion failure
+    # --------------------------------------------------------------------------
+
+    def test_export_pdf_soffice_absent_exits_error_with_libreoffice_message(self):
+        """Sad path: soffice absent on PATH → exit ERROR (1) and stderr names LibreOffice.
+
+        BLOCKER 4 (Option A): pass PATH=/nonexistent so subprocess cannot find soffice.
+        BLOCKER 5: asserts BOTH returncode and stderr substring.
+        BLOCKER 6: conversion failure exits ERROR (1), not USAGE (2).
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a minimal but real-looking .docx so the CLI gets past the
+            # file-existence check and actually attempts conversion.
+            docx_path = os.path.join(tmpdir, "resume.docx")
+            try:
+                from docx import Document
+                Document().save(docx_path)
+            except Exception:
+                # Fallback: write a stub file that passes the existence check.
+                with open(docx_path, "wb") as f:
+                    f.write(b"PK\x03\x04")  # PKZIP magic — not a valid docx but the file exists
+
+            out_path = os.path.join(tmpdir, "resume.pdf")
+            # Scrub PATH so soffice cannot be found — this makes convert_docx_to_pdf
+            # raise FileNotFoundError, which is returned as False → CLIError exit 1.
+            empty_path_env = dict(os.environ, PATH="/nonexistent")
+
+            proc = self._run_export_pdf([
+                "--docx", docx_path,
+                "--out", out_path,
+            ], env=empty_path_env)
+
+            # BLOCKER 6: conversion failure is ERROR (1)
+            self.assertEqual(proc.returncode, 1, msg=f"expected exit 1; stderr={proc.stderr}")
+            # BLOCKER 5: stderr must mention LibreOffice (the remedy named in the error message)
+            self.assertIn("LibreOffice", proc.stderr, msg=f"expected 'LibreOffice' in stderr; got: {proc.stderr!r}")
+
+    # --------------------------------------------------------------------------
+    # Sad path: missing --docx file
+    # --------------------------------------------------------------------------
+
+    def test_export_pdf_missing_docx_exits_usage_with_not_found_message(self):
+        """Sad path: --docx file does not exist → exit USAGE (2) and stderr says not found.
+
+        BLOCKER 5: asserts BOTH returncode and stderr substring.
+        BLOCKER 6: missing input file must exit USAGE (2), not ERROR (1).
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            absent_docx = os.path.join(tmpdir, "ghost.docx")
+            out_path = os.path.join(tmpdir, "ghost.pdf")
+            # absent_docx deliberately not created
+
+            proc = self._run_export_pdf([
+                "--docx", absent_docx,
+                "--out", out_path,
+            ])
+
+            # BLOCKER 6: missing file → USAGE (2)
+            self.assertEqual(proc.returncode, 2, msg=f"expected exit 2; stderr={proc.stderr}")
+            # BLOCKER 5: stderr must say something about the file not being found
+            self.assertIn("not found", proc.stderr.lower(), msg=f"expected 'not found' in stderr; got: {proc.stderr!r}")
+
+    # --------------------------------------------------------------------------
+    # Regression: distinct inputs must not collide on the same output path
+    # --------------------------------------------------------------------------
+
+    def test_export_pdf_different_inputs_resolve_to_different_output_paths(self):
+        """Regression: two different --docx inputs must not resolve to the same output path.
+
+        BLOCKER 3 follow-up: with kind=docx.stem, omitting --out uses the stem of the
+        input file, so 'alpha.docx' → '<data-home>/.../alpha.pdf' and
+        'beta.docx' → '<data-home>/.../beta.pdf'.  They must differ.
+        This test verifies the _resolve_out behaviour without actually running soffice.
+        """
+        from resume.cli.main import _resolve_out  # type: ignore[import]
+        import argparse
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Simulate args with no explicit --out and a custom --out-dir so
+            # we don't write to the real data home.
+            def make_args() -> argparse.Namespace:
+                return argparse.Namespace(out=None, out_dir=tmpdir, profile=None)
+
+            alpha_args = make_args()
+            beta_args = make_args()
+
+            # _resolve_out(args, suffix, kind=stem) is the post-BLOCKER-3 call
+            alpha_path = _resolve_out(alpha_args, ".pdf", kind="alpha")
+            beta_path = _resolve_out(beta_args, ".pdf", kind="beta")
+
+            self.assertNotEqual(
+                str(alpha_path),
+                str(beta_path),
+                msg=(
+                    f"Two different inputs resolve to the same output path: {alpha_path!r}. "
+                    "This is the silent-overwrite bug from BLOCKER 3."
+                ),
+            )
 
 
 if __name__ == "__main__":

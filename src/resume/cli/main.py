@@ -369,7 +369,7 @@ def cmd_render(args: argparse.Namespace) -> int:
     out_docx = _resolve_out(args, ".docx", kind="resume")
     out_suf = out_docx.suffix.lower()
     if out_suf == ".pdf":
-        raise CLIError("PDF rendering planned for future; use .docx output.", ExitCode.USAGE)
+        raise CLIError("render writes .docx only; use 'resume export-pdf --docx <path>' to convert.", ExitCode.USAGE)
     # default to docx
     # Ensure parent directory exists for nested profile layout
     try:
@@ -638,6 +638,41 @@ def cmd_docx_text(args: argparse.Namespace) -> int:
     raw = re.sub(r"</w:p>", "\n", raw)
     raw = re.sub(r"<[^>]+>", "", raw)
     print(html.unescape(raw))
+    return 0
+
+
+# --- export-pdf command ---
+@app.command("export-pdf", help="Convert a .docx resume to PDF via LibreOffice")
+@app.argument("--docx", required=True, help="Input .docx file to convert")
+@app.argument("--out", help="Output PDF path (overrides --profile / --out-dir)")
+@app.argument("--profile", help=PROFILE_HELP_OUT)
+@app.argument("--out-dir", help=OUT_DIR_HELP)
+def cmd_export_pdf(args: argparse.Namespace) -> int:
+    from resume.australian_rotate import convert_docx_to_pdf
+
+    docx = Path(args.docx)
+    if not docx.is_file():
+        raise CLIError(f"{args.docx}: file not found", ExitCode.USAGE)
+
+    out_pdf = _resolve_out(args, ".pdf", kind=docx.stem)
+    # LibreOffice always writes <docx_stem>.pdf into the output directory;
+    # when that path differs from out_pdf, rename it afterward.
+    # (See australian_rotate.py:101-103 for the same pattern.)
+    out_pdf.parent.mkdir(parents=True, exist_ok=True)
+
+    if not convert_docx_to_pdf(str(docx), str(out_pdf)):
+        raise CLIError(
+            "DOCX to PDF conversion failed. Is LibreOffice installed?",
+            ExitCode.ERROR,
+            hint="brew install --cask libreoffice",
+        )
+
+    # LibreOffice writes <docx_stem>.pdf into the outdir, not the exact target.
+    actual = out_pdf.parent / f"{docx.stem}.pdf"
+    if actual.exists() and actual != out_pdf:
+        actual.rename(out_pdf)
+
+    print(str(out_pdf))
     return 0
 
 
