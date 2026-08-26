@@ -11,7 +11,9 @@ from slides.constants import (
     LAYOUT_SECTION,
 )
 from slides.parsers_markdown import (
+    _outline_prompt_bullet,
     _parse_markdown_section,
+    _parse_outline_slides,
     load_deck_from_markdown,
     load_deck_from_outline,
 )
@@ -352,6 +354,128 @@ class TestLoadDeckFromOutline(unittest.TestCase):
 
         deck = load_deck_from_outline(outline)
         self.assertEqual(len(deck.slides[0].bullets), 0)
+
+# ---------------------------------------------------------------------------
+# _parse_markdown_section: non-bullet, non-directive line skips bullet append
+# (partial branch 189->182)
+# ---------------------------------------------------------------------------
+
+class TestParseSectionNonBulletLines(unittest.TestCase):
+    """Cover the branch where a line is not a directive and not a bullet (branch 189->182)."""
+
+    def test_non_bullet_non_directive_line_does_not_add_bullet(self):
+        """A plain line with no heading marker or bullet prefix is skipped."""
+        # "Some plain text" is neither a heading (#) nor a bullet (- text)
+        result = _parse_markdown_section(["# A Title", "Some plain text that is not a bullet"])
+        # Slide should exist (has a title) but have zero bullets
+        self.assertIsNotNone(result)
+        self.assertEqual(result.title, "A Title")
+        self.assertEqual(result.bullets, [])
+
+    def test_section_with_only_non_bullet_lines_returns_slide(self):
+        """A section with a heading and only non-bullet content creates a slide."""
+        result = _parse_markdown_section(["# My Slide", "just a sentence"])
+        self.assertIsNotNone(result)
+        self.assertEqual(result.bullets, [])
+
+
+# ---------------------------------------------------------------------------
+# _outline_prompt_bullet: non-matching line returns None (line 210, branch 98->91)
+# ---------------------------------------------------------------------------
+
+class TestOutlinePromptBullet(unittest.TestCase):
+    """Tests for _outline_prompt_bullet — covers the non-match branch."""
+
+    def test_non_matching_line_returns_none(self):
+        """A line that does not match the prompt pattern returns None (line 210)."""
+        result = _outline_prompt_bullet("Just a plain comment line")
+        self.assertIsNone(result)
+
+    def test_matching_line_returns_bullet(self):
+        """A matching prompt line returns a BulletItem."""
+        result = _outline_prompt_bullet("- Prompt (on slide): Key point")
+        self.assertIsNotNone(result)
+        self.assertIsInstance(result, BulletItem)
+        self.assertIn("Key point", result.text)
+
+
+# ---------------------------------------------------------------------------
+# _parse_outline_slides: lines before any slide header skip the body branch
+# (partial branch 243->233)
+# ---------------------------------------------------------------------------
+
+class TestParseOutlineSlides(unittest.TestCase):
+    """Tests for _parse_outline_slides partial branches."""
+
+    def test_lines_before_first_slide_header_are_ignored(self):
+        """Content lines before the first slide header are silently ignored (branch 243->233)."""
+        text = (
+            "preamble line — no slide yet\n"
+            "- Slide 1 — Real Title\n"
+            "- Prompt (on slide): Included bullet\n"
+        )
+        slides = _parse_outline_slides(text)
+        self.assertEqual(len(slides), 1)
+        self.assertEqual(slides[0].title, "Real Title")
+        self.assertEqual(len(slides[0].bullets), 1)
+
+    def test_non_prompt_line_inside_slide_does_not_add_bullet(self):
+        """A non-prompt line inside a slide does not produce a bullet (branch 189->182)."""
+        text = (
+            "- Slide 1 — Title\n"
+            "this line is not a prompt\n"
+        )
+        slides = _parse_outline_slides(text)
+        self.assertEqual(len(slides), 1)
+        self.assertEqual(slides[0].bullets, [])
+
+
+# ---------------------------------------------------------------------------
+# _parse_markdown_section: None returned when section has no title or bullets
+# (partial branch 98->91 in load_deck_from_markdown)
+# ---------------------------------------------------------------------------
+
+class TestParseSectionNoneResult(unittest.TestCase):
+    """Cover the branch where _parse_markdown_section returns None (partial 98->91)."""
+
+    def test_empty_section_skipped_in_markdown_load(self):
+        """Sections that parse to None are skipped; deck slide count excludes them."""
+        import tempfile
+        import os
+        md = "# Valid Title\n- bullet one\n\n---\n\n\n---\n\n# Another\n- point\n"
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as f:
+            f.write(md)
+            path = f.name
+        try:
+            deck = load_deck_from_markdown(path)
+            # Exactly the two real sections survive; the blank middle section
+            # parses to None and is skipped. A >= assertion would not catch a
+            # regression that stopped skipping it.
+            self.assertEqual(len(deck.slides), 2)
+            self.assertEqual(
+                [s.title for s in deck.slides], ["Valid Title", "Another"]
+            )
+        finally:
+            os.unlink(path)
+
+    def test_plain_text_only_section_produces_no_slide(self):
+        """A section with only plain text (no heading, no bullets) is skipped (branch 98->91)."""
+        import tempfile
+        import os
+        # First section: valid. Second section: plain text only (no # title, no - bullet)
+        # _parse_markdown_section returns None for it; load_deck skips it.
+        md = "# Real Slide\n- valid bullet\n\n---\n\njust plain prose no heading no bullet\n"
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as f:
+            f.write(md)
+            path = f.name
+        try:
+            deck = load_deck_from_markdown(path)
+            # Only the first (real) section becomes a slide; prose section is None and skipped
+            self.assertEqual(len(deck.slides), 1)
+            self.assertEqual(deck.slides[0].title, "Real Slide")
+        finally:
+            os.unlink(path)
+
 
 if __name__ == "__main__":
     unittest.main()

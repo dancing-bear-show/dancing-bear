@@ -21,6 +21,10 @@ from pptx.dml.color import RGBColor
 from pptx.enum.dml import MSO_THEME_COLOR
 
 from slides.constants import (
+    # The module's own __dir__ hook, aliased so it does not shadow this test
+    # module's __dir__. Imported via the same from-import style as everything
+    # else here, so slides.constants is not imported two different ways.
+    __dir__ as constants_dir,
     # Bullet characters
     BULLET_CHARS,
     BULLET_LEVEL_0,
@@ -855,6 +859,34 @@ class TestDefaultValues(unittest.TestCase):
         """YAML_URL should be the string 'url'."""
         self.assertEqual(YAML_URL, "url")
         self.assertIsInstance(YAML_URL, str)
+
+
+# ---------------------------------------------------------------------------
+# __dir__: includes lazily-resolved constant names (line 274)
+# ---------------------------------------------------------------------------
+
+class TestConstantsDir(unittest.TestCase):
+    """Tests for the __dir__ hook that exposes lazy constant names."""
+
+    def test_dir_includes_lazy_constant_names(self):
+        """__dir__ includes the names of lazy constants."""
+        names = constants_dir()
+        # These names live in _LAZY_CONSTANTS and must appear in dir()
+        self.assertIn("TABLE_HEADER_BG", names)
+        self.assertIn("THEME_COLOR_MAP", names)
+        self.assertIn("HIGHLIGHT_THEME_COLOR", names)
+
+    def test_dir_includes_regular_constants(self):
+        """__dir__ also includes ordinary module-level names."""
+        names = constants_dir()
+        self.assertIn("LAYOUT_BULLET", names)
+        self.assertIn("LAYOUT_TABLE", names)
+
+    def test_dir_returns_sorted_list(self):
+        """__dir__ returns a sorted list of strings."""
+        names = constants_dir()
+        self.assertEqual(names, sorted(names))
+        self.assertTrue(all(isinstance(n, str) for n in names))
 
 
 if __name__ == "__main__":

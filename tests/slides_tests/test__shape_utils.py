@@ -1,6 +1,7 @@
 """Tests for slides._shape_utils — ShapeUtilsMixin."""
 
 import unittest
+import unittest.mock
 from unittest.mock import MagicMock
 
 from pptx.enum.shapes import MSO_SHAPE_TYPE
@@ -274,3 +275,71 @@ class TestRepositionTextbox(unittest.TestCase):
         slide = _make_slide(ph)
         # Should not raise
         self.mixin._reposition_textbox(slide, left=1.0, width=9.0)
+
+
+# ---------------------------------------------------------------------------
+# _set_slide_title: subtitle + inherit_style=True skips style application
+# (partial branch 142->exit)
+# ---------------------------------------------------------------------------
+
+class TestSetSlideTitleInheritStyle(unittest.TestCase):
+    """Cover _set_slide_title with subtitle and inherit_style=True (partial branch 142->exit)."""
+
+    def _make_title_slide(self):
+        """Build a minimal mock slide with a placeholder title shape."""
+        para = MagicMock()
+        para.runs = []
+        tf = MagicMock()
+        tf.paragraphs = [para]
+        shape = _make_shape(is_placeholder=True, placeholder_idx=0, has_text_frame=True)
+        shape.text_frame = tf
+        shape.text_frame.paragraphs = [para]
+        return _make_slide(shape)
+
+    def test_subtitle_with_inherit_style_does_not_set_alignment(self):
+        """When inherit_style=True, the subtitle paragraph alignment is not set."""
+        from pptx.enum.dml import MSO_THEME_COLOR
+        mixin = _Concrete()
+        # _style_run lives on StyleUtilsMixin (not in ShapeUtilsMixin); stub it
+        mixin._style_run = MagicMock()
+        slide = self._make_title_slide()
+        new_para = MagicMock()
+        new_run = MagicMock()
+        new_para.add_run.return_value = new_run
+        slide.shapes[0].text_frame.add_paragraph.return_value = new_para
+
+        mixin._set_slide_title(
+            slide,
+            "Title Text",
+            MSO_THEME_COLOR.ACCENT_1,
+            subtitle="Subtitle Text",
+            inherit_style=True,
+        )
+
+        # Text is still written to the run...
+        self.assertEqual(new_run.text, "Subtitle Text")
+        # ...but inherit_style=True must skip the styling block entirely.
+        mixin._style_run.assert_not_called()
+
+    def test_subtitle_without_inherit_style_runs_through_style_block(self):
+        """Happy path: subtitle with inherit_style=False applies styling."""
+        from pptx.enum.dml import MSO_THEME_COLOR
+        mixin = _Concrete()
+        # _style_run is defined on StyleUtilsMixin (mixed in on SlideGenerator); stub it here
+        mixin._style_run = MagicMock()
+        slide = self._make_title_slide()
+        new_para = MagicMock()
+        new_run = MagicMock()
+        new_para.add_run.return_value = new_run
+        slide.shapes[0].text_frame.add_paragraph.return_value = new_para
+        with unittest.mock.patch.object(_Concrete, "_has_body_placeholder", return_value=True):
+            mixin._set_slide_title(
+                slide,
+                "Title",
+                MSO_THEME_COLOR.ACCENT_1,
+                subtitle="Sub",
+                inherit_style=False,
+            )
+        self.assertEqual(new_run.text, "Sub")
+        # _style_run should have been called for the subtitle run
+        mixin._style_run.assert_called_once()

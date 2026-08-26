@@ -133,8 +133,11 @@ def _body_line_to_bullet(line: str) -> BulletItem | None:
     if not lstripped.startswith(_BODY_SUB_BULLET_PREFIX):
         return BulletItem(text=stripped, level=0)
 
+    # `text` is non-empty by construction: `stripped` is rstrip()ed, so a line
+    # whose content is only the "- " prefix collapses to "-" and fails the
+    # startswith check above. Reaching here means at least one non-whitespace
+    # character follows the prefix (though `text` may still lead with spaces,
+    # e.g. "-  X" -> " X"). An `if not text` guard here would be dead code.
     text = lstripped[len(_BODY_SUB_BULLET_PREFIX):]
-    if not text:
-        return None
     indent = len(stripped) - len(lstripped)
     return BulletItem(text=text, level=2 if indent >= 2 else 1)

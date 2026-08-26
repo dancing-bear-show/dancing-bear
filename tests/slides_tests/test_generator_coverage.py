@@ -1599,5 +1599,118 @@ class TestApplyNotes(unittest.TestCase):
         self.assertNotIn("notes_slide", slide._mock_children)
 
 
+# ---------------------------------------------------------------------------
+# infer_layout_map_from_template: LAYOUT_BULLET absent — table alias branch
+# skipped (partial branch 183->189)
+# ---------------------------------------------------------------------------
+
+class TestInferLayoutMapNoBulletLayout(unittest.TestCase):
+    """Cover the branch where LAYOUT_BULLET is absent from scan result (branch 183->189)."""
+
+    @patch("slides.generator.Presentation")
+    def test_no_bullet_layout_skips_table_alias(self, mock_prs_cls):
+        """When scan finds only section-type layouts and no OBJECT, table alias is not added."""
+        prs = MagicMock()
+        # Only a Title Slide layout — maps to title_only, not bullet
+        slide = MagicMock()
+        slide.slide_layout.name = "Title Slide with Streams"
+        slides_mock = MagicMock()
+        slides_mock.__iter__ = MagicMock(return_value=iter([slide]))
+        prs.slides = slides_mock
+        prs.slide_masters = []
+        mock_prs_cls.return_value = prs
+
+        result = SlideGenerator.infer_layout_map_from_template("/fake.pptx")
+        # The mock template holds a recognised layout, so inference must produce a
+        # mapping — assert unconditionally rather than guarding on None, or the
+        # test would silently pass without checking anything.
+        self.assertIsNotNone(result)
+        self.assertIn("title_only", result)
+        # No bullet layout was found, so the table alias must not be added.
+        self.assertNotIn("table", result)
+
+
+# ---------------------------------------------------------------------------
+# generate(): rename_fn not callable (partial branch 336->341)
+# and parent directory empty string (partial branch 342->345)
+# ---------------------------------------------------------------------------
+
+class TestGenerateRenameFnAndParent(unittest.TestCase):
+    """Cover generate() branches: rename_fn missing and output in current directory."""
+
+    def _make_mock_prs(self, include_rename_fn=True):
+        """Build a mock Presentation that simulates the generate() internals."""
+        prs = MagicMock()
+        sld_id = MagicMock()
+        sld_id.rId = "rId1"
+        prs.slides._sldIdLst = [sld_id]
+        if not include_rename_fn:
+            # getattr(prs.part, "rename_slide_parts", None) should return None
+            prs.part = MagicMock(spec=[])  # spec=[] means rename_slide_parts won't exist
+        return prs
+
+    @patch("slides.generator.Presentation")
+    def test_generate_no_rename_fn_still_saves(self, mock_prs_cls):
+        """When prs.part has no rename_slide_parts, generate() still saves without error."""
+        import tempfile
+        import os
+        prs = MagicMock()
+        prs.slides._sldIdLst = []
+        # Ensure rename_slide_parts is NOT present as an attribute
+        del prs.part.rename_slide_parts
+        mock_prs_cls.return_value = prs
+
+        generator = SlideGenerator(template_path="/fake.pptx")
+        deck = SlideDeck(
+            metadata=DeckMetadata(title="Test"),
+            slides=[],
+        )
+
+        with tempfile.NamedTemporaryFile(suffix=".pptx", delete=False) as tf:
+            out_path = tf.name
+        try:
+            with patch.object(generator, "_prepare_presentation") as mock_prep, \
+                 patch.object(generator, "_generate_layout_map_mode"), \
+                 patch.object(generator, "_generate_legacy_mode"):
+                mock_prep.return_value = (prs, None, {}, MSO_THEME_COLOR.LIGHT_2)
+                generator.generate(deck, out_path)
+            prs.save.assert_called_once_with(out_path)
+        finally:
+            if os.path.exists(out_path):
+                os.unlink(out_path)
+
+    @patch("slides.generator.Presentation")
+    def test_generate_basename_only_path_skips_makedirs(self, mock_prs_cls):
+        """When output_path has no parent directory, makedirs is not called."""
+        import os
+        import tempfile
+        prs = MagicMock()
+        prs.slides._sldIdLst = []
+        mock_prs_cls.return_value = prs
+
+        generator = SlideGenerator(template_path="/fake.pptx")
+        deck = SlideDeck(
+            metadata=DeckMetadata(title="Test"),
+            slides=[],
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            # Use just the basename so os.path.dirname returns ""
+            basename_only = "out.pptx"
+            original_dir = os.getcwd()
+            os.chdir(td)
+            try:
+                with patch.object(generator, "_prepare_presentation") as mock_prep, \
+                     patch.object(generator, "_generate_layout_map_mode"), \
+                     patch.object(generator, "_generate_legacy_mode"), \
+                     patch("os.makedirs") as mock_makedirs:
+                    mock_prep.return_value = (prs, None, {}, MSO_THEME_COLOR.LIGHT_2)
+                    generator.generate(deck, basename_only)
+                # makedirs should NOT have been called (no parent directory)
+                mock_makedirs.assert_not_called()
+            finally:
+                os.chdir(original_dir)
+
+
 if __name__ == "__main__":
     unittest.main()
