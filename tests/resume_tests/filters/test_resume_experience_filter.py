@@ -123,5 +123,56 @@ class TestFilterExperienceByKeywords(unittest.TestCase):
         self.assertEqual(result["name"], "John Doe")
 
 
+class TestDictShapedBullets(unittest.TestCase):
+    """Bullets stored as priority dicts must survive filtering unmangled."""
+
+    @staticmethod
+    def _candidate(bullets):
+        return {"name": "Jane", "experience": [{"title": "Eng", "company": "Acme", "bullets": bullets}]}
+
+    @staticmethod
+    def _bullets(result):
+        return result["experience"][0]["bullets"]
+
+    def test_dict_bullets_kept_as_objects_with_priority_and_desc(self):
+        bullet = {"text": "built Kubernetes platform", "priority": 2.0, "desc": "cluster ops"}
+        result = filter_experience_by_keywords(self._candidate([bullet]), ["Kubernetes"])
+        self.assertEqual(self._bullets(result), [bullet])
+
+    def test_desc_only_match_counts(self):
+        # item_match_text joins text/line/name/desc/description, so a keyword
+        # present only in desc is a deliberate match.
+        bullet = {"text": "led platform work", "priority": 1.0, "desc": "Kubernetes cluster ops"}
+        other = {"text": "wrote docs", "priority": 0.5}
+        result = filter_experience_by_keywords(self._candidate([bullet, other]), ["Kubernetes"])
+        self.assertEqual(self._bullets(result), [bullet])
+
+    def test_priority_value_is_not_matchable(self):
+        # The old str(dict) path exposed the priority number as matchable text.
+        bullet = {"text": "led platform work", "priority": 2.0}
+        other = {"text": "wrote docs", "priority": 0.5}
+        result = filter_experience_by_keywords(self._candidate([bullet, other]), ["2.0"])
+        # No bullet genuinely matches, so the fallback keeps the first one only.
+        self.assertEqual(self._bullets(result), [bullet])
+
+    def test_string_bullets_still_work(self):
+        bullets = ["built Kubernetes platform", "wrote docs"]
+        result = filter_experience_by_keywords(self._candidate(bullets), ["Kubernetes"])
+        self.assertEqual(self._bullets(result), ["built Kubernetes platform"])
+
+    def test_fallback_returns_original_dict_bullet(self):
+        bullet = {"text": "wrote docs", "priority": 1.0, "desc": "documentation"}
+        result = filter_experience_by_keywords(self._candidate([bullet]), ["Kubernetes"])
+        self.assertEqual(self._bullets(result), [bullet])
+
+    def test_mixed_str_and_dict_bullets(self):
+        dict_bullet = {"text": "built Kubernetes platform", "priority": 2.0}
+        result = filter_experience_by_keywords(
+            self._candidate([dict_bullet, "shipped Kubernetes upgrades", "wrote docs"]),
+            ["Kubernetes"],
+        )
+        self.assertEqual(self._bullets(result), [dict_bullet, "shipped Kubernetes upgrades"])
+
+
 if __name__ == "__main__":
     unittest.main()
