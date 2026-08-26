@@ -3,9 +3,10 @@
 #
 # Data flow:
 #   [pm fragment: pm-index-sessions → pm-extract-prompts → pm-score-efficiency]
-#   → gather-transcripts → analyze → report
-#   → [vtr fragment: vtr-validate → vtr-render]
-#   → [docs fragment: docs-detect-surface-changes → docs-update-docs → docs-verify-docs]
+#   → gather-transcripts → analyze
+#   → [vtr fragment: vtr-validate → vtr-render]   (renders the report from findings.json)
+#   → [docs fragment: docs-detect-surface-changes → docs-approve-doc-plan
+#                     → docs-update-docs → docs-verify-docs]
 #
 # Advisory only. Feature proposals are recorded as a backlog; nothing is built.
 
@@ -49,10 +50,21 @@ include:
     depends_on: []
     reads_from: []
   # Stages injected: vtr-validate → vtr-render
+  # vtr-render reads {primary_artifact} (findings.json) and renders
+  # {report_artifact} from it directly — there is deliberately NO separate
+  # report stage here. An earlier draft had one, but the fragment never reads
+  # anything except {primary_artifact}, so that stage's output was written and
+  # never consumed. domain-recommender.yaml has the same shape for the same
+  # reason.
+  #
+  # The fragment renders "all substantive content from {primary_artifact} as
+  # readable markdown", so the report's shape is determined by findings.json's
+  # structure — which the analyze stage defines. To change the report, change
+  # what analyze emits, not this include.
   - path: workflows/shared/validate-then-render.yaml
     prefix: vtr
-    depends_on: [report]
-    reads_from: [analyze, report]
+    depends_on: [analyze]
+    reads_from: [analyze, gather-transcripts, pm-index-sessions]
   # Stages injected: docs-detect-surface-changes → docs-approve-doc-plan
   #                  → docs-update-docs → docs-verify-docs
   # docs-approve-doc-plan is a human_gate: it is the ONLY gate in this workflow,
@@ -176,12 +188,20 @@ stages:
       feature_proposals (top 5):
         Each entry: {{ "rank": 1, "title": "...", "problem": "...",
                       "proposal": "...", "file_path": "...",
+                      "pseudocode": "<3-5 lines of core logic>",
+                      "tokens_saved_per_session": N,
                       "estimated_lines": N }}
         Focus on concrete repo improvements: new CLI flags, new subcommands,
         agentic schema fixes, error message improvements.
         Every proposal must name a file path that exists — verify each one
         before writing it. A proposal pointing at a nonexistent file is a
         defect, not a suggestion.
+        Write proposals in the imperative ("add --flag X", not "we could add"),
+        since vtr-render renders these entries into the shared report verbatim
+        and there is no later stage to rewrite them.
+        Mark any figure derived from a default or fallback as estimated, and
+        set tokens_saved_per_session to null rather than guessing when the data
+        does not support an estimate.
 
       workflow_improvements (list):
         Each entry: {{ "finding": "...", "suggestion": "..." }}
@@ -211,65 +231,3 @@ stages:
     required: true
     writes_to:
       - findings.json
-
-  # ===========================================================================
-  # Stage 3: Report — structured markdown with ranked findings
-  # ===========================================================================
-
-  - name: report
-    kind: execute
-    depends_on: [analyze]
-    reads_from: [analyze, pm-index-sessions, pm-score-efficiency]
-    description: >
-      Read findings.json and sessions-index.json, then write the DRAFT report to
-      {workspace}/outputs/telemetry-review-draft.md — a structured markdown
-      document.
-
-      Write exactly that filename, spelled literally. Do NOT write
-      {report_artifact} here: `writes_to` receives no trigger-param
-      substitution (only `description` and cli_commands do), so a
-      param-named output would leave the agent writing one filename while the
-      orchestrator waits for another, and the stage would never complete. The
-      downstream vtr-render stage owns {report_artifact} — it applies the
-      validation corrections and renders the final shareable report from this
-      draft.
-
-      Structure:
-        # Telemetry Review — {since} window
-        ## Summary (session count, total cost, date range)
-        ## Top Error Patterns (ranked table with fix for each)
-        ## Token Waste (ranked table with estimated savings per session)
-        ## Feature Proposals (ranked list with code sketch and ROI)
-        ## Workflow Improvements (bulleted list)
-        ## Appendix: Session Cost Table (top 10 sessions)
-
-      For each feature proposal, include:
-        - The specific file to modify (repo-relative path under src/)
-        - A 3-5 line pseudocode sketch of the implementation
-        - Estimated tokens saved per session if implemented
-
-      Writing rules:
-        - Professional, neutral, fact-based. No hype, no filler.
-        - Imperative mood for proposals ("add --flag X", not "we could add").
-        - All numbers trace directly to findings.json or sessions-index.json.
-        - Mark any figure derived from a default or fallback as "estimated".
-    agent:
-      role: doc-writer
-      model: sonnet
-      tools:
-        - Read
-        - Write
-      access: read-write
-    outputs:
-      - name: report
-        mode: generate
-        description: >
-          Write outputs/telemetry-review-draft.md following the structure and
-          writing rules in the stage description. The literal filename must
-          match writes_to below — vtr-render owns {report_artifact}.
-    required: true
-    writes_to:
-      # Literal filename, deliberately distinct from {report_artifact}: writes_to
-      # gets no {param} substitution, so it must never be spelled as a param.
-      # vtr-render reads this draft and renders {report_artifact} from it.
-      - telemetry-review-draft.md
