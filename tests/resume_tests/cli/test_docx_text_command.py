@@ -81,7 +81,7 @@ class TestDocxTextCommand(unittest.TestCase):
             path = Path(tmpdir) / "nodoc.docx"
             with zipfile.ZipFile(str(path), "w") as zf:
                 zf.writestr("word/styles.xml", "<styles/>")
-            rc, stdout, stderr = self._run([str(path)])
+            rc, _, stderr = self._run([str(path)])
         self.assertNotEqual(rc, 0)
         self.assertIn("word/document.xml", stderr)
 

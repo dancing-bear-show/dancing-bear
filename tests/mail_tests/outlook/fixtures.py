@@ -78,7 +78,7 @@ def make_graph_message(
     }
 
 
-def make_response(messages: list, next_link: str = None) -> MagicMock:
+def make_response(messages: list, next_link: str | None = None) -> MagicMock:
     """Build a mock Graph API response wrapping `messages`."""
     resp = MagicMock()
     resp.raise_for_status = MagicMock()

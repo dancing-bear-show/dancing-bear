@@ -635,7 +635,7 @@ def cmd_docx_text(args: argparse.Namespace) -> int:
         _print_docx_structure(raw, names)
         return 0
 
-    raw = re.sub(r"</w:p>", "\n", raw)
+    raw = raw.replace("</w:p>", "\n")
     raw = re.sub(r"<[^>]+>", "", raw)
     print(html.unescape(raw))
     return 0

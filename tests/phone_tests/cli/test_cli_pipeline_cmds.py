@@ -104,7 +104,6 @@ CASES: list[PipelineDelegationCase] = [
             t.assertEqual(r.backup, "/backup/path"),
             t.assertIsNone(r.layout),
         ),
-        assert_called_once=False,
     ),
     PipelineDelegationCase(
         name="checklist",

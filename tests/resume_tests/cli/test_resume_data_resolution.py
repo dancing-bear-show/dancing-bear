@@ -68,8 +68,8 @@ class TestResolveData(unittest.TestCase):
     def test_explicit_data_path_wins(self):
         """A caller who names a path means it — no config lookup at all."""
         self.assertEqual(
-            _resolve_data(_args(data="/tmp/explicit.json", profile="brian")),
-            "/tmp/explicit.json",
+            _resolve_data(_args(data="/tmp/explicit.json", profile="brian")),  # nosec B108 - test string only, not created or opened
+            "/tmp/explicit.json",  # nosec B108 - test string only, not created or opened
         )
 
     def test_explicit_data_wins_even_when_profile_file_exists(self):
@@ -80,8 +80,8 @@ class TestResolveData(unittest.TestCase):
             (base / "data.json").write_text("{}")
             with patch("resume.cli.main.config_home", return_value=Path(tmp)):
                 self.assertEqual(
-                    _resolve_data(_args(data="/tmp/wins.json", profile="brian")),
-                    "/tmp/wins.json",
+                    _resolve_data(_args(data="/tmp/wins.json", profile="brian")),  # nosec B108 - test string only, not created or opened
+                    "/tmp/wins.json",  # nosec B108 - test string only, not created or opened
                 )
 
     def test_resolves_json_from_profile_dir(self):
