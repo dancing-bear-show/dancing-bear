@@ -8,6 +8,7 @@ import click
 from rich.table import Table
 
 from core.cli_output import emit_one
+from core.format_utils import format_tokens as _fmt_tokens
 from core.text_utils import truncate_text
 
 if TYPE_CHECKING:
@@ -52,15 +53,6 @@ def _fmt_duration(s: object) -> str:
     m = rem // 60
     return f"{h}h{m:02d}m" if h else f"{m}m"
 
-
-def _fmt_tokens(n: int) -> str:
-    # Compare against the M threshold *after* rounding: 999_500 rounds to
-    # 1000K, which should roll over to 1.0M rather than render four K digits.
-    if n >= 999_500:
-        return f"{n / 1_000_000:.1f}M"
-    if n >= 1_000:
-        return f"{n / 1_000:.0f}K"
-    return str(n)
 
 
 def _session_to_dict(s: object) -> dict[str, object]:

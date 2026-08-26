@@ -1,6 +1,10 @@
 """Formatting helpers for costs, token counts, progress bars, and event descriptions."""
 
+from core.format_utils import format_tokens
 from telemetry.models import SessionEvent
+
+# Alias used by callers that import from this module
+_format_tokens = format_tokens
 
 
 def format_cost(cost: float, estimated: bool = False) -> str:
@@ -10,17 +14,6 @@ def format_cost(cost: float, estimated: bool = False) -> str:
 
 # Aliases kept for any existing callers within this module
 _format_cost = format_cost
-
-
-def format_tokens(count: int) -> str:
-    if count >= 1_000_000:
-        return f"{count / 1_000_000:.1f}M"
-    if count >= 1_000:
-        return f"{count // 1_000}K"
-    return str(count)
-
-
-_format_tokens = format_tokens
 
 
 def _bar(fraction: float, width: int = 10) -> str:

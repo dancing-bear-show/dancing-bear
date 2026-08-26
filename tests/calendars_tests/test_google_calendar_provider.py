@@ -33,6 +33,8 @@ class _FakeSvc:
     events: list[dict[str, Any]] = field(default_factory=list)
     inserted: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     _insert_result: dict[str, Any] = field(default_factory=dict)
+    # If set, returned by get_calendar_timezone(); None simulates a lookup failure.
+    _calendar_tz: str | None = None
 
     def list_events(self, calendar_id: str, time_min: str, time_max: str) -> list[dict[str, Any]]:
         return list(self.events)
@@ -42,6 +44,9 @@ class _FakeSvc:
         result = {"id": "new_ev_1", "summary": body.get("summary", "")}
         result.update(self._insert_result)
         return result
+
+    def get_calendar_timezone(self, calendar_id: str) -> str | None:
+        return self._calendar_tz
 
 
 # ---------------------------------------------------------------------------
@@ -524,6 +529,158 @@ class TestBuildRruleRefusesUnknownRepeat(unittest.TestCase):
                     end="2026-06-15T13:00:00", calendar="primary", repeat=repeat,
                 )
                 self.assertIn(f"FREQ={freq}", _build_rrule(event))
+
+
+class TestTimezoneResolution(unittest.TestCase):
+    """_resolve_tz resolution order: event.tz > calendar API > America/Toronto fallback.
+
+    The bug: ``event.tz or "UTC"`` silently shifted non-UTC users' events.
+    These tests guard the corrected resolution order on the insert/write path.
+    """
+
+    def _provider(self, calendar_tz: str | None = "America/Vancouver") -> tuple[Any, Any]:
+        """Return (provider, svc) with an optional calendar timezone lookup stub."""
+        from calendars.importer.google_provider import GoogleCalendarProvider
+        svc = _FakeSvc(_calendar_tz=calendar_tz)
+        return GoogleCalendarProvider(svc=svc, calendar_id="primary"), svc
+
+    # ------------------------------------------------------------------
+    # Explicit event.tz wins
+    # ------------------------------------------------------------------
+
+    def test_explicit_event_tz_is_used(self) -> None:
+        """event.tz, when set, takes priority over any calendar lookup."""
+        from calendars.gmail_pipelines import CalendarEvent
+        provider, svc = self._provider(calendar_tz="America/Vancouver")
+        event = CalendarEvent(
+            id="", subject="Meeting",
+            start="2026-09-01T10:00:00", end="2026-09-01T11:00:00",
+            calendar="primary", tz="America/New_York",
+        )
+        provider.add_event(event)
+        _, body = svc.inserted[0]
+        self.assertEqual(body["start"]["timeZone"], "America/New_York")
+        self.assertEqual(body["end"]["timeZone"], "America/New_York")
+
+    def test_explicit_event_tz_is_used_even_when_calendar_api_differs(self) -> None:
+        """Caller's tz is not overridden by the calendar API result."""
+        from calendars.gmail_pipelines import CalendarEvent
+        provider, svc = self._provider(calendar_tz="Europe/London")
+        event = CalendarEvent(
+            id="", subject="Standup",
+            start="2026-09-02T14:00:00", end="2026-09-02T14:30:00",
+            calendar="primary", tz="America/Toronto",
+        )
+        provider.add_event(event)
+        _, body = svc.inserted[0]
+        self.assertEqual(body["start"]["timeZone"], "America/Toronto")
+
+    # ------------------------------------------------------------------
+    # Calendar API lookup when event.tz is absent
+    # ------------------------------------------------------------------
+
+    def test_absent_tz_resolves_calendar_api(self) -> None:
+        """When event.tz is None the calendar's own timezone is used."""
+        from calendars.gmail_pipelines import CalendarEvent
+        provider, svc = self._provider(calendar_tz="America/Vancouver")
+        event = CalendarEvent(
+            id="", subject="Yoga",
+            start="2026-09-03T07:00:00", end="2026-09-03T08:00:00",
+            calendar="primary",
+            # tz intentionally omitted — CalendarEvent.tz defaults to None
+        )
+        provider.add_event(event)
+        _, body = svc.inserted[0]
+        self.assertEqual(body["start"]["timeZone"], "America/Vancouver")
+
+    def test_calendar_api_is_called_only_once(self) -> None:
+        """The calendar timezone lookup is cached — not repeated per event."""
+        from calendars.gmail_pipelines import CalendarEvent
+        provider, _svc = self._provider(calendar_tz="America/Chicago")
+        call_count = [0]
+        original = _svc.get_calendar_timezone
+
+        def _counting(cal_id: str) -> str | None:
+            call_count[0] += 1
+            return original(cal_id)
+
+        _svc.get_calendar_timezone = _counting
+
+        for i in range(3):
+            event = CalendarEvent(
+                id="", subject=f"Event {i}",
+                start="2026-09-01T10:00:00", end="2026-09-01T11:00:00",
+                calendar="primary",
+            )
+            provider.add_event(event)
+
+        self.assertEqual(call_count[0], 1, "get_calendar_timezone must be called at most once")
+
+    # ------------------------------------------------------------------
+    # Fallback when calendar API returns nothing
+    # ------------------------------------------------------------------
+
+    def test_fallback_when_calendar_api_returns_none(self) -> None:
+        """When the API returns None, fall back to America/Toronto — not UTC."""
+        from calendars.gmail_pipelines import CalendarEvent
+        provider, svc = self._provider(calendar_tz=None)
+        event = CalendarEvent(
+            id="", subject="Fallback Event",
+            start="2026-09-04T17:00:00", end="2026-09-04T18:00:00",
+            calendar="primary",
+        )
+        provider.add_event(event)
+        _, body = svc.inserted[0]
+        self.assertEqual(body["start"]["timeZone"], "America/Toronto")
+
+    # ------------------------------------------------------------------
+    # Regression guard: UTC must NOT appear when calendar is non-UTC and
+    # event.tz is unset — this is the exact defect from PR #254.
+    # ------------------------------------------------------------------
+
+    def test_no_utc_default_for_non_utc_calendar(self) -> None:
+        """Regression: body timeZone must not be UTC when calendar is non-UTC and event.tz is unset.
+
+        This is the exact defect from PR #254: ``event.tz or "UTC"`` shifted a
+        5:00 pm America/Toronto event to 9:00 pm UTC in the stored calendar.
+        """
+        from calendars.gmail_pipelines import CalendarEvent
+        provider, svc = self._provider(calendar_tz="America/Toronto")
+        event = CalendarEvent(
+            id="", subject="Doctor Appointment",
+            start="2026-10-01T17:00:00", end="2026-10-01T17:30:00",
+            calendar="primary",
+            # tz is unset — this was the bug trigger
+        )
+        provider.add_event(event)
+        _, body = svc.inserted[0]
+        self.assertNotEqual(
+            body["start"]["timeZone"], "UTC",
+            "body timeZone must not be UTC when the calendar is America/Toronto and event.tz is unset",
+        )
+        self.assertEqual(body["start"]["timeZone"], "America/Toronto")
+
+    # ------------------------------------------------------------------
+    # All-day branch stays timezone-free
+    # ------------------------------------------------------------------
+
+    def test_all_day_event_has_no_timezone(self) -> None:
+        """All-day events use date (not dateTime) and must have no timeZone field."""
+        from calendars.gmail_pipelines import CalendarEvent
+        provider, svc = self._provider(calendar_tz="America/Toronto")
+        event = CalendarEvent(
+            id="", subject="Holiday",
+            start="2026-12-25", end="2026-12-25",
+            calendar="primary",
+        )
+        provider.add_event(event)
+        _, body = svc.inserted[0]
+        # All-day uses the date key, not dateTime
+        self.assertIn("date", body["start"])
+        self.assertNotIn("timeZone", body["start"])
+        self.assertNotIn("dateTime", body["start"])
+        self.assertIn("date", body["end"])
+        self.assertNotIn("timeZone", body["end"])
 
 
 def _scopes() -> list[str]:

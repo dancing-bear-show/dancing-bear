@@ -19,10 +19,8 @@ from telemetry.otel.menubar_provider import OtelDisplayData, OtelMenubarProvider
 from telemetry.ccpulse_reader import read_current as _read_ccpulse
 from telemetry.models import SessionSummary
 from telemetry.providers.transcript import TranscriptProvider
-from telemetry.tui import (
-    format_cost as _format_cost,
-    format_tokens as _format_tokens,
-)
+from core.format_utils import format_tokens as _format_tokens
+from telemetry.tui import format_cost as _format_cost
 from telemetry._menubar_budget import _budget_score
 from telemetry._menubar_config import (
     _DEFAULT_ICON_TEMPLATE,

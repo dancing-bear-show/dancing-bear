@@ -101,5 +101,19 @@ class GoogleCalendarService:
         """
         return self._service.events().insert(calendarId=calendar_id, body=body).execute()
 
+    def get_calendar_timezone(self, calendar_id: str) -> str | None:
+        """Return the IANA timezone of the given calendar, or None on failure.
+
+        Uses the Calendars resource (``calendars.get``) which returns a
+        ``timeZone`` field.  Returns None rather than raising so the caller can
+        fall back gracefully.
+        """
+        try:
+            resource = self._service.calendars().get(calendarId=calendar_id).execute()
+            tz = (resource.get("timeZone") or "").strip()
+            return tz or None
+        except Exception:  # nosec B110 - best-effort timezone lookup; caller falls back
+            return None
+
 
 __all__ = ["GoogleCalendarService"]

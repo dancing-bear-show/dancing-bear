@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING
 from rich.console import Console
 from rich.table import Table
 
+from core.format_utils import format_tokens as _fmt_tokens
 from telemetry.cli_formatters import (
     _fmt_duration,
-    _fmt_tokens,
     _session_to_dict,
     _truncate_id,
 )

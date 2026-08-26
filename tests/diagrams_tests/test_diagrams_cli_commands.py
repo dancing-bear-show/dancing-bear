@@ -23,7 +23,8 @@ class TestFormatTokens(unittest.TestCase):
         self.assertEqual(_format_tokens(999), "999")
 
     def test_thousands(self):
-        self.assertEqual(_format_tokens(2500), "2.5K")
+        # Canonical semantics: :.0f uses banker's rounding — 2.5 rounds to 2.
+        self.assertEqual(_format_tokens(2500), "2K")
 
     def test_millions(self):
         self.assertEqual(_format_tokens(3_000_000), "3.0M")
