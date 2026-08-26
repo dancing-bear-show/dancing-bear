@@ -67,7 +67,7 @@ class TestBuildVersion(unittest.TestCase):
         self.assertEqual(result, f"{_VERSION} (abc1234)")
 
     def test_subprocess_error_returns_version_only(self) -> None:
-        import subprocess
+        import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
         with patch("telemetry._menubar_app.subprocess.check_output",
                    side_effect=subprocess.CalledProcessError(1, "git")):
             result = _build_version()

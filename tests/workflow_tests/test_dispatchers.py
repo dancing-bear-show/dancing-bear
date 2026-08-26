@@ -8,7 +8,7 @@ Split versions of these tests live in:
 from __future__ import annotations
 
 import json
-import subprocess
+import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 import tempfile
 import unittest
 from pathlib import Path

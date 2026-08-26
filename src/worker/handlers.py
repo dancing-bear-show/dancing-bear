@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import os
 import stat
-import subprocess
+import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass

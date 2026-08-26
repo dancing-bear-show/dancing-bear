@@ -13,7 +13,7 @@ from __future__ import annotations
 import enum
 import json
 import logging
-import subprocess
+import subprocess  # nosec B404 - subprocess imported deliberately; the shell=True call site is separately reviewed under B602
 import uuid
 from pathlib import Path
 from typing import Any, Protocol

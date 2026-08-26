@@ -203,6 +203,81 @@ def _build_rrule(nev: dict[str, Any], *, date_valued: bool = False) -> str | Non
     return ";".join(parts)
 
 
+def _emit_all_day_dtimes(lines: list[str], start: Any, end: Any) -> bool:
+    """Append DATE-valued DTSTART/DTEND. Returns True (DTSTART is DATE-valued)."""
+    lines.append(f"DTSTART;VALUE=DATE:{_ical_date(start)}")
+    lines.append(f"DTEND;VALUE=DATE:{_ical_date(end)}")
+    return True
+
+
+def _emit_one_off_dtimes(lines: list[str], start: Any, end: Any, tz: Any) -> None:
+    """Append timed DTSTART/DTEND, using a TZID param when tz is known."""
+    if tz:
+        lines.append(f"DTSTART;{_ical_dt(start, tz)}")
+        lines.append(f"DTEND;{_ical_dt(end, tz)}")
+    else:
+        lines.append(f"DTSTART:{_ical_dt(start, None)}")
+        lines.append(f"DTEND:{_ical_dt(end, None)}")
+
+
+def _compact_stamp(date_val: Any, time_val: str) -> str:
+    """Build a compact YYYYMMDDTHHMMSS stamp from a date and a HH:MM[:SS] time."""
+    return f"{_ical_date(date_val)}T{time_val.replace(':', '')[:6].ljust(6, '0')}"
+
+
+def _emit_recurring_dtimes(lines: list[str], nev: dict[str, Any], tz: Any) -> bool:
+    """Append DTSTART/DTEND for a recurring series from start_time + range.start_date.
+
+    Returns True when the emitted DTSTART is DATE-valued (the no-start_time case).
+    """
+    rng = nev.get("range") or {}
+    start_date = rng.get("start_date")
+    start_time = nev.get("start_time")
+    end_time = nev.get("end_time")
+    dtstart_is_date = False
+
+    if start_date and start_time:
+        dtstart_val = _compact_stamp(start_date, start_time)
+        if tz:
+            lines.append(f"DTSTART;TZID={tz}:{dtstart_val}")
+        else:
+            # Floating, not Z — see _ical_dt: a wall-clock time stamped as
+            # UTC without conversion shifts the event on import.
+            lines.append(f"DTSTART:{dtstart_val}")
+    elif start_date:
+        lines.append(f"DTSTART;VALUE=DATE:{_ical_date(start_date)}")
+        dtstart_is_date = True
+
+    if start_date and end_time:
+        dtend_val = _compact_stamp(start_date, end_time)
+        if tz:
+            lines.append(f"DTEND;TZID={tz}:{dtend_val}")
+        else:
+            lines.append(f"DTEND:{dtend_val}")
+    return dtstart_is_date
+
+
+def _emit_dtimes(
+    lines: list[str],
+    nev: dict[str, Any],
+    tz: Any,
+    single_start: Any,
+    single_end: Any,
+    is_all_day: bool,
+) -> bool:
+    """Append the DTSTART/DTEND pair for whichever event shape this is.
+
+    Returns True when the emitted DTSTART is DATE-valued, which the caller
+    needs so an RRULE UNTIL can match its type.
+    """
+    if is_all_day:
+        return _emit_all_day_dtimes(lines, single_start, single_end)
+    if single_start and single_end:
+        _emit_one_off_dtimes(lines, single_start, single_end, tz)
+        return False
+    return _emit_recurring_dtimes(lines, nev, tz)
+
+
 def _build_vevent(nev: dict[str, Any]) -> list[str]:
     """Build VEVENT lines for one normalized event.
 
@@ -226,52 +301,9 @@ def _build_vevent(nev: dict[str, Any]) -> list[str]:
         and "T" not in str(single_end)
     )
 
-    # Tracks whether the DTSTART actually emitted is DATE-valued, so the RRULE's
-    # UNTIL can match its type (RFC 5545 §3.8.5.3).
-    dtstart_is_date = False
-
-    if is_all_day:
-        # All-day: VALUE=DATE
-        lines.append(f"DTSTART;VALUE=DATE:{_ical_date(single_start)}")
-        lines.append(f"DTEND;VALUE=DATE:{_ical_date(single_end)}")
-        dtstart_is_date = True
-    elif single_start and single_end:
-        # One-off with time: use TZID param when tz is known, else plain UTC
-        if tz:
-            lines.append(f"DTSTART;{_ical_dt(single_start, tz)}")
-            lines.append(f"DTEND;{_ical_dt(single_end, tz)}")
-        else:
-            lines.append(f"DTSTART:{_ical_dt(single_start, None)}")
-            lines.append(f"DTEND:{_ical_dt(single_end, None)}")
-    else:
-        # Recurring: use start_time + range.start_date
-        rng = nev.get("range") or {}
-        start_date = rng.get("start_date")
-        start_time = nev.get("start_time")
-        end_time = nev.get("end_time")
-
-        if start_date and start_time:
-            compact_date = _ical_date(start_date)
-            compact_start_t = start_time.replace(":", "")[:6].ljust(6, "0")
-            dtstart_val = f"{compact_date}T{compact_start_t}"
-            if tz:
-                lines.append(f"DTSTART;TZID={tz}:{dtstart_val}")
-            else:
-                # Floating, not Z — see _ical_dt: a wall-clock time stamped as
-                # UTC without conversion shifts the event on import.
-                lines.append(f"DTSTART:{dtstart_val}")
-        elif start_date:
-            lines.append(f"DTSTART;VALUE=DATE:{_ical_date(start_date)}")
-            dtstart_is_date = True
-
-        if start_date and end_time:
-            compact_date = _ical_date(start_date)
-            compact_end_t = end_time.replace(":", "")[:6].ljust(6, "0")
-            dtend_val = f"{compact_date}T{compact_end_t}"
-            if tz:
-                lines.append(f"DTEND;TZID={tz}:{dtend_val}")
-            else:
-                lines.append(f"DTEND:{dtend_val}")
+    # dtstart_is_date tracks whether the DTSTART actually emitted is DATE-valued,
+    # so the RRULE's UNTIL can match its type (RFC 5545 §3.8.5.3).
+    dtstart_is_date = _emit_dtimes(lines, nev, tz, single_start, single_end, is_all_day)
 
     # Recurrence rule
     rrule = _build_rrule(nev, date_valued=dtstart_is_date)

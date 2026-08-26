@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
+import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 import sys
 from collections.abc import Callable
 from typing import Any

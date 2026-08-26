@@ -7,7 +7,7 @@ Covers:
 - Generator: _populate_bullet_slide() / _set_slide_title() body placeholder interactions
 """
 
-import subprocess
+import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 import unittest
 from unittest.mock import MagicMock, patch
 

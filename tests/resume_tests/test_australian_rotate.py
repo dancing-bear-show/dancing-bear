@@ -37,7 +37,7 @@ class TestConvertDocxToPdf(unittest.TestCase):
 
     def test_returns_false_on_timeout(self):
         from resume.australian_rotate import convert_docx_to_pdf
-        import subprocess
+        import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 
         with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("soffice", 30)):
             result = convert_docx_to_pdf("/tmp/test.docx", "/tmp/test.pdf")  # nosec B108

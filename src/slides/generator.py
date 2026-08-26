@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 import os
-import subprocess
+import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 import sys
 import tempfile
 from typing import TYPE_CHECKING, Any

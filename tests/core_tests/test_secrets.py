@@ -304,7 +304,7 @@ class TestMappingLiteralMasking(unittest.TestCase):
     in the RetryExhaustedError message built from it.
     """
 
-    SECRET = "opaquevalue987654"
+    SECRET = "opaquevalue987654"  # nosec B105 - synthetic fixture, not a real credential - the masking tests need it to look like a secret
 
     def test_python_repr_dict_is_masked(self):
         text = f"RuntimeError({{'api_key': '{self.SECRET}'}})"
@@ -397,7 +397,7 @@ class TestBareCredentialPairs(unittest.TestCase):
     bare key=value shape that exception text actually takes did not.
     """
 
-    SECRET = "opaquevalue987654"
+    SECRET = "opaquevalue987654"  # nosec B105 - synthetic fixture, not a real credential - the masking tests need it to look like a secret
 
     def test_password_style_keys_are_masked(self):
         for key in ("password", "passwd", "secret", "client_secret", "private_key"):
@@ -440,7 +440,7 @@ class TestJsonFieldSpellings(unittest.TestCase):
     still emitted the value.
     """
 
-    SECRET = "s3cr3tvalue123"
+    SECRET = "s3cr3tvalue123"  # nosec B105 - synthetic fixture, not a real credential - the masking tests need it to look like a secret
 
     def test_api_secret_json_field_is_masked(self):
         for key in ("api_secret", "api-secret", "api.secret"):
@@ -544,7 +544,7 @@ class TestSeparatorFolding(unittest.TestCase):
     while mask_text redacted the same name in prose.
     """
 
-    SECRET = "opaquevalue987654"
+    SECRET = "opaquevalue987654"  # nosec B105 - synthetic fixture, not a real credential - the masking tests need it to look like a secret
 
     def test_dotted_spellings_are_sensitive(self):
         from core.secrets import is_sensitive_key

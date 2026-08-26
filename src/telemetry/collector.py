@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
+import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 from datetime import datetime, timezone
 from pathlib import Path
 

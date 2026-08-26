@@ -6,7 +6,7 @@ The rules now live in ``~/.config/dancing-bear/``; only the synthetic template
 is tracked. These tests fail if that regresses.
 """
 
-import subprocess
+import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 import unittest
 from pathlib import Path
 

@@ -168,7 +168,7 @@ class LocalRenderer:
         return cmd
 
     def _run(self, cmd: list[str]) -> None:
-        import subprocess
+        import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
         try:
             result = subprocess.run(  # nosec B603 B607 - mmdc_path resolved via shutil.which or validated on construction
                 cmd,

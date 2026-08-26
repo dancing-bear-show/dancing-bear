@@ -1,6 +1,6 @@
 """TelemetryMenubarApp and supporting helpers for the macOS menubar app."""
 
-import subprocess
+import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone

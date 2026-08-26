@@ -8,7 +8,7 @@ menubar.NSColor, menubar.NSFont, etc.).
 """
 
 import os  # patched by tests via menubar.os
-import subprocess  # patched by tests via menubar.subprocess
+import subprocess  # patched by tests via menubar.subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 from datetime import datetime
 from pathlib import Path
 

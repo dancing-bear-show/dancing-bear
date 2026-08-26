@@ -45,7 +45,7 @@ class ActionsMixin:
             except Exception:  # nosec B110 - AppKit clipboard failure falls through to pbcopy
                 pass
         try:
-            import subprocess as _sp
+            import subprocess as _sp  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
             _sp.run(["pbcopy"], input=text.encode(), check=False)  # nosec B603 B607 - fixed macOS system utility, no dynamic args
         except Exception:  # nosec B110 - pbcopy failure is non-fatal; clipboard update is best-effort
             pass

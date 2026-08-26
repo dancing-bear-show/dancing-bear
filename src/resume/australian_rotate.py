@@ -5,7 +5,7 @@ Converts DOCX to PDF and rotates 180 degrees for Australian reading orientation.
 
 from __future__ import annotations
 
-import subprocess
+import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 import sys
 from pathlib import Path
 

@@ -326,7 +326,7 @@ class TestSummaryPluralization(unittest.TestCase):
 class TestMaskValueEdgeCases(unittest.TestCase):
     """Branches of the sample masker that ordinary change records miss."""
 
-    SECRET = "yyyy3333444455556666"
+    SECRET = "yyyy3333444455556666"  # nosec B105 - synthetic fixture, not a real credential - the masking tests need it to look like a secret
 
     def _flag_all(self, changes, baseline):
         return "leaks", list(changes)
@@ -495,7 +495,7 @@ class TestOffendingSampleMasking(unittest.TestCase):
     pattern-less values, since a token-shaped one proves nothing there.
     """
 
-    TOKEN = "ghp_EEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"
+    TOKEN = "ghp_EEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"  # nosec B105 - synthetic fixture, not a real credential - the masking tests need it to look like a secret
 
     def _flag_all(self, changes, baseline):
         return "leaks_secret", list(changes)
@@ -544,7 +544,7 @@ class TestApiKeyMasking(unittest.TestCase):
     masked-looking URL still carried the key.
     """
 
-    SECRET = "SECRETVALUE123456"
+    SECRET = "SECRETVALUE123456"  # nosec B105 - synthetic fixture, not a real credential - the masking tests need it to look like a secret
 
     def test_query_spellings_are_masked(self):
         from core.secrets import mask_text
@@ -584,7 +584,7 @@ class TestApiKeyMasking(unittest.TestCase):
         """
         from core.secrets import SENSITIVE_PARAM_KEYS, mask_headers, mask_url
 
-        secret = "opaquevalue987654"
+        secret = "opaquevalue987654"  # nosec B105 - synthetic fixture, not a real credential - the masking tests need it to look like a secret
 
         def flag_all(changes, baseline):
             return "leaks", list(changes)
@@ -686,7 +686,7 @@ class TestCheckLabelIsSafe(unittest.TestCase):
     even when _check_label fell back to repr(), the exact bug it guards.
     """
 
-    TOKEN = "wwww4444555566667777"
+    TOKEN = "wwww4444555566667777"  # nosec B105 - synthetic fixture, not a real credential - the masking tests need it to look like a secret
 
     @staticmethod
     def _boom(changes, baseline, api_key=None):
@@ -758,7 +758,7 @@ class TestCheckErrorMasking(unittest.TestCase):
     (which quotes source lines) go through mask_text.
     """
 
-    TOKEN = "ghp_CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+    TOKEN = "ghp_CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"  # nosec B105 - synthetic fixture, not a real credential - the masking tests need it to look like a secret
 
     def _raising_check(self, changes, baseline):
         raise RuntimeError(

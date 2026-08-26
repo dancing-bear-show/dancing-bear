@@ -18,7 +18,7 @@ Targets uncovered lines in the 69.7% baseline:
 
 from __future__ import annotations
 
-import subprocess
+import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 import tempfile
 import unittest
 from pathlib import Path
