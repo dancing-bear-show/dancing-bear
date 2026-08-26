@@ -129,7 +129,7 @@ def _mask_value(value: str) -> str:
     return "***REDACTED***"
 
 
-def mask_headers(headers: dict[str, str]) -> dict[str, str]:
+def mask_headers(headers: dict[str, str] | None) -> dict[str, str]:
     masked: dict[str, str] = {}
     for k, v in (headers or {}).items():
         lk = (k or "").strip().lower()
