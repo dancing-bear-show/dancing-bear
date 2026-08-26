@@ -50,7 +50,7 @@ description: >
   enforced again in fact-check-findings, because flagging valid copy wastes the
   reader's attention as surely as missing invalid copy does.
 
-  Outputs (all under {workspace}/outputs/, itself on a gitignored path because
+  Outputs (all under {workspace}/outputs/, itself outside the repo checkout because
   resumes are PII — note writes_to entries carry no {workspace} prefix, because the
   engine resolves bare entries under {workspace}/outputs/ and does NOT substitute
   params into writes_to paths):
@@ -74,7 +74,7 @@ trigger:
   source: manual
   params:
     resume_file: ""       # REQUIRED: path to the resume DOCX/PDF/txt/md/html to audit
-    out_dir: "src/resume/_data/audit"   # gitignored per the PII policy
+    out_dir: "~/.local/share/dancing-bear/resume/audit"  # outside checkout; carries PII
     label: "current"      # short slug naming this audit run, e.g. "2026-08-draft"
     min_severity: "minor" # lowest severity carried into the report: critical|major|minor
 
@@ -92,13 +92,23 @@ stages:
 
         mkdir -p {workspace}/outputs
 
-      Then confirm the PII placement is safe. Run:
+      Then confirm the PII placement is safe. The workspace must be OUTSIDE the
+      repo checkout. Run:
 
-        git check-ignore -v {workspace}
+        python3 -c "
+        import os, subprocess, sys
+        ws = os.path.realpath('{workspace}')
+        root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
+        root = os.path.realpath(root)
+        if ws.startswith(root + os.sep) or ws == root:
+            print('UNSAFE: workspace is inside the repo checkout', file=sys.stderr)
+            sys.exit(1)
+        print('OK: workspace is outside the repo checkout')
+        "
 
-      If the path is NOT ignored, STOP and report it. A resume carries a name,
-      phone number, and email; extracting one into a tracked path would commit
-      PII. Do not proceed on an unignored path.
+      If the check fails, STOP and report it. A resume carries a name, phone
+      number, and email; extracting one into the repo tree would put PII one
+      `git add -f` or one ignore-rule edit away from being committed.
 
       Then verify the audit target exists and is readable:
 

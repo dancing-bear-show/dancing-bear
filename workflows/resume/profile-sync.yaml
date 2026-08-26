@@ -62,10 +62,10 @@ description: >
     - It does NOT invent support. Copy asserting anything absent from the resume
       baseline fails check-copy, which exits non-zero.
 
-  Outputs (all under {workspace}/outputs/, itself on a gitignored path because
-  profiles are PII — note writes_to entries carry no {workspace} prefix, because the
-  engine resolves bare entries under {workspace}/outputs/ and does NOT substitute
-  params into writes_to paths):
+  Outputs (all under {workspace}/outputs/, outside the repo checkout because
+  profiles are PII — note writes_to entries carry no {workspace} prefix, because
+  the engine resolves bare entries under {workspace}/outputs/ and does NOT
+  substitute params into writes_to paths):
     - guides.md               condensed ceilings, voice rules, concern IDs
     - linkedin.json           parsed LinkedIn export
     - resume-experience.yaml  resume-side job history
@@ -88,7 +88,7 @@ trigger:
                             # see init's guard: defaulting to the committed sample
                             # profile can silently diff a fake person against a real
                             # LinkedIn export and produce a wholly wrong report.
-    out_dir: "src/resume/_data/profile-sync"   # gitignored per the PII policy
+    out_dir: "~/.local/share/dancing-bear/resume/profile-sync"  # outside checkout; primary PII protection
     max_bullets: "6"        # max bullets per role pulled into the resume-side export
 
 workspace_dir: "{out_dir}/{profile}"
@@ -105,20 +105,23 @@ stages:
 
         mkdir -p {workspace}/outputs
 
-      Then confirm the PII placement is safe. Run:
+      Then confirm the PII placement is safe. The workspace must be OUTSIDE the
+      repo checkout. Run:
 
-        git check-ignore -v {workspace}
+        python3 -c "
+        import os, subprocess, sys
+        ws = os.path.realpath('{workspace}')
+        root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
+        root = os.path.realpath(root)
+        if ws.startswith(root + os.sep) or ws == root:
+            print('UNSAFE: workspace is inside the repo checkout', file=sys.stderr)
+            sys.exit(1)
+        print('OK: workspace is outside the repo checkout')
+        "
 
-      If the path is NOT ignored, STOP and report it. A LinkedIn export and a
-      resume profile together carry a name, location, employer history, and
-      often an email; writing them to a tracked path would commit PII. Do not
-      proceed on an unignored path.
-
-      Verify by COMMAND, not by reading .gitignore. Two separate rules cover
-      this tree — src/resume/.gitignore line 2 (`_data/`, covering everything
-      under it) and a redundant root entry — and the root file also carries a
-      narrower `profiles_private/` rule that is easy to misread as the only
-      coverage. Trust git check-ignore's answer over your reading of either file.
+      If the check fails, STOP and report it. A LinkedIn export and a resume
+      profile together carry a name, location, employer history, and often an
+      email; writing them inside the checkout risks accidental git exposure.
 
       Then verify the required params are set and the inputs exist:
 
