@@ -319,6 +319,61 @@ class TestContactPromotion(unittest.TestCase):
         self.assertEqual(resume.links, ["https://kept.example"])
 
 
+class TestContactPromotionFalsyTopLevel(RoundTripMixin, unittest.TestCase):
+    """A present-but-falsy top-level key blocks promotion.
+
+    Promotion once gated on truthiness, which cannot tell an absent key from
+    one that is present and falsy. Both axes were covered in isolation --
+    empty-string-vs-absent, and falsy scalars -- but never their intersection
+    with a ``contact`` block, which is where the defect lived: the key was
+    dropped from the output and its value silently substituted.
+    """
+
+    #: (field, falsy top-level value, truthy contact value)
+    FALSY_CASES = (
+        ("name", "", "Promoted Person"),
+        ("email", "", "p@example.com"),
+        ("phone", "", "555-0100"),
+        ("location", "", "Testville"),
+        ("links", [], ["https://example.com"]),
+    )
+
+    def test_falsy_top_level_key_survives_alongside_contact(self):
+        """The input key is re-emitted rather than discarded by promotion."""
+        for field_name, falsy, contact_value in self.FALSY_CASES:
+            with self.subTest(field=field_name):
+                data = {field_name: falsy, "contact": {field_name: contact_value}}
+                resume = self.assert_round_trips(data)
+                self.assertIn(field_name, resume.to_dict())
+
+    def test_falsy_top_level_value_is_not_substituted(self):
+        """The contact value must not overwrite what the input declared."""
+        for field_name, falsy, contact_value in self.FALSY_CASES:
+            with self.subTest(field=field_name):
+                data = {field_name: falsy, "contact": {field_name: contact_value}}
+                resume = Resume.from_dict(data)
+                self.assertEqual(getattr(resume, field_name), falsy)
+
+    def test_promotion_still_fires_when_key_is_absent(self):
+        """Guards the fix from over-correcting into a no-op."""
+        for field_name, _falsy, contact_value in self.FALSY_CASES:
+            with self.subTest(field=field_name):
+                data = {"contact": {field_name: contact_value}}
+                resume = Resume.from_dict(data)
+                self.assertEqual(getattr(resume, field_name), contact_value)
+                self.assertNotIn(field_name, resume.to_dict())
+                self.assertEqual(resume.to_dict(), data)
+
+    def test_falsy_value_inside_contact_round_trips(self):
+        """A falsy contact value is skipped, leaving the output untouched."""
+        self.assert_round_trips({"contact": {"name": "", "phone": 0}})
+
+    def test_falsy_top_level_and_falsy_contact_round_trip_together(self):
+        data = {"name": "", "contact": {"name": ""}}
+        resume = self.assert_round_trips(data)
+        self.assertEqual(resume.name, "")
+
+
 class TestValueFidelity(RoundTripMixin, unittest.TestCase):
     """Values are stored exactly as given, never coerced."""
 
