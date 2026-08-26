@@ -6,8 +6,11 @@
 #   → integration-review → fix-integration → verify → human-gate
 #
 # Consumes: {sketches_file} from a domain-recommender run, selected by {gap_id}.
+#   That file has MORE THAN ONE top-level array ("sketches" and
+#   "new_domain_sketches"); load-sketch searches all of them.
 # Produces: code on the CURRENT branch, presented at a final human gate.
-# Never pushes, never opens a PR, never merges, never touches main.
+# Never pushes, never opens a PR, never merges, never touches main — every stage
+# with write access carries an explicit git prohibition, not just the last one.
 
 name: implement-gap
 version: "1.0"
@@ -23,8 +26,16 @@ description: >
   and migrate — promote the shared helper to core/ and update all call sites —
   rather than adding a parallel implementation. A second copy of a helper means
   every future bug fix has to be applied twice and one of them gets missed.
-  This mirrors concerns/reuse.md's intra-domain-duplicate rule, which the
-  critique and verify stages both enforce.
+  This mirrors concerns/reuse.md's intra-domain-duplicate rule.
+
+  That constraint is checked twice, deliberately, because the survey is an
+  agent's search and can miss things: critique-design rejects a plan that
+  reimplements what the survey found, and integration-review runs an
+  INDEPENDENT duplicate sweep over the code that was actually written — greping
+  each new symbol against src/ rather than trusting prior-art.json. The survey
+  could only guess at names before the code existed; the second sweep sees the
+  real thing. A determined false negative can still get through both, so treat
+  the guarantee as strong-by-default, not absolute.
 
   Structure follows workflows/code/pdffill-domain-build.yaml: design, an
   adversarial critique behind a human gate, three parallel implementation
@@ -59,9 +70,21 @@ stages:
       Resolve the single unit of work this run will implement.
 
       If {sketches_file} is non-empty: read it and select the entry whose
-      gap_id == "{gap_id}". If no entry matches, FAIL the stage with the list of
-      available gap_ids — do not silently pick a different one or invent a
-      spec.
+      gap_id == "{gap_id}".
+
+      Search EVERY top-level array in the file, not just "sketches". Verified
+      against a real run: generate-sketches writes TWO arrays — "sketches"
+      (subcommand entries) and "new_domain_sketches" (new-domain entries) — so
+      reading only the first makes every new-domain gap unfindable, which is
+      exactly half the workflow's purpose. Do not hardcode either name: iterate
+      over all top-level keys whose value is a list of objects containing a
+      "gap_id", and search them all. That way a future producer array is picked
+      up automatically rather than silently ignored.
+
+      If no entry matches, FAIL the stage listing every available gap_id from
+      every array, each labelled with the array it came from — do not silently
+      pick a different one or invent a spec. If the SAME gap_id appears in more
+      than one array, fail rather than guessing which was meant.
 
       If {sketches_file} is empty: fall back to {manual_spec}, a free-text
       description. Derive the same fields from it as best you can and set
@@ -74,11 +97,32 @@ stages:
           must relocate the correct file rather than creating the stale path.
         - If type == "new_domain", confirm src/<domain>/ does NOT already exist.
           If it does, fail — that is an enhance, not a new domain.
-        - If the sketch carries estimated_lines == 0 or a note recommending
-          against building, STOP: write "build_recommended": false with the
-          note verbatim, and fail the stage. Those entries exist precisely to
-          prevent this workflow from building something the analysis argued
-          against.
+        - Decide whether the analysis actually endorsed building this. The
+          producer does NOT emit a build_recommended field — verified against a
+          real run — so DERIVE it here rather than expecting one:
+
+            build_recommended = false  when estimated_lines == 0
+              This is the producer's unambiguous "do not build" marker: it means
+              the sketch stage deliberately declined to design an
+              implementation. Treat it as authoritative and fail the stage.
+
+            Otherwise build_recommended = true, EVEN IF notes contain cautionary
+              language. Notes routinely carry warnings on entries the analysis
+              still endorsed — e.g. a real "claims-processing" sketch with
+              estimated_lines 200 opens with an OVERLAP WARNING about not
+              building it *alongside* a second domain, which is a scoping
+              caveat, not a veto. Blocking on any scary-sounding note would
+              refuse the very entries a human just approved.
+
+          When estimated_lines > 0 but notes contain a caution, proceed and copy
+          the note verbatim into sketch.json "notes" and into a new
+          "caveats" array, so design and critique-design both see it and can act
+          on the caveat rather than the run silently ignoring it.
+
+          Record how the decision was reached in "build_recommended_reason".
+          If build_recommended is false, fail the stage with the note verbatim —
+          those entries exist precisely to stop this workflow building something
+          the analysis argued against.
 
       Write sketch.json:
         {{
@@ -264,6 +308,31 @@ stages:
       two, restructure the split — overlapping sets is what makes parallel
       writers clobber each other.
 
+      SHARED-FILE RULE. Some files are needed by more than one stage by nature:
+      a package __init__.py, a shared registry or dispatch table, or an existing
+      CLI file that needs both a new handler and its registration. Assign each
+      such file to EXACTLY ONE owning stage and state, in that file's entry,
+      every change the other stages need made to it. The non-owning stages must
+      not touch it. List every shared file in a "shared_files" array naming its
+      owner, so integration-review can confirm only the owner wrote it.
+
+      MIGRATION RULE — this is the case the partition most easily gets wrong.
+      A promote_to_core migration's call sites span src/, tests/, and bin/ by
+      construction, which cuts across all three partitions. Do NOT let
+      implement-core edit call sites inside tests/ that implement-tests owns.
+      Instead:
+        - implement-core owns the symbol's new home in core/ and every call site
+          under src/ and bin/.
+        - implement-tests owns every call site under tests/, and design.json
+          must list those specific test files in test_files with the exact edit
+          required.
+        - Record the split in "migrations" as {{"symbol", "from", "to",
+          "call_sites_src", "call_sites_tests"}} so each stage sees only its own
+          half and integration-review can verify both halves happened.
+      If a migration is too entangled to split this way, say so in design.md and
+      plan it as a SEQUENTIAL follow-up rather than forcing it through the
+      parallel stages.
+
       Write design.md (human-readable plan) and design.json:
         {{
           "type": "subcommand" | "new_domain",
@@ -346,8 +415,17 @@ stages:
           "required_changes": ["..."],
           "blockers_found": N}}
 
-      If decision is "reject", downstream stages must not run. If
-      "approve_with_changes", the implementation stages must apply
+      If decision is "reject", FAIL this stage after writing the decision file.
+      The engine halts the DAG on a failed required stage; simply recording
+      "reject" in a JSON file does NOT stop anything, because every downstream
+      stage would still be released by a successful completion. Failing the
+      stage is the only mechanism that actually prevents the implementation
+      stages from running, so do not report success on a rejection.
+
+      (The implementation stages still re-check the decision file defensively on
+      the resume path, where a previously-failed stage may be re-run.)
+
+      If "approve_with_changes", the implementation stages must apply
       required_changes — quote them verbatim into their prompts.
     agent:
       role: critic
@@ -399,6 +477,14 @@ stages:
 
       Do not add a dependency. This repo is dependency-light; anything optional
       must be imported lazily inside the function that needs it.
+
+      GIT PROHIBITION — applies to this stage without exception. You may run
+      read-only git commands (status, diff, log, branch --show-current). You must
+      NOT run: git push, git merge, git rebase, git reset --hard, git clean,
+      git checkout of a different branch, git commit, gh pr create, gh pr merge,
+      or any command that writes to a remote. This workflow ends at a human gate
+      on the current branch; publishing is the human's decision, not this
+      stage's. Stay on the branch you started on.
 
       Write outputs/core-manifest.json:
         {{"files_written": ["..."], "symbols": ["<exact signatures implemented>"],
@@ -463,6 +549,14 @@ stages:
       Emit output via emit_rows / emit_one from core.cli_output. Never print a
       hand-formatted table or hand-serialized JSON.
 
+      GIT PROHIBITION — applies to this stage without exception. You may run
+      read-only git commands (status, diff, log, branch --show-current). You must
+      NOT run: git push, git merge, git rebase, git reset --hard, git clean,
+      git checkout of a different branch, git commit, gh pr create, gh pr merge,
+      or any command that writes to a remote. This workflow ends at a human gate
+      on the current branch; publishing is the human's decision, not this
+      stage's. Stay on the branch you started on.
+
       Write outputs/cli-manifest.json:
         {{"files_written": ["..."], "subcommands_added": ["..."],
           "core_symbols_called": ["<exact signatures relied on>"],
@@ -522,6 +616,14 @@ stages:
       Never write a test that requires network access or real credentials. Use
       fixtures and fakes.
 
+      GIT PROHIBITION — applies to this stage without exception. You may run
+      read-only git commands (status, diff, log, branch --show-current). You must
+      NOT run: git push, git merge, git rebase, git reset --hard, git clean,
+      git checkout of a different branch, git commit, gh pr create, gh pr merge,
+      or any command that writes to a remote. This workflow ends at a human gate
+      on the current branch; publishing is the human's decision, not this
+      stage's. Stay on the branch you started on.
+
       Write outputs/tests-manifest.json:
         {{"files_written": ["..."], "test_names": ["..."],
           "signatures_under_test": ["..."], "skipped_reason": null}}
@@ -578,7 +680,12 @@ stages:
         - Every signature in tests-manifest.json signatures_under_test matches an entry in core-manifest.json symbols or cli-manifest.json subcommands_added
         - Every signature in design.json public_signatures was actually implemented by one of the three stages — an unimplemented contract entry is a critical finding
         - No file appears in more than one manifest's files_written — overlap means two parallel stages wrote the same file and one clobbered the other
+        - "Check the TREE, not just the manifests: run `git status --porcelain` and confirm every modified/added file under src/, bin/, or tests/ is claimed by exactly one manifest's files_written or by design.json shared_files. A file modified in the tree that NO manifest claims is a silent clobber or an out-of-partition write — self-reported manifests cannot detect this, which is why this criterion reads the tree independently. Report each unclaimed file as critical"
+        - "Every file in design.json shared_files was written only by its declared owner — cross-check each against the three manifests and report any non-owner that claims it as critical"
+        - "For each migration, both halves landed: every path in call_sites_src appears in core-manifest.json call_sites_updated, and every path in call_sites_tests appears in tests-manifest.json files_written. A migration where only one half ran leaves the build broken in the other"
         - No implementation reimplements a capability that prior-art.json classified as reuse_directly or extend_existing — grep the new code for hand-rolled equivalents of the core/ helpers named there, and report each as critical
+        - "Independent duplicate sweep — do NOT rely on prior-art.json here, whose whole purpose was to find these and which may have missed some. For every NEW function and class in the implementation, take its name and its distinctive body tokens and grep them across src/ (excluding the files just written). Report as critical any new symbol whose name already exists elsewhere, and as minor any that looks behaviourally equivalent to an existing helper. This is the backstop against a false negative in survey-prior-art: that stage searched for the capability before the code existed, so it could only guess at names — this check runs against the code that was actually written"
+        - "No new code hand-rolls a capability core/ already provides: grep the new code for output-path construction not going through core.paths.output_dir, table/JSON formatting not going through core.cli_output emit_rows/emit_one, and argparse dispatch not going through core.cli_framework CLIApp. Report each as critical"
         - Every call site listed in design.json migrations was actually updated — grep the bare symbol across src, tests, and bin and confirm no stale reference to the pre-migration location remains
         - No migration left behind a re-export facade or backwards-compatible wrapper — the repo requires updating call sites directly
         - No new third-party dependency was introduced; any optional import is lazy and inside the function that needs it
@@ -621,6 +728,14 @@ stages:
       After fixing, re-verify each finding you addressed by re-running the check
       named in its "source" field.
 
+      GIT PROHIBITION — applies to this stage without exception. You may run
+      read-only git commands (status, diff, log, branch --show-current). You must
+      NOT run: git push, git merge, git rebase, git reset --hard, git clean,
+      git checkout of a different branch, git commit, gh pr create, gh pr merge,
+      or any command that writes to a remote. This workflow ends at a human gate
+      on the current branch; publishing is the human's decision, not this
+      stage's. Stay on the branch you started on.
+
       Write outputs/fixes-applied.json:
         {{"fixed": [{{"id": "I-001", "what": "...", "reverified_with": "<command>"}}],
           "unfixed": [{{"id": "...", "why": "..."}}]}}
@@ -643,7 +758,12 @@ stages:
         description: >
           Fix every failing integration finding at its root cause, re-verify
           each, and write fixes-applied.json.
-    required: false
+    # required: true deliberately. As required:false, a failed fix would not halt
+    # the DAG and verify would run against known-broken code — the same
+    # trapdoor already found in this repo where docs stages hung off a
+    # required:false render stage. pdffill-domain-build.yaml sets its
+    # equivalent fix stage required:true for the same reason.
+    required: true
     writes_to:
       - outputs/fixes-applied.json
 
@@ -670,13 +790,15 @@ stages:
     validation:
       strategy: unit
       criteria:
+        - "Upstream criticals were actually resolved: read validation/integration-findings.json and outputs/fixes-applied.json. Every finding whose status is fail/FAIL (compare case-insensitively; a failing finding with no severity counts as critical) must appear in fixes-applied.json \"fixed\". Any critical left in \"unfixed\", or absent from both, is itself a critical finding — do not report a passing verification over known-broken code"
         - "`make test` exits 0 — run it, never a bare `python3 -m unittest`, which resolves imports to the main checkout in a worktree and produces a false green"
         - "Every test named in tests-manifest.json test_names actually ran — confirm by name in the `make test` output, since a test file that is never collected reports as passing"
         - "`make lint` exits 0 — use it, never a bare `ruff check` (there is no standalone ruff on PATH) and never `qlty check` from inside .claude/worktrees/ (it silently scans zero files and prints a passing result)"
+        - "If the run_qlty param is \"true\" (its default), also run qlty over the changed files and confirm it is clean. `make lint` covers ruff only, whereas CI gates on qlty, which additionally runs bandit and complexity checks — passing verify on ruff alone can still fail CI. qlty MUST be run from a checkout outside .claude/worktrees/ because .qlty/qlty.toml excludes `**/.claude/**`, so running it here scans zero files and prints a false pass. If no such checkout is reachable, report this criterion as status \"fail\" with severity \"minor\" and say plainly that qlty could not be run — never record it as passing on a zero-file scan. If run_qlty is \"false\", record it as skipped, not passed"
         - "Each new or modified CLI responds to --help with exit code 0 — run `./bin/<cli> --help` for every CLI touched"
         - "Each new subcommand responds to --help with exit code 0 — run `./bin/<cli> <subcommand> --help`"
-        - "If the touched CLI supports an agentic schema, `./bin/<cli> --agentic --agentic-format json` exits 0 and the new subcommand appears in its output — the schema must not drift from the real CLI"
-        - "`git status --porcelain` shows only files listed across the three manifests plus any migrated call sites — an unexpected modified file means a stage wrote outside its partition"
+        - "Agentic-schema drift: RUN `./bin/<cli> --agentic --agentic-format json` for each CLI touched and record its exit code. Do not decide from reading the source whether the CLI 'supports' a schema — running it is the test. If it exits 0, the new subcommand MUST appear in the output or this is a critical finding (the schema has drifted from the real CLI). If it exits non-zero, record the exit code and the CLI name as evidence that the CLI has no agentic schema; a conclusion asserted without the command output does not satisfy this criterion"
+        - "`git status --porcelain` shows only files claimed by the three manifests, design.json shared_files, or the migrations' call-site lists. Ignore paths under out/ and the workflow's own workspace — those are run artifacts, not source changes. Compare against the pre-run state where known: an unexpected modified file under src/, bin/, or tests/ means a stage wrote outside its partition and is a critical finding"
         - "No credential, token, or absolute home-directory path appears in any new file — grep the diff for sk-, ghp_, AKIA, and /Users/"
         - "Write findings to {workspace}/validation/verify-findings.json as [{\"id\":\"V-001\",\"status\":\"pass\"|\"fail\",\"claim\":\"...\",\"severity\":\"critical\"|\"minor\"|\"info\",\"source\":\"<command run>\",\"fix\":\"...\"}], and record each command's actual exit code in the source field"
       max_revisions: 2
