@@ -184,7 +184,16 @@ class _RetryPolicy:
         )
 
     def exhausted(self, last_exc: Exception | None):
-        """Raise the terminal error after every attempt has been consumed."""
+        """Raise the terminal error after every attempt has been consumed.
+
+        ``call`` only lands here after an attempt was caught -- either via the
+        ``break`` on the last attempt, or by exhausting a loop that
+        ``max_attempts >= 1`` guarantees ran at least once. Asserting that
+        invariant lets both raises drop their ``# type: ignore``, and turns a
+        future control-flow change that broke it into a clear AssertionError
+        rather than a confusing ``raise None``.
+        """
+        assert last_exc is not None, "exhausted() called with no caught exception"
         if self.raise_on_exhausted:
             # `from None` suppresses the implicit __context__ chain. The
             # raise already sits outside the except block, so the context
@@ -193,10 +202,10 @@ class _RetryPolicy:
             # the printed traceback, and that should not depend on where
             # this statement sits. last_exc stays reachable via
             # RetryExhaustedError.last_exception for callers that want it.
-            raise RetryExhaustedError(self.max_attempts, last_exc) from None  # type: ignore[arg-type]
+            raise RetryExhaustedError(self.max_attempts, last_exc) from None
         # Re-raising the original is the documented opt-out: the caller
         # asked for the underlying exception, so it is not masked here.
-        raise last_exc  # type: ignore[misc]
+        raise last_exc
 
     def call(self, func: Callable, args: tuple, kwargs: dict):
         """Run ``func``, retrying per this policy until it succeeds or runs out."""
@@ -211,7 +220,6 @@ class _RetryPolicy:
                 self.notify(attempt, exc, func.__name__)
                 time.sleep(self.sleep_duration(attempt))
         return self.exhausted(last_exc)
-
 
 
 def retry(
