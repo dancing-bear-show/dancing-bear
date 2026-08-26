@@ -380,7 +380,12 @@ class IcsDraftProcessor(EventIterationProcessor):
             print(f"[dry-run] Would create Gmail draft to {payload.recipient!r}")
             print(f"[dry-run] Subject: {payload.subject!r}")
             print(f"[dry-run] Events: {accumulator.event_count}")
-            print(f"[dry-run] ICS preview (first 500 chars):\n{ics_text[:500]}")
+            # Print the whole calendar, not a 500-char head. Dry-run exists to
+            # let a human validate the generated ICS before a draft is created,
+            # and a truncated body cannot be validated — the VEVENTs after the
+            # first are exactly what needs checking.
+            print("[dry-run] ICS:")
+            print(ics_text)
             return IcsDraftResult(
                 ics_payload=ics_text,
                 event_count=accumulator.event_count,

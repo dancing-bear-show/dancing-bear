@@ -574,6 +574,43 @@ class TestRfc5545Compliance(unittest.TestCase):
         self.assertIn("UNTIL=20260630T235959Z", rrule)
 
 
+class TestDryRunPrintsFullIcs(unittest.TestCase):
+    """Dry-run must print the whole calendar, not a truncated head.
+
+    It previously printed ics_text[:500], which the README contradicted
+    ("--dry-run prints the ICS"). More importantly a truncated body defeats the
+    point: the VEVENTs after the first are exactly what a human needs to check
+    before a draft is created.
+    """
+
+    def test_dry_run_output_contains_every_vevent_and_the_terminator(self):
+        proc = IcsDraftProcessor()
+        events = [
+            {"subject": f"Event {n}", "start": f"2026-0{n}-01T09:00:00",
+             "end": f"2026-0{n}-01T10:00:00"}
+            for n in range(1, 6)
+        ]
+        request = IcsDraftRequest(
+            config_path="plan.yaml", recipient="a@b.com", subject="S",
+            dry_run=True, gmail_client=None,
+        )
+        buf = io.StringIO()
+        with patch.object(proc, "_load_events", return_value=events), \
+                redirect_stdout(buf):
+            result = proc._process_safe(request)
+        out = buf.getvalue()
+
+        # Every event must appear, not just those inside the first 500 chars.
+        for n in range(1, 6):
+            self.assertIn(f"SUMMARY:Event {n}", out)
+        self.assertEqual(out.count("BEGIN:VEVENT"), 5)
+        # The calendar must be printed to completion.
+        self.assertIn("END:VCALENDAR", out)
+        self.assertNotIn("first 500 chars", out)
+        # And the payload itself is unchanged by how it is displayed.
+        self.assertEqual(result.event_count, 5)
+
+
 class TestFloatingDateTimes(unittest.TestCase):
     """No 'Z' without a UTC conversion, and seconds are always padded.
 
