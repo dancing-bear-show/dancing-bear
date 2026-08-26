@@ -370,6 +370,12 @@ class TestAddEvent(unittest.TestCase):
         self.assertEqual(body["start"]["dateTime"], "2026-09-10T12:00:00")
         self.assertNotIn("recurrence", body)
         self.assertEqual(result.id, "new_ev_1")
+        # A non-recurring event must come back non-recurring — the recurrence
+        # carry-forward must not invent a repeat that was never submitted.
+        self.assertEqual(result.subject, "Team Lunch")
+        self.assertIsNone(result.repeat)
+        self.assertEqual(result.byday, [])
+        self.assertEqual(result.location, "Cafe")
 
     def test_add_recurring_weekly_emits_rrule(self) -> None:
         from calendars.gmail_pipelines import CalendarEvent
@@ -387,6 +393,12 @@ class TestAddEvent(unittest.TestCase):
             range={"start_date": "2026-10-05", "until": "2026-12-31"},
         )
         result = provider.add_event(event)
+
+        # The persisted event must come back with its recurrence intact — a
+        # caller reads the return value, not the request it just sent.
+        self.assertEqual(result.subject, "Yoga")
+        self.assertEqual(result.repeat, "weekly")
+        self.assertEqual(result.byday, ["MO", "WE", "FR"])
 
         self.assertEqual(len(svc.inserted), 1)
         _cal_id, body = svc.inserted[0]

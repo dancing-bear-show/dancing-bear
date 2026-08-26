@@ -28,7 +28,7 @@ Unsupported:
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from calendars.gmail_pipelines import CalendarEvent
@@ -169,13 +169,19 @@ class GoogleCalendarProvider:
         """
         body = self._calendar_event_to_body(event)
         result = self.svc.insert_event(self.calendar_id, body)
-        return self._google_event_to_calendar_event(result) or CalendarEvent(
-            id=result.get("id") or "",
-            subject=event.subject,
-            start=event.start,
-            end=event.end,
-            calendar=self.calendar_id,
-        )
+        persisted = self._google_event_to_calendar_event(result)
+        # Always carry the SUBMITTED event's fields forward, overlaying only what
+        # the API actually echoed back (the assigned id, and any field it
+        # returned). Google's insert response commonly omits recurrence, so
+        # trusting the mapped response alone hands the caller an event with
+        # repeat/byday/interval/range set to None — silently disagreeing with
+        # what was just persisted. That is exactly the degradation CalendarEvent
+        # was widened to prevent, and it is invisible without asserting on the
+        # return value.
+        new_id = (persisted.id if persisted else result.get("id")) or ""
+        if persisted is not None and persisted.repeat:
+            return replace(persisted, calendar=self.calendar_id)
+        return replace(event, id=new_id, calendar=self.calendar_id)
 
     # ------------------------------------------------------------------
     # Internal helpers — list_events
