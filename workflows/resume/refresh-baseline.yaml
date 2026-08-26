@@ -98,7 +98,6 @@ trigger:
     evidence_dirs: ""       # optional: comma-separated dirs of notes/brag docs
     repo_paths: ""          # optional: comma-separated git repos to mine by author
     author: ""              # optional: git --author filter; empty means all authors
-    template: "src/resume/config/template.example.yaml"
     out_dir: "src/resume/_data/baseline-refresh"   # gitignored per the PII policy
 
 workspace_dir: "{out_dir}/{profile}"
@@ -701,14 +700,18 @@ stages:
 
            ./bin/assistant resume render \
              --data {workspace}/outputs/baseline-after.yaml \
-             --template {template} \
              --out {workspace}/verify.docx
 
          Treat a non-zero exit as fatal. Delete any existing verify.docx first
          so a stale file from an earlier run cannot be mistaken for a fresh one.
-         The renderer needs --template to emit sections beyond the header, so a
-         render without it would not exercise the experience section this
-         workflow just changed.
+
+         Omitting --template is deliberate: the renderer falls back to
+         DEFAULT_TEMPLATE, which resolves the summary, skills, experience, and
+         education sections — so the experience section this workflow just
+         changed IS exercised. Confirm the rendered document is not header-only
+         before calling this a pass. A body-less render was a real failure mode
+         here (a 37KB file containing only a name and contact line, exit 0)
+         until src/resume/cli/main.py stopped defeating that fallback.
 
       Report a one-line summary: how many bullets landed, under which roles, and
       whether the profile still exports and renders. Do not print bullet text or
