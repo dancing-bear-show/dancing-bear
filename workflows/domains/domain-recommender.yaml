@@ -41,7 +41,7 @@ trigger:
     projects_dir: "~/.claude/projects"  # Root dir for Claude Code project transcripts
     primary_artifact: "sketches.json"
     report_artifact: "domain-recommendations.md"
-    validation_criteria: "all file_to_modify paths exist under src/|proposed domain names are snake_case and not already a directory under src/|roi_score arithmetic is correct|no gap_id appears in both subcommand_gaps and new_domain_candidates|every example_prompt quoted traces to prompt-corpus.json"
+    validation_criteria: "every non-null file_to_modify path exists under src/ or bin/ (workflow-type sketches carry null and are exempt)|proposed domain names are snake_case and not already a directory under src/|roi_score arithmetic is correct|no gap_id appears in more than one candidate list|every example_prompt quoted traces to prompt-corpus.json|every workflow-type sketch names only existing commands for its sources — probe each one|no workflow-type sketch claims a src/ file to modify"
     docs_change_source: "sketches.json"
     docs_backlog_doc: "docs/cli-surface-backlog.md"
 
@@ -268,6 +268,41 @@ stages:
           rationale (1–2 sentences), up to 3 example prompts, prompt_freq
           (cluster frequency from prompt-corpus.json group-by).
 
+        MULTI-SOURCE TEST — apply to EVERY candidate subcommand before recording
+        it. Ask: does the underlying intent span more than one data source?
+
+        Read the example prompts literally. Phrases like "the usual places",
+        "everywhere", "wherever they are", or a noun that naturally arrives from
+        several channels (receipts, invoices, photos, documents, messages) mean
+        the user is describing a SEARCH ACROSS SOURCES, not a command on one of
+        them. A subcommand lives on exactly one CLI and can therefore only ever
+        see that CLI's source — so it answers a single-source question while the
+        user asked a multi-source one, and every additional source later becomes
+        another parallel implementation of the same logic.
+
+        When the intent spans sources, set type "workflow" instead of proposing a
+        subcommand. Record:
+          - the sources involved and, for each, the EXISTING command that already
+            covers it (probe them: ./bin/<cli> --agentic --agentic-format yaml
+            --agentic-compact, or --help)
+          - estimated_new_cli_code: how many lines of NEW CLI code are actually
+            required, which is usually 0 when every source already has a command
+          - a note that synthesize-workflow-from-telemetry.yaml is the right tool
+            to author it
+        Do NOT emit a subcommand sketch for these. A worked example from a real
+        run: "i want to scan for new receipts in the usual places" was recorded
+        as a 90-line `mail messages scan-receipts` subcommand, but receipts
+        arrive from mail, WhatsApp, and the local filesystem — all three already
+        have commands (`mail messages search`/`list-attachments`/
+        `download-attachment`, `whatsapp search`, a filesystem scan), so the
+        correct deliverable was a workflow with 0 lines of new CLI code.
+
+        This test must run here, on every Step 1 candidate. Step 3 carries a
+        similar check but is driven by intent-sequences.json cli_sequences,
+        which is frequently EMPTY — users describe a whole workflow in one
+        prompt rather than across consecutive ones — so a check that lives only
+        in Step 3 silently never executes.
+
       Step 2 — new domain candidates:
         For each cluster in domain-map.json "unmapped_clusters":
           Propose a domain name: snake_case, max 20 chars.
@@ -371,13 +406,32 @@ stages:
             }
           ],
           "new_domain_candidates": [...],
-          "consolidation_candidates": [...]
+          "consolidation_candidates": [...],
+          "workflow_candidates": [
+            {
+              "gap_id": "scan-receipts-multi-source",
+              "type": "workflow",
+              "rationale": "intent spans mail + whatsapp + filesystem",
+              "sources": [
+                {"source": "mail", "existing_command": "./bin/mail messages search / list-attachments / download-attachment"},
+                {"source": "whatsapp", "existing_command": "./bin/whatsapp search --contains --since-days"}
+              ],
+              "example_prompts": ["..."],
+              "prompt_freq": 0,
+              "estimated_new_cli_code": 0,
+              "authoring_tool": "workflows/code/synthesize-workflow-from-telemetry.yaml"
+            }
+          ]
         }
-      Sort each list by roi_score descending.
+      Sort the first three lists by roi_score descending. workflow_candidates
+      carry no roi_score — rank them by prompt_freq, since their cost is near
+      zero when every source already has a command.
 
-      A gap_id must appear in exactly one of the three lists. If a candidate
+      A gap_id must appear in exactly one of the four lists. If a candidate
       could plausibly be either a subcommand or a new domain, classify it as a
-      subcommand — extending an existing CLI is cheaper and reversible.
+      subcommand — extending an existing CLI is cheaper and reversible. But if
+      it failed the MULTI-SOURCE TEST above, it belongs in workflow_candidates
+      regardless of how naturally it reads as a subcommand.
     agent:
       role: code-writer
       model: sonnet
@@ -416,6 +470,8 @@ stages:
       Step 2 — read gap-analysis.json. Take:
         - Top 5 entries from subcommand_gaps by roi_score
         - Top 3 entries from new_domain_candidates by roi_score
+        - ALL entries from workflow_candidates (there are usually few, and each
+          costs ~0 lines of new code, so there is no reason to truncate them)
 
       Step 3 — for each subcommand gap:
         Identify the exact file to modify:
@@ -444,6 +500,16 @@ stages:
         and the two candidate subcommand method stubs).
         Note whether the new domain produces output files; if so, state that it
         must use core.paths.output_dir("<domain>") rather than a relative path.
+
+      Step 5 — for each workflow candidate, produce a workflow sketch instead of
+      a code sketch. Set type "workflow", file_to_modify null,
+      function_signature null, and estimated_lines 0. In pseudocode, write the
+      stage outline: the fan-out over each source naming the EXISTING command
+      that covers it, then how results are joined, deduped, and organized.
+      Verify each named command really exists before writing it — probe with
+      ./bin/<cli> --agentic --agentic-format yaml --agentic-compact or --help.
+      Name workflows/code/synthesize-workflow-from-telemetry.yaml as the tool to
+      author it. Do not invent a src/ path for these; there is no code to write.
 
       Write sketches.json:
         {
