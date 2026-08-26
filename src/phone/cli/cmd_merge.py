@@ -34,8 +34,8 @@ def _merge_and_verify(
 
 def cmd_merge_folders(args) -> int:
     """Redistribute dump folder apps into best-fit existing folders."""
-    layout_path = Path(getattr(args, "layout", None) or "out/ios.IconState.yaml")
-    plan_out = Path(getattr(args, "plan", None) or "out/ios.plan.merged.yaml")
+    layout_path = Path(getattr(args, "layout", None) or output_dir("phone") / "ios.IconState.yaml")
+    plan_out = Path(getattr(args, "plan", None) or output_dir("phone") / "ios.plan.merged.yaml")
     keep_csv = getattr(args, "keep", "") or ""
     dump_csv = getattr(args, "dump_folder_names", "") or ""
 
@@ -119,7 +119,7 @@ def cmd_reorg(args) -> int:
         return rc
 
     keep_csv = getattr(args, "keep", "") or ""
-    out_profile = Path(getattr(args, "out", None) or "out/ios.merged.mobileconfig")
+    out_profile = Path(getattr(args, "out", None) or output_dir("phone") / "ios.merged.mobileconfig")
 
     layout_path = output_dir("phone") / "ios.IconState.yaml"
     plan_path = output_dir("phone") / "ios.plan.merged.yaml"
@@ -165,7 +165,7 @@ def _cmd_reorg_install_only(args) -> int:
     # --profile-path takes precedence; fall back to --out default
     profile_arg = getattr(args, "profile_path", None)
     out_arg = getattr(args, "out", None)
-    profile_path = Path(profile_arg or out_arg or "out/ios.merged.mobileconfig")
+    profile_path = Path(profile_arg or out_arg or output_dir("phone") / "ios.merged.mobileconfig")
 
     if not profile_path.exists():
         print(f"Error: profile not found: {profile_path}", file=sys.stderr)

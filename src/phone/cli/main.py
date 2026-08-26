@@ -97,7 +97,7 @@ identity_group = app.group(
     "--backup",
     help="Path to Finder backup UDID dir (defaults to latest under MobileSync/Backup)",
 )
-@app.argument("--out", help="Output YAML path (default out/ios.IconState.yaml)")
+@app.argument("--out", help="Output YAML path (default: phone data dir)")
 def _cmd_export(args) -> int:
     return cmd_export(args)
 
@@ -107,7 +107,7 @@ def _cmd_export(args) -> int:
 )
 @app.argument("--udid", help="Device UDID (optional when only one device is attached)")
 @app.argument("--ecid", help="Device ECID (optional; overrides --udid)")
-@app.argument("--out", help="Output YAML path (default out/ios.IconState.yaml)")
+@app.argument("--out", help="Output YAML path (default: phone data dir)")
 def _cmd_export_device(args) -> int:
     return cmd_export_device(args)
 
@@ -121,7 +121,7 @@ def _cmd_export_device(args) -> int:
     default="json",
     help="Output format (default json)",
 )
-@app.argument("--out", help="Output path (default out/ios.iconmap.json or .plist)")
+@app.argument("--out", help="Output path (default: phone data dir)")
 def _cmd_iconmap(args) -> int:
     return cmd_iconmap(args)
 
@@ -131,7 +131,7 @@ def _cmd_iconmap(args) -> int:
 @app.argument(
     "--layout", help="Existing export YAML to derive plan from (skips backup)"
 )
-@app.argument("--out", help="Output plan YAML path (default out/ios.plan.yaml)")
+@app.argument("--out", help="Output plan YAML path (default: phone data dir)")
 def _cmd_plan(args) -> int:
     return cmd_plan(args)
 
@@ -144,7 +144,7 @@ def _cmd_plan(args) -> int:
 @app.argument(
     "--backup", help="Path to Finder backup UDID dir (used if --layout not provided)"
 )
-@app.argument("--out", help="Output text path (default out/ios.checklist.txt)")
+@app.argument("--out", help="Output text path (default: phone data dir)")
 def _cmd_checklist(args) -> int:
     return cmd_checklist(args)
 
@@ -201,7 +201,7 @@ def _cmd_unused(args) -> int:
     help="Checklist mode (default offload)",
 )
 @app.argument(
-    "--out", default="out/ios.unused.prune_checklist.txt", help="Output text file"
+    "--out", default=None, help="Output text file (default: phone data dir)"
 )
 def _cmd_prune(args) -> int:
     return cmd_prune(args)
@@ -249,7 +249,7 @@ def _cmd_validate_layout(args) -> int:
     "--backup", help="Path to Finder backup UDID dir (used if --layout not provided)"
 )
 @app.argument(
-    "--plan", default="out/ipad.plan.yaml", help="Plan YAML path to read/update"
+    "--plan", default=None, help="Plan YAML path to read/update (default: phone data dir)"
 )
 @app.argument(
     "--keep",
@@ -275,13 +275,13 @@ def _cmd_auto_folders(args) -> int:
 )
 @app.argument(
     "--layout",
-    default="out/ios.IconState.yaml",
-    help="Layout export YAML (default out/ios.IconState.yaml)",
+    default=None,
+    help="Layout export YAML (default: phone data dir)",
 )
 @app.argument(
     "--plan",
-    default="out/ios.plan.merged.yaml",
-    help="Output plan YAML (default out/ios.plan.merged.yaml)",
+    default=None,
+    help="Output plan YAML (default: phone data dir)",
 )
 @app.argument(
     "--keep",
@@ -314,8 +314,8 @@ def _cmd_merge_folders(args) -> int:
 )
 @app.argument(
     "--out",
-    default="out/ios.merged.mobileconfig",
-    help="Output .mobileconfig path (default out/ios.merged.mobileconfig)",
+    default=None,
+    help="Output .mobileconfig path (default: phone data dir)",
 )
 @app.argument(
     "--no-install",
@@ -338,7 +338,7 @@ def _cmd_merge_folders(args) -> int:
 @app.argument(
     "--profile-path",
     default=None,
-    help="Profile path for --install-only (default out/ios.merged.mobileconfig)",
+    help="Profile path for --install-only (default: phone data dir)",
 )
 def _cmd_reorg(args) -> int:
     return cmd_reorg(args)
@@ -476,7 +476,7 @@ def _cmd_manifest_from_device(args) -> int:
     help="Build and install a profile from a manifest (hands-off via credentials)",
 )
 @manifest_group.argument("--manifest", required=True, help="Manifest YAML path")
-@manifest_group.argument("--out", help="Output .mobileconfig path (default under out/)")
+@manifest_group.argument("--out", help="Output .mobileconfig path (default: phone data dir)")
 @manifest_group.argument(
     "--udid", help="Override device UDID (else manifest.device.udid or env)"
 )
