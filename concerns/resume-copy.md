@@ -30,6 +30,14 @@ a parser with deliberately malformed input.
   Both readings are correct there — ongoing duties take present tense ("Operate
   Kafka clusters"), completed accomplishments take past tense ("Delivered $300K in
   savings"). Only flag a present-tense opener on a role that has *ended*.
+- **shared-credit exception**: "Contributed to" is accurate, not evasive, when
+  the candidate genuinely shared the work — an upstream open-source project, a
+  cross-team program they did not lead. Flagging it there pushes the candidate
+  toward a false claim of sole ownership, which is worse than a weak opener.
+  Flag it when it distances the candidate from work they actually owned. This
+  concern owns "Contributed to" outright; `resume-hedged-impact` deliberately
+  does not list it, so the two lanes cannot reach opposite verdicts on one
+  bullet.
 - **example**: `- Responsible for maintaining the Kafka clusters` — describes
   proximity to the work, not ownership of it. Rewrite: `- Operated Kafka clusters
   serving 40K msg/sec across three regions`.
@@ -192,8 +200,15 @@ a parser with deliberately malformed input.
   column reading "Led / Led / Led / Led" flattens four different accomplishments
   into one texture.
 - **triggers**: The same opening verb (or its lemma — "Build"/"Built"/"Building")
-  opening 3+ bullets anywhere in the document, or 2+ bullets within a single
+  opening 3+ bullets anywhere in the document, or 3+ bullets within a single
   `experience[]` entry. Report the verb, the count, and every role it appears in.
+- **threshold note**: 3+, matching `resume-bullet-template-repetition`. Two
+  bullets sharing an opener is the same coincidence two bullets sharing a shape
+  is, and this concern previously said 2+ within a role while its sibling said
+  two is parallelism — one document could satisfy both rules and contradict
+  itself. The two concerns do measure different things (verb identity versus
+  sentence shape, so one bullet can trip both), but they now agree on how much
+  repetition constitutes a pattern.
 - **scope exception**: Do NOT flag a verb repeated across roles when it is the
   literal name of the work and no honest synonym exists ("Migrated" across three
   migration roles). Flag only when substitution would not change the claim.
@@ -218,7 +233,9 @@ a parser with deliberately malformed input.
   not a finding. The concern is a whole list marching in lockstep.
 - **note**: The fix is structural, not lexical — swapping synonyms leaves the
   template intact. Lead one bullet with the outcome, one with the constraint,
-  one with the scope.
+  one with the scope. When reporting this as a finding, `suggested_rewrite` is a
+  single string: rewrite the one quoted bullet and name the pattern in `why`.
+  The schema cannot carry a multi-bullet rewrite.
 - **example**: "Reduced latency by implementing caching, resulting in 40% faster
   loads" / "Cut costs by consolidating instances, resulting in $200K savings" /
   "Improved uptime by adding health checks, resulting in 99.9% availability" —
@@ -240,6 +257,14 @@ a parser with deliberately malformed input.
   word — "robust" in "robust statistics", "comprehensive" in "comprehensive
   test coverage" where coverage is genuinely exhaustive. Judge by whether
   deleting the word loses information.
+- **punctuation exception**: The em dash is ordinary English punctuation and is
+  used throughout this repo's own guides. Flag it ONLY where it sets up a
+  rhetorical reveal in a resume bullet ("delivered the platform — and then
+  scaled it"). Never flag an em dash joining two clauses of ordinary prose, and
+  never flag the EN dash in a date range (`2021 – 2025`), which
+  `.claude/RESUME_WRITING_GUIDE.md` mandates and which
+  `ats-date-format-unparseable` separately governs. Flagging the mandated date
+  format would put two lanes in direct conflict over the same characters.
 - **note**: Do not flag the same span under both this concern and
   `resume-banned-phrase`; that concern owns the fixed vocabulary list, this one
   owns rhythm and construction.
@@ -252,13 +277,18 @@ a parser with deliberately malformed input.
 - **check**: Verify accomplishments are stated as fact rather than softened into
   unfalsifiability. Generated copy hedges by default, and a hedged metric is
   worse than no metric: it signals the writer did not trust the number.
-- **triggers**: A bullet containing "helped to", "contributed to", "played a key
-  role in", "was instrumental in", "supported efforts to", "approximately"
-  before a figure the candidate should know exactly, or "up to" attached to a
-  best case presented as typical.
+- **triggers**: A bullet containing "helped to", "played a key role in", "was
+  instrumental in", "supported efforts to", "approximately" before a figure the
+  candidate should know exactly, or "up to" attached to a best case presented as
+  typical.
+- **boundary**: "Contributed to" is NOT listed here. It is an opener word by
+  definition and belongs to `resume-bullet-weak-opener`, which owns it together
+  with its shared-credit exception. Listing it in both places made the same
+  bullet a mandatory finding for one lane and a mandatory non-finding for the
+  other.
 - **scope exception**: Genuine shared credit is honest and must not be flagged
-  into a false claim of sole ownership. "Contributed to" on a large open-source
-  project is accurate; the defect is hedging work the candidate actually owned.
+  into a false claim of sole ownership. The defect is hedging work the candidate
+  actually owned, not accurately describing work they shared.
 - **note**: Overlaps `resume-bullet-weak-opener` when the hedge is the opener.
   Report under that concern when it opens the bullet, here when it appears
   mid-bullet.
