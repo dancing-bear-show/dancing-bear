@@ -72,6 +72,17 @@ class EventIterationProcessor(SafeProcessor):
                 continue
             nev = normalize_event(raw)
             self._handle_event(payload, idx, nev, accumulator)
+        return self._finalize_result(payload, accumulator)
+
+    def _finalize_result(self, payload: Any, accumulator: Any) -> Any:
+        """Convert the accumulator into the result, with access to the payload.
+
+        Subclasses that need only the accumulator override ``_finalize``; those
+        that also need request fields (a client handle, dry_run, addressing)
+        override this instead. Without this seam a payload-needing subclass has
+        to copy the whole loop above just to change its last line, which
+        re-duplicates the boilerplate this base class exists to centralize.
+        """
         return self._finalize(accumulator)
 
     def _load_events(self, payload: Any) -> list[dict[str, Any]]:

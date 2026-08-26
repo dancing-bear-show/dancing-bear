@@ -452,6 +452,36 @@ class TestOutlookExportProducer(unittest.TestCase):
             verbose=verbose,
         )
 
+    def test_verbose_reports_reasons_without_leaking_subject_or_ids(self):
+        """--verbose explains skips but must not print subjects or Graph object ids."""
+        from calendars.outlook_pipelines.export import OutlookExportProducer
+        from core.pipeline import ResultEnvelope
+        import io
+
+        result = self._make_result(
+            events=[],
+            skipped=[{
+                "seriesMasterId": "AAMkAG-secret-master-id",
+                "subject": "Oncologist follow-up",
+                "pattern_type": "relativeMonthly",
+                "reason": "unsupported_pattern",
+            }],
+            verbose=True,
+        )
+        envelope = ResultEnvelope(status="success", payload=result)
+
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            OutlookExportProducer().produce(envelope)
+        output = captured.getvalue()
+
+        # The reason is actionable and must be shown.
+        self.assertIn("unsupported_pattern", output)
+        self.assertIn("relativeMonthly", output)
+        # The subject and the Graph id must never reach the console.
+        self.assertNotIn("Oncologist follow-up", output)
+        self.assertNotIn("AAMkAG-secret-master-id", output)
+
     def test_prints_count_summary(self):
         from calendars.outlook_pipelines.export import OutlookExportProducer
         from core.pipeline import ResultEnvelope
@@ -555,9 +585,40 @@ class TestCLIExportPlanCommand(unittest.TestCase):
         self.assertEqual(args.to_date, "2026-06-30")
         self.assertFalse(args.dry_run)
 
-    def test_run_outlook_export_plan_importable(self):
-        from calendars.outlook.commands import run_outlook_export_plan
-        self.assertTrue(callable(run_outlook_export_plan))
+    def test_run_returns_failure_when_service_unavailable(self):
+        """A service that cannot be built exits 1 rather than raising."""
+        import argparse
+
+        from calendars.outlook import commands
+
+        args = argparse.Namespace(out=None, calendar=None, from_date=None, to_date=None)
+        with patch.object(commands, "_build_outlook_service", return_value=None):
+            self.assertEqual(commands.run_outlook_export_plan(args), 1)
+
+    def test_default_out_path_resolves_outside_the_checkout(self):
+        """The default plan path must not land inside the repo — it holds real calendar data."""
+        import argparse
+
+        from calendars.outlook import commands
+
+        captured: dict[str, Any] = {}
+
+        def _capture(request, _proc, _prod):
+            captured["out_path"] = request.out_path
+            return 0
+
+        args = argparse.Namespace(
+            out=None, calendar=None, from_date=None, to_date=None,
+            dry_run=True, verbose=False,
+        )
+        with patch.object(commands, "_build_outlook_service", return_value=MagicMock()), \
+                patch.object(commands, "run_pipeline", side_effect=_capture):
+            commands.run_outlook_export_plan(args)
+
+        out_path = captured["out_path"]
+        self.assertEqual(out_path.name, "plan.yaml")
+        repo_root = Path(__file__).resolve().parents[2]
+        self.assertNotIn(repo_root, out_path.resolve().parents)
 
 
 class TestExdatesProducer(unittest.TestCase):

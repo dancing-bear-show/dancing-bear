@@ -303,23 +303,18 @@ class IcsDraftProcessor(EventIterationProcessor):
         accumulator.vevent_lines.extend(vevent)
         accumulator.event_count += 1
 
-    def _process_safe(self, payload: IcsDraftRequest) -> IcsDraftResult:
-        """Override _process_safe to thread the payload into _finalize."""
-        items = self._load_events(payload)
-        accumulator = self._init_accumulator(payload)
-        for idx, raw in enumerate(items, start=1):
-            if not isinstance(raw, dict):
-                continue
-            from calendars.model import normalize_event
-            nev = normalize_event(raw)
-            self._handle_event(payload, idx, nev, accumulator)
-        return self._finalize_with_payload(payload, accumulator)
-
-    def _finalize_with_payload(
+    def _finalize_result(
         self,
         payload: IcsDraftRequest,
         accumulator: _IcsDraftAccumulator,
     ) -> IcsDraftResult:
+        """Build the ICS and create the draft.
+
+        Overrides the payload-aware hook rather than ``_finalize`` because
+        creating the draft needs the request's gmail_client, dry_run flag,
+        recipient and subject — none of which reach ``_finalize(accumulator)``.
+        The base class's load/iterate/normalize loop is inherited unchanged.
+        """
         ics_text = _build_vcalendar(accumulator.vevent_lines)
 
         if payload.dry_run:

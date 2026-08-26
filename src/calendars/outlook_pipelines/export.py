@@ -6,7 +6,6 @@ import warnings
 from dataclasses import dataclass, field
 
 from ._base import (
-    dataclass as _dc,  # noqa: F401 - unused but kept for symmetry with _base imports
     Path,
     Any,
     SafeProcessor,
@@ -349,8 +348,15 @@ class OutlookExportProducer(BaseProducer):
         print(f"Exported {n} events; skipped {m} (see --verbose for details)")
 
         if payload.verbose and payload.skipped:
+            # Print the reason and pattern type only. The skipped dicts also
+            # carry the event subject and seriesMasterId; a Graph object id and
+            # a calendar subject are not console material, so they stay in the
+            # plan file (which lands outside the checkout) and out of logs.
             for s in payload.skipped:
-                print(f"  skipped: {s}")
+                reason = s.get("reason", "unknown")
+                ptype = s.get("pattern_type")
+                suffix = f" (pattern_type={ptype})" if ptype else ""
+                print(f"  skipped: {reason}{suffix}")
 
         if payload.dry_run:
             print("[dry-run] No file written.")
