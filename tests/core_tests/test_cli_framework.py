@@ -321,6 +321,57 @@ class TestHelpfulArgumentParser(unittest.TestCase):
         sub.add_parser("send")
         return parser
 
+    def _make_parser_with_global_flag(self):
+        parser = _HelpfulArgumentParser(prog="test-app", add_help=False)
+        parser.add_argument("--profile")
+        parser.add_argument("--verbose", action="store_true")
+        sub = parser.add_subparsers(dest="command")
+        sub.add_parser("auth")
+        return parser
+
+    def test_misplaced_no_arg_flag_example_omits_value_placeholder(self):
+        """A store_true flag takes no argument, so the example must not add one.
+
+        "test-app --verbose <value> <command>" is itself an invalid invocation;
+        a hint that suggests one is no better than the bug it replaced.
+        """
+        parser = self._make_parser_with_global_flag()
+        with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            with self.assertRaises(SystemExit):
+                parser.parse_args(["auth", "--verbose"])
+        output = stderr.getvalue()
+
+        self.assertIn("test-app --verbose <command>", output)
+        self.assertNotIn("--verbose <value>", output)
+
+    def test_misplaced_global_flag_explains_position_not_spelling(self):
+        """A real global flag used after the subcommand must not be echoed back.
+
+        Regression: `mail auth --profile personal` produced "Unknown flag
+        '--profile'. Did you mean: --profile?" — the suggester found the flag on
+        the top-level parser and proposed the identical spelling, naming neither
+        the cause (wrong position) nor the fix.
+        """
+        parser = self._make_parser_with_global_flag()
+        with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            with self.assertRaises(SystemExit):
+                parser.parse_args(["auth", "--profile", "personal"])
+        output = stderr.getvalue()
+
+        self.assertIn("must come before the subcommand", output)
+        self.assertNotIn("Did you mean: --profile", output)
+
+    def test_genuinely_misspelled_flag_still_suggests_correction(self):
+        """The position hint must not swallow real did-you-mean suggestions."""
+        parser = self._make_parser_with_global_flag()
+        with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            with self.assertRaises(SystemExit):
+                parser.parse_args(["auth", "--porfile", "personal"])
+        output = stderr.getvalue()
+
+        self.assertIn("Did you mean: --profile", output)
+        self.assertNotIn("must come before the subcommand", output)
+
     def test_invalid_subcommand_suggests_closest_match(self):
         parser = self._make_parser()
         with patch("sys.stderr", new_callable=io.StringIO) as stderr:

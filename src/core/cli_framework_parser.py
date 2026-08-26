@@ -60,10 +60,33 @@ class _HelpfulArgumentParser(argparse.ArgumentParser):
         """Suggest known flags for each unrecognized flag-like token."""
         tokens = re.findall(r"(--?[\w-]+)", message)
         all_flags: list[str] = []
+        # Flags that take no argument (store_true and friends have nargs == 0).
+        # The position hint must not append a placeholder value to these:
+        # "mail --verbose <value> <command>" is itself invalid.
+        no_arg_flags: set[str] = set()
         for act in self._actions:
             all_flags.extend(act.option_strings)
+            if act.nargs == 0:
+                no_arg_flags.update(act.option_strings)
         lines: list[str] = []
         for token in tokens:
+            if token in all_flags:
+                # The flag is real and belongs to THIS parser, so it was not
+                # misspelled — it was used in the wrong position. Global flags
+                # are registered on the top-level parser and must precede the
+                # subcommand. Suggesting the same spelling back ("Unknown flag
+                # '--profile'. Did you mean: --profile?") names neither the
+                # cause nor the fix.
+                example = (
+                    f"{self.prog} {token} <command>"
+                    if token in no_arg_flags
+                    else f"{self.prog} {token} <value> <command>"
+                )
+                lines.append(
+                    f"'{token}' is a global flag and must come before the subcommand, "
+                    f"e.g. {example}"
+                )
+                continue
             flag_suggestions = suggest_flags(token, all_flags)
             if flag_suggestions:
                 lines.append(f"Unknown flag '{token}'. Did you mean: {', '.join(flag_suggestions)}?")
