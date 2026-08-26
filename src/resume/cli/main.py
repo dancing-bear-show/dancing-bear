@@ -296,7 +296,7 @@ def _load_structure(args: argparse.Namespace) -> dict | None:
 @app.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_render(args: argparse.Namespace) -> int:
     data = read_yaml_or_json(args.data)
-    template = load_template(args.template) if args.template else {}
+    template = load_template(args.template)
     seed = parse_seed_criteria(args.seed) if args.seed else {}
     seed = _extend_seed_with_style(seed, getattr(args, "style_profile", None))
 

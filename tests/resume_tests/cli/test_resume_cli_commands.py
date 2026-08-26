@@ -183,6 +183,67 @@ class TestResumeCLIRender(unittest.TestCase):
                 ])
                 self.assertEqual(proc.returncode, 0, msg=proc.stderr)
 
+    def test_render_without_template_emits_body_sections(self):
+        """render with no --template must use DEFAULT_TEMPLATE, not an empty dict.
+
+        Regression: cmd_render read `load_template(args.template) if args.template
+        else {}`. The `else {}` defeated load_template's own None-fallback, so an
+        omitted --template resolved to zero sections and the writer emitted only
+        the header. It exited 0 and wrote a plausible file, so nothing surfaced
+        the failure — the resume was simply missing its entire body.
+
+        Asserting returncode/existence alone cannot catch this; the assertions
+        below are on rendered CONTENT.
+        """
+        from docx import Document
+
+        data = {
+            "name": "Test User",
+            "headline": "Software Engineer",
+            "summary": "Builds reliable systems.",
+            "skills": ["Python", "Kubernetes"],
+            "experience": [
+                {
+                    "title": "Engineer",
+                    "company": "Acme Corp",
+                    "start": "2020",
+                    "end": "Present",
+                    "bullets": ["Cut latency by 40%"],
+                }
+            ],
+            "education": [
+                {"degree": "BSc", "institution": "State University", "year": "2015"}
+            ],
+        }
+        with temp_yaml_file(data) as data_path:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                out_path = os.path.join(tmpdir, "resume.docx")
+                proc = run([
+                    sys.executable, "-m", "resume", "render",
+                    "--data", data_path,
+                    "--out", out_path,
+                ])
+                self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+                self.assertTrue(os.path.exists(out_path))
+
+                text = "\n".join(
+                    p.text for p in Document(out_path).paragraphs if p.text.strip()
+                )
+
+                # Header alone is what the bug produced; it is not sufficient.
+                self.assertIn("Test User", text)
+
+                # Each default section must actually render.
+                for heading in ("Summary", "Skills", "Experience", "Education"):
+                    self.assertIn(heading, text, f"missing section heading: {heading}")
+
+                # And carry its content, not just a bare heading.
+                self.assertIn("Builds reliable systems.", text)
+                self.assertIn("Python", text)
+                self.assertIn("Acme Corp", text)
+                self.assertIn("Cut latency by 40%", text)
+                self.assertIn("State University", text)
+
     def test_render_pdf_raises_error(self):
         """Test render with .pdf output exits with USAGE error (C5: CLIError replaces RuntimeError)."""
         data = {"name": "Test User"}
