@@ -885,9 +885,10 @@ class TestResolveTzFallbackChain(unittest.TestCase):
         svc = MagicMock()
         start = self._make_start_block("Pacific/Auckland")
 
-        result = _resolve_tz(start, svc)
+        tz, source = _resolve_tz(start, svc)
 
-        self.assertEqual(result, "Pacific/Auckland")
+        self.assertEqual(tz, "Pacific/Auckland")
+        self.assertEqual(source, "event")
         svc.get_mailbox_timezone.assert_not_called()
 
     def test_resolve_tz_falls_back_to_mailbox_tz_when_event_tz_absent(self):
@@ -898,9 +899,10 @@ class TestResolveTzFallbackChain(unittest.TestCase):
         svc.get_mailbox_timezone.return_value = "Europe/London"
         start = self._make_start_block(None)  # no timeZone key
 
-        result = _resolve_tz(start, svc)
+        tz, source = _resolve_tz(start, svc)
 
-        self.assertEqual(result, "Europe/London")
+        self.assertEqual(tz, "Europe/London")
+        self.assertEqual(source, "mailbox")
         svc.get_mailbox_timezone.assert_called_once()
 
     def test_resolve_tz_falls_back_to_mailbox_tz_when_event_tz_empty(self):
@@ -911,44 +913,86 @@ class TestResolveTzFallbackChain(unittest.TestCase):
         svc.get_mailbox_timezone.return_value = "Europe/London"
         start = {"dateTime": "2026-05-01T10:00:00", "timeZone": ""}
 
-        result = _resolve_tz(start, svc)
+        tz, source = _resolve_tz(start, svc)
 
-        self.assertEqual(result, "Europe/London")
+        self.assertEqual(tz, "Europe/London")
+        self.assertEqual(source, "mailbox")
         svc.get_mailbox_timezone.assert_called_once()
 
     def test_resolve_tz_final_fallback_when_mailbox_raises(self):
-        """(c) timeZone absent AND get_mailbox_timezone raises → returns 'America/Toronto' with warning."""
-        import warnings
-        from calendars.outlook_pipelines.export import _resolve_tz
+        """(c) timeZone absent AND get_mailbox_timezone raises → fallback, source='fallback'."""
+        from calendars.outlook_pipelines.export import _TZ_FALLBACK, _resolve_tz
 
         svc = MagicMock()
         svc.get_mailbox_timezone.side_effect = RuntimeError("no mailbox")
         start = self._make_start_block(None)
 
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            result = _resolve_tz(start, svc)
+        tz, source = _resolve_tz(start, svc)
 
-        self.assertEqual(result, "America/Toronto")
-        self.assertEqual(len(caught), 1)
-        self.assertIn("America/Toronto", str(caught[0].message))
+        self.assertEqual(tz, _TZ_FALLBACK)
+        self.assertEqual(source, "fallback")
 
     def test_resolve_tz_final_fallback_when_mailbox_returns_none(self):
-        """(c-variant) timeZone absent AND get_mailbox_timezone returns None → 'America/Toronto' with warning."""
-        import warnings
-        from calendars.outlook_pipelines.export import _resolve_tz
+        """(c-variant) timeZone absent AND get_mailbox_timezone returns None → fallback."""
+        from calendars.outlook_pipelines.export import _TZ_FALLBACK, _resolve_tz
 
         svc = MagicMock()
         svc.get_mailbox_timezone.return_value = None
         start = self._make_start_block(None)
 
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            result = _resolve_tz(start, svc)
+        tz, source = _resolve_tz(start, svc)
 
-        self.assertEqual(result, "America/Toronto")
-        self.assertEqual(len(caught), 1)
-        self.assertIn("America/Toronto", str(caught[0].message))
+        self.assertEqual(tz, _TZ_FALLBACK)
+        self.assertEqual(source, "fallback")
+
+    def test_inferred_tz_is_recorded_per_event_not_once_per_process(self):
+        """Every event with a guessed tz appears in result.tz_inferred.
+
+        This is the point of the change: a warnings.warn fires once per process,
+        so N guessed events left no per-event trace. The plan file must not carry
+        the private marker, but the run report must name each affected event.
+        """
+        from calendars.outlook_pipelines.export import (
+            OutlookExportProcessor,
+            OutlookExportRequest,
+        )
+
+        # Two one-offs, neither carrying a timeZone; mailbox lookup also fails.
+        def _no_tz(subject: str, day: str) -> dict[str, Any]:
+            return {
+                "type": "singleInstance",
+                "subject": subject,
+                "start": {"dateTime": f"{day}T09:00:00"},
+                "end": {"dateTime": f"{day}T10:00:00"},
+                "location": {},
+            }
+
+        svc = MagicMock()
+        svc.list_events_in_range.return_value = [
+            _no_tz("Alpha", "2026-04-01"),
+            _no_tz("Beta", "2026-04-02"),
+        ]
+        svc.get_mailbox_timezone.return_value = None
+        svc.get_event.side_effect = lambda _id: None
+
+        request = OutlookExportRequest(
+            service=svc, calendar=None, from_date="2026-04-01",
+            to_date="2026-04-30", out_path=None, dry_run=False, verbose=False,
+        )
+        envelope = OutlookExportProcessor().process(request)
+        self.assertTrue(envelope.ok())
+        result = envelope.payload
+
+        # Both events recorded, with subject and the guessed value.
+        self.assertEqual(len(result.tz_inferred), 2)
+        self.assertEqual(
+            sorted(i["subject"] for i in result.tz_inferred), ["Alpha", "Beta"]
+        )
+        self.assertTrue(all(i["source"] == "fallback" for i in result.tz_inferred))
+
+        # The private provenance marker must never reach the plan.
+        for ev in result.events:
+            self.assertNotIn("_tz_source", ev)
 
 
 if __name__ == "__main__":

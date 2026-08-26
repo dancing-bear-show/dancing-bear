@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass, field
 
 from ._base import (
@@ -17,6 +16,15 @@ from ._base import (
 
 # Graph recurrence pattern types we can reverse
 _SUPPORTED_PATTERNS = {"daily", "weekly", "absolutemonthly"}
+
+# Last-resort timezone when neither the event nor the mailbox supplies one.
+# Every event resolved this way is recorded in OutlookExportResult.tz_inferred.
+_TZ_FALLBACK = "America/Toronto"
+
+# Private marker carrying how an event's tz was resolved from the reversal
+# helpers up to the processor. Stripped before the event reaches the plan file —
+# it is provenance for the run report, not part of the plan schema.
+_TZ_SOURCE_KEY = "_tz_source"
 
 # Map Graph lowercase full day names to RRULE 2-char uppercase codes
 _GRAPH_DAY_MAP: dict[str, str] = {
@@ -58,6 +66,12 @@ class OutlookExportResult:
     out_path: Path | None
     dry_run: bool
     verbose: bool
+    # Events whose timezone was not read from the event itself. Each entry is
+    # {subject, tz, source} with source "mailbox" or "fallback". A guessed
+    # timezone silently shifts every occurrence of an event on re-import, so
+    # the run must say which events were guessed — not emit one process-wide
+    # warning that says nothing about how many or which.
+    tz_inferred: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def event_count(self) -> int:
@@ -69,6 +83,23 @@ class _ExportAccumulator:
     events: list[dict[str, Any]] = field(default_factory=list)
     skipped: list[dict[str, Any]] = field(default_factory=list)
     seen_masters: set[str] = field(default_factory=set)
+    tz_inferred: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _record_event(acc: _ExportAccumulator, plan_ev: dict[str, Any]) -> None:
+    """Append a plan event, moving any tz-provenance marker into the report.
+
+    The marker must not reach the plan file: the plan schema is a fixed key set
+    and an extra private key would fail the round-trip equivalence check.
+    """
+    source = plan_ev.pop(_TZ_SOURCE_KEY, None)
+    if source:
+        acc.tz_inferred.append({
+            "subject": plan_ev.get("subject", ""),
+            "tz": plan_ev.get("tz", ""),
+            "source": source,
+        })
+    acc.events.append(plan_ev)
 
 
 def _extract_time(dt_str: str) -> str:
@@ -84,20 +115,27 @@ def _is_all_day(ev: dict[str, Any]) -> bool:
     return "date" in start and "dateTime" not in start
 
 
-def _resolve_tz(start: dict[str, Any], svc: Any) -> str | None:
-    """Resolve timezone from the event start block, mailbox, or fallback."""
+def _resolve_tz(start: dict[str, Any], svc: Any) -> tuple[str, str]:
+    """Resolve timezone from the event start block, mailbox, or fallback.
+
+    Returns (tz, source) where source is one of "event", "mailbox" or
+    "fallback". Callers record anything other than "event" against the event
+    itself: the exported plan must carry evidence of which timezones were
+    inferred rather than read, and a warnings.warn fires only once per process
+    (so a hundred guessed events would surface a single warning and leave no
+    trace in the plan file).
+    """
     tz = (start.get("timeZone") or "").strip()
     if tz:
-        return tz
+        return tz, "event"
     mbx = None
     try:
         mbx = svc.get_mailbox_timezone()
     except Exception:  # nosec B110 - best-effort mailbox tz lookup, non-fatal
         pass
     if mbx:
-        return mbx
-    warnings.warn("No timezone found; falling back to America/Toronto", stacklevel=2)
-    return "America/Toronto"
+        return mbx, "mailbox"
+    return _TZ_FALLBACK, "fallback"
 
 
 def _reverse_recurrence(
@@ -150,9 +188,11 @@ def _reverse_recurrence(
         ev["end_time"] = _extract_time(end_dt)
 
     # tz
-    tz = _resolve_tz(master_start, svc)
+    tz, tz_source = _resolve_tz(master_start, svc)
     if tz:
         ev["tz"] = tz
+    if tz_source != "event":
+        ev[_TZ_SOURCE_KEY] = tz_source
 
     # range
     range_type = (rng.get("type") or "").lower()
@@ -206,9 +246,11 @@ def _convert_one_off(ev: dict[str, Any], svc: Any) -> dict[str, Any]:
             result["start"] = start_dt
         if end_dt:
             result["end"] = end_dt
-        tz = _resolve_tz(start, svc)
+        tz, tz_source = _resolve_tz(start, svc)
         if tz:
             result["tz"] = tz
+        if tz_source != "event":
+            result[_TZ_SOURCE_KEY] = tz_source
 
     loc = ((ev.get("location") or {}).get("displayName") or "").strip()
     if loc:
@@ -254,7 +296,7 @@ class OutlookExportProcessor(SafeProcessor[OutlookExportRequest, OutlookExportRe
         # Process one-offs
         for ev in one_offs:
             plan_ev = _convert_one_off(ev, svc)
-            acc.events.append(plan_ev)
+            _record_event(acc, plan_ev)
 
         # Process recurring series
         for master_id, occurrences in by_master.items():
@@ -340,7 +382,7 @@ class OutlookExportProcessor(SafeProcessor[OutlookExportRequest, OutlookExportRe
             if exdates:
                 plan_ev["exdates"] = sorted(set(exdates))
 
-            acc.events.append(plan_ev)
+            _record_event(acc, plan_ev)
 
         return OutlookExportResult(
             events=acc.events,
@@ -348,6 +390,7 @@ class OutlookExportProcessor(SafeProcessor[OutlookExportRequest, OutlookExportRe
             out_path=payload.out_path,
             dry_run=payload.dry_run,
             verbose=payload.verbose,
+            tz_inferred=acc.tz_inferred,
         )
 
 
@@ -356,6 +399,18 @@ class OutlookExportProducer(BaseProducer):
         n = payload.event_count
         m = len(payload.skipped)
         print(f"Exported {n} events; skipped {m} (see --verbose for details)")
+
+        inferred = getattr(payload, "tz_inferred", []) or []
+        if inferred:
+            # Not gated behind --verbose: a guessed timezone shifts every
+            # occurrence of an event on re-import, so the count belongs in the
+            # default summary. Subjects stay out of the console (see below).
+            fell_back = sum(1 for i in inferred if i.get("source") == "fallback")
+            print(
+                f"Timezone inferred for {len(inferred)} event(s) "
+                f"({fell_back} via {_TZ_FALLBACK} fallback); "
+                "recorded in result.tz_inferred"
+            )
 
         if payload.verbose and payload.skipped:
             # Print the reason and pattern type only. The skipped dicts also
