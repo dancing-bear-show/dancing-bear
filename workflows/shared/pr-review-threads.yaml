@@ -71,6 +71,7 @@ stages:
                   path line startLine diffSide
                   comments(first:50){
                     totalCount
+                    pageInfo{ hasNextPage endCursor }
                     nodes{ databaseId author { login } body createdAt url }
                   }
                 }
@@ -81,10 +82,24 @@ stages:
 
       Write the raw response to {workspace}/outputs/threads-raw.json.
 
-      PAGINATION IS NOT OPTIONAL. If pageInfo.hasNextPage is true, re-run with
-      `after: $cursor` until it is false and merge the nodes. A PR with >100
-      threads that silently truncates looks identical to a clean one. Same for
-      any thread whose comments.totalCount exceeds 50.
+      PAGINATION IS NOT OPTIONAL, at BOTH levels. A PR that silently truncates
+      looks identical to a clean one.
+
+      Threads: if reviewThreads.pageInfo.hasNextPage is true, re-run with
+      `reviewThreads(first:100, after:"<endCursor>")` until it is false, and
+      merge the nodes.
+
+      Comments within a thread: if a thread's comments.pageInfo.hasNextPage is
+      true (equivalently, comments.totalCount exceeds 50), page that thread's
+      comments with `comments(first:50, after:"<its endCursor>")` until
+      exhausted. Both cursors come from the pageInfo blocks in the query above
+      — do not assume a page boundary without reading the cursor that goes
+      with it.
+
+      A truncated comment chain is worse here than a truncated thread list: it
+      silently drops the LATEST comments, which are exactly the ones carrying a
+      human's correction or an "already fixed" note that should override the
+      opening comment.
 
       Step 2 — REST review bodies. Top-level review summaries belong to no
       thread, so Step 1 cannot see them, and Copilot puts its overall verdict

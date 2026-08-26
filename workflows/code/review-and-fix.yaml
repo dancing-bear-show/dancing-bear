@@ -421,19 +421,34 @@ stages:
         so map each fixed finding to its thread. Fetch the threads with their
         comment database ids:
           GITHUB_TOKEN= gh api graphql -f query='
-          query($owner:String!,$name:String!,$pr:Int!){
+          query($owner:String!,$name:String!,$pr:Int!,$after:String){
             repository(owner:$owner,name:$name){
               pullRequest(number:$pr){
-                reviewThreads(first:100){nodes{
-                  id isResolved
-                  comments(first:1){nodes{ databaseId }}
-                }}
+                reviewThreads(first:100, after:$after){
+                  pageInfo{ hasNextPage endCursor }
+                  nodes{
+                    id isResolved
+                    comments(first:50){
+                      pageInfo{ hasNextPage endCursor }
+                      nodes{ databaseId }
+                    }
+                  }
+                }
               }
             }
           }' -F owner="$OWNER" -F name="$REPO" -F pr={pr_number}
 
-        The trailing numeric id in a comment_url is the comment databaseId —
-        match it against each thread's first comment to get the thread id.
+        Page it: while pageInfo.hasNextPage is true, re-run passing
+        -F after="<endCursor>" and merge the nodes before matching. A PR with
+        more than 100 threads would otherwise leave a fixed finding's thread
+        out of the response entirely, and it would never be resolved — a
+        silent miss, since nothing errors.
+
+        The trailing numeric id in a comment_url is the comment databaseId.
+        Match it against the databaseIds of ALL comments in each thread, not
+        just the first: a finding posted as a reply inside an existing thread
+        is not that thread's opening comment, and matching only the first
+        comment would fail to find it.
 
         Resolve ONLY the matched threads, individually:
           GITHUB_TOKEN= gh api graphql -f query='

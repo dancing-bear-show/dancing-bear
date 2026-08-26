@@ -37,16 +37,24 @@ KNOWN_ROLES: frozenset[str] = frozenset({
 })
 
 _RESULT_FMT = (
-    '{{"stage_name": "{name}", "stage_index": {index},\n'
-    '  "status": "success" | "failed",   <- report what actually happened.\n'
-    '     Use "failed" if a command you were told to run exited non-zero, a\n'
-    '     required output could not be written, or you could not complete the\n'
-    '     stage as specified, and put the reason in "errors". Downstream\n'
-    '     stages are skipped only when a required stage reports "failed", so\n'
-    '     reporting "success" on failed work lets later stages act on it.\n'
+    '{{"stage_name": "{name}", "stage_index": {index}, "status": "success",\n'
     '  "started_at": "<ISO8601>", "finished_at": "<ISO8601>",\n'
     '  "duration_ms": <ms>, "output_files": [<files written>],\n'
-    '  "data": {{<summary>}}, "errors": [<reason strings, [] when success>]}}'
+    '  "data": {{<summary>}}, "errors": []}}'
+)
+
+# Rendered after the JSON example, outside the code fence. The example itself
+# must stay copy-pasteable JSON, so the choice of status is explained here
+# rather than inline — an agent that copies an annotated example verbatim
+# writes an unparsable stage result and breaks orchestration.
+_STATUS_NOTE = (
+    'Set `"status"` to `"success"` or `"failed"` — report what actually '
+    "happened. Use `\"failed\"` if a command you were told to run exited "
+    "non-zero, a required output could not be written, or you could not "
+    "complete the stage as specified, and list the reasons as strings in "
+    '`"errors"`. Downstream stages are skipped only when a required stage '
+    'reports `"failed"`, so reporting `"success"` on failed work lets later '
+    "stages act on it."
 )
 
 _FINDINGS_EXAMPLE = json.dumps(
@@ -138,7 +146,8 @@ def _completion(stage: ResolvedStage, ws: str) -> str:
         "## Completion\n"
         f"When done, write your stage result to: {result_path}{isolated_note}\n\n"
         f"Use this structure:\n```json\n"
-        f"{_RESULT_FMT.format(name=stage.spec.name, index=stage.index)}\n```"
+        f"{_RESULT_FMT.format(name=stage.spec.name, index=stage.index)}\n```\n\n"
+        f"{_STATUS_NOTE}"
     )
 
 

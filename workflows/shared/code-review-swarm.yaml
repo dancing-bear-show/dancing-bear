@@ -943,17 +943,29 @@ stages:
         PR review comment anchored to the first finding's line in the first
         finding's file (use the first critical finding if any; otherwise first
         major; otherwise first minor):
-          GITHUB_TOKEN= gh api "repos/$OWNER/$REPO/pulls/PR_NUMBER/comments" \
-            -f path=FIRST_FINDING_FILE \
-            -F line=FIRST_FINDING_LINE \
+        First bind every value to a shell variable — the placeholders below are
+        for you to substitute, and sending one verbatim fails. PR_NUM and
+        COMMIT_ID come from the pr-context.json written in Step 1; the path and
+        line come from the selected finding:
+
+          PR_NUM=$(jq -r '.number' {workspace}/outputs/pr-context.json)
+          COMMIT_ID=$(jq -r '.commit_id' {workspace}/outputs/pr-context.json)
+          FINDING_PATH=<selected finding's file>
+          FINDING_LINE=<selected finding's line>
+
+        Then post:
+          GITHUB_TOKEN= gh api "repos/$OWNER/$REPO/pulls/$PR_NUM/comments" \
+            -f path="$FINDING_PATH" \
+            -F line="$FINDING_LINE" \
             -f side=RIGHT \
-            -f commit_id=COMMIT_ID_FROM_PR_CONTEXT \
+            -f commit_id="$COMMIT_ID" \
             -f body="$(cat /tmp/cr-summary-body.txt)"
 
         There is no `gh pr-review-comment` subcommand — inline review comments
         go through the REST API above. Use -F (not -f) for line so it is sent
-        as a number, and pass the commit_id captured in Step 1 rather than
-        `git rev-parse HEAD`.
+        as a number. commit_id must be the PR head SHA captured in Step 1, not
+        `git rev-parse HEAD`: in CI, HEAD is a synthetic merge commit that is
+        unreachable from the PR branch, and GitHub rejects it with HTTP 422.
 
         This posts one consolidated comment thread rather than N individual
         threads, keeping the PR review tab readable.

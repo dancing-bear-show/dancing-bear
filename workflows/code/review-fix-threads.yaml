@@ -668,13 +668,27 @@ stages:
 
       Step 6 — re-fetch to confirm the PR's actual state:
         GITHUB_TOKEN= gh api graphql -f query='
-        query($owner:String!,$name:String!,$pr:Int!){
+        query($owner:String!,$name:String!,$pr:Int!,$after:String){
           repository(owner:$owner,name:$name){
             pullRequest(number:$pr){
-              reviewThreads(first:100){nodes{ id isResolved }}
+              reviewThreads(first:100, after:$after){
+                pageInfo{ hasNextPage endCursor }
+                nodes{ id isResolved }
+              }
             }
           }
         }' -F owner="$OWNER" -F name="$REPO" -F pr={pr_number}
+
+      Page it: while pageInfo.hasNextPage is true, re-run passing
+      -F after="<endCursor>" and merge the nodes before counting.
+
+      This stage exists to report what is actually true on the PR rather than
+      what the run intended, so an undercount here defeats its purpose: a
+      truncated re-fetch reports fewer unresolved threads than exist and makes
+      a partial run read as a complete one. If you cannot complete the
+      pagination, set "unresolved_after": null and record the reason rather
+      than reporting a count you know is short.
+
       Record the post-run unresolved count in resolution.json as
       "unresolved_after". Report the observed state, not the intended one.
     agent:
