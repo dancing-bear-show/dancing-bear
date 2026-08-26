@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.cli_framework import CLIApp
-from core.cli_help_text import HELP_DAYS_BACK
+from core.cli_help_text import HELP_DAYS_BACK, HELP_JSON
 
 # One argparse argument: the flag names, plus the kwargs forwarded to
 # add_argument(). Values are heterogeneous (str, bool, int), hence Any.
@@ -13,6 +13,8 @@ ArgSpec = tuple[tuple[str, ...], dict[str, Any]]
 # Repeated help-text strings extracted as module-level constants
 HELP_CREDENTIALS = "Path to OAuth credentials.json"
 HELP_TOKEN = "Path to token.json"  # nosec B105 - argparse help text, not a credential
+HELP_MESSAGE_ID = "Message ID"
+HELP_FALLBACK_QUERY = "Fallback query if id not given"
 
 _AUTH_ARGS: tuple[ArgSpec, ...] = (
     (("--credentials",), {"help": HELP_CREDENTIALS}),
@@ -52,11 +54,11 @@ def register_messages_commands(app: CLIApp) -> object:
             (("--not-query",), {"dest": "not_query", "help": "Exclude messages matching query (Gmail only)"}),
             (("--has-attachment",), {"action": "store_true", "help": "Only messages with attachments (Gmail only)"}),
             (("--unread",), {"action": "store_true", "help": "Only unread messages (Gmail only)"}),
-            (("--json",), {"action": "store_true", "help": "Output JSON"}),
+            (("--json",), {"action": "store_true", "help": HELP_JSON}),
         ]),
         ("summarize", "Summarize a message's content", run_messages_summarize, [
             (("--id",), {"help": "Message ID to summarize"}),
-            (("--query",), {"help": "Fallback query if id not given"}),
+            (("--query",), {"help": HELP_FALLBACK_QUERY}),
             (("--days",), {"type": int, "help": HELP_DAYS_BACK}),
             (("--only-inbox",), {"action": "store_true"}),
             (("--latest",), {"action": "store_true", "help": "Pick latest matching message"}),
@@ -64,9 +66,9 @@ def register_messages_commands(app: CLIApp) -> object:
             (("--max-words",), {"type": int, "default": 120, "help": "Max words in summary"}),
         ]),
         ("get", "Fetch and print a message body", run_messages_get, [
-            (("--id",), {"help": "Message ID"}),
+            (("--id",), {"help": HELP_MESSAGE_ID}),
             (("--ids",), {"help": "Comma-separated message IDs (e.g. A,B,C)"}),
-            (("--query",), {"help": "Fallback query if id not given"}),
+            (("--query",), {"help": HELP_FALLBACK_QUERY}),
             (("--days",), {"type": int, "help": "Restrict query to last N days"}),
             (("--only-inbox",), {"action": "store_true", "help": "Restrict query to inbox"}),
             (("--format",), {"choices": ["text", "json"], "default": "text", "help": "Output format (default: text)"}),
@@ -78,11 +80,11 @@ def register_messages_commands(app: CLIApp) -> object:
             (("--days",), {"type": int, "help": "Restrict query to last N days"}),
             (("--only-inbox",), {"action": "store_true", "help": "Restrict query to inbox"}),
             (("--include-body",), {"action": "store_true", "help": "Include each message body"}),
-            (("--json",), {"action": "store_true", "help": "Output JSON"}),
+            (("--json",), {"action": "store_true", "help": HELP_JSON}),
         ]),
         ("reply", "Draft or send a reply for a message", run_messages_reply, [
             (("--id",), {"help": "Message ID to reply to"}),
-            (("--query",), {"help": "Fallback query if id not given"}),
+            (("--query",), {"help": HELP_FALLBACK_QUERY}),
             (("--days",), {"type": int, "help": HELP_DAYS_BACK}),
             (("--only-inbox",), {"action": "store_true"}),
             (("--latest",), {"action": "store_true", "help": "Pick latest matching message"}),
@@ -107,11 +109,11 @@ def register_messages_commands(app: CLIApp) -> object:
             (("--profile",), {"help": "Only send for specific profile"}),
         ]),
         ("list-attachments", "List attachments in a Gmail message", run_messages_list_attachments, [
-            (("--id",), {"required": True, "help": "Message ID"}),
-            (("--json",), {"action": "store_true", "help": "Output JSON"}),
+            (("--id",), {"required": True, "help": HELP_MESSAGE_ID}),
+            (("--json",), {"action": "store_true", "help": HELP_JSON}),
         ]),
         ("download-attachment", "Download an attachment from a Gmail message", run_messages_download_attachment, [
-            (("--id",), {"required": True, "help": "Message ID"}),
+            (("--id",), {"required": True, "help": HELP_MESSAGE_ID}),
             (("--attachment-id",), {"dest": "attachment_id", "help": "Attachment ID (omit if exactly one attachment)"}),
             (("--filename",), {"help": "Select attachment by filename instead of --attachment-id"}),
             (("--out",), {"help": "Output file path; if a directory, writes <original_filename> inside it"}),

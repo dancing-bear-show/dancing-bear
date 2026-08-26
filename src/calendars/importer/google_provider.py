@@ -30,7 +30,7 @@ from __future__ import annotations
 import datetime as _dt
 import re
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import Any, cast
 
 from calendars.gmail_pipelines import CalendarEvent
 
@@ -101,23 +101,74 @@ def _until_to_date(until_val: str) -> str:
     return date_part
 
 
+def _normalize_exdate_value(val: str) -> str:
+    """Return one EXDATE value as YYYY-MM-DD, or "" if it carries no date.
+
+    Accepts both the compact form (``20260101T000000Z``) and the already
+    hyphenated form, taking only the date half of a date-time value.
+    """
+    val = val.strip()
+    if not val:
+        return ""
+    date_part = val.split("T")[0]
+    if len(date_part) == 8 and date_part.isdigit():
+        return f"{date_part[:4]}-{date_part[4:6]}-{date_part[6:8]}"
+    return date_part
+
+
 def _collect_exdates_from_recurrence(recurrence: list[str]) -> list[str]:
     """Extract EXDATE values from the recurrence list, returned as YYYY-MM-DD strings."""
     exdates: list[str] = []
     for line in recurrence:
-        upper = line.upper()
-        if upper.startswith("EXDATE"):
-            # EXDATE;TZID=...:20260101T... or EXDATE:20260101
-            _, _, values = line.partition(":")
-            for val in values.split(","):
-                val = val.strip()
-                if val:
-                    date_part = val.split("T")[0]
-                    # Convert compact form YYYYMMDD to YYYY-MM-DD
-                    if len(date_part) == 8 and date_part.isdigit():
-                        date_part = f"{date_part[:4]}-{date_part[4:6]}-{date_part[6:8]}"
-                    exdates.append(date_part)
+        if not line.upper().startswith("EXDATE"):
+            continue
+        # EXDATE;TZID=...:20260101T... or EXDATE:20260101
+        _, _, values = line.partition(":")
+        exdates.extend(d for d in map(_normalize_exdate_value, values.split(",")) if d)
     return sorted(set(exdates))
+
+
+def _parse_positive_int(raw: str | None) -> int | None:
+    """Return int(raw) when it exceeds 1, else None. Raises ValueError if unparseable.
+
+    Absent and 1 both mean "no interval" to the plan model, so they collapse to
+    None; a non-numeric value is a caller error and must surface rather than be
+    silently treated as absent.
+    """
+    if raw is None:
+        return None
+    value = int(raw)
+    return value if value > 1 else None
+
+
+def _reject_recurrence_lines(
+    rrule_lines: list[str],
+    rdate_lines: list[str],
+) -> str | None:
+    """Return a skip reason if the recurrence line set is unrepresentable, else None."""
+    if rdate_lines:
+        return "unsupported_rdate"
+    if len(rrule_lines) > 1:
+        return "multiple_rrules"
+    return None
+
+
+def _reject_rrule_params(params: dict[str, str], freq: str) -> dict[str, Any] | None:
+    """Return the skip-record fields if these RRULE params are unsupported, else None.
+
+    Returns a dict rather than a bare reason because the FREQ rejection also
+    reports the offending value; the caller merges it into the skip record.
+    """
+    if "BYSETPOS" in params:
+        return {"reason": "unsupported_bysetpos"}
+    if "BYMONTHDAY" in params:
+        return {"reason": "unsupported_bymonthday"}
+    if freq not in _FREQ_MAP:
+        return {
+            "freq": freq,
+            "reason": f"unsupported_freq_{freq.lower()}" if freq else "missing_freq",
+        }
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -212,16 +263,21 @@ class GoogleCalendarProvider:
         # return value.
         new_id = (persisted.id if persisted else result.get("id")) or ""
         if persisted is not None and persisted.repeat:
-            return replace(persisted, calendar=self.calendar_id)
+            # cast: `replace` is stubbed as returning `DataclassInstance`, which
+            # loses the concrete type and contradicts the declared return.
+            return cast(CalendarEvent, replace(persisted, calendar=self.calendar_id))
         # Normalize interval on the way out. The caller's event is carried
         # through verbatim here, so a submitted interval=1 would come back as 1
         # while list_events() returns None for the same series — the two halves
         # of this provider disagreeing about the shared model.
-        return replace(
-            event,
-            id=new_id,
-            calendar=self.calendar_id,
-            interval=event.interval if (event.interval or 0) > 1 else None,
+        return cast(
+            CalendarEvent,
+            replace(
+                event,
+                id=new_id,
+                calendar=self.calendar_id,
+                interval=event.interval if (event.interval or 0) > 1 else None,
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -283,12 +339,9 @@ class GoogleCalendarProvider:
         rrule_lines = [line for line in recurrence if line.upper().startswith("RRULE:")]
         rdate_lines = [line for line in recurrence if line.upper().startswith("RDATE")]
 
-        if rdate_lines:
-            self.skipped.append({"id": ev_id, "subject": subject, "reason": "unsupported_rdate"})
-            return None
-
-        if len(rrule_lines) > 1:
-            self.skipped.append({"id": ev_id, "subject": subject, "reason": "multiple_rrules"})
+        reason = _reject_recurrence_lines(rrule_lines, rdate_lines)
+        if reason is not None:
+            self.skipped.append({"id": ev_id, "subject": subject, "reason": reason})
             return None
 
         if not rrule_lines:
@@ -308,21 +361,9 @@ class GoogleCalendarProvider:
 
         # Check for unsupported properties before checking FREQ so we can catch
         # YEARLY + unsupported combos in a single pass
-        if "BYSETPOS" in params:
-            self.skipped.append({"id": ev_id, "subject": subject, "reason": "unsupported_bysetpos"})
-            return None
-
-        if "BYMONTHDAY" in params:
-            self.skipped.append({"id": ev_id, "subject": subject, "reason": "unsupported_bymonthday"})
-            return None
-
-        if freq not in _FREQ_MAP:
-            self.skipped.append({
-                "id": ev_id,
-                "subject": subject,
-                "freq": freq,
-                "reason": f"unsupported_freq_{freq.lower()}" if freq else "missing_freq",
-            })
+        skip = _reject_rrule_params(params, freq)
+        if skip is not None:
+            self.skipped.append({"id": ev_id, "subject": subject, **skip})
             return None
 
         repeat = _FREQ_MAP[freq]
@@ -332,24 +373,20 @@ class GoogleCalendarProvider:
         if "BYDAY" in params:
             byday = [d.strip().upper() for d in params["BYDAY"].split(",") if d.strip()]
 
-        # INTERVAL — None when 1 (or absent)
+        # INTERVAL — None when 1 (or absent). Do NOT swallow a parse failure: a
+        # malformed INTERVAL treated as absent exports a triweekly series as
+        # plain weekly — a wrong plan that still looks correct.
         interval_raw = params.get("INTERVAL")
-        interval: int | None = None
-        if interval_raw is not None:
-            try:
-                v = int(interval_raw)
-                interval = v if v > 1 else None
-            except ValueError:
-                # Do NOT swallow this. A malformed INTERVAL silently treated as
-                # absent exports a triweekly series as plain weekly — a wrong
-                # plan that still looks correct. Skip and record instead.
-                self.skipped.append({
-                    "id": ev_id,
-                    "subject": subject,
-                    "reason": "malformed_interval",
-                    "value": str(interval_raw),
-                })
-                return None
+        try:
+            interval = _parse_positive_int(interval_raw)
+        except ValueError:
+            self.skipped.append({
+                "id": ev_id,
+                "subject": subject,
+                "reason": "malformed_interval",
+                "value": str(interval_raw),
+            })
+            return None
 
         # UNTIL / COUNT
         range_dict: dict[str, str] | None = None
@@ -361,11 +398,11 @@ class GoogleCalendarProvider:
             range_start = start.split("T")[0] if "T" in start else start
             range_dict = {"start_date": range_start, "until": until_date}
         elif "COUNT" in params:
+            # A malformed COUNT dropped silently turns a bounded series into an
+            # unbounded one on re-import. Skip and record.
             try:
                 count = int(params["COUNT"])
             except ValueError:
-                # A malformed COUNT dropped silently turns a bounded series into
-                # an unbounded one on re-import. Skip and record.
                 self.skipped.append({
                     "id": ev_id,
                     "subject": subject,

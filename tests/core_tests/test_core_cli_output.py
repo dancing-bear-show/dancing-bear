@@ -431,7 +431,9 @@ class TestOutputWriterListSadPath(unittest.TestCase):
         config = OutputConfig(file=buf)
         writer = OutputWriter(config)
         with self.assertRaises(TypeError):
-            writer.print_list(None)
+            # Passing the wrong type IS the assertion here; the suppression is
+            # the inline comment on the call below.
+            writer.print_list(None)  # type: ignore[arg-type]
 
 
 class TestOutputWriterDictSadPath(unittest.TestCase):
@@ -440,14 +442,18 @@ class TestOutputWriterDictSadPath(unittest.TestCase):
         config = OutputConfig(file=buf)
         writer = OutputWriter(config)
         with self.assertRaises(AttributeError):
-            writer.print_dict("not a dict")
+            # Passing the wrong type IS the assertion here; the suppression is
+            # the inline comment on the call below.
+            writer.print_dict("not a dict")  # type: ignore[arg-type]
 
     def test_print_dict_raises_on_none_data(self):
         buf = StringIO()
         config = OutputConfig(file=buf)
         writer = OutputWriter(config)
         with self.assertRaises(AttributeError):
-            writer.print_dict(None)
+            # Passing the wrong type IS the assertion here; the suppression is
+            # the inline comment on the call below.
+            writer.print_dict(None)  # type: ignore[arg-type]
 
 
 class TestToRowsSadPath(unittest.TestCase):
