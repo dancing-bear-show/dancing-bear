@@ -170,6 +170,34 @@ def _render_main_presentations(cell, data: dict[str, Any], page_cfg: dict[str, A
         _render_pres_entry(cell, pres, page_cfg, bullet_color)
 
 
+# Usable width on US Letter (8.5") with 0.5" margins. Column widths are given
+# in INCHES, not percent — a percent-looking value such as 34 silently produces
+# a 34-inch column that mangles the layout, so widths are bounds-checked.
+_MAX_USABLE_WIDTH_IN = 7.5
+
+
+def _validate_column_width(value: Any, name: str) -> float:
+    """Return a column width in inches, rejecting out-of-range values.
+
+    Raises ValueError rather than clamping: a caller passing 34 means percent,
+    and silently rendering a 3.4"- or 7.5"-wide column would hide the mistake
+    inside a document that looks plausible until someone opens it.
+    """
+    try:
+        width = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"layout.{name} must be a number of INCHES, got {value!r}"
+        ) from None
+    if not 0 < width <= _MAX_USABLE_WIDTH_IN:
+        raise ValueError(
+            f"layout.{name}={width} is out of range: expected inches in "
+            f"(0, {_MAX_USABLE_WIDTH_IN}]. Widths are inches, not percent — "
+            f"a US Letter page with 0.5\" margins is {_MAX_USABLE_WIDTH_IN}\" wide."
+        )
+    return width
+
+
 class SidebarResumeWriter(ResumeWriterBase):
     """Two-column sidebar layout resume writer."""
 
@@ -177,8 +205,18 @@ class SidebarResumeWriter(ResumeWriterBase):
         """Render two-column sidebar resume content."""
         # Default widths for US Letter (8.5" wide) with 0.5" margins = 7.5" usable
         # Sidebar: 2.3" (~30%), Main: 5.2" (~70%)
-        sidebar_width = self.layout_cfg.get("sidebar_width", 2.3)
-        main_width = self.layout_cfg.get("main_width", 5.2)
+        sidebar_width = _validate_column_width(
+            self.layout_cfg.get("sidebar_width", 2.3), "sidebar_width"
+        )
+        main_width = _validate_column_width(
+            self.layout_cfg.get("main_width", 5.2), "main_width"
+        )
+        if sidebar_width + main_width > _MAX_USABLE_WIDTH_IN:
+            raise ValueError(
+                f"layout.sidebar_width ({sidebar_width}) + layout.main_width "
+                f"({main_width}) = {sidebar_width + main_width} exceeds the "
+                f"{_MAX_USABLE_WIDTH_IN}\" usable page width."
+            )
         sidebar_bg = self.layout_cfg.get("sidebar_bg")
 
         # Render page header (repeats on all pages)
@@ -266,8 +304,14 @@ class SidebarResumeWriter(ResumeWriterBase):
                 ),
             )
 
-        # Contact line (centered)
+        # Contact line (centered). Link extras (website/linkedin/github/links)
+        # come from the same helper the standard layout uses, so a profile that
+        # shows a LinkedIn URL in one layout shows it in both. Imported locally
+        # to avoid a circular import: docx_writer imports this module.
+        from .docx_writer import _collect_link_extras
+
         contact_parts = [x for x in [phone, email, location] if x]
+        contact_parts.extend(_collect_link_extras(self.data))
         if contact_parts:
             self._render_centered_header_line(
                 header.add_paragraph(), " | ".join(contact_parts),
