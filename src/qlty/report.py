@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass
 from typing import Optional, Sequence
 
-from .models import Finding, RuleStrategy, Tier
+from .models import Finding, RuleStrategy, Scope, Tier
 from .scanner import ScanResult
 from .strategies import strategy_for, tooling_for
 
@@ -25,11 +25,19 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b
 # provably complete, so output must never claim to show everything.
 _RUN_SCOPED_NOTE = "issues visible in this run (qlty caps issues per run; not a completeness signal)"
 
-_CHANGED_EMPTY_NOTE = (
-    "0 findings in changed files; run with --all to scan the repo"
-)
+_PATHS_EMPTY_NOTE = "0 findings in the requested paths; run without paths to scan the repo."
 
-_ALL_EMPTY_NOTE = "0 findings across all files."
+_EMPTY_NOTES: dict[Scope, str] = {
+    Scope.ALL: "0 findings across all files.",
+    Scope.CHANGED: "0 findings in changed files; run with --all to scan the repo",
+    Scope.PATHS: _PATHS_EMPTY_NOTE,
+}
+
+_SCOPE_LABELS: dict[Scope, str] = {
+    Scope.ALL: "all files",
+    Scope.CHANGED: "changed files",
+    Scope.PATHS: "the requested paths",
+}
 
 
 def _empty_note(result: ScanResult) -> str:
@@ -38,7 +46,7 @@ def _empty_note(result: ScanResult) -> str:
     A bare "no issues" after a diff-only scan is the F1 failure mode: it reads
     identically to a clean repo.
     """
-    return _ALL_EMPTY_NOTE if result.scanned_all else _CHANGED_EMPTY_NOTE
+    return _EMPTY_NOTES[result.scope]
 
 
 def strip_ansi(text: str) -> str:
@@ -85,7 +93,7 @@ def _fmt_finding(finding: Finding) -> str:
 
 
 def _scan_header(result: ScanResult) -> list[str]:
-    scope = "all files" if result.scanned_all else "changed files"
+    scope = _SCOPE_LABELS[result.scope]
     lines = [f"qlty scan: {result.total} {_RUN_SCOPED_NOTE}", f"scope: {scope}"]
 
     formats = ", ".join(w.value for w in result.wire_formats) or "none"
@@ -146,7 +154,7 @@ def scan_payload(result: ScanResult) -> dict:
     return {
         "total": result.total,
         "note": _RUN_SCOPED_NOTE,
-        "scope": "all" if result.scanned_all else "changed",
+        "scope": result.scope.value,
         "wire_formats": [w.value for w in result.wire_formats],
         "iterations": result.iterations,
         "stable": result.stable,
@@ -277,7 +285,7 @@ def triage_payload(
 ) -> dict:
     return {
         "note": _RUN_SCOPED_NOTE,
-        "scope": "all" if result.scanned_all else "changed",
+        "scope": result.scope.value,
         "total": result.total,
         "degraded": result.degraded,
         "degradations": list(result.degradations),

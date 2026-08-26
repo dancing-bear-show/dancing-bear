@@ -7,7 +7,7 @@ import io
 import json
 import unittest
 
-from qlty.models import Location, RuleStrategy, Tier
+from qlty.models import Location, RuleStrategy, Scope, Tier
 from qlty.report import (
     TriageEntry,
     render_rules_csv,
@@ -61,19 +61,63 @@ class EmptyResultWordingTests(unittest.TestCase):
     """A bare "no issues" after a diff-only scan is the F1 failure mode."""
 
     def test_changed_scope_names_the_scope_and_the_fix(self):
-        text = render_scan_text(_result([], scanned_all=False))
+        text = render_scan_text(_result([], scope=Scope.CHANGED))
         self.assertIn("0 findings in changed files", text)
         self.assertIn("--all", text)
 
     def test_all_scope_says_all_files(self):
-        text = render_scan_text(_result([], scanned_all=True))
+        text = render_scan_text(_result([], scope=Scope.ALL))
         self.assertIn("0 findings across all files", text)
         self.assertNotIn("run with --all", text)
 
     def test_markdown_and_triage_use_the_same_wording(self):
-        empty = _result([], scanned_all=False)
+        empty = _result([], scope=Scope.CHANGED)
         self.assertIn("run with --all", render_scan_markdown(empty))
         self.assertIn("run with --all", render_triage_text([], empty))
+
+
+class PathsScopeEmptyWordingTests(unittest.TestCase):
+    """A path-scoped empty result must not claim the whole repo is clean.
+
+    Naming paths makes qlty drop --all, so the scan covered neither the repo
+    nor the diff. Reporting it as either is the same false clean as F1.
+    """
+
+    def test_paths_scope_names_the_scope_and_the_fix(self):
+        text = render_scan_text(_result([], scope=Scope.PATHS))
+        self.assertIn("0 findings in the requested paths", text)
+        self.assertIn("run without paths", text)
+
+    def test_paths_scope_does_not_claim_all_files(self):
+        text = render_scan_text(_result([], scope=Scope.PATHS))
+        self.assertNotIn("across all files", text)
+        self.assertIn("scope: the requested paths", text)
+
+    def test_paths_scope_json_payload_says_paths(self):
+        payload = json.loads(render_scan_json(_result([], scope=Scope.PATHS)))
+        self.assertEqual(payload["scope"], "paths")
+
+    def test_all_scope_json_payload_says_all(self):
+        payload = json.loads(render_scan_json(_result([], scope=Scope.ALL)))
+        self.assertEqual(payload["scope"], "all")
+
+    def test_changed_scope_json_payload_says_changed(self):
+        payload = json.loads(render_scan_json(_result([], scope=Scope.CHANGED)))
+        self.assertEqual(payload["scope"], "changed")
+
+    def test_every_scope_renders_a_distinct_empty_note(self):
+        # A missing dict entry would KeyError; a shared one would re-create the
+        # two-valued bug this replaced.
+        notes = {
+            render_scan_text(_result([], scope=scope)) for scope in Scope
+        }
+        self.assertEqual(len(notes), len(Scope))
+
+    def test_triage_payload_carries_the_scope(self):
+        payload = json.loads(
+            render_triage_json([], _result([], scope=Scope.PATHS))
+        )
+        self.assertEqual(payload["scope"], "paths")
 
 
 class FindingFormattingTests(unittest.TestCase):

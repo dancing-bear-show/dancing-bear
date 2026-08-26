@@ -135,6 +135,47 @@ class ScanCommandTests(unittest.TestCase):
         self.assertNotIn("qlty exploded", out)
 
 
+class ChangedWithPathsUsageErrorTests(unittest.TestCase):
+    """--changed combined with explicit paths is a usage error.
+
+    The runner drops --all when paths are given, so --changed alongside paths
+    silently meant "these paths, unfiltered" -- not the changed subset the flag
+    promises. Rejecting the combination is better than quietly picking one.
+    """
+
+    def test_changed_and_paths_raises_usage_error(self):
+        runner = FakeRunner()
+        with _patched_scanner(runner):
+            code, _, err = run_cli_streams(["scan", "--changed", "src/foo.py"])
+        self.assertNotEqual(code, 0)
+        self.assertIn("--changed cannot be combined with explicit paths", err)
+
+    def test_triage_rejects_the_same_combination(self):
+        runner = FakeRunner()
+        with _patched_scanner(runner):
+            code, _, err = run_cli_streams(["triage", "--changed", "src/foo.py"])
+        self.assertNotEqual(code, 0)
+        self.assertIn("--changed cannot be combined with explicit paths", err)
+
+    def test_paths_alone_succeeds(self):
+        runner = FakeRunner()
+        with _patched_scanner(runner):
+            code, _ = run_cli(["scan", "src/foo.py"])
+        self.assertEqual(code, 0)
+
+    def test_paths_alone_reports_the_paths_scope(self):
+        runner = FakeRunner()
+        with _patched_scanner(runner):
+            _, out = run_cli(["scan", "src/foo.py", "--format", "json"])
+        self.assertEqual(json.loads(out)["scope"], "paths")
+
+    def test_changed_alone_succeeds(self):
+        runner = FakeRunner()
+        with _patched_scanner(runner):
+            code, _ = run_cli(["scan", "--changed"])
+        self.assertEqual(code, 0)
+
+
 class ExpectMinGuardTests(unittest.TestCase):
     """Guards the **/.claude/** exclusion trap (isolated worktrees scan empty)."""
 
