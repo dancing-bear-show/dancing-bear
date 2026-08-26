@@ -222,6 +222,35 @@ class TestEveryDataCommandUsesTheResolver(unittest.TestCase):
         )
         self.assertEqual(_direct_args_data_calls(source), [])
 
+    def test_profile_help_matches_actual_behaviour(self):
+        """A command whose --profile drives data resolution must say so.
+
+        The same drift bug appeared twice in this codebase: --template's help
+        claimed it was REQUIRED to render body sections while omitting it
+        silently produced a header-only resume, and --profile's help claimed it
+        only set an output prefix after it began selecting the input file.
+        Help text that misdescribes behaviour is how both survived review.
+        """
+        from resume.cli.main import PROFILE_HELP_DATA, app
+
+        data_commands = {"summarize", "render", "align", "candidate-init"}
+        parser = app.build_parser()
+        choices = parser._subparsers._group_actions[0].choices  # noqa: SLF001
+
+        for name in sorted(data_commands):
+            with self.subTest(command=name):
+                sub = choices[name]
+                profile = next(
+                    a for a in sub._actions  # noqa: SLF001
+                    if "--profile" in getattr(a, "option_strings", [])
+                )
+                self.assertEqual(
+                    profile.help,
+                    PROFILE_HELP_DATA,
+                    f"{name} resolves --data from --profile, so its help must "
+                    "say so rather than calling it an output prefix",
+                )
+
     def test_data_consuming_commands_declare_optional_data(self):
         """--data must not be required anywhere the resolver provides a default."""
         from resume.cli.main import app

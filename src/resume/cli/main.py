@@ -51,6 +51,18 @@ OUT_DIR_HELP = (
     f"overridable with ${ENV_DATA_HOME})"
 )
 
+# --profile means two different things depending on the command, so it gets two
+# help strings rather than one blanket claim that is wrong half the time.
+#
+# On commands that read candidate data, it selects BOTH the input file (via
+# _resolve_data) and the output subdirectory. On commands that only write, it
+# is an output prefix only.
+PROFILE_HELP_DATA = (
+    "Profile name: selects <config-home>/resume/<profile>/data.* when --data "
+    "is omitted, and the output subdirectory (e.g. 'brian')"
+)
+PROFILE_HELP_OUT = "Output prefix (e.g., 'briancorysherwin_general')"
+
 # --data help text; names the profile fallback so --help does not imply the
 # flag is mandatory when it is not.
 DATA_HELP = (
@@ -200,7 +212,7 @@ def _parse_resume_source(resume_path: str, resume_text: str) -> dict:
 @app.argument("--linkedin", help="Path to LinkedIn profile (txt/md/html/docx/pdf)")
 @app.argument("--resume", help="Path to resume (txt/md/html/docx/pdf)")
 @app.argument("--out", help="Output file path (overrides --profile)")
-@app.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
+@app.argument("--profile", help=PROFILE_HELP_OUT)
 @app.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_extract(args: argparse.Namespace) -> int:
     linkedin_text = _read_linkedin_text(args.linkedin) if args.linkedin else ""
@@ -223,7 +235,7 @@ def cmd_extract(args: argparse.Namespace) -> int:
 @app.argument("--filter-exp-alignment", help="Alignment JSON to filter Experience")
 @app.argument("--filter-exp-job", help="Job YAML/JSON for experience filter")
 @app.argument("--out", help="Output file path (overrides --profile)")
-@app.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
+@app.argument("--profile", help=PROFILE_HELP_DATA)
 @app.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_summarize(args: argparse.Namespace) -> int:
     data = read_yaml_or_json(_resolve_data(args))
@@ -339,7 +351,7 @@ def _load_structure(args: argparse.Namespace) -> dict | None:
 @app.argument("--structure-from", help="Reference DOCX resume to mimic section order and headings")
 @app.argument("--min-priority", type=float, help="Filter Skills/Technologies items by priority (keep >= cutoff)")
 @app.argument("--out", help="Output file path (overrides --profile)")
-@app.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
+@app.argument("--profile", help=PROFILE_HELP_DATA)
 @app.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_render(args: argparse.Namespace) -> int:
     data = read_yaml_or_json(_resolve_data(args))
@@ -378,7 +390,7 @@ def cmd_render(args: argparse.Namespace) -> int:
 @app.command("structure", help="Infer section order and headings from a reference DOCX resume")
 @app.argument("--source", required=True, help="Reference .docx file")
 @app.argument("--out", help="Output file path (overrides --profile)")
-@app.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
+@app.argument("--profile", help=PROFILE_HELP_OUT)
 @app.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_structure(args: argparse.Namespace) -> int:
     struct = infer_structure_from_docx(args.source)
@@ -395,7 +407,7 @@ def cmd_structure(args: argparse.Namespace) -> int:
 @app.argument("--max-bullets", type=int, default=6, help="Max bullets per role in tailored output")
 @app.argument("--min-exp-score", type=int, default=1, help="Minimum experience score to keep a role")
 @app.argument("--out", help="Alignment report path (overrides --profile)")
-@app.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
+@app.argument("--profile", help=PROFILE_HELP_DATA)
 @app.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_align(args: argparse.Namespace) -> int:
     candidate = read_yaml_or_json(_resolve_data(args))
@@ -421,7 +433,7 @@ def cmd_align(args: argparse.Namespace) -> int:
 @app.argument("--include-experience", action="store_true", help="Include experience items and bullets")
 @app.argument("--max-bullets", type=int, default=3, help="Max bullets per role if including experience")
 @app.argument("--out", help="Output candidate YAML path (overrides --profile)")
-@app.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
+@app.argument("--profile", help=PROFILE_HELP_DATA)
 @app.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_candidate_init(args: argparse.Namespace) -> int:
     data = read_yaml_or_json(_resolve_data(args))
@@ -470,7 +482,7 @@ style_group = app.group("style", help="Build or manage style profiles from a pro
 @style_group.command("build", help="Build style profile JSON from a corpus directory")
 @style_group.argument("--corpus-dir", required=True, help="Directory of prose samples (.txt/.md/.docx)")
 @style_group.argument("--out", help="Output file path (overrides --profile)")
-@style_group.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
+@style_group.argument("--profile", help=PROFILE_HELP_OUT)
 @style_group.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_style_build(args: argparse.Namespace) -> int:
     from ..style import build_style_profile
@@ -523,7 +535,7 @@ experience_group = app.group("experience", help="Experience tools")
 @experience_group.argument("--resume", help="Resume file to parse (txt/md/html/docx/pdf)")
 @experience_group.argument("--max-bullets", type=int, default=None, help="Limit bullets per role in summary")
 @experience_group.argument("--out", help="Output file path (overrides --profile)")
-@experience_group.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
+@experience_group.argument("--profile", help=PROFILE_HELP_OUT)
 @experience_group.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_experience_export(args: argparse.Namespace) -> int:
     if not args.data and not args.resume:
