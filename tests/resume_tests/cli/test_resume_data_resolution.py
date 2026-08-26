@@ -139,5 +139,50 @@ class TestResolveData(unittest.TestCase):
                 self.assertEqual(_resolve_data(_args(profile="p")), str(target))
 
 
+class TestEveryDataCommandUsesTheResolver(unittest.TestCase):
+    """No command may read args.data directly.
+
+    cmd_align declared --data optional but still called
+    read_yaml_or_json(args.data), so omitting the flag raised an opaque
+    TypeError ("expected str, bytes or os.PathLike object, not NoneType")
+    instead of reaching the resolver's actionable message. This pins the
+    invariant across all commands rather than re-checking them one by one.
+    """
+
+    def test_rejects_direct_args_data_reads(self):
+        import inspect
+
+        from resume.cli import main as cli_main
+
+        source = inspect.getsource(cli_main)
+        offenders = [
+            line.strip()
+            for line in source.splitlines()
+            if "read_yaml_or_json(args.data)" in line
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            "read args.data directly instead of _resolve_data(args): "
+            f"{offenders}",
+        )
+
+    def test_data_consuming_commands_declare_optional_data(self):
+        """--data must not be required anywhere the resolver provides a default."""
+        from resume.cli.main import app
+
+        parser = app.build_parser()
+        checked = 0
+        for action in parser._subparsers._group_actions[0].choices.values():  # noqa: SLF001
+            for opt in action._actions:  # noqa: SLF001
+                if "--data" in getattr(opt, "option_strings", []):
+                    self.assertFalse(
+                        opt.required,
+                        "--data should be optional so the profile fallback applies",
+                    )
+                    checked += 1
+        self.assertGreater(checked, 0, "no --data arguments found to check")
+
+
 if __name__ == "__main__":
     unittest.main()

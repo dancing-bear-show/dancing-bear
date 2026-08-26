@@ -398,7 +398,7 @@ def cmd_structure(args: argparse.Namespace) -> int:
 @app.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
 @app.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_align(args: argparse.Namespace) -> int:
-    candidate = read_yaml_or_json(args.data)
+    candidate = read_yaml_or_json(_resolve_data(args))
     prof = getattr(args, "profile", None)
     if prof:
         candidate = apply_profile_overlays(candidate, prof)
