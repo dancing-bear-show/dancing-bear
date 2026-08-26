@@ -82,7 +82,10 @@ trigger:
   params:
     profile: ""             # REQUIRED: profile overlay dir name under src/resume/config/profiles/<name>/
     linkedin_export: ""     # REQUIRED: path to a LinkedIn export (txt/md/html/docx/pdf)
-    base_data: "src/resume/config/profiles/sample/profile.yaml"  # base data the profile overlays onto
+    base_data: ""           # REQUIRED: base data the profile overlays onto. No default —
+                            # see init's guard: defaulting to the committed sample
+                            # profile can silently diff a fake person against a real
+                            # LinkedIn export and produce a wholly wrong report.
     out_dir: "src/resume/_data/profile-sync"   # gitignored per the PII policy
     max_bullets: "6"        # max bullets per role pulled into the resume-side export
 
@@ -98,7 +101,7 @@ stages:
     description: >
       Create the workspace:
 
-        mkdir -p {workspace}
+        mkdir -p {workspace}/outputs
 
       Then confirm the PII placement is safe. Run:
 
@@ -115,7 +118,18 @@ stages:
       narrower `profiles_private/` rule that is easy to misread as the only
       coverage. Trust git check-ignore's answer over your reading of either file.
 
-      Then verify both required params are set and both inputs exist:
+      Then verify the required params are set and the inputs exist:
+
+        - {base_data} must be non-empty, must exist, and must NOT resolve under
+          src/resume/config/profiles/sample/. STOP if any of those fail.
+
+          The sample profile is a fictional person committed to the repo. If it
+          reaches this workflow as the resume side of the comparison, every real
+          accomplishment in the operator's LinkedIn export reports as MISSING ON
+          RESUME and every sample role as MISSING ON LINKEDIN — a completely
+          wrong divergence report that is nonetheless perfectly well-formed. For
+          a workflow whose entire output is that table, a plausible wrong answer
+          is worse than a crash, so there is no default here on purpose.
 
         - {profile} must be non-empty, and the directory
           src/resume/config/profiles/{profile}/ must exist and contain at least
@@ -149,7 +163,7 @@ stages:
     depends_on: [init]
     description: >
       Extract the rules that draft-linkedin-copy and check-copy must enforce,
-      and write them to {workspace}/guides.md.
+      and write them to {workspace}/outputs/guides.md.
 
       Read these two files with the Read tool:
         - .claude/RESUME_WRITING_GUIDE.md   (the prescriptive standard)
@@ -235,7 +249,7 @@ stages:
     description: >
       Parse the LinkedIn export into structured data:
 
-        ./bin/assistant resume extract --linkedin {linkedin_export} --out {workspace}/linkedin.json
+        ./bin/assistant resume extract --linkedin {linkedin_export} --out {workspace}/outputs/linkedin.json
 
       Then VALIDATE the extraction before continuing. This parser is regex and
       meta-tag based over user-supplied HTML or text (src/resume/parsing_linkedin.py):
@@ -310,7 +324,7 @@ stages:
       first, then invoke:
 
         ROOT=$(git rev-parse --show-toplevel)
-        cd "$ROOT/src/resume" && "$ROOT/bin/assistant" resume experience export --data {base_data} --profile {profile} --max-bullets {max_bullets} --out {workspace}/resume-experience.yaml
+        cd "$ROOT/src/resume" && "$ROOT/bin/assistant" resume experience export --data {base_data} --profile {profile} --max-bullets {max_bullets} --out {workspace}/outputs/resume-experience.yaml
 
       Resolve {base_data} and {workspace} to ABSOLUTE paths before running, since
       the command runs from a different directory than the workflow root. A
@@ -357,11 +371,11 @@ stages:
     reads_from: [extract-linkedin, load-resume-profile, load-guides]
     description: >
       Produce a structured, field-level divergence report at
-      {workspace}/divergence.json. This stage RECORDS differences; it does not
+      {workspace}/outputs/divergence.json. This stage RECORDS differences; it does not
       judge them. Classification is the next stage's job — keep them separate so
       the raw comparison stays auditable.
 
-      Compare {workspace}/linkedin.json against {workspace}/resume-experience.yaml
+      Compare {workspace}/outputs/linkedin.json against {workspace}/outputs/resume-experience.yaml
       across every surface:
 
         IDENTITY   name, headline, location
@@ -421,7 +435,7 @@ stages:
     depends_on: [diff-surfaces]
     reads_from: [diff-surfaces, extract-linkedin, load-resume-profile, load-guides]
     description: >
-      Read {workspace}/divergence.json and write {workspace}/drift.json,
+      Read {workspace}/outputs/divergence.json and write {workspace}/outputs/drift.json,
       assigning every entry exactly one category and a direction of truth.
 
       CATEGORIES, in rank order — report them in this order, highest first:
@@ -502,10 +516,10 @@ stages:
     depends_on: [classify-drift]
     reads_from: [classify-drift, load-resume-profile, extract-linkedin, load-guides]
     description: >
-      Write {workspace}/linkedin-copy.md — replacement copy for the LinkedIn
+      Write {workspace}/outputs/linkedin-copy.md — replacement copy for the LinkedIn
       surfaces that need updating, ready for a human to paste.
 
-      READ FIRST: {workspace}/guides.md. The ceilings and voice rules in it are
+      READ FIRST: {workspace}/outputs/guides.md. The ceilings and voice rules in it are
       the contract; check-copy enforces the same file, so anything violating it
       comes straight back.
 
@@ -520,7 +534,7 @@ stages:
       decision. This workflow does not edit the resume profile.
 
       THE HARD RULE — PROVENANCE: every claim in the drafted copy must trace to
-      the resume baseline in {workspace}/resume-experience.yaml. LinkedIn is a
+      the resume baseline in {workspace}/outputs/resume-experience.yaml. LinkedIn is a
       public surface; a claim that appears there and nowhere in the baseline is
       the same defect as a fabricated resume bullet, and it is more exposed.
       Rewording a true claim into LinkedIn's voice is the entire point of this
@@ -600,8 +614,8 @@ stages:
     depends_on: [draft-linkedin-copy]
     reads_from: [draft-linkedin-copy, classify-drift, load-resume-profile, load-guides]
     description: >
-      Write {workspace}/copy-check.md with four sections. Compute, do not
-      estimate. Enforce {workspace}/guides.md — the same file draft-linkedin-copy
+      Write {workspace}/outputs/copy-check.md with four sections. Compute, do not
+      estimate. Enforce {workspace}/outputs/guides.md — the same file draft-linkedin-copy
       wrote against.
 
       1. CEILING COMPLIANCE — measure every drafted block against the limits in
@@ -640,7 +654,7 @@ stages:
 
       3. NO NEW CONTRADICTIONS — confirm the drafted copy does not itself
          introduce drift. Every metric, date, title, and employer in the drafted
-         copy must match {workspace}/resume-experience.yaml exactly. Compare
+         copy must match {workspace}/outputs/resume-experience.yaml exactly. Compare
          numbers as whole tokens ("$300K", "150+"), not by splitting on
          punctuation. It would be a poor outcome for a workflow that exists to
          eliminate contradictions to emit new ones.
@@ -657,12 +671,27 @@ stages:
            - NEW METRIC: a number with no counterpart in the baseline
            - NEW CLAIM:  work asserted that the baseline does not contain
 
-      Exit non-zero if section 3 reports any mismatch or section 4 reports any
-      NEW METRIC or NEW CLAIM. These are not always fabrications — the candidate
-      may have something true the baseline omits — but that is the human's call
-      at the gate, never the drafting agent's. LinkedIn is public and indexed;
-      an unsupported claim there is more exposed than the same claim on a resume,
+      BLOCK if section 3 reports any mismatch or section 4 reports any NEW
+      METRIC or NEW CLAIM. These are not always fabrications — the candidate may
+      have something true the baseline omits — but that is the human's call at
+      the gate, never the drafting agent's. LinkedIn is public and indexed; an
+      unsupported claim there is more exposed than the same claim on a resume,
       and it is the version a recruiter finds first.
+
+      HOW TO BLOCK — follow this exactly; it is the only mechanism that works.
+      Write copy-check.md FIRST, then write your stage result JSON with
+      "status": "failed" and the blocked items in "errors". Do NOT report
+      "status": "success" on a blocked run.
+
+      A non-zero exit code alone does NOTHING. Agent stages route through
+      SkillDispatcher.dispatch (src/workflow/dispatchers.py), which runs no
+      subprocess and returns "pending" — there is no exit code for the engine to
+      observe. Stage status comes only from the result JSON this agent writes,
+      and the template pre-fills "status": "success" (dispatch.py _RESULT_FMT);
+      _any_required_failed trips only on "failed" (orchestrator.py). An agent
+      that records an unsupported claim and still reports success leaves
+      required:true and depends_on satisfied, and the run proceeds to hand the
+      human copy to paste onto a public profile.
     agent:
       role: fact-checker
       model: sonnet
@@ -681,7 +710,20 @@ stages:
     depends_on: [check-copy]
     reads_from: [check-copy, classify-drift, draft-linkedin-copy, extract-linkedin]
     description: >
-      Write {workspace}/sync-report.md, present it, then STOP for the human.
+      Write {workspace}/outputs/sync-report.md, present it, then STOP for the human.
+
+      FIRST — re-read {workspace}/outputs/copy-check.md. If check-copy recorded
+      any blocking finding (a section 3 mismatch, or a section 4 NEW METRIC or
+      NEW CLAIM), lead with those items verbatim and mark the drafted copy NOT
+      SAFE TO PASTE until the human resolves each one.
+
+      Do not assume check-copy already halted the run. It cannot by itself:
+      stage status comes only from the result JSON each agent writes and the
+      template pre-fills "status": "success", so a check-copy agent that records
+      an unsupported claim and still reports success lets the DAG reach this
+      gate. Since the output of this workflow is copy destined for a public,
+      indexed profile, this re-read is the last barrier before a fabricated
+      claim is handed to the human as ready to publish.
 
       This is the deliverable. Nothing downstream applies it: the human pastes
       the copy into LinkedIn themselves. Write it to be acted on directly.

@@ -49,10 +49,14 @@ description: >
   tailor-resume. Three guards carry that weight:
 
   PROVENANCE. Every proposed bullet must cite the evidence line it came from —
-  a commit range, a file and line, a note heading. check-copy exits non-zero on
-  any bullet that cannot be traced. A bullet without a source is not a
-  recollection, it is a fabrication with good intentions, and it becomes
-  permanent the moment it lands in the profile.
+  a commit range, a file and line, a note heading. check-copy blocks on any
+  bullet that cannot be traced, by writing its findings and then reporting
+  "status": "failed" — the only signal the orchestrator acts on, since agent
+  stages have no exit code for it to observe. apply-updates independently
+  re-reads that verdict and refuses to write, so the guarantee does not rest on
+  one stage behaving. A bullet without a source is not a recollection, it is a
+  fabrication with good intentions, and it becomes permanent the moment it lands
+  in the profile.
 
   THE GATE. Nothing is written to the profile before review-gate. apply-updates
   depends on it, and edits experience.yaml surgically — it never regenerates the
@@ -112,7 +116,7 @@ stages:
     description: >
       Create the workspace:
 
-        mkdir -p {workspace}
+        mkdir -p {workspace}/outputs
 
       Then run BOTH PII guards. Resume content carries employer names, dates,
       and metrics; a tracked path would commit it.
@@ -495,14 +499,32 @@ stages:
            - UNSOURCED METRIC: provenance resolves, but the bullet contains a
              figure absent from the cited source
 
-         Exit non-zero if ANY proposal is UNCITED or UNSOURCED METRIC. This
-         workflow writes to the profile that every future resume is built from,
-         so an uncited bullet is not a draft to be tidied later — it is a
-         fabrication that becomes load-bearing the moment it is applied, and it
-         will be defended in a reference check by someone who no longer
-         remembers where it came from. The human may well be able to supply the
-         missing source at the gate; that is their call to make with the finding
-         in front of them, never the drafting agent's to skip.
+         BLOCK if ANY proposal is UNCITED or UNSOURCED METRIC. This workflow
+         writes to the profile that every future resume is built from, so an
+         uncited bullet is not a draft to be tidied later — it is a fabrication
+         that becomes load-bearing the moment it is applied, and it will be
+         defended in a reference check by someone who no longer remembers where
+         it came from. The human may well be able to supply the missing source
+         at the gate; that is their call to make with the finding in front of
+         them, never the drafting agent's to skip.
+
+         HOW TO BLOCK — this is the only mechanism that works, so follow it
+         exactly. Write copy-report.md and copy-findings.json FIRST, then write
+         your stage result JSON with "status": "failed" and the blocked items
+         listed in "errors". Do NOT report "status": "success" on a blocked run.
+
+         A non-zero exit code alone does NOTHING here. Agent stages route
+         through SkillDispatcher.dispatch (src/workflow/dispatchers.py), which
+         runs no subprocess and returns "pending" — there is no exit code for
+         the engine to observe. Stage status comes solely from the result JSON
+         this agent writes, and the result template pre-fills
+         "status": "success" (src/workflow/dispatch.py _RESULT_FMT). The
+         orchestrator's _any_required_failed trips only on status "failed"
+         (src/workflow/orchestrator.py). So an agent that finds fabrications,
+         dutifully records them, and then reports success leaves required:true
+         and depends_on fully satisfied — and the run advances to apply-updates,
+         which writes to the source of truth. Reporting success on a blocked run
+         is therefore not a cosmetic error; it defeats the entire gate.
 
       Report counts per classification. Write copy-report.md on every path,
       including the blocking one — the human needs the findings at the gate.
@@ -595,12 +617,24 @@ stages:
   - name: apply-updates
     kind: execute
     depends_on: [review-gate]
-    reads_from: [draft-bullets, load-current-baseline]
+    reads_from: [draft-bullets, load-current-baseline, check-copy]
     description: >
       Apply the ACCEPTED proposals to {profile_dir}/experience.yaml, and write a
       record of what landed to {workspace}/outputs/applied.md.
 
-      Re-confirm the destination is gitignored before touching it:
+      GUARD 1 — re-read the block verdict. Read
+      {workspace}/outputs/copy-findings.json. If "blocked" is true, STOP without
+      editing and write applied.md recording that the run was blocked and
+      nothing was applied.
+
+      Do not skip this because check-copy "should have" halted the run. It
+      cannot halt it on its own: stage status comes only from the result JSON
+      each agent writes, and the template pre-fills "status": "success", so a
+      check-copy agent that records fabrications and still reports success lets
+      the DAG advance to this stage. This re-check is the last mechanical
+      barrier before an uncited bullet becomes permanent in the source of truth.
+
+      GUARD 2 — confirm the destination is gitignored before touching it:
 
         git check-ignore -v {profile_dir}
 
@@ -631,10 +665,18 @@ stages:
       NOT APPLIED with the reason and continue. A bullet written under the wrong
       employer is a factual error in the source of truth.
 
-      Before the first edit, copy {profile_dir}/experience.yaml to
-      {workspace}/experience.yaml.bak so the pre-change state is recoverable
-      without relying on git — the profile directory is gitignored by design, so
-      git holds no history of it.
+      GUARD 3 — take the backup and PROVE it before editing anything. Copy
+      {profile_dir}/experience.yaml to {workspace}/outputs/experience.yaml.bak,
+      then confirm the copy exists and is non-empty, and that its byte count
+      matches the source. If the copy is missing, empty, or truncated, STOP
+      without editing.
+
+      This ordering is not fussiness. The profile directory is gitignored by
+      design, so git holds no history of it and is not available as an undo —
+      this backup is the ONLY recovery path in the entire workflow. An edit made
+      before a verified backup exists is an unrecoverable edit to the source of
+      truth. The backup is declared in writes_to so the engine's post-stage
+      existence check covers it too, rather than it living only in this prose.
 
       After the edits, confirm the file still parses by running `python3 -c`
       with yaml.safe_load, passing {profile_dir}/experience.yaml as argv[1].
@@ -656,6 +698,12 @@ stages:
     required: true
     writes_to:
       - "applied.md"
+      # Bare entry, so it resolves to {workspace}/outputs/experience.yaml.bak —
+      # the same path the description writes and verify-profile restores from.
+      # Declared here so the engine's post-stage existence check covers the one
+      # artifact that is the workflow's only undo (the profile dir is gitignored,
+      # so git cannot recover it).
+      - "experience.yaml.bak"
 
   # ==========================================================================
   # Stage 10: verify-profile — confirm the profile still parses and renders
@@ -682,8 +730,12 @@ stages:
              --out {workspace}/outputs/baseline-after.yaml
 
          A non-zero exit means the profile no longer loads — restore
-         {workspace}/experience.yaml.bak over {profile_dir}/experience.yaml,
-         report the failure, and exit non-zero.
+         {workspace}/outputs/experience.yaml.bak over
+         {profile_dir}/experience.yaml, confirm the restored file parses, then
+         report the failure and write the stage result with "status": "failed"
+         and the restore recorded in "errors". Report a failed restore even more
+         loudly: that leaves a corrupted profile with no remaining recovery
+         path, and the human must know immediately.
 
       2. DIFF AGAINST THE BASELINE. Compare {workspace}/outputs/baseline-after.yaml with
          {workspace}/outputs/baseline.yaml and confirm the ONLY differences are the

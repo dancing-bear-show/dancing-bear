@@ -358,11 +358,26 @@ stages:
          and the role. State plainly for each whether it is unverifiable from
          the baseline alone.
 
-      Exit non-zero if section 3 reports any NEW METRIC or NEW CLAIM. These are
-      not always fabrications — the candidate may be supplying something true
-      that the baseline resume omits — but that is a human's call at the gate,
-      never the drafting agent's. A fabricated metric survives review and fails
-      in a reference check, so the default must be to stop.
+      BLOCK if section 3 reports any NEW METRIC or NEW CLAIM. These are not
+      always fabrications — the candidate may be supplying something true that
+      the baseline resume omits — but that is a human's call at the gate, never
+      the drafting agent's. A fabricated metric survives review and fails in a
+      reference check, so the default must be to stop.
+
+      HOW TO BLOCK — follow this exactly; it is the only mechanism that works.
+      Write coverage.md and coverage-findings.json FIRST, then write your stage
+      result JSON with "status": "failed" and the blocked items in "errors". Do
+      NOT report "status": "success" on a blocked run.
+
+      A non-zero exit code alone does NOTHING. Agent stages route through
+      SkillDispatcher.dispatch (src/workflow/dispatchers.py), which runs no
+      subprocess and returns "pending" — there is no exit code for the engine to
+      see. Stage status comes only from the result JSON this agent writes, and
+      the template pre-fills "status": "success" (dispatch.py _RESULT_FMT);
+      _any_required_failed trips only on "failed" (orchestrator.py). An agent
+      that finds a fabricated metric, records it, and still reports success
+      leaves required:true and depends_on satisfied and the run proceeds to
+      render — shipping the document this stage exists to stop.
 
       Also write {workspace}/outputs/coverage-findings.json as a machine-readable
       summary, so gap-report can list the blocked items without re-parsing prose:
@@ -402,6 +417,18 @@ stages:
     reads_from: [check-copy, score-alignment, parse-posting]
     description: >
       Present the decision, then STOP for the human.
+
+      FIRST — re-read {workspace}/outputs/coverage-findings.json. If "blocked"
+      is true, lead with the blocked items (every NEW METRIC and NEW CLAIM,
+      verbatim, with its role) before any coverage number, and state plainly
+      that the resume cannot be rendered until the human resolves each one.
+
+      Do not assume check-copy already halted the run on a block. It cannot do
+      that by itself: stage status comes only from the result JSON each agent
+      writes and the template pre-fills "status": "success", so a check-copy
+      agent that records fabrications and still reports success lets the DAG
+      reach this gate. This re-read is what makes the human gate the real
+      barrier rather than a formality.
 
       Show:
         - measured keyword coverage (raw and weighted)
