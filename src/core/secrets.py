@@ -166,7 +166,7 @@ def _mask_query_pairs(query: str) -> str:
     """
     out = []
     for pair in query.split("&"):
-        key, sep, value = pair.partition("=")
+        key, sep, _value = pair.partition("=")
         out.append(f"{key}={REDACTED}" if sep and is_sensitive_key(key) else pair)
     return "&".join(out)
 

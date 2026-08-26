@@ -22,6 +22,16 @@ python:
   apple-music-assistant: {module: apple_music, doc: "Thin wrapper to run the Apple Music CLI."}
   apple-music-user-token: {module: apple_music.user_token_cli, doc: "Generate a URL to obtain Music User Token."}
 
+  # Standalone CLIs. These predate the router and each carried its own copy of
+  # the venv re-exec preamble; routing them removes that duplication. Their
+  # no-subcommand exit codes are owned by the CLIs themselves, not the wrapper,
+  # so nothing about that behaviour changes here.
+  diagrams: {module: diagrams, doc: "Mermaid diagram generation CLI."}
+  telemetry: {module: telemetry.cli, doc: "Claude Code session telemetry — cost, model usage, tool stats."}
+  worker: {module: worker.cli, doc: "Background worker queue and daemon CLI."}
+  workflow: {module: workflow.cli, doc: "Workflow engine CLI — plan, compile, run, and inspect YAML DAG workflows."}
+  qlty-assistant: {module: qlty, doc: "qlty scan/triage wrapper (named -assistant so it never shadows the real qlty binary)."}
+
   # Metals utilities
 
   # Legacy -assistant aliases
@@ -50,4 +60,3 @@ manual:
   - uuidgen-pair
   - apply-calendar-locations
   - reminders-off-sweep
-  - diagrams

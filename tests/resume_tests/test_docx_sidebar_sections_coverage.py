@@ -94,7 +94,7 @@ class TestAddColoredBulletRun(unittest.TestCase):
         return p, run
 
     def test_adds_bullet_glyph_run(self):
-        p, run = self._make_p()
+        p, _run = self._make_p()
         self._fn(p, "#4A90A4")
         p.add_run.assert_called_once_with("• ")
 
