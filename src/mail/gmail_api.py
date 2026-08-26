@@ -5,6 +5,7 @@ Provides the subset needed by the CLI with lazy imports of Google libs.
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
@@ -33,6 +34,8 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.compose",
     # Send-only (explicitly allow direct send)
     "https://www.googleapis.com/auth/gmail.send",
+    # Google Calendar read/write (used by GoogleCalendarProvider in calendars/)
+    "https://www.googleapis.com/auth/calendar",
 ]
 
 
@@ -55,13 +58,50 @@ class GmailClient(ConfigCacheMixin):
         self.cache_dir = cache_dir
 
     def _load_token(self) -> Any:
-        """Load stored credentials from token_path, or None if missing/invalid."""
+        """Load stored credentials from token_path, or None if missing/invalid.
+
+        When the token file exists but its recorded scopes are a strict subset
+        of SCOPES (new scopes added since the token was minted), records the
+        missing scopes on ``self._stale_scopes`` and returns None.
+
+        Returning None alone is NOT enough to prevent a browser: authenticate()
+        cannot distinguish "no token" from "stale token" by that signal, and
+        would run the interactive flow for both. The separate attribute is what
+        lets authenticate() hard-stop instead — see its ``allow_interactive``
+        parameter.
+
+        A token file that does not exist at all is a first-time-auth case and
+        sets no stale marker.
+        """
+        self._stale_scopes = []
         if not os.path.exists(self.token_path):
             return None
         try:
-            return Credentials.from_authorized_user_file(self.token_path, SCOPES)
+            creds = Credentials.from_authorized_user_file(self.token_path, SCOPES)
         except Exception:  # nosec B110 - malformed/stale token file; re-authenticate below
             return None
+
+        # Detect stale scopes: token was minted before SCOPES was extended.
+        #
+        # Read the scopes from the token FILE, not from creds.scopes.
+        # from_authorized_user_file(path, SCOPES) sets creds.scopes to the
+        # SCOPES argument it was handed, not to what the file records — so
+        # comparing creds.scopes against SCOPES compares SCOPES with itself
+        # and can never detect a missing scope.
+        token_scopes: set[str] = set()
+        try:
+            with open(self.token_path, encoding="utf-8") as fh:
+                token_scopes = set(json.load(fh).get("scopes") or [])
+        except Exception:  # nosec B110 - unreadable/malformed token; fall through to the creds check
+            token_scopes = set()
+        if token_scopes:
+            required_scopes = set(SCOPES)
+            missing = required_scopes - token_scopes
+            if missing:
+                self._stale_scopes = sorted(missing)
+                return None
+
+        return creds
 
     @staticmethod
     def _refresh_token(creds: Any) -> Any:
@@ -86,11 +126,30 @@ class GmailClient(ConfigCacheMixin):
             token.write(creds.to_json())
         return creds
 
-    def authenticate(self) -> None:
+    def authenticate(self, allow_interactive: bool = False) -> None:
+        """Authenticate, refreshing or minting a token as needed.
+
+        ``allow_interactive`` must be True to open a browser for a token whose
+        scopes are stale. Only the explicit ``mail auth`` entrypoint passes it;
+        every other command hard-stops with an AuthError naming the missing
+        scopes, so adding a scope cannot ambush an unrelated command (or an
+        unattended job) with a consent screen it never asked for.
+
+        A missing token file is unaffected — first-time auth still prompts, as
+        it always has.
+        """
         ensure_google_api()
 
         creds = self._refresh_token(self._load_token())
         if creds is None:
+            stale = getattr(self, "_stale_scopes", []) or []
+            if stale and not allow_interactive:
+                from core.cli_errors import AuthError
+
+                raise AuthError(
+                    "Stored token is missing scope(s): " + ", ".join(stale),
+                    hint="Run `./bin/mail auth` to re-consent and update the token.",
+                )
             creds = self._run_auth_flow_and_save()
 
         self.creds = creds

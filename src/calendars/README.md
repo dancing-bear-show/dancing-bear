@@ -34,12 +34,14 @@ flowchart TB
     subgraph importer["Schedule Importer"]
         i_base["importer/base.py\nScheduleParser ABC\nCalendarProvider Protocol"]
         i_outlook["importer/outlook_provider.py\nOutlookCalendarProvider"]
+        i_google["importer/google_provider.py\nGoogleCalendarProvider"]
         i_csv["csv_parser.py"]
         i_xlsx["xlsx_parser.py"]
         i_web["web_parser_vendors.py\n(aurora / rh)"]
     end
     svc_outlook["outlook_service.py\nOutlookService\n(Graph API)"]
     svc_gmail["gmail_service.py\nGmail API"]
+    svc_gcal["google_calendar_service.py\nGoogleCalendarService\n(calendar/v3)"]
 
     bin --> cli
     cli --> outlook_cmds
@@ -52,7 +54,9 @@ flowchart TB
     i_base --> i_xlsx
     i_base --> i_web
     i_base -.implemented by.-> i_outlook
+    i_base -.implemented by.-> i_google
     i_outlook --> svc_outlook
+    i_google --> svc_gcal
     o_pipelines --> svc_outlook
     g_pipelines --> svc_gmail
 ```
@@ -64,7 +68,9 @@ Key modules:
 - `outlook_pipelines/` — one file per Outlook operation (add, locations, reminders, dedup, settings, schedule_import, …)
 - `gmail_pipelines.py` — `GmailScanProducer`; shared scan output for Gmail-based commands
 - `importer/base.py` — `ScheduleParser(ABC)`, plus `CalendarProvider(Protocol)`; provider-agnostic event model
-- `importer/outlook_provider.py` — `OutlookCalendarProvider`, the Protocol's only production implementor (Microsoft Graph). No Gmail/Google Calendar implementor exists.
+- `importer/outlook_provider.py` — `OutlookCalendarProvider`, a production implementor backed by Microsoft Graph.
+- `importer/google_provider.py` — `GoogleCalendarProvider`, a production implementor backed by Google Calendar API (calendar/v3). Requires the `https://www.googleapis.com/auth/calendar` scope (shared with the Gmail token in `mail.gmail_api.SCOPES`).
+- `google_calendar_service.py` — thin `GoogleCalendarService` wrapper over calendar/v3; lazy-imports googleapiclient.
 - `importer/csv_parser.py`, `xlsx_parser.py`, `web_parser_vendors.py` — concrete parsers for schedule-import sources
 - `gmail_pipelines.py` — `CalendarEvent` dataclass (shared event model; widened with optional recurrence fields: tz, location, repeat, interval, byday, range, start_time, end_time, exdates, count)
 
@@ -129,7 +135,7 @@ ICS Draft (consumer)
 Pipeline Pattern
 - Commands route through `SafeProcessor`/`BaseProducer` — see `core/pipeline.py`.
 - `OutlookScanProcessor`/`OutlookScanProducer` added for Outlook scan commands; `GmailScanProducer` (renamed from `GmailPlanProducer`) handles Gmail scan output.
-- `CalendarProvider(Protocol)` in `importer/base.py` has one production implementor: `OutlookCalendarProvider` in `importer/outlook_provider.py`, backed by the Microsoft Graph API. No Gmail/Google Calendar implementor exists — only the Gmail mail scopes are present in this repo. `CalendarEvent` dataclass is the shared event model.
+- `CalendarProvider(Protocol)` in `importer/base.py` has two production implementors: `OutlookCalendarProvider` (Microsoft Graph, `importer/outlook_provider.py`) and `GoogleCalendarProvider` (Google Calendar API calendar/v3, `importer/google_provider.py`). Both skip unrepresentable recurrence patterns and record them in `provider.skipped`. `CalendarEvent` dataclass is the shared event model.
 - Plan symmetry: `outlook_pipelines/export.py` produces a plan from a calendar; `outlook_pipelines/ics_draft.py` consumes a plan into an ICS Gmail draft. Both use the `SafeProcessor`/`BaseProducer` triad.
 - All producer output routes through `OutputWriter`; `CalendarNotFoundError` subclasses `NotFoundError`.
 

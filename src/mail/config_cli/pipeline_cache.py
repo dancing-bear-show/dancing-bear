@@ -55,7 +55,9 @@ class AuthProcessor(SafeProcessor[AuthRequest, AuthResult]):
 
         from ..gmail_api import GmailClient
         client = GmailClient(credentials_path=creds_path, token_path=token_path)
-        client.authenticate()
+        # The one entrypoint whose entire purpose is to (re-)consent, so it is
+        # the only caller permitted to open a browser for a stale-scope token.
+        client.authenticate(allow_interactive=True)
         persist_if_provided(arg_credentials=payload.credentials, arg_token=payload.token)
         return AuthResult(success=True, message="Authentication complete.")
 
