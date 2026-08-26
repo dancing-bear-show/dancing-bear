@@ -10,10 +10,23 @@ from calendars.gmail_pipelines import CalendarEvent
 
 @runtime_checkable
 class CalendarProvider(Protocol):
-    """Protocol for calendar backends.
+    """Aspirational protocol for calendar backends. NOT IMPLEMENTED.
 
-    Both Gmail and Outlook backends implement this interface, enabling
-    provider-agnostic callers to list and create events.
+    This Protocol has **no production implementors**. Its only conformant
+    classes are the FakeGmailBackend/FakeOutlookBackend test stubs in
+    tests/calendars_tests/outlook/test_outlook_scan_processor.py, so the
+    conformance test certifies only that those stubs match this shape —
+    it does not certify that any real backend does.
+
+    The pattern actually in use is the core.pipeline Consumer -> Processor
+    -> Producer triad, with the *plan file* (``{"events": [...]}`` YAML) as
+    the abstraction seam rather than a provider interface. See
+    calendars.outlook_pipelines.export (OutlookExportProcessor /
+    OutlookExportProducer) for the producer side and
+    calendars.outlook_pipelines.ics_draft (IcsDraftProcessor /
+    IcsDraftProducer) for a consumer.
+
+    Do not treat this Protocol as a contract any backend honours.
     """
 
     def list_events(self, date_range: tuple[str, str]) -> list[CalendarEvent]:

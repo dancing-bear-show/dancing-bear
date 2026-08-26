@@ -32,7 +32,7 @@ flowchart TB
         g_pipelines["gmail_pipelines.py\nGmailScanProducer"]
     end
     subgraph importer["Schedule Importer"]
-        i_base["importer/base.py\nCalendarProvider Protocol\nScheduleParser ABC"]
+        i_base["importer/base.py\nScheduleParser ABC\nCalendarProvider Protocol (unimplemented)"]
         i_csv["csv_parser.py"]
         i_xlsx["xlsx_parser.py"]
         i_web["web_parser_vendors.py\n(aurora / rh)"]
@@ -60,7 +60,7 @@ Key modules:
 - `gmail_service.py` — Gmail API wrapper (lazy import)
 - `outlook_pipelines/` — one file per Outlook operation (add, locations, reminders, dedup, settings, schedule_import, …)
 - `gmail_pipelines.py` — `GmailScanProducer`; shared scan output for Gmail-based commands
-- `importer/base.py` — `CalendarProvider(Protocol)` and `ScheduleParser(ABC)`; provider-agnostic event model
+- `importer/base.py` — `ScheduleParser(ABC)`, plus `CalendarProvider(Protocol)` (aspirational, no production implementors); provider-agnostic event model
 - `importer/csv_parser.py`, `xlsx_parser.py`, `web_parser_vendors.py` — concrete parsers for schedule-import sources
 - `gmail_pipelines.py` — `CalendarEvent` dataclass (shared event model)
 
@@ -110,10 +110,23 @@ Schedule Importer (scaffold)
 - Creates the calendar if missing. Use `--dry-run` to preview.
   - Add `--no-reminder` to suppress event reminders/alerts when importing
 
+Plan Export (producer)
+- Export Outlook calendar events to a plan YAML — the inverse of `add-from-config`:
+  - `./bin/calendar --profile outlook_personal outlook export-plan --calendar "Family" --from 2026-01-01 --to 2026-06-30`
+- Recurrence rules are read from the Graph series master (`/me/events/<seriesMasterId>`); `/calendarView` returns expanded occurrences that do not carry a rule.
+- Graph pattern types with no plan representation (`relativeMonthly`, `absoluteYearly`, `relativeYearly`) are never dropped silently — they are counted in `result.skipped`. Use `--verbose` to list them.
+- Default output resolves via `core.paths.output_dir("calendars")`, outside the checkout — an exported plan contains real calendar contents.
+
+ICS Draft (consumer)
+- Turn a plan YAML into an RFC 5545 `.ics` delivered as a Gmail **draft** (never sent):
+  - `./bin/calendar outlook ics-draft --config plan.yaml --recipient you@example.com --subject "Calendar Plan"`
+- Uses the already-granted `gmail.compose` scope. `--dry-run` prints the ICS without creating a draft.
+
 Pipeline Pattern
 - Commands route through `SafeProcessor`/`BaseProducer` — see `core/pipeline.py`.
 - `OutlookScanProcessor`/`OutlookScanProducer` added for Outlook scan commands; `GmailScanProducer` (renamed from `GmailPlanProducer`) handles Gmail scan output.
-- `CalendarProvider(Protocol)` in `importer/base.py` defines the provider contract; `CalendarEvent` dataclass is the shared event model.
+- `CalendarProvider(Protocol)` in `importer/base.py` is **aspirational and has no production implementors** — only test stubs conform to it. The real abstraction seam is the plan file (`{"events": [...]}` YAML), not a provider interface. `CalendarEvent` dataclass is the shared event model.
+- Plan symmetry: `outlook_pipelines/export.py` produces a plan from a calendar; `outlook_pipelines/ics_draft.py` consumes a plan into an ICS Gmail draft. Both use the `SafeProcessor`/`BaseProducer` triad.
 - All producer output routes through `OutputWriter`; `CalendarNotFoundError` subclasses `NotFoundError`.
 
 Location Format
