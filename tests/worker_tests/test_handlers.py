@@ -6,7 +6,12 @@ import unittest
 from unittest.mock import patch
 
 from worker._helpers import get_repo_root
-from worker.handlers import REGISTRY, _is_allowed_bin, handle_workflow_stage
+from worker.handlers import (
+    REGISTRY,
+    _ALLOWED_BIN_NAMES,
+    _is_allowed_bin,
+    handle_workflow_stage,
+)
 
 
 def _make_job(payload: dict) -> dict:
@@ -205,6 +210,19 @@ class TestGetRepoRoot(unittest.TestCase):
         # The allowlist boundary must survive the path fix.
         self.assertFalse(_is_allowed_bin("evil"))
         self.assertFalse(_is_allowed_bin("/bin/sh"))
+
+    def test_every_allowlisted_name_has_a_wrapper(self) -> None:
+        # A name with no bin/ wrapper can never match, so it silently blocks
+        # the jobs it was meant to permit. "resume" sat here unusable until a
+        # PR review caught it -- the resume CLI is reached through the
+        # "assistant" dispatcher, which is the name that actually needs to be
+        # allowlisted.
+        missing = [n for n in _ALLOWED_BIN_NAMES if not (get_repo_root() / "bin" / n).exists()]
+        self.assertEqual(missing, [], f"Allowlisted with no bin/ wrapper: {missing}")
+
+    def test_assistant_dispatcher_is_allowed(self) -> None:
+        # Workflows invoke wrapper-less domains as `./bin/assistant <domain> ...`.
+        self.assertTrue(_is_allowed_bin("assistant"))
 
 
 if __name__ == "__main__":

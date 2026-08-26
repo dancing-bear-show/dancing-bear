@@ -9,7 +9,8 @@ Built-in handlers:
   avoid quoting issues when embedding Python or multi-line scripts
 
 Allowlisted bin commands: mail-assistant, calendar-assistant, schedule-assistant,
-phone, resume, whatsapp, worker.
+phone, assistant, whatsapp, worker. Domains without their own wrapper (resume,
+desk, ...) are reached through the ``assistant`` dispatcher.
 """
 
 from __future__ import annotations
@@ -88,7 +89,11 @@ _ALLOWED_BIN_NAMES = {
     "calendar-assistant",
     "schedule-assistant",
     "phone",
-    "resume",
+    # The resume CLI has no wrapper of its own; it is reached as
+    # `./bin/assistant resume ...`, so "assistant" is the name that must be
+    # allowlisted. A bare "resume" entry could never match and silently
+    # blocked every worker-dispatched resume job.
+    "assistant",
     "whatsapp",
     "worker",
 }
