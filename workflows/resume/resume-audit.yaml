@@ -180,6 +180,19 @@ stages:
              ]
            }
 
+         Copy that JSON block into guides.md VERBATIM — same key names, same
+         nesting, same spelling. Do not reformat it, rename a key, add a key you
+         think is missing, or "improve" it. This YAML is the authoritative
+         schema; guides.md is a transcription of it.
+
+         This matters because five parallel lanes and one consumer all bind to
+         the copy in guides.md, which is generated per run. A single renamed key
+         here desynchronizes all five lanes identically, and consolidate would
+         report that as five separate lane defects rather than one schema
+         defect — a misleading diagnosis of a single upstream typo. If the
+         schema ever needs to change, change it in this YAML, not in the
+         transcription.
+
          Rules binding every lane:
            - `severity` must be one of critical, major, minor — no other value.
            - `concern_id` must come from section 1, or be a lane-local ID
@@ -607,6 +620,17 @@ stages:
       malformed findings, keep the valid ones from the same file, and record
       what you dropped.
 
+      DISTINGUISH A SCHEMA DEFECT FROM LANE DEFECTS. If ALL FIVE lanes fail
+      validation the same way — the same key missing, the same key misspelled,
+      the same nesting wrong — that is one upstream defect in guides.md's
+      section 4, not five independent lane failures. Five parallel lanes do not
+      make the identical mistake by coincidence; they were all reading the same
+      transcribed schema. Report it once as a SCHEMA DEFECT, naming the specific
+      divergence from the schema in load-concerns' own description (the
+      authoritative copy), and say plainly that the lanes behaved correctly
+      against a bad contract. Reporting five lane defects would send the human
+      to debug five prompts instead of one transcription error.
+
       DEDUPE — lanes overlap by design and the same defect surfaces more than
       once. Two findings are duplicates when they name the same role and the
       same bullet_text. On a duplicate:
@@ -622,7 +646,19 @@ stages:
 
       RANK — sort by severity (critical, then major, then minor), and within a
       severity by role in document order so the reader can walk the document top
-      to bottom. Drop anything below {min_severity}.
+      to bottom.
+
+      Do NOT apply the {min_severity} cut here. Carry every deduped finding
+      through, whatever its severity; `report` applies the cut at the end.
+
+      This ordering is deliberate. fact-check-findings runs next and writes the
+      `dropped` array that is this workflow's calibration record — a lane
+      producing mostly dropped findings has a broken prompt, and that is only
+      visible if the drops are kept. Filtering here would compute that record
+      over a pre-filtered population: at {min_severity} = major, the
+      minor-heavy lanes (copy-quality, staleness) would contribute almost
+      nothing to the drop statistics, so a broken minor-emitting prompt becomes
+      invisible — the exact failure the dropped array exists to surface.
 
       Write {workspace}/outputs/findings-consolidated.json with these keys:
         - resume_file: the audited path
@@ -633,8 +669,9 @@ stages:
         - findings: the ranked list, each in the section-4 schema plus an
           optional `also_flagged_as` list of concern IDs
 
-      Report the count going in, the count after dedupe, and the count after the
-      {min_severity} cut, so a collapse in numbers is visible rather than silent.
+      Report the count going in and the count after dedupe, so a collapse in
+      numbers is visible rather than silent. The {min_severity} cut is reported
+      by `report`, which is where it is applied.
     agent:
       role: researcher
       model: sonnet
@@ -734,6 +771,14 @@ stages:
     description: >
       Write {workspace}/outputs/audit-report.md from findings-verified.json,
       present it, and STOP.
+
+      APPLY THE SEVERITY CUT HERE — this is the only stage that filters by
+      severity. Drop any verified finding below {min_severity} from the report
+      body, and state how many were cut so the reader knows the report is a
+      view, not the whole population. Upstream stages deliberately carry every
+      severity so that fact-check-findings' `dropped` array measures lane
+      quality over the full set; filtering earlier would hide a broken
+      minor-emitting lane.
 
       This workflow is READ-ONLY on the resume. Do not edit {resume_file}, any
       profile YAML, or anything under src/resume/config. Do not render a new

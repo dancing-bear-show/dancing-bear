@@ -752,10 +752,14 @@ stages:
 
            ./bin/assistant resume render \
              --data {workspace}/outputs/baseline-after.yaml \
-             --out {workspace}/verify.docx
+             --out {workspace}/outputs/verify.docx
 
          Treat a non-zero exit as fatal. Delete any existing verify.docx first
          so a stale file from an earlier run cannot be mistaken for a fresh one.
+         It is declared in writes_to so the engine's existence check covers it
+         too: deleting-then-rendering guards a fresh run, but a resumed run
+         skips stages whose result JSON already reports success, so the
+         declaration is what catches a missing artifact there.
 
          Omitting --template is deliberate: the renderer falls back to
          DEFAULT_TEMPLATE, which resolves the summary, skills, experience, and
@@ -776,3 +780,7 @@ stages:
     required: true
     writes_to:
       - "baseline-after.yaml"
+      # Bare entry -> {workspace}/outputs/verify.docx, the path the render
+      # command above writes. Declared so the render is existence-checked on a
+      # resumed run, not only guarded by the delete-first instruction.
+      - "verify.docx"
