@@ -20,6 +20,8 @@ from .parsing_experience_text import (
     _parse_experience_entry,
     _parse_skills,
     _split_date_range,
+    parse_skill_groups,
+    strip_bullet_glyph,
 )
 
 # Style name constants used in DOCX parsing
@@ -103,7 +105,11 @@ def _docx_extract_summary(
     """Extract summary/profile from docx."""
     if "summary" in sections:
         s = sections["summary"]
-        block = [helper.text(i) for i in range(s["start"] + 1, s["end"] + 1) if helper.text(i)]
+        block = [
+            strip_bullet_glyph(helper.text(i))
+            for i in range(s["start"] + 1, s["end"] + 1)
+            if helper.text(i)
+        ]
         # Newline, not space: each paragraph is its own profile bullet, and
         # space-joining runs them into one sentence with no boundary, so a
         # later provenance check cannot tell where one claim ends.
@@ -365,10 +371,18 @@ def parse_resume_docx(path: str) -> dict[str, Any]:
     summary = _docx_extract_summary(helper, sections, h1_indices, first_h1)
 
     skills: list[str] = []
+    skills_groups: list[dict[str, Any]] = []
     if "skills" in sections:
         s = sections["skills"]
-        block = [helper.text(i) for i in range(s["start"] + 1, s["end"] + 1) if helper.text(i)]
+        # Keep the raw lines: _parse_skills and parse_skill_groups both need the
+        # leading bullet glyph to tell a category heading from its entries.
+        block = [
+            helper.text(i)
+            for i in range(s["start"] + 1, s["end"] + 1)
+            if helper.text(i)
+        ]
         skills = _parse_skills(block)
+        skills_groups = parse_skill_groups(block)
 
     education = _docx_extract_education(helper, sections)
     experience = _docx_extract_experience(helper, sections)
@@ -379,6 +393,7 @@ def parse_resume_docx(path: str) -> dict[str, Any]:
         **contact,
         "summary": summary,
         "skills": skills,
+        "skills_groups": skills_groups,
         "experience": experience,
         "education": education,
     }

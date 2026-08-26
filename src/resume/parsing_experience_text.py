@@ -51,19 +51,29 @@ def _parse_experience_entry(text: str) -> dict[str, Any] | None:
     Returns dict with: title, company, location, start, end, or None if not matched.
     """
     # Pattern 1: Generated DOCX format "Title at Company — [Location] — (Start – End)"
+    #
+    # The field separator must be an em/en dash, or a hyphen with whitespace on
+    # BOTH sides. A bare `[—\-]` also matched the hyphen inside a company name,
+    # so "Wal-Mart Stores Inc." parsed as company "Wal" + location "Mart Stores
+    # Inc." — silent data corruption on any hyphenated employer (Wal-Mart,
+    # Hewlett-Packard, Rolls-Royce).
     m = re.match(
         r"(.+?)\s+at\s+(.+?)"  # Title at Company
-        r"(?:\s*[—\-]\s*\[?([^\]—\-\(]+?)\]?)?"  # — [Location] or — Location
-        r"(?:\s*[—\-]\s*\(?([\d\w\s]+?)\s*[–\-]\s*([\d\w\s]+?)\)?\s*)?$",  # — (Start – End)
+        r"(?:\s*(?:[—–]|\s-\s)\s*\[?([^\]—–(]+?)\]?)?"  # — [Location] or — Location
+        r"(?:\s*(?:[—–]|\s-\s)\s*\(?([\d\w\s]+?)\s*[–\-]\s*([\d\w\s]+?)\)?\s*)?$",  # — (Start – End)
         text
     )
-    if m:
+    # Only accept when the dash-delimited date range actually matched. Without
+    # this, "Engineer at Acme, 2020-2023" half-matched here as company
+    # "Acme, 2020" / location "2023" instead of falling through to Pattern 2,
+    # which parses the comma form correctly.
+    if m and m.group(4) and m.group(5):
         return {
             "title": m.group(1).strip(),
             "company": m.group(2).strip(),
             "location": (m.group(3) or "").strip(),
-            "start": (m.group(4) or "").strip(),
-            "end": (m.group(5) or "").strip(),
+            "start": m.group(4).strip(),
+            "end": m.group(5).strip(),
         }
 
     # Pattern 2: "Title at Company, dates" or "Title at Company (dates)"
@@ -180,7 +190,13 @@ def _split_lines(text: str) -> list[str]:
 
 _PAT_EMAIL = re.compile(r"[\w.\-+]+@[\w.\-]+\.[a-zA-Z]{2,}")
 _PAT_PHONE = re.compile(r"\+?1?\s*\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}")
-_PAT_LOCATION = re.compile(r"([A-Z][a-zA-Z]+(?:\s[A-Z][a-zA-Z]+)*),\s*[A-Z]{2}")
+# "City, ST" (US/CA abbreviation) or "City, Region[, Country]" spelled out.
+# The abbreviation-only form silently dropped every non-US location — e.g.
+# "Richmond Hill, Ontario, Canada" matched nothing, so location came back empty.
+_PLACE = r"[A-Z][a-zA-Z.'\-]+(?:\s[A-Z][a-zA-Z.'\-]+)*"
+_PAT_LOCATION = re.compile(
+    rf"({_PLACE}),\s*(?:[A-Z]{{2}}\b|{_PLACE}(?:,\s*{_PLACE})?)"
+)
 _PAT_LINKEDIN = re.compile(r"linkedin\.com/in/[\w\-]+", re.I)
 _PAT_GITHUB = re.compile(r"github\.com/[\w\-]+", re.I)
 _PAT_WEBSITE = re.compile(r"(?:https?://|www\.)([a-zA-Z0-9\-]+\.[a-zA-Z]{2,}(?:/[\w\-/]*)?)")
@@ -207,6 +223,17 @@ _CONTACT_MATCHERS: dict[str, Any] = {
     "github": lambda ln: _match_first(_PAT_GITHUB, ln),
     "website": _match_website,
 }
+
+
+# Leading list markers seen in resume DOCX/PDF exports. These are document
+# formatting, not content: leaving them in means the renderer emits "• • text"
+# when it adds its own glyph, and a bare "•" leaks into extracted prose.
+_PAT_LEADING_BULLET = re.compile(r"^\s*[•·▪◦‣∙*•●▪]+\s*")
+
+
+def strip_bullet_glyph(text: str) -> str:
+    """Remove a leading bullet marker from one line, preserving the rest."""
+    return _PAT_LEADING_BULLET.sub("", text).strip()
 
 
 def _extract_contact(lines: list[str]) -> dict[str, str]:
@@ -308,10 +335,51 @@ def _parse_education(lines: list[str]) -> list[dict[str, str]]:
 
 
 def _parse_skills(lines: list[str]) -> list[str]:
-    text = " ".join(lines)
-    # split by pipes, commas, semicolons, or bullet points
-    parts = [p.strip() for p in re.split(r"[|,;•·]\s*", text) if p.strip()]
-    return dedupe(parts, key_fn=str.lower)
+    """Parse a skills section into a flat, deduped list.
+
+    Splits per LINE, never across the whole section. Joining every line first
+    and then splitting on commas shredded prose bullets — "LLM-assisted
+    development: manage AI code generation workflows; review, test, and
+    integrate agent outputs" yielded fake skills "review", "test", and "and
+    integrate agent outputs into production systems".
+
+    A bulleted line is treated as one skill: its label (text before the first
+    colon) is the skill, and the trailing description is dropped. Only
+    non-bulleted lines — the "Python, Go, AWS" inventory form — are split on
+    separators.
+    """
+    out: list[str] = []
+    for raw in lines:
+        line = strip_bullet_glyph(raw)
+        if not line:
+            continue
+        if _PAT_LEADING_BULLET.match(raw):
+            # One bullet == one skill; keep the label, drop the prose after it.
+            out.append(line.split(":", 1)[0].strip())
+        else:
+            out.extend(p.strip() for p in re.split(r"[|,;•·]\s*", line) if p.strip())
+    return dedupe([p for p in out if p], key_fn=str.lower)
+
+
+def parse_skill_groups(lines: list[str]) -> list[dict[str, Any]]:
+    """Parse a skills section into ``[{title, items}]`` groups.
+
+    Resume skill sections are commonly a category heading followed by bulleted
+    entries. A flat list discards those headings entirely, so the renderer
+    cannot reproduce the source's structure. Returns [] when the section has no
+    heading/bullet shape, letting callers fall back to the flat list.
+    """
+    groups: list[dict[str, Any]] = []
+    for raw in lines:
+        text = raw.strip()
+        if not text:
+            continue
+        if _PAT_LEADING_BULLET.match(raw):
+            if groups:
+                groups[-1]["items"].append(strip_bullet_glyph(raw))
+        else:
+            groups.append({"title": text, "items": []})
+    return [g for g in groups if g["items"]]
 
 
 def parse_resume_text(text: str) -> dict[str, Any]:
