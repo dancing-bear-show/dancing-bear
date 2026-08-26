@@ -555,7 +555,7 @@ class TestResumeCLICandidateInitExtended(unittest.TestCase):
 class TestResumeCLIOnePageTemplateE2E(unittest.TestCase):
     """E2E coverage for the onepage template's margin/role/bullet trimming.
 
-    KNOWN BUG (pre-existing, not introduced by this port): render passes
+    Known pre-existing defect, not introduced by this port: render passes
     --template config/template.onepage.yaml as a literal relative path
     straight into resume.templating.load_template -> read_yaml_or_json,
     which resolves it against the subprocess's CWD. The real file lives at

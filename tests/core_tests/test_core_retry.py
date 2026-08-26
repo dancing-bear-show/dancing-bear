@@ -362,6 +362,10 @@ class TestHttpSleepForRetryWithJitter(unittest.TestCase):
 
         class _Session:
             def request(self, *args, **kwargs):
+                # No-op: this stub satisfies the requests.Session interface so
+                # HttpClient can be constructed.  The test only exercises
+                # _sleep_for_retry (via a patched time.sleep); the session is
+                # never asked to perform a real HTTP request.
                 pass
 
         requests.Session = _Session  # type: ignore[attr-defined]
