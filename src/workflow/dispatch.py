@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from .models import ResolvedStage, StageKind
+from .models import ResolvedStage, StageKind, ValidationSpec
 
 logger = logging.getLogger(__name__)
 
@@ -208,10 +208,10 @@ def _action(stage: ResolvedStage, wf: str, ws: str, input_verb: str = "Read prio
     return "\n".join(lines)
 
 
-def _domain_rules_section(spec: object) -> list[str]:
+def _domain_rules_section(spec: ValidationSpec) -> list[str]:
     """Build the Domain Rules section lines from a validation spec."""
     rules: list[str] = []
-    for r in spec.domain_rules:  # type: ignore[union-attr]
+    for r in spec.domain_rules:
         entry = f"[{r.severity}] {r.id}: {r.description}"
         if r.source_cmd:
             entry += f"\n  Verify with: `{r.source_cmd}`"
