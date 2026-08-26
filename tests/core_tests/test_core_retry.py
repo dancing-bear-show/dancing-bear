@@ -594,7 +594,7 @@ class TestCredentialMasking(unittest.TestCase):
         # message looked masked while still carrying the key.
         from core.retry import RetryExhaustedError
 
-        secret = "SECRETVALUE123456"
+        secret = "SECRETVALUE123456"  # nosec B105 - synthetic fixture, not a real credential - the masking tests need it to look like a secret
         for param in ("api_key", "apikey", "apiKey"):
             with self.subTest(param=param):
                 exc = RuntimeError(f"GET https://svc.example/?{param}={secret}")

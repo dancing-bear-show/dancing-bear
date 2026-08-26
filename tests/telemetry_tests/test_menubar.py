@@ -99,7 +99,7 @@ class TestMenubarBuildVersion(unittest.TestCase):
         self.assertIn(menubar._VERSION, result)
 
     def test_error_returns_version_only(self) -> None:
-        import subprocess
+        import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
         with patch.object(menubar.subprocess, "check_output",
                           side_effect=subprocess.CalledProcessError(1, "git")):
             result = menubar._build_version()

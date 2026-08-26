@@ -8,7 +8,7 @@ Covers the SafeProcessor/BaseProducer wrappers introduced in normalize-domains:
 
 from __future__ import annotations
 
-import subprocess
+import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 import unittest
 from unittest.mock import MagicMock, patch
 

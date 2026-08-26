@@ -7,7 +7,7 @@ Command functions are registered on the app groups in phone/cli/main.py.
 from __future__ import annotations
 
 import os
-import subprocess
+import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 import sys
 from pathlib import Path
 
@@ -93,7 +93,7 @@ def _sign_mobileconfig(
         p12_path: Path to .p12 certificate file
         p12_pass: Password for .p12 file
     """
-    import subprocess
+    import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmpdir:

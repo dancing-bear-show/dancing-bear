@@ -321,7 +321,7 @@ class TestIconmapProcessorEcidResolution(unittest.TestCase):
         self.assertTrue(env.ok())
 
     def test_iconmap_processor_called_process_error(self):
-        import subprocess as sp
+        import subprocess as sp  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
         from phone.pipeline_export import IconmapProcessor, IconmapRequest, IconmapRequestConsumer
         with patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
              patch("phone.device.map_udid_to_ecid", return_value=""), \

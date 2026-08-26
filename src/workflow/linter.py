@@ -16,7 +16,7 @@ Additional checks beyond the parser:
 from __future__ import annotations
 
 import re
-import subprocess
+import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
