@@ -598,8 +598,15 @@ stages:
     depends_on: [integration-review]
     reads_from: [design, integration-review]
     description: >
-      Read validation/integration-findings.json and fix every finding with
-      status "fail", starting with severity "critical".
+      Read validation/integration-findings.json and fix every failing finding,
+      starting with the critical ones.
+
+      Match status and severity CASE-INSENSITIVELY: a finding is failing if
+      status.lower() is "fail" or "failed". The upstream stage is told to emit
+      lowercase, but the engine's own findings template in
+      .claude/skills/workflow/SKILL.md uses "PASS|FAIL|WARN", so both spellings
+      occur in practice and a case-sensitive match silently skips half of them.
+      Treat a failing finding with no severity field as critical.
 
       Fix the defect, not the symptom. If the CLI calls a signature the core
       stage did not implement, decide from design.json which side is wrong and
