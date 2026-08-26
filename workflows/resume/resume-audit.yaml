@@ -48,8 +48,10 @@ description: >
   enforced again in fact-check-findings, because flagging valid copy wastes the
   reader's attention as surely as missing invalid copy does.
 
-  Outputs (all under the workspace, which must be a gitignored path because
-  resumes are PII):
+  Outputs (all under {workspace}/outputs/, itself on a gitignored path because
+  resumes are PII — note writes_to entries carry no {workspace} prefix, because the
+  engine resolves bare entries under {workspace}/outputs/ and does NOT substitute
+  params into writes_to paths):
     - guides.md                     condensed concern + standards contract
     - document.json                 the extracted resume
     - findings-copy-quality.json    per-lane findings

@@ -540,10 +540,10 @@ stages:
                     "provenance": "...", "guide_violations": ["..."]}]}
 
       Set `blocked` to true if uncited or unsourced_metric is non-zero. Write
-      both files BEFORE exiting non-zero — an exit that leaves no findings
-      behind gives the human nothing to act on and makes the block look like a
-      crash. Write them on the clean path too, with the counts at zero and
-      `blocked` false.
+      both files BEFORE signalling failure in the stage result — a failure that
+      leaves no findings behind gives the human nothing to act on and makes the
+      block look like a crash. Write them on the clean path too, with the counts
+      at zero and `blocked` false.
     agent:
       role: reviewer
       model: sonnet
@@ -627,6 +627,11 @@ stages:
       editing and write applied.md recording that the run was blocked and
       nothing was applied.
 
+      That file contains verbatim bullet text, which is PII and the run
+      transcript is not redacted. Report counts and concern IDs when explaining
+      the block; do not echo bullet text, employer names, or contact fields into
+      your output.
+
       Do not skip this because check-copy "should have" halted the run. It
       cannot halt it on its own: stage status comes only from the result JSON
       each agent writes, and the template pre-fills "status": "success", so a
@@ -641,6 +646,29 @@ stages:
       If it is not ignored, STOP without editing. init already checked this, but
       the check is cheap and this is the one stage that writes PII to a path
       outside the workspace.
+
+      GUARD ORDER AND THE writes_to CONTRACT. Guards 1 and 2 can stop this
+      stage before any backup is taken, so on those paths
+      experience.yaml.bak — although declared in writes_to — is deliberately
+      NOT created. That is correct: a backup of a file this stage never touched
+      would be noise, and verify-profile explicitly handles the missing-backup
+      case by reading applied.md rather than restoring. Always write applied.md
+      on every path, including both guard exits, so the run is never silent
+      about why nothing was applied.
+
+      GUARD 3 — take the backup and PROVE it, before making any edit. Copy
+      {profile_dir}/experience.yaml to {workspace}/outputs/experience.yaml.bak,
+      then confirm the copy exists, is non-empty, and matches the source byte
+      count. If it is missing, empty, or truncated, STOP without editing.
+
+      Do this now, before reading any further. All three guards run to
+      completion before the first Edit — the editing instructions below assume a
+      verified backup already exists. The profile directory is gitignored by
+      design, so git holds no history of it and is not available as an undo:
+      this backup is the ONLY recovery path in the workflow, and an edit made
+      before it exists is an unrecoverable edit to the source of truth. It is
+      declared in writes_to so the engine's post-stage existence check covers it
+      as well, rather than it living only in this prose.
 
       Apply ONLY proposals whose `decision` field is `accept`. A proposal with
       decision `reject`, or with no decision field at all, is not applied —
@@ -664,19 +692,6 @@ stages:
       exactly, do not guess at the nearest role — record the proposal as
       NOT APPLIED with the reason and continue. A bullet written under the wrong
       employer is a factual error in the source of truth.
-
-      GUARD 3 — take the backup and PROVE it before editing anything. Copy
-      {profile_dir}/experience.yaml to {workspace}/outputs/experience.yaml.bak,
-      then confirm the copy exists and is non-empty, and that its byte count
-      matches the source. If the copy is missing, empty, or truncated, STOP
-      without editing.
-
-      This ordering is not fussiness. The profile directory is gitignored by
-      design, so git holds no history of it and is not available as an undo —
-      this backup is the ONLY recovery path in the entire workflow. An edit made
-      before a verified backup exists is an unrecoverable edit to the source of
-      truth. The backup is declared in writes_to so the engine's post-stage
-      existence check covers it too, rather than it living only in this prose.
 
       After the edits, confirm the file still parses by running `python3 -c`
       with yaml.safe_load, passing {profile_dir}/experience.yaml as argv[1].
@@ -729,13 +744,21 @@ stages:
              --data {profile_dir}/experience.yaml \
              --out {workspace}/outputs/baseline-after.yaml
 
-         A non-zero exit means the profile no longer loads — restore
-         {workspace}/outputs/experience.yaml.bak over
-         {profile_dir}/experience.yaml, confirm the restored file parses, then
-         report the failure and write the stage result with "status": "failed"
-         and the restore recorded in "errors". Report a failed restore even more
-         loudly: that leaves a corrupted profile with no remaining recovery
-         path, and the human must know immediately.
+         A non-zero exit means the profile no longer loads. Before restoring,
+         confirm {workspace}/outputs/experience.yaml.bak exists and is
+         non-empty. If it does NOT exist, do not attempt a restore — read
+         applied.md first: apply-updates stops at its guards without editing
+         and without taking a backup, so a missing backup most likely means
+         nothing was ever modified and the parse failure predates this run.
+         Overwriting a live profile with a missing or empty file would turn a
+         diagnosable failure into data loss.
+
+         If the backup does exist, restore it over {profile_dir}/experience.yaml,
+         confirm the restored file parses, then report the failure and write the
+         stage result with "status": "failed" and the restore recorded in
+         "errors". Report a failed restore even more loudly: that leaves a
+         corrupted profile with no remaining recovery path, and the human must
+         know immediately.
 
       2. DIFF AGAINST THE BASELINE. Compare {workspace}/outputs/baseline-after.yaml with
          {workspace}/outputs/baseline.yaml and confirm the ONLY differences are the

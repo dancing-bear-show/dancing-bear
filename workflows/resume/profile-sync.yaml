@@ -62,8 +62,10 @@ description: >
     - It does NOT invent support. Copy asserting anything absent from the resume
       baseline fails check-copy, which exits non-zero.
 
-  Outputs (all under the workspace, which must be a gitignored path because
-  profiles are PII):
+  Outputs (all under {workspace}/outputs/, itself on a gitignored path because
+  profiles are PII — note writes_to entries carry no {workspace} prefix, because the
+  engine resolves bare entries under {workspace}/outputs/ and does NOT substitute
+  params into writes_to paths):
     - guides.md               condensed ceilings, voice rules, concern IDs
     - linkedin.json           parsed LinkedIn export
     - resume-experience.yaml  resume-side job history

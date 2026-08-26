@@ -79,7 +79,7 @@ stages:
     description: >
       Create the workspace:
 
-        mkdir -p {workspace}
+        mkdir -p {workspace}/outputs
 
       Then confirm the PII placement is safe. Run:
 
@@ -393,10 +393,10 @@ stages:
                     "guide_violations": ["..."]}]}
 
       Set `blocked` to true if new_metric or new_claim is non-zero. Write BOTH
-      files BEFORE exiting non-zero — an exit that leaves no findings behind
-      gives the human nothing to act on at the gate and makes the block look
-      like a crash. Write them on the clean path too, with the counts at zero
-      and `blocked` false.
+      files BEFORE signalling failure in the stage result — a failure that
+      leaves no findings behind gives the human nothing to act on at the gate
+      and makes the block look like a crash. Write them on the clean path too,
+      with the counts at zero and `blocked` false.
     agent:
       role: reviewer
       model: sonnet
@@ -422,6 +422,12 @@ stages:
       is true, lead with the blocked items (every NEW METRIC and NEW CLAIM,
       verbatim, with its role) before any coverage number, and state plainly
       that the resume cannot be rendered until the human resolves each one.
+
+      Quoting the offending bullet verbatim IS correct here, unlike in
+      non-gate stages: the human cannot adjudicate a fabrication they cannot
+      see, and this is the decision point. Keep it to the flagged bullets and
+      their roles — do not dump the whole resume, contact fields, or unrelated
+      bullets into the transcript, which is not redacted.
 
       Do not assume check-copy already halted the run on a block. It cannot do
       that by itself: stage status comes only from the result JSON each agent
@@ -465,8 +471,23 @@ stages:
   - name: render
     kind: execute
     depends_on: [gap-report]
-    reads_from: [draft-tailored]
+    reads_from: [draft-tailored, check-copy]
     description: >
+      GUARD — re-read {workspace}/outputs/coverage-findings.json before
+      rendering. If "blocked" is true, STOP without rendering and report which
+      NEW METRIC or NEW CLAIM items remain unresolved.
+
+      This stage is the one that produces the artifact a human sends to an
+      employer, so it carries its own check rather than trusting the two stages
+      before it. check-copy cannot halt the run by itself — stage status comes
+      only from the result JSON each agent writes and the template pre-fills
+      "status": "success" — and gap-report records no machine-readable verdict
+      at all (its writes_to is empty and it is read-only), so a blocked run that
+      slipped past check-copy and was auto-advanced through the gate would
+      otherwise arrive here and ship the document. Rendering a resume containing
+      an unverified metric is the single most costly outcome this workflow can
+      produce: it survives review and fails in a reference check.
+
       Render the tailored resume:
 
         ./bin/assistant resume render \
