@@ -101,3 +101,22 @@ class SynonymRegistry:
                     seen.add(key)
                     result.append(expanded)
         return result
+
+
+def item_text(item: Any) -> str:
+    """Return the prose of a resume list item, whether str or priority dict.
+
+    Real candidate data stores summary bullets, experience bullets, skills, and
+    interests as ``{"text": ..., "priority": 0.9}`` so ``--min-priority`` can
+    filter them. A bare ``str(item)`` on that shape yields the dict's Python
+    repr — braces, quotes, and the priority number included — so any text
+    matching done on the result silently operates on punctuation-mangled
+    pseudo-prose instead of the bullet.
+
+    Accepts the ``text``/``line``/``name`` key spellings that the DOCX
+    renderers and aligner already tolerate, so one helper covers every
+    producer of this shape.
+    """
+    if isinstance(item, dict):
+        return str(item.get("text") or item.get("line") or item.get("name") or "")
+    return str(item or "")
