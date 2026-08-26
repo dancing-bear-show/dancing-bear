@@ -560,5 +560,335 @@ class TestCLIExportPlanCommand(unittest.TestCase):
         self.assertTrue(callable(run_outlook_export_plan))
 
 
+class TestExdatesProducer(unittest.TestCase):
+    """GAP 1 — cancelled/exception occurrences are extracted as exdates by the processor."""
+
+    def _make_cancelled_occurrence(
+        self, master_id: str, original_start: str, *, is_cancelled: bool = False, occ_type: str = "occurrence"
+    ) -> dict[str, Any]:
+        occ: dict[str, Any] = {
+            "type": occ_type,
+            "subject": "Series",
+            "seriesMasterId": master_id,
+            "start": {"dateTime": original_start, "timeZone": "America/Toronto"},
+            "end": {"dateTime": original_start, "timeZone": "America/Toronto"},
+            "originalStart": original_start,
+            "location": {},
+        }
+        if is_cancelled:
+            occ["isCancelled"] = True
+        return occ
+
+    def _run_with_master(self, occurrences: list[dict[str, Any]], master: dict[str, Any]) -> Any:
+        from calendars.outlook_pipelines.export import OutlookExportProcessor, OutlookExportRequest
+        svc = MagicMock()
+        svc.list_events_in_range.return_value = occurrences
+        svc.get_mailbox_timezone.return_value = "America/Toronto"
+        svc.get_event.side_effect = lambda eid: master if eid == "master-exdates-1" else None
+
+        request = OutlookExportRequest(
+            service=svc,
+            calendar=None,
+            from_date="2026-01-01",
+            to_date="2026-12-31",
+            out_path=None,
+            dry_run=False,
+            verbose=False,
+        )
+        envelope = OutlookExportProcessor().process(request)
+        self.assertTrue(envelope.ok(), msg=f"Processor failed: {envelope.diagnostics}")
+        return envelope.payload
+
+    def test_exdates_extracted_from_cancelled_and_exception_occurrences(self):
+        """isCancelled=True and type='exceptionOccurrence' both produce exdates entries."""
+        master = _make_weekly_master(
+            subject="Series",
+            days_of_week=["tuesday"],
+            interval=1,
+            start_date="2026-03-03",
+            end_date="2026-06-30",
+            tz="America/Toronto",
+        )
+        # Normal occurrence — must NOT appear in exdates
+        normal = self._make_cancelled_occurrence("master-exdates-1", "2026-03-03T10:00:00")
+        # Cancelled occurrence
+        cancelled = self._make_cancelled_occurrence(
+            "master-exdates-1", "2026-03-10T10:00:00", is_cancelled=True
+        )
+        # Exception occurrence (type signals exception, not is_cancelled)
+        exception_occ = self._make_cancelled_occurrence(
+            "master-exdates-1", "2026-03-17T10:00:00", occ_type="exceptionOccurrence"
+        )
+
+        result = self._run_with_master([normal, cancelled, exception_occ], master)
+
+        self.assertEqual(result.event_count, 1)
+        ev = result.events[0]
+        self.assertIn("exdates", ev)
+        self.assertEqual(ev["exdates"], ["2026-03-10", "2026-03-17"])
+
+    def test_exdates_absent_when_no_cancelled_occurrences(self):
+        """exdates key is not emitted (not even an empty list) when nothing is cancelled."""
+        master = _make_weekly_master(
+            subject="Series",
+            days_of_week=["tuesday"],
+            interval=1,
+            start_date="2026-03-03",
+            end_date="2026-06-30",
+            tz="America/Toronto",
+        )
+        # Only normal occurrences
+        normal_a = self._make_cancelled_occurrence("master-exdates-1", "2026-03-03T10:00:00")
+        normal_b = self._make_cancelled_occurrence("master-exdates-1", "2026-03-10T10:00:00")
+
+        result = self._run_with_master([normal_a, normal_b], master)
+
+        self.assertEqual(result.event_count, 1)
+        ev = result.events[0]
+        self.assertNotIn("exdates", ev)
+
+    def test_exdates_deduped_and_sorted(self):
+        """Duplicate cancelled dates are deduplicated; exdates is sorted ascending."""
+        master = _make_weekly_master(
+            subject="Series",
+            days_of_week=["monday"],
+            interval=1,
+            start_date="2026-01-05",
+            end_date="2026-06-30",
+            tz="America/Toronto",
+        )
+        # Two cancelled occurrences on different dates, listed out of order
+        late = self._make_cancelled_occurrence(
+            "master-exdates-1", "2026-02-09T10:00:00", is_cancelled=True
+        )
+        early = self._make_cancelled_occurrence(
+            "master-exdates-1", "2026-01-12T10:00:00", is_cancelled=True
+        )
+        # Duplicate of early — must be deduped
+        dup = self._make_cancelled_occurrence(
+            "master-exdates-1", "2026-01-12T10:00:00", is_cancelled=True
+        )
+
+        result = self._run_with_master([late, early, dup], master)
+
+        self.assertEqual(result.event_count, 1)
+        ev = result.events[0]
+        self.assertIn("exdates", ev)
+        self.assertEqual(ev["exdates"], ["2026-01-12", "2026-02-09"])
+
+
+class TestDSTBoundaryExport(unittest.TestCase):
+    """GAP 2 — recurring series spanning a DST transition exports wall-clock times verbatim.
+
+    The export design's position: tz is exported verbatim (as a tz name, not an
+    offset) and Graph resolves DST on re-import.  The export must NOT silently
+    shift or normalize times across the DST boundary.
+
+    The producer derives start_time / end_time from the **series master** event,
+    not from any individual occurrence.  _make_weekly_master sets the master's
+    dateTime to "{start_date}T18:00:00" / "{start_date}T19:00:00", so the
+    expected wall-clock times from the master are always 18:00 / 19:00.
+    The invariant under test is that these master times pass through unaltered
+    regardless of which side of the DST boundary the occurrences fall on.
+    """
+
+    def test_dst_spring_forward_tz_and_times_unaltered(self):
+        """A series spanning the 2026-03-08 spring-forward: tz is 'America/Toronto',
+        start_time/end_time are the master's wall-clock times without any DST shift."""
+        # Master starts before DST transition (2026-03-08 clocks spring forward).
+        # _make_weekly_master sets master dateTime = "2026-03-02T18:00:00" (start_date).
+        master = _make_weekly_master(
+            subject="DST Series",
+            days_of_week=["monday"],
+            interval=1,
+            start_date="2026-03-02",
+            end_date="2026-04-06",
+            tz="America/Toronto",
+        )
+        # Occurrences span the DST boundary.
+        pre_dst = {
+            "type": "occurrence",
+            "subject": "DST Series",
+            "seriesMasterId": "master-dst-1",
+            "start": {"dateTime": "2026-03-02T18:00:00", "timeZone": "America/Toronto"},
+            "end": {"dateTime": "2026-03-02T19:00:00", "timeZone": "America/Toronto"},
+            "location": {},
+        }
+        post_dst = {
+            "type": "occurrence",
+            "subject": "DST Series",
+            "seriesMasterId": "master-dst-1",
+            "start": {"dateTime": "2026-03-16T18:00:00", "timeZone": "America/Toronto"},
+            "end": {"dateTime": "2026-03-16T19:00:00", "timeZone": "America/Toronto"},
+            "location": {},
+        }
+
+        svc = MagicMock()
+        svc.list_events_in_range.return_value = [pre_dst, post_dst]
+        svc.get_mailbox_timezone.return_value = "America/Toronto"
+        svc.get_event.side_effect = lambda eid: master if eid == "master-dst-1" else None
+
+        from calendars.outlook_pipelines.export import OutlookExportProcessor, OutlookExportRequest
+        request = OutlookExportRequest(
+            service=svc,
+            calendar=None,
+            from_date="2026-03-01",
+            to_date="2026-04-30",
+            out_path=None,
+        )
+        envelope = OutlookExportProcessor().process(request)
+        self.assertTrue(envelope.ok(), msg=f"Processor failed: {envelope.diagnostics}")
+        result = envelope.payload
+
+        self.assertEqual(result.event_count, 1)
+        ev = result.events[0]
+
+        # tz exported verbatim as a named tz, not a UTC offset — no DST normalization
+        self.assertEqual(ev["tz"], "America/Toronto")
+
+        # start_time / end_time come from master dateTime "2026-03-02T18:00:00" / "19:00:00"
+        # and must not be shifted relative to the master's wall-clock value
+        self.assertEqual(ev["start_time"], "18:00")
+        self.assertEqual(ev["end_time"], "19:00")
+
+    def test_dst_fall_back_tz_and_times_unaltered(self):
+        """A series spanning the 2026-11-01 fall-back: tz and master wall-clock
+        times pass through unchanged; the export does not silently shift or normalize."""
+        # _make_weekly_master sets master dateTime = "2026-10-21T18:00:00".
+        master = _make_weekly_master(
+            subject="Fall Series",
+            days_of_week=["wednesday"],
+            interval=1,
+            start_date="2026-10-21",
+            end_date="2026-11-18",
+            tz="America/Toronto",
+        )
+        pre_fallback = {
+            "type": "occurrence",
+            "subject": "Fall Series",
+            "seriesMasterId": "master-fallback-1",
+            "start": {"dateTime": "2026-10-21T18:00:00", "timeZone": "America/Toronto"},
+            "end": {"dateTime": "2026-10-21T19:00:00", "timeZone": "America/Toronto"},
+            "location": {},
+        }
+        post_fallback = {
+            "type": "occurrence",
+            "subject": "Fall Series",
+            "seriesMasterId": "master-fallback-1",
+            "start": {"dateTime": "2026-11-04T18:00:00", "timeZone": "America/Toronto"},
+            "end": {"dateTime": "2026-11-04T19:00:00", "timeZone": "America/Toronto"},
+            "location": {},
+        }
+
+        svc = MagicMock()
+        svc.list_events_in_range.return_value = [pre_fallback, post_fallback]
+        svc.get_mailbox_timezone.return_value = "America/Toronto"
+        svc.get_event.side_effect = lambda eid: master if eid == "master-fallback-1" else None
+
+        from calendars.outlook_pipelines.export import OutlookExportProcessor, OutlookExportRequest
+        request = OutlookExportRequest(
+            service=svc,
+            calendar=None,
+            from_date="2026-10-01",
+            to_date="2026-12-01",
+            out_path=None,
+        )
+        envelope = OutlookExportProcessor().process(request)
+        self.assertTrue(envelope.ok(), msg=f"Processor failed: {envelope.diagnostics}")
+        result = envelope.payload
+
+        self.assertEqual(result.event_count, 1)
+        ev = result.events[0]
+
+        # tz exported verbatim — no UTC/offset normalization across fall-back
+        self.assertEqual(ev["tz"], "America/Toronto")
+
+        # Master dateTime is "2026-10-21T18:00:00" — wall-clock 18:00 must be preserved
+        self.assertEqual(ev["start_time"], "18:00")
+        self.assertEqual(ev["end_time"], "19:00")
+
+
+class TestResolveTzFallbackChain(unittest.TestCase):
+    """GAP 3 — _resolve_tz fallback chain: event tz → mailbox tz → hardcoded fallback."""
+
+    def _make_start_block(self, tz: str | None) -> dict[str, Any]:
+        block: dict[str, Any] = {"dateTime": "2026-05-01T10:00:00"}
+        if tz is not None:
+            block["timeZone"] = tz
+        return block
+
+    def test_resolve_tz_uses_event_tz_when_present(self):
+        """(a) timeZone in start block → returned as-is; get_mailbox_timezone never called."""
+        from calendars.outlook_pipelines.export import _resolve_tz
+
+        svc = MagicMock()
+        start = self._make_start_block("Pacific/Auckland")
+
+        result = _resolve_tz(start, svc)
+
+        self.assertEqual(result, "Pacific/Auckland")
+        svc.get_mailbox_timezone.assert_not_called()
+
+    def test_resolve_tz_falls_back_to_mailbox_tz_when_event_tz_absent(self):
+        """(b) timeZone absent → svc.get_mailbox_timezone() value is returned."""
+        from calendars.outlook_pipelines.export import _resolve_tz
+
+        svc = MagicMock()
+        svc.get_mailbox_timezone.return_value = "Europe/London"
+        start = self._make_start_block(None)  # no timeZone key
+
+        result = _resolve_tz(start, svc)
+
+        self.assertEqual(result, "Europe/London")
+        svc.get_mailbox_timezone.assert_called_once()
+
+    def test_resolve_tz_falls_back_to_mailbox_tz_when_event_tz_empty(self):
+        """(b) timeZone present but empty string → treated same as absent."""
+        from calendars.outlook_pipelines.export import _resolve_tz
+
+        svc = MagicMock()
+        svc.get_mailbox_timezone.return_value = "Europe/London"
+        start = {"dateTime": "2026-05-01T10:00:00", "timeZone": ""}
+
+        result = _resolve_tz(start, svc)
+
+        self.assertEqual(result, "Europe/London")
+        svc.get_mailbox_timezone.assert_called_once()
+
+    def test_resolve_tz_final_fallback_when_mailbox_raises(self):
+        """(c) timeZone absent AND get_mailbox_timezone raises → returns 'America/Toronto' with warning."""
+        import warnings
+        from calendars.outlook_pipelines.export import _resolve_tz
+
+        svc = MagicMock()
+        svc.get_mailbox_timezone.side_effect = RuntimeError("no mailbox")
+        start = self._make_start_block(None)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = _resolve_tz(start, svc)
+
+        self.assertEqual(result, "America/Toronto")
+        self.assertEqual(len(caught), 1)
+        self.assertIn("America/Toronto", str(caught[0].message))
+
+    def test_resolve_tz_final_fallback_when_mailbox_returns_none(self):
+        """(c-variant) timeZone absent AND get_mailbox_timezone returns None → 'America/Toronto' with warning."""
+        import warnings
+        from calendars.outlook_pipelines.export import _resolve_tz
+
+        svc = MagicMock()
+        svc.get_mailbox_timezone.return_value = None
+        start = self._make_start_block(None)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = _resolve_tz(start, svc)
+
+        self.assertEqual(result, "America/Toronto")
+        self.assertEqual(len(caught), 1)
+        self.assertIn("America/Toronto", str(caught[0].message))
+
+
 if __name__ == "__main__":
     unittest.main()
