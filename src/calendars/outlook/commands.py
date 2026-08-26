@@ -55,6 +55,12 @@ from ..outlook_pipelines import (
     OutlookMailListProcessor,
     OutlookMailListProducer,
     OutlookMailListRequest,
+    OutlookExportProcessor,
+    OutlookExportProducer,
+    OutlookExportRequest,
+    IcsDraftProcessor,
+    IcsDraftProducer,
+    IcsDraftRequest,
 )
 from ..scan_common import (
     RANGE_PAT,
@@ -471,6 +477,25 @@ class OutlookScanProducer(BaseProducer):
             self._writer.print("Use --out plan.yaml to write YAML.")
 
 
+def run_outlook_export_plan(args: argparse.Namespace) -> int:
+    svc = _build_outlook_service(args)
+    if not svc:
+        return 1
+    from core.paths import output_dir
+    out_raw = getattr(args, "out", None)
+    out_path = Path(out_raw) if out_raw else output_dir("calendars") / "plan.yaml"
+    request = OutlookExportRequest(
+        service=svc,
+        calendar=getattr(args, "calendar", None),
+        from_date=getattr(args, "from_date", None),
+        to_date=getattr(args, "to_date", None),
+        out_path=out_path,
+        dry_run=bool(getattr(args, "dry_run", False)),
+        verbose=bool(getattr(args, "verbose", False)),
+    )
+    return run_pipeline(request, OutlookExportProcessor, OutlookExportProducer)
+
+
 def run_outlook_scan_classes(args: argparse.Namespace) -> int:
     svc = _build_outlook_service(args)
     if not svc:
@@ -485,3 +510,44 @@ def run_outlook_scan_classes(args: argparse.Namespace) -> int:
         out=getattr(args, "out", None),
     )
     return run_pipeline(request, OutlookScanProcessor, OutlookScanProducer)
+
+
+def run_outlook_ics_draft(args: argparse.Namespace) -> int:
+    """Create a Gmail draft with a .ics attachment from a plan YAML file."""
+    dry_run = bool(getattr(args, "dry_run", False))
+
+    gmail_client = None
+    if not dry_run:
+        try:
+            # GmailClient, not GmailService: create_draft_raw lives on
+            # mail.gmail_api.GmailClient (gmail_api.py:415). GmailService
+            # (calendars/gmail_service.py) is a read-only scan wrapper with no
+            # draft methods, so building one here raises AttributeError at the
+            # point of draft creation — i.e. only on real runs, never in
+            # --dry-run, which is why it survived local testing.
+            from core.auth import resolve_gmail_credentials
+            from mail.gmail_api import GmailClient
+
+            creds_path, token_path = resolve_gmail_credentials(
+                getattr(args, "profile", None),
+                getattr(args, "credentials", None),
+                getattr(args, "token", None),
+            )
+            gmail_client = GmailClient(
+                credentials_path=creds_path,
+                token_path=token_path,
+                cache_dir=getattr(args, "cache", None),
+            )
+            gmail_client.authenticate()
+        except Exception as exc:
+            print(f"Failed to build Gmail client: {exc}")
+            return 1
+
+    request = IcsDraftRequest(
+        config_path=Path(args.config),
+        recipient=args.recipient,
+        subject=args.subject,
+        dry_run=dry_run,
+        gmail_client=gmail_client,
+    )
+    return run_pipeline(request, IcsDraftProcessor, IcsDraftProducer)
