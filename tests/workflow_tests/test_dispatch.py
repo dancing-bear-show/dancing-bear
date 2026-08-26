@@ -83,8 +83,9 @@ class TestKnownRoles(unittest.TestCase):
                 agent=make_agent_spec(role="definitely-not-a-role"),
             )
         )
-        with self.assertLogs("workflow.dispatch", level="WARNING") as captured:
-            instruction = build_dispatch_instruction(stage, "test-workflow", "/tmp/ws")
+        with tempfile.TemporaryDirectory() as workspace:
+            with self.assertLogs("workflow.dispatch", level="WARNING") as captured:
+                instruction = build_dispatch_instruction(stage, "test-workflow", workspace)
         self.assertEqual(instruction["agent_type"], "definitely-not-a-role")
         self.assertTrue(
             any("definitely-not-a-role" in line for line in captured.output),
