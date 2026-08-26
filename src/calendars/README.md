@@ -32,7 +32,8 @@ flowchart TB
         g_pipelines["gmail_pipelines.py\nGmailScanProducer"]
     end
     subgraph importer["Schedule Importer"]
-        i_base["importer/base.py\nScheduleParser ABC\nCalendarProvider Protocol (unimplemented)"]
+        i_base["importer/base.py\nScheduleParser ABC\nCalendarProvider Protocol"]
+        i_outlook["importer/outlook_provider.py\nOutlookCalendarProvider"]
         i_csv["csv_parser.py"]
         i_xlsx["xlsx_parser.py"]
         i_web["web_parser_vendors.py\n(aurora / rh)"]
@@ -50,6 +51,8 @@ flowchart TB
     i_base --> i_csv
     i_base --> i_xlsx
     i_base --> i_web
+    i_base -.implemented by.-> i_outlook
+    i_outlook --> svc_outlook
     o_pipelines --> svc_outlook
     g_pipelines --> svc_gmail
 ```
@@ -60,7 +63,8 @@ Key modules:
 - `gmail_service.py` — Gmail API wrapper (lazy import)
 - `outlook_pipelines/` — one file per Outlook operation (add, locations, reminders, dedup, settings, schedule_import, …)
 - `gmail_pipelines.py` — `GmailScanProducer`; shared scan output for Gmail-based commands
-- `importer/base.py` — `ScheduleParser(ABC)`, plus `CalendarProvider(Protocol)` (aspirational, no production implementors); provider-agnostic event model
+- `importer/base.py` — `ScheduleParser(ABC)`, plus `CalendarProvider(Protocol)`; provider-agnostic event model
+- `importer/outlook_provider.py` — `OutlookCalendarProvider`, the Protocol's only production implementor (Microsoft Graph). No Gmail/Google Calendar implementor exists.
 - `importer/csv_parser.py`, `xlsx_parser.py`, `web_parser_vendors.py` — concrete parsers for schedule-import sources
 - `gmail_pipelines.py` — `CalendarEvent` dataclass (shared event model; widened with optional recurrence fields: tz, location, repeat, interval, byday, range, start_time, end_time, exdates, count)
 
