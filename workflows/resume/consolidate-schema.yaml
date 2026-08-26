@@ -103,7 +103,7 @@ metadata:
 trigger:
   source: manual
   params:
-    out_dir: "src/resume/_data/schema-consolidation"   # gitignored; fixtures may carry PII
+    out_dir: "~/.local/share/dancing-bear/resume/schema-consolidation"  # outside checkout; fixtures may carry PII
     sample_resume: ""        # OPTIONAL: a real resume DOCX/PDF for the e2e stage
     min_sad_path_ratio: "0.5"   # >=50% of new tests must exercise failure modes
     skip_pdf: "false"        # "true" runs the schema half only
@@ -160,12 +160,22 @@ stages:
 
         mkdir -p {workspace}
 
-      Confirm PII placement is safe:
+      Confirm PII placement is safe. The workspace must be OUTSIDE the repo
+      checkout. Run:
 
-        git check-ignore -v {workspace}
+        python3 -c "
+        import os, subprocess, sys
+        ws = os.path.realpath('{workspace}')
+        root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
+        root = os.path.realpath(root)
+        if ws.startswith(root + os.sep) or ws == root:
+            print('UNSAFE: workspace is inside the repo checkout', file=sys.stderr)
+            sys.exit(1)
+        print('OK: workspace is outside the repo checkout')
+        "
 
-      If the path is NOT ignored, STOP. Resume fixtures carry names, phone
-      numbers, and emails; writing them to a tracked path would commit PII.
+      If the check fails, STOP. Resume fixtures carry names, phone numbers, and
+      emails; writing them inside the checkout risks accidental git exposure.
 
       Then establish baseline health BEFORE touching anything. Run and record:
 

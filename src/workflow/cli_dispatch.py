@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -97,12 +98,18 @@ def _resolve_base_dir(
     defn: WorkflowDefinition,
     params: dict[str, str],
 ) -> str:
-    """Resolve the workspace base directory."""
+    """Resolve the workspace base directory.
+
+    Expands ``~`` and environment variables in the resolved path so that
+    YAML param defaults such as ``~/.local/share/dancing-bear/resume/foo``
+    work without requiring an absolute path in the workflow file.
+    """
     if override:
-        return override
+        return os.path.expandvars(os.path.expanduser(override))
     if defn.workspace_dir:
         resolved = resolve_params(defn.workspace_dir, params) if params else defn.workspace_dir
-        return str(Path(resolved).parent)
+        expanded = os.path.expandvars(os.path.expanduser(resolved))
+        return str(Path(expanded).parent)
     import tempfile
     return tempfile.gettempdir()
 

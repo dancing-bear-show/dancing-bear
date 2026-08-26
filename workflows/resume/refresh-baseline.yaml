@@ -63,23 +63,24 @@ description: >
   file, so unrelated roles, comments, and key order survive untouched.
 
   THE PATH GUARD. A real profile carries employer names, dates, and metrics, so
-  it must live on a gitignored path. Both the source and destination profile
-  directories are params, and init verifies the destination with
-  `git check-ignore -v` rather than by reading a .gitignore. Reading is not
-  enough here: src/resume/README.md records that root .gitignore line 117
-  ignores `src/resume/config/profiles/*`, so a real profile written there is
-  skipped by `git add` SILENTLY unless forced — it looks committed and is not.
-  Private profiles belong under `src/resume/_data/`, which two separate rules
-  ignore, one of them narrow enough to be misread as the only coverage.
+  it must live OUTSIDE the repo checkout. The workspace defaults to
+  ~/.local/share/dancing-bear/resume/baseline-refresh/{profile}, which is
+  outside any git tree by construction. The destination profile directory is a
+  required param ({profile_dir}); init verifies it is also outside the repo
+  checkout. Private profiles belong under a path outside the checkout (e.g.
+  ~/.local/share/dancing-bear/resume/profiles/<name>/). Do NOT place real
+  profiles under src/resume/config/profiles/ — root .gitignore line 117
+  silently skips `git add` there unless forced, so PII would look committed
+  but not be, until a `git add -f` or ignore-rule edit exposes it.
 
   Evidence collection is local only: git log and files on disk. No network
   calls, no API credentials, no third-party services. An evidence source left
   unset is skipped, not an error.
 
-  Outputs (all under {workspace}/outputs/, itself on a gitignored path — note
-  writes_to entries carry no {workspace} prefix, because the engine resolves
-  bare entries under {workspace}/outputs/ and does NOT substitute params into
-  writes_to paths):
+  Outputs (all under {workspace}/outputs/, outside the repo checkout because
+  profiles are PII — note writes_to entries carry no {workspace} prefix,
+  because the engine resolves bare entries under {workspace}/outputs/ and does
+  NOT substitute params into writes_to paths):
     - guides.md         condensed copy standards, the contract for drafting
     - evidence.md       raw harvested evidence, each item with a source marker
     - baseline.yaml     the profile's current experience, as exported
@@ -97,12 +98,12 @@ trigger:
   source: manual
   params:
     profile: ""             # REQUIRED: profile prefix, e.g. "briancorysherwin_general"
-    profile_dir: ""         # REQUIRED: dir holding experience.yaml; must be gitignored
+    profile_dir: ""         # REQUIRED: dir holding experience.yaml; must be outside the repo checkout
     since: "90 days ago"    # evidence window; any git --since expression
     evidence_dirs: ""       # optional: comma-separated dirs of notes/brag docs
     repo_paths: ""          # optional: comma-separated git repos to mine by author
     author: ""              # optional: git --author filter; empty means all authors
-    out_dir: "src/resume/_data/baseline-refresh"   # gitignored per the PII policy
+    out_dir: "~/.local/share/dancing-bear/resume/baseline-refresh"  # outside checkout; primary PII protection
 
 workspace_dir: "{out_dir}/{profile}"
 
@@ -119,30 +120,41 @@ stages:
         mkdir -p {workspace}/outputs
 
       Then run BOTH PII guards. Resume content carries employer names, dates,
-      and metrics; a tracked path would commit it.
+      and metrics; both paths must be outside the repo checkout.
 
-      Guard 1 — the workspace:
+      Guard 1 — the workspace must be outside the repo:
 
-        git check-ignore -v {workspace}
+        python3 -c "
+        import os, subprocess, sys
+        ws = os.path.realpath('{workspace}')
+        root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
+        root = os.path.realpath(root)
+        if ws.startswith(root + os.sep) or ws == root:
+            print('UNSAFE: workspace is inside the repo checkout', file=sys.stderr)
+            sys.exit(1)
+        print('OK: workspace is outside the repo checkout')
+        "
 
-      Guard 2 — the profile directory this run will WRITE to:
+      Guard 2 — the profile directory this run will WRITE to must also be
+      outside the repo:
 
-        git check-ignore -v {profile_dir}
+        python3 -c "
+        import os, subprocess, sys
+        pd = os.path.realpath('{profile_dir}')
+        root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
+        root = os.path.realpath(root)
+        if pd.startswith(root + os.sep) or pd == root:
+            print('UNSAFE: profile_dir is inside the repo checkout', file=sys.stderr)
+            sys.exit(1)
+        print('OK: profile_dir is outside the repo checkout')
+        "
 
-      If EITHER path is not ignored, STOP and report which one. Guard 2 is the
-      one that matters most and the one most easily fooled. Per
-      src/resume/README.md, root .gitignore line 117 ignores
-      `src/resume/config/profiles/*`, so a real profile placed there is skipped
-      by `git add` silently unless forced — it looks committed but is not, and
-      the PII exposure is the opposite of what the ignore rule suggests. Private
-      profiles belong under `src/resume/_data/` (e.g.
-      `src/resume/_data/profiles_private/<name>/`), which is ignored by two
-      separate rules. Verify with the command above; do not decide this by
-      reading a .gitignore, because the root file's narrower
-      `profiles_private/` entry reads as the only coverage when it is not.
-      `src/resume/config/profiles/sample/` is a committed sample and is NOT
-      ignored — refuse to run against it, since applying real accomplishments
-      there would commit PII on the next `git add`.
+      If EITHER check fails, STOP and report which one. Guard 2 is the one that
+      matters most: it gates the write to the profile's source of truth.
+
+      Do NOT use src/resume/config/profiles/sample/ as {profile_dir} — that is
+      a committed sample and applying real accomplishments there would expose PII
+      via a subsequent `git add`.
 
       Verify the required params and the target profile:
         - {profile} and {profile_dir} must both be non-empty. Fail loudly if
@@ -641,11 +653,21 @@ stages:
       the DAG advance to this stage. This re-check is the last mechanical
       barrier before an uncited bullet becomes permanent in the source of truth.
 
-      GUARD 2 — confirm the destination is gitignored before touching it:
+      GUARD 2 — confirm the destination is outside the repo checkout before
+      touching it:
 
-        git check-ignore -v {profile_dir}
+        python3 -c "
+        import os, subprocess, sys
+        pd = os.path.realpath('{profile_dir}')
+        root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
+        root = os.path.realpath(root)
+        if pd.startswith(root + os.sep) or pd == root:
+            print('UNSAFE: profile_dir is inside the repo checkout', file=sys.stderr)
+            sys.exit(1)
+        print('OK: profile_dir is outside the repo checkout')
+        "
 
-      If it is not ignored, STOP without editing. init already checked this, but
+      If the check fails, STOP without editing. init already checked this, but
       the check is cheap and this is the one stage that writes PII to a path
       outside the workspace.
 
@@ -674,8 +696,9 @@ stages:
 
       Do this now, before reading any further. All three guards run to
       completion before the first Edit — the editing instructions below assume a
-      verified backup already exists. The profile directory is gitignored by
-      design, so git holds no history of it and is not available as an undo:
+      verified backup already exists. The profile directory lives outside the
+      repo checkout by design, so git holds no history of it and is not
+      available as an undo:
       this backup is the ONLY recovery path in the workflow, and an edit made
       before it exists is an unrecoverable edit to the source of truth. It is
       declared in writes_to so the engine's post-stage existence check covers it
@@ -727,8 +750,8 @@ stages:
       # Bare entry, so it resolves to {workspace}/outputs/experience.yaml.bak —
       # the same path the description writes and verify-profile restores from.
       # Declared here so the engine's post-stage existence check covers the one
-      # artifact that is the workflow's only undo (the profile dir is gitignored,
-      # so git cannot recover it).
+      # artifact that is the workflow's only undo (the profile dir is outside
+      # the repo checkout, so git cannot recover it).
       - "experience.yaml.bak"
 
   # ==========================================================================
