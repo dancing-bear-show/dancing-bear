@@ -274,8 +274,8 @@ class TestUncoveredGeneratorPaths(unittest.TestCase):
             out = str(Path(tmp) / "plain.xlsx")
             generate_xlsx(wb, out)
             ws = load_workbook(out)["Plain"]
-            self.assertEqual(ws.cell(2, 1).fill.fill_type, None)
-            self.assertEqual(ws.cell(3, 1).fill.fill_type, None)
+            self.assertIsNone(ws.cell(2, 1).fill.fill_type)
+            self.assertIsNone(ws.cell(3, 1).fill.fill_type)
 
     def test_column_width_skips_none_values(self) -> None:
         gen = SheetGenerator()

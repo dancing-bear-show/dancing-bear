@@ -868,7 +868,7 @@ class TestRenderMainPresentations(unittest.TestCase):
         cell, paras = _make_cell()
         pres = [{"title": "My Talk", "authors": "A. B.", "event": "PyCon", "note": "Best"}]
         self._fn(cell, {"presentations": pres}, {"body_pt": 10})
-        # title + authors + event + note = 4
+        # One paragraph each for title, authors, event and note.
         self.assertEqual(len(paras), 4)
 
     def test_renders_multiple_entries(self):
