@@ -244,7 +244,12 @@ stages:
         domain-map.json        — domain coverage and cluster assignments
         intent-sequences.json  — CLI co-occurrence and manual-workflow signals
         prompt-corpus.json     — full prompt text for intent analysis
-        efficiency-scores.json — avg_tool_calls_after per session (for roi scoring)
+        efficiency-scores.json — per-session cache/cost metrics and the top-10
+                                 expensive prompts. Context only; it does NOT
+                                 carry a per-session avg_tool_calls_after field.
+                                 ROI scoring reads tool_calls_after directly
+                                 from prompt-corpus.json and averages it over
+                                 the prompts belonging to each gap.
 
       Step 1 — subcommand gap detection:
         For each domain in domain-map.json with at least one mapped cluster:

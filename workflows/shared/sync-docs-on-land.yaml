@@ -393,4 +393,9 @@ stages:
       max_revisions: 2
     required: true
     writes_to:
-      - docs-findings.json
+      # Explicit validation/ prefix, not a bare filename: the engine resolves a
+      # bare name under {workspace}/outputs/ (dispatchers._write_output_files
+      # sets output_dir = workspace_dir / "outputs"), which would put the
+      # findings somewhere other than where this contract and the fragment
+      # header say they live.
+      - validation/docs-findings.json
