@@ -46,6 +46,7 @@ from ..outlook.commands import (
     run_outlook_calendar_share,
     run_outlook_settings_apply,
     run_outlook_mail_list,
+    run_outlook_ics_draft,
 )
 from ..gmail.commands import (
     run_gmail_scan_classes,
@@ -304,6 +305,18 @@ def cmd_outlook_settings_apply(args) -> int:
 @outlook_group.argument("--pages", type=int, default=1, help="Pages to fetch")
 def cmd_outlook_mail_list(args) -> int:
     return run_outlook_mail_list(args)
+
+
+@outlook_group.command("ics-draft", help="Export a plan YAML as an ICS Gmail draft")
+@outlook_group.argument("--credentials", help="Path to OAuth credentials.json")
+@outlook_group.argument("--token", help="Path to token.json")
+@outlook_group.argument("--cache", help=HELP_CACHE_DIR)
+@outlook_group.argument("--config", required=True, help=HELP_CONFIG_EVENTS)
+@outlook_group.argument("--recipient", required=True, help="Recipient email address for the draft")
+@outlook_group.argument("--subject", default="Calendar Plan", help="Email subject line")
+@outlook_group.argument("--dry-run", action="store_true", help="Print what would be created without creating the draft")
+def cmd_outlook_ics_draft(args) -> int:
+    return run_outlook_ics_draft(args)
 
 
 # --- gmail group ---
