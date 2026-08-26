@@ -637,17 +637,14 @@ stages:
                 the one the recorded plan assumed. If the two disagree, note
                 it and use the targets file's value.
 
-                For each entry, verify the path exists. Rescore it, capturing
-                stderr to a SEPARATE file so a tool failure stays visible
-                WITHOUT corrupting the JSON on stdout:
-                  ~/.qlty/bin/qlty smells <path> --json 2>/tmp/qlty-err.txt | \
-                    python3 -c "import json,sys; d=json.load(sys.stdin); \
-                      [print(i['value']) for i in d if i['ruleKey']=='file-complexity']"
+                For each entry, verify the path exists. Rescore it with:
+                  ./bin/qlty-assistant scan --smells-only \
+                    --rule file-complexity --format csv <path>
 
-                Do NOT use `2>&1` here. qlty writes progress spinners
-                ("[0/3] Analyzing...") to stderr, so merging the streams makes
-                json.load fail on EVERY file — verified. Keep them separate and
-                read /tmp/qlty-err.txt when parsing fails or output is empty.
+                The CSV has a header row plus one row per finding; the "value"
+                column is the file-complexity score and "file" is the path.
+                The wrapper owns qlty's stderr handling, so there is no stream
+                to redirect and no JSON to hand-parse.
 
                 Classify each entry into exactly one of three outcomes — do
                 NOT collapse the last two:

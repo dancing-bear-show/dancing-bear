@@ -45,14 +45,14 @@ stages:
       from the {complexity_floor} trigger param — the targets file is the
       single source of truth for the plan that was approved.
 
-      For each entry, verify the path exists. Rescore it, keeping stderr so a
-      tool failure is visible:
-        ~/.qlty/bin/qlty smells <path> --json 2>/tmp/qlty-err.txt | python3 -c "import json,sys; d=json.load(sys.stdin); [print(i['value']) for i in d if i['ruleKey']=='file-complexity']"
-                      # stderr goes to a SEPARATE file, never merged into stdout:
-                      # qlty writes progress spinners ("[0/3] Analyzing...") to stderr,
-                      # and merging them corrupts the JSON stream so EVERY file fails to
-                      # parse. On a parse failure or empty output, read /tmp/qlty-err.txt
-                      # for the real error and classify the entry as ERROR (never "drop").
+      For each entry, verify the path exists. Rescore it with:
+        ./bin/qlty-assistant scan --smells-only --rule file-complexity \
+          --format csv <path>
+
+      The CSV has a header row plus one row per finding; the "value" column is
+      the file-complexity score and "file" is the path. No score row for a
+      file that still exists means the rescore produced nothing — classify
+      that as ERROR, never as "drop".
 
       Classify each entry into exactly one of three outcomes:
         keep  — file exists and scores at or above the floor

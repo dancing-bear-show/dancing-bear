@@ -530,18 +530,11 @@ stages:
       A zero exit code does not prove the document is correct. Extract the text
       and check it:
 
-        python3 -c '
-        import html, re, sys, zipfile
-        z = zipfile.ZipFile(sys.argv[1])
-        x = z.read("word/document.xml").decode("utf-8")
-        x = re.sub(r"</w:p>", "\n", x)
-        x = re.sub(r"<[^>]+>", "", x)
-        print(html.unescape(x))' "{workspace}/outputs/resume-tailored.docx"
+        ./bin/assistant resume docx-text "{workspace}/outputs/resume-tailored.docx"
 
-      Pass the path as argv[1] as shown — never interpolate {company} or
-      {workspace} into the Python source itself. Those values come from
-      user-supplied params, so a quote character in either would break the
-      literal and turn the snippet into an injection point.
+      The path is passed as an argument, never interpolated into source code —
+      {company} and {workspace} come from user-supplied params, so a quote
+      character in either would otherwise become an injection point.
 
       Confirm ALL of the following, and report any that fail:
         - the candidate name and headline appear

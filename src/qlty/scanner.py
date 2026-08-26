@@ -53,6 +53,26 @@ class ScanResult:
         """Finding identities, for comparing runs without trusting totals."""
         return {f.identity for f in self.findings}
 
+    def filter_by_rules(self, rules: tuple[str, ...]) -> "ScanResult":
+        """Return a copy restricted to findings matching any of the named rules.
+
+        An unknown rule name yields zero findings for that rule rather than an
+        error: callers should not need to validate rule names before filtering.
+        Returns self unchanged when rules is empty so callers can skip the check.
+        """
+        if not rules:
+            return self
+        kept = tuple(f for f in self.findings if f.rule in rules)
+        return ScanResult(
+            findings=kept,
+            degradations=self.degradations,
+            wire_formats=self.wire_formats,
+            iterations=self.iterations,
+            stable=self.stable,
+            scanned_all=self.scanned_all,
+            duplicates_collapsed=self.duplicates_collapsed,
+        )
+
 
 @dataclass(frozen=True)
 class ScanRequest:

@@ -436,8 +436,8 @@ stages:
         Note any new issues introduced by the splits.
 
       Step 5 — re-run the complexity scan to confirm improvement:
-        ~/.qlty/bin/qlty smells --all --json 2>/dev/null | \
-          python3 -c "import json,sys; d=json.load(sys.stdin); [print(i['value'], i['location']['path']) for i in d if i['ruleKey']=='file-complexity']" | sort -rn
+        ./bin/qlty-assistant scan --smells-only --rule file-complexity \
+          --format csv
         Compare against {workspace}/outputs/analysis/candidates.json:
         confirm every split original file's new complexity (if it still
         appears at all) is lower than its pre-split value, and ideally
@@ -577,8 +577,8 @@ stages:
         Re-run to confirm clean.
 
       Step 3 — qlty complexity recheck:
-        ~/.qlty/bin/qlty smells --all --json 2>/dev/null | \
-          python3 -c "import json,sys; d=json.load(sys.stdin); [print(i['value'], i['location']['path']) for i in d if i['ruleKey']=='file-complexity']"
+        ./bin/qlty-assistant scan --smells-only --rule file-complexity \
+          --format csv
         Confirm no file touched by this sweep still exceeds its pre-split
         complexity value. It is acceptable for a split file to still appear
         in the list (e.g. at 55-60) as long as it's a clear improvement and
