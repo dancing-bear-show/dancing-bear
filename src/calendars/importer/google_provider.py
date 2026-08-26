@@ -296,7 +296,16 @@ class GoogleCalendarProvider:
                 v = int(interval_raw)
                 interval = v if v > 1 else None
             except ValueError:
-                pass
+                # Do NOT swallow this. A malformed INTERVAL silently treated as
+                # absent exports a triweekly series as plain weekly — a wrong
+                # plan that still looks correct. Skip and record instead.
+                self.skipped.append({
+                    "id": ev_id,
+                    "subject": subject,
+                    "reason": "malformed_interval",
+                    "value": str(interval_raw),
+                })
+                return None
 
         # UNTIL / COUNT
         range_dict: dict[str, str] | None = None
@@ -311,7 +320,15 @@ class GoogleCalendarProvider:
             try:
                 count = int(params["COUNT"])
             except ValueError:
-                pass
+                # A malformed COUNT dropped silently turns a bounded series into
+                # an unbounded one on re-import. Skip and record.
+                self.skipped.append({
+                    "id": ev_id,
+                    "subject": subject,
+                    "reason": "malformed_count",
+                    "value": str(params["COUNT"]),
+                })
+                return None
 
         # EXDATE lines
         exdates = _collect_exdates_from_recurrence(recurrence)

@@ -249,6 +249,36 @@ class TestUnrepresentableRRULEsSkipped(unittest.TestCase):
             f"Expected {reason_fragment!r} in reason {skip['reason']!r}",
         )
 
+    def test_malformed_interval_skipped_not_silently_dropped(self) -> None:
+        """A non-integer INTERVAL must skip, not degrade to plain weekly.
+
+        Swallowing the ValueError left interval=None, so a series declaring
+        INTERVAL=abc exported as an ordinary weekly event — a wrong plan that
+        still passes every count-based check.
+        """
+        ev = _timed_event("s10", "Class",
+                          "2026-01-05T09:00:00", "2026-01-05T10:00:00",
+                          recurrence=["RRULE:FREQ=WEEKLY;BYDAY=MO;INTERVAL=abc"])
+        self._assert_skipped_not_returned(ev, "malformed_interval")
+
+    def test_malformed_count_skipped_not_silently_dropped(self) -> None:
+        """A non-integer COUNT must skip, not turn a bounded series unbounded."""
+        ev = _timed_event("s11", "Standup",
+                          "2026-02-02T14:00:00", "2026-02-02T14:30:00",
+                          recurrence=["RRULE:FREQ=DAILY;COUNT=xyz"])
+        self._assert_skipped_not_returned(ev, "malformed_count")
+
+    def test_valid_interval_and_count_still_parse(self) -> None:
+        """The skip must not fire on well-formed values — no regression."""
+        provider = self._provider_with(_timed_event(
+            "ok1", "Class", "2026-01-05T09:00:00", "2026-01-05T10:00:00",
+            recurrence=["RRULE:FREQ=WEEKLY;BYDAY=MO;INTERVAL=3"],
+        ))
+        results = provider.list_events(("2026-01-01", "2026-12-31"))
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].interval, 3)
+        self.assertEqual(provider.skipped, [])
+
     def test_freq_yearly_skipped(self) -> None:
         ev = _timed_event("s1", "Anniversary",
                           "2026-06-15T12:00:00", "2026-06-15T13:00:00",
