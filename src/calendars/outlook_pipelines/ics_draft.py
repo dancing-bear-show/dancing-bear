@@ -77,14 +77,29 @@ _CRLF = "\r\n"
 
 
 def _fold(line: str) -> str:
-    """RFC 5545 §3.1 line folding: split at 75 octets, continuation with HTAB."""
+    """RFC 5545 §3.1 line folding: split at 75 octets, continuation with HTAB.
+
+    The limit is octets, not characters, and a fold must never land inside a
+    multi-byte UTF-8 sequence. Slicing the str by character index satisfies
+    neither: "é" is one character but two octets, so a 75-character chunk can
+    exceed 75 octets — and an emoji in a SUMMARY could be split mid-sequence,
+    producing bytes that do not decode. Accumulate encoded characters instead,
+    closing a chunk before the next character would cross the limit.
+    """
     if len(line.encode("utf-8")) <= 75:
         return line
     out: list[str] = []
-    while line:
-        chunk = line[:75]
-        out.append(chunk)
-        line = line[75:]
+    chunk: list[str] = []
+    used = 0
+    for ch in line:
+        width = len(ch.encode("utf-8"))
+        if used + width > 75 and chunk:
+            out.append("".join(chunk))
+            chunk, used = [], 0
+        chunk.append(ch)
+        used += width
+    if chunk:
+        out.append("".join(chunk))
     return ("\r\n\t").join(out)
 
 
@@ -115,10 +130,16 @@ def _ical_date(iso_date: str) -> str:
     return iso_date.replace("-", "")
 
 
-def _build_rrule(nev: dict[str, Any]) -> str | None:
+def _build_rrule(nev: dict[str, Any], *, date_valued: bool = False) -> str | None:
     """Build an RRULE string from a normalized event dict.
 
     Returns None when no recurrence info is present.
+
+    ``date_valued`` must match the DTSTART this RRULE accompanies. RFC 5545
+    §3.8.5.3 requires UNTIL to be a DATE when DTSTART is a DATE, and a
+    DATE-TIME when DTSTART is a DATE-TIME; mixing them is malformed and strict
+    parsers reject the whole calendar. An all-day recurring series (start_date
+    with no start_time) is the reachable case.
     """
     repeat = nev.get("repeat")
     if not repeat:
@@ -143,7 +164,12 @@ def _build_rrule(nev: dict[str, Any]) -> str | None:
     rng = nev.get("range") or {}
     until = rng.get("until")
     if until:
-        parts.append(f"UNTIL={_ical_date(until)}T235959Z")
+        compact_until = _ical_date(until)
+        # DATE-valued DTSTART -> DATE-valued UNTIL (no time, no Z).
+        parts.append(
+            f"UNTIL={compact_until}" if date_valued
+            else f"UNTIL={compact_until}T235959Z"
+        )
 
     count = nev.get("count")
     if count and not until:
@@ -175,10 +201,15 @@ def _build_vevent(nev: dict[str, Any]) -> list[str]:
         and "T" not in str(single_end)
     )
 
+    # Tracks whether the DTSTART actually emitted is DATE-valued, so the RRULE's
+    # UNTIL can match its type (RFC 5545 §3.8.5.3).
+    dtstart_is_date = False
+
     if is_all_day:
         # All-day: VALUE=DATE
         lines.append(f"DTSTART;VALUE=DATE:{_ical_date(single_start)}")
         lines.append(f"DTEND;VALUE=DATE:{_ical_date(single_end)}")
+        dtstart_is_date = True
     elif single_start and single_end:
         # One-off with time: use TZID param when tz is known, else plain UTC
         if tz:
@@ -204,6 +235,7 @@ def _build_vevent(nev: dict[str, Any]) -> list[str]:
                 lines.append(f"DTSTART:{dtstart_val}Z")
         elif start_date:
             lines.append(f"DTSTART;VALUE=DATE:{_ical_date(start_date)}")
+            dtstart_is_date = True
 
         if start_date and end_time:
             compact_date = _ical_date(start_date)
@@ -215,7 +247,7 @@ def _build_vevent(nev: dict[str, Any]) -> list[str]:
                 lines.append(f"DTEND:{dtend_val}Z")
 
     # Recurrence rule
-    rrule = _build_rrule(nev)
+    rrule = _build_rrule(nev, date_valued=dtstart_is_date)
     if rrule:
         lines.append(f"RRULE:{rrule}")
 

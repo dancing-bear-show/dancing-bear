@@ -497,6 +497,83 @@ class TestIcsDraftMultipleEvents(unittest.TestCase):
         self.assertIn("SUMMARY:Event C", result.ics_payload)
 
 
+class TestRfc5545Compliance(unittest.TestCase):
+    """Two RFC 5545 violations found by review, both silently wrong output."""
+
+    def test_fold_never_exceeds_75_octets_with_multibyte(self):
+        """Folding is measured in octets, not characters.
+
+        The old implementation checked byte length then sliced by character
+        index, so 75 accented characters produced a 150-octet segment.
+        """
+        from calendars.outlook_pipelines.ics_draft import _fold
+
+        line = "SUMMARY:" + "é" * 60 + "🎉" * 10 + "x" * 40
+        segments = _fold(line).split("\r\n\t")
+
+        self.assertGreater(len(segments), 1, "line should have folded")
+        for seg in segments:
+            self.assertLessEqual(
+                len(seg.encode("utf-8")), 75, f"segment exceeds 75 octets: {seg!r}"
+            )
+
+    def test_fold_preserves_content_and_never_splits_a_codepoint(self):
+        """Rejoining the folds must reproduce the input exactly."""
+        from calendars.outlook_pipelines.ics_draft import _fold
+
+        line = "SUMMARY:" + "🎉ü" * 40
+        rejoined = "".join(_fold(line).split("\r\n\t"))
+        self.assertEqual(rejoined, line)
+        # Each segment must be independently decodable (no split sequences).
+        for seg in _fold(line).split("\r\n\t"):
+            seg.encode("utf-8").decode("utf-8")
+
+    def test_fold_leaves_short_lines_untouched(self):
+        from calendars.outlook_pipelines.ics_draft import _fold
+
+        self.assertEqual(_fold("SUMMARY:Short"), "SUMMARY:Short")
+
+    def test_all_day_recurring_until_is_date_valued(self):
+        """A DATE DTSTART requires a DATE UNTIL (RFC 5545 3.8.5.3).
+
+        An all-day recurring series with range.until previously emitted
+        DTSTART;VALUE=DATE alongside UNTIL=...T235959Z — mixing value types,
+        which strict parsers reject.
+        """
+        from calendars.outlook_pipelines.ics_draft import _build_vevent
+
+        nev = {
+            "subject": "Standup",
+            "repeat": "weekly",
+            "byday": ["MO"],
+            "start": "2026-01-05",
+            "range": {"start_date": "2026-01-05", "until": "2026-06-30"},
+        }
+        lines = _build_vevent(nev)
+        dtstart = next(x for x in lines if x.startswith("DTSTART"))
+        rrule = next(x for x in lines if x.startswith("RRULE"))
+
+        self.assertIn("VALUE=DATE", dtstart)
+        self.assertIn("UNTIL=20260630", rrule)
+        self.assertNotIn("T235959Z", rrule)
+
+    def test_timed_recurring_until_keeps_date_time_form(self):
+        """A DATE-TIME DTSTART must keep the DATE-TIME UNTIL — no regression."""
+        from calendars.outlook_pipelines.ics_draft import _build_vevent
+
+        nev = {
+            "subject": "Swim",
+            "repeat": "weekly",
+            "byday": ["MO"],
+            "start_time": "18:00",
+            "end_time": "19:00",
+            "tz": "America/Toronto",
+            "range": {"start_date": "2026-01-05", "until": "2026-06-30"},
+        }
+        rrule = next(x for x in _build_vevent(nev) if x.startswith("RRULE"))
+        self.assertIn("UNTIL=20260630T235959Z", rrule)
+
+
 class TestGmailClientWiring(unittest.TestCase):
     """The non-dry-run path must build a client that can actually create a draft.
 
