@@ -27,13 +27,26 @@ KNOWN_ROLES: frozenset[str] = frozenset({
     "cross-unit-validator",
     "fact-checker",
     "critic",
+    "haiku-reviewer",
+    "workflow-author",
+    "thread-fixer",
+    "code-writer-opus",
+    "tester-opus",
+    "Explore",
+    "Plan",
 })
 
 _RESULT_FMT = (
-    '{{"stage_name": "{name}", "stage_index": {index}, "status": "success",\n'
+    '{{"stage_name": "{name}", "stage_index": {index},\n'
+    '  "status": "success" | "failed",   <- report what actually happened.\n'
+    '     Use "failed" if a command you were told to run exited non-zero, a\n'
+    '     required output could not be written, or you could not complete the\n'
+    '     stage as specified, and put the reason in "errors". Downstream\n'
+    '     stages are skipped only when a required stage reports "failed", so\n'
+    '     reporting "success" on failed work lets later stages act on it.\n'
     '  "started_at": "<ISO8601>", "finished_at": "<ISO8601>",\n'
     '  "duration_ms": <ms>, "output_files": [<files written>],\n'
-    '  "data": {{<summary>}}, "errors": []}}'
+    '  "data": {{<summary>}}, "errors": [<reason strings, [] when success>]}}'
 )
 
 _FINDINGS_EXAMPLE = json.dumps(

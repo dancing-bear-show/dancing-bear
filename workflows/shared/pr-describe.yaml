@@ -1,0 +1,128 @@
+# Shared workflow fragment — not runnable standalone.
+# Include via:
+#   include:
+#     - path: workflows/shared/pr-describe.yaml
+#       prefix: ""
+#       depends_on: [verify-fixes]
+#       reads_from: [verify-fixes]
+#
+# Stage injected: {prefix}-update-pr-description
+#
+# Caller must set trigger.params: pr_number
+#
+# Output: {workspace}/outputs/pr-description.md, {workspace}/outputs/pr-describe-result.json
+fragment: true
+name: pr-describe
+version: "1.0"
+description: >
+  Shared PR title/description fragment. Regenerates the PR title and body from
+  the final state of the diff — after fixes have landed, not from the original
+  commit messages — and checks the prose against .claude/WRITING_GUIDE.md
+  before pushing it to GitHub.
+
+  Params consumed from trigger.params: {pr_number}.
+
+stages:
+
+  - name: update-pr-description
+    kind: publish
+    depends_on: []      # overridden by include.depends_on
+    reads_from: []      # overridden by include.reads_from
+    description: >
+      Rewrite the title and description of PR {pr_number} to match what the
+      branch actually does now.
+
+      Prefix every gh command with `GITHUB_TOKEN=` (a stale token env var
+      silently breaks auth).
+
+      Step 1 — read the current state:
+        GITHUB_TOKEN= gh pr view {pr_number} --json number,title,body,baseRefName,headRefName
+        GITHUB_TOKEN= gh pr diff {pr_number} --name-only
+        GITHUB_TOKEN= gh pr diff {pr_number} | head -2000
+        git log --oneline origin/main..HEAD
+
+      Read the diff itself, not just the commit subjects. Fixes applied during
+      this run are the reason this stage exists: the original description was
+      written before them and is now stale by construction.
+
+      Step 2 — read the writing standard:
+        Read .claude/WRITING_GUIDE.md in full and apply it. The rules that most
+        often bite generated PR prose:
+          - No hollow enthusiasm, weasel words, or filler transitions
+          - Bold only for defined terms, warnings, and CLI command names
+          - No "In summary" recap of a description the reader just read
+          - Active voice: "Fixed the parser", not "The parser was fixed"
+          - State what changed and why; skip the narration of how it felt
+
+      Step 3 — compose the title. Conventional-commit form,
+      `<type>(<scope>): <subject>`, subject under 72 characters, scope is a
+      domain (mail, calendar, resume, workflow, core, …) — never a file name or
+      an adjective. The title describes the PR's net effect, not its last commit.
+
+      Step 4 — compose the body. Write it to
+      {workspace}/outputs/pr-description.md with these sections:
+
+        ## Summary
+        Two to four sentences: what changed and why. Prose, not bullets.
+
+        ## Changes
+        One bullet per meaningful change, grouped by domain. Reference files as
+        `path/to/file.py:line` where a specific location matters.
+
+        ## Review threads addressed
+        Only when {workspace}/outputs/triage.json exists — read it and list each
+        thread's disposition (fixed / rejected / deferred) with a one-line
+        reason. Omit this section entirely when the file is absent, rather than
+        emitting an empty heading.
+
+        Describe only what is verified at the time this stage runs. If
+        {workspace}/outputs/fix-results.json lists missing_results or
+        failed_tests, or validation/verify-results.json has all_green false,
+        say so here rather than listing those threads as fixed. This stage may
+        run before threads are actually replied to and resolved, and a later
+        stage can still abort — a description asserting every thread was
+        handled, sitting above a PR whose threads are all still open, is worse
+        than no section at all.
+
+        ## Testing
+        The exact commands run and their results. Never claim a test passed
+        without having its output; if a suite was skipped, say so.
+
+      Step 5 — self-check the prose against the guide before pushing. Re-read
+      the draft and strike any sentence that fails the guide's test: would a
+      senior engineer write this in a design doc? Rewrite rather than pad.
+
+      Step 6 — push it:
+        GITHUB_TOKEN= gh pr edit {pr_number} --title "<title>" --body-file {workspace}/outputs/pr-description.md
+
+      Use --body-file, never --body with an inline string: a description
+      containing backticks, quotes, or newlines is mangled by shell quoting,
+      and that failure is silent — gh exits 0 with a corrupted body.
+
+      Step 7 — verify the edit landed by re-fetching:
+        GITHUB_TOKEN= gh pr view {pr_number} --json title,body
+
+      Write {workspace}/outputs/pr-describe-result.json:
+        {
+          "pr_number": "{pr_number}",
+          "old_title": "...",
+          "new_title": "...",
+          "title_changed": true,
+          "body_bytes": N,
+          "sections": ["Summary", "Changes", "Testing"],
+          "verified": true,
+          "status": "ok|error",
+          "error": null
+        }
+
+      If the gh edit fails, write status "error" with the stderr in "error" and
+      exit non-zero. Do not report success for a description that never landed.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - pr-description.md
+      - pr-describe-result.json

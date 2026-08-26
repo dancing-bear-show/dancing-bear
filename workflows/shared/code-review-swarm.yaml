@@ -89,12 +89,19 @@ stages:
         callers need not provide an init stage for directory creation):
           mkdir -p {workspace}/outputs/diffs {workspace}/outputs/findings {workspace}/validation
 
-      Step 1 — resolve PR number and repository context:
+      Step 1 — resolve PR number and repository context.
+        Prefix every gh command with `GITHUB_TOKEN=` — a stale token env var
+        silently breaks auth. There is no `gh pr-view` subcommand; use `gh pr view`.
+
+        Resolve owner/repo rather than hardcoding:
+          NWO=$(GITHUB_TOKEN= gh repo view --json nameWithOwner -q .nameWithOwner)
+          OWNER=${NWO%%/*}; REPO=${NWO##*/}
+
         If {pr_number} is blank, detect from current branch:
           git rev-parse --abbrev-ref HEAD
-          gh pr-view -- --format json   (no --pr, relies on branch)
+          GITHUB_TOKEN= gh pr view --json number,title,body,baseRefName,headRefName,author,headRefOid
         Otherwise:
-          gh pr-view -- --pr {pr_number} --format json
+          GITHUB_TOKEN= gh pr view {pr_number} --json number,title,body,baseRefName,headRefName,author,headRefOid
         Write to {workspace}/outputs/pr-context.json.
         Record: title, body, base branch, head branch, author.
 
@@ -936,11 +943,17 @@ stages:
         PR review comment anchored to the first finding's line in the first
         finding's file (use the first critical finding if any; otherwise first
         major; otherwise first minor):
-          gh pr-review-comment -- PR_NUMBER \
-            --repo OWNER_REPO \
-            --path FIRST_FINDING_FILE \
-            --line FIRST_FINDING_LINE \
-            --body-file /tmp/cr-summary-body.txt
+          GITHUB_TOKEN= gh api "repos/$OWNER/$REPO/pulls/PR_NUMBER/comments" \
+            -f path=FIRST_FINDING_FILE \
+            -F line=FIRST_FINDING_LINE \
+            -f side=RIGHT \
+            -f commit_id=COMMIT_ID_FROM_PR_CONTEXT \
+            -f body="$(cat /tmp/cr-summary-body.txt)"
+
+        There is no `gh pr-review-comment` subcommand — inline review comments
+        go through the REST API above. Use -F (not -f) for line so it is sent
+        as a number, and pass the commit_id captured in Step 1 rather than
+        `git rev-parse HEAD`.
 
         This posts one consolidated comment thread rather than N individual
         threads, keeping the PR review tab readable.

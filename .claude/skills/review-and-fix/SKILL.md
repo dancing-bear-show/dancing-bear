@@ -24,7 +24,7 @@ presents a summary for final approval.
 
 ```bash
 # Detect PR number from current branch
-gh pr-view -- --format json | jq -r '.number'
+GITHUB_TOKEN= gh pr view --json number -q .number
 ```
 
 If the command returns a number, use it. If the branch has no open PR, ask the user.

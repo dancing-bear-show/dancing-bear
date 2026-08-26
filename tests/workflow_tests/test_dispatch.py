@@ -51,6 +51,46 @@ class TestKnownRoles(unittest.TestCase):
     def test_minimum_seven_roles(self) -> None:
         self.assertGreaterEqual(len(KNOWN_ROLES), 7)
 
+    def test_every_defined_agent_is_a_known_role(self) -> None:
+        """Each .claude/agents/<name>.md must appear in KNOWN_ROLES.
+
+        A role missing here still dispatches — build_dispatch_instruction only
+        logs a warning — so the gap is invisible on an unattended run. This
+        test is what makes adding an agent definition without registering it a
+        red build instead of a log line nobody reads.
+        """
+        agents_dir = Path(__file__).resolve().parents[2] / ".claude" / "agents"
+        defined = {p.stem for p in agents_dir.glob("*.md")}
+        self.assertTrue(defined, f"no agent definitions found under {agents_dir}")
+        missing = sorted(defined - set(KNOWN_ROLES))
+        self.assertEqual(
+            missing,
+            [],
+            f"agent definitions absent from KNOWN_ROLES: {missing}",
+        )
+
+    def test_unknown_role_still_dispatches_with_warning(self) -> None:
+        """An unregistered role must warn but still pass through as agent_type.
+
+        The sad path to the test above: dispatch must not raise or silently
+        rewrite the role, or a typo would fail in a way that is harder to
+        diagnose than the warning.
+        """
+        stage = make_resolved_stage(
+            spec=make_stage_spec(
+                name="bogus-stage",
+                kind=StageKind.gather,
+                agent=make_agent_spec(role="definitely-not-a-role"),
+            )
+        )
+        with self.assertLogs("workflow.dispatch", level="WARNING") as captured:
+            instruction = build_dispatch_instruction(stage, "test-workflow", "/tmp/ws")
+        self.assertEqual(instruction["agent_type"], "definitely-not-a-role")
+        self.assertTrue(
+            any("definitely-not-a-role" in line for line in captured.output),
+            f"expected a warning naming the role, got {captured.output}",
+        )
+
 
 # ---------------------------------------------------------------------------
 # build_agent_prompt — gather stage

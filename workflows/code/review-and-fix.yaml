@@ -408,11 +408,48 @@ stages:
         Use the Read tool on {workspace}/outputs/fix-manifest.json.
         For each fixed finding_id, extract comment_url from the manifest entry.
 
-      Step 3 — resolve threads:
-        For each comment_url, extract the PR number and resolve via:
-          Bash tool: ./bin/github review-threads -- {pr_number} --resolve
-        Note: the CLI resolves all threads in one call; this step confirms the
-        command succeeds after fixes are applied.
+      Step 3 — resolve threads, one at a time.
+
+        There is no ./bin/github in this repo — use the native gh CLI. Prefix
+        every command with `GITHUB_TOKEN=` (a stale token env var breaks auth).
+
+        Resolve owner/repo first, never hardcode:
+          NWO=$(GITHUB_TOKEN= gh repo view --json nameWithOwner -q .nameWithOwner)
+          OWNER=${NWO%%/*}; REPO=${NWO##*/}
+
+        A comment_url does not carry the GraphQL thread id needed to resolve,
+        so map each fixed finding to its thread. Fetch the threads with their
+        comment database ids:
+          GITHUB_TOKEN= gh api graphql -f query='
+          query($owner:String!,$name:String!,$pr:Int!){
+            repository(owner:$owner,name:$name){
+              pullRequest(number:$pr){
+                reviewThreads(first:100){nodes{
+                  id isResolved
+                  comments(first:1){nodes{ databaseId }}
+                }}
+              }
+            }
+          }' -F owner="$OWNER" -F name="$REPO" -F pr={pr_number}
+
+        The trailing numeric id in a comment_url is the comment databaseId —
+        match it against each thread's first comment to get the thread id.
+
+        Resolve ONLY the matched threads, individually:
+          GITHUB_TOKEN= gh api graphql -f query='
+          mutation($threadId:ID!){
+            resolveReviewThread(input:{threadId:$threadId}){
+              thread{ id isResolved }
+            }
+          }' -F threadId="<thread_id>"
+
+        Never resolve every thread on the PR in one sweep. A thread whose
+        finding was skipped, or that a human opened about something else, must
+        stay open — resolving it asserts a concern was handled when it was not.
+
+        Check thread.isResolved in the response rather than trusting the exit
+        code: a GraphQL error returns HTTP 200 with an errors array, so gh
+        exits 0 on a failed mutation.
 
       Write {workspace}/outputs/fix/thread-resolution.json:
         {

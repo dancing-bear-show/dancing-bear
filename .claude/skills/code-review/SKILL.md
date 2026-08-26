@@ -93,16 +93,49 @@ by the actual changes, so validators only spend time on relevant checks.
 
 | Need | CLI |
 |------|-----|
-| PR metadata | `gh pr-view -- --pr N --format json` |
+| PR metadata | `gh pr view N --json number,title,state,headRefOid` |
 | PR diff | `git diff main...HEAD` |
 | File diff | `git diff main...HEAD -- path/to/file` |
 | Changed files | `git diff main...HEAD --name-only` |
-| Post inline comment | `gh pr-review-comment -- --path src/foo.py --line 42 --body "..."` |
-| Review threads | `gh review-threads -- N` |
+| Post inline comment | `gh api repos/$OWNER/$REPO/pulls/N/comments -f path=src/foo.py -F line=42 -f body="..." -f commit_id=$SHA -f side=RIGHT` |
+| Review threads | run the `workflows/shared/pr-review-threads.yaml` fragment, or the GraphQL query below |
 | Global findings log | `tail -20 ~/.cache/claude/code-review-findings.ndjson \| python3 -m json.tool` |
 
-Never use raw `gh`, `curl`, or `git` as first choice — use `gh` for all PR operations
-including posting inline review comments.
+Prefix every `gh` command with `GITHUB_TOKEN=` — a stale token in the environment
+silently breaks auth. Resolve owner/repo rather than hardcoding it:
+
+```bash
+NWO=$(GITHUB_TOKEN= gh repo view --json nameWithOwner -q .nameWithOwner)
+OWNER=${NWO%%/*}; REPO=${NWO##*/}
+```
+
+**Review threads.** Prefer the shared fragment
+(`workflows/shared/pr-review-threads.yaml`) — it collects all three comment
+surfaces, paginates, and reconciles the `[bot]` suffix mismatch. Inline
+equivalent for the primary surface:
+
+```bash
+GITHUB_TOKEN= gh api graphql -f query='
+query($owner:String!,$name:String!,$pr:Int!){
+  repository(owner:$owner,name:$name){
+    pullRequest(number:$pr){
+      reviewThreads(first:100){
+        pageInfo{ hasNextPage endCursor }
+        nodes{
+          id isResolved isOutdated path line
+          comments(first:50){nodes{ databaseId author { login } body }}
+        }
+      }
+    }
+  }
+}' -F owner="$OWNER" -F name="$REPO" -F pr=N
+```
+
+Request the full comment chain, not `comments(first: 1)` — a human reply inside
+a thread may override the bot's opening comment. `line` is null on outdated
+threads. Top-level review bodies (`gh api repos/$OWNER/$REPO/pulls/N/reviews`)
+and PR-level comments (`gh api repos/$OWNER/$REPO/issues/N/comments`) are not
+review threads and will not appear in the query above.
 
 ## Global Findings Log
 
