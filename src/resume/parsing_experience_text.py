@@ -375,8 +375,12 @@ def parse_skill_groups(lines: list[str]) -> list[dict[str, Any]]:
         if not text:
             continue
         if _PAT_LEADING_BULLET.match(raw):
-            if groups:
-                groups[-1]["items"].append(strip_bullet_glyph(raw))
+            # A line holding only a glyph ("•") strips to "", which would render
+            # as an empty bullet AND keep an otherwise-empty group alive past
+            # the filter below. Drop it.
+            item = strip_bullet_glyph(raw)
+            if item and groups:
+                groups[-1]["items"].append(item)
         else:
             groups.append({"title": text, "items": []})
     return [g for g in groups if g["items"]]

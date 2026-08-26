@@ -171,6 +171,29 @@ class TestSkillsParsing(unittest.TestCase):
         """A heading with nothing under it is not a group."""
         self.assertEqual(parse_skill_groups(["Platform", "Observability"]), [])
 
+    def test_rejects_glyph_only_line_as_an_item(self):
+        """A line holding only a bullet glyph is not a skill.
+
+        strip_bullet_glyph("•") is "", which would render as an empty bullet
+        and, worse, keep an otherwise-empty group alive past the non-empty
+        filter.
+        """
+        groups = parse_skill_groups(
+            ["Platform", "•", "• AWS: operate workloads", "   •   "]
+        )
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0]["items"], ["AWS: operate workloads"])
+
+    def test_rejects_group_of_only_glyph_lines(self):
+        """A heading followed only by empty glyphs yields no group at all."""
+        self.assertEqual(parse_skill_groups(["Observability", "•", "  •  "]), [])
+
+    def test_rejects_empty_skill_from_glyph_only_line(self):
+        """The flat list must not gain an empty entry either."""
+        skills = _parse_skills(["Platform", "•", "• AWS: operate", "  •  "])
+        self.assertNotIn("", skills)
+        self.assertIn("AWS", skills)
+
 
 if __name__ == "__main__":
     unittest.main()
