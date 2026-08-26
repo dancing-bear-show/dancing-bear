@@ -11,6 +11,8 @@ Sad-path methods use the test_rejects_* / test_invalid_* naming contract.
 from __future__ import annotations
 
 import argparse
+import ast
+import inspect
 import json
 import tempfile
 import unittest
@@ -26,6 +28,38 @@ def _args(**kw):
     for k, v in kw.items():
         setattr(ns, k, v)
     return ns
+
+
+def _direct_args_data_calls(source: str | None = None) -> list[int]:
+    """Return line numbers of ``read_yaml_or_json(args.data)`` call nodes.
+
+    Walks the AST rather than scanning text: a call split across lines is
+    invisible to a substring search, and the same characters inside a comment
+    or docstring are not a call at all. ``source`` defaults to the resume CLI
+    module.
+    """
+    if source is None:
+        from resume.cli import main as cli_main
+
+        source = inspect.getsource(cli_main)
+
+    offenders: list[int] = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+        if name != "read_yaml_or_json" or not node.args:
+            continue
+        first = node.args[0]
+        if (
+            isinstance(first, ast.Attribute)
+            and first.attr == "data"
+            and isinstance(first.value, ast.Name)
+            and first.value.id == "args"
+        ):
+            offenders.append(node.lineno)
+    return offenders
 
 
 class TestResolveData(unittest.TestCase):
@@ -150,22 +184,43 @@ class TestEveryDataCommandUsesTheResolver(unittest.TestCase):
     """
 
     def test_rejects_direct_args_data_reads(self):
-        import inspect
+        """Match real call nodes via ast, not a source substring.
 
-        from resume.cli import main as cli_main
-
-        source = inspect.getsource(cli_main)
-        offenders = [
-            line.strip()
-            for line in source.splitlines()
-            if "read_yaml_or_json(args.data)" in line
-        ]
+        A substring scan gets this wrong in both directions: a call split
+        across lines is missed entirely, and the same text inside a comment or
+        docstring (this docstring, for instance) reads as a violation.
+        """
+        offenders = _direct_args_data_calls()
         self.assertEqual(
             offenders,
             [],
-            "read args.data directly instead of _resolve_data(args): "
-            f"{offenders}",
+            "read args.data directly instead of _resolve_data(args) at "
+            f"line(s) {offenders}",
         )
+
+    def test_guard_detects_a_multiline_violation(self):
+        """The guard itself must catch a call the substring scan missed.
+
+        Without this, a green guard proves nothing — the earlier version passed
+        while being blind to exactly the shape a reformatter would produce.
+        """
+        source = (
+            "def cmd(args):\n"
+            "    return read_yaml_or_json(\n"
+            "        args.data\n"
+            "    )\n"
+        )
+        self.assertEqual(_direct_args_data_calls(source), [2])
+
+    def test_guard_ignores_the_pattern_in_a_comment(self):
+        """A mention in prose is not a call."""
+        source = (
+            "# read_yaml_or_json(args.data) is what this replaced\n"
+            "def cmd(args):\n"
+            '    """Also mentions read_yaml_or_json(args.data)."""\n'
+            "    return read_yaml_or_json(_resolve_data(args))\n"
+        )
+        self.assertEqual(_direct_args_data_calls(source), [])
 
     def test_data_consuming_commands_declare_optional_data(self):
         """--data must not be required anywhere the resolver provides a default."""
