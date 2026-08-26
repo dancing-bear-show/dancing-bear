@@ -1,17 +1,17 @@
-"""Tests for resume/model.py dataclass models."""
+"""Tests for resume/schema.py dataclass models."""
 
 from __future__ import annotations
 
 import unittest
 
-from resume.model import Experience, Education, Resume
+from resume.schema import Education, ExperienceEntry, PriorityItem, Resume
 
 
-class TestExperience(unittest.TestCase):
-    """Tests for Experience dataclass."""
+class TestExperienceEntry(unittest.TestCase):
+    """Tests for ExperienceEntry dataclass."""
 
     def test_default_values(self):
-        exp = Experience()
+        exp = ExperienceEntry()
         self.assertEqual(exp.title, "")
         self.assertEqual(exp.company, "")
         self.assertEqual(exp.start, "")
@@ -20,7 +20,7 @@ class TestExperience(unittest.TestCase):
         self.assertEqual(exp.bullets, [])
 
     def test_with_values(self):
-        exp = Experience(
+        exp = ExperienceEntry(
             title="Senior Developer",
             company="TechCorp",
             start="2020",
@@ -36,14 +36,14 @@ class TestExperience(unittest.TestCase):
         self.assertEqual(exp.bullets, ["Built APIs", "Led team"])
 
     def test_bullets_default_factory(self):
-        exp1 = Experience()
-        exp2 = Experience()
+        exp1 = ExperienceEntry()
+        exp2 = ExperienceEntry()
         exp1.bullets.append("Task 1")
         # Should not affect exp2's bullets (separate instances)
         self.assertEqual(exp2.bullets, [])
 
     def test_partial_values(self):
-        exp = Experience(title="Developer", company="Startup")
+        exp = ExperienceEntry(title="Developer", company="Startup")
         self.assertEqual(exp.title, "Developer")
         self.assertEqual(exp.company, "Startup")
         self.assertEqual(exp.start, "")
@@ -86,13 +86,13 @@ class TestResume(unittest.TestCase):
         self.assertEqual(resume.email, "")
         self.assertEqual(resume.phone, "")
         self.assertEqual(resume.location, "")
-        self.assertEqual(resume.summary, "")
+        self.assertEqual(resume.summary, [])
         self.assertEqual(resume.skills, [])
         self.assertEqual(resume.experience, [])
         self.assertEqual(resume.education, [])
 
     def test_with_values(self):
-        exp = Experience(title="Developer", company="TechCorp")
+        exp = ExperienceEntry(title="Developer", company="TechCorp")
         edu = Education(degree="B.S.", institution="MIT")
         resume = Resume(
             name="John Doe",
@@ -100,7 +100,7 @@ class TestResume(unittest.TestCase):
             email="john@example.com",
             phone="555-1234",
             location="San Francisco, CA",
-            summary="10 years of experience...",
+            summary=[PriorityItem(text="10 years of experience...")],
             skills=["Python", "Java"],
             experience=[exp],
             education=[edu],
@@ -121,7 +121,7 @@ class TestResume(unittest.TestCase):
     def test_experience_default_factory(self):
         r1 = Resume()
         r2 = Resume()
-        r1.experience.append(Experience(title="Dev"))
+        r1.experience.append(ExperienceEntry(title="Dev"))
         self.assertEqual(r2.experience, [])
 
     def test_education_default_factory(self):
@@ -137,17 +137,17 @@ class TestResume(unittest.TestCase):
             email="jane@example.com",
             phone="555-5678",
             location="New York, NY",
-            summary="Experienced full stack developer",
+            summary=[PriorityItem(text="Experienced full stack developer")],
             skills=["Python", "React", "Docker"],
             experience=[
-                Experience(
+                ExperienceEntry(
                     title="Senior Developer",
                     company="BigCo",
                     start="2020",
                     end="Present",
                     bullets=["Led team of 5", "Built microservices"],
                 ),
-                Experience(
+                ExperienceEntry(
                     title="Junior Developer",
                     company="Startup",
                     start="2018",

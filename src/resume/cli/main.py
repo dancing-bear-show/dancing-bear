@@ -26,7 +26,7 @@ from core.paths import ENV_DATA_HOME, config_home, output_dir
 from core.textio import write_text
 
 from ..io_utils import read_text_any, read_text_raw, read_yaml_or_json, write_yaml_or_json
-from ..model import CandidateData
+from ..schema import CandidateData
 from ..parsing_linkedin import parse_linkedin_text
 from ..parsing_experience_text import parse_resume_text, merge_profiles
 from ..summarizer import build_summary
