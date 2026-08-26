@@ -12,6 +12,10 @@ Generated wrappers are symlinks to bin/_router.py.  The router derives which
 module to run from sys.argv[0] (the symlink name), using a baked _MODULE_MAP
 written into it by this script.  Run `make bin-wrappers` to regenerate after
 changing _wrappers.yaml.
+
+This script also keeps the wrapper-symlink exclusions in .qlty/qlty.toml in
+sync, so qlty does not report the router's body once per symlink that points
+at it.  See the generated block in that file for the full rationale.
 """
 from __future__ import annotations
 
@@ -29,6 +33,7 @@ except ImportError:
 BIN_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = BIN_DIR / "_wrappers.yaml"
 ROUTER_FILE = BIN_DIR / "_router.py"
+QLTY_CONFIG = BIN_DIR.parent / ".qlty" / "qlty.toml"
 
 # Template for the bash wrappers (unchanged from original).
 BASH_TEMPLATE = """\
@@ -132,6 +137,29 @@ if __name__ == "__main__":
 _GENERATED_SECTION_HEADER = "# --- BEGIN GENERATED SECTION (bin/_gen_wrappers.py) ---"
 _GENERATED_SECTION_FOOTER = "# --- END GENERATED SECTION ---"
 
+# Markers delimiting the generated wrapper-symlink block inside
+# .qlty/qlty.toml's exclude_patterns list.
+_QLTY_SECTION_HEADER = "  # --- BEGIN GENERATED WRAPPER SYMLINKS (bin/_gen_wrappers.py) ---"
+_QLTY_SECTION_FOOTER = "  # --- END GENERATED WRAPPER SYMLINKS ---"
+
+_QLTY_SECTION_COMMENT = """\
+  # Every bin/<name> below is a SYMLINK to bin/_router.py, which is the single
+  # real file behind all generated wrappers. qlty follows each symlink and reads
+  # the same 115 lines once per name, then reports them as N clones of each
+  # other -- one identical-code finding per wrapper, all pointing at the one
+  # file. That is an artifact of symlink traversal, not duplicated source: git
+  # stores these as mode 120000 pointing at a single blob.
+  #
+  # Only the symlink NAMES are excluded. bin/_router.py itself is deliberately
+  # absent from this list and stays fully covered -- verified empirically: an
+  # injected unused import and eval() in _router.py still report ruff:F401,
+  # ruff:E402, and bandit:B307 with these exclusions active. This is unlike the
+  # workflows/code/scripts/detect_facades.py entry above, where the excluded
+  # path IS the real file and linting is genuinely lost.
+  #
+  # Generated from bin/_wrappers.yaml -- run `make bin-wrappers` to refresh.
+  # `make bin-wrappers-check` (CI) fails if this block drifts from the config."""
+
 
 def load_config() -> dict:
     """Load _wrappers.yaml."""
@@ -208,6 +236,48 @@ def generate_router(module_map: dict[str, str]) -> str:
 def generate_bash(_name: str, spec: dict) -> str:
     """Generate bash wrapper content."""
     return BASH_TEMPLATE.format(base=spec["base"], args=spec["args"])
+
+
+def _render_qlty_section(wrapper_names: list[str]) -> str:
+    """Render the generated wrapper-symlink block for .qlty/qlty.toml."""
+    lines = [_QLTY_SECTION_HEADER, _QLTY_SECTION_COMMENT]
+    lines += [f'  "bin/{name}",' for name in sorted(wrapper_names)]
+    lines.append(_QLTY_SECTION_FOOTER)
+    return "\n".join(lines)
+
+
+def render_qlty_config(existing: str, wrapper_names: list[str]) -> str:
+    """Return qlty.toml with its generated wrapper-symlink block refreshed.
+
+    Replaces the content between the BEGIN/END markers. If the markers are not
+    present, the block is inserted just before the closing bracket of
+    exclude_patterns.
+    """
+    section = _render_qlty_section(wrapper_names)
+    lines = existing.split("\n")
+
+    try:
+        start = lines.index(_QLTY_SECTION_HEADER)
+        end = lines.index(_QLTY_SECTION_FOOTER)
+    except ValueError:
+        return _insert_qlty_section(lines, section)
+
+    return "\n".join(lines[:start] + section.split("\n") + lines[end + 1:])
+
+
+def _insert_qlty_section(lines: list[str], section: str) -> str:
+    """Insert the generated block before the close of exclude_patterns."""
+    in_block = False
+    for i, line in enumerate(lines):
+        if line.startswith("exclude_patterns"):
+            in_block = True
+            continue
+        if in_block and line.rstrip() == "]":
+            return "\n".join(lines[:i] + section.split("\n") + lines[i:])
+    raise SystemExit(
+        "_gen_wrappers.py: could not locate the exclude_patterns list in "
+        f"{QLTY_CONFIG}. Add the BEGIN/END wrapper-symlink markers manually."
+    )
 
 
 def _update_file(path: Path, content: str, check: bool) -> str:
@@ -301,6 +371,31 @@ def _process_python_symlinks(
     return changed, unchanged
 
 
+def _process_qlty_config(
+    python_specs: dict[str, dict], check: bool, verbose: bool
+) -> tuple[int, int]:
+    """Refresh the wrapper-symlink exclusions in .qlty/qlty.toml.
+
+    Returns (changed, unchanged).
+    """
+    if not QLTY_CONFIG.exists():
+        if verbose:
+            print(f"Skipped: {QLTY_CONFIG.name} (not found)")
+        return 0, 0
+
+    existing = QLTY_CONFIG.read_text()
+    content = render_qlty_config(existing, list(python_specs))
+    if content == existing:
+        if verbose:
+            print("Unchanged: .qlty/qlty.toml")
+        return 0, 1
+
+    if not check:
+        QLTY_CONFIG.write_text(content)
+    print(f"{'Would update' if check else 'Updated'}: .qlty/qlty.toml")
+    return 1, 0
+
+
 def _process_bash_section(
     bash_specs: dict[str, dict], check: bool, verbose: bool
 ) -> tuple[int, int]:
@@ -337,9 +432,10 @@ def main() -> int:
     c0, u0 = _process_router(module_map, args.check, args.verbose)
     c1, u1 = _process_python_symlinks(python_specs, args.check, args.verbose)
     c2, u2 = _process_bash_section(config.get("bash", {}), args.check, args.verbose)
+    c3, u3 = _process_qlty_config(python_specs, args.check, args.verbose)
 
-    changed = c0 + c1 + c2
-    unchanged = u0 + u1 + u2
+    changed = c0 + c1 + c2 + c3
+    unchanged = u0 + u1 + u2 + u3
 
     print(f"\nTotal: {changed} changed, {unchanged} unchanged")
     return 1 if args.check and changed > 0 else 0

@@ -5,29 +5,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
+from tests.resume_tests.docx_tests.fixtures import make_mock_doc as _make_mock_doc
 from tests.resume_tests.fixtures import mock_docx_modules
-
-
-def _make_mock_doc():
-    """Make a mock Document that tracks paragraphs."""
-    doc = MagicMock()
-    paragraphs = []
-
-    def _make_para(text="", **_kwargs):
-        p = MagicMock()
-        p.text = text
-        p.paragraph_format = MagicMock()
-        p.alignment = None
-        paragraphs.append(p)
-        return p
-
-    doc.add_heading = MagicMock(side_effect=_make_para)
-    doc.add_paragraph = MagicMock(side_effect=_make_para)
-    doc.paragraphs = paragraphs
-    doc.styles = {}
-    doc.sections = [MagicMock()]
-    doc.core_properties = MagicMock()
-    return doc
 
 
 @mock_docx_modules

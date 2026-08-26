@@ -133,23 +133,6 @@ class TestRunAccountsSyncLabels(unittest.TestCase):
         mock_producer.assert_called_once_with(dry_run=True)
 
 
-class TestRunAccountsExportFilters(unittest.TestCase):
-    """Tests for run_accounts_export_filters function."""
-
-    @patch("mail.accounts.commands.AccountsExportFiltersProducer")
-    @patch("mail.accounts.commands.AccountsExportFiltersProcessor")
-    @patch("mail.accounts.commands.AccountsExportFiltersRequestConsumer")
-    @patch("mail.accounts.commands.AccountsExportFiltersRequest")
-    def test_returns_zero_on_success(self, mock_request, mock_consumer, mock_processor, mock_producer):
-        mock_envelope = make_success_envelope()
-        mock_processor.return_value.process.return_value = mock_envelope
-
-        args = make_args()
-        result = run_accounts_export_filters(args)
-
-        self.assertEqual(result, 0)
-
-
 class TestRunAccountsSyncFilters(unittest.TestCase):
     """Tests for run_accounts_sync_filters function."""
 
@@ -211,38 +194,44 @@ class TestRunAccountsPlanLabels(unittest.TestCase):
         self.assertEqual(result, 1)
 
 
-class TestRunAccountsPlanFilters(unittest.TestCase):
-    """Tests for run_accounts_plan_filters function."""
+class TestRunAccountsSimpleSuccessCommands(unittest.TestCase):
+    """Tests for accounts commands whose only coverage is a bare success path.
 
-    @patch("mail.accounts.commands.AccountsPlanFiltersProducer")
-    @patch("mail.accounts.commands.AccountsPlanFiltersProcessor")
-    @patch("mail.accounts.commands.AccountsPlanFiltersRequestConsumer")
-    @patch("mail.accounts.commands.AccountsPlanFiltersRequest")
-    def test_returns_zero_on_success(self, mock_request, mock_consumer, mock_processor, mock_producer):
-        mock_envelope = make_success_envelope()
-        mock_processor.return_value.process.return_value = mock_envelope
+    run_accounts_export_filters, run_accounts_plan_filters, and
+    run_accounts_export_signatures each patch their own
+    Request/RequestConsumer/Processor/Producer quartet, run with default args,
+    and assert exit code 0 — no distinguishing behavior beyond the command
+    name. Table-driven over (case name, command prefix, entry point) to avoid
+    duplicating that scaffolding per command.
+    """
 
-        args = make_args()
-        result = run_accounts_plan_filters(args)
+    _SIMPLE_SUCCESS_COMMANDS = [
+        ("export_filters", "AccountsExportFilters", "run_accounts_export_filters"),
+        ("plan_filters", "AccountsPlanFilters", "run_accounts_plan_filters"),
+        ("export_signatures", "AccountsExportSignatures", "run_accounts_export_signatures"),
+    ]
 
-        self.assertEqual(result, 0)
+    def test_returns_zero_on_success(self):
+        module = "mail.accounts.commands"
+        entry_points = {
+            "run_accounts_export_filters": run_accounts_export_filters,
+            "run_accounts_plan_filters": run_accounts_plan_filters,
+            "run_accounts_export_signatures": run_accounts_export_signatures,
+        }
+        for case_name, command_prefix, entry_point_name in self._SIMPLE_SUCCESS_COMMANDS:
+            with self.subTest(command=case_name):
+                with patch(f"{module}.{command_prefix}Producer"), \
+                        patch(f"{module}.{command_prefix}Processor") as mock_processor, \
+                        patch(f"{module}.{command_prefix}RequestConsumer"), \
+                        patch(f"{module}.{command_prefix}Request"):
+                    mock_envelope = make_success_envelope()
+                    mock_processor.return_value.process.return_value = mock_envelope
 
+                    entry_point = entry_points[entry_point_name]
+                    args = make_args()
+                    result = entry_point(args)
 
-class TestRunAccountsExportSignatures(unittest.TestCase):
-    """Tests for run_accounts_export_signatures function."""
-
-    @patch("mail.accounts.commands.AccountsExportSignaturesProducer")
-    @patch("mail.accounts.commands.AccountsExportSignaturesProcessor")
-    @patch("mail.accounts.commands.AccountsExportSignaturesRequestConsumer")
-    @patch("mail.accounts.commands.AccountsExportSignaturesRequest")
-    def test_returns_zero_on_success(self, mock_request, mock_consumer, mock_processor, mock_producer):
-        mock_envelope = make_success_envelope()
-        mock_processor.return_value.process.return_value = mock_envelope
-
-        args = make_args()
-        result = run_accounts_export_signatures(args)
-
-        self.assertEqual(result, 0)
+                    self.assertEqual(result, 0)
 
 
 class TestRunAccountsSyncSignatures(unittest.TestCase):

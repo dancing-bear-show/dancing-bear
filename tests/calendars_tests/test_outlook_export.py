@@ -259,51 +259,38 @@ class TestOutlookExportProcessor(unittest.TestCase):
         self.assertEqual(skip["reason"], "unsupported_pattern")
         self.assertEqual(skip["pattern_type"], "relativeMonthly")
 
-    def test_unsupported_pattern_absolute_yearly(self):
-        """absoluteYearly pattern is skipped with loud failure."""
-        occ = {
-            "type": "occurrence",
-            "subject": "Annual review",
-            "seriesMasterId": "master-yearly-1",
-            "start": {"dateTime": "2026-01-01T10:00:00", "timeZone": "America/Toronto"},
-            "end": {"dateTime": "2026-01-01T11:00:00", "timeZone": "America/Toronto"},
-            "location": {},
-        }
-        master = _make_unsupported_master("Annual review", "absoluteYearly")
-        svc = _make_fake_service([occ])
-        svc.get_event.side_effect = lambda eid: master if eid == "master-yearly-1" else None
+    def test_unsupported_pattern_yearly_variants(self):
+        """absoluteYearly and relativeYearly patterns are each skipped with loud failure."""
+        cases = [
+            ("absoluteYearly", "Annual review", "master-yearly-1", "2026-01-01"),
+            ("relativeYearly", "Yearly check", "master-ryearly-1", "2026-03-01"),
+        ]
+        for pattern_type, subject, master_id, date in cases:
+            with self.subTest(pattern_type):
+                occ = {
+                    "type": "occurrence",
+                    "subject": subject,
+                    "seriesMasterId": master_id,
+                    "start": {"dateTime": f"{date}T10:00:00", "timeZone": "America/Toronto"},
+                    "end": {"dateTime": f"{date}T11:00:00", "timeZone": "America/Toronto"},
+                    "location": {},
+                }
+                master = _make_unsupported_master(subject, pattern_type)
+                svc = _make_fake_service([occ])
+                svc.get_event.side_effect = lambda eid, master=master, master_id=master_id: (
+                    master if eid == master_id else None
+                )
 
-        from calendars.outlook_pipelines.export import OutlookExportProcessor, OutlookExportRequest
-        request = OutlookExportRequest(service=svc, calendar=None, from_date="2026-01-01", to_date="2026-12-31", out_path=None)
-        envelope = OutlookExportProcessor().process(request)
-        result = envelope.payload
-        self.assertEqual(result.event_count, 0)
-        self.assertEqual(len(result.skipped), 1)
-        self.assertEqual(result.skipped[0]["reason"], "unsupported_pattern")
-        self.assertEqual(result.skipped[0]["pattern_type"], "absoluteYearly")
-
-    def test_unsupported_pattern_relative_yearly(self):
-        """relativeYearly pattern is skipped with loud failure."""
-        occ = {
-            "type": "occurrence",
-            "subject": "Yearly check",
-            "seriesMasterId": "master-ryearly-1",
-            "start": {"dateTime": "2026-03-01T10:00:00", "timeZone": "America/Toronto"},
-            "end": {"dateTime": "2026-03-01T11:00:00", "timeZone": "America/Toronto"},
-            "location": {},
-        }
-        master = _make_unsupported_master("Yearly check", "relativeYearly")
-        svc = _make_fake_service([occ])
-        svc.get_event.side_effect = lambda eid: master if eid == "master-ryearly-1" else None
-
-        from calendars.outlook_pipelines.export import OutlookExportProcessor, OutlookExportRequest
-        request = OutlookExportRequest(service=svc, calendar=None, from_date="2026-01-01", to_date="2026-12-31", out_path=None)
-        envelope = OutlookExportProcessor().process(request)
-        result = envelope.payload
-        self.assertEqual(result.event_count, 0)
-        self.assertEqual(len(result.skipped), 1)
-        self.assertEqual(result.skipped[0]["reason"], "unsupported_pattern")
-        self.assertEqual(result.skipped[0]["pattern_type"], "relativeYearly")
+                from calendars.outlook_pipelines.export import OutlookExportProcessor, OutlookExportRequest
+                request = OutlookExportRequest(
+                    service=svc, calendar=None, from_date="2026-01-01", to_date="2026-12-31", out_path=None
+                )
+                envelope = OutlookExportProcessor().process(request)
+                result = envelope.payload
+                self.assertEqual(result.event_count, 0)
+                self.assertEqual(len(result.skipped), 1)
+                self.assertEqual(result.skipped[0]["reason"], "unsupported_pattern")
+                self.assertEqual(result.skipped[0]["pattern_type"], pattern_type)
 
     def test_full_fixture_round_trip(self):
         """Combined fixture: one-off + weekly + all-day + unsupported = 3 events, 1 skipped."""

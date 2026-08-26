@@ -6,6 +6,7 @@ from pathlib import Path
 
 from slides.parsers_csv import load_deck_from_csv
 from slides.schema import BulletItem, TableSlide
+from tests.slides_tests.fixtures import assert_metadata_passthrough
 
 
 # ---------------------------------------------------------------------------
@@ -108,10 +109,14 @@ class TestLoadDeckFromCsv(unittest.TestCase):
             template_slide_index=7,
             theme_color="ACCENT_3",
         )
-        self.assertEqual(deck.metadata.author, "Charlie")
-        self.assertEqual(deck.template_path, "/tmp/t.pptx")  # nosec B108 - asserting on mock data value
-        self.assertEqual(deck.metadata.template_slide_index, 7)
-        self.assertEqual(deck.metadata.theme_color, "ACCENT_3")
+        assert_metadata_passthrough(
+            self,
+            deck,
+            author="Charlie",
+            template_path="/tmp/t.pptx",  # nosec B108 - asserting on mock data value
+            template_slide_index=7,
+            theme_color="ACCENT_3",
+        )
 
     def test_empty_text_rows_skipped(self):
         """Rows with empty summary text are skipped."""

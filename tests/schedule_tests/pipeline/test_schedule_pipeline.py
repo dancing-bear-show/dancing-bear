@@ -528,46 +528,36 @@ class BuildVerifyLinesSubjectTests(TestCase):
         self.assertTrue(any("Missing (by subject)" in line for line in lines))
 
 
-class VerifyProducerTests(TestCase):
-    """Tests for VerifyProducer."""
+class VerifyAndSyncProducerTests(TestCase):
+    """Tests for VerifyProducer and SyncProducer (same produce() contract)."""
 
     def test_produce_success(self):
-        payload = VerifyResult(lines=["Line 1", "Line 2"])
-        env = ResultEnvelope(status="success", payload=payload)
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            VerifyProducer().produce(env)
-        output = buf.getvalue()
-        self.assertIn("Line 1", output)
-        self.assertIn("Line 2", output)
+        cases = [
+            ("verify", VerifyProducer, VerifyResult(lines=["Line 1", "Line 2"]), ["Line 1", "Line 2"]),
+            ("sync", SyncProducer, SyncResult(lines=["Created: 5", "Deleted: 2"]), ["Created: 5", "Deleted: 2"]),
+        ]
+        for case_name, producer_cls, payload, expected_lines in cases:
+            with self.subTest(case_name):
+                env = ResultEnvelope(status="success", payload=payload)
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    producer_cls().produce(env)
+                output = buf.getvalue()
+                for expected in expected_lines:
+                    self.assertIn(expected, output)
 
     def test_produce_error(self):
-        env = ResultEnvelope(status="error", diagnostics={"message": "Verify failed"})
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            VerifyProducer().produce(env)
-        self.assertIn("Verify failed", buf.getvalue())
-
-
-class SyncProducerTests(TestCase):
-    """Tests for SyncProducer."""
-
-    def test_produce_success(self):
-        payload = SyncResult(lines=["Created: 5", "Deleted: 2"])
-        env = ResultEnvelope(status="success", payload=payload)
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            SyncProducer().produce(env)
-        output = buf.getvalue()
-        self.assertIn("Created: 5", output)
-        self.assertIn("Deleted: 2", output)
-
-    def test_produce_error(self):
-        env = ResultEnvelope(status="error", diagnostics={"message": "Sync failed"})
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            SyncProducer().produce(env)
-        self.assertIn("Sync failed", buf.getvalue())
+        cases = [
+            ("verify", VerifyProducer, "Verify failed"),
+            ("sync", SyncProducer, "Sync failed"),
+        ]
+        for case_name, producer_cls, message in cases:
+            with self.subTest(case_name):
+                env = ResultEnvelope(status="error", diagnostics={"message": message})
+                buf = io.StringIO()
+                with redirect_stderr(buf):
+                    producer_cls().produce(env)
+                self.assertIn(message, buf.getvalue())
 
 
 class ApplyProducerTests(TestCase):

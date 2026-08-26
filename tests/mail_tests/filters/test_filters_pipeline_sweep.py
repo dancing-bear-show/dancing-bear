@@ -36,29 +36,7 @@ from mail.filters.producers import (
     FiltersRemoveTokenProducer,
 )
 
-from tests.mail_tests.fixtures import FakeGmailClient
-
-
-def _make_pipeline_client():
-    """Create a FakeGmailClient configured for filters pipeline tests."""
-    return FakeGmailClient(
-        labels=[
-            {"id": "LBL_VIP", "name": "VIP"},
-            {"id": "LBL_OTHER", "name": "Other"},
-        ],
-        filters=[
-            {
-                "id": "EXTRA",
-                "criteria": {"from": "someone@example.com"},
-                "action": {"addLabelIds": ["LBL_OTHER"]},
-            }
-        ],
-        message_ids_by_query={
-            "foo@example.com": ["m1"] * 5,
-            'subject:"bar report"': ["m2"] * 3,
-        },
-        verified_forward_addresses={"verified@example.com"},
-    )
+from tests.mail_tests.fixtures import FakeGmailClient, make_pipeline_client
 
 
 class FiltersSweepProcessorTests(unittest.TestCase):
@@ -69,7 +47,7 @@ class FiltersSweepProcessorTests(unittest.TestCase):
         cfg_path.write_text(data)
         args = SimpleNamespace(config=str(cfg_path), **flags)
         ctx = MailContext.from_args(args)
-        ctx.gmail_client = _make_pipeline_client()
+        ctx.gmail_client = make_pipeline_client()
         return ctx
 
     def test_sweep_pipeline_modifies_messages(self):
@@ -188,7 +166,7 @@ class FiltersPruneProcessorTests(unittest.TestCase):
     def _make_context(self, *, dry_run: bool):
         args = SimpleNamespace(pages=2, days=None, only_inbox=False, dry_run=dry_run)
         ctx = MailContext.from_args(args)
-        ctx.gmail_client = _make_pipeline_client()
+        ctx.gmail_client = make_pipeline_client()
         return ctx
 
     def test_prune_dry_run_outputs_plan(self):
@@ -230,7 +208,7 @@ class FiltersAddForwardProcessorTests(unittest.TestCase):
             require_forward_verified=require_verified,
         )
         ctx = MailContext.from_args(args)
-        ctx.gmail_client = _make_pipeline_client()
+        ctx.gmail_client = make_pipeline_client()
         return ctx
 
     def test_add_forward_dry_run(self):
@@ -278,7 +256,7 @@ class FiltersAddTokenProcessorTests(unittest.TestCase):
             dry_run=dry_run,
         )
         ctx = MailContext.from_args(args)
-        ctx.gmail_client = _make_pipeline_client()
+        ctx.gmail_client = make_pipeline_client()
         return ctx
 
     def test_add_token_dry_run(self):

@@ -120,60 +120,46 @@ class TestRunBackup(unittest.TestCase):
         self.assertEqual(result, 1)
 
 
-class TestRunCacheStats(unittest.TestCase):
-    """Tests for run_cache_stats command."""
+class TestRunCacheStatsAndClear(unittest.TestCase):
+    """Tests for run_cache_stats and run_cache_clear commands.
 
-    @patch("mail.config_cli.commands.CacheStatsProducer")
-    @patch("mail.config_cli.commands.CacheStatsProcessor")
-    @patch("mail.config_cli.commands.RequestConsumer")
-    def test_returns_zero_on_success(self, mock_req_consumer, mock_processor_cls, mock_producer_cls):
-        from mail.config_cli.commands import run_cache_stats
-        envelope = _make_ok_envelope()
-        mock_processor_cls.return_value.process.return_value = envelope
+    Both commands share the same shape: patch RequestConsumer/Processor/Producer
+    for the command, run it against a bare `cache` arg, and assert the exit code
+    that mirrors envelope success/error. Table-driven over (case name, patched
+    class prefix, entry point name) to avoid duplicating that scaffolding per
+    command.
+    """
 
-        args = SimpleNamespace(cache="/tmp/cache")  # nosec B108 - test-only temp file, not a security concern
-        result = run_cache_stats(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
-        self.assertEqual(result, 0)
+    _CACHE_COMMANDS = [
+        ("cache_stats", "CacheStats", "run_cache_stats"),
+        ("cache_clear", "CacheClear", "run_cache_clear"),
+    ]
 
-    @patch("mail.config_cli.commands.CacheStatsProducer")
-    @patch("mail.config_cli.commands.CacheStatsProcessor")
-    @patch("mail.config_cli.commands.RequestConsumer")
-    def test_returns_one_on_error(self, mock_req_consumer, mock_processor_cls, mock_producer_cls):
-        from mail.config_cli.commands import run_cache_stats
-        envelope = _make_error_envelope()
-        mock_processor_cls.return_value.process.return_value = envelope
+    def _run_cache_command(self, command_prefix, entry_point_name, envelope):
+        """Patch the command's Producer/Processor/RequestConsumer and invoke it."""
+        module = "mail.config_cli.commands"
+        with patch(f"{module}.{command_prefix}Producer"), \
+                patch(f"{module}.{command_prefix}Processor") as mock_processor_cls, \
+                patch(f"{module}.RequestConsumer"):
+            mock_processor_cls.return_value.process.return_value = envelope
 
-        args = SimpleNamespace(cache="/tmp/cache")  # nosec B108 - test-only temp file, not a security concern
-        result = run_cache_stats(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
-        self.assertEqual(result, 1)
+            from mail.config_cli import commands
 
+            entry_point = getattr(commands, entry_point_name)
+            args = SimpleNamespace(cache="/tmp/cache")  # nosec B108 - test-only temp file, not a security concern
+            return entry_point(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
 
-class TestRunCacheClear(unittest.TestCase):
-    """Tests for run_cache_clear command."""
+    def test_returns_zero_on_success(self):
+        for case_name, command_prefix, entry_point_name in self._CACHE_COMMANDS:
+            with self.subTest(command=case_name):
+                result = self._run_cache_command(command_prefix, entry_point_name, _make_ok_envelope())
+                self.assertEqual(result, 0)
 
-    @patch("mail.config_cli.commands.CacheClearProducer")
-    @patch("mail.config_cli.commands.CacheClearProcessor")
-    @patch("mail.config_cli.commands.RequestConsumer")
-    def test_returns_zero_on_success(self, mock_req_consumer, mock_processor_cls, mock_producer_cls):
-        from mail.config_cli.commands import run_cache_clear
-        envelope = _make_ok_envelope()
-        mock_processor_cls.return_value.process.return_value = envelope
-
-        args = SimpleNamespace(cache="/tmp/cache")  # nosec B108 - test-only temp file, not a security concern
-        result = run_cache_clear(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
-        self.assertEqual(result, 0)
-
-    @patch("mail.config_cli.commands.CacheClearProducer")
-    @patch("mail.config_cli.commands.CacheClearProcessor")
-    @patch("mail.config_cli.commands.RequestConsumer")
-    def test_returns_one_on_error(self, mock_req_consumer, mock_processor_cls, mock_producer_cls):
-        from mail.config_cli.commands import run_cache_clear
-        envelope = _make_error_envelope()
-        mock_processor_cls.return_value.process.return_value = envelope
-
-        args = SimpleNamespace(cache="/tmp/cache")  # nosec B108 - test-only temp file, not a security concern
-        result = run_cache_clear(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
-        self.assertEqual(result, 1)
+    def test_returns_one_on_error(self):
+        for case_name, command_prefix, entry_point_name in self._CACHE_COMMANDS:
+            with self.subTest(command=case_name):
+                result = self._run_cache_command(command_prefix, entry_point_name, _make_error_envelope())
+                self.assertEqual(result, 1)
 
 
 class TestRunCachePrune(unittest.TestCase):

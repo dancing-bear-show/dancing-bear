@@ -45,6 +45,36 @@ stages:
 """
 
 
+def _fan_out_workflow_yaml(*, executor_line: str = "", mode_line: str = "") -> str:
+    """A gather stage feeding a fan-stage, with optional executor/mode lines."""
+    return f"""\
+name: n
+version: "1.0"
+description: d
+trigger:
+  source: manual
+stages:
+  - name: gather
+    kind: gather
+    description: d
+    agent:
+      role: r
+    writes_to:
+      - items.json
+  - name: fan-stage
+    kind: execute
+{executor_line}    description: Process {{team}}
+    depends_on: [gather]
+    reads_from: [gather]
+    agent:
+      role: r
+    fan_out:
+      source: gather
+      field: items
+      key: team
+{mode_line}"""
+
+
 # ---------------------------------------------------------------------------
 # LintError / LintWarning / LintResult dataclasses
 # ---------------------------------------------------------------------------
@@ -215,33 +245,7 @@ class TestLintWorkflowVarRefWarnings(unittest.TestCase):
 
 class TestCheckFanOutWorkerQueue(unittest.TestCase):
     def test_worker_queue_with_empty_script_produces_error(self) -> None:
-        yaml_str = """\
-name: n
-version: "1.0"
-description: d
-trigger:
-  source: manual
-stages:
-  - name: gather
-    kind: gather
-    description: d
-    agent:
-      role: r
-    writes_to:
-      - items.json
-  - name: fan-stage
-    kind: execute
-    description: Process {team}
-    depends_on: [gather]
-    reads_from: [gather]
-    agent:
-      role: r
-    fan_out:
-      source: gather
-      field: items
-      key: team
-      mode: worker_queue
-"""
+        yaml_str = _fan_out_workflow_yaml(mode_line="      mode: worker_queue\n")
         with tempfile.TemporaryDirectory() as tmp_dir:
             wf = Path(tmp_dir) / "wf.yaml"
             wf.write_text(yaml_str, encoding="utf-8")
@@ -257,33 +261,7 @@ stages:
 
 class TestCheckInlineExecutor(unittest.TestCase):
     def test_inline_with_fan_out_produces_error(self) -> None:
-        yaml_str = """\
-name: n
-version: "1.0"
-description: d
-trigger:
-  source: manual
-stages:
-  - name: gather
-    kind: gather
-    description: d
-    agent:
-      role: r
-    writes_to:
-      - items.json
-  - name: fan-stage
-    kind: execute
-    executor: inline
-    description: Process {team}
-    depends_on: [gather]
-    reads_from: [gather]
-    agent:
-      role: r
-    fan_out:
-      source: gather
-      field: items
-      key: team
-"""
+        yaml_str = _fan_out_workflow_yaml(executor_line="    executor: inline\n")
         with tempfile.TemporaryDirectory() as tmp_dir:
             wf = Path(tmp_dir) / "wf.yaml"
             wf.write_text(yaml_str, encoding="utf-8")

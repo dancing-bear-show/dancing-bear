@@ -65,55 +65,37 @@ class TestPDFParserTryPdfplumber(unittest.TestCase):
         self.assertEqual(result[0].end_time, '12:00')
         self.assertEqual(result[1].byday, ['TU'])
 
-    def test_try_pdfplumber_skips_tables_without_day_header(self):
-        """Test _try_pdfplumber skips tables missing Day column."""
-        parser = PDFParser()
-
-        mock_page = MagicMock()
-        mock_page.extract_tables.return_value = [
-            [
+    def test_try_pdfplumber_skips_tables_missing_required_header(self):
+        """Test _try_pdfplumber skips tables missing the Day or Leisure column."""
+        cases = {
+            'missing Day column': [
                 ['Activity', 'Leisure Swim'],
                 ['Morning', '10:00am - 11:00am'],
-            ]
-        ]
-
-        mock_pdf = MagicMock()
-        mock_pdf.pages = [mock_page]
-        mock_pdf.__enter__ = MagicMock(return_value=mock_pdf)
-        mock_pdf.__exit__ = MagicMock(return_value=False)
-
-        mock_pdfplumber = MagicMock()
-        mock_pdfplumber.open.return_value = mock_pdf
-
-        with patch.dict('sys.modules', {'pdfplumber': mock_pdfplumber}):
-            result = parser._try_pdfplumber('/fake/path.pdf')
-
-        self.assertEqual(result, [])
-
-    def test_try_pdfplumber_skips_tables_without_leisure_header(self):
-        """Test _try_pdfplumber skips tables missing Leisure column."""
-        parser = PDFParser()
-
-        mock_page = MagicMock()
-        mock_page.extract_tables.return_value = [
-            [
+            ],
+            'missing Leisure column': [
                 ['Day', 'Lane Swim'],
                 ['Monday', '6:00am-8:00am'],
-            ]
-        ]
+            ],
+        }
+        for case_name, table in cases.items():
+            with self.subTest(case_name):
+                parser = PDFParser()
 
-        mock_pdf = MagicMock()
-        mock_pdf.pages = [mock_page]
-        mock_pdf.__enter__ = MagicMock(return_value=mock_pdf)
-        mock_pdf.__exit__ = MagicMock(return_value=False)
+                mock_page = MagicMock()
+                mock_page.extract_tables.return_value = [table]
 
-        mock_pdfplumber = MagicMock()
-        mock_pdfplumber.open.return_value = mock_pdf
+                mock_pdf = MagicMock()
+                mock_pdf.pages = [mock_page]
+                mock_pdf.__enter__ = MagicMock(return_value=mock_pdf)
+                mock_pdf.__exit__ = MagicMock(return_value=False)
 
-        with patch.dict('sys.modules', {'pdfplumber': mock_pdfplumber}):
-            result = parser._try_pdfplumber('/fake/path.pdf')
+                mock_pdfplumber = MagicMock()
+                mock_pdfplumber.open.return_value = mock_pdf
 
-        self.assertEqual(result, [])
+                with patch.dict('sys.modules', {'pdfplumber': mock_pdfplumber}):
+                    result = parser._try_pdfplumber('/fake/path.pdf')
+
+                self.assertEqual(result, [])
 
     def test_try_pdfplumber_handles_empty_leisure_cell(self):
         """Test _try_pdfplumber skips rows with empty leisure cell."""

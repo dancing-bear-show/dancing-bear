@@ -492,57 +492,51 @@ class TestHyperlinkEndToEnd(unittest.TestCase):
         # Target relationship: full URL preserved
         self.assertIn("https://www.youtube.com/watch?v=TmjY1HJemi4", rels_xml)
 
-    def test_file_scheme_link_does_not_produce_external_relationship(self):
-        """Presentation with a file: link must NOT create an external relationship.
+    def test_dangerous_scheme_links_do_not_produce_external_relationship(self):
+        """Presentations with file: or javascript: links must NOT create an external relationship.
 
-        file:// URLs are dangerous — they can expose local filesystem paths.
+        Both schemes are dangerous for different reasons — file:// can expose
+        local filesystem paths, javascript: enables XSS via alert(document.cookie).
         After scheme restriction, normalize_link_url returns "" and add_hyperlink
-        falls back to plain text, so no TargetMode="External" entry should appear.
+        falls back to plain text, so no TargetMode="External" entry should appear
+        for either. Each case is checked against its own forbidden substrings
+        (the raw URL for file:, both the scheme and payload for javascript:) so a
+        regression in either scheme's handling fails independently.
         """
-        data = {
-            "name": "Helen Test",
-            "presentations": [
-                {
-                    "title": "Internal Slides",
-                    "link": "file:///Users/helen/slides.pdf",
+        cases = [
+            (
+                "file scheme",
+                "Helen Test", "Internal Slides", "file:///Users/helen/slides.pdf",
+                ["file:///Users/helen/slides.pdf"],
+                True,
+            ),
+            (
+                "javascript scheme",
+                "Ivan Test", "XSS Demo", "javascript:alert(document.cookie)",
+                ["javascript:", "alert"],
+                False,
+            ),
+        ]
+        for label, name, title, link, forbidden_in_rels, check_title_renders in cases:
+            with self.subTest(label):
+                data = {
+                    "name": name,
+                    "presentations": [{"title": title, "link": link}],
                 }
-            ],
-        }
-        template = {
-            "sections": [{"key": "presentations", "title": "Presentations"}],
-            "page": {"compact": False},
-        }
-
-        docx_bytes = self._render_resume(data, template)
-        rels_xml = self._get_zip_member(docx_bytes, "word/_rels/document.xml.rels")
-        doc_xml = self._get_zip_member(docx_bytes, "word/document.xml")
-
-        # No external relationship for the file: URL.
-        self.assertNotIn("file:///Users/helen/slides.pdf", rels_xml)
-        # Title should appear as plain text.
-        self.assertIn("Internal Slides", doc_xml)
-
-    def test_javascript_scheme_link_does_not_produce_external_relationship(self):
-        """Presentation with a javascript: link must NOT create an external relationship."""
-        data = {
-            "name": "Ivan Test",
-            "presentations": [
-                {
-                    "title": "XSS Demo",
-                    "link": "javascript:alert(document.cookie)",
+                template = {
+                    "sections": [{"key": "presentations", "title": "Presentations"}],
+                    "page": {"compact": False},
                 }
-            ],
-        }
-        template = {
-            "sections": [{"key": "presentations", "title": "Presentations"}],
-            "page": {"compact": False},
-        }
 
-        docx_bytes = self._render_resume(data, template)
-        rels_xml = self._get_zip_member(docx_bytes, "word/_rels/document.xml.rels")
+                docx_bytes = self._render_resume(data, template)
+                rels_xml = self._get_zip_member(docx_bytes, "word/_rels/document.xml.rels")
 
-        self.assertNotIn("javascript:", rels_xml)
-        self.assertNotIn("alert", rels_xml)
+                for forbidden in forbidden_in_rels:
+                    self.assertNotIn(forbidden, rels_xml)
+
+                if check_title_renders:
+                    doc_xml = self._get_zip_member(docx_bytes, "word/document.xml")
+                    self.assertIn(title, doc_xml)
 
     def test_link_only_presentation_no_duplication_e2e(self):
         """Link-only presentation (no title/event/year) renders without URL duplication.

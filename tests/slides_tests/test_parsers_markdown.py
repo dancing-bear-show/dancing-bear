@@ -18,6 +18,7 @@ from slides.parsers_markdown import (
     load_deck_from_outline,
 )
 from slides.schema import BulletItem, SlideDeck
+from tests.slides_tests.fixtures import assert_metadata_passthrough
 
 
 # ---------------------------------------------------------------------------
@@ -166,10 +167,14 @@ class TestLoadDeckFromMarkdown(unittest.TestCase):
             template_slide_index=5,
             theme_color="ACCENT_1",
         )
-        self.assertEqual(deck.metadata.author, "Alice")
-        self.assertEqual(deck.template_path, "/tmp/t.pptx")  # nosec B108 - asserting on mock data value
-        self.assertEqual(deck.metadata.template_slide_index, 5)
-        self.assertEqual(deck.metadata.theme_color, "ACCENT_1")
+        assert_metadata_passthrough(
+            self,
+            deck,
+            author="Alice",
+            template_path="/tmp/t.pptx",  # nosec B108 - asserting on mock data value
+            template_slide_index=5,
+            theme_color="ACCENT_1",
+        )
 
     def test_default_metadata(self):
         """Without explicit args, defaults from constants are used."""
@@ -316,10 +321,14 @@ class TestLoadDeckFromOutline(unittest.TestCase):
             template_slide_index=3,
             theme_color="DARK_1",
         )
-        self.assertEqual(deck.metadata.author, "Bob")
-        self.assertEqual(deck.template_path, "/tmp/t.pptx")  # nosec B108 - asserting on mock data value
-        self.assertEqual(deck.metadata.template_slide_index, 3)
-        self.assertEqual(deck.metadata.theme_color, "DARK_1")
+        assert_metadata_passthrough(
+            self,
+            deck,
+            author="Bob",
+            template_path="/tmp/t.pptx",  # nosec B108 - asserting on mock data value
+            template_slide_index=3,
+            theme_color="DARK_1",
+        )
 
     def test_outline_with_optional_tag(self):
         """Slide definitions with [optional tag] are parsed correctly."""

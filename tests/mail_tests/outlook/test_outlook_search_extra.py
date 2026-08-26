@@ -10,34 +10,7 @@ from unittest.mock import MagicMock, patch
 from core.outlook.mail import OutlookMailMixin
 
 
-def _make_response(messages: list, next_link: str = None) -> MagicMock:
-    resp = MagicMock()
-    resp.raise_for_status = MagicMock()
-    data = {"value": messages}
-    if next_link:
-        data["@odata.nextLink"] = next_link
-    resp.json.return_value = data
-    return resp
-
-
-def _make_graph_message(
-    *,
-    id: str = "msg-1",
-    subject: str = "Hello",
-    received: str = "2026-01-15T20:00:00Z",
-    from_name: str = "Sender",
-    from_addr: str = "sender@example.com",
-    preview: str = "Body preview",
-    has_attachments: bool = False,
-) -> dict:
-    return {
-        "id": id,
-        "subject": subject,
-        "receivedDateTime": received,
-        "from": {"emailAddress": {"name": from_name, "address": from_addr}},
-        "bodyPreview": preview,
-        "hasAttachments": has_attachments,
-    }
+from tests.mail_tests.outlook.fixtures import make_response
 
 
 class TestRunOutlookMessagesSearchNewFlags(unittest.TestCase):
@@ -118,7 +91,7 @@ class TestRunOutlookMessagesSearchNewFlags(unittest.TestCase):
         client._headers_search.return_value = {"Authorization": "Bearer token", "ConsistencyLevel": "eventual"}
         client.search_messages = OutlookMailMixin.search_messages.__get__(client)
 
-        mock_requests.return_value.get.return_value = _make_response([])
+        mock_requests.return_value.get.return_value = make_response([])
 
         client.search_messages(query="test", top=10, pages=1, only_inbox=True)
 
@@ -133,7 +106,7 @@ class TestRunOutlookMessagesSearchNewFlags(unittest.TestCase):
         client._headers_search.return_value = {"Authorization": "Bearer token", "ConsistencyLevel": "eventual"}
         client.search_messages = OutlookMailMixin.search_messages.__get__(client)
 
-        mock_requests.return_value.get.return_value = _make_response([])
+        mock_requests.return_value.get.return_value = make_response([])
 
         client.search_messages(query="test", top=10, pages=1)
 

@@ -25,8 +25,8 @@ class PlanFromConfigTests(unittest.TestCase):
             f.write(content)
         return config_path
 
-    def _create_test_file(self, name: str, size: int = 100, age_days: int = 0) -> str:
-        path = os.path.join(self.test_files_dir, name)
+    def _create_test_file(self, name: str, size: int = 100, age_days: int = 0, base_dir: str | None = None) -> str:
+        path = os.path.join(base_dir or self.test_files_dir, name)
         with open(path, "wb") as f:
             f.write(b"x" * size)
         if age_days > 0:
@@ -117,45 +117,48 @@ rules:
         self.assertEqual(len(result["operations"]), 1)
         self.assertIn("file.txt", result["operations"][0]["src"])
 
-    def test_size_filter(self):
-        self._create_test_file("small.txt", size=100)
-        self._create_test_file("large.txt", size=2000)
+    def test_size_and_age_filters(self):
+        cases = [
+            (
+                "size_gte",
+                dict(name="small.txt", size=100),
+                dict(name="large.txt", size=2000),
+                "large-files",
+                "size_gte: 1KB",
+                "large.txt",
+            ),
+            (
+                "older_than",
+                dict(name="new.txt", age_days=0),
+                dict(name="old.txt", age_days=40),
+                "old-files",
+                "older_than: 30d",
+                "old.txt",
+            ),
+        ]
+        for match_key, excluded, included, rule_name, match_line, expected_src in cases:
+            with self.subTest(match_key):
+                case_dir = os.path.join(self.test_files_dir, match_key)
+                os.makedirs(case_dir)
 
-        config = self._write_config(f"""
+                self._create_test_file(base_dir=case_dir, **excluded)
+                self._create_test_file(base_dir=case_dir, **included)
+
+                config = self._write_config(f"""
 version: 1
 rules:
-  - name: large-files
+  - name: {rule_name}
     match:
       paths:
-        - {self.test_files_dir}
-      size_gte: 1KB
+        - {case_dir}
+      {match_line}
     action:
       trash: true
 """)
-        result = plan_from_config(config)
+                result = plan_from_config(config)
 
-        self.assertEqual(len(result["operations"]), 1)
-        self.assertIn("large.txt", result["operations"][0]["src"])
-
-    def test_age_filter(self):
-        self._create_test_file("new.txt", age_days=0)
-        self._create_test_file("old.txt", age_days=40)
-
-        config = self._write_config(f"""
-version: 1
-rules:
-  - name: old-files
-    match:
-      paths:
-        - {self.test_files_dir}
-      older_than: 30d
-    action:
-      trash: true
-""")
-        result = plan_from_config(config)
-
-        self.assertEqual(len(result["operations"]), 1)
-        self.assertIn("old.txt", result["operations"][0]["src"])
+                self.assertEqual(len(result["operations"]), 1)
+                self.assertIn(expected_src, result["operations"][0]["src"])
 
     def test_rule_name_in_operation(self):
         self._create_test_file("test.txt")

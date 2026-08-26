@@ -69,6 +69,69 @@ class TestGenerateRouter(unittest.TestCase):
         self.assertIn('if "." in module:', content)
 
 
+class TestRenderQltyConfig(unittest.TestCase):
+    """Tests for the generated wrapper-symlink block in .qlty/qlty.toml."""
+
+    BARE = 'exclude_patterns = [\n  "**/.venv/**",\n]\n\n[smells]\n'
+
+    def _render(self, existing, names):
+        import sys
+        sys.path.insert(0, str(repo_root() / "bin"))
+        from _gen_wrappers import render_qlty_config
+
+        return render_qlty_config(existing, names)
+
+    def test_inserts_block_when_markers_absent(self):
+        """A config with no markers gets the block before exclude_patterns' close."""
+        result = self._render(self.BARE, ["mail", "charts"])
+        self.assertIn("BEGIN GENERATED WRAPPER SYMLINKS", result)
+        self.assertIn('"bin/mail",', result)
+        self.assertIn('"bin/charts",', result)
+        # Block lands inside the list, not after it.
+        self.assertLess(result.index('"bin/mail",'), result.index("[smells]"))
+
+    def test_names_sorted_for_stable_diffs(self):
+        """Wrapper names are emitted sorted, so config order does not churn."""
+        result = self._render(self.BARE, ["workflow", "assistant", "mail"])
+        self.assertLess(result.index('"bin/assistant",'), result.index('"bin/mail",'))
+        self.assertLess(result.index('"bin/mail",'), result.index('"bin/workflow",'))
+
+    def test_regenerating_is_idempotent(self):
+        """Rendering twice over its own output changes nothing."""
+        once = self._render(self.BARE, ["mail", "charts"])
+        twice = self._render(once, ["mail", "charts"])
+        self.assertEqual(once, twice)
+
+    def test_replaces_stale_block_without_duplicating(self):
+        """A removed wrapper drops out; the block is replaced, not appended."""
+        stale = self._render(self.BARE, ["mail", "charts"])
+        fresh = self._render(stale, ["mail"])
+        self.assertIn('"bin/mail",', fresh)
+        self.assertNotIn('"bin/charts",', fresh)
+        self.assertEqual(fresh.count("BEGIN GENERATED WRAPPER SYMLINKS"), 1)
+
+    def test_router_itself_is_never_excluded(self):
+        """_router.py is the one real file and must stay linted."""
+        result = self._render(self.BARE, ["mail", "charts"])
+        self.assertNotIn('"bin/_router.py"', result)
+
+    def test_raises_when_exclude_patterns_missing(self):
+        """A config without exclude_patterns fails loudly rather than silently."""
+        with self.assertRaises(SystemExit):
+            self._render("[smells]\nmode = \"comment\"\n", ["mail"])
+
+    def test_live_config_matches_wrappers_yaml(self):
+        """The committed qlty.toml lists exactly the generated wrapper symlinks."""
+        import sys
+        sys.path.insert(0, str(repo_root() / "bin"))
+        from _gen_wrappers import load_config
+
+        config = load_config()
+        text = (repo_root() / ".qlty" / "qlty.toml").read_text()
+        for name in config.get("python", {}):
+            self.assertIn(f'"bin/{name}",', text)
+
+
 class TestLoadConfig(unittest.TestCase):
     """Tests for config loading."""
 

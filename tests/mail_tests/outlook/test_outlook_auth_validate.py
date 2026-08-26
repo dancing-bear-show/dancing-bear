@@ -195,15 +195,18 @@ class TestRunOutlookAuthEnsure(TempDirMixin, unittest.TestCase):
 class TestRunOutlookAuthValidate(TempDirMixin, unittest.TestCase):
     """Tests for run_outlook_auth_validate function."""
 
-    def test_validate_success(self):
-        """Test successful validation."""
-        msal = make_fake_msal_module()
-        requests = make_fake_requests_module()
+    def _run_validate(self, msal, requests, token_path=None, token_text="{}"):
+        """Write a token cache (unless token_path is pre-set), patch msal/requests,
+        and run run_outlook_auth_validate.
 
-        token_path = Path(self.tmpdir) / "token.json"
-        token_path.write_text("{}")
+        Returns (rc, output). Shared by cases that only vary the fake
+        msal/requests modules, the token path, and the expected (rc, message).
+        """
+        if token_path is None:
+            token_path = str(Path(self.tmpdir) / "token.json")
+            Path(token_path).write_text(token_text)
 
-        args = make_args(client_id="test-client", tenant="consumers", token=str(token_path))
+        args = make_args(client_id="test-client", tenant="consumers", token=token_path)  # nosec B106 - test fixture path
 
         with patch.dict("sys.modules", {"msal": msal, "requests": requests}, clear=False):
             from mail.outlook.auth_commands import run_outlook_auth_validate
@@ -212,9 +215,60 @@ class TestRunOutlookAuthValidate(TempDirMixin, unittest.TestCase):
             with redirect_stdout(buf):
                 rc = run_outlook_auth_validate(args)
 
-        self.assertEqual(rc, 0)
-        output = buf.getvalue()
-        self.assertIn("Outlook token valid", output)
+        return rc, buf.getvalue()
+
+    def test_validate_scenarios(self):
+        """Table-driven happy/sad paths that only vary fake modules and expected (rc, message)."""
+        cases = [
+            {
+                "name": "success",
+                "msal": make_fake_msal_module(),
+                "requests": make_fake_requests_module(),
+                "rc": 0,
+                "message": "Outlook token valid",
+            },
+            {
+                "name": "token_not_found",
+                "msal": make_fake_msal_module(),
+                "requests": make_fake_requests_module(),
+                "rc": 2,
+                "message": "Token cache not found",
+                "token_path": "/nonexistent/token.json",
+            },
+            {
+                "name": "no_accounts",
+                "msal": make_fake_msal_module(has_accounts=False),
+                "requests": make_fake_requests_module(),
+                "rc": 3,
+                "message": "No account in token cache",
+            },
+            {
+                "name": "silent_acquisition_failed",
+                "msal": make_fake_msal_module(silent_success=False),
+                "requests": make_fake_requests_module(),
+                "rc": 4,
+                "message": "Silent token acquisition failed",
+            },
+            {
+                "name": "api_call_failed",
+                "msal": make_fake_msal_module(),
+                "requests": make_fake_requests_module(api_success=False),
+                "rc": 5,
+                "message": "Graph /me failed",
+                "extra_message": "401",
+            },
+        ]
+
+        for case in cases:
+            with self.subTest(case=case["name"]):
+                rc, output = self._run_validate(
+                    case["msal"], case["requests"], token_path=case.get("token_path")
+                )
+
+                self.assertEqual(rc, case["rc"])
+                self.assertIn(case["message"], output)
+                if "extra_message" in case:
+                    self.assertIn(case["extra_message"], output)
 
     def test_validate_missing_dependencies(self):
         """Test validate with missing dependencies."""
@@ -250,24 +304,6 @@ class TestRunOutlookAuthValidate(TempDirMixin, unittest.TestCase):
         output = buf.getvalue()
         self.assertIn("Missing --client-id", output)
 
-    def test_validate_token_not_found(self):
-        """Test validate when token file doesn't exist."""
-        msal = make_fake_msal_module()
-        requests = make_fake_requests_module()
-
-        args = make_args(client_id="test-client", tenant="consumers", token="/nonexistent/token.json")  # nosec B106 - test fixture path
-
-        with patch.dict("sys.modules", {"msal": msal, "requests": requests}, clear=False):
-            from mail.outlook.auth_commands import run_outlook_auth_validate
-
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = run_outlook_auth_validate(args)
-
-        self.assertEqual(rc, 2)
-        output = buf.getvalue()
-        self.assertIn("Token cache not found", output)
-
     def test_validate_unable_to_read_cache(self):
         """Test validate when unable to read token cache."""
         msal = make_fake_msal_module()
@@ -297,27 +333,6 @@ class TestRunOutlookAuthValidate(TempDirMixin, unittest.TestCase):
         output = buf.getvalue()
         self.assertIn("Unable to read token cache", output)
 
-    def test_validate_no_accounts(self):
-        """Test validate when no accounts in cache."""
-        msal = make_fake_msal_module(has_accounts=False)
-        requests = make_fake_requests_module()
-
-        token_path = Path(self.tmpdir) / "token.json"
-        token_path.write_text("{}")
-
-        args = make_args(client_id="test-client", tenant="consumers", token=str(token_path))
-
-        with patch.dict("sys.modules", {"msal": msal, "requests": requests}, clear=False):
-            from mail.outlook.auth_commands import run_outlook_auth_validate
-
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = run_outlook_auth_validate(args)
-
-        self.assertEqual(rc, 3)
-        output = buf.getvalue()
-        self.assertIn("No account in token cache", output)
-
     def test_validate_get_accounts_exception(self):
         """Test validate when get_accounts raises exception."""
         msal = make_fake_msal_module()
@@ -346,49 +361,6 @@ class TestRunOutlookAuthValidate(TempDirMixin, unittest.TestCase):
         self.assertEqual(rc, 3)
         output = buf.getvalue()
         self.assertIn("No account in token cache", output)
-
-    def test_validate_silent_acquisition_failed(self):
-        """Test validate when silent token acquisition fails."""
-        msal = make_fake_msal_module(silent_success=False)
-        requests = make_fake_requests_module()
-
-        token_path = Path(self.tmpdir) / "token.json"
-        token_path.write_text("{}")
-
-        args = make_args(client_id="test-client", tenant="consumers", token=str(token_path))
-
-        with patch.dict("sys.modules", {"msal": msal, "requests": requests}, clear=False):
-            from mail.outlook.auth_commands import run_outlook_auth_validate
-
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = run_outlook_auth_validate(args)
-
-        self.assertEqual(rc, 4)
-        output = buf.getvalue()
-        self.assertIn("Silent token acquisition failed", output)
-
-    def test_validate_api_call_failed(self):
-        """Test validate when Graph API /me call fails."""
-        msal = make_fake_msal_module()
-        requests = make_fake_requests_module(api_success=False)
-
-        token_path = Path(self.tmpdir) / "token.json"
-        token_path.write_text("{}")
-
-        args = make_args(client_id="test-client", tenant="consumers", token=str(token_path))
-
-        with patch.dict("sys.modules", {"msal": msal, "requests": requests}, clear=False):
-            from mail.outlook.auth_commands import run_outlook_auth_validate
-
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = run_outlook_auth_validate(args)
-
-        self.assertEqual(rc, 5)
-        output = buf.getvalue()
-        self.assertIn("Graph /me failed", output)
-        self.assertIn("401", output)
 
 
 if __name__ == "__main__":

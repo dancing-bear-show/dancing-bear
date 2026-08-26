@@ -636,61 +636,32 @@ class TestCompositeDispatcherRoutesInvokeToLocal(unittest.TestCase):
             mock_skill.assert_not_called()
 
 
-class TestCompositeDispatcherRoutesGenerateToSkill(unittest.TestCase):
-    """Stage with generate output → SkillDispatcher handles it."""
+class TestCompositeDispatcherRoutesToSkill(unittest.TestCase):
+    """Stages the SkillDispatcher owns (generate output, validate kind, template output)."""
 
-    def test_generate_stage_uses_skill_dispatcher(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
-            output = make_output_spec(name="report", mode=OutputMode.generate)
-            spec = make_stage_spec(name="gen-stage", outputs=(output,))
-            stage = make_resolved_stage(spec=spec)
-            dispatcher = CompositeDispatcher("test-workflow")
+    def test_routes_to_skill_dispatcher(self) -> None:
+        cases = (
+            ("generate_output", "report", OutputMode.generate, StageKind.gather),
+            ("validate_kind", "findings", OutputMode.invoke, StageKind.validate),
+            ("template_output", "doc", OutputMode.template, StageKind.gather),
+        )
+        for case_name, output_name, output_mode, stage_kind in cases:
+            with self.subTest(case_name):
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    tmp_path = Path(tmp_dir)
+                    output = make_output_spec(name=output_name, mode=output_mode)
+                    spec = make_stage_spec(
+                        name=f"{case_name}-stage", kind=stage_kind, outputs=(output,)
+                    )
+                    stage = make_resolved_stage(spec=spec)
+                    dispatcher = CompositeDispatcher("test-workflow")
 
-            with patch.object(dispatcher._skill, "dispatch", wraps=dispatcher._skill.dispatch) as mock_skill, \
-                 patch.object(dispatcher._local, "dispatch", wraps=dispatcher._local.dispatch) as mock_local:
-                dispatcher.dispatch(stage, tmp_path)
+                    with patch.object(dispatcher._skill, "dispatch", wraps=dispatcher._skill.dispatch) as mock_skill, \
+                         patch.object(dispatcher._local, "dispatch", wraps=dispatcher._local.dispatch) as mock_local:
+                        dispatcher.dispatch(stage, tmp_path)
 
-            mock_skill.assert_called_once()
-            mock_local.assert_not_called()
-
-
-class TestCompositeDispatcherRoutesValidateToSkill(unittest.TestCase):
-    """Stage with kind=validate → SkillDispatcher handles it."""
-
-    def test_validate_kind_uses_skill_dispatcher(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
-            output = make_output_spec(name="findings", mode=OutputMode.invoke)
-            spec = make_stage_spec(name="validate-stage", kind=StageKind.validate, outputs=(output,))
-            stage = make_resolved_stage(spec=spec)
-            dispatcher = CompositeDispatcher("test-workflow")
-
-            with patch.object(dispatcher._skill, "dispatch", wraps=dispatcher._skill.dispatch) as mock_skill, \
-                 patch.object(dispatcher._local, "dispatch", wraps=dispatcher._local.dispatch) as mock_local:
-                dispatcher.dispatch(stage, tmp_path)
-
-            mock_skill.assert_called_once()
-            mock_local.assert_not_called()
-
-
-class TestCompositeDispatcherRoutesTemplateToSkill(unittest.TestCase):
-    """Stage with template output → SkillDispatcher handles it."""
-
-    def test_template_output_uses_skill_dispatcher(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
-            output = make_output_spec(name="doc", mode=OutputMode.template)
-            spec = make_stage_spec(name="template-stage", outputs=(output,))
-            stage = make_resolved_stage(spec=spec)
-            dispatcher = CompositeDispatcher("test-workflow")
-
-            with patch.object(dispatcher._skill, "dispatch", wraps=dispatcher._skill.dispatch) as mock_skill, \
-                 patch.object(dispatcher._local, "dispatch", wraps=dispatcher._local.dispatch) as mock_local:
-                dispatcher.dispatch(stage, tmp_path)
-
-            mock_skill.assert_called_once()
-            mock_local.assert_not_called()
+                    mock_skill.assert_called_once()
+                    mock_local.assert_not_called()
 
 
 class TestCompositeDispatcherDispatchGroup(unittest.TestCase):

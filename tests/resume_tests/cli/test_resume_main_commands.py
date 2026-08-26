@@ -274,49 +274,41 @@ class TestResumeCommands(unittest.TestCase):
 
     @patch('resume.cli.main.write_yaml_or_json')
     @patch('resume.cli.main.merge_profiles')
-    @patch('resume.parsing_experience_docx.parse_resume_docx')
     @patch('resume.cli.main.read_text_any')
-    def test_cmd_extract_docx_resume(self, mock_read_any, mock_parse_docx, mock_merge, mock_write):
-        """Test cmd_extract with DOCX resume."""
+    def test_cmd_extract_binary_resume_formats(self, mock_read_any, mock_merge, mock_write):
+        """Test cmd_extract with a DOCX or PDF resume, each dispatching to its own parser."""
         from resume.cli.main import cmd_extract
 
-        mock_read_any.return_value = "LinkedIn text"
-        mock_parse_docx.return_value = {"skills": ["Python"]}
-        mock_merge.return_value = {"name": "John Doe"}
+        cases = [
+            (
+                "docx", "resume.docx",
+                "resume.parsing_experience_docx.parse_resume_docx",
+                {"skills": ["Python"]}, "John Doe",
+            ),
+            (
+                "pdf", "resume.pdf",
+                "resume.parsing_experience_pdf.parse_resume_pdf",
+                {"skills": ["Java"]}, "Jane Doe",
+            ),
+        ]
+        for label, resume_filename, parse_target, parse_return, candidate_name in cases:
+            with self.subTest(label):
+                mock_read_any.return_value = "LinkedIn text"
+                mock_merge.return_value = {"name": candidate_name}
 
-        args = MagicMock()
-        args.linkedin = "profile.txt"
-        args.resume = "resume.docx"
-        args.out = None
-        args.profile = "test"
-        args.out_dir = "out"
+                args = MagicMock()
+                args.linkedin = "profile.txt"
+                args.resume = resume_filename
+                args.out = None
+                args.profile = "test"
+                args.out_dir = "out"
 
-        result = cmd_extract(args)
-        self.assertEqual(result, 0)
-        mock_parse_docx.assert_called_once_with("resume.docx")
+                with patch(parse_target) as mock_parse:
+                    mock_parse.return_value = parse_return
 
-    @patch('resume.cli.main.write_yaml_or_json')
-    @patch('resume.cli.main.merge_profiles')
-    @patch('resume.parsing_experience_pdf.parse_resume_pdf')
-    @patch('resume.cli.main.read_text_any')
-    def test_cmd_extract_pdf_resume(self, mock_read_any, mock_parse_pdf, mock_merge, mock_write):
-        """Test cmd_extract with PDF resume."""
-        from resume.cli.main import cmd_extract
-
-        mock_read_any.return_value = "LinkedIn text"
-        mock_parse_pdf.return_value = {"skills": ["Java"]}
-        mock_merge.return_value = {"name": "Jane Doe"}
-
-        args = MagicMock()
-        args.linkedin = "profile.txt"
-        args.resume = "resume.pdf"
-        args.out = None
-        args.profile = "test"
-        args.out_dir = "out"
-
-        result = cmd_extract(args)
-        self.assertEqual(result, 0)
-        mock_parse_pdf.assert_called_once_with("resume.pdf")
+                    result = cmd_extract(args)
+                    self.assertEqual(result, 0)
+                    mock_parse.assert_called_once_with(resume_filename)
 
     @patch('resume.cli.main.write_yaml_or_json')
     @patch('resume.cli.main.merge_profiles')

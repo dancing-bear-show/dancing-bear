@@ -9,9 +9,31 @@ from __future__ import annotations
 
 import datetime
 import unittest
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 from tests.charts_tests.conftest_helpers import _fake_ax, _make_series
+
+
+@contextmanager
+def _mocked_matplotlib_dates():
+    """Patch sys.modules['matplotlib.dates'] with a MagicMock; yield it."""
+    mock_mdates = MagicMock()
+    with patch.dict("sys.modules", {"matplotlib.dates": mock_mdates}):
+        yield mock_mdates
+
+
+@contextmanager
+def _mocked_matplotlib():
+    """Patch matplotlib.dates and matplotlib.pyplot; yield (mdates, plt) mocks."""
+    mock_mdates = MagicMock()
+    mock_plt = MagicMock()
+    mock_plt.setp = MagicMock()
+    with patch.dict("sys.modules", {
+        "matplotlib.dates": mock_mdates,
+        "matplotlib.pyplot": mock_plt,
+    }):
+        yield mock_mdates, mock_plt
 
 
 # ---------------------------------------------------------------------------
@@ -257,13 +279,7 @@ class TestConfigureDateAxis(unittest.TestCase):
         s = _make_series("s", ["2024-01-01"])
         spec = _make_line_spec([s])
 
-        mock_mdates = MagicMock()
-        mock_plt = MagicMock()
-        mock_plt.setp = MagicMock()
-        with patch.dict("sys.modules", {
-            "matplotlib.dates": mock_mdates,
-            "matplotlib.pyplot": mock_plt,
-        }):
+        with _mocked_matplotlib():
             _configure_date_axis(ax, spec)
         ax.xaxis.set_major_locator.assert_called_once()
         ax.xaxis.set_major_formatter.assert_called_once()
@@ -295,9 +311,8 @@ class TestShadeWeekends(unittest.TestCase):
         saturday = datetime.datetime(2024, 1, 6, 0, 0, 0)
         ax = _fake_ax()
         theme = _dark_theme()
-        mock_mdates = MagicMock()
-        mock_mdates.date2num.return_value = 0.0
-        with patch.dict("sys.modules", {"matplotlib.dates": mock_mdates}):
+        with _mocked_matplotlib_dates() as mock_mdates:
+            mock_mdates.date2num.return_value = 0.0
             _shade_weekends(ax, [saturday], theme)
         ax.axvspan.assert_called_once()
 
@@ -307,9 +322,8 @@ class TestShadeWeekends(unittest.TestCase):
         monday = datetime.datetime(2024, 1, 8, 0, 0, 0)
         ax = _fake_ax()
         theme = _dark_theme()
-        mock_mdates = MagicMock()
-        mock_mdates.date2num.return_value = 0.0
-        with patch.dict("sys.modules", {"matplotlib.dates": mock_mdates}):
+        with _mocked_matplotlib_dates() as mock_mdates:
+            mock_mdates.date2num.return_value = 0.0
             _shade_weekends(ax, [monday], theme)
         ax.axvline.assert_called_once()
 
@@ -317,8 +331,7 @@ class TestShadeWeekends(unittest.TestCase):
         from charts.renderer_line_area import _shade_weekends
         ax = _fake_ax()
         theme = _dark_theme()
-        mock_mdates = MagicMock()
-        with patch.dict("sys.modules", {"matplotlib.dates": mock_mdates}):
+        with _mocked_matplotlib_dates():
             _shade_weekends(ax, ["not-a-date"], theme)
         ax.axvspan.assert_not_called()
         ax.axvline.assert_not_called()
@@ -329,9 +342,8 @@ class TestShadeWeekends(unittest.TestCase):
         saturday = datetime.datetime(2024, 1, 6)
         ax = _fake_ax()
         theme = _dark_theme()
-        mock_mdates = MagicMock()
-        mock_mdates.date2num.return_value = 0.0
-        with patch.dict("sys.modules", {"matplotlib.dates": mock_mdates}):
+        with _mocked_matplotlib_dates() as mock_mdates:
+            mock_mdates.date2num.return_value = 0.0
             _shade_weekends(ax, [saturday, saturday], theme)
         # called only once despite duplicated input
         self.assertEqual(ax.axvspan.call_count, 1)
@@ -342,8 +354,7 @@ class TestShadeWeekends(unittest.TestCase):
         tuesday = datetime.datetime(2024, 1, 9)
         ax = _fake_ax()
         theme = _dark_theme()
-        mock_mdates = MagicMock()
-        with patch.dict("sys.modules", {"matplotlib.dates": mock_mdates}):
+        with _mocked_matplotlib_dates():
             _shade_weekends(ax, [tuesday], theme)
         ax.axvspan.assert_not_called()
         ax.axvline.assert_not_called()
@@ -406,13 +417,7 @@ class TestRenderLine(unittest.TestCase):
         ax.get_xticklabels.return_value = []
         s = _make_series("requests", ["2024-01-01", "2024-01-02"], [10.0, 20.0])
         spec = _make_line_spec([s])
-        mock_mdates = MagicMock()
-        mock_plt = MagicMock()
-        mock_plt.setp = MagicMock()
-        with patch.dict("sys.modules", {
-            "matplotlib.dates": mock_mdates,
-            "matplotlib.pyplot": mock_plt,
-        }):
+        with _mocked_matplotlib():
             _render_line(ax, spec, _dark_theme())
         ax.plot.assert_called_once()
 
@@ -422,13 +427,7 @@ class TestRenderLine(unittest.TestCase):
         dates = [f"2024-01-0{i+1}" for i in range(5)]
         s = _make_series("s", dates, [1.0, 2.0, 3.0, 4.0, 5.0])
         spec = _make_line_spec([s], smooth=True)
-        mock_mdates = MagicMock()
-        mock_plt = MagicMock()
-        mock_plt.setp = MagicMock()
-        with patch.dict("sys.modules", {
-            "matplotlib.dates": mock_mdates,
-            "matplotlib.pyplot": mock_plt,
-        }):
+        with _mocked_matplotlib():
             _render_line(ax, spec, _dark_theme())
         ax.plot.assert_called_once()
 
@@ -438,13 +437,7 @@ class TestRenderLine(unittest.TestCase):
         # Only 1 point - smooth requires >= 3
         s = _make_series("s", ["2024-01-01"], [5.0])
         spec = _make_line_spec([s], smooth=True)
-        mock_mdates = MagicMock()
-        mock_plt = MagicMock()
-        mock_plt.setp = MagicMock()
-        with patch.dict("sys.modules", {
-            "matplotlib.dates": mock_mdates,
-            "matplotlib.pyplot": mock_plt,
-        }):
+        with _mocked_matplotlib():
             _render_line(ax, spec, _dark_theme())
         # Falls back to regular plot since len(x_values) < 3
         ax.plot.assert_called_once()
@@ -455,14 +448,8 @@ class TestRenderLine(unittest.TestCase):
         # 2024-01-06 is a Saturday
         s = _make_series("s", ["2024-01-06"], [5.0])
         spec = _make_line_spec([s], shade_weekends=True)
-        mock_mdates = MagicMock()
-        mock_mdates.date2num.return_value = 0.0
-        mock_plt = MagicMock()
-        mock_plt.setp = MagicMock()
-        with patch.dict("sys.modules", {
-            "matplotlib.dates": mock_mdates,
-            "matplotlib.pyplot": mock_plt,
-        }):
+        with _mocked_matplotlib() as (mock_mdates, mock_plt):
+            mock_mdates.date2num.return_value = 0.0
             _render_line(ax, spec, _dark_theme())
         ax.axvspan.assert_called_once()
 
@@ -472,13 +459,7 @@ class TestRenderLine(unittest.TestCase):
         s1 = _make_series("s1", ["2024-01-01", "2024-01-02"], [1.0, 2.0])
         s2 = _make_series("s2", ["2024-01-01", "2024-01-02"], [3.0, 4.0])
         spec = _make_line_spec([s1, s2])
-        mock_mdates = MagicMock()
-        mock_plt = MagicMock()
-        mock_plt.setp = MagicMock()
-        with patch.dict("sys.modules", {
-            "matplotlib.dates": mock_mdates,
-            "matplotlib.pyplot": mock_plt,
-        }):
+        with _mocked_matplotlib():
             _render_line(ax, spec, _dark_theme())
         self.assertEqual(ax.plot.call_count, 2)
 
@@ -487,13 +468,7 @@ class TestRenderLine(unittest.TestCase):
         ax = _fake_ax()
         s = _make_series("s", ["2024-01-01"], label="My Series")
         spec = _make_line_spec([s])
-        mock_mdates = MagicMock()
-        mock_plt = MagicMock()
-        mock_plt.setp = MagicMock()
-        with patch.dict("sys.modules", {
-            "matplotlib.dates": mock_mdates,
-            "matplotlib.pyplot": mock_plt,
-        }):
+        with _mocked_matplotlib():
             _render_line(ax, spec, _dark_theme())
         call_kwargs = ax.plot.call_args
         label_used = call_kwargs.kwargs.get("label") or call_kwargs[1].get("label")
@@ -520,13 +495,7 @@ class TestRenderArea(unittest.TestCase):
         ax = _fake_ax()
         s = _make_series("s", ["2024-01-01", "2024-01-02"], [10.0, 20.0])
         spec = _make_area_spec([s])
-        mock_mdates = MagicMock()
-        mock_plt = MagicMock()
-        mock_plt.setp = MagicMock()
-        with patch.dict("sys.modules", {
-            "matplotlib.dates": mock_mdates,
-            "matplotlib.pyplot": mock_plt,
-        }):
+        with _mocked_matplotlib():
             _render_area(ax, spec, _dark_theme())
         ax.fill_between.assert_called_once()
         ax.plot.assert_called_once()
@@ -537,13 +506,7 @@ class TestRenderArea(unittest.TestCase):
         s1 = _make_series("s1", ["2024-01-01", "2024-01-02"], [10.0, 20.0])
         s2 = _make_series("s2", ["2024-01-01", "2024-01-02"], [5.0, 5.0])
         spec = _make_area_spec([s1, s2], stacked=True)
-        mock_mdates = MagicMock()
-        mock_plt = MagicMock()
-        mock_plt.setp = MagicMock()
-        with patch.dict("sys.modules", {
-            "matplotlib.dates": mock_mdates,
-            "matplotlib.pyplot": mock_plt,
-        }):
+        with _mocked_matplotlib():
             _render_area(ax, spec, _dark_theme())
         self.assertEqual(ax.fill_between.call_count, 2)
 
@@ -553,14 +516,8 @@ class TestRenderArea(unittest.TestCase):
         # Saturday
         s = _make_series("s", ["2024-01-06"], [5.0])
         spec = _make_area_spec([s], shade_weekends=True)
-        mock_mdates = MagicMock()
-        mock_mdates.date2num.return_value = 0.0
-        mock_plt = MagicMock()
-        mock_plt.setp = MagicMock()
-        with patch.dict("sys.modules", {
-            "matplotlib.dates": mock_mdates,
-            "matplotlib.pyplot": mock_plt,
-        }):
+        with _mocked_matplotlib() as (mock_mdates, mock_plt):
+            mock_mdates.date2num.return_value = 0.0
             _render_area(ax, spec, _dark_theme())
         ax.axvspan.assert_called_once()
 
@@ -570,12 +527,7 @@ class TestRenderArea(unittest.TestCase):
         s = _make_series("s", ["2024-01-01", "2024-01-02"], [1.0, 2.0])
         spec = _make_area_spec([s])
         with patch("charts.renderer_line_area._configure_date_axis") as mock_cda:
-            mock_mdates = MagicMock()
-            mock_plt = MagicMock()
-            with patch.dict("sys.modules", {
-                "matplotlib.dates": mock_mdates,
-                "matplotlib.pyplot": mock_plt,
-            }):
+            with _mocked_matplotlib():
                 _render_area(ax, spec, _dark_theme())
         mock_cda.assert_called_once()
 
@@ -585,13 +537,7 @@ class TestRenderArea(unittest.TestCase):
         s1 = _make_series("s1", ["2024-01-01", "2024-01-02"], [10.0, 20.0])
         s2 = _make_series("s2", ["2024-01-01", "2024-01-02"], [5.0, 5.0])
         spec = _make_area_spec([s1, s2], stacked=False)
-        mock_mdates = MagicMock()
-        mock_plt = MagicMock()
-        mock_plt.setp = MagicMock()
-        with patch.dict("sys.modules", {
-            "matplotlib.dates": mock_mdates,
-            "matplotlib.pyplot": mock_plt,
-        }):
+        with _mocked_matplotlib():
             _render_area(ax, spec, _dark_theme())
         # Both series rendered, no stacking — fill_between called twice
         self.assertEqual(ax.fill_between.call_count, 2)
@@ -722,13 +668,7 @@ class TestRenderDual(unittest.TestCase):
         s_left = _make_series("left", ["2024-01-01", "2024-01-02"], [1.0, 2.0], y_axis="left")
         s_right = _make_series("right", ["2024-01-01", "2024-01-02"], [3.0, 4.0], y_axis="right")
         spec = _make_dual_spec([s_left, s_right])
-        mock_mdates = MagicMock()
-        mock_plt = MagicMock()
-        mock_plt.setp = MagicMock()
-        with patch.dict("sys.modules", {
-            "matplotlib.dates": mock_mdates,
-            "matplotlib.pyplot": mock_plt,
-        }):
+        with _mocked_matplotlib():
             _render_dual(fig, ax, spec, _dark_theme())
         ax.twinx.assert_called_once()
 
@@ -738,13 +678,7 @@ class TestRenderDual(unittest.TestCase):
         fig = _fake_fig()
         s = _make_series("s", ["2024-01-01"], [1.0])
         spec = _make_dual_spec([s], show_legend=True)
-        mock_mdates = MagicMock()
-        mock_plt = MagicMock()
-        mock_plt.setp = MagicMock()
-        with patch.dict("sys.modules", {
-            "matplotlib.dates": mock_mdates,
-            "matplotlib.pyplot": mock_plt,
-        }):
+        with _mocked_matplotlib():
             _render_dual(fig, ax, spec, _dark_theme())
         ax.legend.assert_called_once()
 
@@ -754,13 +688,7 @@ class TestRenderDual(unittest.TestCase):
         fig = _fake_fig()
         s = _make_series("s", ["2024-01-01"], [1.0])
         spec = _make_dual_spec([s], show_legend=False)
-        mock_mdates = MagicMock()
-        mock_plt = MagicMock()
-        mock_plt.setp = MagicMock()
-        with patch.dict("sys.modules", {
-            "matplotlib.dates": mock_mdates,
-            "matplotlib.pyplot": mock_plt,
-        }):
+        with _mocked_matplotlib():
             _render_dual(fig, ax, spec, _dark_theme())
         ax.legend.assert_not_called()
 
@@ -770,14 +698,8 @@ class TestRenderDual(unittest.TestCase):
         fig = _fake_fig()
         s = _make_series("s", ["2024-01-06"], [5.0])  # Saturday
         spec = _make_dual_spec([s], shade_weekends=True)
-        mock_mdates = MagicMock()
-        mock_mdates.date2num.return_value = 0.0
-        mock_plt = MagicMock()
-        mock_plt.setp = MagicMock()
-        with patch.dict("sys.modules", {
-            "matplotlib.dates": mock_mdates,
-            "matplotlib.pyplot": mock_plt,
-        }):
+        with _mocked_matplotlib() as (mock_mdates, mock_plt):
+            mock_mdates.date2num.return_value = 0.0
             _render_dual(fig, ax, spec, _dark_theme())
         ax.axvspan.assert_called()
 
@@ -788,13 +710,7 @@ class TestRenderDual(unittest.TestCase):
         s = _make_series("s", ["2024-01-01", "2024-01-02"], [1.0, 2.0])
         spec = _make_dual_spec([s])
         with patch("charts.renderer_line_area._configure_date_axis") as mock_cda:
-            mock_mdates = MagicMock()
-            mock_plt = MagicMock()
-            mock_plt.setp = MagicMock()
-            with patch.dict("sys.modules", {
-                "matplotlib.dates": mock_mdates,
-                "matplotlib.pyplot": mock_plt,
-            }):
+            with _mocked_matplotlib():
                 _render_dual(fig, ax, spec, _dark_theme())
         mock_cda.assert_called_once()
 

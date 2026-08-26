@@ -1,8 +1,9 @@
-"""Shared test fixtures for outlook auth tests."""
+"""Shared test fixtures for outlook auth and messages-search tests."""
 
 from __future__ import annotations
 
 import types
+from unittest.mock import MagicMock
 
 
 def make_fake_msal_module(flow_success=True, has_accounts=True, silent_success=True,
@@ -54,3 +55,35 @@ def make_fake_msal_module(flow_success=True, has_accounts=True, silent_success=T
     msal.SerializableTokenCache = _Cache
     msal.PublicClientApplication = _App
     return msal
+
+
+def make_graph_message(
+    *,
+    id: str = "msg-1",
+    subject: str = "Hello",
+    received: str = "2026-01-15T20:00:00Z",
+    from_name: str = "Sender",
+    from_addr: str = "sender@example.com",
+    preview: str = "Body preview",
+    has_attachments: bool = False,
+) -> dict:
+    """Build a Graph API message payload for messages-search tests."""
+    return {
+        "id": id,
+        "subject": subject,
+        "receivedDateTime": received,
+        "from": {"emailAddress": {"name": from_name, "address": from_addr}},
+        "bodyPreview": preview,
+        "hasAttachments": has_attachments,
+    }
+
+
+def make_response(messages: list, next_link: str | None = None) -> MagicMock:
+    """Build a mock Graph API response wrapping `messages`."""
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    data = {"value": messages}
+    if next_link:
+        data["@odata.nextLink"] = next_link
+    resp.json.return_value = data
+    return resp

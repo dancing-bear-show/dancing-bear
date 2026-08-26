@@ -21,6 +21,21 @@ def _is_shell_script(path) -> bool:
         return False
 
 
+def _run_wrapper_help(name: str) -> subprocess.CompletedProcess | None:
+    """Run `bin/<name> --help`, dispatching to bash or the interpreter as needed.
+
+    Returns None (and lets the caller skip) when the wrapper doesn't exist.
+    """
+    wrapper = bin_path(name)
+    if not wrapper.exists():
+        return None
+    if _is_shell_script(wrapper):
+        cmd = ["bash", str(wrapper), "--help"]
+    else:
+        cmd = [sys.executable, str(wrapper), "--help"]
+    return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 - test code with trusted local scripts
+
+
 class IntegrationCLITests(unittest.TestCase):
     """Test bin wrapper execution."""
 
@@ -327,14 +342,10 @@ class OutlookWrapperIntegrationTests(unittest.TestCase):
     """Test Outlook-related wrappers (help only, no auth required)."""
 
     def _run_wrapper(self, name: str) -> subprocess.CompletedProcess:
-        wrapper = bin_path(name)
-        if not wrapper.exists():
+        proc = _run_wrapper_help(name)
+        if proc is None:
             self.skipTest(f"bin/{name} not found")
-        if _is_shell_script(wrapper):
-            cmd = ["bash", str(wrapper), "--help"]
-        else:
-            cmd = [sys.executable, str(wrapper), "--help"]
-        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 - test code with trusted local scripts
+        return proc
 
     def test_outlook_rules_list_help(self):
         proc = self._run_wrapper("outlook-rules-list")
@@ -353,14 +364,10 @@ class GmailWrapperIntegrationTests(unittest.TestCase):
     """Test Gmail-related wrappers (help only, no auth required)."""
 
     def _run_wrapper(self, name: str) -> subprocess.CompletedProcess:
-        wrapper = bin_path(name)
-        if not wrapper.exists():
+        proc = _run_wrapper_help(name)
+        if proc is None:
             self.skipTest(f"bin/{name} not found")
-        if _is_shell_script(wrapper):
-            cmd = ["bash", str(wrapper), "--help"]
-        else:
-            cmd = [sys.executable, str(wrapper), "--help"]
-        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 - test code with trusted local scripts
+        return proc
 
     def test_gmail_labels_export_help(self):
         proc = self._run_wrapper("gmail-labels-export")

@@ -92,6 +92,47 @@ exclude_patterns = [
   # tests/test_detect_facades.py, which loads the module and exercises its
   # helpers, so functional regressions still fail CI via the tests job.
   "workflows/code/scripts/detect_facades.py",
+  # --- BEGIN GENERATED WRAPPER SYMLINKS (bin/_gen_wrappers.py) ---
+  # Every bin/<name> below is a SYMLINK to bin/_router.py, which is the single
+  # real file behind all generated wrappers. qlty follows each symlink and reads
+  # the same 115 lines once per name, then reports them as N clones of each
+  # other -- one identical-code finding per wrapper, all pointing at the one
+  # file. That is an artifact of symlink traversal, not duplicated source: git
+  # stores these as mode 120000 pointing at a single blob.
+  #
+  # Only the symlink NAMES are excluded. bin/_router.py itself is deliberately
+  # absent from this list and stays fully covered -- verified empirically: an
+  # injected unused import and eval() in _router.py still report ruff:F401,
+  # ruff:E402, and bandit:B307 with these exclusions active. This is unlike the
+  # workflows/code/scripts/detect_facades.py entry above, where the excluded
+  # path IS the real file and linting is genuinely lost.
+  #
+  # Generated from bin/_wrappers.yaml -- run `make bin-wrappers` to refresh.
+  # `make bin-wrappers-check` (CI) fails if this block drifts from the config.
+  "bin/apple-music-assistant",
+  "bin/apple-music-user-token",
+  "bin/assistant",
+  "bin/calendar",
+  "bin/calendar-assistant",
+  "bin/charts",
+  "bin/diagrams",
+  "bin/mail",
+  "bin/mail-assistant",
+  "bin/maker",
+  "bin/phone",
+  "bin/phone-assistant",
+  "bin/qlty-assistant",
+  "bin/schedule",
+  "bin/schedule-assistant",
+  "bin/sheets",
+  "bin/slides",
+  "bin/telemetry",
+  "bin/whatsapp",
+  "bin/wifi",
+  "bin/wifi-assistant",
+  "bin/worker",
+  "bin/workflow",
+  # --- END GENERATED WRAPPER SYMLINKS ---
 ]
 
 test_patterns = [

@@ -30,29 +30,7 @@ from mail.filters.producers import (
     FiltersExportProducer,
 )
 
-from tests.mail_tests.fixtures import FakeGmailClient, make_args
-
-
-def _make_pipeline_client():
-    """Create a FakeGmailClient configured for filters pipeline tests."""
-    return FakeGmailClient(
-        labels=[
-            {"id": "LBL_VIP", "name": "VIP"},
-            {"id": "LBL_OTHER", "name": "Other"},
-        ],
-        filters=[
-            {
-                "id": "EXTRA",
-                "criteria": {"from": "someone@example.com"},
-                "action": {"addLabelIds": ["LBL_OTHER"]},
-            }
-        ],
-        message_ids_by_query={
-            "foo@example.com": ["m1"] * 5,
-            'subject:"bar report"': ["m2"] * 3,
-        },
-        verified_forward_addresses={"verified@example.com"},
-    )
+from tests.mail_tests.fixtures import FakeGmailClient, make_args, make_pipeline_client
 
 
 class FiltersPlanConsumerTests(unittest.TestCase):
@@ -69,7 +47,7 @@ class FiltersPlanConsumerTests(unittest.TestCase):
             )
             args = make_args(config=str(cfg_path))
             ctx = MailContext.from_args(args)
-            ctx.gmail_client = _make_pipeline_client()
+            ctx.gmail_client = make_pipeline_client()
 
             consumer = FiltersPlanConsumer(ctx)
             payload = consumer.consume()
@@ -234,7 +212,7 @@ class FiltersSyncProcessorTests(unittest.TestCase):
 
 class FiltersImpactProcessorTests(unittest.TestCase):
     def test_impact_processor_counts_and_producer_outputs(self):
-        client = _make_pipeline_client()
+        client = make_pipeline_client()
         payload = FiltersImpactPayload(
             filters=[
                 {"match": {"from": "foo@example.com"}},
@@ -262,7 +240,7 @@ class FiltersExportProcessorTests(unittest.TestCase):
     def test_export_pipeline_writes_yaml(self):
         args = SimpleNamespace(out=None)
         ctx = MailContext.from_args(args)
-        ctx.gmail_client = _make_pipeline_client()
+        ctx.gmail_client = make_pipeline_client()
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = Path(tmpdir) / "filters.yaml"
             ctx.args.out = str(out_path)
