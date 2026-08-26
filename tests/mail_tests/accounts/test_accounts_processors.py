@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -574,15 +573,16 @@ class TestAccountsSyncSignaturesProcessor(unittest.TestCase):
         mock_load.return_value = [acct]
         mock_iter.return_value = [acct]
 
-        cwd = os.getcwd()
         with TemporaryDirectory() as tmpdir:
-            try:
-                os.chdir(tmpdir)
+            # Patch output_dir rather than chdir: the guidance file must land in
+            # the data home regardless of the working directory.
+            with patch(
+                "mail.accounts.pipeline_list_signatures.output_dir",
+                return_value=Path(tmpdir),
+            ):
                 request = AccountsSyncSignaturesRequest(config_path="/config.yaml")
                 processor = AccountsSyncSignaturesProcessor()
                 envelope = processor.process(request)
-            finally:
-                os.chdir(cwd)
 
             self.assertTrue(envelope.ok())
             result = envelope.unwrap()

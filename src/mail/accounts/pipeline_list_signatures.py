@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from core.paths import output_dir
 from core.pipeline import SafeProcessor
 
 from .pipeline_auth import (
@@ -179,7 +180,7 @@ def _sync_signatures_gmail(a: dict, payload: "AccountsSyncSignaturesRequest") ->
 
 def _sync_signatures_outlook(a: dict) -> SyncedSignaturesInfo:
     """Write guidance for Outlook, which has no signature sync API."""
-    assets = Path("signatures_assets")
+    assets = output_dir("mail") / "signatures_assets"
     assets.mkdir(parents=True, exist_ok=True)
     (assets / "OUTLOOK_README.txt").write_text(
         "Outlook signatures are not exposed via Microsoft Graph v1.0.\n"
@@ -215,6 +216,7 @@ class AccountsSyncSignaturesProducer(AccountsResultProducer[AccountsSyncSignatur
             if info.status == "delegated":
                 print(f"{_LOG_PREFIX}{info.account_name} provider={info.provider} (delegated)")
             elif info.status == "wrote_guidance":
-                print(f"{_LOG_PREFIX}{info.account_name} provider={info.provider} wrote guidance to signatures_assets/")
+                assets_dir = output_dir("mail") / "signatures_assets"
+                print(f"{_LOG_PREFIX}{info.account_name} provider={info.provider} wrote guidance to {assets_dir}")
             else:
                 print(f"{_LOG_PREFIX}{info.account_name} provider={info.provider} status={info.status}")
