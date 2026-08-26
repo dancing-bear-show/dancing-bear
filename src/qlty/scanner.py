@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Sequence
 
-from .models import Finding, Source, WireFormat
+from .models import Finding, Scope, Source, WireFormat
 from .runner import QltyRunner
 
 # radarlint caps issues per run, so one high-count cluster can crowd out
@@ -29,7 +29,7 @@ class ScanResult:
     wire_formats: tuple[WireFormat, ...] = ()
     iterations: int = 1
     stable: bool = True
-    scanned_all: bool = True
+    scope: Scope = Scope.ALL
     duplicates_collapsed: int = 0
 
     @property
@@ -69,7 +69,7 @@ class ScanResult:
             wire_formats=self.wire_formats,
             iterations=self.iterations,
             stable=self.stable,
-            scanned_all=self.scanned_all,
+            scope=self.scope,
             duplicates_collapsed=self.duplicates_collapsed,
         )
 
@@ -91,6 +91,19 @@ class ScanRequest:
     include_tests: bool = True
     paths: tuple[str, ...] = ()
     sources: tuple[Source, ...] = (Source.CHECK, Source.SMELLS)
+
+    @property
+    def scope(self) -> Scope:
+        """The scope this request actually scans.
+
+        ``paths`` wins over ``scan_all`` because the runner drops ``--all``
+        whenever paths are given -- qlty rejects the combination -- so a
+        path-scoped scan covered neither the repo nor the diff, and reporting
+        it as either would be a false clean.
+        """
+        if self.paths:
+            return Scope.PATHS
+        return Scope.ALL if self.scan_all else Scope.CHANGED
 
 
 @dataclass
@@ -139,7 +152,7 @@ class _Accumulator:
         )
 
     def build(
-        self, *, iterations: int, stable: bool, scanned_all: bool
+        self, *, iterations: int, stable: bool, scope: Scope
     ) -> ScanResult:
         return ScanResult(
             findings=self.ordered(),
@@ -147,7 +160,7 @@ class _Accumulator:
             wire_formats=tuple(self.wire_formats),
             iterations=iterations,
             stable=stable,
-            scanned_all=scanned_all,
+            scope=scope,
             duplicates_collapsed=self.collapsed,
         )
 
@@ -207,12 +220,12 @@ class Scanner:
                 return accumulated.build(
                     iterations=iterations,
                     stable=True,
-                    scanned_all=request.scan_all,
+                    scope=request.scope,
                 )
             previous = identities
 
         return accumulated.build(
-            iterations=iterations, stable=False, scanned_all=request.scan_all
+            iterations=iterations, stable=False, scope=request.scope
         )
 
     def _scan_once(self, request: ScanRequest) -> ScanResult:
@@ -230,7 +243,7 @@ class Scanner:
             accumulated.note_format(invocation.wire_format)
 
         return accumulated.build(
-            iterations=1, stable=True, scanned_all=request.scan_all
+            iterations=1, stable=True, scope=request.scope
         )
 
 

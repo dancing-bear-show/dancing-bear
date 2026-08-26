@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from qlty.models import Source, WireFormat
+from qlty.models import Scope, Source, WireFormat
 from qlty.runner import parse_json_findings
 from qlty.scanner import ScanRequest, Scanner, sibling_uses_params_object
 from tests.qlty_tests.shared_fixtures import (
@@ -203,6 +203,31 @@ class ScanResultTests(unittest.TestCase):
         one = make_finding(value=6, message="a")
         two = make_finding(value=9, message="b")
         self.assertEqual(one.identity, two.identity)
+
+
+class ScanRequestScopeTests(unittest.TestCase):
+    """ScanRequest.scope derives the three-valued scope from its fields."""
+
+    def test_scan_all_true_no_paths_is_all(self):
+        self.assertIs(ScanRequest(scan_all=True).scope, Scope.ALL)
+
+    def test_scan_all_false_no_paths_is_changed(self):
+        self.assertIs(ScanRequest(scan_all=False).scope, Scope.CHANGED)
+
+    def test_paths_override_scan_all_true(self):
+        # The runner drops --all when paths are given, so the scan covered
+        # neither the repo nor the diff -- claiming "all" would be a false clean.
+        request = ScanRequest(scan_all=True, paths=("src/foo.py",))
+        self.assertIs(request.scope, Scope.PATHS)
+
+    def test_paths_override_scan_all_false(self):
+        request = ScanRequest(scan_all=False, paths=("src/foo.py",))
+        self.assertIs(request.scope, Scope.PATHS)
+
+    def test_scope_stored_on_scan_result(self):
+        runner = FakeRunner()
+        result = Scanner(runner).scan(ScanRequest(paths=("src/x.py",)))
+        self.assertIs(result.scope, Scope.PATHS)
 
 
 class SiblingParamsObjectTests(unittest.TestCase):

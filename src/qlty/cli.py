@@ -7,7 +7,7 @@ from functools import lru_cache
 from typing import Optional, Sequence
 
 from core.assistant import BaseAssistant
-from core.cli_errors import ExitCode
+from core.cli_errors import ExitCode, UsageError
 from core.cli_framework import CLIApp
 
 from . import report
@@ -101,6 +101,13 @@ def _run_scan(args) -> tuple[ScanResult, ScanResult]:
     to a rule with zero matches would otherwise trip the guard in a healthy
     environment, turning a valid usage of --rule into a false alarm.
     """
+    if getattr(args, "changed", False) and getattr(args, "paths", None):
+        raise UsageError(
+            "--changed cannot be combined with explicit paths: naming paths already "
+            "scopes the scan. Drop --changed, or drop the paths to scan changed "
+            "files repo-wide."
+        )
+
     request = ScanRequest(
         # F1: default to --all. Diff-only is opt-in, because `qlty check`
         # defaulting to changed-files-only reports "No issues" on a clean
@@ -154,7 +161,9 @@ def cmd_scan(args) -> int:
     """Run a merged qlty scan.
 
     ``QltyError`` is deliberately not caught: it is a ``CLIError``, so CLIApp's
-    handler renders its message and hint on stderr and maps its exit code.
+    handler renders its message and hint on stderr and maps its exit code. The
+    same holds for the ``UsageError`` ``_run_scan`` raises on ``--changed``
+    combined with explicit paths.
     """
     raw, result = _run_scan(args)
     _emit(_render_scan(result, args.format))

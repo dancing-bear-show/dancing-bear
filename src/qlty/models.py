@@ -47,6 +47,20 @@ class WireFormat(str, Enum):
     SARIF = "sarif"
 
 
+class Scope(str, Enum):
+    """What portion of the repo a scan covered.
+
+    Three-valued rather than a bool: ``--all`` is dropped whenever explicit
+    paths are given (qlty rejects the combination), so a path-scoped scan is
+    neither "all files" nor "changed files" -- reporting it as either is the
+    F1 false-clean this module exists to prevent.
+    """
+
+    ALL = "all"
+    CHANGED = "changed"
+    PATHS = "paths"
+
+
 @dataclass(frozen=True)
 class Location:
     """A file path plus 1-indexed start line, as reported by qlty."""
