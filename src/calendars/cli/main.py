@@ -46,6 +46,7 @@ from ..outlook.commands import (
     run_outlook_calendar_share,
     run_outlook_settings_apply,
     run_outlook_mail_list,
+    run_outlook_export_plan,
 )
 from ..gmail.commands import (
     run_gmail_scan_classes,
@@ -304,6 +305,20 @@ def cmd_outlook_settings_apply(args) -> int:
 @outlook_group.argument("--pages", type=int, default=1, help="Pages to fetch")
 def cmd_outlook_mail_list(args) -> int:
     return run_outlook_mail_list(args)
+
+
+@outlook_group.command("export-plan", help="Export calendar events to a YAML plan file")
+@outlook_group.argument("--client-id", help="Azure app (client) ID")
+@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
+@outlook_group.argument("--token", help="Path to token cache JSON")
+@outlook_group.argument("--calendar", help="Calendar name (defaults to primary)")
+@outlook_group.argument("--from", dest="from_date", help=HELP_START_DATE)
+@outlook_group.argument("--to", dest="to_date", help=HELP_END_DATE)
+@outlook_group.argument("--out", help="Output YAML plan path (default: ~/.local/share/dancing-bear/calendars/plan.yaml)")
+@outlook_group.argument("--dry-run", action="store_true", help=HELP_DRY_RUN)
+@outlook_group.argument("--verbose", action="store_true", help="Print skipped event details")
+def cmd_outlook_export_plan(args) -> int:
+    return run_outlook_export_plan(args)
 
 
 # --- gmail group ---
