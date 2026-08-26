@@ -41,7 +41,7 @@ trigger:
     projects_dir: "~/.claude/projects"  # Root dir for Claude Code project transcripts
     primary_artifact: "sketches.json"
     report_artifact: "domain-recommendations.md"
-    validation_criteria: "every non-null file_to_modify path exists under src/ or bin/ (workflow-type sketches carry null and are exempt)|proposed domain names are snake_case and not already a directory under src/|roi_score arithmetic is correct|no gap_id appears in more than one candidate list|every example_prompt quoted traces to prompt-corpus.json|every workflow-type sketch names only existing commands for its sources — probe each one|no workflow-type sketch claims a src/ file to modify"
+    validation_criteria: "every non-null file_to_modify path exists under src/ or bin/ (workflow-type sketches carry null and are exempt)|proposed domain names are snake_case and not already a directory under src/|roi_score arithmetic is correct|no gap_id appears in more than one candidate list|every example_prompt quoted traces to prompt-corpus.json|every non-null existing_command in a workflow-type sketch is a single runnable command that probes successfully — a slash- or comma-joined string is a defect, and a null with a note is valid|every source named in a workflow candidate's rationale appears in its sources array|no workflow-type sketch claims a src/ file to modify"
     docs_change_source: "sketches.json"
     docs_backlog_doc: "docs/cli-surface-backlog.md"
 
@@ -292,10 +292,14 @@ stages:
         Do NOT emit a subcommand sketch for these. A worked example from a real
         run: "i want to scan for new receipts in the usual places" was recorded
         as a 90-line `mail messages scan-receipts` subcommand, but receipts
-        arrive from mail, WhatsApp, and the local filesystem — all three already
-        have commands (`mail messages search`/`list-attachments`/
-        `download-attachment`, `whatsapp search`, a filesystem scan), so the
+        arrive from mail, WhatsApp, and the local filesystem. Mail and WhatsApp
+        are already covered by four separate existing commands —
+        `./bin/mail messages search`, `./bin/mail messages list-attachments`,
+        `./bin/mail messages download-attachment`, and `./bin/whatsapp search` —
+        and the filesystem needs only a directory scan, no CLI at all. So the
         correct deliverable was a workflow with 0 lines of new CLI code.
+        Record each of those as its OWN sources entry; never collapse several
+        commands into one slash-joined string (see the format rule in Step 4).
 
         This test must run here, on every Step 1 candidate. Step 3 carries a
         similar check but is driven by intent-sequences.json cli_sequences,
@@ -413,8 +417,11 @@ stages:
               "type": "workflow",
               "rationale": "intent spans mail + whatsapp + filesystem",
               "sources": [
-                {"source": "mail", "existing_command": "./bin/mail messages search / list-attachments / download-attachment"},
-                {"source": "whatsapp", "existing_command": "./bin/whatsapp search --contains --since-days"}
+                {"source": "mail", "existing_command": "./bin/mail messages search"},
+                {"source": "mail", "existing_command": "./bin/mail messages list-attachments"},
+                {"source": "mail", "existing_command": "./bin/mail messages download-attachment"},
+                {"source": "whatsapp", "existing_command": "./bin/whatsapp search"},
+                {"source": "filesystem", "existing_command": null, "note": "no CLI — plain directory scan of the usual download dirs"}
               ],
               "example_prompts": ["..."],
               "prompt_freq": 0,
@@ -426,6 +433,19 @@ stages:
       Sort the first three lists by roi_score descending. workflow_candidates
       carry no roi_score — rank them by prompt_freq, since their cost is near
       zero when every source already has a command.
+
+      existing_command FORMAT — one entry per real, individually runnable
+      command. Never join several commands into one string with slashes or
+      commas: the validation stage probes each existing_command verbatim, and a
+      joined string is not a command, so it cannot be probed and will fail.
+      A source needing three commands gets three entries, all with the same
+      "source" value. A source with no CLI at all (a plain filesystem scan) sets
+      existing_command to null and explains in "note" — do not invent a command
+      name to fill the field.
+
+      "sources" must also cover every source named in "rationale". If the
+      rationale says the intent spans mail, WhatsApp, and the filesystem, all
+      three appear in sources — including any that has no CLI.
 
       A gap_id must appear in exactly one of the four lists. If a candidate
       could plausibly be either a subcommand or a new domain, classify it as a
