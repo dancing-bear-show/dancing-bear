@@ -2,15 +2,9 @@
 
 from __future__ import annotations
 
+from core.format_utils import format_tokens as _format_tokens
+
 from .mermaid import GanttBuilder, PieBuilder
-
-
-def _format_tokens(n: int) -> str:
-    if n >= 1_000_000:
-        return f"{n / 1_000_000:.1f}M"
-    if n >= 1_000:
-        return f"{n / 1_000:.1f}K"
-    return str(n)
 
 
 def _load_telemetry(days: int):

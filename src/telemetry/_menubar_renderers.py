@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from telemetry._menubar_config import _IconTemplate
-from telemetry.tui import format_tokens as _format_tokens
+from core.format_utils import format_tokens as _format_tokens
 
 
 def _icon_substitutions(
