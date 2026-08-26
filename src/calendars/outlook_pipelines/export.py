@@ -336,9 +336,13 @@ def _partition_events(
 ) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
     """Split a raw event list into one-offs and occurrences grouped by master id.
 
-    Occurrences without a seriesMasterId are dropped: they are neither a
-    standalone event nor attributable to a series, so there is nothing to
-    export them against.
+    Classification is entirely the caller's ``is_one_off`` predicate; this
+    function only routes. The ``mid`` guard drops a non-one-off that carries no
+    seriesMasterId, since there is no series to attribute it to -- but with the
+    production predicate (OutlookExportProcessor._is_one_off, which already
+    returns True when seriesMasterId is falsy) that case cannot arise. The
+    guard is kept for predicates that classify differently, not because the
+    current call site can reach it.
     """
     one_offs: list[dict[str, Any]] = []
     by_master: dict[str, list[dict[str, Any]]] = {}
