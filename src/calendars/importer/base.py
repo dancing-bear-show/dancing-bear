@@ -10,23 +10,27 @@ from calendars.gmail_pipelines import CalendarEvent
 
 @runtime_checkable
 class CalendarProvider(Protocol):
-    """Aspirational protocol for calendar backends. NOT IMPLEMENTED.
+    """Protocol for calendar backends.
 
-    This Protocol has **no production implementors**. Its only conformant
-    classes are the FakeGmailBackend/FakeOutlookBackend test stubs in
-    tests/calendars_tests/outlook/test_outlook_scan_processor.py, so the
-    conformance test certifies only that those stubs match this shape —
-    it does not certify that any real backend does.
+    Production implementor
+    ----------------------
+    ``calendars.importer.outlook_provider.OutlookCalendarProvider`` is the
+    only production implementation of this protocol.  It is backed by the
+    Microsoft Graph API via ``core.outlook.OutlookCalendarMixin``.
 
-    The pattern actually in use is the core.pipeline Consumer -> Processor
-    -> Producer triad, with the *plan file* (``{"events": [...]}`` YAML) as
-    the abstraction seam rather than a provider interface. See
-    calendars.outlook_pipelines.export (OutlookExportProcessor /
-    OutlookExportProducer) for the producer side and
-    calendars.outlook_pipelines.ics_draft (IcsDraftProcessor /
-    IcsDraftProducer) for a consumer.
+    No Gmail / Google Calendar implementor exists.  This repo has no
+    ``google.oauth2`` calendar scope, no ``calendar/v3`` client, and no
+    Google Calendar API auth flow — only the Gmail (``gmail.readonly`` /
+    ``gmail.compose``) scopes are present.  Implementing a second backend
+    would require adding those pieces first.
 
-    Do not treat this Protocol as a contract any backend honours.
+    Test conformance
+    ----------------
+    Structural conformance tests for the Outlook provider live in
+    ``tests/calendars_tests/test_outlook_calendar_provider.py``.
+    Legacy shape-only stubs (FakeGmailBackend / FakeOutlookBackend) still
+    appear in ``tests/calendars_tests/outlook/test_outlook_scan_processor.py``
+    — they verify the protocol's surface but do not exercise any backend logic.
     """
 
     def list_events(self, date_range: tuple[str, str]) -> list[CalendarEvent]:
