@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import cast
 
 from slides._parse_text import (
     DEFAULT_BULLET_LIMIT,
@@ -131,9 +132,10 @@ def _evolve(state: _SectionState, **changes: object) -> _SectionState:
     """Typed wrapper for dataclasses.replace.
 
     `replace` is stubbed as returning `DataclassInstance`, so callers lose the
-    concrete type. Pinning it here keeps `_SectionState` visible to the checker.
+    concrete type. The cast pins it back to `_SectionState` -- without it the
+    declared return type contradicts the stub and the checker flags every call.
     """
-    return replace(state, **changes)
+    return cast(_SectionState, replace(state, **changes))
 
 
 @dataclass(frozen=True)

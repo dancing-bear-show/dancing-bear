@@ -29,6 +29,7 @@ import functools
 import logging
 import random
 import time
+from dataclasses import dataclass
 from typing import Callable
 
 from core.secrets import mask_text
@@ -140,6 +141,79 @@ def jitter_backoff(
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class _RetryPolicy:
+    """The resolved parameters of one ``@retry`` decoration, plus the loop.
+
+    Holding these as fields rather than closure variables keeps ``retry``
+    itself a thin validating factory: the attempt loop, the backoff
+    resolution and the failure reporting each become a separately readable
+    (and separately testable) method instead of three nested scopes.
+    """
+
+    max_attempts: int
+    delay: float
+    backoff: float | Callable[[int], float]
+    max_delay: float
+    exceptions: tuple[type[Exception], ...]
+    on_retry: Callable[[int, Exception], None] | None
+    raise_on_exhausted: bool
+
+    def notify(self, attempt: int, exc: Exception, func_name: str) -> None:
+        """Report one about-to-retry attempt via callback or the default log."""
+        if self.on_retry is not None:
+            self.on_retry(attempt, exc)
+            return
+        # Masked: a retried call is usually an HTTP or API request, and its
+        # exception text often quotes the URL or auth header that failed.
+        _logger.warning(
+            "Retry %d/%d for %s after %s: %s",
+            attempt + 1,
+            self.max_attempts - 1,
+            func_name,
+            type(exc).__name__,
+            mask_text(str(exc)),
+        )
+
+    def sleep_duration(self, attempt: int) -> float:
+        """Resolve the sleep for this attempt from the backoff parameter."""
+        if callable(self.backoff):
+            return self.backoff(attempt)
+        return exponential_backoff(
+            attempt, base_delay=self.delay, multiplier=self.backoff, max_delay=self.max_delay
+        )
+
+    def exhausted(self, last_exc: Exception | None):
+        """Raise the terminal error after every attempt has been consumed."""
+        if self.raise_on_exhausted:
+            # `from None` suppresses the implicit __context__ chain. The
+            # raise already sits outside the except block, so the context
+            # happens to be clear today -- but the masked message is only
+            # worth anything if an unmasked original cannot ride along in
+            # the printed traceback, and that should not depend on where
+            # this statement sits. last_exc stays reachable via
+            # RetryExhaustedError.last_exception for callers that want it.
+            raise RetryExhaustedError(self.max_attempts, last_exc) from None  # type: ignore[arg-type]
+        # Re-raising the original is the documented opt-out: the caller
+        # asked for the underlying exception, so it is not masked here.
+        raise last_exc  # type: ignore[misc]
+
+    def call(self, func: Callable, args: tuple, kwargs: dict):
+        """Run ``func``, retrying per this policy until it succeeds or runs out."""
+        last_exc: Exception | None = None
+        for attempt in range(self.max_attempts):
+            try:
+                return func(*args, **kwargs)
+            except self.exceptions as exc:
+                last_exc = exc
+                if attempt >= self.max_attempts - 1:
+                    break
+                self.notify(attempt, exc, func.__name__)
+                time.sleep(self.sleep_duration(attempt))
+        return self.exhausted(last_exc)
+
+
+
 def retry(
     *,
     max_attempts: int = 3,
@@ -187,54 +261,19 @@ def retry(
     if max_attempts < 1:
         raise ValueError(f"max_attempts must be >= 1, got {max_attempts}")
 
-    def notify(attempt: int, exc: Exception, func_name: str) -> None:
-        """Report one about-to-retry attempt via callback or the default log."""
-        if on_retry is not None:
-            on_retry(attempt, exc)
-            return
-        # Masked: a retried call is usually an HTTP or API request, and its
-        # exception text often quotes the URL or auth header that failed.
-        _logger.warning(
-            "Retry %d/%d for %s after %s: %s",
-            attempt + 1,
-            max_attempts - 1,
-            func_name,
-            type(exc).__name__,
-            mask_text(str(exc)),
-        )
-
-    def sleep_duration(attempt: int) -> float:
-        """Resolve the sleep for this attempt from the backoff parameter."""
-        if callable(backoff):
-            return backoff(attempt)
-        return exponential_backoff(
-            attempt, base_delay=delay, multiplier=backoff, max_delay=max_delay
-        )
+    policy = _RetryPolicy(
+        max_attempts=max_attempts,
+        delay=delay,
+        backoff=backoff,
+        max_delay=max_delay,
+        exceptions=exceptions,
+        on_retry=on_retry,
+        raise_on_exhausted=raise_on_exhausted,
+    )
 
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            last_exc: Exception | None = None
-            for attempt in range(max_attempts):
-                try:
-                    return func(*args, **kwargs)
-                except exceptions as exc:
-                    last_exc = exc
-                    if attempt >= max_attempts - 1:
-                        break
-                    notify(attempt, exc, func.__name__)
-                    time.sleep(sleep_duration(attempt))
-            if raise_on_exhausted:
-                # `from None` suppresses the implicit __context__ chain. The
-                # raise already sits outside the except block, so the context
-                # happens to be clear today -- but the masked message is only
-                # worth anything if an unmasked original cannot ride along in
-                # the printed traceback, and that should not depend on where
-                # this statement sits. last_exc stays reachable via
-                # RetryExhaustedError.last_exception for callers that want it.
-                raise RetryExhaustedError(max_attempts, last_exc) from None  # type: ignore[arg-type]
-            # Re-raising the original is the documented opt-out: the caller
-            # asked for the underlying exception, so it is not masked here.
-            raise last_exc  # type: ignore[misc]
+            return policy.call(func, args, kwargs)
         return wrapper
     return decorator

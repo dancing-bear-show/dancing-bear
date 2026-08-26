@@ -282,21 +282,22 @@ def _process_python_symlinks(
     python_specs: dict[str, dict], check: bool, verbose: bool
 ) -> tuple[int, int]:
     """Ensure each python wrapper is a symlink to _router.py. Returns (changed, unchanged)."""
+    verbs = {
+        "changed": "Would update" if check else "Updated",
+        "created": "Would create" if check else "Created",
+    }
     changed = 0
     unchanged = 0
     for name in python_specs:
-        path = BIN_DIR / name
-        status = _update_symlink(path, ROUTER_FILE, check)
-        if status in ("changed", "created"):
-            changed += 1
-            verb = "Would update" if check else "Updated"
-            if status == "created":
-                verb = "Would create" if check else "Created"
-            print(f"{verb}: {name} -> _router.py")
-        else:
+        status = _update_symlink(BIN_DIR / name, ROUTER_FILE, check)
+        verb = verbs.get(status)
+        if verb is None:
             unchanged += 1
             if verbose:
                 print(f"Unchanged: {name} -> _router.py")
+            continue
+        changed += 1
+        print(f"{verb}: {name} -> _router.py")
     return changed, unchanged
 
 
