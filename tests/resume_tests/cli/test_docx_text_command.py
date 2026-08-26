@@ -169,3 +169,55 @@ class TestDocxStructureMode(unittest.TestCase):
         rc, _, err = self._run(["--structure", "/nonexistent/nope.docx"])
         self.assertEqual(rc, 1)
         self.assertIn("file not found", err)
+
+
+class TestDocxNonUtf8Body(unittest.TestCase):
+    """A DOCX body is UTF-8 by convention, not by guarantee.
+
+    Rejecting a readable document over one stray byte would be worse than
+    decoding it approximately, so the command falls back to latin-1 and says
+    so on stderr rather than failing.
+    """
+
+    def _run(self, argv: list[str]) -> tuple[int, str, str]:
+        from resume.cli.main import main
+
+        out_buf = io.StringIO()
+        err_buf = io.StringIO()
+        with redirect_stdout(out_buf), redirect_stderr(err_buf):
+            rc = main(["docx-text"] + argv)
+        return rc, out_buf.getvalue(), err_buf.getvalue()
+
+    def _make_latin1_docx(self, tmp: Path) -> Path:
+        path = tmp / "latin1.docx"
+        body = "<w:document><w:body><w:p><w:t>caf\xe9</w:t></w:p></w:body></w:document>"
+        with zipfile.ZipFile(str(path), "w") as zf:
+            zf.writestr("word/document.xml", body.encode("latin-1"))
+        return path
+
+    def test_latin1_body_does_not_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = self._make_latin1_docx(Path(tmpdir))
+            rc, out, err = self._run([str(path)])
+        self.assertEqual(rc, 0)
+        self.assertIn("café", out)
+        self.assertIn("not valid UTF-8", err)
+
+    def test_structure_mode_also_survives_latin1(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = self._make_latin1_docx(Path(tmpdir))
+            rc, out, _ = self._run(["--structure", str(path)])
+        self.assertEqual(rc, 0)
+        self.assertIn("tables: 0", out)
+
+    def test_utf8_body_emits_no_encoding_warning(self) -> None:
+        """The fallback must stay silent on well-formed input."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            xml = "<w:document><w:body><w:t>café</w:t></w:body></w:document>"
+            path = Path(tmpdir) / "utf8.docx"
+            with zipfile.ZipFile(str(path), "w") as zf:
+                zf.writestr("word/document.xml", xml.encode("utf-8"))
+            rc, out, err = self._run([str(path)])
+        self.assertEqual(rc, 0)
+        self.assertIn("café", out)
+        self.assertNotIn("not valid UTF-8", err)

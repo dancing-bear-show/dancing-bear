@@ -221,9 +221,10 @@ stages:
         e. Re-score the file:
              ./bin/qlty-assistant scan --smells-only --rule file-complexity \
                --format csv <path>
-           The "value" column is the score. If no row comes back for a file
-           that still exists, report the failure rather than treating the file
-           as unscored.
+           The "value" column is the score. Judge by exit code: a nonzero
+           exit is a scan failure and must be reported. Exit 0 with only the
+           header row means the file is no longer flagged — that is a
+           "cleared" result, not a failure.
            Record before and after. If the score did not drop, note why — an
            honest "complexity is irreducible without behavior change" is an
            acceptable outcome and is better than a contrived refactor.

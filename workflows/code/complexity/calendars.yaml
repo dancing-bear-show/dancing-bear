@@ -50,15 +50,21 @@ stages:
           --format csv <path>
 
       The CSV has a header row plus one row per finding; the "value" column is
-      the file-complexity score and "file" is the path. No score row for a
-      file that still exists means the rescore produced nothing — classify
-      that as ERROR, never as "drop".
+      the file-complexity score and "file" is the path.
+
+      Use the EXIT CODE, not the row count, to tell failure from success:
+        exit 0, a score row     — file still flagged; compare to the floor
+        exit 0, header row only — no finding; the file is genuinely cleared
+        nonzero exit            — the scan itself failed; this is an ERROR
+      A header-only CSV at exit 0 is a real result, NOT a tool failure. The
+      old JSON pipeline could not tell these apart; this one can, so do not
+      classify an empty result as ERROR.
 
       Classify each entry into exactly one of three outcomes:
         keep  — file exists and scores at or above the floor
-        drop  — file is gone, or genuinely scores below the floor
-        ERROR — qlty failed, returned unparseable output, or emitted no
-                file-complexity entry for a file that still exists
+        drop  — file is gone, scores below the floor, or is no longer
+                flagged at all (header-only CSV at exit 0)
+        ERROR — the scan exited nonzero, or returned unparseable output
       An ERROR is NOT a drop. Record ERROR entries with their stderr text,
       keep them in the file list, and flag them.
 

@@ -521,10 +521,24 @@ def _read_docx_document(path: str) -> "tuple[str, list[str]] | None":
     with zf:
         names = list(zf.namelist())
         try:
-            return zf.read("word/document.xml").decode("utf-8"), names
+            blob = zf.read("word/document.xml")
         except KeyError:
             print(f"docx-text: word/document.xml not found in {path}", file=_sys.stderr)
             return None
+
+    # A DOCX body is UTF-8 by convention, not by guarantee -- the XML
+    # declaration may name another encoding. Decoding strictly would reject a
+    # readable document over one stray byte, so fall back to latin-1, which
+    # cannot fail and leaves the ASCII markup this command greps for intact.
+    try:
+        return blob.decode("utf-8"), names
+    except UnicodeDecodeError:
+        print(
+            f"docx-text: {path} is not valid UTF-8; decoded as latin-1 "
+            "(non-ASCII characters may be wrong)",
+            file=_sys.stderr,
+        )
+        return blob.decode("latin-1"), names
 
 
 def _print_docx_structure(raw: str, names: list[str]) -> None:

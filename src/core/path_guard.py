@@ -15,6 +15,10 @@ same purpose.
 Exit semantics (used by ``bin/path-guard``):
   0  — path is safe
   1  — path was rejected; reason written to stderr
+  2  — usage error (wrong argument count); usage written to stderr
+
+A caller that treats "nonzero" as "unsafe" is correct: 2 means the guard
+never ran, which must not be read as a pass.
 
 Usage::
 
