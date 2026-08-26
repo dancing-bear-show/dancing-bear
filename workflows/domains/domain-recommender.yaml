@@ -278,6 +278,17 @@ stages:
 
       Step 4 — ROI scoring for all gaps.
 
+        Step 4a — corpus sanity check, before any scoring. Count how many
+        prompts in prompt-corpus.json have tool_calls_after == 0. If that is
+        more than half of all prompts, the extraction failed rather than the
+        sessions being genuinely tool-free (a real session almost always makes
+        tool calls). Do NOT score against it: set every entry's confidence to
+        0.3 with "estimated": true, and record at the top of gap-analysis.json:
+          "corpus_warning": "<n>/<total> prompts have tool_calls_after == 0 —
+          effort_factor is unreliable; rankings reflect prompt_freq only."
+        Say so plainly in the report rather than presenting the ranking as
+        measured.
+
         Read this note before scoring. `avg_tool_calls_after` is an ambiguous
         signal, and the naive formula (freq * tool_calls * weight) gets it
         backwards. A high tool-call count can mean either:

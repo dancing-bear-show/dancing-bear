@@ -129,14 +129,43 @@ stages:
         4. For each extracted prompt, record:
            {
              "session_id": "...",
-             "project_path": "...",
+             "project_path": "...",   # the record's "cwd" field; do not leave blank
              "session_cost": 1.23,
-             "prompt_index": 4,
+             "prompt_index": 4,       # 0-based JSONL LINE NUMBER of this prompt
              "role": "user" | "agent_task",
              "text": "...",          # full prompt text, max 2000 chars
              "token_estimate": N,    # len(text) // 4 as rough estimate
-             "tool_calls_after": N   # count of tool_use blocks in the same assistant turn
+             "tool_calls_after": N   # see below — must not be left at 0
            }
+
+           tool_calls_after is a REQUIRED measurement, not a placeholder. It is
+           the primary input to domain-recommender's ROI scoring, and a corpus
+           of all-zeros silently collapses every gap into the lowest-confidence
+           tier while looking like valid output. Compute it as:
+
+             the number of "tool_use" blocks in every assistant record whose
+             line number falls strictly between this prompt's line number and
+             the line number of the NEXT user prompt (or EOF).
+
+           Structural notes, verified against real transcripts — do not assume
+           a different shape:
+             - Tool calls live at record["message"]["content"], which is a LIST
+               of blocks; count blocks with type == "tool_use". A record whose
+               "message" is not a dict (type "mode", "attachment", "pr-link",
+               etc.) has none.
+             - An assistant turn may span MULTIPLE records, so a single prompt's
+               tool calls are spread across several lines. Summing only the one
+               immediately-following record undercounts badly.
+             - A user record whose content list is entirely "tool_result" blocks
+               is NOT a human prompt — skip it when locating the next prompt
+               boundary, or every span collapses to zero.
+             - Because prompt_index is a line number and not a sequential
+               ordinal, never use it to index into a per-session list. Match on
+               the line number itself.
+
+           After building the corpus, sanity-check it before writing: if more
+           than half of the prompts have tool_calls_after == 0, the extraction
+           is wrong, not the data. Record the check's outcome in "notes".
 
       Write the full list to prompt-corpus.json as:
         {
