@@ -51,7 +51,6 @@ class PipelineDelegationCase:
     command: Callable[[MagicMock], int]
     args: MagicMock
     check_request: Callable[[unittest.TestCase, Any], None]
-    assert_called_once: bool = True
 
 
 CASES: list[PipelineDelegationCase] = [
@@ -201,8 +200,7 @@ class TestPipelineCommands(unittest.TestCase):
                     result = case.command(case.args)
 
                     self.assertEqual(result, 0)
-                    if case.assert_called_once:
-                        mock_run.assert_called_once()
+                    mock_run.assert_called_once()
                     request = mock_run.call_args[0][0]
                     case.check_request(self, request)
 
