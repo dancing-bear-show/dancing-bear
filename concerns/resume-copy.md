@@ -184,3 +184,85 @@ a parser with deliberately malformed input.
   defect this concern exists to catch.
 - **example**: Resume says "Senior Staff Site Reliability Engineer, Nov 2020 – May
   2025"; LinkedIn says "Staff SRE, 2021 – 2025" — title and both dates disagree.
+
+### resume-verb-repetition
+- **severity**: minor
+- **check**: Verify the resume does not lean on the same opener across bullets.
+  A reader scanning the left edge of a bullet list sees the verbs first, and a
+  column reading "Led / Led / Led / Led" flattens four different accomplishments
+  into one texture.
+- **triggers**: The same opening verb (or its lemma — "Build"/"Built"/"Building")
+  opening 3+ bullets anywhere in the document, or 2+ bullets within a single
+  `experience[]` entry. Report the verb, the count, and every role it appears in.
+- **scope exception**: Do NOT flag a verb repeated across roles when it is the
+  literal name of the work and no honest synonym exists ("Migrated" across three
+  migration roles). Flag only when substitution would not change the claim.
+- **note**: Rank by span. The same verb twice in one role reads as a lapse; the
+  same verb six times across a document reads as a template.
+- **example**: A resume whose bullets open "Led the migration...", "Led a team
+  of 6...", "Led incident response...", "Led the SLO rollout..." — four distinct
+  accomplishments rendered indistinguishable. Vary to "Migrated", "Grew",
+  "Ran", "Drove".
+
+### resume-bullet-template-repetition
+- **severity**: minor
+- **check**: Verify bullets do not all share one syntactic template. Identical
+  structure across a list is the strongest single tell that copy was generated
+  rather than written, and it survives every word-level check because no
+  individual bullet is wrong.
+- **triggers**: 3+ bullets in the same `experience[]` entry sharing a template,
+  most commonly `<Verb> <object> by <gerund> <method>, resulting in <metric>` or
+  `<Verb> <object>, <gerund> <outcome>`. Also triggers when every bullet in a
+  role terminates in a metric clause in the same grammatical position.
+- **scope exception**: Two bullets sharing a shape is normal parallelism and is
+  not a finding. The concern is a whole list marching in lockstep.
+- **note**: The fix is structural, not lexical — swapping synonyms leaves the
+  template intact. Lead one bullet with the outcome, one with the constraint,
+  one with the scope.
+- **example**: "Reduced latency by implementing caching, resulting in 40% faster
+  loads" / "Cut costs by consolidating instances, resulting in $200K savings" /
+  "Improved uptime by adding health checks, resulting in 99.9% availability" —
+  three bullets, one sentence, three times.
+
+### resume-llm-cadence
+- **severity**: minor
+- **check**: Verify the copy does not carry the characteristic rhythms of
+  generated prose. These are individually defensible and collectively damning:
+  a recruiter cannot always name why a resume reads as machine-written, but
+  they register it.
+- **triggers**: Any of — a tricolon ("scalable, reliable, and maintainable")
+  where two adjectives would carry the claim; the "not just X, but Y"
+  construction; "seamlessly", "robust", "comprehensive", "holistic",
+  "streamlined" as intensifiers rather than technical terms; an em dash used
+  for dramatic pause in a bullet; a bullet opening with a participial scene-set
+  ("Recognizing the need for...", "Understanding that...").
+- **scope exception**: A term is not a tell when it is the actual technical
+  word — "robust" in "robust statistics", "comprehensive" in "comprehensive
+  test coverage" where coverage is genuinely exhaustive. Judge by whether
+  deleting the word loses information.
+- **note**: Do not flag the same span under both this concern and
+  `resume-banned-phrase`; that concern owns the fixed vocabulary list, this one
+  owns rhythm and construction.
+- **example**: "Architected a scalable, reliable, and maintainable platform —
+  not just meeting requirements, but seamlessly exceeding them" — every clause
+  defensible in isolation, unmistakable in aggregate.
+
+### resume-hedged-impact
+- **severity**: major
+- **check**: Verify accomplishments are stated as fact rather than softened into
+  unfalsifiability. Generated copy hedges by default, and a hedged metric is
+  worse than no metric: it signals the writer did not trust the number.
+- **triggers**: A bullet containing "helped to", "contributed to", "played a key
+  role in", "was instrumental in", "supported efforts to", "approximately"
+  before a figure the candidate should know exactly, or "up to" attached to a
+  best case presented as typical.
+- **scope exception**: Genuine shared credit is honest and must not be flagged
+  into a false claim of sole ownership. "Contributed to" on a large open-source
+  project is accurate; the defect is hedging work the candidate actually owned.
+- **note**: Overlaps `resume-bullet-weak-opener` when the hedge is the opener.
+  Report under that concern when it opens the bullet, here when it appears
+  mid-bullet.
+- **example**: "Helped to reduce infrastructure costs by approximately 30%" —
+  either the candidate cut costs 30% or they did not, and either they know the
+  figure or should not cite it. Rewrite: "Cut infrastructure costs 31% ($240K
+  annualized)".
