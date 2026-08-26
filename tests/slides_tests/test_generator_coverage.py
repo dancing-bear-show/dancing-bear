@@ -1621,9 +1621,13 @@ class TestInferLayoutMapNoBulletLayout(unittest.TestCase):
         mock_prs_cls.return_value = prs
 
         result = SlideGenerator.infer_layout_map_from_template("/fake.pptx")
-        # Result should contain title_only but NOT table (no bullet → no alias)
-        if result is not None:
-            self.assertNotIn("table", result)
+        # The mock template holds a recognised layout, so inference must produce a
+        # mapping — assert unconditionally rather than guarding on None, or the
+        # test would silently pass without checking anything.
+        self.assertIsNotNone(result)
+        self.assertIn("title_only", result)
+        # No bullet layout was found, so the table alias must not be added.
+        self.assertNotIn("table", result)
 
 
 # ---------------------------------------------------------------------------

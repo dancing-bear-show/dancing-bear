@@ -273,7 +273,8 @@ class TestValidateBulletLevel(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# _body_line_to_bullet: sub-bullet prefix with empty text returns None (line 138)
+# _body_line_to_bullet: a prefix-only "- " line is rstrip()ed to "-", so it no
+# longer matches the sub-bullet prefix and comes back as a level-0 BulletItem.
 # ---------------------------------------------------------------------------
 
 class TestBodyLineToBullet(unittest.TestCase):

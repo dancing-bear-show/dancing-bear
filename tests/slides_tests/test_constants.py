@@ -20,6 +20,7 @@ import unittest
 from pptx.dml.color import RGBColor
 from pptx.enum.dml import MSO_THEME_COLOR
 
+import slides.constants as constants_module
 from slides.constants import (
     # Bullet characters
     BULLET_CHARS,
@@ -866,7 +867,6 @@ class TestConstantsDir(unittest.TestCase):
 
     def test_dir_includes_lazy_constant_names(self):
         """dir(slides.constants) includes the names of lazy constants."""
-        import slides.constants as constants_module
         names = dir(constants_module)
         # These names live in _LAZY_CONSTANTS and must appear in dir()
         self.assertIn("TABLE_HEADER_BG", names)
@@ -875,14 +875,12 @@ class TestConstantsDir(unittest.TestCase):
 
     def test_dir_includes_regular_constants(self):
         """dir(slides.constants) also includes ordinary module-level names."""
-        import slides.constants as constants_module
         names = dir(constants_module)
         self.assertIn("LAYOUT_BULLET", names)
         self.assertIn("LAYOUT_TABLE", names)
 
     def test_dir_returns_sorted_list(self):
         """__dir__ returns a sorted list of strings."""
-        import slides.constants as constants_module
         names = dir(constants_module)
         self.assertEqual(names, sorted(names))
 

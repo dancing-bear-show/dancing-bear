@@ -448,8 +448,13 @@ class TestParseSectionNoneResult(unittest.TestCase):
             path = f.name
         try:
             deck = load_deck_from_markdown(path)
-            # Both valid sections should be included; blank section skipped
-            self.assertGreaterEqual(len(deck.slides), 1)
+            # Exactly the two real sections survive; the blank middle section
+            # parses to None and is skipped. A >= assertion would not catch a
+            # regression that stopped skipping it.
+            self.assertEqual(len(deck.slides), 2)
+            self.assertEqual(
+                [s.title for s in deck.slides], ["Valid Title", "Another"]
+            )
         finally:
             os.unlink(path)
 

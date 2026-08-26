@@ -316,15 +316,10 @@ class TestSetSlideTitleInheritStyle(unittest.TestCase):
             inherit_style=True,
         )
 
-        # Text should be set on the run
+        # Text is still written to the run...
         self.assertEqual(new_run.text, "Subtitle Text")
-        # alignment should NOT have been set on the paragraph
-        new_para.alignment  # access — fine
-        # The key assertion: _style_run should NOT have been called on new_run
-        # (inherit_style=True skips the block at line 142-144)
-        # We verify no Pt() sizing was applied by confirming no font_size assignment
-        # Since _style_run is a mixin method (not patched), just confirm no crash and correct text
-        self.assertEqual(new_run.text, "Subtitle Text")
+        # ...but inherit_style=True must skip the styling block entirely.
+        mixin._style_run.assert_not_called()
 
     def test_subtitle_without_inherit_style_runs_through_style_block(self):
         """Happy path: subtitle with inherit_style=False applies styling."""
