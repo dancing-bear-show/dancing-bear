@@ -903,7 +903,9 @@ stages:
         If decision is "discard", write outputs/post-results.json:
           {"posted": 0, "skipped": 0, "errors": [], "comment_urls": [],
            "skipped_reason": "discarded at human gate"}
-        Then exit cleanly.
+        Then run Step 5 (the findings-log write) and exit cleanly. Step 5 is
+        not optional on this path — a discarded review is still a run worth
+        logging.
 
       Step 1 — resolve repo and commit SHA:
         Read outputs/pr-context.json. The fetch-pr-context stage explicitly
@@ -922,7 +924,11 @@ stages:
         findings array is empty), write outputs/post-results.json:
           {"posted": 0, "skipped": 0, "errors": [], "comment_urls": [],
            "skipped_reason": "no findings to post"}
-        Then exit cleanly — do not attempt to post a comment with no anchor.
+        Then run Step 5 (the findings-log write) and exit cleanly — do not
+        attempt to post a comment with no anchor. Step 5 is not optional on
+        this path: a clean review logs a record with total 0, which is how
+        update-review-concerns distinguishes "reviewed, nothing found" from
+        "never reviewed".
 
         Otherwise, build one summary comment body in Markdown containing all
         findings, grouped by severity (critical → major → minor):
@@ -986,58 +992,31 @@ stages:
       If the pr-review-comment call fails (non-zero exit), log the error to
       outputs/post-results.json["errors"] and report it — do not silently swallow.
 
-      Step 5 — write global findings log:
-        Append one NDJSON record to ~/.cache/claude/code-review-findings.ndjson
-        (create the file and parent dir if absent).
-        Build the record as a JSON object with these fields:
-          ts         — ISO-8601 UTC timestamp: python3 -c "from datetime import datetime,timezone; print(datetime.now(timezone.utc).isoformat())"
-          pr_number  — the PR number from pr-context.json
-          repo       — the owner_repo field from pr-context.json
-          total      — total_findings from consolidated.json
-          critical   — by_severity.critical from consolidated.json (default 0)
-          major      — by_severity.major from consolidated.json (default 0)
-          minor      — by_severity.minor from consolidated.json (default 0)
-          posted     — posted count from post-results.json
-          findings   — array of {file, concern_id, severity, line} for each finding in consolidated.json
-          worktree   — basename of the current working directory: basename "$PWD"
-        Use python3 inline to build and append the record atomically.
-        Note: the inline Python below contains dict literals with { } braces that are
-        NOT workflow template placeholders. This is safe because resolve_params() uses
-        plain str.replace("{key}", value) — not str.format() — so only exact
-        {pr_number} and {workspace} tokens are substituted; all other braces are
-        passed through verbatim to the agent.
-          python3 -c "
-          import json, os, sys
-          from pathlib import Path
-          from datetime import datetime, timezone
+      Step 5 — write global findings log (ALWAYS RUNS):
+        Run this step on EVERY path through this stage, including the two early
+        exits above — a review that found nothing and a review discarded at the
+        human gate are both data points that update-review-concerns mines. Do
+        not skip it because Step 2 exited early.
 
-          log_path = Path.home() / '.cache' / 'claude' / 'code-review-findings.ndjson'
-          log_path.parent.mkdir(parents=True, exist_ok=True)
+        Execute with the Bash tool:
+          ./bin/code-review-log-findings.py --workspace {workspace}
 
-          pr    = json.loads(Path('{workspace}/outputs/pr-context.json').read_text())
-          cons  = json.loads(Path('{workspace}/outputs/consolidated.json').read_text())
-          post  = json.loads(Path('{workspace}/outputs/post-results.json').read_text())
+        The script reads outputs/pr-context.json, outputs/consolidated.json, and
+        outputs/post-results.json (optional — treated as posted=0 when absent),
+        appends one NDJSON record to ~/.cache/claude/code-review-findings.ndjson,
+        and creates the file and its parent dir if needed. Pass --log-path to
+        write elsewhere; the default is the path update-review-concerns reads.
 
-          record = {
-              'ts':        datetime.now(timezone.utc).isoformat(),
-              'pr_number': pr.get('number') or pr.get('pr_number') or '{pr_number}',
-              'repo':      pr.get('owner_repo', ''),
-              'total':     cons.get('total_findings', 0),
-              'critical':  cons.get('by_severity', {}).get('critical', 0),
-              'major':     cons.get('by_severity', {}).get('major', 0),
-              'minor':     cons.get('by_severity', {}).get('minor', 0),
-              'posted':    post.get('posted', 0),
-              'findings':  [{'file': f.get('file'), 'concern_id': f.get('concern_id'),
-                             'severity': f.get('severity'), 'line': f.get('line')}
-                            for f in cons.get('findings', [])],
-              'worktree':  os.path.basename(os.getcwd()),
-          }
-          with open(log_path, 'a') as fh:
-              fh.write(json.dumps(record) + '\n')
-          print(f'[code-review] logged {record[\"total\"]} findings to {log_path}')
-          "
-        If the python3 call fails for any reason (missing file, JSON parse error),
-        print a warning to stderr and continue — do not abort the post step.
+        The logic lives in a script rather than an inline `python3 -c` heredoc
+        because the heredoc form was indented to match this prose and therefore
+        died on `IndentationError: unexpected indent` before writing anything.
+        Do not inline it again.
+
+        If the script exits non-zero, treat this stage as FAILED: record the
+        error in outputs/post-results.json["errors"] and set "status": "failed"
+        in the stage result. Do NOT print a warning and continue — a silent gap
+        in this log degrades update-review-concerns rather than erroring, which
+        is how the previous breakage went unnoticed.
     agent:
       role: doc-writer
       model: sonnet
@@ -1047,5 +1026,8 @@ stages:
     writes_to:
       - post-results.json
       # Note: ~/.cache/claude/code-review-findings.ndjson is written by Step 5 as a
-      # side-effect using Path.home() — it is NOT a workspace output, so it is omitted
-      # here. The engine only tracks paths listed in writes_to as workspace artifacts.
+      # side-effect outside the workspace, so it cannot be listed here — the engine
+      # only tracks workspace-relative paths as artifacts. That gap is why a failed
+      # log write went unnoticed at all: nothing verified it. The guard now
+      # lives in Step 5 itself (non-zero exit from bin/code-review-log-findings.py
+      # must fail the stage) rather than in writes_to.
