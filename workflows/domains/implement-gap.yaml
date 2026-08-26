@@ -1,0 +1,728 @@
+# Implement one approved gap from domain-recommender's sketches.
+#
+# Data flow:
+#   load-sketch → survey-prior-art → design → critique-design (human gate)
+#     → implement-core / implement-cli / implement-tests   (parallel, disjoint files)
+#   → integration-review → fix-integration → verify → human-gate
+#
+# Consumes: {sketches_file} from a domain-recommender run, selected by {gap_id}.
+# Produces: code on the CURRENT branch, presented at a final human gate.
+# Never pushes, never opens a PR, never merges, never touches main.
+
+name: implement-gap
+version: "1.0"
+description: >
+  Implement a single approved gap from a domain-recommender run: either a new
+  subcommand on an existing CLI or a whole new domain package. Selected by
+  gap_id from that run's sketches.json, so the evidence, ROI, and verified
+  file_to_modify path carry through rather than being restated by hand.
+
+  The defining constraint is REUSE BEFORE BUILD. Before any code is written, a
+  survey stage searches every sibling domain and core/ for an existing
+  implementation of the capability. If one exists, the plan must consolidate
+  and migrate — promote the shared helper to core/ and update all call sites —
+  rather than adding a parallel implementation. A second copy of a helper means
+  every future bug fix has to be applied twice and one of them gets missed.
+  This mirrors concerns/reuse.md's intra-domain-duplicate rule, which the
+  critique and verify stages both enforce.
+
+  Structure follows workflows/code/pdffill-domain-build.yaml: design, an
+  adversarial critique behind a human gate, three parallel implementation
+  stages partitioned by disjoint file sets, a signature-consistency integration
+  review, a fix pass, then full verification. Nothing is pushed or merged — the
+  final gate reports the branch and what changed, for a human to review.
+
+metadata:
+  author: dancing-bear
+  created: "2026-08-26"
+
+trigger:
+  source: manual
+  params:
+    sketches_file: ""     # path to a domain-recommender run's outputs/sketches.json
+    gap_id: ""            # which sketch to implement, e.g. "mail-scan-receipts"
+    manual_spec: ""       # fallback: free-text description when no sketches_file exists
+    run_qlty: "true"      # set "false" to skip qlty in verify (CI-only environments)
+
+workspace_dir: "{work_dir}/implement-gap"
+
+stages:
+
+  # ===========================================================================
+  # S0: Load the sketch — resolve exactly what is being built
+  # ===========================================================================
+
+  - name: load-sketch
+    kind: gather
+    depends_on: []
+    description: >
+      Resolve the single unit of work this run will implement.
+
+      If {sketches_file} is non-empty: read it and select the entry whose
+      gap_id == "{gap_id}". If no entry matches, FAIL the stage with the list of
+      available gap_ids — do not silently pick a different one or invent a
+      spec.
+
+      If {sketches_file} is empty: fall back to {manual_spec}, a free-text
+      description. Derive the same fields from it as best you can and set
+      "source": "manual_spec". If BOTH are empty, fail with a clear message.
+
+      Verify the sketch before trusting it — a sketch is a proposal written by
+      an earlier run, not ground truth:
+        - If file_to_modify is set, confirm the path exists (Glob or ls). If it
+          does not, record "file_to_modify_stale": true and note that design
+          must relocate the correct file rather than creating the stale path.
+        - If type == "new_domain", confirm src/<domain>/ does NOT already exist.
+          If it does, fail — that is an enhance, not a new domain.
+        - If the sketch carries estimated_lines == 0 or a note recommending
+          against building, STOP: write "build_recommended": false with the
+          note verbatim, and fail the stage. Those entries exist precisely to
+          prevent this workflow from building something the analysis argued
+          against.
+
+      Write sketch.json:
+        {{
+          "gap_id": "...",
+          "type": "subcommand" | "new_domain",
+          "domain": "...",
+          "file_to_modify": "...",
+          "file_to_modify_stale": false,
+          "function_signature": "...",
+          "pseudocode": "...",
+          "test_file": "...",
+          "estimated_lines": N,
+          "notes": "...",
+          "build_recommended": true,
+          "source": "sketches_file" | "manual_spec"
+        }}
+    agent:
+      role: researcher
+      model: sonnet
+      tools:
+        - Read
+        - Glob
+        - Bash
+        - Write
+      access: read-write
+    outputs:
+      - name: sketch
+        mode: generate
+        description: >
+          Select the sketch matching {gap_id}, validate its paths and
+          build_recommended flag, and write sketch.json.
+    required: true
+    writes_to:
+      - sketch.json
+
+  # ===========================================================================
+  # S1: Survey prior art — REUSE BEFORE BUILD
+  # ===========================================================================
+
+  - name: survey-prior-art
+    kind: gather
+    depends_on: [load-sketch]
+    reads_from: [load-sketch]
+    description: >
+      Find every existing implementation of this capability before a line of
+      code is written. This stage exists to prevent the single most expensive
+      failure mode in this repo: adding a third copy of a helper that already
+      exists twice.
+
+      Read sketch.json. Derive 3-6 capability keywords from its pseudocode and
+      rationale — the VERB and the NOUN, not the proposed command name (e.g.
+      "scan receipts from mail" yields: scan, receipt, attachment, extract,
+      pdf). Search for behaviour, not for the name someone proposed.
+
+      Step 1 — search core/ first. It is the intended home for anything shared:
+        Glob: src/core/*.py
+        Grep each keyword across src/core/
+      Read src/core/README.md, which describes what belongs there.
+      Pay particular attention to these, which are commonly reimplemented by
+      accident: paths.py (output_dir — never hand-roll an output path),
+      fileutil.py, format_utils.py, text_utils.py, date_utils.py, http.py,
+      retry.py, cache.py, secrets.py, parallel.py, cli_output.py (emit_rows /
+      emit_one — never hand-roll table/JSON formatting), cli_framework.py
+      (CLIApp — never hand-roll argparse dispatch).
+
+      Step 2 — search every sibling domain:
+        Grep each keyword across src/, excluding the target domain.
+      For each hit, read enough of the file to judge whether it is the SAME
+      capability or merely similar-sounding. A shared word is not a duplicate.
+
+      Step 3 — classify each finding into exactly one bucket:
+        "reuse_directly"    — an existing helper does this; import it, write no
+                              new implementation of it.
+        "promote_to_core"   — two or more domains already implement it
+                              separately, or this change would create the second
+                              copy. The right move is to move one implementation
+                              to core/ and migrate all call sites.
+        "extend_existing"   — an existing function nearly does it and should
+                              gain a parameter, rather than being cloned.
+        "genuinely_new"     — nothing comparable exists. Justify this in one
+                              sentence naming what you searched.
+
+      Be conservative: prefer reuse_directly and promote_to_core over
+      genuinely_new. Claiming "genuinely_new" without having searched core/ is
+      the failure this stage prevents.
+
+      Step 4 — if any finding is "promote_to_core", identify EVERY call site
+      that must migrate. Per concerns/reuse.md, a single-line regex is NOT
+      sufficient — it misses parenthesized multi-line imports, aliased imports
+      (`import x as _x`), re-exports through a package __init__.py, and dynamic
+      access (getattr, dispatch tables, decorator registration). Search for the
+      bare symbol across src/, tests/, and bin/:
+        Grep: \b<symbol>\b  across src, tests, bin
+      and inspect every hit, including inside import blocks. Tests count as call
+      sites. Record them all — a missed call site is a broken build.
+
+      Read concerns/reuse.md in full before classifying, and apply its
+      intra-domain-duplicate rule as the standard.
+
+      Write prior-art.json:
+        {{
+          "keywords": ["..."],
+          "findings": [
+            {{"capability": "...", "bucket": "reuse_directly",
+              "existing_symbol": "core.paths.output_dir",
+              "existing_path": "src/core/paths.py",
+              "evidence": "<what you read that proves it does this>",
+              "action": "<import it | promote to core/ and migrate | extend | none>"}}
+          ],
+          "migrations_required": [
+            {{"symbol": "...", "from": "src/x/y.py", "to": "src/core/z.py",
+              "call_sites": ["src/a/b.py:12", "tests/c/d.py:44", "bin/e:7"]}}
+          ],
+          "genuinely_new": ["<only what nothing else provides>"]
+        }}
+    agent:
+      role: researcher
+      model: sonnet
+      tools:
+        - Read
+        - Grep
+        - Glob
+        - Write
+      access: read-write
+    outputs:
+      - name: prior-art
+        mode: generate
+        description: >
+          Search core/ and every sibling domain for the sketch's capability,
+          classify each finding as reuse/promote/extend/new, enumerate all call
+          sites for any promotion, and write prior-art.json.
+    required: true
+    writes_to:
+      - prior-art.json
+
+  # ===========================================================================
+  # S2: Design — a concrete plan that folds in prior art
+  # ===========================================================================
+
+  - name: design
+    kind: execute
+    depends_on: [survey-prior-art]
+    reads_from: [load-sketch, survey-prior-art]
+    description: >
+      Turn the sketch and the prior-art survey into a concrete implementation
+      plan. Read sketch.json and prior-art.json.
+
+      The plan MUST honour prior-art.json. Specifically:
+        - Every "reuse_directly" finding becomes an import in the plan, never a
+          new implementation. State the exact import line.
+        - Every "promote_to_core" finding becomes an explicit migration step:
+          which file moves to core/, and the full list of call sites to update
+          atomically. Per the repo's rules, update all call sites directly — do
+          NOT leave a re-export facade or a backwards-compatible wrapper behind.
+        - Only "genuinely_new" items may be written from scratch.
+      If the plan proposes writing something the survey classified as reusable,
+      that is a defect the critique stage will reject.
+
+      Branch on sketch.type:
+
+      type == "subcommand":
+        Read the target CLI file named in file_to_modify (or the corrected path
+        if file_to_modify_stale). Match its EXISTING conventions exactly — how
+        subcommands are registered, the real handler signature, how output is
+        emitted. Do not introduce a second pattern into a file that already has
+        one. Plan: the handler, its registration, its flags, and the tests.
+
+      type == "new_domain":
+        Plan the package layout:
+          src/<domain>/__init__.py, cli.py (CLIApp subclass), and a data-access
+          module if applicable; bin/<domain> (thin wrapper); tests/<domain>/.
+        Read src/core/cli_framework.py to get the real CLIApp contract, and read
+        one existing small domain's cli.py as a reference implementation.
+        If the domain writes output files it MUST use
+        core.paths.output_dir("<domain>") — never a relative path.
+
+      Partition the work into three DISJOINT file sets, so the parallel
+      implementation stages cannot collide:
+        core_files — new/edited modules under src/ (incl. any core/ promotion)
+        cli_files  — the CLI layer and any bin/ wrapper
+        test_files — everything under tests/
+      A file must appear in exactly one set. If a file would need to appear in
+      two, restructure the split — overlapping sets is what makes parallel
+      writers clobber each other.
+
+      Write design.md (human-readable plan) and design.json:
+        {{
+          "type": "subcommand" | "new_domain",
+          "domain": "...",
+          "reuse_plan": [{{"import": "from core.paths import output_dir", "instead_of": "hand-rolled path builder"}}],
+          "migrations": [{{"symbol": "...", "from": "...", "to": "...", "call_sites": ["..."]}}],
+          "core_files": [{{"path": "...", "purpose": "...", "signatures": ["..."]}}],
+          "cli_files": [{{"path": "...", "purpose": "...", "signatures": ["..."]}}],
+          "test_files": [{{"path": "...", "covers": ["..."]}}],
+          "public_signatures": ["<every signature the three stages must agree on>"]
+        }}
+
+      public_signatures is the contract between the parallel stages — it is what
+      integration-review checks them against, so it must be exact and complete.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools:
+        - Read
+        - Grep
+        - Glob
+        - Write
+      access: read-write
+    outputs:
+      - name: design
+        mode: generate
+        description: >
+          Produce design.md and design.json: a plan that reuses or promotes per
+          prior-art.json, matches existing file conventions, and partitions the
+          work into three disjoint file sets with exact shared signatures.
+    required: true
+    writes_to:
+      - design.md
+      - design.json
+
+  # ===========================================================================
+  # S3: Critique the design — human gate before any code is written
+  # ===========================================================================
+
+  - name: critique-design
+    kind: propose
+    depends_on: [design]
+    reads_from: [load-sketch, survey-prior-art, design]
+    description: >
+      Adversarially review the plan, then present it for approval. Nothing has
+      been written yet — this is the cheapest possible place to catch a bad
+      design.
+
+      Read sketch.json, prior-art.json, design.md, and design.json.
+
+      Check, and report each as pass/fail with evidence:
+        1. Does the plan reimplement anything prior-art.json classified as
+           reuse_directly or extend_existing? Each instance is a BLOCKER.
+        2. Does every promote_to_core migration list ALL call sites? Spot-check
+           by grepping the bare symbol across src/, tests/, and bin/ yourself. A
+           missed call site is a BLOCKER.
+        3. Does any migration leave behind a re-export facade or a
+           backwards-compatible wrapper? That is a BLOCKER — this repo requires
+           updating all call sites directly.
+        4. Are core_files, cli_files, and test_files genuinely disjoint? Any
+           file in two sets is a BLOCKER (parallel writers would clobber).
+        5. Do public_signatures cover every symbol shared across the three
+           stages? Gaps here surface later as integration failures.
+        6. For a subcommand: does the plan match the target file's existing
+           registration and output conventions, or invent a second pattern?
+        7. For a new domain: does it use core.paths.output_dir for any output,
+           and CLIApp for dispatch?
+        8. Is the scope still what the sketch proposed, or has it grown? Scope
+           creep beyond the approved gap is a blocker.
+
+      Write validation/design-critique.md with the findings, then present a
+      summary and ask:
+        "Review the plan and critique above and choose one:
+          A) Approve — implement as planned.
+          B) Approve with changes — list the changes to apply first.
+          C) Reject — stop without writing any code."
+
+      Write validation/critique-decision.json:
+        {{"decision": "approve|approve_with_changes|reject",
+          "required_changes": ["..."],
+          "blockers_found": N}}
+
+      If decision is "reject", downstream stages must not run. If
+      "approve_with_changes", the implementation stages must apply
+      required_changes — quote them verbatim into their prompts.
+    agent:
+      role: critic
+      model: opus
+      tools:
+        - Read
+        - Grep
+        - Glob
+        - Bash
+        - Write
+      access: read-write
+    human_gate: true
+    required: true
+    writes_to:
+      - validation/design-critique.md
+      - validation/critique-decision.json
+
+  # ===========================================================================
+  # S4a: Implement core modules  (parallel — owns core_files only)
+  # ===========================================================================
+
+  - name: implement-core
+    kind: execute
+    depends_on: [critique-design]
+    reads_from: [design, survey-prior-art, critique-design]
+    description: >
+      Implement ONLY the files listed in design.json "core_files". Do not create
+      or edit any file in cli_files or test_files — two other stages own those
+      and are running concurrently.
+
+      First read validation/critique-decision.json. If decision == "reject",
+      write an empty manifest with "skipped_reason" and stop. If
+      "approve_with_changes", apply every entry in required_changes.
+
+      Honour design.json's reuse_plan exactly: import what it says to import.
+      Do not write a local helper that duplicates a core/ utility — that is the
+      specific defect this workflow exists to avoid.
+
+      Apply each migration in design.json "migrations" atomically: move the
+      symbol to its core/ home and update EVERY listed call site in the same
+      change. Do not leave a re-export facade or a compatibility wrapper behind
+      — update the call sites directly.
+
+      Match the conventions of the surrounding code: type hints, docstring
+      style, error handling, and import ordering as they already appear in the
+      files you touch. Use core.paths.output_dir("<domain>") for any output
+      path. Use emit_rows / emit_one from core.cli_output for any tabular or
+      JSON output rather than hand-rolled formatting.
+
+      Do not add a dependency. This repo is dependency-light; anything optional
+      must be imported lazily inside the function that needs it.
+
+      Write outputs/core-manifest.json:
+        {{"files_written": ["..."], "symbols": ["<exact signatures implemented>"],
+          "imports_reused": ["..."], "migrations_applied": ["..."],
+          "call_sites_updated": ["..."], "skipped_reason": null}}
+
+      symbols must exactly match the relevant entries in design.json
+      public_signatures — integration-review compares them.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools:
+        - Read
+        - Grep
+        - Glob
+        - Edit
+        - Write
+        - Bash
+      access: read-write
+    outputs:
+      - name: core-manifest
+        mode: generate
+        description: >
+          Implement design.json core_files, applying reuse imports and any
+          core/ migrations with all call sites updated; write core-manifest.json.
+    required: true
+    writes_to:
+      - outputs/core-manifest.json
+
+  # ===========================================================================
+  # S4b: Implement the CLI layer  (parallel — owns cli_files only)
+  # ===========================================================================
+
+  - name: implement-cli
+    kind: execute
+    depends_on: [critique-design]
+    reads_from: [design, survey-prior-art, critique-design]
+    description: >
+      Implement ONLY the files listed in design.json "cli_files". Do not create
+      or edit any file in core_files or test_files — two other stages own those
+      and are running concurrently.
+
+      First read validation/critique-decision.json. If decision == "reject",
+      write an empty manifest with "skipped_reason" and stop. If
+      "approve_with_changes", apply every entry in required_changes.
+
+      Call the core symbols exactly as design.json public_signatures declares
+      them. Those modules are being written concurrently, so the signature
+      contract is all you have — do not guess at or redesign it, and do not
+      read the other stage's half-written files.
+
+      For a subcommand on an existing CLI: match that file's EXISTING
+      registration pattern, handler signature, and output convention exactly.
+      Read the neighbouring subcommands first. Do not introduce a second
+      pattern into a file that already has one.
+
+      For a new domain CLI: subclass CLIApp per src/core/cli_framework.py, and
+      write bin/<domain> as a thin wrapper matching the other bin/ wrappers
+      (read two of them first). Keep help text terse — one-line descriptions,
+      no prose. This repo's CLI help is consumed by LLM agents.
+
+      Emit output via emit_rows / emit_one from core.cli_output. Never print a
+      hand-formatted table or hand-serialized JSON.
+
+      Write outputs/cli-manifest.json:
+        {{"files_written": ["..."], "subcommands_added": ["..."],
+          "core_symbols_called": ["<exact signatures relied on>"],
+          "skipped_reason": null}}
+    agent:
+      role: code-writer
+      model: sonnet
+      tools:
+        - Read
+        - Grep
+        - Glob
+        - Edit
+        - Write
+        - Bash
+      access: read-write
+    outputs:
+      - name: cli-manifest
+        mode: generate
+        description: >
+          Implement design.json cli_files against the declared core signatures,
+          matching existing CLI conventions; write cli-manifest.json.
+    required: true
+    writes_to:
+      - outputs/cli-manifest.json
+
+  # ===========================================================================
+  # S4c: Implement tests  (parallel — owns test_files only)
+  # ===========================================================================
+
+  - name: implement-tests
+    kind: execute
+    depends_on: [critique-design]
+    reads_from: [design, survey-prior-art, critique-design]
+    description: >
+      Implement ONLY the files listed in design.json "test_files". Do not create
+      or edit any file in core_files or cli_files — two other stages own those
+      and are running concurrently.
+
+      First read validation/critique-decision.json. If decision == "reject",
+      write an empty manifest with "skipped_reason" and stop. If
+      "approve_with_changes", apply every entry in required_changes.
+
+      Write tests against design.json public_signatures, not against
+      implementation files (which are being written concurrently). Read an
+      existing test module for the target domain first and match its structure,
+      fixtures, and helper style.
+
+      Every test must assert BEHAVIOUR. Do not write a test whose only effect is
+      to import a module and raise the coverage number — the repo's rules
+      prohibit it explicitly. Cover the real cases: the happy path, at least one
+      error path, and any edge case named in design.md.
+
+      If the change migrated a symbol to core/, add or update a test that
+      exercises it at its new home, and make sure tests referencing the old
+      location are updated rather than left broken.
+
+      Never write a test that requires network access or real credentials. Use
+      fixtures and fakes.
+
+      Write outputs/tests-manifest.json:
+        {{"files_written": ["..."], "test_names": ["..."],
+          "signatures_under_test": ["..."], "skipped_reason": null}}
+    agent:
+      role: tester
+      model: sonnet
+      tools:
+        - Read
+        - Grep
+        - Glob
+        - Edit
+        - Write
+        - Bash
+      access: read-write
+    outputs:
+      - name: tests-manifest
+        mode: generate
+        description: >
+          Implement design.json test_files against the declared public
+          signatures with behaviour-asserting tests; write tests-manifest.json.
+    required: true
+    writes_to:
+      - outputs/tests-manifest.json
+
+  # ===========================================================================
+  # S5: Integration review — do the three parallel outputs agree?
+  # ===========================================================================
+
+  - name: integration-review
+    kind: validate
+    depends_on: [implement-core, implement-cli, implement-tests]
+    reads_from: [design, implement-core, implement-cli, implement-tests]
+    # NOTE: kind:validate discards `description` at dispatch — the parser still
+    # requires the key, but the agent never sees it. The whole contract lives in
+    # validation.criteria below.
+    description: >
+      Check signature consistency and reuse compliance across the three
+      parallel implementation stages. See validation.criteria — this stage is
+      dispatched from those criteria, not from this description.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools:
+        - Read
+        - Grep
+        - Glob
+        - Bash
+        - Write
+      access: read-write
+    validation:
+      strategy: cross_unit
+      criteria:
+        - Every symbol in cli-manifest.json core_symbols_called exists with a matching signature in core-manifest.json symbols — a mismatch means the CLI calls something that was never built
+        - Every signature in tests-manifest.json signatures_under_test matches an entry in core-manifest.json symbols or cli-manifest.json subcommands_added
+        - Every signature in design.json public_signatures was actually implemented by one of the three stages — an unimplemented contract entry is a critical finding
+        - No file appears in more than one manifest's files_written — overlap means two parallel stages wrote the same file and one clobbered the other
+        - No implementation reimplements a capability that prior-art.json classified as reuse_directly or extend_existing — grep the new code for hand-rolled equivalents of the core/ helpers named there, and report each as critical
+        - Every call site listed in design.json migrations was actually updated — grep the bare symbol across src, tests, and bin and confirm no stale reference to the pre-migration location remains
+        - No migration left behind a re-export facade or backwards-compatible wrapper — the repo requires updating call sites directly
+        - No new third-party dependency was introduced; any optional import is lazy and inside the function that needs it
+        - All imports in the new code resolve — run `PYTHONPATH="$PWD/src" python3 -c "import <each new module>"` for each new module and confirm exit code 0
+        - Write findings to {workspace}/validation/integration-findings.json as [{"id":"I-001","status":"pass"|"fail","claim":"...","severity":"critical"|"minor"|"info","source":"<file or command>","fix":"..."}]
+      max_revisions: 2
+    required: true
+    writes_to:
+      - validation/integration-findings.json
+
+  # ===========================================================================
+  # S6: Fix integration findings
+  # ===========================================================================
+
+  - name: fix-integration
+    kind: execute
+    depends_on: [integration-review]
+    reads_from: [design, integration-review]
+    description: >
+      Read validation/integration-findings.json and fix every finding with
+      status "fail", starting with severity "critical".
+
+      Fix the defect, not the symptom. If the CLI calls a signature the core
+      stage did not implement, decide from design.json which side is wrong and
+      correct that side — do not add a shim to paper over the mismatch.
+
+      If a finding says new code reimplements an existing helper, delete the
+      reimplementation and import the existing one. If a finding says a
+      migration call site was missed, update it.
+
+      Do not rewrite anything that passed. Do not expand scope.
+
+      After fixing, re-verify each finding you addressed by re-running the check
+      named in its "source" field.
+
+      Write outputs/fixes-applied.json:
+        {{"fixed": [{{"id": "I-001", "what": "...", "reverified_with": "<command>"}}],
+          "unfixed": [{{"id": "...", "why": "..."}}]}}
+
+      If findings-file has no failures, write an empty "fixed" array and stop.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools:
+        - Read
+        - Grep
+        - Glob
+        - Edit
+        - Write
+        - Bash
+      access: read-write
+    outputs:
+      - name: fixes-applied
+        mode: generate
+        description: >
+          Fix every failing integration finding at its root cause, re-verify
+          each, and write fixes-applied.json.
+    required: false
+    writes_to:
+      - outputs/fixes-applied.json
+
+  # ===========================================================================
+  # S7: Verify — tests, lint, and CLI smoke
+  # ===========================================================================
+
+  - name: verify
+    kind: validate
+    depends_on: [fix-integration]
+    reads_from: [design, implement-core, implement-cli, implement-tests, fix-integration]
+    # NOTE: kind:validate discards `description`; the contract lives in criteria.
+    description: >
+      Run the repo's real verification commands against the implemented change.
+      See validation.criteria — this stage is dispatched from those criteria.
+    agent:
+      role: unit-validator
+      model: sonnet
+      tools:
+        - Read
+        - Bash
+        - Write
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - "`make test` exits 0 — run it, never a bare `python3 -m unittest`, which resolves imports to the main checkout in a worktree and produces a false green"
+        - "Every test named in tests-manifest.json test_names actually ran — confirm by name in the `make test` output, since a test file that is never collected reports as passing"
+        - "`make lint` exits 0 — use it, never a bare `ruff check` (there is no standalone ruff on PATH) and never `qlty check` from inside .claude/worktrees/ (it silently scans zero files and prints a passing result)"
+        - "Each new or modified CLI responds to --help with exit code 0 — run `./bin/<cli> --help` for every CLI touched"
+        - "Each new subcommand responds to --help with exit code 0 — run `./bin/<cli> <subcommand> --help`"
+        - "If the touched CLI supports an agentic schema, `./bin/<cli> --agentic --agentic-format json` exits 0 and the new subcommand appears in its output — the schema must not drift from the real CLI"
+        - "`git status --porcelain` shows only files listed across the three manifests plus any migrated call sites — an unexpected modified file means a stage wrote outside its partition"
+        - "No credential, token, or absolute home-directory path appears in any new file — grep the diff for sk-, ghp_, AKIA, and /Users/"
+        - "Write findings to {workspace}/validation/verify-findings.json as [{\"id\":\"V-001\",\"status\":\"pass\"|\"fail\",\"claim\":\"...\",\"severity\":\"critical\"|\"minor\"|\"info\",\"source\":\"<command run>\",\"fix\":\"...\"}], and record each command's actual exit code in the source field"
+      max_revisions: 2
+    required: true
+    writes_to:
+      - validation/verify-findings.json
+
+  # ===========================================================================
+  # S8: Human gate — present what was built. Nothing is pushed.
+  # ===========================================================================
+
+  - name: human-gate
+    kind: propose
+    depends_on: [verify]
+    reads_from: [load-sketch, survey-prior-art, design, implement-core, implement-cli, implement-tests, fix-integration, verify]
+    description: >
+      Present the completed change for human review. Read every manifest, the
+      integration and verify findings, and sketch.json.
+
+      Run and include the real state, do not summarize from the manifests alone:
+        git branch --show-current
+        git status --porcelain
+        git diff --stat
+
+      Present:
+        - What was built: gap_id, type, domain, and the files changed
+        - What was REUSED rather than written: every entry from
+          prior-art.json's reuse_directly and extend_existing buckets, with the
+          import used. This is the headline — it is what keeps the codebase from
+          growing a third copy of the same helper.
+        - What was PROMOTED to core/, and every call site migrated
+        - Verification results: the actual exit codes from make test, make lint,
+          and the CLI --help smoke checks
+        - Any unfixed findings from fixes-applied.json, stated plainly
+        - The branch name and how to review the diff
+
+      Then state explicitly: nothing has been pushed, no PR has been opened, and
+      main has not been touched. Ask whether to keep the change on the branch or
+      revert it.
+
+      Write outputs/build-summary.md with all of the above.
+
+      Do NOT run git push, gh pr create, or git merge in this stage under any
+      circumstances. This workflow ends at the branch.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools:
+        - Read
+        - Bash
+        - Write
+      access: read-write
+    human_gate: true
+    required: true
+    writes_to:
+      - outputs/build-summary.md
