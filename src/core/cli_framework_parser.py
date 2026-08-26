@@ -64,6 +64,18 @@ class _HelpfulArgumentParser(argparse.ArgumentParser):
             all_flags.extend(act.option_strings)
         lines: list[str] = []
         for token in tokens:
+            if token in all_flags:
+                # The flag is real and belongs to THIS parser, so it was not
+                # misspelled — it was used in the wrong position. Global flags
+                # are registered on the top-level parser and must precede the
+                # subcommand. Suggesting the same spelling back ("Unknown flag
+                # '--profile'. Did you mean: --profile?") names neither the
+                # cause nor the fix.
+                lines.append(
+                    f"'{token}' is a global flag and must come before the subcommand, "
+                    f"e.g. {self.prog} {token} <value> <command>"
+                )
+                continue
             flag_suggestions = suggest_flags(token, all_flags)
             if flag_suggestions:
                 lines.append(f"Unknown flag '{token}'. Did you mean: {', '.join(flag_suggestions)}?")
