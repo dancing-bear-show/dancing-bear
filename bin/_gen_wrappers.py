@@ -72,7 +72,7 @@ from pathlib import Path
 # that skips re-exec is when the sentinel equals THIS wrapper\'s venv python path,
 # which means we already exec\'d into the right interpreter and must not loop.
 #
-# NOTE: __file__ resolves to the router\'s real path (symlinks are followed by
+# __file__ resolves to the router\'s real path (symlinks are followed by
 # Path.resolve()), so _REPO_ROOT is always the real repo root regardless of
 # which symlink was used to invoke the router.
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -85,7 +85,13 @@ if (
     and os.environ.get("_DANCING_BEAR_VENV_EXEC") != _VENV_PY_REAL
 ):
     os.environ["_DANCING_BEAR_VENV_EXEC"] = _VENV_PY_REAL
-    os.execv(str(_VENV_PY), [str(_VENV_PY)] + sys.argv)
+    # nosec B606 - not a shell-less process launch risk: _VENV_PY is a fixed
+    # path derived from __file__ (the repo's own .venv/bin/python3), never from
+    # user input, and argv is forwarded unchanged to that interpreter. This
+    # exec existed in every generated wrapper before the router; it is newly
+    # reported only because _router.py carries a .py extension that brings it
+    # into bandit's scope.
+    os.execv(str(_VENV_PY), [str(_VENV_PY)] + sys.argv)  # nosec B606
 
 SRC_ROOT = _REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
