@@ -9,34 +9,7 @@ from io import StringIO
 from unittest.mock import MagicMock, Mock, patch
 
 
-def _make_graph_message(
-    *,
-    id: str = "msg-1",
-    subject: str = "Hello",
-    received: str = "2026-01-15T20:00:00Z",
-    from_name: str = "Sender",
-    from_addr: str = "sender@example.com",
-    preview: str = "Body preview",
-    has_attachments: bool = False,
-) -> dict:
-    return {
-        "id": id,
-        "subject": subject,
-        "receivedDateTime": received,
-        "from": {"emailAddress": {"name": from_name, "address": from_addr}},
-        "bodyPreview": preview,
-        "hasAttachments": has_attachments,
-    }
-
-
-def _make_response(messages: list, next_link: str = None) -> MagicMock:
-    resp = MagicMock()
-    resp.raise_for_status = MagicMock()
-    data = {"value": messages}
-    if next_link:
-        data["@odata.nextLink"] = next_link
-    resp.json.return_value = data
-    return resp
+from tests.mail_tests.outlook.fixtures import make_graph_message, make_response
 
 
 class TestSearchMessages(unittest.TestCase):
@@ -54,7 +27,7 @@ class TestSearchMessages(unittest.TestCase):
     def test_query_wraps_in_kql_quotes(self, mock_requests):
         """query param should produce $search=%22<query>%22."""
         client = self._make_client()
-        mock_requests.return_value.get.return_value = _make_response([])
+        mock_requests.return_value.get.return_value = make_response([])
 
         client.search_messages(query="brightchamps", top=10, pages=1)
 
@@ -65,7 +38,7 @@ class TestSearchMessages(unittest.TestCase):
     def test_sender_uses_kql_from_prefix(self, mock_requests):
         """sender param should produce $search=%22from:<sender>%22."""
         client = self._make_client()
-        mock_requests.return_value.get.return_value = _make_response([])
+        mock_requests.return_value.get.return_value = make_response([])
 
         client.search_messages(query="", sender="brightchamps.com", top=10, pages=1)
 
@@ -75,12 +48,12 @@ class TestSearchMessages(unittest.TestCase):
     @patch("core.outlook.mail._requests")
     def test_result_fields_mapped_correctly(self, mock_requests):
         client = self._make_client()
-        msg = _make_graph_message(
+        msg = make_graph_message(
             id="abc", subject="Test", received="2026-03-01T21:00:00Z",
             from_name="BrightCHAMPS", from_addr="noreply@brightchamps.com",
             preview="Hello", has_attachments=True,
         )
-        mock_requests.return_value.get.return_value = _make_response([msg])
+        mock_requests.return_value.get.return_value = make_response([msg])
 
         results = client.search_messages(query="test", top=10, pages=1)
 
@@ -97,9 +70,9 @@ class TestSearchMessages(unittest.TestCase):
     def test_after_filter_excludes_old_messages(self, mock_requests):
         """Messages before --after date should be excluded (client-side filter)."""
         client = self._make_client()
-        old_msg = _make_graph_message(id="old", received="2025-12-31T20:00:00Z")
-        new_msg = _make_graph_message(id="new", received="2026-01-15T20:00:00Z")
-        mock_requests.return_value.get.return_value = _make_response([old_msg, new_msg])
+        old_msg = make_graph_message(id="old", received="2025-12-31T20:00:00Z")
+        new_msg = make_graph_message(id="new", received="2026-01-15T20:00:00Z")
+        mock_requests.return_value.get.return_value = make_response([old_msg, new_msg])
 
         results = client.search_messages(query="test", top=10, pages=1, after="2026-01-01")
 
@@ -111,9 +84,9 @@ class TestSearchMessages(unittest.TestCase):
     def test_after_filter_applied_when_sender_set(self, mock_requests):
         """after filter applies client-side even when sender is set."""
         client = self._make_client()
-        old_msg = _make_graph_message(id="old", received="2025-12-31T20:00:00Z")
-        new_msg = _make_graph_message(id="new", received="2026-01-15T20:00:00Z")
-        mock_requests.return_value.get.return_value = _make_response([old_msg, new_msg])
+        old_msg = make_graph_message(id="old", received="2025-12-31T20:00:00Z")
+        new_msg = make_graph_message(id="new", received="2026-01-15T20:00:00Z")
+        mock_requests.return_value.get.return_value = make_response([old_msg, new_msg])
 
         results = client.search_messages(query="", sender="example.com", top=10, pages=1, after="2026-01-01")
 
@@ -125,13 +98,13 @@ class TestSearchMessages(unittest.TestCase):
     def test_pagination_follows_next_link(self, mock_requests):
         """Should follow @odata.nextLink up to pages limit."""
         client = self._make_client()
-        page1_msg = _make_graph_message(id="p1")
-        page2_msg = _make_graph_message(id="p2")
+        page1_msg = make_graph_message(id="p1")
+        page2_msg = make_graph_message(id="p2")
 
         mock_get = mock_requests.return_value.get
         mock_get.side_effect = [
-            _make_response([page1_msg], next_link="https://graph.microsoft.com/v1.0/me/messages?$skip=10"),
-            _make_response([page2_msg]),
+            make_response([page1_msg], next_link="https://graph.microsoft.com/v1.0/me/messages?$skip=10"),
+            make_response([page2_msg]),
         ]
 
         results = client.search_messages(query="test", top=10, pages=2)
@@ -143,10 +116,10 @@ class TestSearchMessages(unittest.TestCase):
     def test_pagination_stops_at_pages_limit(self, mock_requests):
         """Should not fetch more pages than specified."""
         client = self._make_client()
-        msg = _make_graph_message(id="p1")
+        msg = make_graph_message(id="p1")
 
         mock_get = mock_requests.return_value.get
-        mock_get.return_value = _make_response([msg], next_link="https://graph.microsoft.com/next")
+        mock_get.return_value = make_response([msg], next_link="https://graph.microsoft.com/next")
 
         client.search_messages(query="test", top=10, pages=1)
 
@@ -163,7 +136,7 @@ class TestSearchMessages(unittest.TestCase):
     @patch("core.outlook.mail._requests")
     def test_empty_results_returned(self, mock_requests):
         client = self._make_client()
-        mock_requests.return_value.get.return_value = _make_response([])
+        mock_requests.return_value.get.return_value = make_response([])
 
         results = client.search_messages(query="nothing", top=10, pages=1)
 
@@ -172,7 +145,7 @@ class TestSearchMessages(unittest.TestCase):
     @patch("core.outlook.mail._requests")
     def test_top_included_in_url(self, mock_requests):
         client = self._make_client()
-        mock_requests.return_value.get.return_value = _make_response([])
+        mock_requests.return_value.get.return_value = make_response([])
 
         client.search_messages(query="test", top=25, pages=1)
 
@@ -183,7 +156,7 @@ class TestSearchMessages(unittest.TestCase):
     def test_uses_search_headers(self, mock_requests):
         """Should use _headers_search() (includes ConsistencyLevel: eventual)."""
         client = self._make_client()
-        mock_requests.return_value.get.return_value = _make_response([])
+        mock_requests.return_value.get.return_value = make_response([])
 
         client.search_messages(query="test", top=10, pages=1)
 

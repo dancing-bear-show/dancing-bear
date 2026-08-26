@@ -19,6 +19,7 @@ __all__ = [
     "make_gmail_client",
     "FakeMailContext",
     "FakeForwardingClient",
+    "make_pipeline_client",
     # Label/message factories
     "make_user_label",
     "make_system_label",
@@ -148,6 +149,28 @@ class FakeForwardingClient:
         self.forwarding_settings.append(settings)
         self.auto_forwarding = settings
         return settings
+
+
+def make_pipeline_client() -> FakeGmailClient:
+    """Create a FakeGmailClient configured for filters pipeline tests."""
+    return FakeGmailClient(
+        labels=[
+            {"id": "LBL_VIP", "name": "VIP"},
+            {"id": "LBL_OTHER", "name": "Other"},
+        ],
+        filters=[
+            {
+                "id": "EXTRA",
+                "criteria": {"from": "someone@example.com"},
+                "action": {"addLabelIds": ["LBL_OTHER"]},
+            }
+        ],
+        message_ids_by_query={
+            "foo@example.com": ["m1"] * 5,
+            'subject:"bar report"': ["m2"] * 3,
+        },
+        verified_forward_addresses={"verified@example.com"},
+    )
 
 
 # -----------------------------------------------------------------------------
