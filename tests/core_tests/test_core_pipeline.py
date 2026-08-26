@@ -122,35 +122,37 @@ class TestBaseProducerConstruction(unittest.TestCase):
         producer = BaseProducer(writer=custom)
         self.assertIs(producer._writer, custom)
 
+    def _capture_stderr_stdout(self, action) -> tuple[str, str]:
+        """Run action() with sys.stderr/sys.stdout patched; return (stderr, stdout)."""
+        stderr_buf = StringIO()
+        stdout_buf = StringIO()
+        with patch("sys.stderr", stderr_buf), patch("sys.stdout", stdout_buf):
+            action()
+        return stderr_buf.getvalue(), stdout_buf.getvalue()
+
     def test_print_error_goes_to_stderr_not_stdout(self):
         """C6 contract: print_error() output goes to stderr, not stdout.
 
         This is the canonical test pinning the C6 routing change — other
         domains' tests broke on exactly this boundary (stdout vs stderr).
         """
-        stderr_buf = StringIO()
-        stdout_buf = StringIO()
         producer = BaseProducer()
         failed = ResultEnvelope(status="error", diagnostics={"message": "boom"})
 
-        with patch("sys.stderr", stderr_buf), patch("sys.stdout", stdout_buf):
-            producer.print_error(failed)
+        stderr_out, stdout_out = self._capture_stderr_stdout(lambda: producer.print_error(failed))
 
-        self.assertIn("boom", stderr_buf.getvalue())
-        self.assertEqual(stdout_buf.getvalue(), "")
+        self.assertIn("boom", stderr_out)
+        self.assertEqual(stdout_out, "")
 
     def test_produce_error_message_goes_to_stderr(self):
         """produce() routes error-path message to stderr via the writer."""
-        stderr_buf = StringIO()
-        stdout_buf = StringIO()
         producer = BaseProducer()
         failed = ResultEnvelope(status="error", diagnostics={"message": "produce-error"})
 
-        with patch("sys.stderr", stderr_buf), patch("sys.stdout", stdout_buf):
-            producer.produce(failed)
+        stderr_out, stdout_out = self._capture_stderr_stdout(lambda: producer.produce(failed))
 
-        self.assertIn("produce-error", stderr_buf.getvalue())
-        self.assertEqual(stdout_buf.getvalue(), "")
+        self.assertIn("produce-error", stderr_out)
+        self.assertEqual(stdout_out, "")
 
     def test_produce_success_delegates_to_subclass(self):
         """produce() calls _produce_success on happy path."""

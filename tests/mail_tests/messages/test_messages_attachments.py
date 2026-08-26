@@ -45,33 +45,38 @@ def _make_attachment_msg(msg_id: str = "MSG1") -> dict:
     }
 
 
-def _make_multi_attachment_msg(msg_id: str = "MSG2") -> dict:
-    """Build a fake Gmail message dict with two attachments."""
+def _make_flat_attachments_msg(msg_id: str, thread_id: str, parts: list[dict]) -> dict:
+    """Build a fake Gmail message dict from a flat list of (mimeType, filename, attachmentId, size, content) parts."""
     return {
         msg_id: {
             "id": msg_id,
-            "threadId": "T2",
+            "threadId": thread_id,
             "payload": {
                 "mimeType": "multipart/mixed",
                 "parts": [
                     {
-                        "mimeType": "application/pdf",
-                        "filename": "doc1.pdf",
-                        "body": {"attachmentId": "ATT_A", "size": 100},
-                    },
-                    {
-                        "mimeType": "image/png",
-                        "filename": "image.png",
-                        "body": {"attachmentId": "ATT_B", "size": 200},
-                    },
+                        "mimeType": part["mimeType"],
+                        "filename": part["filename"],
+                        "body": {"attachmentId": part["attachmentId"], "size": part["size"]},
+                    }
+                    for part in parts
                 ],
             },
-            "_attachments": {
-                "ATT_A": b"pdf-content",
-                "ATT_B": b"png-content",
-            },
+            "_attachments": {part["attachmentId"]: part["content"] for part in parts},
         }
     }
+
+
+def _make_multi_attachment_msg(msg_id: str = "MSG2") -> dict:
+    """Build a fake Gmail message dict with two attachments."""
+    return _make_flat_attachments_msg(
+        msg_id,
+        "T2",
+        [
+            {"mimeType": "application/pdf", "filename": "doc1.pdf", "attachmentId": "ATT_A", "size": 100, "content": b"pdf-content"},
+            {"mimeType": "image/png", "filename": "image.png", "attachmentId": "ATT_B", "size": 200, "content": b"png-content"},
+        ],
+    )
 
 
 def _make_nested_attachment_msg(msg_id: str = "MSG3") -> dict:
@@ -111,31 +116,14 @@ def _make_nested_attachment_msg(msg_id: str = "MSG3") -> dict:
 
 def _make_duplicate_name_msg(msg_id: str = "MSG4") -> dict:
     """Build a Gmail message dict with two attachments sharing a filename."""
-    return {
-        msg_id: {
-            "id": msg_id,
-            "threadId": "T4",
-            "payload": {
-                "mimeType": "multipart/mixed",
-                "parts": [
-                    {
-                        "mimeType": "application/pdf",
-                        "filename": "scan.pdf",
-                        "body": {"attachmentId": "ATT_DUP1", "size": 10},
-                    },
-                    {
-                        "mimeType": "application/pdf",
-                        "filename": "scan.pdf",
-                        "body": {"attachmentId": "ATT_DUP2", "size": 20},
-                    },
-                ],
-            },
-            "_attachments": {
-                "ATT_DUP1": b"first",
-                "ATT_DUP2": b"second",
-            },
-        }
-    }
+    return _make_flat_attachments_msg(
+        msg_id,
+        "T4",
+        [
+            {"mimeType": "application/pdf", "filename": "scan.pdf", "attachmentId": "ATT_DUP1", "size": 10, "content": b"first"},
+            {"mimeType": "application/pdf", "filename": "scan.pdf", "attachmentId": "ATT_DUP2", "size": 20, "content": b"second"},
+        ],
+    )
 
 
 class TestListMessageAttachments(unittest.TestCase):

@@ -19,6 +19,22 @@ from tests.mail_tests.fixtures import (
 )
 
 
+def _wire_failed_processor(mock_proc_cls, mock_ctx_cls, diagnostics):
+    """Wire mock_ctx_cls.from_args and mock_proc_cls.process to a failed
+    envelope carrying the given diagnostics. Every run_forwarding_* failure
+    test shares this consumer/processor scaffolding but differs in which
+    diagnostics dict (and therefore which resulting exit code) it exercises.
+    """
+    mock_ctx_cls.from_args.return_value = MagicMock()
+
+    mock_envelope = MagicMock()
+    mock_envelope.ok.return_value = False
+    mock_envelope.diagnostics = diagnostics
+
+    mock_proc = MagicMock()
+    mock_proc.process.return_value = mock_envelope
+    mock_proc_cls.return_value = mock_proc
+
 
 class TestRunForwardingList(unittest.TestCase):
     """Tests for run_forwarding_list command."""
@@ -50,16 +66,7 @@ class TestRunForwardingList(unittest.TestCase):
     @patch("mail.forwarding.commands.MailContext")
     @patch("mail.forwarding.commands.ForwardingListProcessor")
     def test_returns_error_code_on_failure(self, mock_proc_cls, mock_ctx_cls):
-        mock_ctx = MagicMock()
-        mock_ctx_cls.from_args.return_value = mock_ctx
-
-        mock_envelope = MagicMock()
-        mock_envelope.ok.return_value = False
-        mock_envelope.diagnostics = {"code": 5}
-
-        mock_proc = MagicMock()
-        mock_proc.process.return_value = mock_envelope
-        mock_proc_cls.return_value = mock_proc
+        _wire_failed_processor(mock_proc_cls, mock_ctx_cls, {"code": 5})
 
         args = make_args()
         result = run_forwarding_list(args)
@@ -69,16 +76,7 @@ class TestRunForwardingList(unittest.TestCase):
     @patch("mail.forwarding.commands.MailContext")
     @patch("mail.forwarding.commands.ForwardingListProcessor")
     def test_returns_default_code_when_no_code_in_diagnostics(self, mock_proc_cls, mock_ctx_cls):
-        mock_ctx = MagicMock()
-        mock_ctx_cls.from_args.return_value = mock_ctx
-
-        mock_envelope = MagicMock()
-        mock_envelope.ok.return_value = False
-        mock_envelope.diagnostics = {}
-
-        mock_proc = MagicMock()
-        mock_proc.process.return_value = mock_envelope
-        mock_proc_cls.return_value = mock_proc
+        _wire_failed_processor(mock_proc_cls, mock_ctx_cls, {})
 
         args = make_args()
         result = run_forwarding_list(args)
@@ -103,16 +101,7 @@ class TestRunForwardingAdd(unittest.TestCase):
     @patch("mail.forwarding.commands.MailContext")
     @patch("mail.forwarding.commands.ForwardingAddProcessor")
     def test_returns_error_code_on_failure(self, mock_proc_cls, mock_ctx_cls):
-        mock_ctx = MagicMock()
-        mock_ctx_cls.from_args.return_value = mock_ctx
-
-        mock_envelope = MagicMock()
-        mock_envelope.ok.return_value = False
-        mock_envelope.diagnostics = {"code": 7}
-
-        mock_proc = MagicMock()
-        mock_proc.process.return_value = mock_envelope
-        mock_proc_cls.return_value = mock_proc
+        _wire_failed_processor(mock_proc_cls, mock_ctx_cls, {"code": 7})
 
         args = make_args(email="bad@example.com")
         result = run_forwarding_add(args)
@@ -122,16 +111,7 @@ class TestRunForwardingAdd(unittest.TestCase):
     @patch("mail.forwarding.commands.MailContext")
     @patch("mail.forwarding.commands.ForwardingAddProcessor")
     def test_returns_default_code_when_no_diagnostics(self, mock_proc_cls, mock_ctx_cls):
-        mock_ctx = MagicMock()
-        mock_ctx_cls.from_args.return_value = mock_ctx
-
-        mock_envelope = MagicMock()
-        mock_envelope.ok.return_value = False
-        mock_envelope.diagnostics = None
-
-        mock_proc = MagicMock()
-        mock_proc.process.return_value = mock_envelope
-        mock_proc_cls.return_value = mock_proc
+        _wire_failed_processor(mock_proc_cls, mock_ctx_cls, None)
 
         args = make_args(email="fail@example.com")
         result = run_forwarding_add(args)
@@ -173,16 +153,7 @@ class TestRunForwardingStatus(unittest.TestCase):
     @patch("mail.forwarding.commands.MailContext")
     @patch("mail.forwarding.commands.ForwardingStatusProcessor")
     def test_returns_error_code_on_failure(self, mock_proc_cls, mock_ctx_cls):
-        mock_ctx = MagicMock()
-        mock_ctx_cls.from_args.return_value = mock_ctx
-
-        mock_envelope = MagicMock()
-        mock_envelope.ok.return_value = False
-        mock_envelope.diagnostics = {"code": 9}
-
-        mock_proc = MagicMock()
-        mock_proc.process.return_value = mock_envelope
-        mock_proc_cls.return_value = mock_proc
+        _wire_failed_processor(mock_proc_cls, mock_ctx_cls, {"code": 9})
 
         args = make_args()
         result = run_forwarding_status(args)
@@ -192,16 +163,7 @@ class TestRunForwardingStatus(unittest.TestCase):
     @patch("mail.forwarding.commands.MailContext")
     @patch("mail.forwarding.commands.ForwardingStatusProcessor")
     def test_returns_default_code_2_on_failure(self, mock_proc_cls, mock_ctx_cls):
-        mock_ctx = MagicMock()
-        mock_ctx_cls.from_args.return_value = mock_ctx
-
-        mock_envelope = MagicMock()
-        mock_envelope.ok.return_value = False
-        mock_envelope.diagnostics = {}
-
-        mock_proc = MagicMock()
-        mock_proc.process.return_value = mock_envelope
-        mock_proc_cls.return_value = mock_proc
+        _wire_failed_processor(mock_proc_cls, mock_ctx_cls, {})
 
         args = make_args()
         result = run_forwarding_status(args)
@@ -253,16 +215,7 @@ class TestRunForwardingEnable(unittest.TestCase):
     @patch("mail.forwarding.commands.MailContext")
     @patch("mail.forwarding.commands.ForwardingEnableProcessor")
     def test_returns_error_code_on_failure(self, mock_proc_cls, mock_ctx_cls):
-        mock_ctx = MagicMock()
-        mock_ctx_cls.from_args.return_value = mock_ctx
-
-        mock_envelope = MagicMock()
-        mock_envelope.ok.return_value = False
-        mock_envelope.diagnostics = {"code": 11}
-
-        mock_proc = MagicMock()
-        mock_proc.process.return_value = mock_envelope
-        mock_proc_cls.return_value = mock_proc
+        _wire_failed_processor(mock_proc_cls, mock_ctx_cls, {"code": 11})
 
         args = make_args(email="test@example.com", disposition="archive")
         result = run_forwarding_enable(args)
@@ -272,16 +225,7 @@ class TestRunForwardingEnable(unittest.TestCase):
     @patch("mail.forwarding.commands.MailContext")
     @patch("mail.forwarding.commands.ForwardingEnableProcessor")
     def test_returns_default_code_3_on_failure(self, mock_proc_cls, mock_ctx_cls):
-        mock_ctx = MagicMock()
-        mock_ctx_cls.from_args.return_value = mock_ctx
-
-        mock_envelope = MagicMock()
-        mock_envelope.ok.return_value = False
-        mock_envelope.diagnostics = {}
-
-        mock_proc = MagicMock()
-        mock_proc.process.return_value = mock_envelope
-        mock_proc_cls.return_value = mock_proc
+        _wire_failed_processor(mock_proc_cls, mock_ctx_cls, {})
 
         args = make_args(email="test@example.com", disposition="archive")
         result = run_forwarding_enable(args)
@@ -320,16 +264,7 @@ class TestRunForwardingDisable(unittest.TestCase):
     @patch("mail.forwarding.commands.MailContext")
     @patch("mail.forwarding.commands.ForwardingDisableProcessor")
     def test_returns_error_code_on_failure(self, mock_proc_cls, mock_ctx_cls):
-        mock_ctx = MagicMock()
-        mock_ctx_cls.from_args.return_value = mock_ctx
-
-        mock_envelope = MagicMock()
-        mock_envelope.ok.return_value = False
-        mock_envelope.diagnostics = {"code": 13}
-
-        mock_proc = MagicMock()
-        mock_proc.process.return_value = mock_envelope
-        mock_proc_cls.return_value = mock_proc
+        _wire_failed_processor(mock_proc_cls, mock_ctx_cls, {"code": 13})
 
         args = make_args()
         result = run_forwarding_disable(args)
@@ -339,16 +274,7 @@ class TestRunForwardingDisable(unittest.TestCase):
     @patch("mail.forwarding.commands.MailContext")
     @patch("mail.forwarding.commands.ForwardingDisableProcessor")
     def test_returns_default_code_3_on_failure(self, mock_proc_cls, mock_ctx_cls):
-        mock_ctx = MagicMock()
-        mock_ctx_cls.from_args.return_value = mock_ctx
-
-        mock_envelope = MagicMock()
-        mock_envelope.ok.return_value = False
-        mock_envelope.diagnostics = {}
-
-        mock_proc = MagicMock()
-        mock_proc.process.return_value = mock_envelope
-        mock_proc_cls.return_value = mock_proc
+        _wire_failed_processor(mock_proc_cls, mock_ctx_cls, {})
 
         args = make_args()
         result = run_forwarding_disable(args)

@@ -387,56 +387,61 @@ class TestGmailProviderInitSad(unittest.TestCase):
                 )
 
 
-class TestGmailProviderLabelsSad(unittest.TestCase):
-    def test_list_labels_propagates_client_error(self):
-        provider, client = _make_provider()
-        client.list_labels.side_effect = RuntimeError("not authenticated")
-        with self.assertRaisesRegex(RuntimeError, "not authenticated"):
-            provider.list_labels()
+class TestGmailProviderResourceSad(unittest.TestCase):
+    """Labels and filters propagate client errors identically; table-driven over both resources."""
 
-    def test_list_labels_propagates_http_error(self):
-        provider, client = _make_provider()
-        client.list_labels.side_effect = TimeoutError("upstream timeout")
-        with self.assertRaises(TimeoutError):
-            provider.list_labels(use_cache=True, ttl=60)
+    RESOURCE_CASES = (
+        {
+            "resource": "labels",
+            "list_attr": "list_labels",
+            "delete_attr": "delete_label",
+            "list_call": lambda provider: provider.list_labels(),
+            "list_cached_call": lambda provider: provider.list_labels(use_cache=True, ttl=60),
+            "missing_id": "Label_missing",
+            "not_found_message": "label not found",
+        },
+        {
+            "resource": "filters",
+            "list_attr": "list_filters",
+            "delete_attr": "delete_filter",
+            "list_call": lambda provider: provider.list_filters(),
+            "list_cached_call": lambda provider: provider.list_filters(use_cache=True, ttl=60),
+            "missing_id": "f_missing",
+            "not_found_message": "filter not found",
+        },
+    )
 
-    def test_delete_label_propagates_client_error(self):
-        provider, client = _make_provider()
-        client.delete_label.side_effect = RuntimeError("label not found")
-        with self.assertRaisesRegex(RuntimeError, "label not found"):
-            provider.delete_label("Label_missing")
+    def test_list_propagates_client_error(self):
+        for case in self.RESOURCE_CASES:
+            with self.subTest(resource=case["resource"]):
+                provider, client = _make_provider()
+                getattr(client, case["list_attr"]).side_effect = RuntimeError("not authenticated")
+                with self.assertRaisesRegex(RuntimeError, "not authenticated"):
+                    case["list_call"](provider)
 
-    def test_delete_label_propagates_error_for_empty_id(self):
-        provider, client = _make_provider()
-        client.delete_label.side_effect = ValueError("invalid label id")
-        with self.assertRaises(ValueError):
-            provider.delete_label("")
+    def test_list_propagates_http_error(self):
+        for case in self.RESOURCE_CASES:
+            with self.subTest(resource=case["resource"]):
+                provider, client = _make_provider()
+                getattr(client, case["list_attr"]).side_effect = TimeoutError("upstream timeout")
+                with self.assertRaises(TimeoutError):
+                    case["list_cached_call"](provider)
 
+    def test_delete_propagates_client_error(self):
+        for case in self.RESOURCE_CASES:
+            with self.subTest(resource=case["resource"]):
+                provider, client = _make_provider()
+                getattr(client, case["delete_attr"]).side_effect = RuntimeError(case["not_found_message"])
+                with self.assertRaisesRegex(RuntimeError, case["not_found_message"]):
+                    getattr(provider, case["delete_attr"])(case["missing_id"])
 
-class TestGmailProviderFiltersSad(unittest.TestCase):
-    def test_list_filters_propagates_client_error(self):
-        provider, client = _make_provider()
-        client.list_filters.side_effect = RuntimeError("not authenticated")
-        with self.assertRaisesRegex(RuntimeError, "not authenticated"):
-            provider.list_filters()
-
-    def test_list_filters_propagates_http_error(self):
-        provider, client = _make_provider()
-        client.list_filters.side_effect = TimeoutError("upstream timeout")
-        with self.assertRaises(TimeoutError):
-            provider.list_filters(use_cache=True, ttl=60)
-
-    def test_delete_filter_propagates_client_error(self):
-        provider, client = _make_provider()
-        client.delete_filter.side_effect = RuntimeError("filter not found")
-        with self.assertRaisesRegex(RuntimeError, "filter not found"):
-            provider.delete_filter("f_missing")
-
-    def test_delete_filter_propagates_error_for_empty_id(self):
-        provider, client = _make_provider()
-        client.delete_filter.side_effect = ValueError("invalid filter id")
-        with self.assertRaises(ValueError):
-            provider.delete_filter("")
+    def test_delete_propagates_error_for_empty_id(self):
+        for case in self.RESOURCE_CASES:
+            with self.subTest(resource=case["resource"]):
+                provider, client = _make_provider()
+                getattr(client, case["delete_attr"]).side_effect = ValueError("invalid id")
+                with self.assertRaises(ValueError):
+                    getattr(provider, case["delete_attr"])("")
 
 
 if __name__ == "__main__":

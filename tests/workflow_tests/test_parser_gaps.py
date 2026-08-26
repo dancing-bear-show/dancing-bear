@@ -28,6 +28,17 @@ def _parse(stages: str) -> object:
     return parse_workflow_str(_wf(stages))
 
 
+def _assert_parse_error_cases(
+    test: unittest.TestCase, cases: tuple[tuple[str, str, str], ...]
+) -> None:
+    """Assert each (case_name, stages_yaml, expected_substring) raises WorkflowParseError."""
+    for case_name, stages, expected in cases:
+        with test.subTest(case_name):
+            with test.assertRaises(WorkflowParseError) as ctx:
+                _parse(stages)
+            test.assertIn(expected, str(ctx.exception))
+
+
 # ---------------------------------------------------------------------------
 # _parse_trigger — error paths
 # ---------------------------------------------------------------------------
@@ -91,9 +102,11 @@ class TestParseAgentErrors(unittest.TestCase):
 
 
 class TestParseOutputErrors(unittest.TestCase):
-    def test_output_missing_name_raises(self) -> None:
-        with self.assertRaises(WorkflowParseError) as ctx:
-            _parse("""\
+    def test_output_errors_raise(self) -> None:
+        cases = (
+            (
+                "missing_name",
+                """\
   - name: s
     kind: gather
     description: d
@@ -102,12 +115,12 @@ class TestParseOutputErrors(unittest.TestCase):
     outputs:
       - mode: invoke
         description: no name here
-""")
-        self.assertIn("name", str(ctx.exception))
-
-    def test_output_invalid_mode_raises(self) -> None:
-        with self.assertRaises(WorkflowParseError) as ctx:
-            _parse("""\
+""",
+                "name",
+            ),
+            (
+                "invalid_mode",
+                """\
   - name: s
     kind: gather
     description: d
@@ -116,12 +129,12 @@ class TestParseOutputErrors(unittest.TestCase):
     outputs:
       - name: out
         mode: invalid-mode
-""")
-        self.assertIn("mode", str(ctx.exception))
-
-    def test_output_input_mapping_non_dict_raises(self) -> None:
-        with self.assertRaises(WorkflowParseError) as ctx:
-            _parse("""\
+""",
+                "mode",
+            ),
+            (
+                "input_mapping_non_dict",
+                """\
   - name: s
     kind: gather
     description: d
@@ -131,8 +144,11 @@ class TestParseOutputErrors(unittest.TestCase):
       - name: out
         mode: invoke
         input_mapping: [a, b]
-""")
-        self.assertIn("input_mapping", str(ctx.exception))
+""",
+                "input_mapping",
+            ),
+        )
+        _assert_parse_error_cases(self, cases)
 
 
 # ---------------------------------------------------------------------------
@@ -231,21 +247,23 @@ class TestParseDomainRuleErrors(unittest.TestCase):
 
 
 class TestParseValidationErrors(unittest.TestCase):
-    def test_validation_not_dict_raises(self) -> None:
-        with self.assertRaises(WorkflowParseError) as ctx:
-            _parse("""\
+    def test_validation_errors_raise(self) -> None:
+        cases = (
+            (
+                "not_dict",
+                """\
   - name: s
     kind: validate
     description: d
     agent:
       role: reviewer
     validation: "just a string"
-""")
-        self.assertIn("validation", str(ctx.exception))
-
-    def test_validation_missing_strategy_raises(self) -> None:
-        with self.assertRaises(WorkflowParseError) as ctx:
-            _parse("""\
+""",
+                "validation",
+            ),
+            (
+                "missing_strategy",
+                """\
   - name: s
     kind: validate
     description: d
@@ -253,12 +271,12 @@ class TestParseValidationErrors(unittest.TestCase):
       role: reviewer
     validation:
       criteria: ["must be accurate"]
-""")
-        self.assertIn("strategy", str(ctx.exception))
-
-    def test_validation_invalid_strategy_raises(self) -> None:
-        with self.assertRaises(WorkflowParseError) as ctx:
-            _parse("""\
+""",
+                "strategy",
+            ),
+            (
+                "invalid_strategy",
+                """\
   - name: s
     kind: validate
     description: d
@@ -266,8 +284,11 @@ class TestParseValidationErrors(unittest.TestCase):
       role: reviewer
     validation:
       strategy: galaxy-brain
-""")
-        self.assertIn("strategy", str(ctx.exception))
+""",
+                "strategy",
+            ),
+        )
+        _assert_parse_error_cases(self, cases)
 
 
 # ---------------------------------------------------------------------------
@@ -458,21 +479,23 @@ class TestParseStageSubWorkflow(unittest.TestCase):
 
 
 class TestParseFanOutErrors(unittest.TestCase):
-    def test_fan_out_not_dict_raises(self) -> None:
-        with self.assertRaises(WorkflowParseError) as ctx:
-            _parse("""\
+    def test_fan_out_errors_raise(self) -> None:
+        cases = (
+            (
+                "not_dict",
+                """\
   - name: s
     kind: gather
     description: d
     agent:
       role: researcher
     fan_out: "not a dict"
-""")
-        self.assertIn("fan_out", str(ctx.exception))
-
-    def test_fan_out_missing_source_raises(self) -> None:
-        with self.assertRaises(WorkflowParseError) as ctx:
-            _parse("""\
+""",
+                "fan_out",
+            ),
+            (
+                "missing_source",
+                """\
   - name: s
     kind: gather
     description: d
@@ -481,12 +504,12 @@ class TestParseFanOutErrors(unittest.TestCase):
     fan_out:
       field: items
       key: name
-""")
-        self.assertIn("source", str(ctx.exception))
-
-    def test_fan_out_invalid_mode_raises(self) -> None:
-        with self.assertRaises(WorkflowParseError) as ctx:
-            _parse("""\
+""",
+                "source",
+            ),
+            (
+                "invalid_mode",
+                """\
   - name: s
     kind: gather
     description: d
@@ -497,8 +520,11 @@ class TestParseFanOutErrors(unittest.TestCase):
       field: items
       key: name
       mode: turbo
-""")
-        self.assertIn("mode", str(ctx.exception))
+""",
+                "mode",
+            ),
+        )
+        _assert_parse_error_cases(self, cases)
 
 
 # ---------------------------------------------------------------------------

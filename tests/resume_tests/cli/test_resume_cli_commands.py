@@ -11,6 +11,67 @@ import unittest
 from tests.fixtures import run, temp_yaml_file
 
 
+def _run_experience_overlay_render(case, tmpdir, profile, template):
+    """Render with a profile experience.yaml overlay and assert it replaces the base role.
+
+    Shared by TestResumeCLIRender.test_render_experience_overlay_replaces_base_role
+    and the permanently-skipped
+    TestResumeCLIOnePageTemplateE2E.test_onepage_render_overlays_experience_from_profile_config,
+    which reproduces the same overlay scenario against the (buggy) onepage
+    template path documented in ONEPAGE_TEMPLATE_BUG_REASON.
+    """
+    data_path = os.path.join(tmpdir, "data.json")
+    out_path = os.path.join(tmpdir, "out.docx")
+    payload = {
+        "name": "Overlay Test",
+        "experience": [
+            {
+                "title": "Old Role", "company": "OldCo", "start": "2020",
+                "end": "2021", "location": "Remote", "bullets": ["Old bullet"],
+            }
+        ],
+    }
+    with open(data_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f)
+
+    cfg_path = os.path.join("config", f"experience.{profile}.yaml")
+    os.makedirs("config", exist_ok=True)
+    with open(cfg_path, "w", encoding="utf-8") as f:
+        f.write(
+            "experience:\n"
+            "  - title: New Role\n"
+            "    company: NewCo\n"
+            "    start: 2022\n"
+            "    end: 2023\n"
+            "    location: Remote\n"
+            "    bullets:\n"
+            "      - New bullet A\n"
+            "      - New bullet B\n"
+        )
+    try:
+        proc = run([
+            sys.executable, "-m", "resume", "render",
+            "--data", data_path,
+            "--template", template,
+            "--profile", profile,
+            "--out", out_path,
+        ])
+        case.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        case.assertTrue(os.path.exists(out_path))
+
+        from docx import Document  # type: ignore
+
+        doc = Document(out_path)
+        text = "\n".join(p.text for p in doc.paragraphs)
+        case.assertIn("New Role at NewCo", text)
+        case.assertNotIn("Old Role at OldCo", text)
+    finally:
+        try:
+            os.unlink(cfg_path)
+        except OSError:  # nosec B110 - test cleanup
+            pass
+
+
 class TestResumeCLIExtract(unittest.TestCase):
     """Test resume extract command functionality."""
 
@@ -336,55 +397,11 @@ class TestResumeCLIRender(unittest.TestCase):
         except Exception:
             self.skipTest("python-docx not installed")
         with tempfile.TemporaryDirectory() as tmpdir:
-            data_path = os.path.join(tmpdir, "data.json")
-            out_path = os.path.join(tmpdir, "out.docx")
-            profile = "test_exp_overlay_profile"
-            payload = {
-                "name": "Overlay Test",
-                "experience": [
-                    {
-                        "title": "Old Role", "company": "OldCo", "start": "2020",
-                        "end": "2021", "location": "Remote", "bullets": ["Old bullet"],
-                    }
-                ],
-            }
-            with open(data_path, "w", encoding="utf-8") as f:
-                json.dump(payload, f)
-
-            cfg_path = os.path.join("config", f"experience.{profile}.yaml")
-            os.makedirs("config", exist_ok=True)
-            with open(cfg_path, "w", encoding="utf-8") as f:
-                f.write(
-                    "experience:\n"
-                    "  - title: New Role\n"
-                    "    company: NewCo\n"
-                    "    start: 2022\n"
-                    "    end: 2023\n"
-                    "    location: Remote\n"
-                    "    bullets:\n"
-                    "      - New bullet A\n"
-                    "      - New bullet B\n"
-                )
-            try:
-                proc = run([
-                    sys.executable, "-m", "resume", "render",
-                    "--data", data_path,
-                    "--template", "src/resume/config/template.onepage.yaml",
-                    "--profile", profile,
-                    "--out", out_path,
-                ])
-                self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-                self.assertTrue(os.path.exists(out_path))
-
-                from docx import Document  # type: ignore
-
-                doc = Document(out_path)
-                text = "\n".join(p.text for p in doc.paragraphs)
-                self.assertIn("New Role at NewCo", text)
-                self.assertNotIn("Old Role at OldCo", text)
-            finally:
-                if os.path.exists(cfg_path):
-                    os.unlink(cfg_path)
+            _run_experience_overlay_render(
+                self, tmpdir,
+                profile="test_exp_overlay_profile",
+                template="src/resume/config/template.onepage.yaml",
+            )
 
 
 class TestResumeCLIStructure(unittest.TestCase):
@@ -707,54 +724,11 @@ class TestResumeCLIOnePageTemplateE2E(unittest.TestCase):
             self.skipTest("python-docx not installed")
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            data_path = os.path.join(tmpdir, "data.json")
-            out_path = os.path.join(tmpdir, "out.docx")
-            profile = "test_profile"
-            payload = {
-                "name": "Overlay Test",
-                "experience": [
-                    {"title": "Old Role", "company": "OldCo", "start": "2020", "end": "2021", "location": "Remote", "bullets": ["Old bullet"]},
-                ],
-            }
-            with open(data_path, "w", encoding="utf-8") as f:
-                json.dump(payload, f)
-
-            cfg_path = os.path.join("config", f"experience.{profile}.yaml")
-            os.makedirs("config", exist_ok=True)
-            with open(cfg_path, "w", encoding="utf-8") as f:
-                f.write(
-                    "experience:\n"
-                    "  - title: New Role\n"
-                    "    company: NewCo\n"
-                    "    start: 2022\n"
-                    "    end: 2023\n"
-                    "    location: Remote\n"
-                    "    bullets:\n"
-                    "      - New bullet A\n"
-                    "      - New bullet B\n"
-                )
-            try:
-                proc = run([
-                    sys.executable, "-m", "resume", "render",
-                    "--data", data_path,
-                    "--template", "config/template.onepage.yaml",
-                    "--profile", profile,
-                    "--out", out_path,
-                ])
-                self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-                self.assertTrue(os.path.exists(out_path))
-
-                from docx import Document  # type: ignore
-
-                doc = Document(out_path)
-                text = "\n".join(p.text for p in doc.paragraphs)
-                self.assertIn("New Role at NewCo", text)
-                self.assertNotIn("Old Role at OldCo", text)
-            finally:
-                try:
-                    os.unlink(cfg_path)
-                except OSError:  # nosec B110 - test cleanup
-                    pass
+            _run_experience_overlay_render(
+                self, tmpdir,
+                profile="test_profile",
+                template="config/template.onepage.yaml",
+            )
 
 
 class TestResumeCLIAlignExtended(unittest.TestCase):

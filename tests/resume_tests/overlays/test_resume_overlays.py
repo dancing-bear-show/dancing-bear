@@ -117,45 +117,47 @@ class TestApplyProfileOverlays(TempDirMixin, unittest.TestCase):
             # Phone should be added since it didn't exist
             self.assertEqual(result["phone"], "555-NEW")
 
-    def test_applies_skills_groups_overlay(self):
+    def test_applies_skills_groups_and_experience_overlays(self):
+        """Each overlay filename dispatches to its own result key.
+
+        skills_groups.yaml populates result["skills_groups"]; experience.yaml
+        populates result["experience"] — two separate dispatch branches in
+        apply_profile_overlays, exercised here as parallel cases.
+        """
         from resume.overlays import apply_profile_overlays
 
-        with self.in_tmpdir():
-            profile_dir = Path("config/profiles/skills")
-            self._write_yaml(
-                profile_dir / "skills_groups.yaml",
+        cases = [
+            (
+                "skills_groups",
+                "skills", "skills_groups.yaml",
                 "groups:\n"
                 "  - name: Languages\n"
                 "    skills: [Python, Java]\n"
                 "  - name: Tools\n"
                 "    skills: [Docker, K8s]\n",
-            )
-
-            data = {}
-            result = apply_profile_overlays(data, "skills")
-
-            self.assertEqual(len(result["skills_groups"]), 2)
-            self.assertEqual(result["skills_groups"][0]["name"], "Languages")
-
-    def test_applies_experience_overlay(self):
-        from resume.overlays import apply_profile_overlays
-
-        with self.in_tmpdir():
-            profile_dir = Path("config/profiles/exp")
-            self._write_yaml(
-                profile_dir / "experience.yaml",
+                "skills_groups", "name", "Languages",
+            ),
+            (
+                "experience",
+                "exp", "experience.yaml",
                 "experience:\n"
                 "  - title: Senior Engineer\n"
                 "    company: TechCorp\n"
                 "  - title: Junior Dev\n"
                 "    company: StartupXYZ\n",
-            )
+                "experience", "title", "Senior Engineer",
+            ),
+        ]
+        for label, profile, filename, yaml_content, result_key, item_key, first_value in cases:
+            with self.subTest(label), self.in_tmpdir():
+                profile_dir = Path("config/profiles") / profile
+                self._write_yaml(profile_dir / filename, yaml_content)
 
-            data = {}
-            result = apply_profile_overlays(data, "exp")
+                data = {}
+                result = apply_profile_overlays(data, profile)
 
-            self.assertEqual(len(result["experience"]), 2)
-            self.assertEqual(result["experience"][0]["title"], "Senior Engineer")
+                self.assertEqual(len(result[result_key]), 2)
+                self.assertEqual(result[result_key][0][item_key], first_value)
 
     def test_applies_experience_from_roles_key(self):
         from resume.overlays import apply_profile_overlays

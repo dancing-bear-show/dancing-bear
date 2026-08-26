@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import io
 import unittest
-from contextlib import redirect_stdout
+from contextlib import contextmanager, redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -23,6 +23,41 @@ from mail.filters.commands import (
 )
 
 from tests.mail_tests.fixtures import make_args, make_success_envelope, make_error_envelope
+
+
+# ---------------------------------------------------------------------------
+# Shared pipeline-patching helpers
+#
+# Every command under test follows the same consumer -> processor -> producer
+# shape, but each patches a *different* trio of class names (e.g.
+# FiltersSweepConsumer vs FiltersPruneConsumer) and each test asserts
+# different things about the result (return codes, dry_run forwarding,
+# diagnostics handling). These helpers only collapse the repeated
+# `patch(...)`/stdout-capture scaffolding; every test still wires its own
+# consume/process return values and makes its own assertions.
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _patched_pipeline(consumer_name: str, processor_name: str, producer_name: str):
+    """Patch commands.<consumer_name>/<processor_name>/<producer_name> plus
+    MailContext.from_args, yielding (MockConsumer, MockProcessor, MockProducer).
+    """
+    with (
+        patch("mail.filters.commands.MailContext.from_args"),
+        patch(f"mail.filters.commands.{consumer_name}") as mock_consumer,
+        patch(f"mail.filters.commands.{processor_name}") as mock_processor,
+        patch(f"mail.filters.commands.{producer_name}") as mock_producer,
+    ):
+        yield mock_consumer, mock_processor, mock_producer
+
+
+def _run_capturing_stdout(run_fn, args):
+    """Call run_fn(args) under redirect_stdout, returning (result, output)."""
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        result = run_fn(args)
+    return result, buf.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -105,12 +140,9 @@ class TestRunFiltersSweep(unittest.TestCase):
         payload = _make_sweep_payload()
         envelope = make_success_envelope()
 
-        with (
-            patch("mail.filters.commands.MailContext.from_args"),
-            patch("mail.filters.commands.FiltersSweepConsumer") as MockConsumer,
-            patch("mail.filters.commands.FiltersSweepProcessor") as MockProcessor,
-            patch("mail.filters.commands.FiltersSweepProducer") as MockProducer,
-        ):
+        with _patched_pipeline(
+            "FiltersSweepConsumer", "FiltersSweepProcessor", "FiltersSweepProducer"
+        ) as (MockConsumer, MockProcessor, MockProducer):
             MockConsumer.return_value.consume.return_value = payload
             MockProcessor.return_value.process.return_value = envelope
 
@@ -124,41 +156,31 @@ class TestRunFiltersSweep(unittest.TestCase):
 
     def test_sweep_consumer_value_error_returns_one(self):
         """Failure path: consumer ValueError → exit code 1."""
-        with (
-            patch("mail.filters.commands.MailContext.from_args"),
-            patch("mail.filters.commands.FiltersSweepConsumer") as MockConsumer,
-            patch("mail.filters.commands.FiltersSweepProcessor"),
-            patch("mail.filters.commands.FiltersSweepProducer"),
-        ):
+        with _patched_pipeline(
+            "FiltersSweepConsumer", "FiltersSweepProcessor", "FiltersSweepProducer"
+        ) as (MockConsumer, _MockProcessor, _MockProducer):
             MockConsumer.return_value.consume.side_effect = ValueError("bad config")
 
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                result = run_filters_sweep(make_args())
+            result, output = _run_capturing_stdout(run_filters_sweep, make_args())
 
         self.assertEqual(result, 1)
-        self.assertIn("bad config", buf.getvalue())
+        self.assertIn("bad config", output)
 
     def test_sweep_processor_failure_returns_nonzero(self):
         """Failure path: processor returns failed envelope → non-zero exit code."""
         payload = _make_sweep_payload()
         envelope = make_error_envelope(diagnostics={"message": "sweep failed", "code": 3})
 
-        with (
-            patch("mail.filters.commands.MailContext.from_args"),
-            patch("mail.filters.commands.FiltersSweepConsumer") as MockConsumer,
-            patch("mail.filters.commands.FiltersSweepProcessor") as MockProcessor,
-            patch("mail.filters.commands.FiltersSweepProducer") as MockProducer,
-        ):
+        with _patched_pipeline(
+            "FiltersSweepConsumer", "FiltersSweepProcessor", "FiltersSweepProducer"
+        ) as (MockConsumer, MockProcessor, MockProducer):
             MockConsumer.return_value.consume.return_value = payload
             MockProcessor.return_value.process.return_value = envelope
 
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                result = run_filters_sweep(make_args())
+            result, output = _run_capturing_stdout(run_filters_sweep, make_args())
 
         self.assertEqual(result, 3)
-        self.assertIn("sweep failed", buf.getvalue())
+        self.assertIn("sweep failed", output)
         MockProducer.return_value.produce.assert_not_called()
 
 
@@ -174,12 +196,9 @@ class TestRunFiltersSweepRange(unittest.TestCase):
         payload = _make_sweep_range_payload()
         envelope = make_success_envelope()
 
-        with (
-            patch("mail.filters.commands.MailContext.from_args"),
-            patch("mail.filters.commands.FiltersSweepRangeConsumer") as MockConsumer,
-            patch("mail.filters.commands.FiltersSweepRangeProcessor") as MockProcessor,
-            patch("mail.filters.commands.FiltersSweepRangeProducer") as MockProducer,
-        ):
+        with _patched_pipeline(
+            "FiltersSweepRangeConsumer", "FiltersSweepRangeProcessor", "FiltersSweepRangeProducer"
+        ) as (MockConsumer, MockProcessor, MockProducer):
             MockConsumer.return_value.consume.return_value = payload
             MockProcessor.return_value.process.return_value = envelope
 
@@ -193,41 +212,31 @@ class TestRunFiltersSweepRange(unittest.TestCase):
 
     def test_sweep_range_consumer_value_error_returns_one(self):
         """Failure path: consumer ValueError → exit code 1."""
-        with (
-            patch("mail.filters.commands.MailContext.from_args"),
-            patch("mail.filters.commands.FiltersSweepRangeConsumer") as MockConsumer,
-            patch("mail.filters.commands.FiltersSweepRangeProcessor"),
-            patch("mail.filters.commands.FiltersSweepRangeProducer"),
-        ):
+        with _patched_pipeline(
+            "FiltersSweepRangeConsumer", "FiltersSweepRangeProcessor", "FiltersSweepRangeProducer"
+        ) as (MockConsumer, _MockProcessor, _MockProducer):
             MockConsumer.return_value.consume.side_effect = ValueError("invalid range")
 
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                result = run_filters_sweep_range(make_args())
+            result, output = _run_capturing_stdout(run_filters_sweep_range, make_args())
 
         self.assertEqual(result, 1)
-        self.assertIn("invalid range", buf.getvalue())
+        self.assertIn("invalid range", output)
 
     def test_sweep_range_processor_failure_returns_nonzero(self):
         """Failure path: failed envelope → non-zero exit code, producer not called."""
         payload = _make_sweep_range_payload()
         envelope = make_error_envelope(diagnostics={"message": "range error", "code": 2})
 
-        with (
-            patch("mail.filters.commands.MailContext.from_args"),
-            patch("mail.filters.commands.FiltersSweepRangeConsumer") as MockConsumer,
-            patch("mail.filters.commands.FiltersSweepRangeProcessor") as MockProcessor,
-            patch("mail.filters.commands.FiltersSweepRangeProducer") as MockProducer,
-        ):
+        with _patched_pipeline(
+            "FiltersSweepRangeConsumer", "FiltersSweepRangeProcessor", "FiltersSweepRangeProducer"
+        ) as (MockConsumer, MockProcessor, MockProducer):
             MockConsumer.return_value.consume.return_value = payload
             MockProcessor.return_value.process.return_value = envelope
 
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                result = run_filters_sweep_range(make_args())
+            result, output = _run_capturing_stdout(run_filters_sweep_range, make_args())
 
         self.assertEqual(result, 2)
-        self.assertIn("range error", buf.getvalue())
+        self.assertIn("range error", output)
         MockProducer.return_value.produce.assert_not_called()
 
 
@@ -243,12 +252,9 @@ class TestRunFiltersPruneEmpty(unittest.TestCase):
         payload = _make_prune_payload(dry_run=False)
         envelope = make_success_envelope()
 
-        with (
-            patch("mail.filters.commands.MailContext.from_args"),
-            patch("mail.filters.commands.FiltersPruneConsumer") as MockConsumer,
-            patch("mail.filters.commands.FiltersPruneProcessor") as MockProcessor,
-            patch("mail.filters.commands.FiltersPruneProducer") as MockProducer,
-        ):
+        with _patched_pipeline(
+            "FiltersPruneConsumer", "FiltersPruneProcessor", "FiltersPruneProducer"
+        ) as (MockConsumer, MockProcessor, MockProducer):
             MockConsumer.return_value.consume.return_value = payload
             MockProcessor.return_value.process.return_value = envelope
 
@@ -265,12 +271,9 @@ class TestRunFiltersPruneEmpty(unittest.TestCase):
         payload = _make_prune_payload(dry_run=True)
         envelope = make_success_envelope()
 
-        with (
-            patch("mail.filters.commands.MailContext.from_args"),
-            patch("mail.filters.commands.FiltersPruneConsumer") as MockConsumer,
-            patch("mail.filters.commands.FiltersPruneProcessor") as MockProcessor,
-            patch("mail.filters.commands.FiltersPruneProducer") as MockProducer,
-        ):
+        with _patched_pipeline(
+            "FiltersPruneConsumer", "FiltersPruneProcessor", "FiltersPruneProducer"
+        ) as (MockConsumer, MockProcessor, MockProducer):
             MockConsumer.return_value.consume.return_value = payload
             MockProcessor.return_value.process.return_value = envelope
 
@@ -281,41 +284,31 @@ class TestRunFiltersPruneEmpty(unittest.TestCase):
 
     def test_prune_consumer_value_error_returns_one(self):
         """Failure path: consumer ValueError → exit code 1."""
-        with (
-            patch("mail.filters.commands.MailContext.from_args"),
-            patch("mail.filters.commands.FiltersPruneConsumer") as MockConsumer,
-            patch("mail.filters.commands.FiltersPruneProcessor"),
-            patch("mail.filters.commands.FiltersPruneProducer"),
-        ):
+        with _patched_pipeline(
+            "FiltersPruneConsumer", "FiltersPruneProcessor", "FiltersPruneProducer"
+        ) as (MockConsumer, _MockProcessor, _MockProducer):
             MockConsumer.return_value.consume.side_effect = ValueError("no filters")
 
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                result = run_filters_prune_empty(make_args())
+            result, output = _run_capturing_stdout(run_filters_prune_empty, make_args())
 
         self.assertEqual(result, 1)
-        self.assertIn("no filters", buf.getvalue())
+        self.assertIn("no filters", output)
 
     def test_prune_processor_failure_returns_nonzero(self):
         """Failure path: failed envelope → non-zero exit code, producer not called."""
         payload = _make_prune_payload()
         envelope = make_error_envelope(diagnostics={"message": "prune failed", "code": 5})
 
-        with (
-            patch("mail.filters.commands.MailContext.from_args"),
-            patch("mail.filters.commands.FiltersPruneConsumer") as MockConsumer,
-            patch("mail.filters.commands.FiltersPruneProcessor") as MockProcessor,
-            patch("mail.filters.commands.FiltersPruneProducer") as MockProducer,
-        ):
+        with _patched_pipeline(
+            "FiltersPruneConsumer", "FiltersPruneProcessor", "FiltersPruneProducer"
+        ) as (MockConsumer, MockProcessor, MockProducer):
             MockConsumer.return_value.consume.return_value = payload
             MockProcessor.return_value.process.return_value = envelope
 
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                result = run_filters_prune_empty(make_args())
+            result, output = _run_capturing_stdout(run_filters_prune_empty, make_args())
 
         self.assertEqual(result, 5)
-        self.assertIn("prune failed", buf.getvalue())
+        self.assertIn("prune failed", output)
         MockProducer.return_value.produce.assert_not_called()
 
 
@@ -336,12 +329,9 @@ class TestRunFiltersAddForwardByLabel(unittest.TestCase):
         payload = _make_add_forward_payload(dry_run=False)
         envelope = make_success_envelope()
 
-        with (
-            patch("mail.filters.commands.MailContext.from_args"),
-            patch("mail.filters.commands.FiltersAddForwardConsumer") as MockConsumer,
-            patch("mail.filters.commands.FiltersAddForwardProcessor") as MockProcessor,
-            patch("mail.filters.commands.FiltersAddForwardProducer") as MockProducer,
-        ):
+        with _patched_pipeline(
+            "FiltersAddForwardConsumer", "FiltersAddForwardProcessor", "FiltersAddForwardProducer"
+        ) as (MockConsumer, MockProcessor, MockProducer):
             MockConsumer.return_value.consume.return_value = payload
             MockProcessor.return_value.process.return_value = envelope
 
@@ -359,12 +349,9 @@ class TestRunFiltersAddForwardByLabel(unittest.TestCase):
         payload = _make_add_forward_payload(dry_run=True)
         envelope = make_success_envelope()
 
-        with (
-            patch("mail.filters.commands.MailContext.from_args"),
-            patch("mail.filters.commands.FiltersAddForwardConsumer") as MockConsumer,
-            patch("mail.filters.commands.FiltersAddForwardProcessor") as MockProcessor,
-            patch("mail.filters.commands.FiltersAddForwardProducer") as MockProducer,
-        ):
+        with _patched_pipeline(
+            "FiltersAddForwardConsumer", "FiltersAddForwardProcessor", "FiltersAddForwardProducer"
+        ) as (MockConsumer, MockProcessor, MockProducer):
             MockConsumer.return_value.consume.return_value = payload
             MockProcessor.return_value.process.return_value = envelope
 
@@ -375,20 +362,15 @@ class TestRunFiltersAddForwardByLabel(unittest.TestCase):
 
     def test_add_forward_consumer_value_error_returns_one(self):
         """Failure path: consumer ValueError → exit code 1, error message printed."""
-        with (
-            patch("mail.filters.commands.MailContext.from_args"),
-            patch("mail.filters.commands.FiltersAddForwardConsumer") as MockConsumer,
-            patch("mail.filters.commands.FiltersAddForwardProcessor"),
-            patch("mail.filters.commands.FiltersAddForwardProducer"),
-        ):
+        with _patched_pipeline(
+            "FiltersAddForwardConsumer", "FiltersAddForwardProcessor", "FiltersAddForwardProducer"
+        ) as (MockConsumer, _MockProcessor, _MockProducer):
             MockConsumer.return_value.consume.side_effect = ValueError("missing --email")
 
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                result = run_filters_add_forward_by_label(make_args())
+            result, output = _run_capturing_stdout(run_filters_add_forward_by_label, make_args())
 
         self.assertEqual(result, 1)
-        self.assertIn("missing --email", buf.getvalue())
+        self.assertIn("missing --email", output)
 
     def test_add_forward_processor_failure_returns_code_from_diagnostics(self):
         """Failure path: processor returns failed envelope → code from diagnostics."""
@@ -397,21 +379,16 @@ class TestRunFiltersAddForwardByLabel(unittest.TestCase):
             diagnostics={"message": "Filters add-forward failed.", "code": 2}
         )
 
-        with (
-            patch("mail.filters.commands.MailContext.from_args"),
-            patch("mail.filters.commands.FiltersAddForwardConsumer") as MockConsumer,
-            patch("mail.filters.commands.FiltersAddForwardProcessor") as MockProcessor,
-            patch("mail.filters.commands.FiltersAddForwardProducer") as MockProducer,
-        ):
+        with _patched_pipeline(
+            "FiltersAddForwardConsumer", "FiltersAddForwardProcessor", "FiltersAddForwardProducer"
+        ) as (MockConsumer, MockProcessor, MockProducer):
             MockConsumer.return_value.consume.return_value = payload
             MockProcessor.return_value.process.return_value = envelope
 
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                result = run_filters_add_forward_by_label(make_args())
+            result, output = _run_capturing_stdout(run_filters_add_forward_by_label, make_args())
 
         self.assertEqual(result, 2)
-        self.assertIn("Filters add-forward failed.", buf.getvalue())
+        self.assertIn("Filters add-forward failed.", output)
         MockProducer.return_value.produce.assert_not_called()
 
     def test_add_forward_processor_failure_none_diagnostics_returns_one(self):
@@ -419,21 +396,16 @@ class TestRunFiltersAddForwardByLabel(unittest.TestCase):
         payload = _make_add_forward_payload()
         envelope = make_error_envelope(diagnostics=None)
 
-        with (
-            patch("mail.filters.commands.MailContext.from_args"),
-            patch("mail.filters.commands.FiltersAddForwardConsumer") as MockConsumer,
-            patch("mail.filters.commands.FiltersAddForwardProcessor") as MockProcessor,
-            patch("mail.filters.commands.FiltersAddForwardProducer") as MockProducer,
-        ):
+        with _patched_pipeline(
+            "FiltersAddForwardConsumer", "FiltersAddForwardProcessor", "FiltersAddForwardProducer"
+        ) as (MockConsumer, MockProcessor, MockProducer):
             MockConsumer.return_value.consume.return_value = payload
             MockProcessor.return_value.process.return_value = envelope
 
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                result = run_filters_add_forward_by_label(make_args())
+            result, output = _run_capturing_stdout(run_filters_add_forward_by_label, make_args())
 
         self.assertEqual(result, 1)
-        self.assertIn("Filters add-forward failed.", buf.getvalue())
+        self.assertIn("Filters add-forward failed.", output)
         MockProducer.return_value.produce.assert_not_called()
 
 
@@ -449,12 +421,9 @@ class TestRunFiltersAddFromToken(unittest.TestCase):
         payload = _make_token_payload(dry_run=False)
         envelope = make_success_envelope()
 
-        with (
-            patch("mail.filters.commands.MailContext.from_args"),
-            patch("mail.filters.commands.FiltersAddTokenConsumer") as MockConsumer,
-            patch("mail.filters.commands.FiltersAddTokenProcessor") as MockProcessor,
-            patch("mail.filters.commands.FiltersAddTokenProducer") as MockProducer,
-        ):
+        with _patched_pipeline(
+            "FiltersAddTokenConsumer", "FiltersAddTokenProcessor", "FiltersAddTokenProducer"
+        ) as (MockConsumer, MockProcessor, MockProducer):
             MockConsumer.return_value.consume.return_value = payload
             MockProcessor.return_value.process.return_value = envelope
 
@@ -471,12 +440,9 @@ class TestRunFiltersAddFromToken(unittest.TestCase):
         payload = _make_token_payload(dry_run=True)
         envelope = make_success_envelope()
 
-        with (
-            patch("mail.filters.commands.MailContext.from_args"),
-            patch("mail.filters.commands.FiltersAddTokenConsumer") as MockConsumer,
-            patch("mail.filters.commands.FiltersAddTokenProcessor") as MockProcessor,
-            patch("mail.filters.commands.FiltersAddTokenProducer") as MockProducer,
-        ):
+        with _patched_pipeline(
+            "FiltersAddTokenConsumer", "FiltersAddTokenProcessor", "FiltersAddTokenProducer"
+        ) as (MockConsumer, MockProcessor, MockProducer):
             MockConsumer.return_value.consume.return_value = payload
             MockProcessor.return_value.process.return_value = envelope
 
@@ -487,41 +453,31 @@ class TestRunFiltersAddFromToken(unittest.TestCase):
 
     def test_add_token_consumer_value_error_returns_one(self):
         """Failure path: consumer ValueError → exit code 1."""
-        with (
-            patch("mail.filters.commands.MailContext.from_args"),
-            patch("mail.filters.commands.FiltersAddTokenConsumer") as MockConsumer,
-            patch("mail.filters.commands.FiltersAddTokenProcessor"),
-            patch("mail.filters.commands.FiltersAddTokenProducer"),
-        ):
+        with _patched_pipeline(
+            "FiltersAddTokenConsumer", "FiltersAddTokenProcessor", "FiltersAddTokenProducer"
+        ) as (MockConsumer, _MockProcessor, _MockProducer):
             MockConsumer.return_value.consume.side_effect = ValueError("missing --needle")
 
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                result = run_filters_add_from_token(make_args())
+            result, output = _run_capturing_stdout(run_filters_add_from_token, make_args())
 
         self.assertEqual(result, 1)
-        self.assertIn("missing --needle", buf.getvalue())
+        self.assertIn("missing --needle", output)
 
     def test_add_token_processor_failure_returns_nonzero(self):
         """Failure path: failed envelope → non-zero exit code, producer not called."""
         payload = _make_token_payload()
         envelope = make_error_envelope(diagnostics={"message": "token error", "code": 4})
 
-        with (
-            patch("mail.filters.commands.MailContext.from_args"),
-            patch("mail.filters.commands.FiltersAddTokenConsumer") as MockConsumer,
-            patch("mail.filters.commands.FiltersAddTokenProcessor") as MockProcessor,
-            patch("mail.filters.commands.FiltersAddTokenProducer") as MockProducer,
-        ):
+        with _patched_pipeline(
+            "FiltersAddTokenConsumer", "FiltersAddTokenProcessor", "FiltersAddTokenProducer"
+        ) as (MockConsumer, MockProcessor, MockProducer):
             MockConsumer.return_value.consume.return_value = payload
             MockProcessor.return_value.process.return_value = envelope
 
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                result = run_filters_add_from_token(make_args())
+            result, output = _run_capturing_stdout(run_filters_add_from_token, make_args())
 
         self.assertEqual(result, 4)
-        self.assertIn("token error", buf.getvalue())
+        self.assertIn("token error", output)
         MockProducer.return_value.produce.assert_not_called()
 
 
@@ -537,12 +493,9 @@ class TestRunFiltersRmFromToken(unittest.TestCase):
         payload = _make_token_payload(dry_run=False)
         envelope = make_success_envelope()
 
-        with (
-            patch("mail.filters.commands.MailContext.from_args"),
-            patch("mail.filters.commands.FiltersRemoveTokenConsumer") as MockConsumer,
-            patch("mail.filters.commands.FiltersRemoveTokenProcessor") as MockProcessor,
-            patch("mail.filters.commands.FiltersRemoveTokenProducer") as MockProducer,
-        ):
+        with _patched_pipeline(
+            "FiltersRemoveTokenConsumer", "FiltersRemoveTokenProcessor", "FiltersRemoveTokenProducer"
+        ) as (MockConsumer, MockProcessor, MockProducer):
             MockConsumer.return_value.consume.return_value = payload
             MockProcessor.return_value.process.return_value = envelope
 
@@ -559,12 +512,9 @@ class TestRunFiltersRmFromToken(unittest.TestCase):
         payload = _make_token_payload(dry_run=True)
         envelope = make_success_envelope()
 
-        with (
-            patch("mail.filters.commands.MailContext.from_args"),
-            patch("mail.filters.commands.FiltersRemoveTokenConsumer") as MockConsumer,
-            patch("mail.filters.commands.FiltersRemoveTokenProcessor") as MockProcessor,
-            patch("mail.filters.commands.FiltersRemoveTokenProducer") as MockProducer,
-        ):
+        with _patched_pipeline(
+            "FiltersRemoveTokenConsumer", "FiltersRemoveTokenProcessor", "FiltersRemoveTokenProducer"
+        ) as (MockConsumer, MockProcessor, MockProducer):
             MockConsumer.return_value.consume.return_value = payload
             MockProcessor.return_value.process.return_value = envelope
 
@@ -575,41 +525,31 @@ class TestRunFiltersRmFromToken(unittest.TestCase):
 
     def test_rm_token_consumer_value_error_returns_one(self):
         """Failure path: consumer ValueError → exit code 1."""
-        with (
-            patch("mail.filters.commands.MailContext.from_args"),
-            patch("mail.filters.commands.FiltersRemoveTokenConsumer") as MockConsumer,
-            patch("mail.filters.commands.FiltersRemoveTokenProcessor"),
-            patch("mail.filters.commands.FiltersRemoveTokenProducer"),
-        ):
+        with _patched_pipeline(
+            "FiltersRemoveTokenConsumer", "FiltersRemoveTokenProcessor", "FiltersRemoveTokenProducer"
+        ) as (MockConsumer, _MockProcessor, _MockProducer):
             MockConsumer.return_value.consume.side_effect = ValueError("missing --remove")
 
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                result = run_filters_rm_from_token(make_args())
+            result, output = _run_capturing_stdout(run_filters_rm_from_token, make_args())
 
         self.assertEqual(result, 1)
-        self.assertIn("missing --remove", buf.getvalue())
+        self.assertIn("missing --remove", output)
 
     def test_rm_token_processor_failure_returns_nonzero(self):
         """Failure path: failed envelope → non-zero exit code, producer not called."""
         payload = _make_token_payload()
         envelope = make_error_envelope(diagnostics={"message": "remove failed", "code": 6})
 
-        with (
-            patch("mail.filters.commands.MailContext.from_args"),
-            patch("mail.filters.commands.FiltersRemoveTokenConsumer") as MockConsumer,
-            patch("mail.filters.commands.FiltersRemoveTokenProcessor") as MockProcessor,
-            patch("mail.filters.commands.FiltersRemoveTokenProducer") as MockProducer,
-        ):
+        with _patched_pipeline(
+            "FiltersRemoveTokenConsumer", "FiltersRemoveTokenProcessor", "FiltersRemoveTokenProducer"
+        ) as (MockConsumer, MockProcessor, MockProducer):
             MockConsumer.return_value.consume.return_value = payload
             MockProcessor.return_value.process.return_value = envelope
 
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                result = run_filters_rm_from_token(make_args())
+            result, output = _run_capturing_stdout(run_filters_rm_from_token, make_args())
 
         self.assertEqual(result, 6)
-        self.assertIn("remove failed", buf.getvalue())
+        self.assertIn("remove failed", output)
         MockProducer.return_value.produce.assert_not_called()
 
 

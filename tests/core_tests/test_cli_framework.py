@@ -329,6 +329,13 @@ class TestHelpfulArgumentParser(unittest.TestCase):
         sub.add_parser("auth")
         return parser
 
+    def _parse_and_capture_stderr(self, parser, argv: list[str]) -> str:
+        """Run parser.parse_args(argv), which must SystemExit, and return stderr."""
+        with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            with self.assertRaises(SystemExit):
+                parser.parse_args(argv)
+        return stderr.getvalue()
+
     def test_misplaced_no_arg_flag_example_omits_value_placeholder(self):
         """A store_true flag takes no argument, so the example must not add one.
 
@@ -336,10 +343,7 @@ class TestHelpfulArgumentParser(unittest.TestCase):
         a hint that suggests one is no better than the bug it replaced.
         """
         parser = self._make_parser_with_global_flag()
-        with patch("sys.stderr", new_callable=io.StringIO) as stderr:
-            with self.assertRaises(SystemExit):
-                parser.parse_args(["auth", "--verbose"])
-        output = stderr.getvalue()
+        output = self._parse_and_capture_stderr(parser, ["auth", "--verbose"])
 
         self.assertIn("test-app --verbose <command>", output)
         self.assertNotIn("--verbose <value>", output)
@@ -353,10 +357,7 @@ class TestHelpfulArgumentParser(unittest.TestCase):
         the cause (wrong position) nor the fix.
         """
         parser = self._make_parser_with_global_flag()
-        with patch("sys.stderr", new_callable=io.StringIO) as stderr:
-            with self.assertRaises(SystemExit):
-                parser.parse_args(["auth", "--profile", "personal"])
-        output = stderr.getvalue()
+        output = self._parse_and_capture_stderr(parser, ["auth", "--profile", "personal"])
 
         self.assertIn("must come before the subcommand", output)
         self.assertNotIn("Did you mean: --profile", output)
@@ -364,38 +365,26 @@ class TestHelpfulArgumentParser(unittest.TestCase):
     def test_genuinely_misspelled_flag_still_suggests_correction(self):
         """The position hint must not swallow real did-you-mean suggestions."""
         parser = self._make_parser_with_global_flag()
-        with patch("sys.stderr", new_callable=io.StringIO) as stderr:
-            with self.assertRaises(SystemExit):
-                parser.parse_args(["auth", "--porfile", "personal"])
-        output = stderr.getvalue()
+        output = self._parse_and_capture_stderr(parser, ["auth", "--porfile", "personal"])
 
         self.assertIn("Did you mean: --profile", output)
         self.assertNotIn("must come before the subcommand", output)
 
     def test_invalid_subcommand_suggests_closest_match(self):
         parser = self._make_parser()
-        with patch("sys.stderr", new_callable=io.StringIO) as stderr:
-            with self.assertRaises(SystemExit):
-                parser.parse_args(["serch"])
-        output = stderr.getvalue()
+        output = self._parse_and_capture_stderr(parser, ["serch"])
         self.assertIn("Did you mean: search", output)
 
     def test_invalid_subcommand_usage_not_duplicated(self):
         parser = self._make_parser()
-        with patch("sys.stderr", new_callable=io.StringIO) as stderr:
-            with self.assertRaises(SystemExit):
-                parser.parse_args(["serch"])
-        output = stderr.getvalue()
+        output = self._parse_and_capture_stderr(parser, ["serch"])
         self.assertEqual(output.count("usage:"), 1)
 
     def test_invalid_flag_choice_does_not_suggest_subcommands(self):
         # Regression: an invalid --agentic-format choice must not be compared
         # against subcommand names (they share the "invalid choice" message).
         parser = self._make_parser()
-        with patch("sys.stderr", new_callable=io.StringIO) as stderr:
-            with self.assertRaises(SystemExit):
-                parser.parse_args(["--agentic-format", "xml"])
-        output = stderr.getvalue()
+        output = self._parse_and_capture_stderr(parser, ["--agentic-format", "xml"])
         self.assertNotIn("Did you mean: search", output)
         self.assertNotIn("Did you mean: send", output)
 
@@ -403,10 +392,7 @@ class TestHelpfulArgumentParser(unittest.TestCase):
         # A non-prefix typo (extra trailing 't') so argparse's own prefix
         # matching doesn't silently resolve it to --agentic-format first.
         parser = self._make_parser()
-        with patch("sys.stderr", new_callable=io.StringIO) as stderr:
-            with self.assertRaises(SystemExit):
-                parser.parse_args(["search", "--agentic-formatt", "json"])
-        output = stderr.getvalue()
+        output = self._parse_and_capture_stderr(parser, ["search", "--agentic-formatt", "json"])
         self.assertIn("Did you mean", output)
         self.assertIn("--agentic-format", output)
 

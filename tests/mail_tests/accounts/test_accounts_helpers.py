@@ -384,39 +384,29 @@ class TestBuildProviderForAccount(unittest.TestCase):
             build_provider_for_account(acc)
         self.assertIn("<missing>", str(ctx.exception))
 
-    def test_outlook_uses_application_id_fallback(self):
+    def test_outlook_client_id_fallback_keys(self):
+        """Outlook client_id falls back through application_id and credentials keys."""
         from mail.accounts.helpers import build_provider_for_account
 
-        with patch("mail.accounts.helpers.expand_path", side_effect=lambda x: x):
-            with patch("mail.providers.outlook.OutlookProvider") as mock_provider:
-                acc = {
-                    "name": "work",
-                    "provider": "outlook",
-                    "application_id": "app-id-123",  # Fallback key
-                    "tenant": "consumers",
-                }
-                build_provider_for_account(acc)
+        fallback_cases = [
+            ("application_id", "app-id-123"),
+            ("credentials", "cred-id-456"),
+        ]
+        for fallback_key, expected_client_id in fallback_cases:
+            with self.subTest(fallback_key=fallback_key):
+                with patch("mail.accounts.helpers.expand_path", side_effect=lambda x: x):
+                    with patch("mail.providers.outlook.OutlookProvider") as mock_provider:
+                        acc = {
+                            "name": "work",
+                            "provider": "outlook",
+                            fallback_key: expected_client_id,
+                            "tenant": "consumers",
+                        }
+                        build_provider_for_account(acc)
 
-                mock_provider.assert_called_once()
-                call_args = mock_provider.call_args
-                self.assertEqual(call_args.kwargs["client_id"], "app-id-123")
-
-    def test_outlook_uses_credentials_fallback(self):
-        from mail.accounts.helpers import build_provider_for_account
-
-        with patch("mail.accounts.helpers.expand_path", side_effect=lambda x: x):
-            with patch("mail.providers.outlook.OutlookProvider") as mock_provider:
-                acc = {
-                    "name": "work",
-                    "provider": "outlook",
-                    "credentials": "cred-id-456",  # Another fallback key
-                    "tenant": "consumers",
-                }
-                build_provider_for_account(acc)
-
-                mock_provider.assert_called_once()
-                call_args = mock_provider.call_args
-                self.assertEqual(call_args.kwargs["client_id"], "cred-id-456")
+                        mock_provider.assert_called_once()
+                        call_args = mock_provider.call_args
+                        self.assertEqual(call_args.kwargs["client_id"], expected_client_id)
 
     def test_outlook_defaults_tenant_to_consumers(self):
         from mail.accounts.helpers import build_provider_for_account

@@ -201,25 +201,31 @@ class TestManifestMetadata(unittest.TestCase):
 class TestTemplateResolution(unittest.TestCase):
     """Template and writing guide refs are loaded from project_root."""
 
-    def test_template_loaded_when_file_exists(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
-            template_dir = tmp_path / "templates" / "test"
-            template_dir.mkdir(parents=True)
-            template_file = template_dir / "TEMPLATE.md"
-            template_file.write_text("# Template content", encoding="utf-8")
+    def test_ref_loaded_when_file_exists(self) -> None:
+        cases = (
+            ("template", "TEMPLATE.md", "template_ref", "# Template content", "template_content"),
+            ("writing_guide", "WRITING_GUIDE.md", "writing_guide_ref", "# Writing guide", "guide_content"),
+        )
+        for case_name, filename, ref_kwarg, content, resolved_attr in cases:
+            with self.subTest(case_name):
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    tmp_path = Path(tmp_dir)
+                    ref_dir = tmp_path / "templates" / "test"
+                    ref_dir.mkdir(parents=True)
+                    ref_file = ref_dir / filename
+                    ref_file.write_text(content, encoding="utf-8")
 
-            output = make_output_spec(
-                name="out",
-                mode=OutputMode.template,
-                template_ref="templates/test/TEMPLATE.md",
-            )
-            stage = make_stage_spec(name="compose", outputs=(output,))
-            wf = make_workflow_definition(stages=(stage,))
-            manifest = compile_workflow(wf, project_root=tmp_path)
+                    output = make_output_spec(
+                        name="out",
+                        mode=OutputMode.template,
+                        **{ref_kwarg: f"templates/test/{filename}"},
+                    )
+                    stage = make_stage_spec(name="compose", outputs=(output,))
+                    wf = make_workflow_definition(stages=(stage,))
+                    manifest = compile_workflow(wf, project_root=tmp_path)
 
-            resolved = manifest.resolved_stages["compose"]
-            self.assertEqual(resolved.template_content, "# Template content")
+                    resolved = manifest.resolved_stages["compose"]
+                    self.assertEqual(getattr(resolved, resolved_attr), content)
 
     def test_missing_template_raises_compile_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -234,26 +240,6 @@ class TestTemplateResolution(unittest.TestCase):
 
             with self.assertRaisesRegex(WorkflowCompileError, "template not found"):
                 compile_workflow(wf, project_root=tmp_path)
-
-    def test_writing_guide_loaded_when_file_exists(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
-            guide_dir = tmp_path / "templates" / "test"
-            guide_dir.mkdir(parents=True)
-            guide_file = guide_dir / "WRITING_GUIDE.md"
-            guide_file.write_text("# Writing guide", encoding="utf-8")
-
-            output = make_output_spec(
-                name="out",
-                mode=OutputMode.template,
-                writing_guide_ref="templates/test/WRITING_GUIDE.md",
-            )
-            stage = make_stage_spec(name="compose", outputs=(output,))
-            wf = make_workflow_definition(stages=(stage,))
-            manifest = compile_workflow(wf, project_root=tmp_path)
-
-            resolved = manifest.resolved_stages["compose"]
-            self.assertEqual(resolved.guide_content, "# Writing guide")
 
     def test_missing_writing_guide_raises_compile_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
