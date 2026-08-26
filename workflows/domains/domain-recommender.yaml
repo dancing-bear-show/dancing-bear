@@ -1,0 +1,546 @@
+# Domain recommender — mine Claude Code session transcripts to surface new CLI
+# subcommands, new domain candidates, and consolidation opportunities.
+#
+# Data flow:
+#   [pm fragment: pm-index-sessions → pm-extract-prompts → pm-score-efficiency]
+#       → map-to-domains          (parallel)
+#       → extract-intent-sequences (parallel)
+#   → gap-analysis
+#   → generate-sketches
+#   → review-backlog              (human gate)
+#   → [vtr fragment: vtr-validate → vtr-render]
+#   → [docs fragment: docs-detect-surface-changes → docs-update-docs → docs-verify-docs]
+#
+# Advisory only. This workflow proposes and documents; it never implements.
+# To build an approved sketch, hand it to a separate implementation run.
+
+name: domain-recommender
+version: "1.0"
+description: >
+  Mine Claude Code session transcripts to recommend new CLI subcommands, new
+  domains where no CLI exists, and consolidation opportunities where 2+ CLI
+  invocations consistently appear together. Produces a prioritized addition
+  backlog with implementation sketches and a ranked domain-recommendations.md,
+  then records the accepted backlog in the repo's documentation.
+
+  Complements synthesize-workflow-from-telemetry.yaml, which proposes new
+  *workflows* from the same telemetry. This one proposes new *CLI surface* —
+  subcommands and domains. The two do not overlap.
+
+metadata:
+  author: dancing-bear
+  created: "2026-08-26"
+
+trigger:
+  source: manual
+  params:
+    since: "30d"               # Time window to mine (e.g. 30d, 14d, 7d)
+    min_prompts: "3"           # Minimum prompts per session to include
+    min_pattern_freq: "3"      # Minimum sessions a pattern must appear in
+    projects_dir: "~/.claude/projects"  # Root dir for Claude Code project transcripts
+    primary_artifact: "sketches.json"
+    report_artifact: "domain-recommendations.md"
+    validation_criteria: "all file_to_modify paths exist under src/|proposed domain names are snake_case and not already a directory under src/|roi_score arithmetic is correct|no gap_id appears in both subcommand_gaps and new_domain_candidates|every example_prompt quoted traces to prompt-corpus.json"
+    docs_change_source: "sketches.json"
+    docs_backlog_doc: "docs/cli-surface-backlog.md"
+
+workspace_dir: "{work_dir}/domain-recommender"
+
+include:
+  # Stages injected: pm-index-sessions → pm-extract-prompts → pm-score-efficiency
+  # Produces: sessions-index.json, agents-index.json, prompt-corpus.json,
+  #           efficiency-scores.json
+  - path: workflows/shared/prompt-mine-transcripts.yaml
+    prefix: pm
+    depends_on: []
+    reads_from: []
+  # Stages injected: vtr-validate → vtr-render
+  - path: workflows/shared/validate-then-render.yaml
+    prefix: vtr
+    depends_on: [review-backlog]
+    reads_from: [generate-sketches]
+  # Stages injected: docs-detect-surface-changes → docs-approve-doc-plan
+  #                  → docs-update-docs → docs-verify-docs
+  # depends_on is vtr-render so corrections are applied before docs are written,
+  # but note vtr-render is required:false upstream — docs-detect-surface-changes
+  # independently gates on vtr-findings.json/vtr-corrections.json (its Step 0) so
+  # a skipped or failed render cannot silently produce docs from uncorrected data.
+  - path: workflows/shared/sync-docs-on-land.yaml
+    prefix: docs
+    depends_on: [vtr-render]
+    reads_from: [generate-sketches, vtr-validate, vtr-render]
+
+stages:
+
+  # ===========================================================================
+  # Stage 4a (parallel): Map prompt clusters to existing CLI domains
+  # ===========================================================================
+
+  - name: map-to-domains
+    kind: gather
+    depends_on: [pm-score-efficiency]
+    reads_from: [pm-extract-prompts, pm-score-efficiency]
+    description: >
+      Enumerate all existing domains and map prompt clusters to them.
+
+      Step 1 — list existing domains from the tree, not from memory:
+        Glob: src/*/
+        Capture all directory names (skip __pycache__ and any *.py file).
+        Also run: ls bin/ to get the flat wrapper list for cross-referencing.
+        The keyword table in Step 2 is a starting hint, not the source of
+        truth — if a domain exists on disk that the table omits, include it
+        anyway and note the omission in the output's "notes" field.
+
+      Step 2 — read prompt-corpus.json. For each prompt in "prompts", apply
+      the following keyword-to-domain mapping (case-insensitive, first match wins):
+
+        mail, gmail, outlook, inbox, label, filter → mail
+        calendar, event, invite, meeting           → calendars
+        schedule, plan, apply, recurring           → schedule
+        resume, cv, cover letter, overlay          → resume
+        phone, ios, layout, home screen, dock      → phone
+        whatsapp, chat, message search             → whatsapp
+        chart, graph, plot, time series            → charts
+        diagram, mermaid, flowchart, sequence      → diagrams
+        slides, deck, powerpoint, pptx             → slides
+        sheet, xlsx, spreadsheet, workbook         → sheets
+        workflow, yaml, stages, fragment, dag      → workflow
+        telemetry, cost, token, session            → telemetry
+        worker, enqueue, queue, daemon, job        → worker
+        qlty, lint, ruff, bandit, complexity       → qlty
+        desk, workspace, desktop                   → desk
+        wifi, network, ssid                        → wifi
+        music, apple music, playlist, track        → apple_music
+        maker, generate, scaffold, template        → maker
+
+      If no keyword matches, mark as "unmapped" — strong new-domain signal.
+      Do NOT force a weak match to avoid an unmapped cluster; unmapped
+      clusters are the primary signal this workflow exists to surface.
+
+      Step 3 — for each domain that has at least one cluster mapped, use the Glob
+      tool to list Python modules under the domain's src path:
+        Glob: src/<domain>/**/*.py
+
+      Step 4 — check whether each domain's bin CLI exposes an agentic schema:
+        Run: ./bin/<cli> --agentic --agentic-format yaml --agentic-compact 2>/dev/null
+        Set has_agentic_schema=true if exit code == 0.
+        Note: charts, diagrams, workflow, and worker are standalone CLIs with
+        no agentic schema by design — a false here is expected, not a defect.
+
+      Write domain-map.json:
+        {
+          "domains": [
+            {
+              "domain": "mail",
+              "src_path": "src/mail/",
+              "cli_bin": "bin/mail",
+              "clusters": ["MAIL"],
+              "prompt_count": N,
+              "module_count": N,
+              "has_agentic_schema": true
+            }
+          ],
+          "unmapped_clusters": ["MONITOR"],
+          "total_prompts_mapped": N,
+          "total_prompts_unmapped": N,
+          "notes": "..."
+        }
+    agent:
+      role: researcher
+      model: sonnet
+      tools:
+        - Bash
+        - Read
+        - Glob
+        - Write
+      access: read-write
+    outputs:
+      - name: domain-map
+        mode: generate
+        description: >
+          Enumerate src/ domains, map each prompt cluster by keyword, glob
+          module counts, check agentic schemas, write domain-map.json.
+    required: true
+    writes_to:
+      - domain-map.json
+
+  # ===========================================================================
+  # Stage 4b (parallel): Extract CLI co-occurrence sequences and intent signals
+  # ===========================================================================
+
+  - name: extract-intent-sequences
+    kind: gather
+    depends_on: [pm-score-efficiency]
+    reads_from: [pm-extract-prompts]
+    description: >
+      Extract sequences of CLI co-invocations and strong manual-workflow signals.
+
+      Step 1 — read prompt-corpus.json. Within each session (grouped by session_id,
+      sorted by prompt_index), find sequences of 2–4 consecutive prompts where each
+      prompt mentions at least one ./bin/ CLI. Extract CLI names via:
+        regex: \./bin/([\w][\w-]*)
+
+      Step 2 — deduplicate and count sequences:
+        - Normalize: strip bin/ prefix, lowercase, sort within each sequence.
+        - Count how many sessions contain the same normalized sequence.
+        - Retain sequences with frequency >= {min_pattern_freq} (across sessions).
+        - For each retained sequence, record the example prompt text (first 150 chars
+          of the first prompt in the sequence).
+
+      Step 3 — scan all prompts for manual-workflow language:
+        Keywords: "every time", "keep having to", "always need to", "i always",
+                  "we always", "repeatedly", "constantly", "have to run"
+        For each match record session_id, the full prompt text (first 300 chars),
+        and how many times similar phrasing appears across sessions.
+
+      Write intent-sequences.json:
+        {
+          "cli_sequences": [
+            {
+              "sequence": ["mail", "calendar"],
+              "freq": N,
+              "example": "first 150 chars of first prompt in sequence"
+            }
+          ],
+          "manual_workflow_signals": [
+            {
+              "text": "first 300 chars...",
+              "session_id": "...",
+              "keyword_matched": "every time",
+              "freq": N
+            }
+          ]
+        }
+    agent:
+      role: researcher
+      model: sonnet
+      tools:
+        - Read
+        - Write
+      access: read-write
+    outputs:
+      - name: intent-sequences
+        mode: generate
+        description: >
+          Scan prompt-corpus.json for CLI co-occurrence sequences
+          (freq >= {min_pattern_freq}) and manual-workflow signal language.
+          Write intent-sequences.json.
+    required: true
+    writes_to:
+      - intent-sequences.json
+
+  # ===========================================================================
+  # Stage 5: Gap analysis — subcommand gaps, new domains, consolidation
+  # ===========================================================================
+
+  - name: gap-analysis
+    kind: execute
+    depends_on: [map-to-domains, extract-intent-sequences]
+    reads_from: [map-to-domains, extract-intent-sequences, pm-extract-prompts, pm-score-efficiency]
+    description: >
+      Identify concrete gaps in the CLI surface and score each by ROI.
+
+      Sources to read:
+        domain-map.json        — domain coverage and cluster assignments
+        intent-sequences.json  — CLI co-occurrence and manual-workflow signals
+        prompt-corpus.json     — full prompt text for intent analysis
+        efficiency-scores.json — per-session cache/cost metrics and the top-10
+                                 expensive prompts. Context only; it does NOT
+                                 carry a per-session avg_tool_calls_after field.
+                                 ROI scoring reads tool_calls_after directly
+                                 from prompt-corpus.json and averages it over
+                                 the prompts belonging to each gap.
+
+      Step 1 — subcommand gap detection:
+        For each domain in domain-map.json with at least one mapped cluster:
+          Run: ./bin/<cli> --agentic --agentic-format yaml --agentic-compact
+          Parse the YAML output to extract existing subcommand names.
+          If the CLI has no agentic schema, fall back to: ./bin/<cli> --help
+          Read the example_prompts for each cluster assigned to this domain.
+          Determine whether any example_prompt intent is NOT covered by an
+          existing subcommand. Heuristic: if the prompt describes an action that
+          matches no subcommand name (keyword overlap < 0.3), mark as a gap.
+          Record: domain, proposed subcommand name (snake_case verb-noun),
+          rationale (1–2 sentences), up to 3 example prompts, prompt_freq
+          (cluster frequency from prompt-corpus.json group-by).
+
+      Step 2 — new domain candidates:
+        For each cluster in domain-map.json "unmapped_clusters":
+          Propose a domain name: snake_case, max 20 chars.
+          Verify it does not already exist: ls src/<name> must fail.
+          Propose a bin/ CLI name matching the domain name.
+          List 2–3 candidate subcommands inferred from the example prompts.
+          Estimate prompt_freq as the count of prompts in that cluster.
+
+      Step 3 — consolidation candidates:
+        For each sequence in intent-sequences.json cli_sequences with freq >= 3:
+          Propose a composite command name, or a workflow stage name if the
+          sequence maps cleanly to a pipeline. If the right answer is a new
+          workflow rather than new CLI surface, say so explicitly and note that
+          synthesize-workflow-from-telemetry.yaml is the correct tool — do not
+          propose CLI surface to cover a workflow-shaped need.
+          Set impl_complexity = "medium" (new subcommand) or "high" (new domain).
+
+      Step 4 — ROI scoring for all gaps.
+
+        Step 4a — corpus sanity check, before any scoring. Count how many
+        prompts in prompt-corpus.json have tool_calls_after == 0. If that is
+        more than half of all prompts, the extraction failed rather than the
+        sessions being genuinely tool-free (a real session almost always makes
+        tool calls). Do NOT score against it: set every entry's confidence to
+        0.3 with "estimated": true, and record at the top of gap-analysis.json:
+          "corpus_warning": "<n>/<total> prompts have tool_calls_after == 0 —
+          effort_factor is unreliable; rankings reflect prompt_freq only."
+        Say so plainly in the report rather than presenting the ranking as
+        measured.
+
+        Read this note before scoring. `avg_tool_calls_after` is an ambiguous
+        signal, and the naive formula (freq * tool_calls * weight) gets it
+        backwards. A high tool-call count can mean either:
+          (a) the task is genuinely laborious and a CLI would collapse it into
+              one call — real evidence FOR building something; or
+          (b) the agent was flailing, retrying, and correcting itself — which
+              telemetry-review.yaml classifies as WASTE, not value.
+        Multiplying by the raw number cannot tell these apart, so it
+        systematically ranks the noisiest sessions highest. Bound and discount
+        it instead:
+
+        For each gap entry:
+          prompt_freq    = number of prompts matching this cluster/sequence.
+                           This is the PRIMARY signal — recurrence across
+                           distinct sessions is what justifies building.
+          avg_tool_calls = avg tool_calls_after across those prompts
+            (join prompt-corpus.json on session_id, then average tool_calls_after)
+
+          effort_factor  = min(avg_tool_calls, 10) / 5.0
+            Clamp at 10 before dividing, so one pathological 60-call session
+            cannot outweigh a genuinely frequent pattern. Yields ~0.2–2.0.
+
+          confidence:
+            1.0  — avg_tool_calls computed from at least 3 real prompts
+            0.6  — computed from 1–2 prompts (thin evidence)
+            0.3  — unavailable; substitute effort_factor = 1.0 (neutral, NOT 5.0)
+                   and set "estimated": true
+            A missing measurement must never score higher than a real low one.
+            The old 5.0 default did exactly that — it silently became the
+            maximum effort_factor.
+
+          impl_complexity:
+            "low"    — new flag on existing subcommand
+            "medium" — new subcommand on existing CLI
+            "high"   — new domain + CLI
+          complexity_weight: low=1.5, medium=1.0, high=0.5
+            These weight CHEAPNESS, not size: a low-complexity change scores
+            higher because it delivers the same relief for less work. This
+            inverts the usual "story points" intuition — do not "fix" it.
+
+          roi_score = prompt_freq * effort_factor * complexity_weight * confidence
+
+          estimated_lines:
+            low=10, medium=50, high=200
+
+        Also record, for each entry, "friction_ambiguous": true when
+        avg_tool_calls > 10 — the report must flag these as possible waste
+        rather than demand, since the same signal appears in telemetry-review's
+        token_waste bucket.
+
+      Write gap-analysis.json:
+        {
+          "generated_at": "<ISO-8601>",
+          "since": "{since}",
+          "subcommand_gaps": [
+            {
+              "gap_id": "mail-find-stale-filters",
+              "domain": "mail",
+              "proposed_name": "find_stale",
+              "rationale": "...",
+              "example_prompts": ["...", "..."],
+              "prompt_freq": N,
+              "avg_tool_calls": F,
+              "effort_factor": F,
+              "confidence": F,
+              "estimated": false,
+              "friction_ambiguous": false,
+              "impl_complexity": "medium",
+              "roi_score": F,
+              "estimated_lines": 50
+            }
+          ],
+          "new_domain_candidates": [...],
+          "consolidation_candidates": [...]
+        }
+      Sort each list by roi_score descending.
+
+      A gap_id must appear in exactly one of the three lists. If a candidate
+      could plausibly be either a subcommand or a new domain, classify it as a
+      subcommand — extending an existing CLI is cheaper and reversible.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools:
+        - Read
+        - Bash
+        - Write
+      access: read-write
+    outputs:
+      - name: gap-analysis
+        mode: generate
+        description: >
+          Detect subcommand gaps by comparing cluster prompts to existing CLI
+          subcommands, propose new domains for unmapped clusters, score all gaps
+          by ROI, and write gap-analysis.json sorted by roi_score desc.
+    required: true
+    writes_to:
+      - gap-analysis.json
+
+  # ===========================================================================
+  # Stage 6: Generate sketches — implementation blueprints for top gaps
+  # ===========================================================================
+
+  - name: generate-sketches
+    kind: execute
+    depends_on: [gap-analysis]
+    reads_from: [gap-analysis]
+    description: >
+      Produce concrete implementation sketches for the highest-ROI gaps.
+
+      Step 1 — read .llm/PATTERNS.md to understand the CLIApp pattern, argparse
+      conventions, and module layout used in this codebase. Also read
+      src/core/cli_framework.py to confirm the current base-class contract
+      rather than assuming it from the patterns doc.
+
+      Step 2 — read gap-analysis.json. Take:
+        - Top 5 entries from subcommand_gaps by roi_score
+        - Top 3 entries from new_domain_candidates by roi_score
+
+      Step 3 — for each subcommand gap:
+        Identify the exact file to modify:
+          Use Glob: src/<domain>/**/*.py to find the CLI class file.
+          Prefer the file that already has the most subcommand definitions.
+          Verify the path exists before writing it into the sketch — a sketch
+          naming a file that does not exist is worse than no sketch.
+        Produce:
+          function_signature: the exact argparse subparser handler signature
+            matching this repo's convention
+          pseudocode: 3–5 lines describing core logic
+          test_file: tests/<domain>/test_<proposed_name>.py (or extend the
+            nearest existing test file if one covers this CLI class)
+          estimated_lines: realistic estimate for implementation + tests
+
+      Step 4 — for each new domain candidate:
+        Produce the directory structure:
+          src/<domain>/
+            __init__.py
+            cli.py            (CLIApp subclass with 2 candidate subcommands)
+            _<domain>_client.py  (API/data-access layer if applicable)
+          bin/<domain>          (thin entrypoint wrapper)
+          tests/<domain>/
+            test_<domain>_cli.py
+        Include the CLI class skeleton (class name, base class, build_parser stub,
+        and the two candidate subcommand method stubs).
+        Note whether the new domain produces output files; if so, state that it
+        must use core.paths.output_dir("<domain>") rather than a relative path.
+
+      Write sketches.json:
+        {
+          "generated_at": "<ISO-8601>",
+          "sketches": [
+            {
+              "gap_id": "mail-find-stale-filters",
+              "type": "subcommand",
+              "domain": "mail",
+              "file_to_modify": "src/mail/cli.py",
+              "function_signature": "def _find_stale(self, args: argparse.Namespace) -> int:",
+              "pseudocode": "filters = self._client.list_filters()\nstale = [f for f in filters if f.last_matched_days > 90]\nemit_rows(stale, fmt=args.format)",
+              "test_file": "tests/mail/test_mail_cli.py",
+              "estimated_lines": 55
+            }
+          ]
+        }
+
+      These are sketches, not implementations. Do not create, edit, or scaffold
+      any file under src/, bin/, or tests/ — this workflow is advisory.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools:
+        - Read
+        - Glob
+        - Write
+      access: read-write
+    outputs:
+      - name: sketches
+        mode: generate
+        description: >
+          Read .llm/PATTERNS.md, select top 5 subcommand gaps + top 3 new domains
+          from gap-analysis.json, produce implementation sketches, write sketches.json.
+    required: true
+    writes_to:
+      - sketches.json
+
+  # ===========================================================================
+  # Stage 7: Human gate — approve the backlog before it is documented
+  # ===========================================================================
+
+  - name: review-backlog
+    kind: propose
+    depends_on: [generate-sketches]
+    reads_from: [gap-analysis, generate-sketches]
+    description: >
+      Present the recommendation backlog for human approval before it is
+      validated, rendered, and written into the repo's documentation.
+
+      Read gap-analysis.json and sketches.json. Present a compact summary:
+
+        For each of the top 5 subcommand gaps and top 3 new domain candidates:
+          - gap_id, domain, proposed name
+          - roi_score and the prompt_freq / avg_tool_calls it derives from
+          - whether avg_tool_calls was estimated (lower confidence)
+          - file_to_modify (subcommands) or new directory tree (domains)
+          - estimated_lines
+
+        Then a short list of consolidation candidates, flagging any that would
+        be better served by a new workflow than by new CLI surface.
+
+      Then ask:
+        "Review the backlog above and choose one:
+          A) Approve all — record every entry in the backlog doc.
+          B) Approve a subset — list the gap_ids to record.
+          C) Reject all — record nothing."
+
+      Entries the reviewer rejects must be dropped from sketches.json before
+      the downstream stages read it — rewrite sketches.json with only the
+      approved entries, and record the dropped gap_ids in a "rejected" array
+      with the reviewer's stated reason.
+
+      Write approved-backlog.json:
+        {{
+          "decision": "approve_all|approve_subset|reject_all",
+          "approved_gap_ids": ["..."],
+          "rejected": [{{"gap_id": "...", "reason": "..."}}]
+        }}
+
+      For decision "reject_all", write sketches.json with an empty "sketches"
+      array. The docs fragment will then correctly detect a no-op and write
+      nothing to the repo.
+
+      Nothing downstream implements these. Approval here means "record this as
+      a proposal", not "build this".
+    agent:
+      role: reviewer
+      model: sonnet
+      tools:
+        - Read
+        - Write
+      access: read-write
+    outputs:
+      - name: approved-backlog
+        mode: generate
+        description: >
+          Summarize the backlog for human approval, rewrite sketches.json to
+          contain only approved entries, and record rejected gap_ids with reasons.
+    human_gate: true
+    required: true
+    writes_to:
+      - sketches.json
+      - approved-backlog.json

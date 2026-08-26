@@ -1,0 +1,439 @@
+# Shared workflow fragment — not runnable standalone.
+# Include via:
+#   include:
+#     - path: workflows/shared/sync-docs-on-land.yaml
+#       prefix: docs
+#       depends_on: [<stage that produced the change>]
+#       reads_from: [<stage that produced the change>]
+#
+# Stages injected: docs-detect-surface-changes → docs-approve-doc-plan
+#                  → docs-update-docs → docs-verify-docs
+#
+# Caller must set trigger.params:
+#   docs_change_source — filename in {workspace}/outputs/ describing what changed
+#                        (e.g. "sketches.json", "findings.json"). The detect stage
+#                        reads this to decide which docs are in scope.
+#   docs_backlog_doc   — repo-relative markdown file where an advisory backlog is
+#                        recorded (e.g. "docs/cli-surface-backlog.md").
+#
+# Output: {workspace}/outputs/docs-plan.json,
+#         {workspace}/outputs/docs-applied.json,
+#         {workspace}/validation/doc-plan-decision.json,
+#         {workspace}/validation/docs-findings.json
+#
+# SAFETY: docs-update-docs writes to TRACKED repo files. It is gated behind
+# docs-approve-doc-plan (human_gate: true) so no caller can mutate the repo
+# without review, regardless of whether the caller has its own gate.
+fragment: true
+name: sync-docs-on-land
+version: "1.0"
+description: >
+  Shared documentation-sync tail. After a workflow lands a change — a new
+  subcommand, a new domain, or an accepted recommendation backlog — bring the
+  repo's documentation back in step with the code.
+
+  Two facts about this repo drive the whole design, both verified against the
+  source rather than assumed:
+
+  1. `./bin/llm derive-all` writes NOTHING unless `--include-generated` is
+     passed (src/core/llm_handlers.py:_handle_derive_all gates the write loop
+     on that flag). Worse, `--stdout` prints a "Generated:" list even when no
+     file was written, so the bare command looks like it worked. Any stage that
+     runs `derive-all` without the flag and reports success is reporting a lie.
+
+  2. `derive-all --include-generated` rewrites ALL FIVE of its outputs
+     (.llm/AGENTIC.md, DOMAIN_MAP.md, INVENTORY.md, familiarize.yaml,
+     PR_POLICIES.yaml) regardless of what changed. It is a blunt instrument: run
+     it in a tree with unrelated pending .llm/ edits and it clobbers them.
+
+  Therefore this fragment: regenerates only when the plan says a generated doc
+  is actually in scope, snapshots .llm/ beforehand so an unrelated clobber can
+  be detected and reverted, and verifies staleness with
+  `derive-all --include-generated` + `git diff --exit-code` — the only check
+  that actually proves freshness. `./bin/llm check` is NOT such a check: it
+  returns 0 unconditionally unless the LLM_SLA env var is set, and even then it
+  measures git commit age by area, not doc content.
+
+  Used by: domain-recommender, telemetry-review.
+
+  Params: {docs_change_source}, {docs_backlog_doc}.
+
+stages:
+
+  # ===========================================================================
+  # Stage 1: Detect which documentation surfaces the change touches
+  # ===========================================================================
+
+  - name: detect-surface-changes
+    kind: gather
+    depends_on: []      # overridden by include.depends_on
+    reads_from: []      # overridden by include.reads_from
+    description: >
+      Determine which documentation surfaces are affected by the change
+      described in {workspace}/outputs/{docs_change_source}.
+
+      Step 0 — upstream-integrity gate. Documentation must never be written from
+      data that failed validation or whose corrections were never applied.
+
+      If {workspace}/validation/vtr-findings.json exists, read it and find the
+      unresolved findings. Compare status and severity CASE-INSENSITIVELY, and
+      treat a missing severity as critical:
+        - a finding counts as failing if status.lower() is "fail" or "failed"
+          (validate-then-render.yaml specifies lowercase "fail", while the
+          engine's own findings template in .claude/skills/workflow/SKILL.md
+          uses "PASS|FAIL|WARN" — both spellings occur in practice, and a
+          case-sensitive match on one silently ignores the other)
+        - severity is OPTIONAL in the engine's template. If a failing finding
+          omits severity, treat it as critical rather than skipping it. Only a
+          finding that explicitly says "minor" or "info" is non-blocking.
+      Treat a findings file that exists but cannot be parsed as JSON as a
+      blocking condition too — an unreadable validation result is not a pass.
+
+      If any failing finding is critical by that rule, check whether the
+      correction pass actually ran by reading
+      {workspace}/validation/vtr-corrections.json.
+      If that file is missing, or a critical finding has no corresponding entry
+      in it, STOP: write docs-plan.json with "no_op": true and
+      "blocked_reason": "<n> critical validation findings were not corrected —
+      the render/correction stage is required:false in the upstream fragment and
+      may have failed or been skipped; documentation must not record uncorrected
+      data". Do not classify or plan any documentation change.
+
+      This guard exists because the upstream validate-then-render fragment marks
+      its render stage `required: false`, so a failure there does not halt the
+      DAG — the stages below would otherwise run against uncorrected data.
+
+      Step 1 — read {workspace}/outputs/{docs_change_source}. Classify the change
+      into one or more of these surface types:
+        new_subcommand  — a new subcommand on an existing bin/ CLI
+        new_domain      — a new src/<domain>/ package plus bin/ wrapper
+        new_flag        — a new flag on an existing subcommand
+        advisory_only   — a recommendation recorded but no code landed
+
+      If the source file is missing, empty, or contains an empty item list,
+      treat the change as a no-op (Step 5) rather than inventing work.
+
+      Step 2 — snapshot the pre-existing state of .llm/ so a later clobber can
+      be detected. Run and capture the FULL output verbatim into the plan:
+        git status --porcelain .llm/
+      Every path this prints already had uncommitted edits BEFORE this workflow
+      touched anything. Record them in "preexisting_llm_edits". Regeneration
+      would overwrite these, so if the list is non-empty the plan must set
+      "regeneration_unsafe": true and leave regenerate_targets EMPTY.
+
+      Step 3 — classify each candidate doc. Two independent signals matter, and
+      the AUTHORITATIVE one is ownership, not the banner:
+
+        (a) OWNERSHIP — is the file rewritten by a generator? Determine this by
+            asking the generator, not by reading the file:
+              ./bin/llm derive-all --stdout
+            This prints the exact list of paths derive-all owns WITHOUT writing
+            anything (the write loop is gated on --include-generated). Every
+            path it lists is generator-owned, full stop.
+
+        (b) BANNER — a courtesy marker some generated files carry:
+              head -3 <each candidate>
+            "Generated by" or "Do not edit by hand" in the first 3 lines.
+
+      A file is generator-owned if (a) lists it, EVEN IF it has no banner.
+      Verified at authoring time: .llm/familiarize.yaml and .llm/PR_POLICIES.yaml
+      are both rewritten by derive-all and carry NO banner. Classifying on the
+      banner alone would mark them hand-authored and let a later stage edit
+      files that the next regeneration silently overwrites — the edit would be
+      lost with no error. Never treat a missing banner as evidence that a file
+      is safe to hand-edit.
+
+      Conversely, a file that carries a banner but is NOT in the derive-all list
+      belongs in "unregenerable": something else generates it, this fragment
+      cannot refresh it, and it must not be hand-edited either — flag it for a
+      human.
+
+      Only a file that is in NEITHER the ownership list NOR banner-marked is
+      hand-authored and may be edited directly.
+
+      Known ground truth at authoring time, verified by running the command —
+      re-verify rather than trusting this list, since it can drift:
+        ./bin/llm derive-all --stdout   lists exactly these five outputs:
+          .llm/AGENTIC.md, .llm/DOMAIN_MAP.md, .llm/INVENTORY.md,
+          .llm/familiarize.yaml, .llm/PR_POLICIES.yaml
+        Of those, .llm/INVENTORY.md carries a generated banner; .llm/AGENTIC.md,
+        .llm/DOMAIN_MAP.md, .llm/familiarize.yaml and .llm/PR_POLICIES.yaml are
+        generator-owned but have NO banner — they are still regenerate_targets.
+        .llm/COMMANDS.md is genuinely hand-authored: no banner AND derive-all
+        does not produce it. Editing it directly is correct.
+      A doc belongs in regenerate_targets if it appears in the derive-all output
+      list, regardless of banner. A doc that carries a banner but is not produced
+      by derive-all belongs in "unregenerable" with its real generator named, and
+      must NOT be edited by hand — flag it for a human instead.
+
+      Step 4 — determine which hand-authored docs are in scope. Only list a doc
+      if the change type plausibly affects it:
+        README.md            — only for new_domain or a new user-facing command
+        CLAUDE.md            — only for a new top-level domain under src/
+        {docs_backlog_doc}   — always, for advisory_only changes
+        .llm/PATTERNS.md     — only if the change introduces a new code pattern
+
+      Step 5 — write docs-plan.json:
+        {{
+          "change_types": ["new_subcommand"],
+          "preexisting_llm_edits": ["<paths from git status .llm/, verbatim>"],
+          "regeneration_unsafe": false,
+          "hand_authored_targets": [
+            {{"path": "README.md", "reason": "new user-facing command"}}
+          ],
+          "regenerate_targets": [
+            {{"path": ".llm/INVENTORY.md", "generator": "./bin/llm derive-all --include-generated"}}
+          ],
+          "unregenerable": [
+            {{"path": "<doc>", "banner": "<the banner line>", "real_generator": "<cmd or unknown>"}}
+          ],
+          "no_op": false
+        }}
+
+      Set "no_op": true and leave all target lists empty when the change is
+      purely internal and touches no documented surface. A no-op is a valid and
+      expected outcome — do not invent documentation work to avoid it.
+
+      Never write the string "--include-generated" into a generator field for a
+      doc that derive-all does not actually produce.
+    agent:
+      role: researcher
+      model: sonnet
+      tools:
+        - Bash
+        - Read
+        - Glob
+        - Write
+      access: read-write
+    outputs:
+      - name: docs-plan
+        mode: generate
+        description: >
+          Classify the change in {docs_change_source}, snapshot preexisting
+          .llm/ edits, separate genuinely-generated docs from hand-authored
+          ones by reading their banners, and write docs-plan.json.
+    required: true
+    writes_to:
+      - docs-plan.json
+
+  # ===========================================================================
+  # Stage 2: Human gate — approve before any tracked repo file is touched
+  # ===========================================================================
+
+  - name: approve-doc-plan
+    kind: propose
+    depends_on: [detect-surface-changes]
+    reads_from: [detect-surface-changes]
+    description: >
+      Present the documentation plan for approval BEFORE anything writes to a
+      tracked repo file. This gate exists because docs-update-docs edits real
+      README/CLAUDE.md/.llm/ content; without it, a caller with no gate of its
+      own would mutate the repo unreviewed.
+
+      Read {workspace}/outputs/docs-plan.json and display:
+        - change_types
+        - each hand_authored_target with its reason
+        - each regenerate_target with the exact generator command that will run
+        - each "unregenerable" entry (these need a human decision — the doc
+          claims to be generated but this fragment cannot regenerate it)
+        - preexisting_llm_edits, prominently, if non-empty
+
+      If "no_op" is true, state that no documentation change is needed, record
+      decision "skip", and do not prompt further.
+
+      If "regeneration_unsafe" is true, warn explicitly:
+        "`derive-all --include-generated` rewrites all five of its outputs, not
+        just the one in scope. The tree already has uncommitted .llm/ edits
+        listed above, which regeneration would overwrite. Recommend: commit or
+        stash those first, or approve hand-authored edits only."
+
+      Then ask:
+        "Choose one:
+          A) Approve all — apply hand edits and run regeneration.
+          B) Hand edits only — skip regeneration entirely.
+          C) Reject — write no documentation changes."
+
+      Write {workspace}/validation/doc-plan-decision.json:
+        {{
+          "decision": "approve_all|hand_only|reject|skip",
+          "approved_hand_targets": ["README.md"],
+          "approved_regenerate_targets": [".llm/INVENTORY.md"]
+        }}
+
+      For "hand_only", set approved_regenerate_targets to an empty array.
+      For "reject" and "skip", set both arrays empty.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools:
+        - Read
+        - Write
+      access: read-write
+    human_gate: true
+    required: true
+    writes_to:
+      - validation/doc-plan-decision.json
+
+  # ===========================================================================
+  # Stage 3: Apply the documentation updates
+  # ===========================================================================
+
+  - name: update-docs
+    kind: publish
+    depends_on: [approve-doc-plan]
+    reads_from: [detect-surface-changes, approve-doc-plan]
+    description: >
+      Apply the approved documentation plan. Read
+      {workspace}/outputs/docs-plan.json and
+      {workspace}/validation/doc-plan-decision.json.
+
+      Act ONLY on the targets listed in doc-plan-decision.json's
+      approved_hand_targets and approved_regenerate_targets. A target present in
+      docs-plan.json but absent from the decision file was rejected — skip it
+      and record it under "skipped".
+
+      If decision is "reject" or "skip", or both approved arrays are empty:
+      write docs-applied.json with an empty "applied" array and a
+      "skipped_reason", then stop. Do not edit any file.
+
+      Step 1 — hand-authored edits. For each path in approved_hand_targets, make
+      the smallest edit that keeps the doc accurate:
+        README.md   — add the command to the existing command list, matching the
+                      surrounding format exactly. Do not restructure sections.
+        CLAUDE.md   — add the domain to the architecture tree only. One line.
+        .llm/PATTERNS.md — add a pattern entry only if a genuinely new pattern
+                      was introduced.
+        {docs_backlog_doc} — see Step 3.
+
+      Step 2 — regeneration, only if approved_regenerate_targets is non-empty.
+      Run exactly:
+        ./bin/llm derive-all --include-generated
+
+      The `--include-generated` flag is REQUIRED. Without it the command writes
+      nothing at all while still printing a "Generated:" list under --stdout —
+      it would look like it worked and change nothing.
+
+      Run it ONCE. It rewrites all five of its outputs, so do not invoke it per
+      target. Immediately afterwards, run:
+        git status --porcelain .llm/
+      Compare the result against "preexisting_llm_edits" from docs-plan.json.
+      Any path now dirty that was NOT already dirty and is NOT in
+      approved_regenerate_targets was collateral damage from the blunt
+      regeneration. Revert exactly those paths:
+        git checkout -- <each collateral path>
+      Record every reverted path in docs-applied.json under
+      "collateral_reverted". Never revert a path that appears in
+      preexisting_llm_edits — those are the human's own uncommitted work.
+
+      Never hand-edit a file that carries a generated banner. If its content is
+      wrong, the generator needs fixing, and that belongs in a separate change.
+
+      Step 3 — for advisory_only changes, append to {docs_backlog_doc}. Create
+      the file with an H1 title and a short purpose line if it does not exist.
+
+      Before appending, READ the existing file and collect the entry titles
+      already present. Skip any entry whose proposed name and domain already
+      appear — repeat runs over an overlapping window will re-propose the same
+      gaps, and appending blindly accumulates duplicates. Record each skipped
+      duplicate under "deduped" in the output.
+
+      Append one section per NEW recommendation:
+        ## <proposed name> — <domain>
+        - **Rationale**: <1-2 sentences>
+        - **Evidence**: <prompt frequency and session count>
+        - **Estimated size**: <lines>
+        - **Status**: proposed
+      Never mark an entry anything other than "proposed" — this fragment does
+      not implement anything, so it has no basis for claiming otherwise.
+
+      Writing rules for every doc touched:
+        - Terse. This repo's docs are consumed by LLM agents; 1-line
+          descriptions, no prose padding, no marketing language.
+        - Match the surrounding format exactly rather than introducing a new one.
+        - Never delete an existing entry to make room for a new one.
+        - State only what landed. Do not describe planned or hypothetical work
+          as though it exists.
+
+      Write docs-applied.json:
+        {{
+          "applied": [
+            {{"path": "README.md", "action": "edited", "summary": "added `mail triage` to command list"}},
+            {{"path": ".llm/INVENTORY.md", "action": "regenerated", "generator": "./bin/llm derive-all --include-generated"}}
+          ],
+          "skipped": [{{"path": "CLAUDE.md", "reason": "not approved at gate"}}],
+          "deduped": [{{"path": "<backlog doc>", "entry": "<title>", "reason": "already present"}}],
+          "collateral_reverted": [".llm/PR_POLICIES.yaml"]
+        }}
+
+      An entry may only claim action "regenerated" if
+      `derive-all --include-generated` actually ran in this stage.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools:
+        - Bash
+        - Read
+        - Edit
+        - Write
+      access: read-write
+    outputs:
+      - name: docs-applied
+        mode: generate
+        description: >
+          Apply approved hand edits, run derive-all --include-generated when
+          approved, revert collateral .llm/ changes, dedupe backlog appends,
+          and write docs-applied.json.
+    required: true
+    writes_to:
+      - docs-applied.json
+
+  # ===========================================================================
+  # Stage 4: Verify the documentation is accurate and actually changed
+  # ===========================================================================
+
+  - name: verify-docs
+    kind: validate
+    depends_on: [update-docs]
+    reads_from: [detect-surface-changes, approve-doc-plan, update-docs]
+    # NOTE: kind:validate discards `description` at dispatch — the parser still
+    # requires the key, but the agent never sees it. The entire contract for
+    # this stage lives in validation.criteria below. Do not add contract detail
+    # here expecting it to be honoured; it will be silently dropped.
+    description: >
+      Verify the documentation updates are accurate, additive, approved, and
+      that no generated file was hand-edited. See validation.criteria — this
+      stage is dispatched from those criteria, not from this description.
+    agent:
+      role: unit-validator
+      model: haiku
+      tools:
+        - Bash
+        - Read
+        - Write
+      # read-write because this stage writes its own findings file; it must not
+      # modify any doc under review (the criteria enforce restoring collateral
+      # edits from the freshness check).
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - Every path listed in docs-applied.json "applied" exists on disk — verify each with `ls`
+        - Every path in docs-applied.json "applied" appears in doc-plan-decision.json's approved_hand_targets or approved_regenerate_targets — anything applied without approval is a critical finding
+        - Any entry claiming action "regenerated" must name a generator string containing "--include-generated"; a bare "./bin/llm derive-all" writes nothing, so such an entry is a false success and is a critical finding
+        - "No generator-owned file appears with action \"edited\" — build the ownership list by running `./bin/llm derive-all --stdout` (it lists what derive-all owns without writing anything) and also check each applied path with `head -3` for a \"Generated by\" / \"Do not edit by hand\" banner. A file is generator-owned if EITHER signal fires; several derive-all outputs (.llm/familiarize.yaml, .llm/PR_POLICIES.yaml) carry no banner, so a banner-only check would miss them and pass an edit that regeneration silently overwrites"
+        - Every command or flag newly documented in README.md actually runs — verify each with `<cmd> --help` and confirm exit code 0
+        - Each hand-authored doc edit is additive — run `git diff --stat` and confirm no doc lost more lines than it gained without a stated reason in docs-applied.json
+        - Backlog entries in the backlog doc carry status "proposed" and no entry claims implemented or landed status
+        - The backlog doc contains no duplicate "## " heading — run `grep '^## ' <backlog doc> | sort | uniq -d` and confirm the output is empty
+        - "Generated docs are fresh: run `./bin/llm derive-all --include-generated` then `git diff --exit-code .llm/`. A non-zero exit means a generated doc was stale or was hand-edited. Do NOT use `./bin/llm check` for this — it returns 0 unconditionally unless LLM_SLA is set, and measures git commit age rather than doc content, so it cannot detect staleness."
+        - "After running the freshness check above, restore any file it modified that is not listed in docs-applied.json applied: run `git checkout -- <path>` so the verification leaves no collateral edits behind"
+        - Write findings to {workspace}/validation/docs-findings.json as [{"id":"D-001","status":"pass"|"fail","claim":"...","severity":"critical"|"minor"|"info","source":"<file or command>","fix":"..."}]
+      max_revisions: 2
+    required: true
+    writes_to:
+      # Explicit validation/ prefix, not a bare filename: the engine resolves a
+      # bare name under {workspace}/outputs/ (dispatchers._write_output_files
+      # sets output_dir = workspace_dir / "outputs"), which would put the
+      # findings somewhere other than where this contract and the fragment
+      # header say they live.
+      - validation/docs-findings.json
