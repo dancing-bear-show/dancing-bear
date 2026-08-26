@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import unittest
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -456,7 +455,7 @@ class TestOutlookExportProducer(unittest.TestCase):
     def test_prints_count_summary(self):
         from calendars.outlook_pipelines.export import OutlookExportProducer
         from core.pipeline import ResultEnvelope
-        import io, sys
+        import io
 
         result = self._make_result(events=[{"subject": "X"}], skipped=[])
         envelope = ResultEnvelope(status="success", payload=result)
@@ -473,7 +472,8 @@ class TestOutlookExportProducer(unittest.TestCase):
     def test_dry_run_does_not_write_file(self):
         from calendars.outlook_pipelines.export import OutlookExportProducer
         from core.pipeline import ResultEnvelope
-        import tempfile, io
+        import tempfile
+        import io
 
         with tempfile.TemporaryDirectory() as tmpdir:
             out = Path(tmpdir) / "plan.yaml"
@@ -543,12 +543,17 @@ class TestGetEventMethod(unittest.TestCase):
 class TestCLIExportPlanCommand(unittest.TestCase):
     """Integration-lite test: CLI wiring resolves without import errors."""
 
-    def test_export_plan_command_importable(self):
+    def test_export_plan_command_registered(self):
+        """`outlook export-plan` is reachable through the real parser."""
         from calendars.cli.main import app
-        # Verify the outlook group has the export-plan subcommand registered
-        names = [c for c in dir(app) if "export" in c.lower()]
-        # Just confirm the module imports cleanly — CLI structure test
-        self.assertIsNotNone(app)
+
+        parser = app.build_parser()
+        args = parser.parse_args(
+            ["outlook", "export-plan", "--from", "2026-01-01", "--to", "2026-06-30"]
+        )
+        self.assertEqual(args.from_date, "2026-01-01")
+        self.assertEqual(args.to_date, "2026-06-30")
+        self.assertFalse(args.dry_run)
 
     def test_run_outlook_export_plan_importable(self):
         from calendars.outlook.commands import run_outlook_export_plan
