@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any, Iterable
 
 from .keyword_matcher import KeywordMatcher
+from .keyword_normalize import item_match_text
 from .render_config import ExperienceFilterConfig
 
 
@@ -18,9 +19,11 @@ def _score_experience(e: dict[str, Any], matcher: KeywordMatcher, expanded: list
         if matcher.match_keyword(title_company, kw):
             score += 1
     bullets = e.get("bullets") or []
-    keep_bullets = [str(b) for b in bullets if matcher.matches_any(str(b), expanded, expand_synonyms=False)]
+    keep_bullets = [
+        b for b in bullets if matcher.matches_any(item_match_text(b), expanded, expand_synonyms=False)
+    ]
     if not keep_bullets and bullets:
-        keep_bullets = [str(bullets[0])]
+        keep_bullets = [bullets[0]]
     return score + len(keep_bullets), {**e, "bullets": keep_bullets}
 
 
