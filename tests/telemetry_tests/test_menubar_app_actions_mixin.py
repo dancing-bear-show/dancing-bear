@@ -27,7 +27,7 @@ def _make_host() -> ActionsMixin:
     return host
 
 
-class TestClearStaleProjectDir_AllStale(unittest.TestCase):
+class TestClearStaleProjectDirAllStale(unittest.TestCase):
     """All .jsonl files older than cutoff are deleted; empty dir is removed."""
 
     def test_deletes_all_stale_files_and_removes_dir(self):
@@ -57,7 +57,7 @@ class TestClearStaleProjectDir_AllStale(unittest.TestCase):
             self.assertTrue(project_dir.exists())
 
 
-class TestClearStaleProjectDir_MixedAge(unittest.TestCase):
+class TestClearStaleProjectDirMixedAge(unittest.TestCase):
     """Only files older than cutoff are deleted; dir survives if non-empty."""
 
     def test_deletes_only_stale_files(self):
@@ -99,7 +99,7 @@ class TestClearStaleProjectDir_MixedAge(unittest.TestCase):
             self.assertTrue(project_dir.exists(), "Dir should survive: fresh file remains")
 
 
-class TestClearStaleProjectDir_EmptyAfterDelete(unittest.TestCase):
+class TestClearStaleProjectDirEmptyAfterDelete(unittest.TestCase):
     """Dir is removed when all files are deleted."""
 
     def test_dir_removed_when_empty_after_cleanup(self):
@@ -116,7 +116,7 @@ class TestClearStaleProjectDir_EmptyAfterDelete(unittest.TestCase):
             self.assertFalse(project_dir.exists())
 
 
-class TestClearStaleProjectDir_SubdirsIgnored(unittest.TestCase):
+class TestClearStaleProjectDirSubdirsIgnored(unittest.TestCase):
     """Subdirectories inside project_dir are not touched."""
 
     def test_subdirs_not_deleted(self):

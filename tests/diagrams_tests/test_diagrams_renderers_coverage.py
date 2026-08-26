@@ -302,7 +302,11 @@ class TestLocalRendererRender(unittest.TestCase):
         from diagrams.renderers import LocalRendererError, RenderOptions
 
         def fake_run_no_write(cmd):
-            pass  # deliberately do not write the output file
+            # No-op: stands in for LocalRenderer._run without writing the
+            # output file.  render() checks for the output file after _run
+            # returns; finding nothing, it raises LocalRendererError("did not
+            # produce …"), which is the exact error this test asserts.
+            pass
 
         with patch.object(self.renderer, "_run", side_effect=fake_run_no_write):
             with self.assertRaises(LocalRendererError) as ctx:
@@ -369,6 +373,11 @@ class TestLocalRendererRenderToFile(unittest.TestCase):
         from diagrams.renderers import RenderOptions
 
         def fake_run(cmd):
+            # No-op: the NamedTemporaryFile above already created the output
+            # file on disk, so _run need not write anything.  render_to_file()
+            # finds the file present and returns successfully, letting the test
+            # assert that RenderOptions(output_format="svg") bypassed
+            # _infer_format (no ValueError for the .svg extension).
             pass
 
         with tempfile.NamedTemporaryFile(suffix=".svg", delete=False) as f:

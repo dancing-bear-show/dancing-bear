@@ -54,7 +54,7 @@ class TestProjectLabelFromPath(unittest.TestCase):
         self.assertEqual(result, "a" * 32)
 
 
-class TestRenderInsights_PayloadNone(unittest.TestCase):
+class TestRenderInsightsPayloadNone(unittest.TestCase):
     """When payload=None the section shows a 'data not available' placeholder."""
 
     def setUp(self):
@@ -81,7 +81,7 @@ class TestRenderInsights_PayloadNone(unittest.TestCase):
                 self.assertEqual(hint, {})
 
 
-class TestRenderInsights_WithProjectPath(unittest.TestCase):
+class TestRenderInsightsWithProjectPath(unittest.TestCase):
     """Header includes the project short-name when project_path is present."""
 
     def test_header_includes_project_label(self):
@@ -112,7 +112,7 @@ class TestRenderInsights_WithProjectPath(unittest.TestCase):
         )
 
 
-class TestRenderInsights_NoProjectPath(unittest.TestCase):
+class TestRenderInsightsNoProjectPath(unittest.TestCase):
     """Header falls back to 'current session' when project_path is absent."""
 
     def test_header_shows_current_session(self):
@@ -141,7 +141,7 @@ class TestRenderInsights_NoProjectPath(unittest.TestCase):
         self.assertIn("~$0.50", host._info_insights_summary.title)
 
 
-class TestRenderInsights_Tips(unittest.TestCase):
+class TestRenderInsightsTips(unittest.TestCase):
     """_render_tip_row formats rows correctly and toggles hidden."""
 
     def _host_with_tips(self, tips, max_tips=_NUM_TIPS):
@@ -238,7 +238,7 @@ class TestRenderInsights_Tips(unittest.TestCase):
         self.assertTrue(host._insights_tip_rows[0].hidden)
 
 
-class TestRenderInsights_WasteSummaryNotDict(unittest.TestCase):
+class TestRenderInsightsWasteSummaryNotDict(unittest.TestCase):
     """Non-dict waste_summary is treated as empty."""
 
     def test_non_dict_waste_summary_defaults_to_zero_counts(self):

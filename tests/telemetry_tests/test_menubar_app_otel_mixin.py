@@ -80,7 +80,7 @@ class TestClearOtelHeaders(unittest.TestCase):
             self.assertEqual(getattr(host, name).title, "")
 
 
-class TestUpdateOtelSectionsA_Unavailable(unittest.TestCase):
+class TestUpdateOtelSectionsAUnavailable(unittest.TestCase):
     """When available=False, _update_otel_sections_a clears all headers."""
 
     def test_unavailable_clears_all_headers(self):
@@ -101,7 +101,7 @@ class TestUpdateOtelSectionsA_Unavailable(unittest.TestCase):
         self.assertEqual(host._hdr_otel_models.title, "")
 
 
-class TestUpdateOtelSectionsA_NoSections(unittest.TestCase):
+class TestUpdateOtelSectionsANoSections(unittest.TestCase):
     """With available=True but no sections enabled, headers stay untouched."""
 
     def test_no_sections_headers_unchanged(self):
@@ -116,7 +116,7 @@ class TestUpdateOtelSectionsA_NoSections(unittest.TestCase):
         self.assertEqual(host._hdr_otel_usage.title, "SENTINEL")
 
 
-class TestUpdateOtelSectionsA_OtelUsage(unittest.TestCase):
+class TestUpdateOtelSectionsAOtelUsage(unittest.TestCase):
     """otel_usage section: window labels, cost suffix, token math."""
 
     def _host_with_usage(self, window_idx: int = 0, **usage_kwargs):
@@ -211,7 +211,7 @@ class TestUpdateOtelSectionsA_OtelUsage(unittest.TestCase):
         self.assertEqual(host._otel_usage_rows[3].title, "  Models: ")
 
 
-class TestUpdateOtelSectionsA_OtelModels(unittest.TestCase):
+class TestUpdateOtelSectionsAOtelModels(unittest.TestCase):
     """otel_models section: row formatting, truncation, zero-fill, no-dot name."""
 
     def _host_with_models(self, model_rows):
@@ -263,7 +263,7 @@ class TestUpdateOtelSectionsA_OtelModels(unittest.TestCase):
         self.assertEqual(host._hdr_otel_models.title, "SENTINEL")
 
 
-class TestUpdateOtelSectionsA_OtelMeta(unittest.TestCase):
+class TestUpdateOtelSectionsAOtelMeta(unittest.TestCase):
     """otel_meta section: cost ratios, cache hit rate, token count."""
 
     def _host_with_meta(self, **kwargs):
@@ -314,7 +314,7 @@ class TestUpdateOtelSectionsA_OtelMeta(unittest.TestCase):
         self.assertEqual(host._hdr_otel_meta.title, "SENTINEL")
 
 
-class TestUpdateOtelSectionsA_OtelHooks(unittest.TestCase):
+class TestUpdateOtelSectionsAOtelHooks(unittest.TestCase):
     """otel_hooks section: fired count, latency, top hooks."""
 
     def _host_with_hooks(self, **kwargs):
@@ -364,7 +364,7 @@ class TestUpdateOtelSectionsA_OtelHooks(unittest.TestCase):
         self.assertEqual(host._hdr_hooks.title, "SENTINEL")
 
 
-class TestUpdateOtelSectionsB_Unavailable(unittest.TestCase):
+class TestUpdateOtelSectionsBUnavailable(unittest.TestCase):
     """_update_otel_sections_b returns early when data is unavailable."""
 
     def test_unavailable_leaves_headers_unchanged(self):
@@ -373,7 +373,7 @@ class TestUpdateOtelSectionsB_Unavailable(unittest.TestCase):
         self.assertEqual(host._hdr_tools.title, "SENTINEL")
 
 
-class TestUpdateOtelSectionsB_Tools(unittest.TestCase):
+class TestUpdateOtelSectionsBTools(unittest.TestCase):
     """otel_tools section: row formatting."""
 
     def _host_with_tools(self, **kwargs):
@@ -423,7 +423,7 @@ class TestUpdateOtelSectionsB_Tools(unittest.TestCase):
         self.assertEqual(host._hdr_tools.title, "SENTINEL")
 
 
-class TestUpdateOtelSectionsB_Code(unittest.TestCase):
+class TestUpdateOtelSectionsBCode(unittest.TestCase):
     """otel_code section: row formatting."""
 
     def _host_with_code(self, **kwargs):
@@ -468,7 +468,7 @@ class TestUpdateOtelSectionsB_Code(unittest.TestCase):
         self.assertEqual(self._host_with_code()._code_rows[4].title, "")
 
 
-class TestUpdateOtelSectionsB_Skills(unittest.TestCase):
+class TestUpdateOtelSectionsBSkills(unittest.TestCase):
     """otel_skills section: top skills and invocation count."""
 
     def _host_with_skills(self, top_skills, skills_invoked_today):
@@ -498,7 +498,7 @@ class TestUpdateOtelSectionsB_Skills(unittest.TestCase):
         self.assertEqual(host._skill_rows[1].title, "  Total invocations: 0")
 
 
-class TestUpdateOtelSectionsB_SessionPatterns(unittest.TestCase):
+class TestUpdateOtelSectionsBSessionPatterns(unittest.TestCase):
     """otel_sessions section: model mix, agent call pct, effort mix."""
 
     def _host_with_sessions(self, **kwargs):
@@ -553,7 +553,7 @@ class TestUpdateOtelSectionsB_SessionPatterns(unittest.TestCase):
         self.assertEqual(host._session_pattern_rows[2].title, "  Effort: ")
 
 
-class TestUpdateOtelSections_Delegates(unittest.TestCase):
+class TestUpdateOtelSectionsDelegates(unittest.TestCase):
     """_update_otel_sections calls both _a and _b."""
 
     def test_calls_both_a_and_b(self):

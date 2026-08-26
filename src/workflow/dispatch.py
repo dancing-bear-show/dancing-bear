@@ -42,6 +42,8 @@ _FINDINGS_EXAMPLE = json.dumps(
     indent=2,
 )
 
+_ISOLATED_ROOT = "<your-cwd>"
+
 
 # -- Helpers ------------------------------------------------------------------
 
@@ -97,7 +99,7 @@ def _write_paths(stage: ResolvedStage, ws: str) -> list[str]:
     files back. Pointing an isolated agent at ``{ws}/...`` produces a prompt it
     cannot satisfy while the orchestrator waits on files that never appear.
     """
-    root = "<your-cwd>" if _is_isolated(stage) else ws
+    root = _ISOLATED_ROOT if _is_isolated(stage) else ws
     paths: list[str] = []
     for f in stage.spec.writes_to:
         if any(f.startswith(prefix) for prefix in _WORKSPACE_SUBDIRS):
@@ -108,7 +110,7 @@ def _write_paths(stage: ResolvedStage, ws: str) -> list[str]:
 
 
 def _completion(stage: ResolvedStage, ws: str) -> str:
-    root = "<your-cwd>" if _is_isolated(stage) else ws
+    root = _ISOLATED_ROOT if _is_isolated(stage) else ws
     result_path = f"{root}/stages/{stage.index:03d}-{stage.spec.name}.json"
     isolated_note = (
         "\n\nYou are running in your OWN git worktree. Write every path above "
@@ -169,7 +171,7 @@ def _header(stage: ResolvedStage, workflow_name: str, verb: str = "executing") -
 
 def _gather(stage: ResolvedStage, wf: str, ws: str) -> str:
     lines = _header(stage, wf)
-    write_root = "<your-cwd>" if _is_isolated(stage) else ws
+    write_root = _ISOLATED_ROOT if _is_isolated(stage) else ws
     lines += ["## Workspace", f"Write all output to: {write_root}/outputs/", ""]
     if stage.cli_commands:
         lines += _section("CLI Commands\nRun these commands and capture their output", [f"`{c}`" for c in stage.cli_commands])
@@ -206,6 +208,33 @@ def _action(stage: ResolvedStage, wf: str, ws: str, input_verb: str = "Read prio
     return "\n".join(lines)
 
 
+def _domain_rules_section(spec: object) -> list[str]:
+    """Build the Domain Rules section lines from a validation spec."""
+    rules: list[str] = []
+    for r in spec.domain_rules:  # type: ignore[union-attr]
+        entry = f"[{r.severity}] {r.id}: {r.description}"
+        if r.source_cmd:
+            entry += f"\n  Verify with: `{r.source_cmd}`"
+        rules.append(entry)
+    return _section("Domain Rules", rules)
+
+
+def _validate_output_lines(stage: ResolvedStage, ws: str, wp: list[str]) -> list[str]:
+    """Return the Output section lines for a validate stage."""
+    if wp:
+        return _section("Output\nWrite results to", wp)
+    # Same isolated-root rule as _write_paths: a validate stage with no
+    # explicit writes_to must not be sent to the shared workspace, or the
+    # parent waits for files outside the agent's worktree.
+    val_root = _ISOLATED_ROOT if _is_isolated(stage) else ws
+    return [
+        "## Output",
+        f"Write findings to: {val_root}/validation/{stage.spec.name}-findings.json",
+        f"Write summary to: {val_root}/validation/{stage.spec.name}-summary.md",
+        "",
+    ]
+
+
 def _validate(stage: ResolvedStage, wf: str, ws: str) -> str:
     spec = stage.spec.validation
     raw_strategy = spec.strategy if spec else None
@@ -217,13 +246,7 @@ def _validate(stage: ResolvedStage, wf: str, ws: str) -> str:
     if spec and spec.criteria:
         lines += _section("Criteria", list(spec.criteria))
     if spec and spec.domain_rules:
-        rules: list[str] = []
-        for r in spec.domain_rules:
-            entry = f"[{r.severity}] {r.id}: {r.description}"
-            if r.source_cmd:
-                entry += f"\n  Verify with: `{r.source_cmd}`"
-            rules.append(entry)
-        lines += _section("Domain Rules", rules)
+        lines += _domain_rules_section(spec)
     rp = _read_paths(stage, ws)
     if rp:
         lines += _section("Target Data\nRead outputs from", rp)
@@ -236,19 +259,7 @@ def _validate(stage: ResolvedStage, wf: str, ws: str) -> str:
         "## Findings Format", f"```json\n{_FINDINGS_EXAMPLE}\n```", "",
     ]
     wp = _write_paths(stage, ws)
-    if wp:
-        lines += _section("Output\nWrite results to", wp)
-    else:
-        # Same isolated-root rule as _write_paths: a validate stage with no
-        # explicit writes_to must not be sent to the shared workspace, or the
-        # parent waits for files outside the agent's worktree.
-        val_root = "<your-cwd>" if _is_isolated(stage) else ws
-        lines += [
-            "## Output",
-            f"Write findings to: {val_root}/validation/{stage.spec.name}-findings.json",
-            f"Write summary to: {val_root}/validation/{stage.spec.name}-summary.md",
-            "",
-        ]
+    lines += _validate_output_lines(stage, ws, wp)
     lines.append(_completion(stage, ws))
     return "\n".join(lines)
 

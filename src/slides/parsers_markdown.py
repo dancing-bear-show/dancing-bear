@@ -127,6 +127,15 @@ class _SectionState:
     heading_level: int = 0
 
 
+def _evolve(state: _SectionState, **changes: object) -> _SectionState:
+    """Typed wrapper for dataclasses.replace.
+
+    `replace` is stubbed as returning `DataclassInstance`, so callers lose the
+    concrete type. Pinning it here keeps `_SectionState` visible to the checker.
+    """
+    return replace(state, **changes)
+
+
 @dataclass(frozen=True)
 class _Directive:
     """A matched markdown directive and the state change it implies."""
@@ -139,13 +148,13 @@ class _Directive:
     def apply(self, state: _SectionState) -> _SectionState:
         """Return a new state with this directive applied."""
         if self.kind == "title":
-            return replace(state, title=self.value or "")
+            return _evolve(state, title=self.value or "")
         if self.kind == "subtitle":
-            return replace(state, subtitle=self.value)
+            return _evolve(state, subtitle=self.value)
         if self.kind == "layout" and self.layout_override:
-            return replace(state, layout=self.layout_override)
+            return _evolve(state, layout=self.layout_override)
         if self.kind == "heading":
-            return replace(state, title=self.value or "", heading_level=self.heading_level)
+            return _evolve(state, title=self.value or "", heading_level=self.heading_level)
         return state
 
 

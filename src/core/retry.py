@@ -187,6 +187,30 @@ def retry(
     if max_attempts < 1:
         raise ValueError(f"max_attempts must be >= 1, got {max_attempts}")
 
+    def notify(attempt: int, exc: Exception, func_name: str) -> None:
+        """Report one about-to-retry attempt via callback or the default log."""
+        if on_retry is not None:
+            on_retry(attempt, exc)
+            return
+        # Masked: a retried call is usually an HTTP or API request, and its
+        # exception text often quotes the URL or auth header that failed.
+        _logger.warning(
+            "Retry %d/%d for %s after %s: %s",
+            attempt + 1,
+            max_attempts - 1,
+            func_name,
+            type(exc).__name__,
+            mask_text(str(exc)),
+        )
+
+    def sleep_duration(attempt: int) -> float:
+        """Resolve the sleep for this attempt from the backoff parameter."""
+        if callable(backoff):
+            return backoff(attempt)
+        return exponential_backoff(
+            attempt, base_delay=delay, multiplier=backoff, max_delay=max_delay
+        )
+
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -198,27 +222,8 @@ def retry(
                     last_exc = exc
                     if attempt >= max_attempts - 1:
                         break
-                    if on_retry is not None:
-                        on_retry(attempt, exc)
-                    else:
-                        # Masked: a retried call is usually an HTTP or API
-                        # request, and its exception text often quotes the URL
-                        # or auth header that failed.
-                        _logger.warning(
-                            "Retry %d/%d for %s after %s: %s",
-                            attempt + 1,
-                            max_attempts - 1,
-                            func.__name__,
-                            type(exc).__name__,
-                            mask_text(str(exc)),
-                        )
-                    if callable(backoff):
-                        sleep_for = backoff(attempt)
-                    else:
-                        sleep_for = exponential_backoff(
-                            attempt, base_delay=delay, multiplier=backoff, max_delay=max_delay
-                        )
-                    time.sleep(sleep_for)
+                    notify(attempt, exc, func.__name__)
+                    time.sleep(sleep_duration(attempt))
             if raise_on_exhausted:
                 # `from None` suppresses the implicit __context__ chain. The
                 # raise already sits outside the except block, so the context
