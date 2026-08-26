@@ -15,13 +15,17 @@
 #     |
 #   draft-tailored (agent — reweight bullets, write data YAML)
 #     |
-#   check-copy (validate — enforce RESUME_WRITING_GUIDE + report coverage)
+#   check-copy (execute — enforce RESUME_WRITING_GUIDE + report coverage)
 #     |
 #   gap-report (propose, human_gate — surface gaps, get a decision)
 #     |
 #   render (execute — DOCX)
 #     |
-#   verify-render (validate — extract text, confirm sections landed)
+#   verify-render (execute — extract text, confirm sections landed)
+#
+# check-copy and verify-render are kind: execute deliberately, not validate.
+# The validate prompt builder ignores `description` (dispatch.py:238); see the
+# banner comment above each stage.
 
 name: tailor-resume
 version: "1.0"
@@ -37,14 +41,17 @@ description: >
   human decision rather than written into the document. A fabricated metric is
   the one resume defect that survives review and fails a reference check.
 
-  Outputs (all under the workspace, which should be a gitignored _data/ path
-  because resumes are PII):
+  Outputs (all under {workspace}/outputs/, which should be a gitignored _data/
+  path because resumes are PII — note writes_to entries carry no {workspace}
+  prefix, because the engine resolves bare entries under {workspace}/outputs/
+  and does NOT substitute params into writes_to paths):
     - job.yaml              the posting, encoded
     - candidate.json        baseline extracted from the source resume
     - alignment.json        per-keyword and per-role scores
     - data-tailored.yaml    render input
     - coverage.md           keyword coverage + guide violations + gaps
-    - <name>.docx           the tailored resume
+    - coverage-findings.json  machine-readable summary for the gate
+    - resume-tailored.docx  the tailored resume
 
 metadata:
   author: dancing-bear
@@ -72,7 +79,7 @@ stages:
     description: >
       Create the workspace:
 
-        mkdir -p {workspace}
+        mkdir -p {workspace}/outputs
 
       Then confirm the PII placement is safe. Run:
 
@@ -100,7 +107,7 @@ stages:
     depends_on: [init]
     description: >
       Extract the copy rules that draft-tailored and check-copy must enforce,
-      and write them to {workspace}/guides.md.
+      and write them to {workspace}/outputs/guides.md.
 
       Read these two files:
         - .claude/RESUME_WRITING_GUIDE.md   (the prescriptive standard)
@@ -133,7 +140,7 @@ stages:
       access: read-write
     required: true
     writes_to:
-      - "{workspace}/guides.md"
+      - "guides.md"
 
   # ==========================================================================
   # Stage 2: parse-posting — job description text -> job YAML
@@ -143,7 +150,7 @@ stages:
     depends_on: [init]
     description: >
       Read the job description at {posting_file} and encode it as a job YAML at
-      {workspace}/job.yaml, following the schema in
+      {workspace}/outputs/job.yaml, following the schema in
       src/resume/config/job.rbc_sre.yaml and the "Job Posting YAML" section of
       src/resume/README.md.
 
@@ -172,7 +179,7 @@ stages:
       access: read-write
     required: true
     writes_to:
-      - "{workspace}/job.yaml"
+      - "job.yaml"
 
   # ==========================================================================
   # Stage 3: extract-baseline — source resume -> candidate JSON
@@ -184,7 +191,7 @@ stages:
       Extract the baseline resume into structured data:
 
         ./bin/assistant resume extract --resume {resume_file} \
-          --out {workspace}/candidate.json
+          --out {workspace}/outputs/candidate.json
 
       Then VALIDATE the extraction before continuing — this parser has produced
       silently wrong output before. Check:
@@ -201,7 +208,7 @@ stages:
       access: read-write
     required: true
     writes_to:
-      - "{workspace}/candidate.json"
+      - "candidate.json"
 
   # ==========================================================================
   # Stage 4: score-alignment — candidate vs job
@@ -214,10 +221,10 @@ stages:
       Score the candidate against the posting:
 
         ./bin/assistant resume align \
-          --data {workspace}/candidate.json \
-          --job {workspace}/job.yaml \
-          --out {workspace}/alignment.json \
-          --tailored {workspace}/tailored-auto.json \
+          --data {workspace}/outputs/candidate.json \
+          --job {workspace}/outputs/job.yaml \
+          --out {workspace}/outputs/alignment.json \
+          --tailored {workspace}/outputs/tailored-auto.json \
           --max-bullets {max_bullets}
 
       Report matched keywords, missing keywords, and per-role scores. The
@@ -230,8 +237,8 @@ stages:
       access: read-write
     required: true
     writes_to:
-      - "{workspace}/alignment.json"
-      - "{workspace}/tailored-auto.json"
+      - "alignment.json"
+      - "tailored-auto.json"
 
   # ==========================================================================
   # Stage 5: draft-tailored — reweight into render-ready data
@@ -241,10 +248,10 @@ stages:
     depends_on: [score-alignment, load-guides]
     reads_from: [score-alignment, parse-posting, extract-baseline, load-guides]
     description: >
-      Write {workspace}/data-tailored.yaml — the render input — by reweighting
+      Write {workspace}/outputs/data-tailored.yaml — the render input — by reweighting
       the baseline toward what the posting rewards.
 
-      READ FIRST: {workspace}/guides.md. Every rule in it applies to every
+      READ FIRST: {workspace}/outputs/guides.md. Every rule in it applies to every
       bullet you write. It is the condensed contract from
       .claude/RESUME_WRITING_GUIDE.md and concerns/resume-copy.md; check-copy
       enforces the same file, so anything violating it will come straight back.
@@ -281,19 +288,33 @@ stages:
       access: read-write
     required: true
     writes_to:
-      - "{workspace}/data-tailored.yaml"
+      - "data-tailored.yaml"
 
   # ==========================================================================
   # Stage 6: check-copy — enforce the writing guide, measure coverage
+  #
+  # kind: execute, NOT validate. The validate prompt builder
+  # (src/workflow/dispatch.py:238 `_validate`) constructs its prompt from
+  # `validation.criteria` and `validation.domain_rules` only — it never calls
+  # `_header`, so `description` is dropped entirely. This stage's contract is
+  # long, prescriptive, and depends on exact wording (the whole-token number
+  # rule and the "search the WHOLE baseline" rule especially), so flattening it
+  # into a `criteria:` string list — `ValidationSpec.criteria` is a flat
+  # tuple[str, ...] — would lose the parts that make the fabrication gate work.
+  # kind: execute routes through `_action` -> `_header`, which includes
+  # `description` verbatim. See `validate-kind-description-ignored` in
+  # concerns/workflow-fanout.md. This stage blocks by writing its findings
+  # and then reporting "status": "failed" in its stage result — an exit
+  # code alone is never observed for an agent stage. See HOW TO BLOCK below.
   # ==========================================================================
   - name: check-copy
-    kind: validate
+    kind: execute
     depends_on: [draft-tailored, load-guides]
     reads_from: [draft-tailored, parse-posting, score-alignment, load-guides]
     description: >
-      Write {workspace}/coverage.md with three sections. Compute, do not estimate.
+      Write {workspace}/outputs/coverage.md with three sections. Compute, do not estimate.
 
-      Enforce {workspace}/guides.md — the same file draft-tailored wrote
+      Enforce {workspace}/outputs/guides.md — the same file draft-tailored wrote
       against. Apply its scope exceptions and provenance rules too, not only
       its checks: flagging valid copy wastes the human's attention at the gate
       as surely as missing invalid copy does.
@@ -339,11 +360,45 @@ stages:
          and the role. State plainly for each whether it is unverifiable from
          the baseline alone.
 
-      Exit non-zero if section 3 reports any NEW METRIC or NEW CLAIM. These are
-      not always fabrications — the candidate may be supplying something true
-      that the baseline resume omits — but that is a human's call at the gate,
-      never the drafting agent's. A fabricated metric survives review and fails
-      in a reference check, so the default must be to stop.
+      BLOCK if section 3 reports any NEW METRIC or NEW CLAIM. These are not
+      always fabrications — the candidate may be supplying something true that
+      the baseline resume omits — but that is a human's call at the gate, never
+      the drafting agent's. A fabricated metric survives review and fails in a
+      reference check, so the default must be to stop.
+
+      HOW TO BLOCK — follow this exactly; it is the only mechanism that works.
+      Write coverage.md and coverage-findings.json FIRST, then write your stage
+      result JSON with "status": "failed" and the blocked items in "errors". Do
+      NOT report "status": "success" on a blocked run.
+
+      A non-zero exit code alone does NOTHING. Agent stages route through
+      SkillDispatcher.dispatch (src/workflow/dispatchers.py), which runs no
+      subprocess and returns "pending" — there is no exit code for the engine to
+      see. Stage status comes only from the result JSON this agent writes, and
+      the template pre-fills "status": "success" (dispatch.py _RESULT_FMT);
+      _any_required_failed trips only on "failed" (orchestrator.py). An agent
+      that finds a fabricated metric, records it, and still reports success
+      leaves required:true and depends_on satisfied and the run proceeds to
+      render — shipping the document this stage exists to stop.
+
+      Also write {workspace}/outputs/coverage-findings.json as a machine-readable
+      summary, so gap-report can list the blocked items without re-parsing prose:
+
+        {"guide_violations": <int>, "keywords_covered": <int>,
+         "keywords_total": <int>, "weighted_covered": <int>,
+         "weighted_total": <int>, "supported": <int>, "new_metric": <int>,
+         "new_claim": <int>, "blocked": <true|false>,
+         "misses": [{"keyword": "...", "weight": <int>}],
+         "items": [{"role": "...", "bullet": "...",
+                    "classification": "SUPPORTED|NEW METRIC|NEW CLAIM",
+                    "unverifiable": <true|false>,
+                    "guide_violations": ["..."]}]}
+
+      Set `blocked` to true if new_metric or new_claim is non-zero. Write BOTH
+      files BEFORE signalling failure in the stage result — a failure that
+      leaves no findings behind gives the human nothing to act on at the gate
+      and makes the block look like a crash. Write them on the clean path too,
+      with the counts at zero and `blocked` false.
     agent:
       role: reviewer
       model: sonnet
@@ -351,7 +406,8 @@ stages:
       access: read-write
     required: true
     writes_to:
-      - "{workspace}/coverage.md"
+      - "coverage.md"
+      - "coverage-findings.json"
 
   # ==========================================================================
   # Stage 7: gap-report — human decision on the gaps
@@ -364,12 +420,33 @@ stages:
     description: >
       Present the decision, then STOP for the human.
 
+      FIRST — re-read {workspace}/outputs/coverage-findings.json. If "blocked"
+      is true, lead with the blocked items (every NEW METRIC and NEW CLAIM,
+      verbatim, with its role) before any coverage number, and state plainly
+      that the resume cannot be rendered until the human resolves each one.
+
+      Quoting the offending bullet verbatim IS correct here, unlike in
+      non-gate stages: the human cannot adjudicate a fabrication they cannot
+      see, and this is the decision point. Keep it to the flagged bullets and
+      their roles — do not dump the whole resume, contact fields, or unrelated
+      bullets into the transcript, which is not redacted.
+
+      Do not assume check-copy already halted the run on a block. It cannot do
+      that by itself: stage status comes only from the result JSON each agent
+      writes and the template pre-fills "status": "success", so a check-copy
+      agent that records fabrications and still reports success lets the DAG
+      reach this gate. This re-read is what makes the human gate the real
+      barrier rather than a formality.
+
       Show:
         - measured keyword coverage (raw and weighted)
         - every missed keyword with its weight, and one line on why it is
           missing — genuinely absent from the baseline, versus present but
           not yet surfaced
-        - any guide violations from check-copy
+        - any guide violations from check-copy, and the NEW METRIC / NEW CLAIM
+          items it blocked on, read from {workspace}/outputs/coverage.md and
+          {workspace}/outputs/coverage-findings.json — these are the items that
+          need a source or a deletion, so show them first
         - an honest fit assessment: what is strong, what is weak, and which
           objection the candidate should expect in a screen
 
@@ -396,14 +473,29 @@ stages:
   - name: render
     kind: execute
     depends_on: [gap-report]
-    reads_from: [draft-tailored]
+    reads_from: [draft-tailored, check-copy]
     description: >
+      GUARD — re-read {workspace}/outputs/coverage-findings.json before
+      rendering. If "blocked" is true, STOP without rendering and report which
+      NEW METRIC or NEW CLAIM items remain unresolved.
+
+      This stage is the one that produces the artifact a human sends to an
+      employer, so it carries its own check rather than trusting the two stages
+      before it. check-copy cannot halt the run by itself — stage status comes
+      only from the result JSON each agent writes and the template pre-fills
+      "status": "success" — and gap-report records no machine-readable verdict
+      at all (its writes_to is empty and it is read-only), so a blocked run that
+      slipped past check-copy and was auto-advanced through the gate would
+      otherwise arrive here and ship the document. Rendering a resume containing
+      an unverified metric is the single most costly outcome this workflow can
+      produce: it survives review and fails in a reference check.
+
       Render the tailored resume:
 
         ./bin/assistant resume render \
-          --data {workspace}/data-tailored.yaml \
+          --data {workspace}/outputs/data-tailored.yaml \
           --template {template} \
-          --out {workspace}/resume-{company}.docx
+          --out {workspace}/outputs/resume-tailored.docx
 
       The renderer exits non-zero and writes nothing on failure, so a stale file
       from an earlier run can survive a failed render. Delete any existing
@@ -416,13 +508,22 @@ stages:
       access: read-write
     required: true
     writes_to:
-      - "{workspace}/resume-{company}.docx"
+      - "resume-tailored.docx"
 
   # ==========================================================================
   # Stage 9: verify-render — confirm the document is actually right
+  #
+  # kind: execute for the same reason as check-copy: the validate builder
+  # (src/workflow/dispatch.py:238 `_validate`) drops `description` entirely.
+  # This stage's contract is a specific extraction procedure — the exact
+  # python3 snippet, the argv[1] injection-safety rule, and a six-item
+  # checklist — none of which survives flattening into `validation.criteria`.
+  # Losing it would leave the stage "verifying" a DOCX with a generic
+  # extract-claims prompt and no idea what to look for. See
+  # `validate-kind-description-ignored` in concerns/workflow-fanout.md.
   # ==========================================================================
   - name: verify-render
-    kind: validate
+    kind: execute
     depends_on: [render]
     reads_from: [render, draft-tailored]
     description: >
@@ -435,7 +536,7 @@ stages:
         x = z.read("word/document.xml").decode("utf-8")
         x = re.sub(r"</w:p>", "\n", x)
         x = re.sub(r"<[^>]+>", "", x)
-        print(html.unescape(x))' "{workspace}/resume-{company}.docx"
+        print(html.unescape(x))' "{workspace}/outputs/resume-tailored.docx"
 
       Pass the path as argv[1] as shown — never interpolate {company} or
       {workspace} into the Python source itself. Those values come from

@@ -45,8 +45,15 @@ Extract these arguments from the user's request or skill args:
 Parse `--params` arguments into a dict. Then compile the workflow:
 
 ```bash
-.venv/bin/python bin/workflow compile <WORKFLOW_PATH> --format json
+./bin/workflow compile <WORKFLOW_PATH> --format json
 ```
+
+Always invoke through the `./bin/workflow` wrapper.
+Never use `.venv/bin/python bin/workflow`.
+The wrapper re-execs under the repo `.venv` when one exists and falls back to
+system Python otherwise. A hardcoded `.venv/bin/python` fails outright in a git
+worktree, which never has its own `.venv` — only the main checkout does, and
+`make` targets build it on demand.
 
 This prints the compiled manifest as JSON. The top-level keys are:
 
@@ -73,13 +80,13 @@ If compile fails, report the error and stop.
 **If `--execute` is NOT set (dry-run):** print the execution plan and stop:
 
 ```bash
-.venv/bin/python bin/workflow compile <WORKFLOW_PATH>
+./bin/workflow compile <WORKFLOW_PATH>
 ```
 
 ### Step 1: Initialize Workspace
 
 ```bash
-.venv/bin/python bin/workflow init-workspace <WORKFLOW_PATH> \
+./bin/workflow init-workspace <WORKFLOW_PATH> \
   [--workspace <WORKSPACE>] [--params key=value ...]
 ```
 

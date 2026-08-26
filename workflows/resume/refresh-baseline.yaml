@@ -1,0 +1,820 @@
+# Keep the baseline resume profile — the source of truth — current.
+#
+# Everything downstream of the baseline profile degrades as it goes stale: a
+# tailored resume can only reorder and reweight what the baseline already
+# contains, so an accomplishment missing here is invisible to every derived
+# document. This workflow harvests recent work from LOCAL evidence (git history,
+# brag docs, notes), diffs it against the current profile, and proposes bullets
+# at a human gate.
+#
+# Unlike tailor-resume, which writes a derived DOCX, this workflow writes back
+# into the profile's experience.yaml. That makes provenance load-bearing: every
+# proposed bullet must cite the evidence it came from, and check-copy blocks on
+# any bullet that cannot. Run quarterly.
+#
+# DAG:
+#   init
+#     |
+#   load-guides (agent — condense writing guide + concerns -> guides.md)
+#     |
+#   harvest-evidence (gather — git log + local files -> evidence.md)
+#     |
+#   load-current-baseline (execute — profile experience.yaml -> baseline.yaml)
+#     |
+#   diff-accomplishments (execute — evidence not captured by the baseline)
+#     |
+#   draft-bullets (execute — guide-compliant bullets, each with provenance)
+#     |
+#   check-copy (execute — concern IDs + PROVENANCE; blocks on uncited bullets)
+#     |
+#   review-gate (propose, human_gate — per-bullet accept / edit / reject)
+#     |
+#   apply-updates (execute — surgical edit of experience.yaml, gate-gated)
+#     |
+#   verify-profile (execute — re-export, diff, re-render the profile)
+#
+# check-copy and verify-profile are kind: execute deliberately, not validate.
+# The validate prompt builder ignores `description` (dispatch.py:238); see the
+# banner comment above each stage.
+
+name: refresh-baseline
+version: "1.0"
+description: >
+  Refreshes the baseline resume profile from recent local evidence. Harvests
+  shipped work from git history and brag-doc style notes, compares it against
+  what the profile already claims, drafts guide-compliant bullets for the gaps,
+  and writes accepted bullets back into the profile's experience.yaml.
+
+  This workflow mutates the SOURCE OF TRUTH, which makes it more dangerous than
+  tailor-resume. Three guards carry that weight:
+
+  PROVENANCE. Every proposed bullet must cite the evidence line it came from —
+  a commit range, a file and line, a note heading. check-copy blocks on any
+  bullet that cannot be traced, by writing its findings and then reporting
+  "status": "failed" — the only signal the orchestrator acts on, since agent
+  stages have no exit code for it to observe. apply-updates independently
+  re-reads that verdict and refuses to write, so the guarantee does not rest on
+  one stage behaving. A bullet without a source is not a recollection, it is a
+  fabrication with good intentions, and it becomes permanent the moment it lands
+  in the profile.
+
+  THE GATE. Nothing is written to the profile before review-gate. apply-updates
+  depends on it, and edits experience.yaml surgically — it never regenerates the
+  file, so unrelated roles, comments, and key order survive untouched.
+
+  THE PATH GUARD. A real profile carries employer names, dates, and metrics, so
+  it must live on a gitignored path. Both the source and destination profile
+  directories are params, and init verifies the destination with
+  `git check-ignore -v` rather than by reading a .gitignore. Reading is not
+  enough here: src/resume/README.md records that root .gitignore line 117
+  ignores `src/resume/config/profiles/*`, so a real profile written there is
+  skipped by `git add` SILENTLY unless forced — it looks committed and is not.
+  Private profiles belong under `src/resume/_data/`, which two separate rules
+  ignore, one of them narrow enough to be misread as the only coverage.
+
+  Evidence collection is local only: git log and files on disk. No network
+  calls, no API credentials, no third-party services. An evidence source left
+  unset is skipped, not an error.
+
+  Outputs (all under {workspace}/outputs/, itself on a gitignored path — note
+  writes_to entries carry no {workspace} prefix, because the engine resolves
+  bare entries under {workspace}/outputs/ and does NOT substitute params into
+  writes_to paths):
+    - guides.md         condensed copy standards, the contract for drafting
+    - evidence.md       raw harvested evidence, each item with a source marker
+    - baseline.yaml     the profile's current experience, as exported
+    - gaps.md           evidence the baseline does not already capture
+    - proposed.yaml     drafted bullets, each carrying a provenance field
+    - copy-report.md    concern violations + the provenance verdict
+    - copy-findings.json  the same verdict, machine-readable, for the gate
+    - applied.md        what actually landed in the profile
+
+metadata:
+  author: dancing-bear
+  created: "2026-08-26"
+
+trigger:
+  source: manual
+  params:
+    profile: ""             # REQUIRED: profile prefix, e.g. "briancorysherwin_general"
+    profile_dir: ""         # REQUIRED: dir holding experience.yaml; must be gitignored
+    since: "90 days ago"    # evidence window; any git --since expression
+    evidence_dirs: ""       # optional: comma-separated dirs of notes/brag docs
+    repo_paths: ""          # optional: comma-separated git repos to mine by author
+    author: ""              # optional: git --author filter; empty means all authors
+    out_dir: "src/resume/_data/baseline-refresh"   # gitignored per the PII policy
+
+workspace_dir: "{out_dir}/{profile}"
+
+stages:
+
+  # ==========================================================================
+  # Stage 1: init — workspace, PII guards, profile existence
+  # ==========================================================================
+  - name: init
+    kind: gather
+    description: >
+      Create the workspace:
+
+        mkdir -p {workspace}/outputs
+
+      Then run BOTH PII guards. Resume content carries employer names, dates,
+      and metrics; a tracked path would commit it.
+
+      Guard 1 — the workspace:
+
+        git check-ignore -v {workspace}
+
+      Guard 2 — the profile directory this run will WRITE to:
+
+        git check-ignore -v {profile_dir}
+
+      If EITHER path is not ignored, STOP and report which one. Guard 2 is the
+      one that matters most and the one most easily fooled. Per
+      src/resume/README.md, root .gitignore line 117 ignores
+      `src/resume/config/profiles/*`, so a real profile placed there is skipped
+      by `git add` silently unless forced — it looks committed but is not, and
+      the PII exposure is the opposite of what the ignore rule suggests. Private
+      profiles belong under `src/resume/_data/` (e.g.
+      `src/resume/_data/profiles_private/<name>/`), which is ignored by two
+      separate rules. Verify with the command above; do not decide this by
+      reading a .gitignore, because the root file's narrower
+      `profiles_private/` entry reads as the only coverage when it is not.
+      `src/resume/config/profiles/sample/` is a committed sample and is NOT
+      ignored — refuse to run against it, since applying real accomplishments
+      there would commit PII on the next `git add`.
+
+      Verify the required params and the target profile:
+        - {profile} and {profile_dir} must both be non-empty. Fail loudly if
+          either is missing — there is no safe default when the output is a
+          write to the source of truth.
+        - {profile_dir} must exist and must contain experience.yaml. Confirm
+          with `ls -1 {profile_dir}` and report the file list.
+
+      Record which optional evidence sources are configured, so later stages do
+      not re-derive it and the human can see at the gate what was searched:
+        - evidence_dirs = "{evidence_dirs}"  (empty means: skip local notes)
+        - repo_paths    = "{repo_paths}"     (empty means: skip git history)
+        - author        = "{author}"         (empty means: no author filter)
+        - since         = "{since}"
+
+      If BOTH evidence_dirs and repo_paths are empty, STOP: there is no evidence
+      to harvest and every downstream stage would draft from nothing, which is
+      exactly the failure mode this workflow exists to prevent.
+    agent:
+      role: researcher
+      model: haiku
+      tools: [Bash]
+      access: read-write
+    required: true
+    writes_to: []
+
+  # ==========================================================================
+  # Stage 2: load-guides — pull the writing standards into the workspace
+  # ==========================================================================
+  - name: load-guides
+    kind: gather
+    depends_on: [init]
+    description: >
+      Extract the copy rules that draft-bullets and check-copy must enforce, and
+      write them to {workspace}/outputs/guides.md.
+
+      Read these two files with the Read tool:
+        - .claude/RESUME_WRITING_GUIDE.md   (the prescriptive standard)
+        - concerns/resume-copy.md           (the enforceable checks)
+
+      Write a single condensed sheet containing:
+        1. VOICE + BULLET RULES from RESUME_WRITING_GUIDE.md — implied first
+           person, strong-verb openers, the tense rule (both tenses are correct
+           on a current role; only flag present tense on an ended role), the
+           28-word ceiling, no terminal periods, and the >=50% quantification
+           target.
+        2. THE BANNED PHRASE TABLE, verbatim — both columns. Downstream agents
+           need the replacement, not just the prohibition.
+        3. EVERY CONCERN ID from concerns/resume-copy.md with its severity and
+           one-line check, including each scope exception, the tense exception
+           on resume-bullet-weak-opener, and the abbreviation exception on
+           resume-inconsistent-tech-naming. The exceptions matter as much as the
+           checks: flagging valid copy is as bad as missing invalid copy.
+
+      Copy the rules; do not paraphrase them into something looser. This file is
+      the contract both downstream stages are held to, so drift here becomes
+      drift in the profile — and a defect written into the source of truth
+      propagates into every resume rendered from it afterwards.
+
+      Exit non-zero if either source file is missing.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - "guides.md"
+
+  # ==========================================================================
+  # Stage 3: harvest-evidence — local sources only, missing sources skipped
+  # ==========================================================================
+  - name: harvest-evidence
+    kind: gather
+    depends_on: [init]
+    description: >
+      Collect evidence of work done since {since} and write it to
+      {workspace}/outputs/evidence.md. LOCAL SOURCES ONLY — git history and files on
+      disk. Do not call any network service, and do not read any credential
+      file; this workflow has no such dependency and must not acquire one.
+
+      EVERY item you record MUST carry a source marker on the same line, in the
+      form `[src: <where>]`. That marker is the provenance chain check-copy
+      enforces later. An item without one is unusable downstream, so writing it
+      is worse than omitting it.
+
+      Source A — git history. Skip this section entirely if {repo_paths} is
+      empty. Otherwise, for each comma-separated path in "{repo_paths}", run:
+
+        git -C <path> log --since="{since}" --author="{author}" \
+          --no-merges --pretty=format:'%h %ad %s' --date=short
+
+      An empty {author} makes --author match everything, which is the intended
+      "no filter" behaviour. If a path is not a git repository, or the log is
+      empty, record that as a one-line note and move on — a missing source is a
+      skip, never a failure. Group commits into themes rather than transcribing
+      the log; a list of 200 commit subjects is not evidence, it is noise.
+      Source marker: `[src: git <repo> <oldest-sha>..<newest-sha>]`.
+
+      Source B — local notes and brag docs. Skip this section entirely if
+      {evidence_dirs} is empty. Otherwise, for each comma-separated path in
+      "{evidence_dirs}", use the Glob tool to enumerate `<dir>/**/*.md` and
+      `<dir>/**/*.txt`, then Read each match. Consider only content dated within
+      the {since} window, or undated content in a file modified within it.
+      Source marker: `[src: <file path>:<line or heading>]`.
+
+      Structure evidence.md as a flat list of candidate accomplishments grouped
+      by the employer or project they belong to. For each item record: what
+      shipped, any metric stated IN THE SOURCE, the rough date, and the source
+      marker. Do NOT invent or estimate a metric — if the source says "reduced
+      latency" with no number, write exactly that. A number you inferred is
+      indistinguishable downstream from a number someone measured, and this
+      pipeline ends in the source of truth.
+
+      Write evidence.md on every path, including the path where a source yields
+      nothing: in that case write the file with the headings present and an
+      explicit "no evidence found" note under each. Downstream stages read this
+      file unconditionally.
+
+      Do not echo file contents or command output to stdout beyond short
+      counts — the run transcript is not redacted and this material is PII.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Glob, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - "evidence.md"
+
+  # ==========================================================================
+  # Stage 4: load-current-baseline — export what the profile claims today
+  # ==========================================================================
+  - name: load-current-baseline
+    kind: execute
+    depends_on: [init]
+    description: >
+      Export the profile's current job history so the diff has something exact
+      to compare against:
+
+        ./bin/assistant resume experience export \
+          --data {profile_dir}/experience.yaml \
+          --out {workspace}/outputs/baseline.yaml
+
+      Pass the profile's experience.yaml explicitly via --data as shown. The
+      resume CLI's `--profile` flag is dual-purpose: it sets the output filename
+      prefix AND selects overlays, but overlay lookup resolves against
+      `config/profiles/<prefix>/` relative to the working directory
+      (src/resume/overlays.py:85), which is not where a private profile lives.
+      Passing --data names the file directly and does not depend on the working
+      directory.
+
+      Then validate the export before continuing. Read {workspace}/outputs/baseline.yaml
+      and confirm:
+        - it parses as YAML and has a non-empty `experience` list
+        - the role count matches {profile_dir}/experience.yaml
+        - every role has a title, a company, and at least one bullet
+
+      If any check fails, report the specific defect and STOP. A truncated
+      baseline makes the next stage report existing accomplishments as new,
+      which is the one error that ends with duplicate bullets written into the
+      source of truth.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read]
+      access: read-write
+    required: true
+    writes_to:
+      - "baseline.yaml"
+
+  # ==========================================================================
+  # Stage 5: diff-accomplishments — what the baseline does not already say
+  # ==========================================================================
+  - name: diff-accomplishments
+    kind: execute
+    depends_on: [harvest-evidence, load-current-baseline]
+    reads_from: [harvest-evidence, load-current-baseline]
+    description: >
+      Write {workspace}/outputs/gaps.md: the evidence that the current baseline does NOT
+      already capture.
+
+      Read {workspace}/outputs/evidence.md and {workspace}/outputs/baseline.yaml.
+
+      COMPARE ON MEANING, NOT STRING EQUALITY. The baseline is written in resume
+      voice and the evidence is written in commit-message and note voice, so
+      almost nothing will match literally. "Migrated the ingestion path off
+      Kafka" in a commit log and "Replatformed event ingestion, cutting broker
+      spend 40%" in a bullet are the same accomplishment described twice, and
+      restating it as new is how a profile accumulates near-duplicate bullets
+      that read as padding.
+
+      Classify every evidence item into exactly one bucket:
+        - ALREADY COVERED: the baseline states this accomplishment, in any
+          wording. Name the role and the bullet that covers it.
+        - REFINES EXISTING: the baseline states it, but the evidence supplies a
+          metric, a scale, or an outcome the bullet lacks. Name the exact
+          bullet to be revised, and the specific fact being added.
+        - GENUINELY NEW: no bullet in any role covers this. Name the role it
+          belongs under.
+        - NOT RESUME MATERIAL: real work that does not belong on a resume —
+          routine maintenance, dependency bumps, internal chores with no
+          outcome a hiring manager can evaluate. Most commit history lands
+          here, and saying so is the honest result, not a failure.
+
+      Carry each item's `[src: ...]` marker through unchanged into gaps.md.
+      Provenance must survive this stage intact — a marker dropped here cannot
+      be reconstructed later, and check-copy will reject the resulting bullet.
+
+      Report the counts per bucket. If GENUINELY NEW and REFINES EXISTING are
+      both empty, say so plainly: a quarter with nothing new to add is a normal
+      outcome, and inventing something to justify the run is the failure mode.
+      Write gaps.md in that case too, with the empty buckets stated explicitly.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - "gaps.md"
+
+  # ==========================================================================
+  # Stage 6: draft-bullets — guide-compliant bullets, each carrying its source
+  # ==========================================================================
+  - name: draft-bullets
+    kind: execute
+    depends_on: [diff-accomplishments, load-guides]
+    reads_from: [diff-accomplishments, load-guides, load-current-baseline]
+    description: >
+      Write {workspace}/outputs/proposed.yaml — the drafted bullets, not yet applied.
+
+      READ FIRST: {workspace}/outputs/guides.md. Every rule in it applies to every
+      bullet you write. check-copy enforces the same file, so anything violating
+      it comes straight back.
+
+      Draft from the GENUINELY NEW and REFINES EXISTING buckets of
+      {workspace}/outputs/gaps.md only. Ignore ALREADY COVERED and NOT RESUME MATERIAL.
+
+      SCHEMA — proposed.yaml is read by check-copy, review-gate, and
+      apply-updates, so this shape is load-bearing:
+
+        proposals:
+          - role_title: <title, matching baseline.yaml exactly>
+            company: <company, matching baseline.yaml exactly>
+            action: add | revise
+            replaces: <exact existing bullet text, required when action=revise>
+            bullet: <the proposed bullet text>
+            provenance: <the [src: ...] marker this bullet traces to>
+            rationale: <one line — why this belongs on the resume>
+
+      Rules:
+        - role_title and company MUST match an entry in {workspace}/outputs/baseline.yaml
+          character for character. apply-updates locates the role by that pair,
+          so a near-miss silently targets nothing.
+        - `provenance` is REQUIRED on every proposal and must be a marker that
+          appears in gaps.md. Never write "inferred", "general knowledge", or a
+          restatement of the bullet itself. If an accomplishment is real but you
+          cannot cite where it came from, leave it out and note it at the bottom
+          of the file under UNCITED — the human can supply the source at the
+          gate. That is the correct place for it; a plausible bullet with a
+          fabricated citation is worse than an omission.
+        - Every metric in a bullet must appear in the cited source. Do not round,
+          extrapolate, or convert a qualitative claim into a number.
+        - action=revise proposals must set `replaces` to the exact current
+          bullet text, and the revision must preserve the original claim while
+          adding the new fact. A revise that changes what the bullet asserts is
+          an add wearing a disguise — classify it as add.
+        - Cap proposals at 4 per role. A quarterly refresh that adds ten bullets
+          to one role is not a refresh, it is a rewrite, and it belongs in a
+          separate deliberate pass.
+
+      Write the file, then confirm it parses by running `python3 -c` with
+      yaml.safe_load over the path, passing the path as argv[1] rather than
+      interpolating it into the Python source. Print only the proposal count —
+      not the file contents, which are PII and would land in the unredacted run
+      transcript.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - "proposed.yaml"
+
+  # ==========================================================================
+  # Stage 7: check-copy — enforce the guide, and block on missing provenance
+  #
+  # kind: execute, NOT validate. The validate prompt builder
+  # (src/workflow/dispatch.py:238 `_validate`) constructs its prompt from
+  # `validation.criteria` and `validation.domain_rules` only — it never calls
+  # `_header`, so `description` is dropped entirely. This stage's contract is
+  # long, prescriptive, and depends on exact wording (the whole-token number
+  # rule below especially), so flattening it into a `criteria:` string list
+  # would lose the parts that make the provenance gate work. kind: execute
+  # routes through `_action` -> `_header`, which includes `description`
+  # verbatim. See `validate-kind-description-ignored` in
+  # concerns/workflow-fanout.md. This stage blocks by writing its findings
+  # and then reporting "status": "failed" in its stage result — an exit
+  # code alone is never observed for an agent stage. See HOW TO BLOCK below.
+  # ==========================================================================
+  - name: check-copy
+    kind: execute
+    depends_on: [draft-bullets, load-guides]
+    reads_from: [draft-bullets, load-guides, diff-accomplishments, load-current-baseline]
+    description: >
+      Write {workspace}/outputs/copy-report.md with three sections. Compute, do not
+      estimate.
+
+      Enforce {workspace}/outputs/guides.md — the same file draft-bullets wrote against.
+      Apply its scope exceptions too, not only its checks: flagging valid copy
+      wastes the human's attention at the gate as surely as missing invalid copy
+      does.
+
+      1. GUIDE COMPLIANCE — check every `bullet` in {workspace}/outputs/proposed.yaml
+         against the concern IDs in guides.md:
+           - resume-bullet-weak-opener (no "Responsible for", "Helped", "Worked
+             on", "Participated in", articles, or gerunds as openers; do not
+             flag tense on a role whose baseline entry has end: Present)
+           - resume-banned-phrase ("utilize", "leverage", "facilitate",
+             "spearheaded", "results-driven", "various", ...)
+           - resume-bullet-too-long (>28 words)
+           - resume-bullet-terminal-period
+           - resume-first-person-pronoun
+           - resume-inconsistent-tech-naming (canonical vendor spelling)
+           - resume-bullet-unquantified (report the post-merge per-role ratio:
+             existing bullets plus proposals, target >= 50%)
+         Report every violation with the role and the bullet text.
+
+      2. STRUCTURAL VALIDITY — confirm each proposal can actually be applied:
+           - role_title + company matches a role in {workspace}/outputs/baseline.yaml
+             exactly
+           - action is `add` or `revise`
+           - every action=revise proposal has a `replaces` value that matches an
+             existing bullet in that role character for character
+           - no two proposals target the same `replaces` bullet
+         A proposal that fails here would make apply-updates a no-op or, worse,
+         a wrong-role write.
+
+      3. PROVENANCE — the integrity check, and the reason this stage can block.
+         For every proposal, confirm the `provenance` value is present, non-empty,
+         and matches a `[src: ...]` marker that actually appears in
+         {workspace}/outputs/gaps.md. Then confirm every number in the bullet appears in
+         the cited evidence.
+
+         Extract numbers as whole tokens ("$300K", "150+", "40%"), not by
+         splitting on punctuation — "$300K" and "$300" are the same figure and
+         must not be reported as a mismatch.
+
+         Classify each proposal as:
+           - CITED: provenance resolves to a real marker, and every number in
+             the bullet appears in that source
+           - UNCITED: provenance missing, empty, self-referential, or naming a
+             marker that does not appear in gaps.md
+           - UNSOURCED METRIC: provenance resolves, but the bullet contains a
+             figure absent from the cited source
+
+         BLOCK if ANY proposal is UNCITED or UNSOURCED METRIC. This workflow
+         writes to the profile that every future resume is built from, so an
+         uncited bullet is not a draft to be tidied later — it is a fabrication
+         that becomes load-bearing the moment it is applied, and it will be
+         defended in a reference check by someone who no longer remembers where
+         it came from. The human may well be able to supply the missing source
+         at the gate; that is their call to make with the finding in front of
+         them, never the drafting agent's to skip.
+
+         HOW TO BLOCK — this is the only mechanism that works, so follow it
+         exactly. Write copy-report.md and copy-findings.json FIRST, then write
+         your stage result JSON with "status": "failed" and the blocked items
+         listed in "errors". Do NOT report "status": "success" on a blocked run.
+
+         A non-zero exit code alone does NOTHING here. Agent stages route
+         through SkillDispatcher.dispatch (src/workflow/dispatchers.py), which
+         runs no subprocess and returns "pending" — there is no exit code for
+         the engine to observe. Stage status comes solely from the result JSON
+         this agent writes, and the result template pre-fills
+         "status": "success" (src/workflow/dispatch.py _RESULT_FMT). The
+         orchestrator's _any_required_failed trips only on status "failed"
+         (src/workflow/orchestrator.py). So an agent that finds fabrications,
+         dutifully records them, and then reports success leaves required:true
+         and depends_on fully satisfied — and the run advances to apply-updates,
+         which writes to the source of truth. Reporting success on a blocked run
+         is therefore not a cosmetic error; it defeats the entire gate.
+
+      Report counts per classification. Write copy-report.md on every path,
+      including the blocking one — the human needs the findings at the gate.
+
+      Also write {workspace}/outputs/copy-findings.json as a machine-readable summary,
+      so review-gate can list the blocked items without re-parsing prose:
+
+        {"guide_violations": <int>, "structural_failures": <int>,
+         "cited": <int>, "uncited": <int>, "unsourced_metric": <int>,
+         "blocked": <true|false>,
+         "items": [{"role_title": "...", "company": "...", "bullet": "...",
+                    "classification": "CITED|UNCITED|UNSOURCED METRIC",
+                    "provenance": "...", "guide_violations": ["..."]}]}
+
+      Set `blocked` to true if uncited or unsourced_metric is non-zero. Write
+      both files BEFORE signalling failure in the stage result — a failure that
+      leaves no findings behind gives the human nothing to act on and makes the
+      block look like a crash. Write them on the clean path too, with the counts
+      at zero and `blocked` false.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - "copy-report.md"
+      - "copy-findings.json"
+
+  # ==========================================================================
+  # Stage 8: review-gate — per-bullet human decision, before any write
+  # ==========================================================================
+  - name: review-gate
+    kind: propose
+    human_gate: true
+    depends_on: [check-copy]
+    reads_from: [check-copy, draft-bullets, diff-accomplishments]
+    description: >
+      Present the proposals, then STOP for the human. Nothing has been written
+      to the profile yet, and nothing will be until this gate clears.
+
+      For EACH proposal in {workspace}/outputs/proposed.yaml, show as a numbered item:
+        - the role it targets (title + company)
+        - action: add, or revise showing the current bullet and the replacement
+        - the proposed bullet text
+        - its provenance marker, and one line on what that source actually says
+        - any guide violation check-copy raised against it
+
+      Then show, from {workspace}/outputs/copy-report.md and
+      {workspace}/outputs/copy-findings.json:
+        - the UNCITED and UNSOURCED METRIC lists, called out first — these are
+          the items that blocked, and they need a source or a deletion
+        - the UNCITED section from {workspace}/outputs/proposed.yaml: accomplishments
+          the drafter believed were real but could not cite
+        - the post-merge quantification ratio per role
+        - the NOT RESUME MATERIAL count from {workspace}/outputs/gaps.md, as one line —
+          evidence deliberately dropped, so the human can spot a wrong call
+
+      State plainly which profile directory the accepted bullets will be written
+      to ({profile_dir}), so the human confirms the destination and not only the
+      copy.
+
+      Ask the human to decide, per bullet:
+        (a) accept as written
+        (b) accept with an edit — supply the corrected text
+        (c) reject
+        (d) supply the missing source for an UNCITED item, promoting it to
+            accepted
+
+      Record the decisions where apply-updates can read them: use the Edit tool
+      to write the per-bullet verdict back into {workspace}/outputs/proposed.yaml, adding
+      a `decision:` field (accept | reject) to each proposal and, for edits,
+      replacing the `bullet` value with the human's text and setting
+      `provenance` to the source they supplied. Leave every other field
+      untouched.
+
+      Default to reject on anything the human does not explicitly accept.
+      Silence is not consent when the write target is the source of truth.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Edit, Bash]
+      access: read-write
+    required: true
+    writes_to: []
+
+  # ==========================================================================
+  # Stage 9: apply-updates — surgical edit of the profile, gate-gated
+  # ==========================================================================
+  - name: apply-updates
+    kind: execute
+    depends_on: [review-gate]
+    reads_from: [draft-bullets, load-current-baseline, check-copy]
+    description: >
+      Apply the ACCEPTED proposals to {profile_dir}/experience.yaml, and write a
+      record of what landed to {workspace}/outputs/applied.md.
+
+      GUARD 1 — re-read the block verdict. Read
+      {workspace}/outputs/copy-findings.json. If "blocked" is true, STOP without
+      editing and write applied.md recording that the run was blocked and
+      nothing was applied.
+
+      That file contains verbatim bullet text, which is PII and the run
+      transcript is not redacted. Report counts and concern IDs when explaining
+      the block; do not echo bullet text, employer names, or contact fields into
+      your output.
+
+      Do not skip this because check-copy "should have" halted the run. It
+      cannot halt it on its own: stage status comes only from the result JSON
+      each agent writes, and the template pre-fills "status": "success", so a
+      check-copy agent that records fabrications and still reports success lets
+      the DAG advance to this stage. This re-check is the last mechanical
+      barrier before an uncited bullet becomes permanent in the source of truth.
+
+      GUARD 2 — confirm the destination is gitignored before touching it:
+
+        git check-ignore -v {profile_dir}
+
+      If it is not ignored, STOP without editing. init already checked this, but
+      the check is cheap and this is the one stage that writes PII to a path
+      outside the workspace.
+
+      GUARD ORDER AND THE writes_to CONTRACT. Guards 1 and 2 can stop this
+      stage before any backup is taken, so on those paths experience.yaml.bak
+      is deliberately NOT created — a backup of a file this stage never touched
+      would be noise.
+
+      That leaves a declared output unwritten, so a guard exit is NOT a silent
+      success. On either guard-exit path: write applied.md recording why
+      nothing was applied, then write the stage result with "status": "failed"
+      and the reason in "errors". The run halts there by design — a blocked
+      verdict or an unignored profile path are both conditions a human must
+      resolve, not conditions to proceed past. Never report "status": "success"
+      from a guard exit: that would claim a declared output exists when it does
+      not, and would advance the DAG past a stop condition.
+
+      verify-profile is written to survive this: it reads applied.md and
+      declines to restore when no backup exists, rather than overwriting a live
+      profile with a missing file.
+
+      GUARD 3 — take the backup and PROVE it, before making any edit. Copy
+      {profile_dir}/experience.yaml to {workspace}/outputs/experience.yaml.bak,
+      then confirm the copy exists, is non-empty, and matches the source byte
+      count. If it is missing, empty, or truncated, STOP without editing.
+
+      Do this now, before reading any further. All three guards run to
+      completion before the first Edit — the editing instructions below assume a
+      verified backup already exists. The profile directory is gitignored by
+      design, so git holds no history of it and is not available as an undo:
+      this backup is the ONLY recovery path in the workflow, and an edit made
+      before it exists is an unrecoverable edit to the source of truth. It is
+      declared in writes_to so the engine's post-stage existence check covers it
+      as well, rather than it living only in this prose.
+
+      Apply ONLY proposals whose `decision` field is `accept`. A proposal with
+      decision `reject`, or with no decision field at all, is not applied —
+      absence of a verdict is a reject, because the human may simply not have
+      reached it.
+
+      EDIT SURGICALLY. Use the Edit tool to insert or replace individual bullet
+      lines in place. Do NOT regenerate experience.yaml from baseline.yaml:
+      baseline.yaml is a normalized EXPORT, not a faithful copy. Round-tripping
+      it through the writer would drop comments, reorder keys, restyle quoting,
+      and discard any field the exporter does not model — silently rewriting
+      parts of the file nobody reviewed at the gate.
+
+      For each accepted proposal:
+        - action=add: insert the bullet at the END of that role's `bullets`
+          list, matching the surrounding indentation exactly.
+        - action=revise: replace ONLY the text of the bullet named in
+          `replaces`, leaving its position in the list unchanged.
+
+      Locate the role by its title + company pair. If either does not match
+      exactly, do not guess at the nearest role — record the proposal as
+      NOT APPLIED with the reason and continue. A bullet written under the wrong
+      employer is a factual error in the source of truth.
+
+      After the edits, confirm the file still parses by running `python3 -c`
+      with yaml.safe_load, passing {profile_dir}/experience.yaml as argv[1].
+      Pass the path as an argument — never interpolate {profile_dir} into the
+      Python source itself. That value is a user-supplied param, so a quote
+      character in it would break the literal and turn the snippet into an
+      injection point.
+
+      Write {workspace}/outputs/applied.md listing every proposal with its outcome
+      (APPLIED / REJECTED / NOT APPLIED + reason), the role each landed under,
+      and the path to the backup. Write this file on every path, including the
+      path where zero proposals were accepted — verify-profile reads it
+      unconditionally, and "nothing was accepted" is a result worth recording.
+    agent:
+      role: code-writer
+      model: inherit
+      tools: [Read, Edit, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - "applied.md"
+      # Bare entry, so it resolves to {workspace}/outputs/experience.yaml.bak —
+      # the same path the description writes and verify-profile restores from.
+      # Declared here so the engine's post-stage existence check covers the one
+      # artifact that is the workflow's only undo (the profile dir is gitignored,
+      # so git cannot recover it).
+      - "experience.yaml.bak"
+
+  # ==========================================================================
+  # Stage 10: verify-profile — confirm the profile still parses and renders
+  #
+  # kind: execute for the same reason as check-copy: the validate builder drops
+  # `description`. This stage is a three-step procedure with a conditional
+  # rollback (restore the backup when the re-export fails), which is control
+  # flow that `validation.criteria` — a flat list of natural-language strings —
+  # cannot express at all. Losing it would leave a corrupted profile in place
+  # with no restore, which is the worst outcome this workflow can produce.
+  # ==========================================================================
+  - name: verify-profile
+    kind: execute
+    depends_on: [apply-updates]
+    reads_from: [apply-updates, load-current-baseline]
+    description: >
+      A clean edit is not proof the profile is still usable. Verify it end to
+      end.
+
+      1. RE-EXPORT. Run the same export the baseline came from:
+
+           ./bin/assistant resume experience export \
+             --data {profile_dir}/experience.yaml \
+             --out {workspace}/outputs/baseline-after.yaml
+
+         A non-zero exit means the profile no longer loads. Before restoring,
+         confirm {workspace}/outputs/experience.yaml.bak exists and is
+         non-empty. If it does NOT exist, do not attempt a restore — read
+         applied.md first: apply-updates stops at its guards without editing
+         and without taking a backup, so a missing backup most likely means
+         nothing was ever modified and the parse failure predates this run.
+         Overwriting a live profile with a missing or empty file would turn a
+         diagnosable failure into data loss.
+
+         If the backup does exist, restore it over {profile_dir}/experience.yaml,
+         confirm the restored file parses, then report the failure and write the
+         stage result with "status": "failed" and the restore recorded in
+         "errors". Report a failed restore even more loudly: that leaves a
+         corrupted profile with no remaining recovery path, and the human must
+         know immediately.
+
+      2. DIFF AGAINST THE BASELINE. Compare {workspace}/outputs/baseline-after.yaml with
+         {workspace}/outputs/baseline.yaml and confirm the ONLY differences are the
+         bullets recorded as APPLIED in {workspace}/outputs/applied.md. Check
+         specifically that:
+           - the role count is unchanged
+           - every role's title, company, location, start, and end are unchanged
+           - no bullet disappeared that was not named in a `replaces` field
+         Any unexplained difference means the edit was not surgical. Report it
+         and point at the backup — an unreviewed change to the source of truth
+         is the failure this stage exists to catch.
+
+      3. RENDER. Confirm the profile still produces a document:
+
+           ./bin/assistant resume render \
+             --data {workspace}/outputs/baseline-after.yaml \
+             --out {workspace}/outputs/verify.docx
+
+         Treat a non-zero exit as fatal. Delete any existing verify.docx first
+         so a stale file from an earlier run cannot be mistaken for a fresh one.
+         It is declared in writes_to so the engine's existence check covers it
+         too: deleting-then-rendering guards a fresh run, but a resumed run
+         skips stages whose result JSON already reports success, so the
+         declaration is what catches a missing artifact there.
+
+         Omitting --template is deliberate: the renderer falls back to
+         DEFAULT_TEMPLATE, which resolves the summary, skills, experience, and
+         education sections — so the experience section this workflow just
+         changed IS exercised. Confirm the rendered document is not header-only
+         before calling this a pass. A body-less render was a real failure mode
+         here (a 37KB file containing only a name and contact line, exit 0)
+         until src/resume/cli/main.py stopped defeating that fallback.
+
+      Report a one-line summary: how many bullets landed, under which roles, and
+      whether the profile still exports and renders. Do not print bullet text or
+      any contact field — this is PII and the run transcript is not redacted.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Bash, Read]
+      access: read-write
+    required: true
+    writes_to:
+      - "baseline-after.yaml"
+      # Bare entry -> {workspace}/outputs/verify.docx, the path the render
+      # command above writes. Declared so the render is existence-checked on a
+      # resumed run, not only guarded by the delete-first instruction.
+      - "verify.docx"
