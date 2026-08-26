@@ -101,6 +101,19 @@ class TestColumnWidthValidation(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     _validate_column_width(bad, "sidebar_width")
 
+    def test_rejects_boolean_width(self):
+        """bool subclasses int, so float(True) == 1.0.
+
+        A YAML typo like `sidebar_width: true` would otherwise pass validation
+        and quietly render a 1-inch column — the exact silent-wrong-output
+        class this guard exists to close.
+        """
+        for bad in (True, False):
+            with self.subTest(width=bad):
+                with self.assertRaises(ValueError) as ctx:
+                    _validate_column_width(bad, "sidebar_width")
+                self.assertIn("boolean", str(ctx.exception).lower())
+
     def test_rejects_non_numeric_width(self):
         """A string or None must fail loudly, not coerce to a default."""
         for bad in ("wide", None, [], {}):
@@ -180,6 +193,43 @@ class TestUsableWidthFromSection(unittest.TestCase):
             write_resume_docx(
                 data=_candidate(), template=_sidebar_template(), out_path=out
             )
+            self.assertTrue(os.path.exists(out))
+
+    def test_rejects_overflow_against_compact_wide_margins(self):
+        """With page.compact, wide margins genuinely shrink the usable width.
+
+        At margins_in=1.5 the usable width is 8.5 - 3.0 = 5.5", so columns
+        totalling 5.9" overflow. An earlier revision took max(measured,
+        default) unconditionally and accepted this.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = os.path.join(tmpdir, "resume.docx")
+            template = _sidebar_template(sidebar_width=2.5, main_width=3.4)
+            template["page"] = {"compact": True, "margins_in": 1.5}
+            with self.assertRaises(ValueError) as ctx:
+                write_resume_docx(
+                    data=_candidate(), template=template, out_path=out
+                )
+            msg = str(ctx.exception)
+            self.assertIn("5.9", msg)
+            self.assertIn("5.5", msg)
+
+    def test_accepts_columns_fitting_compact_wide_margins(self):
+        """The same wide-margin page accepts columns that do fit inside it."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = os.path.join(tmpdir, "resume.docx")
+            template = _sidebar_template(sidebar_width=2.0, main_width=3.0)
+            template["page"] = {"compact": True, "margins_in": 1.5}
+            write_resume_docx(data=_candidate(), template=template, out_path=out)
+            self.assertTrue(os.path.exists(out))
+
+    def test_accepts_defaults_with_compact_narrow_margins(self):
+        """compact + 0.5" margins is the documented 7.5" case."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = os.path.join(tmpdir, "resume.docx")
+            template = _sidebar_template()
+            template["page"] = {"compact": True, "margins_in": 0.5}
+            write_resume_docx(data=_candidate(), template=template, out_path=out)
             self.assertTrue(os.path.exists(out))
 
     def test_invalid_geometry_falls_back_to_default(self):

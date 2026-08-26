@@ -208,6 +208,13 @@ def _validate_column_width(value: Any, name: str, max_width: float | None = None
     page sizes are honoured.
     """
     limit = _DEFAULT_USABLE_WIDTH_IN if max_width is None else max_width
+    # bool is a subclass of int, so float(True) == 1.0 — a YAML typo like
+    # `sidebar_width: true` would otherwise pass validation and quietly render
+    # a 1-inch column. Reject it before coercion.
+    if isinstance(value, bool):
+        raise ValueError(
+            f"layout.{name} must be a number of INCHES, got boolean {value!r}"
+        )
     try:
         width = float(value)
     except (TypeError, ValueError):
@@ -232,13 +239,19 @@ class SidebarResumeWriter(ResumeWriterBase):
         # Sidebar: 2.3" (~30%), Main: 5.2" (~70%). Measured from the section
         # rather than assumed: page size and page.margins_in are configurable,
         # and page styles are already applied by the time this runs.
-        # The limit is the wider of the measured geometry and the documented
-        # default. Margins are only narrowed when page.compact is set, so a
-        # non-compact template still sits at python-docx's 1.25" default (6.0"
-        # usable) while the documented column defaults total 7.5". Taking the
-        # max keeps this guard aimed at its actual target — a percent-shaped
-        # value like 34 — instead of rejecting the shipped defaults.
-        usable = max(_usable_width_in(self.doc), _DEFAULT_USABLE_WIDTH_IN)
+        # Which width to measure against depends on whether the template
+        # actually configured its margins:
+        #   - page.compact set -> _apply_page_styles has already written
+        #     page.margins_in, so the measured geometry is authoritative and a
+        #     wide-margin template must reject columns that overflow it.
+        #   - otherwise -> margins are still python-docx's 1.25" default (6.0"
+        #     usable) which the template never asked for, while the documented
+        #     column defaults total 7.5". Measuring there would reject the
+        #     shipped defaults, so fall back to the documented width.
+        if self.page_cfg.get("compact"):
+            usable = _usable_width_in(self.doc)
+        else:
+            usable = max(_usable_width_in(self.doc), _DEFAULT_USABLE_WIDTH_IN)
         sidebar_width = _validate_column_width(
             self.layout_cfg.get("sidebar_width", 2.3), "sidebar_width", usable
         )
