@@ -16,7 +16,11 @@ import os
 import tempfile
 import unittest
 
-from resume.docx_sidebar_sections import _MAX_USABLE_WIDTH_IN, _validate_column_width
+from resume.docx_sidebar_sections import (
+    _DEFAULT_USABLE_WIDTH_IN,
+    _usable_width_in,
+    _validate_column_width,
+)
 from resume.docx_writer import write_resume_docx
 
 
@@ -84,11 +88,11 @@ class TestColumnWidthValidation(unittest.TestCase):
     def test_rejects_width_exactly_over_usable_page(self):
         """Boundary: the usable width itself passes, just above it does not."""
         self.assertEqual(
-            _validate_column_width(_MAX_USABLE_WIDTH_IN, "main_width"),
-            _MAX_USABLE_WIDTH_IN,
+            _validate_column_width(_DEFAULT_USABLE_WIDTH_IN, "main_width"),
+            _DEFAULT_USABLE_WIDTH_IN,
         )
         with self.assertRaises(ValueError):
-            _validate_column_width(_MAX_USABLE_WIDTH_IN + 0.01, "main_width")
+            _validate_column_width(_DEFAULT_USABLE_WIDTH_IN + 0.01, "main_width")
 
     def test_rejects_zero_and_negative_widths(self):
         """A non-positive column cannot render."""
@@ -126,6 +130,67 @@ class TestColumnWidthValidation(unittest.TestCase):
                     template=_sidebar_template(sidebar_width=34),
                     out_path=out,
                 )
+
+
+class TestUsableWidthFromSection(unittest.TestCase):
+    """The width limit follows the real page geometry, not a hardcoded 7.5"."""
+
+    def test_derives_usable_width_from_margins(self):
+        """page.margins_in is configurable, so the limit must move with it.
+
+        Note python-docx's own default margin is 1.25", not the 0.5" this
+        renderer applies via _apply_page_styles — so a bare Document() is 6.0"
+        usable, and 7.5" only holds once those styles have run.
+        """
+        from docx import Document
+        from docx.shared import Inches
+
+        doc = Document()
+        self.assertAlmostEqual(_usable_width_in(doc), 6.0, places=2)
+
+        sec = doc.sections[0]
+        sec.left_margin = Inches(0.5)
+        sec.right_margin = Inches(0.5)
+        self.assertAlmostEqual(_usable_width_in(doc), 7.5, places=2)
+
+        sec.left_margin = Inches(1.5)
+        sec.right_margin = Inches(1.5)
+        self.assertAlmostEqual(_usable_width_in(doc), 5.5, places=2)
+
+    def test_rejects_width_valid_at_default_margins_but_not_at_wide_ones(self):
+        """A 6" column fits a 0.5"-margin page but overflows a 1.5"-margin one.
+
+        This is the case a hardcoded 7.5" limit accepted incorrectly.
+        """
+        self.assertEqual(_validate_column_width(6.0, "main_width", 7.5), 6.0)
+        with self.assertRaises(ValueError) as ctx:
+            _validate_column_width(6.0, "main_width", 5.5)
+        self.assertIn("5.5", str(ctx.exception))
+
+    def test_accepts_shipped_defaults_on_a_non_compact_template(self):
+        """The documented 2.3 + 5.2 defaults must render without page.compact.
+
+        Margins are only narrowed to 0.5" when page.compact is set, so a plain
+        template leaves python-docx's 1.25" default (6.0" usable) while the
+        column defaults total 7.5". The guard takes the wider of measured and
+        documented width so it targets percent-shaped values, not the defaults.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = os.path.join(tmpdir, "resume.docx")
+            write_resume_docx(
+                data=_candidate(), template=_sidebar_template(), out_path=out
+            )
+            self.assertTrue(os.path.exists(out))
+
+    def test_invalid_geometry_falls_back_to_default(self):
+        """An unreadable section must not make the guard itself raise."""
+
+        class _Broken:
+            @property
+            def sections(self):
+                raise RuntimeError("no sections")
+
+        self.assertEqual(_usable_width_in(_Broken()), _DEFAULT_USABLE_WIDTH_IN)
 
 
 class TestSidebarContactParity(unittest.TestCase):

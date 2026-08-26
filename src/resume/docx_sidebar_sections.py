@@ -170,30 +170,55 @@ def _render_main_presentations(cell, data: dict[str, Any], page_cfg: dict[str, A
         _render_pres_entry(cell, pres, page_cfg, bullet_color)
 
 
-# Usable width on US Letter (8.5") with 0.5" margins. Column widths are given
-# in INCHES, not percent — a percent-looking value such as 34 silently produces
-# a 34-inch column that mangles the layout, so widths are bounds-checked.
-_MAX_USABLE_WIDTH_IN = 7.5
+# Fallback usable width: US Letter (8.5") minus the default 0.5" margins.
+# Only used when the real section geometry cannot be read; page size and
+# margins (page.margins_in) are both configurable, so prefer the measured
+# value from _usable_width_in().
+_DEFAULT_USABLE_WIDTH_IN = 7.5
 
 
-def _validate_column_width(value: Any, name: str) -> float:
+def _usable_width_in(doc: Any) -> float:
+    """Return the section's usable width in inches (page width minus margins).
+
+    Falls back to the US Letter default when the geometry is unreadable — a
+    width guard that raised on its own measurement step would be worse than one
+    that checks against a sane default.
+    """
+    try:
+        from docx.shared import Emu  # type: ignore
+
+        sec = doc.sections[0]
+        # Length arithmetic returns a bare int of EMUs, not a Length, so it has
+        # no .inches — wrap it back up before converting.
+        inches = Emu(sec.page_width - sec.left_margin - sec.right_margin).inches
+    except Exception:  # nosec B110 - fall back to the documented default
+        return _DEFAULT_USABLE_WIDTH_IN
+    return inches if inches and inches > 0 else _DEFAULT_USABLE_WIDTH_IN
+
+
+def _validate_column_width(value: Any, name: str, max_width: float | None = None) -> float:
     """Return a column width in inches, rejecting out-of-range values.
 
     Raises ValueError rather than clamping: a caller passing 34 means percent,
     and silently rendering a 3.4"- or 7.5"-wide column would hide the mistake
     inside a document that looks plausible until someone opens it.
+
+    max_width defaults to US Letter's usable width; callers with a real
+    document should pass _usable_width_in(doc) so configurable margins and
+    page sizes are honoured.
     """
+    limit = _DEFAULT_USABLE_WIDTH_IN if max_width is None else max_width
     try:
         width = float(value)
     except (TypeError, ValueError):
         raise ValueError(
             f"layout.{name} must be a number of INCHES, got {value!r}"
         ) from None
-    if not 0 < width <= _MAX_USABLE_WIDTH_IN:
+    if not 0 < width <= limit:
         raise ValueError(
             f"layout.{name}={width} is out of range: expected inches in "
-            f"(0, {_MAX_USABLE_WIDTH_IN}]. Widths are inches, not percent — "
-            f"a US Letter page with 0.5\" margins is {_MAX_USABLE_WIDTH_IN}\" wide."
+            f"(0, {limit:g}]. Widths are inches, not percent — the usable page "
+            f"width (page size minus margins) is {limit:g}\"."
         )
     return width
 
@@ -204,18 +229,27 @@ class SidebarResumeWriter(ResumeWriterBase):
     def _render_content(self, seed: dict[str, Any] | None = None) -> None:
         """Render two-column sidebar resume content."""
         # Default widths for US Letter (8.5" wide) with 0.5" margins = 7.5" usable
-        # Sidebar: 2.3" (~30%), Main: 5.2" (~70%)
+        # Sidebar: 2.3" (~30%), Main: 5.2" (~70%). Measured from the section
+        # rather than assumed: page size and page.margins_in are configurable,
+        # and page styles are already applied by the time this runs.
+        # The limit is the wider of the measured geometry and the documented
+        # default. Margins are only narrowed when page.compact is set, so a
+        # non-compact template still sits at python-docx's 1.25" default (6.0"
+        # usable) while the documented column defaults total 7.5". Taking the
+        # max keeps this guard aimed at its actual target — a percent-shaped
+        # value like 34 — instead of rejecting the shipped defaults.
+        usable = max(_usable_width_in(self.doc), _DEFAULT_USABLE_WIDTH_IN)
         sidebar_width = _validate_column_width(
-            self.layout_cfg.get("sidebar_width", 2.3), "sidebar_width"
+            self.layout_cfg.get("sidebar_width", 2.3), "sidebar_width", usable
         )
         main_width = _validate_column_width(
-            self.layout_cfg.get("main_width", 5.2), "main_width"
+            self.layout_cfg.get("main_width", 5.2), "main_width", usable
         )
-        if sidebar_width + main_width > _MAX_USABLE_WIDTH_IN:
+        if sidebar_width + main_width > usable:
             raise ValueError(
-                f"layout.sidebar_width ({sidebar_width}) + layout.main_width "
-                f"({main_width}) = {sidebar_width + main_width} exceeds the "
-                f"{_MAX_USABLE_WIDTH_IN}\" usable page width."
+                f"layout.sidebar_width ({sidebar_width:g}) + layout.main_width "
+                f"({main_width:g}) = {sidebar_width + main_width:g} exceeds the "
+                f"{usable:g}\" usable page width (page size minus margins)."
             )
         sidebar_bg = self.layout_cfg.get("sidebar_bg")
 
@@ -305,13 +339,10 @@ class SidebarResumeWriter(ResumeWriterBase):
             )
 
         # Contact line (centered). Link extras (website/linkedin/github/links)
-        # come from the same helper the standard layout uses, so a profile that
-        # shows a LinkedIn URL in one layout shows it in both. Imported locally
-        # to avoid a circular import: docx_writer imports this module.
-        from .docx_writer import _collect_link_extras
-
+        # come from the inherited ResumeWriterBase helper, so a profile that
+        # shows a LinkedIn URL in one layout shows it in both.
         contact_parts = [x for x in [phone, email, location] if x]
-        contact_parts.extend(_collect_link_extras(self.data))
+        contact_parts.extend(self._collect_link_extras())
         if contact_parts:
             self._render_centered_header_line(
                 header.add_paragraph(), " | ".join(contact_parts),
