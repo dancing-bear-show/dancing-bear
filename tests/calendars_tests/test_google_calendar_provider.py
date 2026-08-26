@@ -19,7 +19,7 @@ import tempfile
 import unittest
 from dataclasses import dataclass, field
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 
 # ---------------------------------------------------------------------------
@@ -485,17 +485,16 @@ class TestScopeRegression(unittest.TestCase):
         try:
             client = GmailClient(credentials_path="/dev/null", token_path=token_path)
 
-            # Mock Credentials.from_authorized_user_file to return a fake creds object
-            # with stale scopes set
-            mock_creds = MagicMock()
-            mock_creds.scopes = set(stale_scopes)
-
-            with patch("mail.gmail_api.Credentials") as mock_creds_cls:
-                mock_creds_cls.from_authorized_user_file.return_value = mock_creds
-
-                buf = io.StringIO()
-                with patch("sys.stdout", buf):
-                    result = client._load_token()
+            # Use the REAL google.oauth2 Credentials here. Mocking it and
+            # hand-setting mock_creds.scopes to the stale list manufactures
+            # behaviour the library does not have: from_authorized_user_file
+            # sets creds.scopes to the SCOPES argument it is given, NOT to what
+            # the file records. A mocked version of this test passes against an
+            # implementation that reads creds.scopes and can therefore never
+            # detect a missing scope — which is exactly the bug it missed.
+            buf = io.StringIO()
+            with patch("sys.stdout", buf):
+                result = client._load_token()
 
             self.assertIsNone(result, "_load_token must return None for stale scopes")
             output = buf.getvalue()

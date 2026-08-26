@@ -5,6 +5,7 @@ Provides the subset needed by the CLI with lazy imports of Google libs.
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
@@ -76,7 +77,18 @@ class GmailClient(ConfigCacheMixin):
             return None
 
         # Detect stale scopes: token was minted before SCOPES was extended.
-        token_scopes: set[str] = set(getattr(creds, "scopes", None) or [])
+        #
+        # Read the scopes from the token FILE, not from creds.scopes.
+        # from_authorized_user_file(path, SCOPES) sets creds.scopes to the
+        # SCOPES argument it was handed, not to what the file records — so
+        # comparing creds.scopes against SCOPES compares SCOPES with itself
+        # and can never detect a missing scope.
+        token_scopes: set[str] = set()
+        try:
+            with open(self.token_path, encoding="utf-8") as fh:
+                token_scopes = set(json.load(fh).get("scopes") or [])
+        except Exception:  # nosec B110 - unreadable/malformed token; fall through to the creds check
+            token_scopes = set()
         if token_scopes:
             required_scopes = set(SCOPES)
             missing = required_scopes - token_scopes
