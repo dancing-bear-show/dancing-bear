@@ -125,11 +125,13 @@ def _load_candidate_data(args: argparse.Namespace) -> CandidateData:
     ``TypeError`` on filtered data while working on unfiltered data. Converting
     once, on load, gives every consumer the same shape.
 
-    Returns a plain dict, not a ``Resume``. Every consumer downstream of here
-    (``build_summary``, ``write_resume_docx``, ``align_candidate_to_job``,
-    ``apply_profile_overlays``, ``build_experience_summary``) takes a dict, so
-    returning the typed object would only add a ``.to_dict()`` at each of them.
-    Moving that boundary is a separate, later step.
+    Returns a plain dict, not a ``Resume``. The remaining consumers downstream
+    of here (``build_summary``, ``align_candidate_to_job``,
+    ``apply_profile_overlays``, ``build_experience_summary``) all take a dict,
+    so returning the typed object would only add a ``.to_dict()`` at each of
+    them. The render path is the exception: it re-enters the schema through
+    ``_apply_filter_pipeline``, which now returns the ``Resume`` that
+    ``write_resume_docx`` requires. Converting the rest is a later step.
 
     Only candidate data goes through here. Style profiles and alignment reports
     are different documents with different shapes and are loaded directly.
@@ -137,12 +139,20 @@ def _load_candidate_data(args: argparse.Namespace) -> CandidateData:
     return Resume.from_dict(read_yaml_or_json(_resolve_data(args))).to_dict()
 
 
-def _apply_filter_pipeline(data: dict, args: argparse.Namespace, min_priority: float | None = None) -> dict:
-    """Apply profile overlay, skill filter, and experience filter (and optionally priority) via FilterPipeline.
+def _apply_filter_pipeline(
+    data: dict, args: argparse.Namespace, min_priority: float | None = None
+) -> Resume:
+    """Apply profile overlay, skill filter, experience filter, and priority filter.
 
-    `FilterPipeline` is typed at its edges while this module still holds dicts,
-    so the conversion is done here. The wrapping is temporary: it disappears once
-    the CLI boundary itself loads a ``Resume`` at each ``read_yaml_or_json``.
+    Returns the ``Resume`` that ``FilterPipeline`` produces, rather than
+    lowering it back to a dict. ``render`` hands that object straight to
+    ``write_resume_docx``, so the typed value now survives from the filters to
+    the writer instead of being flattened in between.
+
+    The input is still a dict because ``_load_candidate_data`` feeds several
+    dict-only consumers (``build_summary``, ``align_candidate_to_job``,
+    ``apply_profile_overlays``); callers that need a dict from here call
+    ``.to_dict()`` themselves.
     """
     return (
         FilterPipeline(Resume.from_dict(data))
@@ -157,7 +167,6 @@ def _apply_filter_pipeline(data: dict, args: argparse.Namespace, min_priority: f
         )
         .with_priority_filter(min_priority)
         .execute()
-        .to_dict()
     )
 
 
@@ -273,7 +282,8 @@ def cmd_extract(args: argparse.Namespace) -> int:
 @app.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_summarize(args: argparse.Namespace) -> int:
     data = _load_candidate_data(args)
-    data = _apply_filter_pipeline(data, args)
+    # build_summary still takes a dict; converting it is a later step.
+    data = _apply_filter_pipeline(data, args).to_dict()
 
     seed = parse_seed_criteria(args.seed) if args.seed else {}
     seed = _extend_seed_with_style(seed, getattr(args, "style_profile", None))
@@ -393,9 +403,10 @@ def cmd_render(args: argparse.Namespace) -> int:
     seed = parse_seed_criteria(args.seed) if args.seed else {}
     seed = _extend_seed_with_style(seed, getattr(args, "style_profile", None))
 
-    # Apply all filters via pipeline
+    # Apply all filters via pipeline. The result stays typed all the way into
+    # the writer -- this is the only path that no longer lowers to a dict.
     min_prio = getattr(args, "min_priority", None)
-    data = _apply_filter_pipeline(
+    resume = _apply_filter_pipeline(
         data, args, float(min_prio) if isinstance(min_prio, (int, float)) else None
     )
 
@@ -411,7 +422,7 @@ def cmd_render(args: argparse.Namespace) -> int:
     except Exception:  # nosec B110 - mkdir failure
         pass
     write_resume_docx(
-        data=data,
+        resume=resume,
         template=template,
         out_path=str(out_docx),
         seed=seed,

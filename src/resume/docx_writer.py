@@ -27,6 +27,7 @@ from .docx_styles import (
     _format_link_display,
 )
 from .docx_standard import SECTION_RENDERERS, SECTIONS_WITH_KEYWORDS
+from .schema import Resume
 
 
 SECTION_SYNONYMS = {
@@ -169,7 +170,7 @@ def _render_section_heading(doc, title: str, template: dict[str, Any]) -> None:
 
 
 def write_resume_docx(
-    data: dict[str, Any],
+    resume: Resume,
     template: dict[str, Any],
     out_path: str,
     seed: dict[str, Any] | None = None,
@@ -180,8 +181,15 @@ def write_resume_docx(
     This is the main entry point for backward compatibility.
     For new code, prefer using create_resume_writer() from docx_base.
 
+    Takes a typed ``Resume`` and lowers it to a dict once, here. The render
+    modules below still read candidate data as dicts; moving them onto
+    attribute access is a separate step. Converting at the entry point rather
+    than at each caller means the CLI, the golden harness, and the tests all
+    hand over the same typed object, so a caller can no longer feed the
+    renderer a dict that never went through the schema.
+
     Args:
-        data: Resume data (name, experience, education, etc.)
+        resume: Typed candidate data (name, experience, education, etc.)
         template: Template configuration (sections, page styles, etc.)
         out_path: Output file path
         seed: Optional seed data (keywords, etc.)
@@ -191,7 +199,7 @@ def write_resume_docx(
     layout_cfg = template.get("layout") or {}
     if layout_cfg.get("type") == "sidebar":
         from .docx_sidebar import write_resume_docx_sidebar
-        return write_resume_docx_sidebar(data, template, out_path, seed)
+        return write_resume_docx_sidebar(resume, template, out_path, seed)
 
     # Standard single-column layout
     docx = safe_import("docx")
@@ -199,6 +207,8 @@ def write_resume_docx(
         raise RuntimeError("Rendering DOCX requires python-docx; install python-docx.")
 
     from docx import Document  # type: ignore
+
+    data = resume.to_dict()
 
     doc = Document()
     page_cfg = template.get("page") or {}

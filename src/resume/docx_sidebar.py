@@ -16,6 +16,7 @@ from .docx_sidebar_cells import (  # noqa: F401
     _render_sidebar_section,
     _set_cell_shading,
 )
+from .schema import Resume
 from .docx_sidebar_sections import (  # noqa: F401
     SidebarResumeWriter,
     _render_exp_entry,
@@ -30,7 +31,7 @@ from .docx_sidebar_sections import (  # noqa: F401
 # Backward-compatible function defined here so that
 # `@patch("resume.docx_sidebar.SidebarResumeWriter")` resolves correctly.
 def write_resume_docx_sidebar(
-    data: dict[str, Any],
+    resume: Resume,
     template: dict[str, Any],
     out_path: str,
     seed: dict[str, Any] | None = None,
@@ -39,6 +40,10 @@ def write_resume_docx_sidebar(
 
     This function is provided for backward compatibility.
     Prefer using SidebarResumeWriter directly.
+
+    Takes a typed ``Resume`` and lowers it once here;
+    ``SidebarResumeWriter`` and the section renderers below it still read
+    candidate data as dicts.
     """
-    writer = SidebarResumeWriter(data, template)
+    writer = SidebarResumeWriter(resume.to_dict(), template)
     writer.write(out_path, seed)

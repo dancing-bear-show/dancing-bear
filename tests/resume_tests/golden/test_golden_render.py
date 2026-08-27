@@ -75,8 +75,16 @@ class GoldenRenderTests(unittest.TestCase):
     maxDiff = None
 
     def _render(self, candidate, template, out_dir: str) -> str:
+        """Render a fixture through the writer, which takes a typed ``Resume``.
+
+        Fixtures are authored as raw dicts, so a dict is lifted here. Callers
+        that already hold a ``Resume`` (the pipeline path) pass it straight
+        through, so the pipeline's typed output is no longer flattened and
+        re-parsed on its way to the writer.
+        """
         out_path = os.path.join(out_dir, "resume.docx")
-        write_resume_docx(candidate, template, out_path)
+        resume = candidate if isinstance(candidate, Resume) else Resume.from_dict(candidate)
+        write_resume_docx(resume, template, out_path)
         return out_path
 
     def _check_golden(self, name: str, candidate, template) -> None:

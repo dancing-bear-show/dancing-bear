@@ -294,14 +294,16 @@ class TestWriteResumeDocx(unittest.TestCase):
     @patch("resume.docx_writer.safe_import")
     def test_raises_when_docx_unavailable(self, mock_safe_import):
         from resume.docx_writer import write_resume_docx
+        from resume.schema import Resume
         mock_safe_import.return_value = None
         with self.assertRaises(RuntimeError) as ctx:
-            write_resume_docx({}, {}, test_path("out.docx"))  # nosec B108 - test fixture path
+            write_resume_docx(Resume(), {}, test_path("out.docx"))  # nosec B108 - test fixture path
         self.assertIn("python-docx", str(ctx.exception))
 
     @patch("resume.docx_writer.safe_import")
     def test_creates_document_and_saves(self, mock_safe_import):
         from resume.docx_writer import write_resume_docx
+        from resume.schema import Resume
         # Mock the docx module with all necessary components
         mock_docx = MagicMock()
         mock_doc = MagicMock()
@@ -320,9 +322,9 @@ class TestWriteResumeDocx(unittest.TestCase):
 
         # Patch the import inside the function
         with patch.dict("sys.modules", {"docx": mock_docx}):
-            data = {"name": "John Doe"}
+            resume = Resume.from_dict({"name": "John Doe"})
             template = {"sections": [], "page": {"compact": False}}
-            write_resume_docx(data, template, test_path("test.docx"))  # nosec B108 - test fixture path
+            write_resume_docx(resume, template, test_path("test.docx"))  # nosec B108 - test fixture path
 
         mock_doc.save.assert_called_once_with(test_path("test.docx"))  # nosec B108 - test fixture path
 

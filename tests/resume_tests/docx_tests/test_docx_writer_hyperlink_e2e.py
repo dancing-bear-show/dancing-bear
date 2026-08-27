@@ -31,12 +31,17 @@ class TestWriteResumeDocxMailtoHyperlink(unittest.TestCase):
     """
 
     def _render(self, data: dict, template: dict) -> bytes:
-        """Render a resume via write_resume_docx and return DOCX bytes."""
+        """Render a resume via write_resume_docx and return DOCX bytes.
+
+        Cases are authored as dicts; the writer takes a typed ``Resume``, so
+        the lift happens here rather than in every test.
+        """
         from resume.docx_writer import write_resume_docx
+        from resume.schema import Resume
         with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as f:
             path = f.name
         try:
-            write_resume_docx(data, template, path)
+            write_resume_docx(Resume.from_dict(data), template, path)
             with open(path, "rb") as f:
                 return f.read()
         finally:

@@ -244,8 +244,13 @@ class TestBackwardCompatibility(unittest.TestCase):
 
     @patch("resume.docx_sidebar.SidebarResumeWriter")
     def test_write_resume_docx_sidebar_delegates(self, mock_writer_class):
-        """Test that write_resume_docx_sidebar delegates to SidebarResumeWriter."""
+        """Test that write_resume_docx_sidebar delegates to SidebarResumeWriter.
+
+        The entry point takes a typed ``Resume`` and lowers it once, so the
+        writer class still receives the equivalent dict.
+        """
         from resume.docx_sidebar import write_resume_docx_sidebar
+        from resume.schema import Resume
 
         mock_writer = MagicMock()
         mock_writer_class.return_value = mock_writer
@@ -253,7 +258,7 @@ class TestBackwardCompatibility(unittest.TestCase):
         data = make_candidate()
         template = {"page": {}}
 
-        write_resume_docx_sidebar(data, template, test_path("test.docx"))  # nosec B108 - test fixture path
+        write_resume_docx_sidebar(Resume.from_dict(data), template, test_path("test.docx"))  # nosec B108 - test fixture path
 
         mock_writer_class.assert_called_once_with(data, template)
         mock_writer.write.assert_called_once()
