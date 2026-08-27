@@ -27,6 +27,7 @@ from core.textio import write_text
 
 from ..io_utils import read_text_any, read_text_raw, read_yaml_or_json, write_yaml_or_json
 from ..schema import CandidateData, Resume
+from ..keyword_normalize import item_text
 from ..parsing_linkedin import parse_linkedin_text
 from ..parsing_experience_text import parse_resume_text, merge_profiles
 from ..summarizer import build_summary
@@ -107,6 +108,33 @@ def _extend_seed_with_style(seed: dict, style_profile_path: str | None) -> dict:
     except Exception:  # nosec B110 - non-fatal seed extension
         pass
     return seed
+
+
+def _load_candidate_data(args: argparse.Namespace) -> CandidateData:
+    """Load candidate data and normalize its shape once, at the document boundary.
+
+    Candidate data reaches this CLI in several shapes: ``bullets`` may be
+    ``list[str]`` or ``list[dict]``, section items may use ``text``/``line``/
+    ``name``. Those are all mainstream producer output, not legacy leftovers --
+    ``parsing_experience_text._extract_bullets`` returns ``list[str]``.
+
+    Normalizing here rather than deeper in the pipeline is the point. When the
+    conversion sat at the filter call site instead, the shape changed *midway*
+    through the run, so a consumer saw ``list[str]`` or ``list[dict]`` depending
+    on whether a filter had run -- which is how ``summarize`` came to raise
+    ``TypeError`` on filtered data while working on unfiltered data. Converting
+    once, on load, gives every consumer the same shape.
+
+    Returns a plain dict, not a ``Resume``. Every consumer downstream of here
+    (``build_summary``, ``write_resume_docx``, ``align_candidate_to_job``,
+    ``apply_profile_overlays``, ``build_experience_summary``) takes a dict, so
+    returning the typed object would only add a ``.to_dict()`` at each of them.
+    Moving that boundary is a separate, later step.
+
+    Only candidate data goes through here. Style profiles and alignment reports
+    are different documents with different shapes and are loaded directly.
+    """
+    return Resume.from_dict(read_yaml_or_json(_resolve_data(args))).to_dict()
 
 
 def _apply_filter_pipeline(data: dict, args: argparse.Namespace, min_priority: float | None = None) -> dict:
@@ -244,7 +272,7 @@ def cmd_extract(args: argparse.Namespace) -> int:
 @app.argument("--profile", help=PROFILE_HELP_DATA)
 @app.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_summarize(args: argparse.Namespace) -> int:
-    data = read_yaml_or_json(_resolve_data(args))
+    data = _load_candidate_data(args)
     data = _apply_filter_pipeline(data, args)
 
     seed = parse_seed_criteria(args.seed) if args.seed else {}
@@ -360,7 +388,7 @@ def _load_structure(args: argparse.Namespace) -> dict | None:
 @app.argument("--profile", help=PROFILE_HELP_DATA)
 @app.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_render(args: argparse.Namespace) -> int:
-    data = read_yaml_or_json(_resolve_data(args))
+    data = _load_candidate_data(args)
     template = load_template(args.template)
     seed = parse_seed_criteria(args.seed) if args.seed else {}
     seed = _extend_seed_with_style(seed, getattr(args, "style_profile", None))
@@ -416,7 +444,7 @@ def cmd_structure(args: argparse.Namespace) -> int:
 @app.argument("--profile", help=PROFILE_HELP_DATA)
 @app.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_align(args: argparse.Namespace) -> int:
-    candidate = read_yaml_or_json(_resolve_data(args))
+    candidate = _load_candidate_data(args)
     prof = getattr(args, "profile", None)
     if prof:
         candidate = apply_profile_overlays(candidate, prof)
@@ -442,7 +470,7 @@ def cmd_align(args: argparse.Namespace) -> int:
 @app.argument("--profile", help=PROFILE_HELP_DATA)
 @app.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_candidate_init(args: argparse.Namespace) -> int:
-    data = read_yaml_or_json(_resolve_data(args))
+    data = _load_candidate_data(args)
     # Overlay profile data onto candidate if profile is provided
     prof = getattr(args, "profile", None)
     if prof:
@@ -474,7 +502,14 @@ def cmd_candidate_init(args: argparse.Namespace) -> int:
                 "start": e.get("start", ""),
                 "end": e.get("end", ""),
                 "location": e.get("location", ""),
-                "bullets": (e.get("bullets") or [])[: args.max_bullets],
+                # Flattened to prose: this file is a hand-editable skills
+                # skeleton, so bullets are written as plain strings regardless
+                # of whether they arrived as strings or as priority dicts.
+                "bullets": [
+                    item_text(b)
+                    for b in (e.get("bullets") or [])[: args.max_bullets]
+                    if item_text(b)
+                ],
             })
         candidate["experience"] = items
     write_yaml_or_json(candidate, out)
@@ -547,7 +582,7 @@ def cmd_experience_export(args: argparse.Namespace) -> int:
     if not args.data and not args.resume:
         raise SystemExit("Provide --data or --resume")
     if args.data:
-        data = read_yaml_or_json(_resolve_data(args))
+        data = _load_candidate_data(args)
         prof = getattr(args, "profile", None)
         if prof:
             data = apply_profile_overlays(data, prof)

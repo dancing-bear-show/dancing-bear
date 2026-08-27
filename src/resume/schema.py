@@ -81,6 +81,11 @@ _NAME_KEYS = ("name", "title", "label")
 # to_dict can replay the original key rather than the canonical one.
 _ALIAS_MARK = "@"
 
+# Recorded in a summary item's ``_present`` when the whole ``summary`` arrived
+# as a bare string. Shares the ``_ALIAS_MARK`` prefix, so the generic to_dict
+# never mistakes it for a declared field: only declared names are emitted.
+_SCALAR_SUMMARY = f"{_ALIAS_MARK}scalar_summary"
+
 
 def _warn(msg: str, *args: Any) -> None:
     """Report an advisory shape violation. Never raises."""
@@ -362,10 +367,24 @@ _LIST_ITEM_TYPES: dict[str, type[_Item]] = {
 def _as_summary(value: Any) -> list[PriorityItem]:
     """Normalize ``summary`` into a list of items.
 
-    A legacy scalar string becomes a single item -- a one-directional upgrade.
+    A scalar string is **not** converted. It is stored as a single item so the
+    typed API is uniform, but ``_SCALAR_SUMMARY`` records the original shape and
+    ``to_dict`` replays the bare string, because the conversion is observable
+    and lossy:
+
+    * it does not round-trip -- a scalar and a one-item list both emitted
+      ``[{"text": ...}]``, so a save rewrote the user's file; and
+    * it silently changes rendering. ``SummarySectionRenderer`` routes a scalar
+      summary to a prose paragraph and a list to bullets, and the bullet path
+      strips the terminal period. Converting the shape moved a scalar summary
+      onto the bullet path, dropping the period from rendered output.
+
+    Scalar summaries are ordinary parser output (``parsing_linkedin`` and
+    ``parsing_experience_pdf`` both emit one), not a legacy shape, so this path
+    is mainstream rather than a compatibility fallback.
     """
     if isinstance(value, str):
-        return [PriorityItem(text=value, _present={"text"})]
+        return [PriorityItem(text=value, _present={"text", _SCALAR_SUMMARY})]
     return _as_items(value, PriorityItem, "Resume.summary")
 
 
@@ -436,6 +455,29 @@ class Resume(_Item):
         resume: Resume = super().from_dict(data)
         resume._promote_contact()
         return resume
+
+    def to_dict(self) -> dict[str, Any]:
+        """Inverse of :meth:`from_dict`, replaying a scalar ``summary`` as-is.
+
+        A summary that arrived as a bare string is emitted as that same bare
+        string rather than as a one-item list. Emitting the list instead would
+        rewrite the user's file on save and would reroute the DOCX renderer from
+        its prose branch to its bullet branch; see :func:`_as_summary`.
+        """
+        out = super().to_dict()
+        if self.summary_is_scalar and "summary" in out:
+            out["summary"] = self.summary[0].text
+        return out
+
+    @property
+    def summary_is_scalar(self) -> bool:
+        """True when ``summary`` was given as a bare string, not a list.
+
+        Consumers that render a summary need this because normalization makes a
+        scalar and a genuine one-item list otherwise indistinguishable, and the
+        two render differently.
+        """
+        return len(self.summary) == 1 and _SCALAR_SUMMARY in self.summary[0]._present
 
     def _promote_contact(self) -> None:
         """Fill unset identity scalars from a nested ``contact`` dict."""

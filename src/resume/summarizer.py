@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .keyword_normalize import item_match_text, item_text
+
 
 def _keyword_hits(text: str, keywords: list[str]) -> int:
     text_l = text.lower()
@@ -21,7 +23,14 @@ def _extract_keywords(seed: dict[str, Any]) -> list[str]:
 def _score_experiences(experiences: list[dict[str, Any]], keywords: list[str]) -> list[dict[str, Any]]:
     """Rank experiences by keyword-match count, most relevant first."""
     def _score(e: dict[str, Any]) -> int:
-        blob = " ".join([e.get("title", ""), e.get("company", ""), " ".join(e.get("bullets", []))])
+        # Bullets are dicts ({"text": ..., "priority": ...}) or bare strings
+        # depending on the producer, so they are joined through item_match_text
+        # rather than directly: " ".join() over dicts raises TypeError, and
+        # str(dict) would match against the Python repr's braces and quotes.
+        # item_match_text also folds in `desc`, so a keyword appearing only in a
+        # bullet's detail still scores.
+        bullets = " ".join(item_match_text(b) for b in (e.get("bullets") or []))
+        blob = " ".join([e.get("title", ""), e.get("company", ""), bullets])
         return _keyword_hits(blob, keywords)
 
     return sorted(experiences, key=_score, reverse=True)
@@ -34,7 +43,10 @@ def _experience_highlight_lines(e: dict[str, Any]) -> list[str]:
     company = e.get("company", "")
     if title or company:
         lines.append(f"{title} at {company}".strip())
-    lines.extend((e.get("bullets") or [])[:2])
+    # Display text, so item_text (not item_match_text): a highlight line shows
+    # the bullet's prose, without the `desc` detail that matching folds in.
+    # Emitting the raw item would put a dict's repr into the rendered summary.
+    lines.extend(item_text(b) for b in (e.get("bullets") or [])[:2] if item_text(b))
     return lines
 
 

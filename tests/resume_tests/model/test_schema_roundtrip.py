@@ -246,12 +246,35 @@ class TestAlternateSpellings(RoundTripMixin, unittest.TestCase):
 class TestLegacyUpgrades(unittest.TestCase):
     """The two documented one-directional upgrades."""
 
-    def test_scalar_summary_becomes_single_item_list(self):
-        resume = Resume.from_dict({"summary": "One line of summary"})
+    def test_scalar_summary_reads_as_a_single_item_but_emits_the_scalar(self):
+        """A scalar summary is uniform in the typed view and exact on output.
+
+        The typed API always sees a list, so consumers need no special case. But
+        ``to_dict`` replays the bare string rather than a one-item list, because
+        emitting the list was observably wrong twice over: it rewrote the user's
+        file on save, and it rerouted the DOCX renderer from its prose branch to
+        its bullet branch, which strips the terminal period.
+        """
+        resume = Resume.from_dict({"summary": "One line of summary."})
         self.assertEqual(len(resume.summary), 1)
         self.assertIsInstance(resume.summary[0], PriorityItem)
-        self.assertEqual(resume.summary[0].text, "One line of summary")
-        self.assertEqual(resume.to_dict(), {"summary": [{"text": "One line of summary"}]})
+        self.assertEqual(resume.summary[0].text, "One line of summary.")
+        self.assertTrue(resume.summary_is_scalar)
+        self.assertEqual(resume.to_dict(), {"summary": "One line of summary."})
+
+    def test_single_item_list_summary_stays_a_list(self):
+        """A genuine one-item list must not be collapsed into a scalar.
+
+        The counterpart to the test above: both shapes normalize to identical
+        typed items, so only the recorded origin distinguishes them. If that
+        record were lost, this input would emit a scalar and change how it
+        renders.
+        """
+        resume = Resume.from_dict({"summary": [{"text": "One line of summary."}]})
+        self.assertFalse(resume.summary_is_scalar)
+        self.assertEqual(
+            resume.to_dict(), {"summary": [{"text": "One line of summary."}]}
+        )
 
     def test_string_bullets_become_priority_items(self):
         data = make_candidate(
