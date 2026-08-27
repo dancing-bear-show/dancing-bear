@@ -18,7 +18,11 @@ exclude_patterns = [
   "*-min.*",
   "*.min.*",
   "**/.yarn/**",
-  "**/.claude/**",
+  # Worktrees only. The parent `**/.claude/**` blinded every agent session:
+  # sessions run under .claude/worktrees/, so a local scan there reported
+  # "0 issues" against 0 scanned files -- a false clean indistinguishable
+  # from a real pass, with findings only surfacing at CI.
+  "**/.claude/worktrees/**",
   # `.claire` is a stray mistyped `.claude` that accumulated agent worktrees.
   # It is untracked, so it never reaches CI, but a local scan still walks it and
   # reports its placeholder stubs as F821/S905 — 8 phantom findings that look

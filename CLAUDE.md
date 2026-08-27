@@ -129,9 +129,19 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
   `check` + `smells` (disjoint sets — running one hides the other), defaults to
   `--all`, dedupes clone groups, and ranks findings by remediation tier
 - `./bin/qlty-assistant scan --expect-min N` fails loudly on an implausibly
-  empty scan, which is what the exclusion trap below looks like
-- `.qlty/qlty.toml` `exclude_patterns` ignores `**/.claude/**`, so agents spawned with `isolation: "worktree"` (created under `.claude/worktrees/`) get a silently empty scan — 0 issues means "excluded", not "clean"
-- Run qlty from the main checkout or a worktree outside `.claude/`; treat a suspiciously empty result as a broken environment, not a passing one
+  empty scan — still worth using as a sanity check on any surprisingly clean result
+- **qlty now scans correctly from inside an agent worktree.** The exclusion is
+  `**/.claude/worktrees/**`, narrowed from `**/.claude/**`. The old pattern also
+  matched the `.claude/` directory *inside* each worktree — and since a worktree
+  is a full checkout, a scan run from one reported "0 issues" against 0 scanned
+  files. That false clean was indistinguishable from a real pass and hid findings
+  until CI. Verified by injecting a probe defect: `ruff:F811`, `ruff:E402`, and
+  `bandit:B307` are all reported from within a worktree.
+- The narrowed pattern still excludes worktrees when scanning **from the main
+  checkout**, which is what it is for — there are dozens of them, and each is a
+  full copy of the repo.
+- Exclusions resolve relative to the scan root, which is why the same pattern can
+  exclude a path from one root and not another.
 
 **Linting (ruff directly):**
 - Use `make lint` (or `make lint-fix`), never a bare `ruff check`
