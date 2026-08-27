@@ -83,14 +83,19 @@ description: >
   execution"). Adopting it therefore means editing these stages AND running
   through the skill; under ./bin/workflow run it fails outright.
 
-  This is how the first real run of this workflow was completed: the stages
-  were executed inline by the orchestrator after the spawned gather-inventory
-  agent failed on isolation.
+  For the record, the first real run of this workflow was completed by the
+  second route: the orchestrator executed the stages itself, under the
+  /workflow skill, after the spawned gather-inventory agent failed on
+  isolation. That is a demonstration that the route works, not a claim that
+  the file is set up for it — it is not, and making it so is the edit
+  described above.
 
-  ISOLATION NOTE: Agents in this workflow must NOT use isolation: worktree.
-  An isolated worktree cannot see the parent checkout's branches, reflog, or
-  worktree list — the entire premise of this workflow requires a live view of
-  the real git state. All stages run against the main checkout directly.
+  WHY ISOLATION BREAKS IT: an isolated worktree cannot see the parent
+  checkout's branches, reflog, or worktree list, and every stage here needs a
+  live view of the real git state. Note this is a property of the SESSION, not
+  something the stages opt into: there is no "must not be isolated" field to
+  set, and a subagent inherits whatever the session has. That is why the
+  precondition above lands on the caller.
 
 metadata:
   author: dancing-bear
