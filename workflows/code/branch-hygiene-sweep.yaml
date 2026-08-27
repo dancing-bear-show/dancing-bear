@@ -4,7 +4,10 @@ description: >
   Safely identify and delete stale git branches and worktrees. Every stage is
   biased toward "prove it is safe before deleting" — the default is to spare a
   branch when uncertain. Nothing is removed until a human gate approves the
-  plan, and nothing is removed at all when dry_run is true.
+  plan, and nothing is removed at all when dry_run is true — that includes
+  .venv directories, which reclaim-venvs also skips under dry_run. dry_run is
+  a global kill switch on every destructive action in this workflow, with no
+  exceptions; a preview run leaves the tree byte-identical.
 
   Key correctness rules encoded throughout this workflow:
     - Never use git cherry alone as a merged/unmerged signal — it cannot detect
@@ -41,7 +44,7 @@ description: >
           |
     execute-deletions  (always runs; no-ops and writes a sentinel when dry_run=true)
           |
-    reclaim-venvs  (independent of dry_run; only touches KEPT worktrees)
+    reclaim-venvs  (honours dry_run; only touches KEPT worktrees)
           |
     verify-post
 
@@ -68,7 +71,8 @@ trigger:
   source: manual
   params:
     idle_hours: "48"          # worktrees idle at least this long are candidates
-    dry_run: "true"           # when true, NOTHING is deleted; workflow only reports
+    dry_run: "true"           # global kill switch: when true NOTHING is deleted,
+                              # branches, worktrees and .venv alike. Report only.
     include_worktrees: "true" # also sweep orphaned worktree directories
     protect: ""               # comma-list of branch names to never touch (e.g. main,develop)
     reclaim_venvs: "true"     # purge .venv from KEPT worktrees idle > venv_idle_hours
@@ -837,9 +841,22 @@ stages:
       exit so writes_to is satisfied on all paths:
         echo "reclaim_venvs=false — no venvs purged" > {workspace}/outputs/venv-reclaim.md
 
-      This stage runs REGARDLESS of {dry_run}. dry_run governs destruction of
-      work; a .venv is not work. If you want a preview instead, set
-      reclaim_venvs=false.
+      This stage honours {dry_run} like every other destructive stage. If
+      {dry_run} is "true", enumerate and report what WOULD be reclaimed, then
+      exit without deleting anything:
+        write the table to {workspace}/outputs/venv-reclaim.md with a
+        "DRY RUN — nothing was deleted" heading and a total of what would
+        have been freed.
+
+      An earlier revision let this stage delete under dry_run, on the reasoning
+      that a .venv is regenerable and therefore not "work". That was wrong for
+      one reason that outweighs it: an operator who sets dry_run=true is asking
+      for a preview, and a preview that deletes several gigabytes is a broken
+      promise regardless of how cheap the bytes are to rebuild. dry_run means
+      nothing is removed.
+
+      {reclaim_venvs} remains a separate opt-out, for the case where deletions
+      are wanted but venv purging is not.
 
       Step 1 — enumerate candidate venvs.
         For every worktree still present after execute-deletions:
@@ -934,7 +951,10 @@ stages:
     validation:
       strategy: deliverable
       criteria:
-        - If dry_run=true, verify no branches or directories were modified (only sentinel written)
+        - "If dry_run=true, verify the tree is byte-identical - no branch deleted,
+          no worktree or orphaned directory removed, and no .venv purged. Confirm
+          every .venv present in inventory.json is still present on disk. Only the
+          sentinel files and the report may have been written"
         - All protected branches (protect_list + main) still exist in git branch output
         - The main checkout HEAD is unchanged from inventory fetch (no accidental commit)
         - Count of deleted branches matches the approved plan from deletion-plan.md
