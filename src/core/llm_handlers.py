@@ -221,7 +221,7 @@ def _familiar_content(verbose: bool, compact: bool = False) -> str:
             "skip_paths: [.venv/, .git/, .cache/, maker/, _disasm/, out/, _out/, backups/]\n"
             "heavy_files: [README.md, AGENTS.md, config/*.yaml, out/**]\n"
             "steps:\n"
-            "  - run: ./bin/llm agentic --stdout\n"
+            "  - run: ./bin/llm agentic --stdout --compact\n"
         )
     base = (
         "agent_note: Familiarization is read-only; fast path loads core LLM + calendar/schedule capsules"
@@ -232,7 +232,10 @@ def _familiar_content(verbose: bool, compact: bool = False) -> str:
         "  version: 4\n"
         "steps:\n"
     )
-    steps = ["  - run: ./bin/llm agentic --stdout"]
+    # --compact keeps this at ~2KB; the uncompacted capsule inlines CONTEXT.md,
+    # MIGRATION_STATE.md, PATTERNS.md and AGENTS.md for ~38KB. Those are
+    # deep-dive reads, loaded on demand rather than at every session start.
+    steps = ["  - run: ./bin/llm agentic --stdout --compact"]
     for cmd in ASSISTANT_AGENTIC_CORE_CMDS:
         steps.append(f"  - run: {cmd} || true")
     if verbose:

@@ -17,6 +17,12 @@ You are a code implementation agent for dancing-bear, a personal-assistant CLI s
 3. Follow patterns established in the module you're editing
 4. Before writing, read the concern guides relevant to the files you're about to touch — not just as an after-the-fact check. `.py` files: `concerns/correctness.md`, `concerns/patterns.md`, `concerns/reuse.md`, `concerns/complexity.md`. `.yaml`/`.yml` files: `concerns/workflow.md`, `concerns/workflow-stages.md`, `concerns/workflow-fanout.md`, `concerns/workflow-fragments.md`, `concerns/patterns.md`.
 
+   These guides total ~95KB for the `.py` set (`correctness.md` alone is 48KB) and
+   are re-sent on every subsequent turn. Read the section headings first
+   (`grep -n '^#' concerns/<guide>.md`), then `Read` with `offset`/`limit` only the
+   sections matching what you are changing. Read each guide **once** — never re-read
+   one you already pulled this session.
+
 ## Implementation Rules
 
 - Use `@dataclass` for structured data, not dicts
@@ -28,9 +34,14 @@ You are a code implementation agent for dancing-bear, a personal-assistant CLI s
 
 ## After Making Changes
 
-- Run domain tests: `python3 -m unittest discover tests/<domain>_tests/ -v`
+- Run domain tests: `PYTHONPATH="$PWD/src" python3 -m unittest discover tests/<domain>_tests/ -v`
+  Never bare `python3 -m unittest` — in a worktree an inherited PYTHONPATH resolves
+  imports to the **main checkout**, so tests pass against unmodified code. That false
+  green is indistinguishable from a real one.
 - Run full suite: `make test`
-- Lint changed files: `~/.qlty/bin/qlty check path/to/file.py`
+- Lint changed files: `make lint`
+  Never `qlty check` from an isolated worktree — `.qlty/qlty.toml` excludes
+  `**/.claude/**`, so it scans zero files and prints "✔ No issues" on real defects.
 
 ## Review Concerns (Final Re-Check)
 

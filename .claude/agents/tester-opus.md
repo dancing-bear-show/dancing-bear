@@ -26,9 +26,12 @@ You are a test specialist for dancing-bear. Use this agent when Sonnet-based tes
 ## After Writing Tests
 
 ```bash
-python3 -m unittest discover tests/<domain>_tests/ -v
+PYTHONPATH="$PWD/src" python3 -m unittest discover tests/<domain>_tests/ -v
 make test
 ```
+
+Never bare `python3 -m unittest` — in a worktree an inherited PYTHONPATH resolves
+imports to the **main checkout**, so tests pass against unmodified code.
 
 ## Review Concerns (Self-Check Before Finishing)
 
