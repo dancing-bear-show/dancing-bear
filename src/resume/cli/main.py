@@ -517,9 +517,9 @@ def cmd_candidate_init(args: argparse.Namespace) -> int:
                 # skeleton, so bullets are written as plain strings regardless
                 # of whether they arrived as strings or as priority dicts.
                 "bullets": [
-                    item_text(b)
+                    t
                     for b in (e.get("bullets") or [])[: args.max_bullets]
-                    if item_text(b)
+                    if (t := item_text(b))
                 ],
             })
         candidate["experience"] = items

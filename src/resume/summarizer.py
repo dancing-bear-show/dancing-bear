@@ -46,7 +46,7 @@ def _experience_highlight_lines(e: dict[str, Any]) -> list[str]:
     # Display text, so item_text (not item_match_text): a highlight line shows
     # the bullet's prose, without the `desc` detail that matching folds in.
     # Emitting the raw item would put a dict's repr into the rendered summary.
-    lines.extend(item_text(b) for b in (e.get("bullets") or [])[:2] if item_text(b))
+    lines.extend(t for b in (e.get("bullets") or [])[:2] if (t := item_text(b)))
     return lines
 
 
