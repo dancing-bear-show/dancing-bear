@@ -757,9 +757,19 @@ stages:
           stat -f '%m' <worktree_dir>
         A venv is a candidate when parent idle_hours >= {venv_idle_hours}.
 
+      Note the enumeration is by DIRECTORY, not by branch, so it also covers
+        orphaned directories that survived execute-deletions (ORPHANED_DIR
+        entries the gate declined, or any dir when {include_worktrees} is
+        false). That is intended: a .venv is regenerable regardless of whether
+        git tracks the directory holding it. Only the branch-based exclusion
+        below is skipped for a dir with no branch — every other exclusion still
+        applies.
+
       Step 2 — exclude anything live. Never purge a venv when its worktree:
           - is the current session's worktree (compare against $PWD), OR
-          - is checked out to a PROTECTED or IN_USE branch (read buckets.json), OR
+          - is checked out to a PROTECTED or IN_USE branch (read buckets.json).
+            A directory with no branch cannot match this check — skip it for
+            those and rely on the remaining exclusions, OR
           - has uncommitted changes that include files under .venv (unusual, but
             a hand-edited venv is not regenerable), OR
           - has a running process with a cwd inside it. Check cheaply:
