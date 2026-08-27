@@ -26,19 +26,22 @@ class TestExperienceEntry(unittest.TestCase):
             start="2020",
             end="2023",
             location="San Francisco",
-            bullets=["Built APIs", "Led team"],
+            bullets=[PriorityItem(text="Built APIs"), PriorityItem(text="Led team")],
         )
         self.assertEqual(exp.title, "Senior Developer")
         self.assertEqual(exp.company, "TechCorp")
         self.assertEqual(exp.start, "2020")
         self.assertEqual(exp.end, "2023")
         self.assertEqual(exp.location, "San Francisco")
-        self.assertEqual(exp.bullets, ["Built APIs", "Led team"])
+        self.assertEqual(
+            exp.bullets,
+            [PriorityItem(text="Built APIs"), PriorityItem(text="Led team")],
+        )
 
     def test_bullets_default_factory(self):
         exp1 = ExperienceEntry()
         exp2 = ExperienceEntry()
-        exp1.bullets.append("Task 1")
+        exp1.bullets.append(PriorityItem(text="Task 1"))
         # Should not affect exp2's bullets (separate instances)
         self.assertEqual(exp2.bullets, [])
 
@@ -145,14 +148,17 @@ class TestResume(unittest.TestCase):
                     company="BigCo",
                     start="2020",
                     end="Present",
-                    bullets=["Led team of 5", "Built microservices"],
+                    bullets=[
+                        PriorityItem(text="Led team of 5"),
+                        PriorityItem(text="Built microservices"),
+                    ],
                 ),
                 ExperienceEntry(
                     title="Junior Developer",
                     company="Startup",
                     start="2018",
                     end="2020",
-                    bullets=["Developed APIs"],
+                    bullets=[PriorityItem(text="Developed APIs")],
                 ),
             ],
             education=[

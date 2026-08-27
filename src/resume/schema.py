@@ -7,10 +7,26 @@ in :meth:`from_dict`, never by the field names themselves.
 
 Round-trip contract
 -------------------
-``Resume.from_dict(d).to_dict() == d`` key-for-key, for any dict, modulo the
-two one-directional legacy upgrades documented on :meth:`Resume.from_dict`.
+``Resume.from_dict(d).to_dict() == d`` key-for-key, including key order, for
+any dict whose sections are already in their canonical shape.
 
-Two mechanisms make that exact rather than approximate:
+It is deliberately NOT the identity for input that is malformed or in a legacy
+shape. ``from_dict`` normalizes those on the way in, and the normalized form is
+what ``to_dict`` emits -- these are one-directional upgrades, not losses:
+
+* a scalar ``summary`` becomes a single-item list;
+* ``bullets`` given as ``list[str]`` become ``PriorityItem`` entries;
+* a section given as ``None`` becomes ``[]`` (typed list sections only --
+  the deliberately-untyped ``skills``/``teaching``/``contact`` pass ``None``
+  through unchanged);
+* a section of the wrong type becomes ``[]`` with a warning, and a non-dict
+  list item degrades to an item with default values.
+
+Each is idempotent: re-reading the emitted document yields the same document,
+so a save never drifts further. Callers needing a byte-exact echo of arbitrary
+input must not rely on this method for that.
+
+Two mechanisms make the canonical-shape case exact rather than approximate:
 
 ``extra``
     Unknown keys -- at the top level and inside every nested item -- are kept
