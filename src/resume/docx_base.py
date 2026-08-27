@@ -5,7 +5,10 @@ Provides common functionality for resume rendering.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from docx.document import Document
 
 from docx.shared import Pt, Inches, RGBColor  # type: ignore
 
@@ -236,10 +239,10 @@ class ResumeWriterBase(ABC):
         # Annotated because `write()` reassigns this to a docx Document. Without
         # it mypy infers the declared type as None and reports every later
         # `self.doc.add_heading(...)` in the subclasses as an attribute error on
-        # None. Typed as Any rather than Document: python-docx is an optional
-        # dep imported lazily inside write(), so naming the real class here
-        # would require a module-level import this file deliberately avoids.
-        self.doc: Any | None = None
+        # None. The import is TYPE_CHECKING-only because `docx.document` is the
+        # class's real home, while runtime code constructs it via the
+        # `docx.Document()` factory.
+        self.doc: Document | None = None
         self.styles = StyleManager()
         self.text = TextFormatter()
 
