@@ -20,6 +20,7 @@ import unittest
 from contextlib import redirect_stderr
 from unittest.mock import patch
 
+from resume.schema import Resume
 from tests.resume_tests.docx_tests.fixtures import make_mock_doc as _make_mock_doc
 from tests.resume_tests.fixtures import mock_docx_modules
 
@@ -56,7 +57,7 @@ class TestExperienceTruncationWarnings(unittest.TestCase):
 
         buf = io.StringIO()
         with redirect_stderr(buf):
-            renderer.render(data, sec)
+            renderer.render(Resume.from_dict(data), sec)
 
         stderr = buf.getvalue()
         self.assertIn("resume:", stderr)
@@ -75,7 +76,7 @@ class TestExperienceTruncationWarnings(unittest.TestCase):
         sec = {"max_items": 5}
 
         with redirect_stderr(io.StringIO()):
-            renderer.render(data, sec)
+            renderer.render(Resume.from_dict(data), sec)
 
         # 5 roles -> 5 header paragraphs (add_paragraph called once per role header)
         self.assertEqual(doc.add_paragraph.call_count, 5)
@@ -99,7 +100,7 @@ class TestExperienceTruncationWarnings(unittest.TestCase):
 
         buf = io.StringIO()
         with redirect_stderr(buf):
-            renderer.render(data, sec)
+            renderer.render(Resume.from_dict(data), sec)
 
         stderr = buf.getvalue()
         self.assertIn("resume:", stderr)
@@ -117,7 +118,7 @@ class TestExperienceTruncationWarnings(unittest.TestCase):
 
         buf = io.StringIO()
         with redirect_stderr(buf):
-            renderer.render(data, sec)
+            renderer.render(Resume.from_dict(data), sec)
 
         self.assertEqual(buf.getvalue(), "")
 
@@ -129,7 +130,7 @@ class TestExperienceTruncationWarnings(unittest.TestCase):
 
         buf = io.StringIO()
         with redirect_stderr(buf):
-            renderer.render(data, sec)
+            renderer.render(Resume.from_dict(data), sec)
 
         self.assertEqual(buf.getvalue(), "")
 
@@ -146,35 +147,75 @@ class TestSectionHasData(unittest.TestCase):
         from resume.docx_standard import _section_has_data
         return _section_has_data
 
+    def _resume(self, data):
+        from resume.schema import Resume
+        return Resume.from_dict(data)
+
     def test_unknown_key_is_treated_as_having_data(self):
         # "projects" is not a registered key; we conservatively assume it has data
         # to avoid silently hiding real content from an unrecognised renderer.
         fn = self._fn()
-        self.assertTrue(fn("projects", {}))
+        self.assertTrue(fn("projects", self._resume({})))
 
     def test_known_key_missing_from_data_returns_false(self):
         fn = self._fn()
-        self.assertFalse(fn("interests", {}))
+        self.assertFalse(fn("interests", self._resume({})))
 
     def test_known_key_with_empty_list_returns_false(self):
         fn = self._fn()
-        self.assertFalse(fn("interests", {"interests": []}))
+        self.assertFalse(fn("interests", self._resume({"interests": []})))
 
     def test_known_key_with_data_returns_true(self):
         fn = self._fn()
-        self.assertTrue(fn("interests", {"interests": ["Hiking"]}))
+        self.assertTrue(fn("interests", self._resume({"interests": ["Hiking"]})))
 
     def test_summary_headline_fallback_prevents_false_empty(self):
         fn = self._fn()
-        # SummarySectionRenderer reads data.get("summary") or data.get("headline")
-        self.assertTrue(fn("summary", {"headline": "Software Engineer"}))
-        self.assertFalse(fn("summary", {}))
+        # SummarySectionRenderer reads resume.summary or resume.headline
+        self.assertTrue(fn("summary", self._resume({"headline": "Software Engineer"})))
+        self.assertFalse(fn("summary", self._resume({})))
 
     def test_skills_accepts_skills_groups_or_flat_skills(self):
         fn = self._fn()
-        self.assertTrue(fn("skills", {"skills": ["Python"]}))
-        self.assertTrue(fn("skills", {"skills_groups": [{"title": "Lang", "items": ["Go"]}]}))
-        self.assertFalse(fn("skills", {}))
+        self.assertTrue(fn("skills", self._resume({"skills": ["Python"]})))
+        self.assertTrue(fn("skills", self._resume({"skills_groups": [{"title": "Lang", "items": ["Go"]}]})))
+        self.assertFalse(fn("skills", self._resume({})))
+
+    def test_empty_scalar_summary_reports_no_data(self):
+        """An empty scalar summary is empty, despite normalizing to a list.
+
+        ``summary: ""`` becomes ``[PriorityItem(text='')]``, which is truthy
+        where ``''`` was falsy, so a plain ``bool()`` read reported the section
+        as populated and emitted a heading with nothing under it.
+        """
+        fn = self._fn()
+        self.assertFalse(fn("summary", self._resume({"summary": ""})))
+
+    def test_empty_scalar_summary_still_honours_the_headline_fallback(self):
+        """Suppression must not defeat the headline fallback.
+
+        ``SummarySectionRenderer`` falls through to the headline when a scalar
+        summary is blank, so the section really does have content to draw and
+        must keep reporting as populated.
+        """
+        fn = self._fn()
+        self.assertTrue(
+            fn("summary", self._resume({"summary": "", "headline": "Staff Engineer"}))
+        )
+
+    def test_non_empty_scalar_summary_reports_data(self):
+        fn = self._fn()
+        self.assertTrue(fn("summary", self._resume({"summary": "Real prose."})))
+
+    def test_list_form_empty_summary_still_reports_data(self):
+        """Scope guard: only the scalar origin is special-cased.
+
+        ``[{"text": ""}]`` rendered before the migration and still does, so it
+        must keep reporting as populated. Extending suppression to the list
+        form would be a new behaviour change rather than a restoration.
+        """
+        fn = self._fn()
+        self.assertTrue(fn("summary", self._resume({"summary": [{"text": ""}]})))
 
 
 # ---------------------------------------------------------------------------
@@ -268,14 +309,14 @@ class TestSummaryListRendersAllBullets(unittest.TestCase):
         renderer, doc = self._make_renderer()
         items = ["Point A", "Point B", "Point C", "Point D"]
         data = {"summary": items}
-        renderer.render(data)
+        renderer.render(Resume.from_dict(data))
         self.assertEqual(doc.add_paragraph.call_count, len(items))
 
     def test_five_list_items_produces_five_paragraphs(self):
         renderer, doc = self._make_renderer()
         items = [f"Claim {i}" for i in range(5)]
         data = {"summary": items}
-        renderer.render(data)
+        renderer.render(Resume.from_dict(data))
         self.assertEqual(doc.add_paragraph.call_count, 5)
 
 

@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from .docx_base import ResumeWriterBase
+from .schema import Resume
 from .docx_links import render_contact_runs
 from .docx_styles import (
     _parse_hex_color,
@@ -72,16 +73,42 @@ _SECTION_DATA_KEYS: dict[str, tuple[str, ...]] = {
 }
 
 
-def _section_has_data(key: str, data: dict[str, Any]) -> bool:
+def _data_key_is_truthy(key: str, resume: Resume) -> bool:
+    """Return True when one data key holds something the renderers will draw.
+
+    Plain truthiness is right for every key except ``summary``, because
+    load-time normalization stores a scalar ``summary`` as a one-item list.
+    An empty string therefore arrives as ``[PriorityItem(text='')]``, which is
+    truthy while ``''`` was falsy -- so a section that used to be suppressed
+    started emitting a bare heading with no body under it.
+
+    Only the *scalar* origin is special-cased. A list-form ``[{"text": ""}]``
+    stays truthy, because that shape rendered before the migration and still
+    does; ``summary_is_scalar`` is what tells the two apart after
+    normalization has made them otherwise identical.
+
+    The headline fallback is unaffected: this reports only on ``summary``,
+    leaving the caller's ``any()`` free to carry the section on ``headline``,
+    which is exactly what ``SummarySectionRenderer`` does with an empty scalar.
+    """
+    if key == "summary" and resume.summary_is_scalar:
+        return bool(resume.summary[0].text)
+    return bool(getattr(resume, key, None))
+
+
+def _section_has_data(key: str, resume: Resume) -> bool:
     """Return True when the section has at least one non-empty data key.
 
     Sections not in _SECTION_DATA_KEYS are treated as always having data
     (conservative: better to show an empty heading than to suppress real content).
+
+    Every name in _SECTION_DATA_KEYS is a declared ``Resume`` field, so the
+    attribute read below cannot silently miss one the way a dict lookup could.
     """
     data_keys = _SECTION_DATA_KEYS.get(key)
     if data_keys is None:
         return True
-    return any(bool(data.get(k)) for k in data_keys)
+    return any(_data_key_is_truthy(k, resume) for k in data_keys)
 
 
 def _seed_keywords(seed: dict[str, Any] | None) -> list[str]:
@@ -113,17 +140,19 @@ class StandardResumeWriter(ResumeWriterBase):
             return
 
         # Skip sections whose data is absent or empty.
-        if not _section_has_data(key, self.data):
+        if not _section_has_data(key, self.resume):
             return
 
         title = sec.get("title") or (key.title() if isinstance(key, str) else "")
         self._render_section_heading(title)
 
+        # Section renderers take the typed Resume and read candidate data as
+        # attributes; none of them lower it back to a mapping.
         renderer = renderer_class(self.doc, self.page_cfg)
         if key in SECTIONS_WITH_KEYWORDS:
-            renderer.render(self.data, sec, keywords)
+            renderer.render(self.resume, sec, keywords)
         else:
-            renderer.render(self.data, sec)
+            renderer.render(self.resume, sec)
 
     def _render_document_header(self) -> None:
         """Render the name, headline, and contact line at the top of the resume."""

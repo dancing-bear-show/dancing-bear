@@ -13,6 +13,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .schema import Resume
+
 from core.collections import dedupe
 
 
@@ -423,4 +425,9 @@ def merge_profiles(linkedin: dict[str, Any], resume: dict[str, Any]) -> dict[str
     headline_li = linkedin.get("headline") or ""
     if headline_li:
         out["headline"] = headline_li
-    return out
+    # Normalize on the way out. merge_profiles constructs candidate data from
+    # parser output -- where _extract_bullets returns list[str] -- and that
+    # result flows to the same consumers as a loaded data file. Normalizing here
+    # means those consumers see one shape no matter which of the two produced
+    # the document.
+    return Resume.from_dict(out).to_dict()

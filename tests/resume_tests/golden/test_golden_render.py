@@ -5,6 +5,16 @@ the two-column sidebar writer, and asserts the rendered output has not changed.
 This is the acceptance criterion for the typed-schema migration: every step
 that touches a rendering module must leave these goldens untouched.
 
+TWO RENDERING PATHS ARE PINNED
+    Fixtures are rendered both *directly* into the writer and *through*
+    ``FilterPipeline``. The direct path alone is not sufficient, and that gap is
+    not hypothetical: the migration moves the schema conversion onto the
+    pipeline path, so a direct-only harness leaves ``Resume.from_dict`` into
+    ``to_dict`` completely untested and reports green while that conversion
+    reshapes documents. The pipeline cases cover the no-op pipeline (which
+    isolates the conversion) and a filter-active pipeline (which covers the
+    filters reading the converted shape).
+
 REGENERATING THE GOLDENS
     Set ``RESUME_GOLDEN_UPDATE=1`` and run the suite. Golden files under
     ``tests/resume_tests/golden/goldens/`` are rewritten in place and the run
@@ -38,11 +48,15 @@ import unittest
 from pathlib import Path
 
 from resume.docx_writer import write_resume_docx
+from resume.pipeline import FilterPipeline
+from resume.schema import Resume
 
 from tests.resume_tests.golden.golden_docx import describe_mismatch, fingerprint_docx
 from tests.resume_tests.golden.golden_fixtures import (
     CANDIDATE_FIXTURES,
+    PIPELINE_FIXTURES,
     SIDEBAR_FIXTURES,
+    alignment_report,
     sidebar_template,
     standard_template,
 )
@@ -61,8 +75,16 @@ class GoldenRenderTests(unittest.TestCase):
     maxDiff = None
 
     def _render(self, candidate, template, out_dir: str) -> str:
+        """Render a fixture through the writer, which takes a typed ``Resume``.
+
+        Fixtures are authored as raw dicts, so a dict is lifted here. Callers
+        that already hold a ``Resume`` (the pipeline path) pass it straight
+        through, so the pipeline's typed output is no longer flattened and
+        re-parsed on its way to the writer.
+        """
         out_path = os.path.join(out_dir, "resume.docx")
-        write_resume_docx(candidate, template, out_path)
+        resume = candidate if isinstance(candidate, Resume) else Resume.from_dict(candidate)
+        write_resume_docx(resume, template, out_path)
         return out_path
 
     def _check_golden(self, name: str, candidate, template) -> None:
@@ -106,6 +128,197 @@ class GoldenRenderTests(unittest.TestCase):
                 self._check_golden(
                     f"sidebar__{name}", CANDIDATE_FIXTURES[name](), sidebar_template()
                 )
+
+    # -- pipeline path: what the migration actually moves -------------------
+
+    def _render_through_pipeline(self, candidate, alignment_path=None) -> Resume:
+        """Run a fixture through FilterPipeline the way the CLI's render does.
+
+        Mirrors ``cli.main._apply_filter_pipeline``: typed in, filters applied,
+        typed out. The ``Resume`` is returned as-is, exactly as ``cmd_render``
+        hands it to ``write_resume_docx``. Lowering it with ``to_dict()`` here
+        would re-parse it on the way back into the writer and hide any state
+        that does not survive that round trip -- ``_present``, ``_order``, and
+        the scalar-summary origin marker -- which is the regression class these
+        pipeline goldens exist to catch.
+
+        (``cmd_summarize`` still calls ``.to_dict()`` on this same result, but
+        that is for ``build_summary``, which reads a dict; the writer path,
+        which is what this harness pins, does not.)
+        """
+        return (
+            FilterPipeline(Resume.from_dict(candidate))
+            .with_skill_filter(alignment_path)
+            .with_experience_filter(alignment_path)
+            .execute()
+        )
+
+    def test_no_op_pipeline_matches_golden(self):
+        """A pipeline with no filters must not alter rendered output.
+
+        This is the case the harness previously could not see. Rendering the
+        fixtures directly leaves the whole schema conversion — Resume.from_dict
+        into to_dict, which every Step 2-5 change runs through — untested, so a
+        conversion that silently reshaped a document still passed. Applying no
+        filters isolates exactly that conversion: any difference here is the
+        schema round-trip changing the document, not a filter doing its job.
+        """
+        for name in PIPELINE_FIXTURES:
+            with self.subTest(fixture=name, pipeline="noop"):
+                self._check_golden(
+                    f"pipeline_noop__{name}",
+                    self._render_through_pipeline(CANDIDATE_FIXTURES[name]()),
+                    standard_template(),
+                )
+
+    def test_no_op_pipeline_is_identical_to_direct_rendering(self):
+        """The strongest form of the above: same bytes as never using a pipeline.
+
+        Stated as an equality rather than a stored golden, so it holds even if
+        both goldens were regenerated together. A no-op pipeline is by
+        definition a no-op; if these ever diverge, the schema round-trip is
+        lossy and the goldens on this path are pinning the loss.
+        """
+        template = standard_template()
+        for name in PIPELINE_FIXTURES:
+            with self.subTest(fixture=name):
+                fixture = CANDIDATE_FIXTURES[name]()
+                with tempfile.TemporaryDirectory() as tmp:
+                    direct = fingerprint_docx(self._render(fixture, template, tmp))
+                piped_data = self._render_through_pipeline(CANDIDATE_FIXTURES[name]())
+                with tempfile.TemporaryDirectory() as tmp:
+                    piped = fingerprint_docx(self._render(piped_data, template, tmp))
+                self.assertEqual(direct.digest, piped.digest)
+
+    def test_filtered_pipeline_matches_golden(self):
+        """The pipeline with filters active, pinned end to end.
+
+        The no-op case proves the conversion is transparent; this proves the
+        filters still produce a document the renderers read correctly after the
+        typed boundary was introduced.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            alignment_path = os.path.join(tmp, "alignment.json")
+            Path(alignment_path).write_text(json.dumps(alignment_report()))
+            for name in PIPELINE_FIXTURES:
+                with self.subTest(fixture=name, pipeline="filtered"):
+                    self._check_golden(
+                        f"pipeline_filtered__{name}",
+                        self._render_through_pipeline(
+                            CANDIDATE_FIXTURES[name](), alignment_path
+                        ),
+                        standard_template(),
+                    )
+
+    def test_filtered_pipeline_actually_removes_content(self):
+        """Guard the filtered goldens against pinning a silent no-op.
+
+        If the alignment report stopped matching — a renamed key, a changed
+        report shape — the filters would quietly keep everything and the
+        goldens above would still pass while testing nothing. Assert the
+        filtered document really is smaller than the unfiltered one.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            alignment_path = os.path.join(tmp, "alignment.json")
+            Path(alignment_path).write_text(json.dumps(alignment_report()))
+            fixture = CANDIDATE_FIXTURES["mixed_shapes"]()
+            unfiltered = self._render_through_pipeline(fixture)
+            filtered = self._render_through_pipeline(fixture, alignment_path)
+
+        self.assertNotEqual(unfiltered, filtered)
+        self.assertLess(
+            sum(len(g.items) for g in filtered.skills_groups),
+            sum(len(g.items) for g in unfiltered.skills_groups),
+        )
+
+    def test_scalar_summary_keeps_its_terminal_period(self):
+        """The exact regression, asserted on rendered text rather than a digest.
+
+        A golden says only that output moved; it does not say the summary lost
+        its period, and a reviewer regenerating goldens would not learn it here.
+        A scalar summary renders as a prose paragraph, where the terminal period
+        is kept; normalizing it into a one-item list moved it to the bullet
+        path, which strips that period by design.
+        """
+        from docx import Document
+
+        fixture = CANDIDATE_FIXTURES["scalar_summary"]()
+        expected = fixture["summary"]
+        self.assertTrue(expected.endswith("."), "fixture must carry a period")
+
+        for label, data in (
+            ("direct", fixture),
+            ("pipeline", self._render_through_pipeline(CANDIDATE_FIXTURES["scalar_summary"]())),
+        ):
+            with self.subTest(path=label):
+                with tempfile.TemporaryDirectory() as tmp:
+                    path = self._render(data, standard_template(), tmp)
+                    text = [p.text for p in Document(path).paragraphs if p.text.strip()]
+                self.assertIn(expected, text)
+
+    def test_empty_scalar_summary_renders_no_sidebar_section(self):
+        """An empty scalar summary draws nothing, as it did before the migration.
+
+        Asserted on rendered text rather than a digest, because a golden says
+        only that output moved -- it does not say a heading appeared above an
+        empty bullet, which is the actual defect.
+
+        Verified against ``origin/main``: pre-migration the sidebar drew no
+        Profile section for ``summary: ""``. Normalization then stored it as
+        ``[PriorityItem(text='')]`` -- truthy where ``''`` was falsy -- and the
+        section started rendering a heading with one blank bullet.
+        """
+        from docx import Document
+
+        fixture = CANDIDATE_FIXTURES["empty_scalar_summary"]()
+        self.assertEqual(fixture["summary"], "", "fixture must carry an empty summary")
+        self.assertNotIn("headline", fixture, "a headline would render the section anyway")
+
+        for label, data in (
+            ("direct", fixture),
+            ("pipeline", self._render_through_pipeline(
+                CANDIDATE_FIXTURES["empty_scalar_summary"]())),
+        ):
+            with self.subTest(path=label):
+                with tempfile.TemporaryDirectory() as tmp:
+                    path = self._render(data, sidebar_template(), tmp)
+                    cells = [
+                        cell.text
+                        for table in Document(path).tables
+                        for row in table.rows
+                        for cell in row.cells
+                    ]
+                self.assertFalse(
+                    [c for c in cells if "Profile" in c or "Summary" in c],
+                    "empty scalar summary must not render a sidebar summary section",
+                )
+
+    def test_list_form_empty_summary_still_renders(self):
+        """The scope guard: only the *scalar* origin is suppressed.
+
+        Pre-migration, ``[{"text": ""}]`` returned ``['']`` and DID render a
+        heading with an empty bullet -- verified against ``origin/main``.
+        Suppressing it too would be a new behaviour change in the opposite
+        direction, not a restoration, so this pins that it still renders and
+        stops a later "cleanup" from extending the fix to the list form.
+        """
+        from docx import Document
+
+        fixture = CANDIDATE_FIXTURES["empty_scalar_summary"]()
+        fixture["summary"] = [{"text": ""}]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._render(fixture, sidebar_template(), tmp)
+            cells = [
+                cell.text
+                for table in Document(path).tables
+                for row in table.rows
+                for cell in row.cells
+            ]
+        self.assertTrue(
+            [c for c in cells if "Profile" in c or "Summary" in c],
+            "list-form empty summary must keep rendering, matching pre-migration",
+        )
 
     # -- harness self-checks -----------------------------------------------
 

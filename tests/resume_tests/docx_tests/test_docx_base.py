@@ -37,12 +37,19 @@ class TestCreateResumeWriter(unittest.TestCase):
         self.assertEqual(writer.__class__.__name__, "SidebarResumeWriter")
 
     def test_stores_data_and_template(self):
-        """Test writer stores data and template."""
+        """Test writer stores resume and template.
+
+        After the schema migration, input dicts are lifted to a typed Resume
+        object; there is no lowered self.data mirror.  The test checks that the
+        writer keeps a Resume and the original template.
+        """
         from resume.docx_base import create_resume_writer
+        from resume.schema import Resume
         data = {"name": "John Doe"}
         template = {"sections": [], "page": {"compact": True}}
         writer = create_resume_writer(data, template)
-        self.assertEqual(writer.data, data)
+        self.assertIsInstance(writer.resume, Resume)
+        self.assertEqual(writer.resume.name, "John Doe")
         self.assertEqual(writer.template, template)
 
     def test_extracts_page_config(self):
@@ -167,6 +174,64 @@ class TestResumeWriterBase(unittest.TestCase):
 
 
 @mock_docx_modules
+class TestIdentityFields(unittest.TestCase):
+    """Tests for _identity_fields' nested-contact fallback."""
+
+    def test_all_four_fields_fall_back_to_nested_contact(self):
+        """A directly-built Resume resolves every field through contact.
+
+        ``name`` regressed here: it was the only one of the four missing its
+        ``contact.get()`` fallback, so a Resume constructed without going
+        through ``from_dict``'s promotion lost its name entirely. Because
+        ``set_document_metadata_on_doc`` gates ``cp.author`` on ``if name:``,
+        the document then shipped with no author and raised nothing.
+        """
+        from resume.docx_base import _identity_fields
+        from resume.schema import Resume
+        resume = Resume(
+            contact={
+                "name": "Nested Name",
+                "email": "nested@example.com",
+                "phone": "555-0100",
+                "location": "Springfield",
+            }
+        )
+        self.assertEqual(
+            _identity_fields(resume),
+            ("Nested Name", "nested@example.com", "555-0100", "Springfield"),
+        )
+
+    def test_top_level_fields_win_over_nested_contact(self):
+        """Top-level scalars take precedence over the nested contact dict."""
+        from resume.docx_base import _identity_fields
+        from resume.schema import Resume
+        resume = Resume(
+            name="Top Name",
+            contact={"name": "Nested Name", "email": "nested@example.com"},
+        )
+        name, email, _phone, _location = _identity_fields(resume)
+        self.assertEqual(name, "Top Name")
+        self.assertEqual(email, "nested@example.com")
+
+    def test_absent_everywhere_yields_empty_strings(self):
+        """A Resume with neither source yields empty strings, not None."""
+        from resume.docx_base import _identity_fields
+        from resume.schema import Resume
+        self.assertEqual(_identity_fields(Resume()), ("", "", "", ""))
+
+    def test_author_is_set_from_nested_contact_name(self):
+        """The nested-only name reaches cp.author, not just _identity_fields."""
+        from resume.docx_base import set_document_metadata_on_doc
+        from resume.schema import Resume
+        doc = MagicMock()
+        cp = doc.core_properties
+        resume = Resume(contact={"name": "Nested Name"})
+        set_document_metadata_on_doc(doc, resume, {})
+        self.assertEqual(cp.author, "Nested Name")
+
+
+
+@mock_docx_modules
 class TestResumeWriterBaseWrite(unittest.TestCase):
     """Tests for ResumeWriterBase.write() method."""
 
@@ -211,6 +276,87 @@ class TestResumeWriterBaseWrite(unittest.TestCase):
             writer.write(test_path("test.docx"))  # nosec B108 - test fixture path
 
         mock_doc.save.assert_called_once_with(test_path("test.docx"))  # nosec B108 - test fixture path
+
+
+class TestNonDictContact(unittest.TestCase):
+    """A non-dict ``Resume.contact`` must degrade, not crash the render.
+
+    The schema types ``contact`` as ``dict[str, Any] | None`` but enforces it
+    advisorily: ``Resume.from_dict`` logs a warning and stores the bad value
+    uncoerced, and direct construction skips the check entirely. Both routes
+    used to reach ``.get()`` on a non-mapping and raise ``AttributeError``.
+
+    Sad-path methods use the test_rejects_* / test_invalid_* naming contract.
+    """
+
+    def test_invalid_contact_from_direct_construction_does_not_raise(self):
+        """A directly built Resume with a string contact resolves to empty."""
+        from resume.docx_base import get_contact_field
+        from resume.schema import Resume
+
+        resume = Resume(contact="not-a-dict")
+        self.assertEqual(get_contact_field(resume, "email"), "")
+
+    def test_invalid_contact_from_dict_does_not_raise(self):
+        """from_dict warns but still stores the bad value; reads must survive.
+
+        This is the path Copilot's report missed: advisory validation means a
+        documented non-raising entry point led straight into an AttributeError.
+        """
+        from resume.docx_base import get_contact_field
+        from resume.schema import Resume
+
+        with self.assertLogs(level="WARNING"):
+            resume = Resume.from_dict({"contact": "not-a-dict"})
+        self.assertEqual(get_contact_field(resume, "email"), "")
+
+    def test_rejects_shadowing_top_level_fields_with_bad_contact(self):
+        """A bad contact must not suppress values present at the top level."""
+        from resume.docx_base import get_contact_field
+        from resume.schema import Resume
+
+        with self.assertLogs(level="WARNING"):
+            resume = Resume.from_dict(
+                {"name": "Ada Example", "contact": "not-a-dict"}
+            )
+        self.assertEqual(get_contact_field(resume, "name"), "Ada Example")
+
+    def test_invalid_contact_still_warns_on_from_dict(self):
+        """Advisory validation is deliberate: the warning must still fire."""
+        from resume.schema import Resume
+
+        with self.assertLogs(level="WARNING") as captured:
+            Resume.from_dict({"contact": "not-a-dict"})
+        self.assertTrue(
+            any("contact" in line and "expected dict" in line
+                for line in captured.output),
+            captured.output,
+        )
+
+    def test_invalid_contact_renders_identity_fields(self):
+        """_identity_fields, the other consumer, must survive a bad contact."""
+        from resume.docx_base import _identity_fields
+        from resume.schema import Resume
+
+        resume = Resume(name="Ada Example", contact=["not", "a", "dict"])
+        name, email, phone, location = _identity_fields(resume)
+        self.assertEqual(name, "Ada Example")
+        self.assertEqual((email, phone, location), ("", "", ""))
+
+    def test_dict_contact_still_resolves_nested_fields(self):
+        """Regression guard: the normal dict path is unchanged."""
+        from resume.docx_base import get_contact_field
+        from resume.schema import Resume
+
+        resume = Resume(contact={"email": "ada@example.com"})
+        self.assertEqual(get_contact_field(resume, "email"), "ada@example.com")
+
+    def test_none_contact_resolves_to_empty(self):
+        """Regression guard: the default ``None`` contact still yields empty."""
+        from resume.docx_base import get_contact_field
+        from resume.schema import Resume
+
+        self.assertEqual(get_contact_field(Resume(), "email"), "")
 
 
 if __name__ == "__main__":

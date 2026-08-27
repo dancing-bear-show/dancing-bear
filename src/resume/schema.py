@@ -55,11 +55,17 @@ from typing import Any, ClassVar
 
 __all__ = [
     "CandidateData",
+    # Exported because the render path dispatches on it: the section renderers
+    # need "is this a schema item or a raw dict?" to tell typed sections apart
+    # from the deliberately-untyped ``teaching``.
+    "_Item",
     "PriorityItem",
     "SkillGroupItem",
     "SkillGroup",
     "NamedLevelItem",
     "NamedDescItem",
+    "CourseworkItem",
+    "CertificationItem",
     "Education",
     "Presentation",
     "ExperienceEntry",
@@ -77,9 +83,24 @@ CandidateData = dict[str, Any]
 _TEXT_KEYS = ("text", "line", "name")
 _NAME_KEYS = ("name", "title", "label")
 
+# Section-specific name spellings. The DOCX renderers accept a domain-specific
+# key per section (docx_sections_simple.py), and each tuple below mirrors that
+# renderer's own ``name_keys`` for the section, extended with ``label`` for
+# consistency with _NAME_KEYS. They are deliberately NOT folded into
+# _NAME_KEYS: that would make "language" a valid name for a skills-group item,
+# and would let a certification be named by "course".
+_LANGUAGE_NAME_KEYS = ("name", "language", "title", "label")
+_COURSEWORK_NAME_KEYS = ("name", "course", "title", "label")
+_CERTIFICATION_NAME_KEYS = ("name", "title", "label", "cert")
+
 # Marker prefix recording which alternate spelling a field arrived under, so
 # to_dict can replay the original key rather than the canonical one.
 _ALIAS_MARK = "@"
+
+# Recorded in a summary item's ``_present`` when the whole ``summary`` arrived
+# as a bare string. Shares the ``_ALIAS_MARK`` prefix, so the generic to_dict
+# never mistakes it for a declared field: only declared names are emitted.
+_SCALAR_SUMMARY = f"{_ALIAS_MARK}scalar_summary"
 
 
 def _warn(msg: str, *args: Any) -> None:
@@ -244,13 +265,22 @@ class SkillGroupItem(_Item):
 
     Primary display key is ``name``, not ``text`` -- the skills renderers key
     on ``name|title|label`` and never on ``text``.
+
+    ``desc`` accepts the long spelling ``description`` because
+    ``_labeled_item_text`` reads ``desc`` or ``description``
+    (docx_sections_skills.py). Undeclared it would sit in ``extra`` and read
+    back empty, dropping the description from every item that used the long
+    form.
     """
 
     name: str = ""
     desc: str = ""
     priority: float = 1.0
 
-    _ALIASES: ClassVar[dict[str, tuple[str, ...]]] = {"name": _NAME_KEYS}
+    _ALIASES: ClassVar[dict[str, tuple[str, ...]]] = {
+        "name": _NAME_KEYS,
+        "desc": ("desc", "description"),
+    }
 
     @classmethod
     def _primary_field(cls) -> str:
@@ -277,22 +307,66 @@ class SkillGroup(_Item):
 
 @dataclass
 class NamedLevelItem(_Item):
-    """A ``languages`` entry."""
+    """A ``languages`` entry.
+
+    Accepts ``language`` as a name spelling, matching
+    ``LanguagesSectionRenderer``. Without it a ``{"language": "Spanish"}``
+    entry resolves to an empty ``name`` and renders as nothing.
+    """
 
     name: str = ""
     level: str = ""
 
-    _ALIASES: ClassVar[dict[str, tuple[str, ...]]] = {"name": _NAME_KEYS}
+    _ALIASES: ClassVar[dict[str, tuple[str, ...]]] = {"name": _LANGUAGE_NAME_KEYS}
 
 
 @dataclass
 class NamedDescItem(_Item):
-    """A ``coursework`` or ``certifications`` entry."""
+    """Base for the ``name``/``desc`` sections.
+
+    Subclassed rather than used directly for ``coursework`` and
+    ``certifications``, because those two renderers accept *disjoint* domain
+    keys. It remains the declared type of both sections' items, so an
+    ``isinstance`` check against it still matches either.
+    """
 
     name: str = ""
     desc: str = ""
 
     _ALIASES: ClassVar[dict[str, tuple[str, ...]]] = {"name": _NAME_KEYS}
+
+
+@dataclass
+class CourseworkItem(NamedDescItem):
+    """A ``coursework`` entry.
+
+    Accepts ``course``, matching ``CourseworkSectionRenderer``. Kept distinct
+    from :class:`CertificationItem` because a single shared tuple would invent
+    aliases neither renderer honours: coursework never accepts ``cert``, and
+    certifications never accept ``course``.
+    """
+
+    _ALIASES: ClassVar[dict[str, tuple[str, ...]]] = {"name": _COURSEWORK_NAME_KEYS}
+
+
+@dataclass
+class CertificationItem(NamedDescItem):
+    """A ``certifications`` entry.
+
+    Accepts ``cert``, matching ``CertificationsSectionRenderer``.
+
+    Declares ``year`` because that renderer reads it as the entry's
+    description (``desc_key="year"`` in docx_sections_simple.py). Left
+    undeclared it survived only in ``extra``, which round-tripped fine but read
+    back as an empty attribute -- so a typed render path would drop the year
+    from every certification while still rendering the name. Like
+    ``Presentation.year`` it is annotated ``str`` and stored uncoerced, so real
+    data's integer years are emitted unchanged.
+    """
+
+    year: str = ""
+
+    _ALIASES: ClassVar[dict[str, tuple[str, ...]]] = {"name": _CERTIFICATION_NAME_KEYS}
 
 
 @dataclass
@@ -310,6 +384,12 @@ class Presentation(_Item):
 
     Superset of both renderers' field sets: ``authors``/``note`` are sidebar
     only, ``link`` is standard-renderer only. Neither field set loses.
+
+    ``title`` accepts ``name`` because ``PresentationsSectionRenderer`` reads
+    ``title`` or ``name`` (docx_sections_simple.py). Without the alias a
+    ``{"name": ...}`` presentation resolves to an empty ``title`` and renders
+    as nothing once the render path reads attributes -- the same silent-loss
+    case the language/course/cert spellings were added to close.
     """
 
     title: str = ""
@@ -319,6 +399,8 @@ class Presentation(_Item):
     note: str = ""
     link: str = ""
     priority: float = 1.0
+
+    _ALIASES: ClassVar[dict[str, tuple[str, ...]]] = {"title": ("title", "name")}
 
 
 @dataclass
@@ -353,8 +435,8 @@ _LIST_ITEM_TYPES: dict[str, type[_Item]] = {
     "presentations": Presentation,
     "technologies": SkillGroupItem,
     "languages": NamedLevelItem,
-    "coursework": NamedDescItem,
-    "certifications": NamedDescItem,
+    "coursework": CourseworkItem,
+    "certifications": CertificationItem,
     "education": Education,
 }
 
@@ -362,10 +444,24 @@ _LIST_ITEM_TYPES: dict[str, type[_Item]] = {
 def _as_summary(value: Any) -> list[PriorityItem]:
     """Normalize ``summary`` into a list of items.
 
-    A legacy scalar string becomes a single item -- a one-directional upgrade.
+    A scalar string is **not** converted. It is stored as a single item so the
+    typed API is uniform, but ``_SCALAR_SUMMARY`` records the original shape and
+    ``to_dict`` replays the bare string, because the conversion is observable
+    and lossy:
+
+    * it does not round-trip -- a scalar and a one-item list both emitted
+      ``[{"text": ...}]``, so a save rewrote the user's file; and
+    * it silently changes rendering. ``SummarySectionRenderer`` routes a scalar
+      summary to a prose paragraph and a list to bullets, and the bullet path
+      strips the terminal period. Converting the shape moved a scalar summary
+      onto the bullet path, dropping the period from rendered output.
+
+    Scalar summaries are ordinary parser output (``parsing_linkedin`` and
+    ``parsing_experience_pdf`` both emit one), not a legacy shape, so this path
+    is mainstream rather than a compatibility fallback.
     """
     if isinstance(value, str):
-        return [PriorityItem(text=value, _present={"text"})]
+        return [PriorityItem(text=value, _present={"text", _SCALAR_SUMMARY})]
     return _as_items(value, PriorityItem, "Resume.summary")
 
 
@@ -396,8 +492,8 @@ class Resume(_Item):
     # priority-filterable, empty in current production data
     technologies: list[SkillGroupItem] = field(default_factory=list)
     languages: list[NamedLevelItem] = field(default_factory=list)
-    coursework: list[NamedDescItem] = field(default_factory=list)
-    certifications: list[NamedDescItem] = field(default_factory=list)
+    coursework: list[CourseworkItem] = field(default_factory=list)
+    certifications: list[CertificationItem] = field(default_factory=list)
 
     education: list[Education] = field(default_factory=list)
 
@@ -436,6 +532,29 @@ class Resume(_Item):
         resume: Resume = super().from_dict(data)
         resume._promote_contact()
         return resume
+
+    def to_dict(self) -> dict[str, Any]:
+        """Inverse of :meth:`from_dict`, replaying a scalar ``summary`` as-is.
+
+        A summary that arrived as a bare string is emitted as that same bare
+        string rather than as a one-item list. Emitting the list instead would
+        rewrite the user's file on save and would reroute the DOCX renderer from
+        its prose branch to its bullet branch; see :func:`_as_summary`.
+        """
+        out = super().to_dict()
+        if self.summary_is_scalar and "summary" in out:
+            out["summary"] = self.summary[0].text
+        return out
+
+    @property
+    def summary_is_scalar(self) -> bool:
+        """True when ``summary`` was given as a bare string, not a list.
+
+        Consumers that render a summary need this because normalization makes a
+        scalar and a genuine one-item list otherwise indistinguishable, and the
+        two render differently.
+        """
+        return len(self.summary) == 1 and _SCALAR_SUMMARY in self.summary[0]._present
 
     def _promote_contact(self) -> None:
         """Fill unset identity scalars from a nested ``contact`` dict."""

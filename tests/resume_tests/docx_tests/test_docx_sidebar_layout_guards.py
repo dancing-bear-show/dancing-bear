@@ -22,6 +22,7 @@ from resume.docx_sidebar_sections import (
     _validate_column_width,
 )
 from resume.docx_writer import write_resume_docx
+from resume.schema import Resume
 
 
 def _sidebar_template(**layout_overrides):
@@ -36,6 +37,11 @@ def _sidebar_template(**layout_overrides):
             {"key": "experience", "title": "Experience"},
         ],
     }
+
+
+def _resume(**overrides):
+    """The candidate fixture as the typed ``Resume`` the writer now takes."""
+    return Resume.from_dict({**_candidate(), **overrides})
 
 
 def _candidate():
@@ -129,7 +135,7 @@ class TestColumnWidthValidation(unittest.TestCase):
             template = _sidebar_template(sidebar_width=5.0, main_width=5.0)
             with self.assertRaises(ValueError) as ctx:
                 write_resume_docx(
-                    data=_candidate(), template=template, out_path=out
+                    resume=_resume(), template=template, out_path=out
                 )
             self.assertIn("exceeds", str(ctx.exception))
 
@@ -139,7 +145,7 @@ class TestColumnWidthValidation(unittest.TestCase):
             out = os.path.join(tmpdir, "resume.docx")
             with self.assertRaises(ValueError):
                 write_resume_docx(
-                    data=_candidate(),
+                    resume=_resume(),
                     template=_sidebar_template(sidebar_width=34),
                     out_path=out,
                 )
@@ -191,7 +197,7 @@ class TestUsableWidthFromSection(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             out = os.path.join(tmpdir, "resume.docx")
             write_resume_docx(
-                data=_candidate(), template=_sidebar_template(), out_path=out
+                resume=_resume(), template=_sidebar_template(), out_path=out
             )
             self.assertTrue(os.path.exists(out))
 
@@ -208,7 +214,7 @@ class TestUsableWidthFromSection(unittest.TestCase):
             template["page"] = {"compact": True, "margins_in": 1.5}
             with self.assertRaises(ValueError) as ctx:
                 write_resume_docx(
-                    data=_candidate(), template=template, out_path=out
+                    resume=_resume(), template=template, out_path=out
                 )
             msg = str(ctx.exception)
             self.assertIn("5.9", msg)
@@ -220,7 +226,7 @@ class TestUsableWidthFromSection(unittest.TestCase):
             out = os.path.join(tmpdir, "resume.docx")
             template = _sidebar_template(sidebar_width=2.0, main_width=3.0)
             template["page"] = {"compact": True, "margins_in": 1.5}
-            write_resume_docx(data=_candidate(), template=template, out_path=out)
+            write_resume_docx(resume=_resume(), template=template, out_path=out)
             self.assertTrue(os.path.exists(out))
 
     def test_accepts_defaults_with_compact_narrow_margins(self):
@@ -229,7 +235,7 @@ class TestUsableWidthFromSection(unittest.TestCase):
             out = os.path.join(tmpdir, "resume.docx")
             template = _sidebar_template()
             template["page"] = {"compact": True, "margins_in": 0.5}
-            write_resume_docx(data=_candidate(), template=template, out_path=out)
+            write_resume_docx(resume=_resume(), template=template, out_path=out)
             self.assertTrue(os.path.exists(out))
 
     def test_invalid_geometry_falls_back_to_default(self):
@@ -251,7 +257,7 @@ class TestSidebarContactParity(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             out = os.path.join(tmpdir, "resume.docx")
-            write_resume_docx(data=_candidate(), template=template, out_path=out)
+            write_resume_docx(resume=_resume(), template=template, out_path=out)
             doc = Document(out)
             return " | ".join(
                 p.text for p in doc.sections[0].header.paragraphs if p.text.strip()
@@ -280,7 +286,9 @@ class TestSidebarContactParity(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             out = os.path.join(tmpdir, "resume.docx")
             write_resume_docx(
-                data=data, template=_sidebar_template(), out_path=out
+                resume=Resume.from_dict(data),
+                template=_sidebar_template(),
+                out_path=out,
             )
             header = " | ".join(
                 p.text

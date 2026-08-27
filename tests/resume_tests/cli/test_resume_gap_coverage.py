@@ -78,7 +78,7 @@ class TestCmdRenderUnit(unittest.TestCase):
         cmd_render(args)
         mock_write.assert_called_once()
         call_kwargs = mock_write.call_args.kwargs
-        self.assertIn("data", call_kwargs)
+        self.assertIn("resume", call_kwargs)
         self.assertIn("template", call_kwargs)
         self.assertIn("out_path", call_kwargs)
         self.assertIn("seed", call_kwargs)

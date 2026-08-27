@@ -253,6 +253,8 @@ class TestExtractExperienceLocationsBase(unittest.TestCase):
         self.assertEqual(result, ["NYC", "LA"])
 
     def test_skips_empty_locations(self):
+        # `location` is declared str, but an explicit null in the source file
+        # survives as None -- blank and null must both be skipped, not crash.
         data = {"experience": [
             {"location": ""},
             {"location": "Boston, MA"},
@@ -330,9 +332,10 @@ class TestMetadataOptions(unittest.TestCase):
 
     def _set(self, data, page_cfg):
         from resume.docx_base import set_document_metadata_on_doc
+        from resume.schema import Resume
         doc = MagicMock()
         doc.core_properties = MagicMock()
-        set_document_metadata_on_doc(doc, data, page_cfg)
+        set_document_metadata_on_doc(doc, Resume.from_dict(data), page_cfg)
         return doc.core_properties
 
     DATA = {

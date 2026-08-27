@@ -26,7 +26,9 @@ from .docx_styles import (
     _format_phone_display,
     _format_link_display,
 )
+from .docx_base import get_contact_field
 from .docx_standard import SECTION_RENDERERS, SECTIONS_WITH_KEYWORDS
+from .schema import Resume
 
 
 SECTION_SYNONYMS = {
@@ -57,31 +59,35 @@ def _get_header_level(sec: dict[str, Any] | None, page_cfg: dict[str, Any] | Non
     return 1
 
 
-def _extract_experience_locations(data: dict[str, Any]) -> list[str]:
-    """Extract unique location strings from experience entries."""
-    locs = [str(e.get("location") or "").strip() for e in (data.get("experience") or [])]
+def _extract_experience_locations(resume: Resume) -> list[str]:
+    """Extract unique location strings from experience entries.
+
+    ``location`` is declared ``str`` but the schema stores whatever the source
+    file supplied, so an explicit ``"location": null`` survives as ``None``.
+    Coerce before stripping, as the pre-migration dict read did.
+    """
+    locs = [str(e.location or "").strip() for e in resume.experience]
     return list(dict.fromkeys([loc for loc in locs if loc]))
 
 
-def _get_contact_field(data: dict[str, Any], field: str) -> str:
-    """Get a contact field from data or nested contact dict."""
-    contact = data.get("contact") or {}
-    return data.get(field) or contact.get(field) or ""
+def _get_contact_field(resume: Resume, field: str) -> Any:
+    """Get a contact field from the resume or its nested contact dict."""
+    return get_contact_field(resume, field)
 
 
-def _collect_link_extras(data: dict[str, Any]) -> list[str]:
+def _collect_link_extras(resume: Resume) -> list[str]:
     """Collect formatted link extras (website, linkedin, github, links list)."""
-    return [display for display, _url in _collect_link_extra_items(data)]
+    return [display for display, _url in _collect_link_extra_items(resume)]
 
 
-def _collect_link_extra_items(data: dict[str, Any]) -> list[tuple[str, str]]:
+def _collect_link_extra_items(resume: Resume) -> list[tuple[str, str]]:
     """Collect link extras as (display, url) pairs for hyperlink rendering."""
     items: list[tuple[str, str]] = []
     for field in ["website", "linkedin", "github"]:
-        val = _get_contact_field(data, field)
+        val = _get_contact_field(resume, field)
         if val:
             items.append((_format_link_display(val), normalize_link_url(val)))
-    links_list = _get_contact_field(data, "links") or []
+    links_list = _get_contact_field(resume, "links") or []
     for val in (links_list if isinstance(links_list, list) else []):
         if isinstance(val, str) and val.strip():
             items.append((_format_link_display(val), normalize_link_url(val)))
@@ -94,11 +100,11 @@ def _apply_page_styles(doc, page_cfg: dict[str, Any]) -> None:
     apply_page_styles_to_doc(doc, page_cfg)
 
 
-def _set_document_metadata(doc, data: dict[str, Any], template: dict[str, Any]) -> None:
+def _set_document_metadata(doc, resume: Resume, template: dict[str, Any]) -> None:
     """Set document core properties (title, author, keywords)."""
     from .docx_base import set_document_metadata_on_doc
     page_cfg = template.get("page") or {}
-    set_document_metadata_on_doc(doc, data, page_cfg)
+    set_document_metadata_on_doc(doc, resume, page_cfg)
 
 
 def _center_paragraph(para) -> None:
@@ -107,14 +113,14 @@ def _center_paragraph(para) -> None:
     StyleManager.center_paragraph(para)
 
 
-def _render_document_header(doc, data: dict[str, Any]) -> None:
+def _render_document_header(doc, resume: Resume) -> None:
     """Render the name, headline, and contact line at the top of the resume."""
-    name = _get_contact_field(data, "name")
-    headline = _get_contact_field(data, "headline")
-    email = _get_contact_field(data, "email")
-    phone = _get_contact_field(data, "phone")
+    name = _get_contact_field(resume, "name")
+    headline = _get_contact_field(resume, "headline")
+    email = _get_contact_field(resume, "email")
+    phone = _get_contact_field(resume, "phone")
     display_phone = _format_phone_display(phone) if phone else ""
-    location = _get_contact_field(data, "location")
+    location = _get_contact_field(resume, "location")
 
     if name:
         doc.add_heading(name, level=0)
@@ -128,7 +134,7 @@ def _render_document_header(doc, data: dict[str, Any]) -> None:
 
     # Contact line: email (mailto: hyperlink) | phone | location | link extras
     plain_parts = [p for p in [display_phone, location] if p]
-    link_items = _collect_link_extra_items(data)
+    link_items = _collect_link_extra_items(resume)
 
     has_content = email or plain_parts or link_items
     if has_content:
@@ -145,7 +151,7 @@ def _resolve_sections(template: dict[str, Any], structure: dict[str, Any] | None
     if structure and isinstance(structure.get("order"), list):
         order_keys: list[str] = structure.get("order", [])
         key_to_title: dict[str, str] = structure.get("titles", {})
-        tpl_by_key = {s.get("key"): s for s in sections if s.get("key")}
+        tpl_by_key = {sec.get("key"): sec for sec in sections if sec.get("key")}
         sections = [
             {**tpl_by_key.get(k, {"key": k, "title": key_to_title.get(k, k.title())})}
             for k in order_keys
@@ -169,7 +175,7 @@ def _render_section_heading(doc, title: str, template: dict[str, Any]) -> None:
 
 
 def write_resume_docx(
-    data: dict[str, Any],
+    resume: Resume,
     template: dict[str, Any],
     out_path: str,
     seed: dict[str, Any] | None = None,
@@ -180,8 +186,15 @@ def write_resume_docx(
     This is the main entry point for backward compatibility.
     For new code, prefer using create_resume_writer() from docx_base.
 
+    Takes a typed ``Resume`` and passes it straight down: every render module
+    on this path now reads candidate data as attributes, so nothing below needs
+    a lowered dict. Typing the entry point rather than each caller means the
+    CLI, the golden harness, and the tests all hand over the same object, so a
+    caller can no longer feed the renderer a dict that never went through the
+    schema.
+
     Args:
-        data: Resume data (name, experience, education, etc.)
+        resume: Typed candidate data (name, experience, education, etc.)
         template: Template configuration (sections, page styles, etc.)
         out_path: Output file path
         seed: Optional seed data (keywords, etc.)
@@ -191,7 +204,7 @@ def write_resume_docx(
     layout_cfg = template.get("layout") or {}
     if layout_cfg.get("type") == "sidebar":
         from .docx_sidebar import write_resume_docx_sidebar
-        return write_resume_docx_sidebar(data, template, out_path, seed)
+        return write_resume_docx_sidebar(resume, template, out_path, seed)
 
     # Standard single-column layout
     docx = safe_import("docx")
@@ -205,8 +218,8 @@ def write_resume_docx(
 
     # Apply page styles, metadata, and header
     _apply_page_styles(doc, page_cfg)
-    _set_document_metadata(doc, data, template)
-    _render_document_header(doc, data)
+    _set_document_metadata(doc, resume, template)
+    _render_document_header(doc, resume)
 
     # Extract keywords from seed
     keywords = []
@@ -214,18 +227,22 @@ def write_resume_docx(
         keywords = [str(k) for k in seed.get("keywords", [])]
 
     sections = _resolve_sections(template, structure)
-    _render_sections(doc, template, data, sections, keywords)
+    _render_sections(doc, template, resume, sections, keywords)
     doc.save(out_path)
 
 
 def _render_sections(
     doc,
     template: dict[str, Any],
-    data: dict[str, Any],
+    resume: Resume,
     sections: list[dict[str, Any]],
     keywords: list[str] | None,
 ) -> None:
-    """Render all sections into the document."""
+    """Render all sections into the document.
+
+    Section renderers take the typed ``Resume`` and read candidate data as
+    attributes; none of them lower it back to a mapping.
+    """
     page_cfg = template.get("page") or {}
     for sec in sections:
         key = sec.get("key")
@@ -237,6 +254,6 @@ def _render_sections(
         if renderer_class:
             renderer = renderer_class(doc, page_cfg)
             if key in SECTIONS_WITH_KEYWORDS:
-                renderer.render(data, sec, keywords)
+                renderer.render(resume, sec, keywords)
             else:
-                renderer.render(data, sec)
+                renderer.render(resume, sec)

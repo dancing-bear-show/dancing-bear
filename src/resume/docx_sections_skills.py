@@ -11,6 +11,7 @@ from typing import Any
 
 from .docx_renderers import HeaderRenderer, ListSectionRenderer
 from .render_config import DEFAULT_BULLET_STYLE
+from .schema import PriorityItem, Resume, SkillGroup, SkillGroupItem
 
 
 def _safe_int_limit(cfg: dict, key: str) -> int:
@@ -22,12 +23,19 @@ def _safe_int_limit(cfg: dict, key: str) -> int:
 
 
 def _labeled_item_text(item: Any, show_desc: bool, desc_sep: str) -> str:
-    """Extract 'name[desc_sep]desc' text from a dict item, or str() a scalar item."""
-    if not isinstance(item, dict):
+    """Extract 'name[desc_sep]desc' text from a skills item.
+
+    ``SkillGroupItem`` resolves ``name|title|label`` onto ``name`` and
+    ``desc|description`` onto ``desc`` at from_dict time, so both are read
+    from the canonical field rather than searched for here.
+
+    Non-schema values (a bare string that never went through the schema, a
+    number) are stringified, matching the previous scalar branch.
+    """
+    if not isinstance(item, SkillGroupItem):
         return str(item)
-    name = item.get("name") or item.get("title") or item.get("label") or ""
-    desc = item.get("desc") or item.get("description") or ""
-    text = name.strip()
+    desc = item.desc
+    text = item.name.strip()
     if desc and show_desc:
         text = f"{text}{desc_sep}{desc.strip()}"
     return text
@@ -38,32 +46,69 @@ class SummarySectionRenderer(ListSectionRenderer):
 
     def render(
         self,
-        data: dict,
+        resume: Resume,
         sec: dict | None = None,
         keywords: list[str] | None = None,
     ) -> None:
-        summary = data.get("summary") or data.get("headline") or ""
+        """Render the summary as prose or as bullets.
+
+        Which branch runs is NOT a formatting preference: the prose branch
+        keeps the text verbatim while the bullet branch strips the terminal
+        period, so routing a summary to the wrong one silently rewrites it.
+
+        A summary that arrived as a bare string takes the prose branch, and
+        ``summary_is_scalar`` is the only thing that can still tell it apart --
+        normalization stores a scalar and a genuine one-item list identically.
+        Everything else takes the bullet branch, falling back to ``headline``
+        when there is no summary text at all.
+        """
         cfg = sec or {}
 
-        if isinstance(summary, list) and summary:
-            items = self._normalize_list_items(summary)
-            if items:
-                norm_items = [self.text.normalize_bullet(it) for it in items]
-                plain, glyph = self.bullets.get_bullet_config(sec)
-                self.bullets.add_bullets(
-                    norm_items, keywords=keywords, plain=plain, glyph=glyph
-                )
-        elif isinstance(summary, str) and summary.strip():
-            self._render_string_summary(summary, cfg, keywords)
+        if resume.summary_is_scalar:
+            # A scalar summary is prose, or -- when the string was empty --
+            # falls through to the headline exactly as `summary or headline`
+            # did, because an empty string is falsy on that read.
+            text = resume.summary[0].text or resume.headline
+            if text.strip():
+                self._render_string_summary(text, cfg, keywords)
+            return
 
-    def _normalize_list_items(self, summary: list[Any]) -> list[str]:
-        """Extract text items from a list of strings or dicts."""
+        if resume.summary:
+            # A present-but-all-blank list renders nothing and does NOT fall
+            # through to the headline: `summary or headline` saw a non-empty
+            # list, so the headline was never reached.
+            self._render_bullet_summary(resume.summary, sec, keywords)
+            return
+
+        if resume.headline.strip():
+            self._render_string_summary(resume.headline, cfg, keywords)
+
+    def _render_bullet_summary(
+        self,
+        summary: list[PriorityItem],
+        sec: dict | None,
+        keywords: list[str] | None,
+    ) -> None:
+        """Render summary items as bullets, skipping blank ones."""
+        items = self._normalize_list_items(summary)
+        if not items:
+            return
+        norm_items = [self.text.normalize_bullet(it) for it in items]
+        plain, glyph = self.bullets.get_bullet_config(sec)
+        self.bullets.add_bullets(norm_items, keywords=keywords, plain=plain, glyph=glyph)
+
+    def _normalize_list_items(self, summary: list[PriorityItem]) -> list[str]:
+        """Extract the display text from each summary item, dropping empties.
+
+        ``desc`` is a real fallback, not a leftover: it is a declared field on
+        ``PriorityItem`` distinct from ``text``, so a ``{"desc": ...}`` item
+        carries its content there and would otherwise render as nothing. The
+        ``line`` spelling needs no branch -- the schema aliases it onto
+        ``text`` at from_dict time.
+        """
         items: list[str] = []
         for it in summary:
-            if isinstance(it, dict):
-                s = str(it.get("text") or it.get("line") or it.get("desc") or "").strip()
-            else:
-                s = str(it).strip()
+            s = str(it.text or it.desc or "").strip()
             if s:
                 items.append(s)
         return items
@@ -122,19 +167,20 @@ class SkillsSectionRenderer(ListSectionRenderer):
 
     def render(
         self,
-        data: dict,
+        resume: Resume,
         sec: dict | None = None,
     ) -> None:
-        groups = data.get("skills_groups") or []
-        skills = [self.text.clean_inline(str(s)) for s in (data.get("skills") or [])]
+        # `skills` is deliberately untyped (list[str]), so its entries are
+        # stringified rather than read as schema items.
+        skills = [self.text.clean_inline(str(s)) for s in resume.skills]
         cfg = sec or {}
 
-        if groups:
-            self._render_groups(groups, cfg)
+        if resume.skills_groups:
+            self._render_groups(resume.skills_groups, cfg)
         elif skills:
             self._render_flat_skills(skills, cfg)
 
-    def _render_groups(self, groups: list[dict], cfg: dict) -> None:
+    def _render_groups(self, groups: list[SkillGroup], cfg: dict) -> None:
         """Render skills organized by groups."""
         as_bullets = bool(cfg.get("bullets", False))
         sep = cfg.get("separator") or " • "
@@ -144,9 +190,11 @@ class SkillsSectionRenderer(ListSectionRenderer):
         desc_sep = str(cfg.get("desc_separator") or " — ")
 
         for g in groups[:max_groups]:
-            title = str(g.get("title") or "").strip()
-            raw_items = g.get("items") or []
-            items = self._normalize_group_items(raw_items, show_desc, desc_sep)[:max_items_per_group]
+            # `title` only -- SkillGroup declares no aliases, so a group keyed
+            # by `name` or `label` has an empty title and renders untitled.
+            # That is the pre-migration behaviour and the goldens pin it.
+            title = str(g.title or "").strip()
+            items = self._normalize_group_items(g.items, show_desc, desc_sep)[:max_items_per_group]
 
             if not items:
                 continue
@@ -159,7 +207,7 @@ class SkillsSectionRenderer(ListSectionRenderer):
                 self._render_inline_items(title, items, cfg, sep)
 
     def _normalize_group_items(
-        self, raw_items: list[Any], show_desc: bool, desc_sep: str
+        self, raw_items: list[SkillGroupItem], show_desc: bool, desc_sep: str
     ) -> list[str]:
         """Normalize items from a skills group."""
         return [
@@ -214,8 +262,8 @@ class SkillsSectionRenderer(ListSectionRenderer):
 class TechnologiesSectionRenderer(SkillsSectionRenderer):
     """Renders technologies section (similar to skills)."""
 
-    def render(self, data: dict, sec: dict | None = None) -> None:
-        tech_items = self._collect_tech_items(data, sec)
+    def render(self, resume: Resume, sec: dict | None = None) -> None:
+        tech_items = self._collect_tech_items(resume, sec)
         if not tech_items:
             return
 
@@ -232,7 +280,7 @@ class TechnologiesSectionRenderer(SkillsSectionRenderer):
             self.bullets.styles.tight_paragraph(p, after_pt=2)
 
     def _collect_tech_items(
-        self, data: dict, sec: dict | None
+        self, resume: Resume, sec: dict | None
     ) -> list[str]:
         """Collect technology items from data sources."""
         cfg = sec or {}
@@ -240,27 +288,32 @@ class TechnologiesSectionRenderer(SkillsSectionRenderer):
         show_desc = bool(cfg.get("show_desc", False))
         tech_items: list[str] = []
 
-        for t in data.get("technologies") or []:
+        for t in resume.technologies:
             item = self._normalize_tech_item(t, show_desc, desc_sep)
             if item:
                 tech_items.append(item)
 
         if not tech_items:
-            tech_items = self._extract_from_skills_groups(data, show_desc, desc_sep)
+            tech_items = self._extract_from_skills_groups(resume, show_desc, desc_sep)
 
         return tech_items
 
     def _normalize_tech_item(
         self, t: Any, show_desc: bool, desc_sep: str
     ) -> str | None:
-        """Normalize a single technology item."""
+        """Normalize a single technology item.
+
+        A schema item that yields no text is dropped; a non-schema scalar is
+        kept even when it stringifies to something empty-looking, which is what
+        the dict/scalar split did before the migration.
+        """
         text = _labeled_item_text(t, show_desc, desc_sep)
-        if isinstance(t, dict) and not text:
+        if isinstance(t, SkillGroupItem) and not text:
             return None
         return self.text.clean_inline(text)
 
     def _normalize_group_tech_items(
-        self, raw_items: list, show_desc: bool, desc_sep: str
+        self, raw_items: list[SkillGroupItem], show_desc: bool, desc_sep: str
     ) -> list[str]:
         """Normalize every item in a single skills group, dropping empties."""
         items: list[str] = []
@@ -271,14 +324,14 @@ class TechnologiesSectionRenderer(SkillsSectionRenderer):
         return items
 
     def _extract_from_skills_groups(
-        self, data: dict, show_desc: bool, desc_sep: str
+        self, resume: Resume, show_desc: bool, desc_sep: str
     ) -> list[str]:
         """Extract tech items from skills_groups with technology titles."""
         tech_titles = {"technology", "technologies", "tooling", "tools"}
 
-        for g in data.get("skills_groups") or []:
-            title = str(g.get("title") or "").strip().lower()
+        for g in resume.skills_groups:
+            title = str(g.title or "").strip().lower()
             if title in tech_titles:
-                return self._normalize_group_tech_items(g.get("items") or [], show_desc, desc_sep)
+                return self._normalize_group_tech_items(g.items, show_desc, desc_sep)
 
         return []

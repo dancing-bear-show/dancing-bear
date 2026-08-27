@@ -14,11 +14,14 @@ class TestStandardResumeWriterInit(unittest.TestCase):
     """Tests for StandardResumeWriter initialization."""
 
     def test_creates_writer_with_data_and_template(self):
+        """Writer lifts a dict to a typed Resume; there is no self.data mirror."""
         from resume.docx_standard import StandardResumeWriter
+        from resume.schema import Resume
         data = {"name": "John Doe"}
         template = {"sections": [], "page": {"compact": False}}
         writer = StandardResumeWriter(data, template)
-        self.assertEqual(writer.data, data)
+        self.assertIsInstance(writer.resume, Resume)
+        self.assertEqual(writer.resume.name, "John Doe")
         self.assertEqual(writer.template, template)
         self.assertEqual(writer.page_cfg, {"compact": False})
 

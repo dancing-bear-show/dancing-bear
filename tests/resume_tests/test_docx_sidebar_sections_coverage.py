@@ -28,6 +28,7 @@ from tests.resume_tests.fixtures import (
     make_skills_group,
     make_candidate,
 )
+from resume.schema import ExperienceEntry, Presentation, PriorityItem, Resume
 
 
 # ---------------------------------------------------------------------------
@@ -136,14 +137,14 @@ class TestRenderExpEntry(unittest.TestCase):
     def test_full_entry_produces_title_company_and_bullets(self):
         """title + company + 2 bullets = 4 paragraphs."""
         cell, paras = _make_cell()
-        exp = make_experience_entry(bullets=["Built APIs", "Led team"])
+        exp = ExperienceEntry.from_dict(make_experience_entry(bullets=["Built APIs", "Led team"]))
         self._fn(cell, exp, {"body_pt": 10, "meta_pt": 9}, "#4A90A4", 5)
         self.assertEqual(len(paras), 4)
 
     def test_entry_without_end_uses_presente_suffix(self):
         """When end is absent, span includes 'presente'."""
         cell, paras = _make_cell()
-        exp = {"title": "Dev", "start": "2021", "bullets": []}
+        exp = ExperienceEntry.from_dict({"title": "Dev", "start": "2021", "bullets": []})
         self._fn(cell, exp, {"body_pt": 10}, "#4A90A4", 3)
         self.assertEqual(len(paras), 1)
         title_para = paras[0]
@@ -153,7 +154,7 @@ class TestRenderExpEntry(unittest.TestCase):
     def test_entry_with_end_uses_dash_separator(self):
         """When end is present, span uses ' – ' separator."""
         cell, paras = _make_cell()
-        exp = {"title": "Dev", "start": "2020", "end": "2023", "bullets": []}
+        exp = ExperienceEntry.from_dict({"title": "Dev", "start": "2020", "end": "2023", "bullets": []})
         self._fn(cell, exp, {"body_pt": 10}, "#4A90A4", 3)
         title_para = paras[0]
         span_texts = [r.text for r in title_para.runs if "–" in (r.text or "")]
@@ -162,22 +163,24 @@ class TestRenderExpEntry(unittest.TestCase):
     def test_no_company_skips_company_paragraph(self):
         """When company is absent, no company paragraph is added."""
         cell, paras = _make_cell()
-        exp = {"title": "Dev", "start": "2020", "bullets": ["Bullet"]}
+        exp = ExperienceEntry.from_dict({"title": "Dev", "start": "2020", "bullets": ["Bullet"]})
         self._fn(cell, exp, {"body_pt": 10}, "#4A90A4", 5)
         self.assertEqual(len(paras), 2)
 
     def test_max_bullets_caps_rendered_bullets(self):
         """Bullets are capped at max_bullets."""
         cell, paras = _make_cell()
-        exp = make_experience_entry(bullets=["a", "b", "c", "d", "e"])
+        exp = ExperienceEntry.from_dict(make_experience_entry(bullets=["a", "b", "c", "d", "e"]))
         self._fn(cell, exp, {"body_pt": 10, "meta_pt": 9}, "#4A90A4", 2)
         # title + company + 2 bullets = 4
         self.assertEqual(len(paras), 4)
 
-    def test_bullet_as_dict_extracts_text(self):
-        """Bullet entries that are dicts use their 'text' key."""
+    def test_bullet_text_key_renders_prose(self):
+        """Bullet entries whose text arrived under the 'text' key render their prose."""
         cell, paras = _make_cell()
-        exp = {"title": "Dev", "company": "", "start": "2020", "bullets": [{"text": "Did something"}]}
+        exp = ExperienceEntry.from_dict(
+            {"title": "Dev", "company": "", "start": "2020", "bullets": [{"text": "Did something"}]}
+        )
         self._fn(cell, exp, {"body_pt": 10}, "#4A90A4", 5)
         bullet_para = paras[-1]
         bullet_texts = [r.text for r in bullet_para.runs]
@@ -186,21 +189,21 @@ class TestRenderExpEntry(unittest.TestCase):
     def test_empty_bullets_list_produces_only_title_and_company(self):
         """When bullets is [], only title and company paragraphs are produced."""
         cell, paras = _make_cell()
-        exp = make_experience_entry(bullets=[])
+        exp = ExperienceEntry.from_dict(make_experience_entry(bullets=[]))
         self._fn(cell, exp, {"body_pt": 10, "meta_pt": 9}, "#4A90A4", 5)
         self.assertEqual(len(paras), 2)
 
-    def test_none_bullets_treated_as_empty(self):
-        """When bullets key is missing/None, exp.get('bullets') or [] gives []."""
+    def test_missing_bullets_key_produces_only_title_and_company(self):
+        """When bullets key is absent, schema defaults to [] and only title+company render."""
         cell, paras = _make_cell()
-        exp = {"title": "Dev", "company": "Corp", "start": "2020"}
+        exp = ExperienceEntry.from_dict({"title": "Dev", "company": "Corp", "start": "2020"})
         self._fn(cell, exp, {"body_pt": 10, "meta_pt": 9}, "#4A90A4", 5)
         self.assertEqual(len(paras), 2)
 
     def test_missing_title_renders_empty_title(self):
         """Missing title key falls back to empty string without crashing."""
         cell, paras = _make_cell()
-        exp = {"company": "Corp", "start": "2020", "bullets": []}
+        exp = ExperienceEntry.from_dict({"company": "Corp", "start": "2020", "bullets": []})
         self._fn(cell, exp, {"body_pt": 10, "meta_pt": 9}, "#4A90A4", 5)
         self.assertEqual(len(paras), 2)
 
@@ -219,43 +222,43 @@ class TestRenderPresEntry(unittest.TestCase):
     def test_full_entry_produces_four_paragraphs(self):
         """title + authors + event + note = 4 paragraphs."""
         cell, paras = _make_cell()
-        pres = {"title": "My Talk", "authors": "A. Author", "event": "PyCon", "note": "Best Paper"}
+        pres = Presentation.from_dict({"title": "My Talk", "authors": "A. Author", "event": "PyCon", "note": "Best Paper"})
         self._fn(cell, pres, {"body_pt": 10, "meta_pt": 9}, "#4A90A4")
         self.assertEqual(len(paras), 4)
 
     def test_no_note_with_event_has_three_paragraphs(self):
         """When note is absent but event is present, 3 paragraphs are produced."""
         cell, paras = _make_cell()
-        pres = {"title": "My Talk", "authors": "A. Author", "event": "PyCon", "note": ""}
+        pres = Presentation.from_dict({"title": "My Talk", "authors": "A. Author", "event": "PyCon", "note": ""})
         self._fn(cell, pres, {"body_pt": 10}, "#4A90A4")
         self.assertEqual(len(paras), 3)
 
     def test_no_note_no_event_has_two_paragraphs(self):
         """When note and event are absent, 2 paragraphs are produced."""
         cell, paras = _make_cell()
-        pres = {"title": "My Talk", "authors": "A. Author", "event": "", "note": ""}
+        pres = Presentation.from_dict({"title": "My Talk", "authors": "A. Author", "event": "", "note": ""})
         self._fn(cell, pres, {"body_pt": 10}, "#4A90A4")
         self.assertEqual(len(paras), 2)
 
     def test_minimal_entry_title_only(self):
         """When only title is supplied, only one paragraph is produced."""
         cell, paras = _make_cell()
-        pres = {"title": "Just a Title"}
+        pres = Presentation.from_dict({"title": "Just a Title"})
         self._fn(cell, pres, {"body_pt": 10}, "#4A90A4")
         self.assertEqual(len(paras), 1)
 
     def test_missing_title_falls_back_to_empty_string(self):
-        """Missing title key does not crash."""
+        """Missing title key does not crash; authors still renders."""
         cell, paras = _make_cell()
-        pres = {"authors": "A. Author"}
+        pres = Presentation.from_dict({"authors": "A. Author"})
         self._fn(cell, pres, {"body_pt": 10}, "#4A90A4")
-        # title para + authors para = 2
+        # title para (empty title) + authors para = 2
         self.assertEqual(len(paras), 2)
 
     def test_title_run_is_bold(self):
         """Title run is marked bold."""
         cell, paras = _make_cell()
-        pres = {"title": "Bold Talk"}
+        pres = Presentation.from_dict({"title": "Bold Talk"})
         self._fn(cell, pres, {"body_pt": 10}, "#4A90A4")
         title_para = paras[0]
         # Second run is the title run (first is bullet)
@@ -274,35 +277,70 @@ class TestNormalizeSummaryItems(unittest.TestCase):
         from resume.docx_sidebar_sections import SidebarResumeWriter
         self._fn = SidebarResumeWriter._normalize_summary_items
 
-    def test_single_string_returns_list_with_that_string(self):
-        self.assertEqual(self._fn("one line"), ["one line"])
-
-    def test_empty_string_returns_empty_list(self):
-        self.assertEqual(self._fn(""), [])
-
-    def test_list_of_strings_returns_same_list(self):
-        self.assertEqual(self._fn(["a", "b"]), ["a", "b"])
-
     def test_empty_list_returns_empty_list(self):
+        """An empty list of PriorityItem returns []."""
         self.assertEqual(self._fn([]), [])
 
-    def test_none_returns_empty_list(self):
-        self.assertEqual(self._fn(None), [])
-
-    def test_list_of_dicts_extracts_text_key(self):
-        items = [{"text": "hello"}, {"text": "world"}]
+    def test_text_keyed_items_return_prose(self):
+        """Items whose text arrived under the canonical 'text' key return their prose."""
+        items = [PriorityItem.from_dict({"text": "hello"}), PriorityItem.from_dict({"text": "world"})]
         self.assertEqual(self._fn(items), ["hello", "world"])
 
-    def test_mixed_list_dict_and_string(self):
-        items = [{"text": "hello"}, "world"]
-        self.assertEqual(self._fn(items), ["hello", "world"])
+    def test_alias_keyed_item_returns_alias_key_name(self):
+        """An item whose text arrived under an alias key ('line', 'bullet') renders
+        the alias key name, not the prose -- replicating pre-migration _replayed_text
+        behaviour where only the literal 'text' key was honoured."""
+        item = PriorityItem.from_dict({"line": "my prose"})
+        result = self._fn([item])
+        # _replayed_text returns the key name ("line"), not the prose value,
+        # for alias-keyed entries.  This is deliberate: golden pins this.
+        self.assertEqual(result, ["line"])
 
-    def test_integer_input_returns_empty_list(self):
-        """Non-str, non-list types fall through to return []."""
-        self.assertEqual(self._fn(42), [])
+    def test_multiple_text_keyed_items_all_returned(self):
+        """All items in the list are returned, not just the first."""
+        items = [PriorityItem.from_dict({"text": str(i)}) for i in range(4)]
+        self.assertEqual(self._fn(items), ["0", "1", "2", "3"])
 
-    def test_dict_input_returns_empty_list(self):
-        self.assertEqual(self._fn({"text": "x"}), [])
+    def test_empty_scalar_summary_returns_empty_list(self):
+        """A summary that arrived as an empty *string* suppresses the section.
+
+        Normalization stores ``summary: ""`` as ``[PriorityItem(text='')]``, so
+        the naive read returns ``['']`` -- truthy -- and the caller renders a
+        heading above a blank bullet. Pre-migration the scalar branch returned
+        ``[]`` here, so the section drew nothing.
+        """
+        from resume.schema import Resume
+
+        resume = Resume.from_dict({"summary": ""})
+        self.assertTrue(resume.summary_is_scalar)
+        self.assertEqual(self._fn(resume.summary, resume.summary_is_scalar), [])
+
+    def test_non_empty_scalar_summary_still_renders(self):
+        """A non-empty scalar is unaffected -- only the blank one is suppressed."""
+        from resume.schema import Resume
+
+        resume = Resume.from_dict({"summary": "Real prose."})
+        self.assertTrue(resume.summary_is_scalar)
+        self.assertEqual(
+            self._fn(resume.summary, resume.summary_is_scalar), ["Real prose."]
+        )
+
+    def test_list_form_empty_summary_still_returns_blank_item(self):
+        """Scope guard: the list form keeps its pre-migration behaviour.
+
+        ``[{"text": ""}]`` returned ``['']`` before the migration and rendered a
+        blank bullet. Suppressing it as well would be a new behaviour change,
+        not a restoration, so this pins that the fix does not reach it.
+        """
+        from resume.schema import Resume
+
+        resume = Resume.from_dict({"summary": [{"text": ""}]})
+        self.assertFalse(resume.summary_is_scalar)
+        self.assertEqual(self._fn(resume.summary, resume.summary_is_scalar), [""])
+
+    def test_defaults_to_list_behaviour_when_origin_not_passed(self):
+        """Omitting ``is_scalar`` keeps the plain list reading."""
+        self.assertEqual(self._fn([PriorityItem.from_dict({"text": ""})]), [""])
 
 
 # ===========================================================================
@@ -749,25 +787,23 @@ class TestRenderMainEducation(unittest.TestCase):
 
     def test_empty_education_list_produces_no_paragraphs(self):
         cell, paras = _make_cell()
-        self._fn(cell, {"education": []}, {"body_pt": 10})
+        self._fn(cell, Resume.from_dict({"education": []}), {"body_pt": 10})
         self.assertEqual(len(paras), 0)
 
     def test_missing_education_key_produces_no_paragraphs(self):
         cell, paras = _make_cell()
-        self._fn(cell, {}, {"body_pt": 10})
+        self._fn(cell, Resume.from_dict({}), {"body_pt": 10})
         self.assertEqual(len(paras), 0)
 
     def test_single_entry_produces_paragraphs(self):
         cell, paras = _make_cell()
-        edu = make_education_entry()
-        self._fn(cell, {"education": [edu]}, {"body_pt": 10, "meta_pt": 9})
+        self._fn(cell, Resume.from_dict({"education": [make_education_entry()]}), {"body_pt": 10, "meta_pt": 9})
         # At minimum: degree paragraph + edu meta paragraph
         self.assertGreaterEqual(len(paras), 2)
 
     def test_degree_run_is_bold(self):
         cell, paras = _make_cell()
-        edu = make_education_entry(degree="B.S. CS")
-        self._fn(cell, {"education": [edu]}, {"body_pt": 10})
+        self._fn(cell, Resume.from_dict({"education": [make_education_entry(degree="B.S. CS")]}), {"body_pt": 10})
         degree_para = paras[0]
         # Second run (after bullet run) is the degree
         degree_run = degree_para.runs[1]
@@ -783,32 +819,33 @@ class TestRenderMainTeaching(unittest.TestCase):
 
     def test_empty_teaching_produces_no_paragraphs(self):
         cell, paras = _make_cell()
-        self._fn(cell, {"teaching": []}, {"body_pt": 10})
+        self._fn(cell, Resume.from_dict({"teaching": []}), {"body_pt": 10})
         self.assertEqual(len(paras), 0)
 
     def test_missing_teaching_key_produces_no_paragraphs(self):
         cell, paras = _make_cell()
-        self._fn(cell, {}, {"body_pt": 10})
+        self._fn(cell, Resume.from_dict({}), {"body_pt": 10})
         self.assertEqual(len(paras), 0)
 
     def test_plain_string_without_parens_produces_one_paragraph(self):
         cell, paras = _make_cell()
-        self._fn(cell, {"teaching": ["Workshop"]}, {"body_pt": 10})
+        self._fn(cell, Resume.from_dict({"teaching": ["Workshop"]}), {"body_pt": 10})
         self.assertEqual(len(paras), 1)
 
     def test_string_with_parens_produces_title_and_institution(self):
         cell, paras = _make_cell()
-        self._fn(cell, {"teaching": ["Python (MIT)"]}, {"body_pt": 10, "meta_pt": 9})
+        self._fn(cell, Resume.from_dict({"teaching": ["Python (MIT)"]}), {"body_pt": 10, "meta_pt": 9})
         self.assertEqual(len(paras), 2)
 
     def test_dict_item_with_parens(self):
+        """teaching is deliberately untyped; dict items with 'text' key are preserved."""
         cell, paras = _make_cell()
-        self._fn(cell, {"teaching": [{"text": "DB (Stanford)"}]}, {"body_pt": 10, "meta_pt": 9})
+        self._fn(cell, Resume.from_dict({"teaching": [{"text": "DB (Stanford)"}]}), {"body_pt": 10, "meta_pt": 9})
         self.assertEqual(len(paras), 2)
 
     def test_title_run_is_uppercase(self):
         cell, paras = _make_cell()
-        self._fn(cell, {"teaching": ["Python Workshop"]}, {"body_pt": 10})
+        self._fn(cell, Resume.from_dict({"teaching": ["Python Workshop"]}), {"body_pt": 10})
         run_texts = [r.text for r in paras[0].runs]
         self.assertIn("PYTHON WORKSHOP", run_texts)
 
@@ -823,26 +860,28 @@ class TestRenderMainExperience(unittest.TestCase):
     def test_empty_experience_produces_no_paragraphs(self):
         cell, paras = _make_cell()
         sec = {"recent_max_bullets": 3}
-        self._fn(cell, {"experience": []}, {"body_pt": 10}, sec)
+        self._fn(cell, Resume.from_dict({"experience": []}), {"body_pt": 10}, sec)
         self.assertEqual(len(paras), 0)
 
     def test_missing_experience_key_produces_no_paragraphs(self):
         cell, paras = _make_cell()
-        self._fn(cell, {}, {"body_pt": 10}, {"recent_max_bullets": 3})
+        self._fn(cell, Resume.from_dict({}), {"body_pt": 10}, {"recent_max_bullets": 3})
         self.assertEqual(len(paras), 0)
 
     def test_renders_all_experience_entries(self):
         cell, paras = _make_cell()
-        data = {"experience": [make_experience_entry(bullets=[]), make_experience_entry(bullets=[])]}
-        self._fn(cell, data, {"body_pt": 10, "meta_pt": 9}, {"recent_max_bullets": 3})
+        resume = Resume.from_dict({
+            "experience": [make_experience_entry(bullets=[]), make_experience_entry(bullets=[])],
+        })
+        self._fn(cell, resume, {"body_pt": 10, "meta_pt": 9}, {"recent_max_bullets": 3})
         # Each entry: title + company = 2 paras; 2 entries = 4
         self.assertEqual(len(paras), 4)
 
     def test_uses_recent_max_bullets_from_sec(self):
         """max_bullets is read from sec dict."""
         cell, paras = _make_cell()
-        data = {"experience": [make_experience_entry(bullets=["a", "b", "c", "d"])]}
-        self._fn(cell, data, {"body_pt": 10, "meta_pt": 9}, {"recent_max_bullets": 2})
+        resume = Resume.from_dict({"experience": [make_experience_entry(bullets=["a", "b", "c", "d"])]})
+        self._fn(cell, resume, {"body_pt": 10, "meta_pt": 9}, {"recent_max_bullets": 2})
         # title + company + 2 bullets = 4
         self.assertEqual(len(paras), 4)
 
@@ -856,28 +895,32 @@ class TestRenderMainPresentations(unittest.TestCase):
 
     def test_empty_presentations_produces_no_paragraphs(self):
         cell, paras = _make_cell()
-        self._fn(cell, {"presentations": []}, {"body_pt": 10})
+        self._fn(cell, Resume.from_dict({"presentations": []}), {"body_pt": 10})
         self.assertEqual(len(paras), 0)
 
     def test_missing_presentations_key_produces_no_paragraphs(self):
         cell, paras = _make_cell()
-        self._fn(cell, {}, {"body_pt": 10})
+        self._fn(cell, Resume.from_dict({}), {"body_pt": 10})
         self.assertEqual(len(paras), 0)
 
     def test_renders_full_entry(self):
         cell, paras = _make_cell()
-        pres = [{"title": "My Talk", "authors": "A. B.", "event": "PyCon", "note": "Best"}]
-        self._fn(cell, {"presentations": pres}, {"body_pt": 10})
+        resume = Resume.from_dict({
+            "presentations": [{"title": "My Talk", "authors": "A. B.", "event": "PyCon", "note": "Best"}],
+        })
+        self._fn(cell, resume, {"body_pt": 10})
         # One paragraph each for title, authors, event and note.
         self.assertEqual(len(paras), 4)
 
     def test_renders_multiple_entries(self):
         cell, paras = _make_cell()
-        pres = [
-            {"title": "Talk 1", "note": ""},
-            {"title": "Talk 2", "note": ""},
-        ]
-        self._fn(cell, {"presentations": pres}, {"body_pt": 10})
+        resume = Resume.from_dict({
+            "presentations": [
+                {"title": "Talk 1", "note": ""},
+                {"title": "Talk 2", "note": ""},
+            ],
+        })
+        self._fn(cell, resume, {"body_pt": 10})
         # Each minimal entry = 1 para; 2 entries = 2
         self.assertEqual(len(paras), 2)
 

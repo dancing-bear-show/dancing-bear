@@ -288,6 +288,87 @@ def candidate_mixed_shapes() -> dict[str, Any]:
     }
 
 
+def candidate_scalar_summary() -> dict[str, Any]:
+    """A bare-string ``summary`` — the shape no other fixture covered.
+
+    Every other fixture supplies ``summary`` as a list, so none of them could
+    see that normalizing a scalar into a one-item list moves the summary from
+    the renderer's prose-paragraph branch to its bullet branch, which strips the
+    terminal period. That regression shipped through a green golden run.
+
+    The trailing periods below are load-bearing: they are what the bullet path
+    would remove.
+    """
+    return {
+        "name": "Sam Placeholder",
+        "headline": "Staff Engineer",
+        "email": "sam@example.com",
+        "phone": "+1-555-0143",
+        "location": "Scalar City, ZZ",
+        "summary": "Builds reliable systems that outlive their authors.",
+        "skills": ["Python", "Postgres", "Terraform"],
+        "experience": [
+            {
+                "title": "Staff Engineer",
+                "company": "Scalar Systems",
+                "start": "2019",
+                "end": "Present",
+                "bullets": [
+                    "Reduced deploy time from hours to minutes.",
+                    {"text": "Led the storage migration.", "priority": 1},
+                ],
+            }
+        ],
+        "education": [
+            {
+                "degree": "BSc Placeholder Engineering",
+                "institution": "Scalar University",
+                "year": "2013",
+            }
+        ],
+    }
+
+
+def candidate_empty_scalar_summary() -> dict[str, Any]:
+    """An *empty* bare-string ``summary`` — the shape that suppresses a section.
+
+    ``candidate_scalar_summary`` covers a non-empty scalar, so it cannot see
+    what happens when the string is blank. That gap shipped a regression: load
+    normalization stores the empty scalar as ``[PriorityItem(text='')]``, which
+    is truthy where ``''`` was falsy, so the sidebar renderer emitted a
+    ``Profile`` heading above a single empty bullet where it previously drew
+    nothing at all.
+
+    ``headline`` is deliberately omitted. The summary section falls back to the
+    headline when there is no summary text, so a fixture carrying one would
+    render the section anyway and pin nothing about the empty-summary path.
+    """
+    return {
+        "name": "Dana Placeholder",
+        "email": "dana@example.com",
+        "phone": "+1-555-0177",
+        "location": "Blank City, ZZ",
+        "summary": "",
+        "skills": ["Python", "Kubernetes"],
+        "experience": [
+            {
+                "title": "Platform Engineer",
+                "company": "Blank Systems",
+                "start": "2020",
+                "end": "Present",
+                "bullets": ["Kept the section headings honest."],
+            }
+        ],
+        "education": [
+            {
+                "degree": "BSc Placeholder Studies",
+                "institution": "Blank University",
+                "year": "2015",
+            }
+        ],
+    }
+
+
 # name -> (candidate, uses-both-renderers)
 CANDIDATE_FIXTURES: dict[str, Any] = {
     "dict_bullets": candidate_dict_bullets,
@@ -296,9 +377,44 @@ CANDIDATE_FIXTURES: dict[str, Any] = {
     "extra_keys": candidate_extra_keys,
     "contact_block": candidate_contact_block,
     "mixed_shapes": candidate_mixed_shapes,
+    "scalar_summary": candidate_scalar_summary,
+    "empty_scalar_summary": candidate_empty_scalar_summary,
 }
 
 # Fixtures rendered through both the standard and sidebar layouts. Every
 # fixture is exercised in the standard layout; these additionally run through
 # the sidebar writer, so the same data is pinned in both renderers.
-SIDEBAR_FIXTURES = ("mixed_shapes", "dict_bullets", "extra_keys")
+SIDEBAR_FIXTURES = (
+    "mixed_shapes",
+    "dict_bullets",
+    "extra_keys",
+    # The empty-scalar case is only *observable* in the sidebar layout: the
+    # standard writer emits section headings unconditionally, so its output is
+    # identical either way. Without this entry the suppressed section is
+    # pinned by no golden at all.
+    "empty_scalar_summary",
+)
+
+# --- pipeline fixtures -----------------------------------------------------
+
+# Fixtures rendered through FilterPipeline rather than straight into the writer.
+# Rendering a fixture directly cannot see a regression on the path the schema
+# migration actually moves, which is how a broken Step 2 passed the goldens.
+# These pin the pipeline path itself.
+PIPELINE_FIXTURES = ("mixed_shapes", "string_bullets", "scalar_summary")
+
+
+def alignment_report() -> dict[str, Any]:
+    """Alignment report driving the filter-active pipeline case.
+
+    Keywords are chosen to match some fixture content and not all of it, so the
+    filters actually remove something. A report that matched everything would
+    render identically to the no-op case and pin nothing extra.
+    """
+    return {
+        "matched_keywords": [
+            {"skill": "Python"},
+            {"skill": "Distributed Systems"},
+            {"skill": "storage"},
+        ]
+    }
