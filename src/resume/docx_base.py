@@ -174,8 +174,16 @@ def get_contact_field(resume: Resume, field: str) -> Any:
     nested ``contact`` shipped a document with no author.
 
     Returns ``Any`` rather than ``str`` because ``links`` resolves to a list.
+
+    ``contact`` is coerced to ``{}`` unless it is genuinely a dict. The schema
+    types it ``dict[str, Any] | None`` but validation there is advisory: a
+    non-dict ``contact`` makes ``Resume.from_dict`` log a warning and then store
+    the value uncoerced, and a ``Resume`` built directly bypasses that check
+    entirely. Both paths previously reached ``.get()`` on a non-mapping and
+    raised ``AttributeError`` mid-render, turning a warn-only validation policy
+    into a hard crash. Rendering degrades to the top-level attributes instead.
     """
-    contact = resume.contact or {}
+    contact = resume.contact if isinstance(resume.contact, dict) else {}
     return getattr(resume, field, "") or contact.get(field) or ""
 
 

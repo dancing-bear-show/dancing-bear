@@ -278,5 +278,86 @@ class TestResumeWriterBaseWrite(unittest.TestCase):
         mock_doc.save.assert_called_once_with(test_path("test.docx"))  # nosec B108 - test fixture path
 
 
+class TestNonDictContact(unittest.TestCase):
+    """A non-dict ``Resume.contact`` must degrade, not crash the render.
+
+    The schema types ``contact`` as ``dict[str, Any] | None`` but enforces it
+    advisorily: ``Resume.from_dict`` logs a warning and stores the bad value
+    uncoerced, and direct construction skips the check entirely. Both routes
+    used to reach ``.get()`` on a non-mapping and raise ``AttributeError``.
+
+    Sad-path methods use the test_rejects_* / test_invalid_* naming contract.
+    """
+
+    def test_invalid_contact_from_direct_construction_does_not_raise(self):
+        """A directly built Resume with a string contact resolves to empty."""
+        from resume.docx_base import get_contact_field
+        from resume.schema import Resume
+
+        resume = Resume(contact="not-a-dict")
+        self.assertEqual(get_contact_field(resume, "email"), "")
+
+    def test_invalid_contact_from_dict_does_not_raise(self):
+        """from_dict warns but still stores the bad value; reads must survive.
+
+        This is the path Copilot's report missed: advisory validation means a
+        documented non-raising entry point led straight into an AttributeError.
+        """
+        from resume.docx_base import get_contact_field
+        from resume.schema import Resume
+
+        with self.assertLogs(level="WARNING"):
+            resume = Resume.from_dict({"contact": "not-a-dict"})
+        self.assertEqual(get_contact_field(resume, "email"), "")
+
+    def test_rejects_shadowing_top_level_fields_with_bad_contact(self):
+        """A bad contact must not suppress values present at the top level."""
+        from resume.docx_base import get_contact_field
+        from resume.schema import Resume
+
+        with self.assertLogs(level="WARNING"):
+            resume = Resume.from_dict(
+                {"name": "Ada Example", "contact": "not-a-dict"}
+            )
+        self.assertEqual(get_contact_field(resume, "name"), "Ada Example")
+
+    def test_invalid_contact_still_warns_on_from_dict(self):
+        """Advisory validation is deliberate: the warning must still fire."""
+        from resume.schema import Resume
+
+        with self.assertLogs(level="WARNING") as captured:
+            Resume.from_dict({"contact": "not-a-dict"})
+        self.assertTrue(
+            any("contact" in line and "expected dict" in line
+                for line in captured.output),
+            captured.output,
+        )
+
+    def test_invalid_contact_renders_identity_fields(self):
+        """_identity_fields, the other consumer, must survive a bad contact."""
+        from resume.docx_base import _identity_fields
+        from resume.schema import Resume
+
+        resume = Resume(name="Ada Example", contact=["not", "a", "dict"])
+        name, email, phone, location = _identity_fields(resume)
+        self.assertEqual(name, "Ada Example")
+        self.assertEqual((email, phone, location), ("", "", ""))
+
+    def test_dict_contact_still_resolves_nested_fields(self):
+        """Regression guard: the normal dict path is unchanged."""
+        from resume.docx_base import get_contact_field
+        from resume.schema import Resume
+
+        resume = Resume(contact={"email": "ada@example.com"})
+        self.assertEqual(get_contact_field(resume, "email"), "ada@example.com")
+
+    def test_none_contact_resolves_to_empty(self):
+        """Regression guard: the default ``None`` contact still yields empty."""
+        from resume.docx_base import get_contact_field
+        from resume.schema import Resume
+
+        self.assertEqual(get_contact_field(Resume(), "email"), "")
+
+
 if __name__ == "__main__":
     unittest.main()
