@@ -2,7 +2,7 @@
 
 Checkable normalization standard for `src/`. Codifies patterns already proven in mail/calendar/schedule/desk/resume/phone/whatsapp/maker/wifi and extends them to newer packages (telemetry, worker, apple_music, charts, diagrams, workflow) that predate or fell outside the original migration.
 
-This doc is graded against, not aspirational prose — each criterion is written so an audit agent can answer pass/fail with a file:line citation. See `PIPELINE_MIGRATION.md` for the historical migration log and `PATTERNS.md` for copy-paste templates of the patterns referenced below.
+This doc is graded against, not aspirational prose — each criterion is written so an audit agent can answer pass/fail with a file:line citation. See `PATTERNS.md` for copy-paste templates of the patterns referenced below. (The historical pipeline migration log has been removed; migration is complete.)
 
 ## C1 — Data modeling: dataclasses over dicts
 

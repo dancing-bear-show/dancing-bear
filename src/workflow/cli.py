@@ -21,11 +21,14 @@ from __future__ import annotations
 
 import argparse
 import sys
+from functools import lru_cache
 from typing import Any
 
+from core.assistant import BaseAssistant
 from core.cli_errors import ExitCode
 from core.cli_framework import CLIApp
 from core.cli_output import emit_one, emit_rows
+from workflow.meta import META
 
 # ---------------------------------------------------------------------------
 # Re-exports from sibling modules (backwards-compat shim)
@@ -113,6 +116,14 @@ def _emit_rows(
 
 
 app = CLIApp("workflow", "Workflow engine CLI.", add_common_args=False)
+
+assistant = BaseAssistant(META.app_id, META.agentic_fallback)
+
+
+@lru_cache(maxsize=1)
+def _lazy_agentic():
+    from .agentic import emit_agentic_context
+    return emit_agentic_context
 
 
 @app.command("parse", help="Parse a workflow YAML and display its structure")
@@ -226,7 +237,12 @@ def _no_command_usage() -> int:
 
 def main(argv: list[str] | None = None) -> int:
     """Workflow CLI entry point."""
-    return app.run(argv, on_no_command=_no_command_usage)
+    return app.run_with_assistant(
+        assistant,
+        emit_func=lambda fmt, compact: _lazy_agentic()(fmt, compact),
+        argv=argv,
+        on_no_command=_no_command_usage,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover

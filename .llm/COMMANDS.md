@@ -1,58 +1,58 @@
 # Quick Commands
 
 Unified entrypoints:
-- `./bin/assistant <mail|calendar|schedule|resume|phone|whatsapp|maker> --help`
-- `./bin/mail-assistant --help`
-- Compact agentic capsule: `./bin/mail-assistant --agentic`
+- `./bin/assistant <apple-music|calendar|mail|maker|music|phone|resume|schedule|slides|whatsapp|wifi> --help`
+- `./bin/mail --help`
+- Compact agentic capsule: `./bin/mail --agentic --agentic-compact`
 
 Onboarding and auth:
-- Copy example Gmail creds: `./bin/mail-assistant env setup --no-venv --skip-install --copy-gmail-example`
-- Validate Gmail token (non-interactive): `./bin/mail-assistant --profile gmail_personal auth --validate`
+- Copy example Gmail creds: `./bin/mail env setup --no-venv --skip-install --copy-gmail-example`
+- Validate Gmail token (non-interactive): `./bin/mail --profile gmail_personal auth --validate`
 - Outlook device-code ensure/validate:
-  - `./bin/mail-assistant --profile outlook_personal outlook auth ensure`
-  - `./bin/mail-assistant --profile outlook_personal outlook auth validate`
+  - `./bin/mail --profile outlook_personal outlook auth.ensure`
+  - `./bin/mail --profile outlook_personal outlook auth.validate`
 
 Unified (derive from canonical):
-- Derive filters: `./bin/mail-assistant config derive filters --out-gmail out/filters.gmail.from_unified.yaml --out-outlook out/filters.outlook.from_unified.yaml`
-- Optionally derive labels: `./bin/mail-assistant config derive labels --out-gmail out/labels.gmail.from_unified.yaml --out-outlook out/labels.outlook.from_unified.yaml`
+- Derive filters: `./bin/mail config derive.filters --out-gmail ./filters.gmail.yaml --out-outlook ./filters.outlook.yaml`
+- Optionally derive labels: `./bin/mail config derive.labels --out-gmail ./labels.gmail.yaml --out-outlook ./labels.outlook.yaml`
 
 Gmail filters (plan → apply → verify):
-- Plan: `./bin/mail-assistant filters plan --config out/filters.gmail.from_unified.yaml --delete-missing`
-- Apply: `./bin/mail-assistant filters sync --config out/filters.gmail.from_unified.yaml --delete-missing`
-- Verify: `./bin/mail-assistant filters export --out out/filters.gmail.export.after.yaml`
+- Plan: `./bin/mail filters plan --config ./filters.gmail.yaml --delete-missing`
+- Apply: `./bin/mail filters sync --config ./filters.gmail.yaml --delete-missing`
+- Verify: `./bin/mail filters export --out ./filters.gmail.export.after.yaml`
 
 Outlook rules (plan → apply → verify):
-- Plan: `./bin/mail-assistant outlook rules plan --config out/filters.outlook.from_unified.yaml --move-to-folders`
-- Apply: `./bin/mail-assistant outlook rules sync --config out/filters.outlook.from_unified.yaml --move-to-folders --delete-missing`
-- Verify: `./bin/mail-assistant outlook rules list`
+- Plan: `./bin/mail outlook rules.plan --config ./filters.outlook.yaml --move-to-folders`
+- Apply: `./bin/mail outlook rules.sync --config ./filters.outlook.yaml --move-to-folders --delete-missing`
+- Verify: `./bin/mail outlook rules.list`
 
 Labels (Gmail):
-- Plan: `./bin/mail-assistant labels plan --config config/labels_current.yaml --delete-missing`
-- Apply: `./bin/mail-assistant labels sync --config config/labels_current.yaml --delete-missing`
-- Verify: `./bin/mail-assistant labels export --out out/labels.export.after.yaml`
+- Plan: `./bin/mail labels plan --config config/labels_current.yaml --delete-missing`
+- Apply: `./bin/mail labels sync --config config/labels_current.yaml --delete-missing`
+- Verify: `./bin/mail labels export --out ./labels.export.after.yaml`
 
 Signatures (Gmail):
-- Export: `./bin/mail-assistant signatures export --out out/signatures.export.yaml`
-- Normalize preview: `./bin/mail-assistant signatures normalize --config config/signatures.yaml --out-html out/signature.preview.html`
-- Sync: `./bin/mail-assistant signatures sync --config config/signatures.yaml`
+- Export: `./bin/mail signatures export --out ./signatures.export.yaml`
+- Normalize preview: `./bin/mail signatures normalize --config config/signatures.yaml --out-html ./signature.preview.html`
+- Sync: `./bin/mail signatures sync --config config/signatures.yaml`
 
 Forwarding (Gmail):
-- List/add/status: `./bin/mail-assistant forwarding list|add|status`
-- Enforce verified forwarders on sync: `./bin/mail-assistant filters sync --config out/filters.gmail.from_unified.yaml --require-forward-verified --dry-run`
+- List/add/status: `./bin/mail forwarding list|add|status`
+- Enforce verified forwarders on sync: `./bin/mail filters sync --config ./filters.gmail.yaml --require-forward-verified --dry-run`
 
 Messages (Gmail + Outlook):
 - Search (auto-detects provider from profile):
-  - Gmail: `./bin/mail-assistant messages search --query "from:sender@example.com" --days 7 --max-results 10 --json`
-  - Outlook: `./bin/mail-assistant --profile outlook_vanesa messages search --query "richmond hill" --max-results 10 --json`
-- Summarize: `./bin/mail-assistant messages summarize --query "from:sender@example.com" --latest`
-- Reply (plan first): `./bin/mail-assistant messages reply --query "from:sender@example.com" --latest --points "yes, confirmed" --plan`
-- Reply (send): `./bin/mail-assistant messages reply --query "from:sender@example.com" --latest --points "yes, confirmed" --apply`
-- Send scheduled: `./bin/mail-assistant messages apply-scheduled`
+  - Gmail: `./bin/mail messages search --query "from:sender@example.com" --days 7 --max-results 10 --json`
+  - Outlook: `./bin/mail --profile outlook_vanesa messages search --query "richmond hill" --max-results 10 --json`
+- Summarize: `./bin/mail messages summarize --query "from:sender@example.com" --latest`
+- Reply (plan first): `./bin/mail messages reply --query "from:sender@example.com" --latest --points "yes, confirmed" --plan`
+- Reply (send): `./bin/mail messages reply --query "from:sender@example.com" --latest --points "yes, confirmed" --apply`
+- Send scheduled: `./bin/mail messages apply-scheduled`
 
 Auto (categorize + archive) (Gmail):
-- Propose: `./bin/mail-assistant auto propose --out out/auto.proposal.json --days 7 --only-inbox --dry-run`
-- Summary: `./bin/mail-assistant auto summary --proposal out/auto.proposal.json`
-- Apply (dry-run first): `./bin/mail-assistant auto apply --proposal out/auto.proposal.json --cutoff-days 7 --dry-run`
+- Propose: `./bin/mail auto propose --out ./auto.proposal.json --days 7 --only-inbox --dry-run`
+- Summary: `./bin/mail auto summary --proposal ./auto.proposal.json`
+- Apply (dry-run first): `./bin/mail auto apply --proposal ./auto.proposal.json --cutoff-days 7 --dry-run`
 
 LLM maintenance:
 - Inventory: `./bin/llm inventory --preserve`
@@ -70,30 +70,30 @@ Phone (iOS) — Home Screen Reorg (recommended):
   - `--no-install`: build profile but skip device copy
   - `--keep "<bundle,ids>"`: pin apps on page 1
   - Code 625 from cfgutil = expected success on macOS 26; tap Install in Settings → General → VPN & Device Management
-- Merge Other/loose apps into existing folders (step-by-step): `./bin/phone merge-folders --layout out/ios.IconState.yaml --plan out/ios.plan.merged.yaml`
-- Export device layout: `./bin/phone export-device --out out/ios.IconState.yaml`
+- Merge Other/loose apps into existing folders (step-by-step): `./bin/phone merge-folders --layout ./ios.IconState.yaml --plan ./ios.plan.merged.yaml`
+- Export device layout: `./bin/phone export-device --out ./ios.IconState.yaml`
 
 Phone (iOS) — Home Screen Scaffolding (advanced/step-by-step):
-- Export layout from device: `./bin/phone export-device --out out/ios.IconState.yaml`
-- Scaffold plan (pins + folders): `./bin/phone plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml`
-- Manual checklist from plan: `./bin/phone checklist --plan out/ios.plan.yaml --layout out/ios.IconState.yaml --out out/ios.checklist.txt`
+- Export layout from device: `./bin/phone export-device --out ./ios.IconState.yaml`
+- Scaffold plan (pins + folders): `./bin/phone plan --layout ./ios.IconState.yaml --out ./ios.plan.yaml`
+- Manual checklist from plan: `./bin/phone checklist --plan ./ios.plan.yaml --layout ./ios.IconState.yaml --out ./ios.checklist.txt`
 - Build configuration profile (.mobileconfig):
-  - `./bin/phone profile build --plan out/ios.plan.yaml --layout out/ios.IconState.yaml --out out/ios.hslayout.mobileconfig \
+  - `./bin/phone profile build --plan ./ios.plan.yaml --layout ./ios.IconState.yaml --out ./ios.hslayout.mobileconfig \
      --identifier com.example.profile --hs-identifier com.example.hslayout --display-name "Home Screen Layout" --organization "Personal"`
   - Note: Home Screen Layout payloads apply on supervised devices (MDM/Configurator). For personal devices, use the checklist.
 - Install profile (no-touch apply):
-  - `./bin/ios-install-profile --profile out/ipad.hslayout.mobileconfig` (or `--udid <UDID>` to target explicitly)
+  - `./bin/ios-install-profile --profile ./ipad.hslayout.mobileconfig` (or `--udid <UDID>` to target explicitly)
 - Build and install in one step:
-  - `./bin/ios-pages-sync --plan out/ipad.plan.yaml --layout out/ipad.IconState.yaml --out out/ipad.hslayout.mobileconfig --udid <UDID>`
+  - `./bin/ios-pages-sync --plan ./ipad.plan.yaml --layout ./ipad.IconState.yaml --out ./ipad.hslayout.mobileconfig --udid <UDID>`
   - Multiple devices by labels or UDIDs:
     - `./bin/ios-pages-sync --device-labels home_ipad,work_ipad`
     - `./bin/ios-pages-sync --udids 0000...A,0000...B`
 
 Supervision identity helpers (silent install):
 - Convert a .p12 to DER cert/key for cfgutil:
-  - `./bin/ios-p12-to-der --p12 "/Users/you/Documents/sherwin family.p12" --pass 'PASSWORD' --out-dir out/cfgutil_identity --print-cfgutil`
+  - `./bin/ios-p12-to-der --p12 "/Users/you/Documents/sherwin family.p12" --pass 'PASSWORD' --out-dir ./cfgutil_identity --print-cfgutil`
 - Install using the identity directly:
-  - `./bin/ios-install-profile --udid <UDID> --profile out/ipad.hslayout.mobileconfig --p12 "/Users/you/Documents/sherwin family.p12" --p12-pass 'PASSWORD'`
+  - `./bin/ios-install-profile --udid <UDID> --profile ./ipad.hslayout.mobileconfig --p12 "/Users/you/Documents/sherwin family.p12" --p12-pass 'PASSWORD'`
 - Read from credentials.ini (preferred, descriptive names):
   - Put this in `~/.config/credentials.ini` (or `$CREDENTIALS`):
     [ios_layout_manager]
@@ -104,10 +104,10 @@ Supervision identity helpers (silent install):
     # supervision_identity_p12 = /Users/you/Documents/SHERWIN.p12
     # supervision_identity_pass = YOURPASSWORD
   - Then run without passing secrets (defaults to [ios_layout_manager]):
-    `./bin/ios-install-profile --udid <UDID> --profile out/ipad.hslayout.mobileconfig`
+    `./bin/ios-install-profile --udid <UDID> --profile ./ipad.hslayout.mobileconfig`
     `./bin/ios-pages-sync --udid <UDID>`
   - Override section/file when needed:
-    `./bin/ios-install-profile --udid <UDID> --creds-profile ios_supervisor --config /path/credentials.ini --profile out/ipad.hslayout.mobileconfig`
+    `./bin/ios-install-profile --udid <UDID> --creds-profile ios_supervisor --config /path/credentials.ini --profile ./ipad.hslayout.mobileconfig`
 
 Device labels and settings.init:
 - Add/label a device and write settings.init:
@@ -129,20 +129,20 @@ pages:
 ```
 
 Phone (iOS) — Unused Apps (heuristic):
-- Suggest unused candidates (text): `./bin/phone unused --layout out/ios.IconState.yaml --limit 50`
+- Suggest unused candidates (text): `./bin/phone unused --layout ./ios.IconState.yaml --limit 50`
 - CSV output with recent/keep lists:
-  - `./bin/phone unused --layout out/ios.IconState.yaml --recent recent.txt --keep keep.txt --format csv`
+  - `./bin/phone unused --layout ./ios.IconState.yaml --recent recent.txt --keep keep.txt --format csv`
 - Generate removal checklist (no device writes):
-  - Offload: `./bin/phone prune --layout out/ios.IconState.yaml --mode offload --limit 50`
-  - Delete: `./bin/phone prune --layout out/ios.IconState.yaml --mode delete --limit 50`
+  - Offload: `./bin/phone prune --layout ./ios.IconState.yaml --mode offload --limit 50`
+  - Delete: `./bin/phone prune --layout ./ios.IconState.yaml --mode delete --limit 50`
 
 Phone (iOS) — Layout Analysis:
-- Text summary: `./bin/phone analyze --layout out/ios.IconState.yaml`
-- With plan alignment: `./bin/phone analyze --layout out/ios.IconState.yaml --plan out/ios.plan.yaml`
-- JSON output: `./bin/phone analyze --layout out/ios.IconState.yaml --format json`
+- Text summary: `./bin/phone analyze --layout ./ios.IconState.yaml`
+- With plan alignment: `./bin/phone analyze --layout ./ios.IconState.yaml --plan ./ios.plan.yaml`
+- JSON output: `./bin/phone analyze --layout ./ios.IconState.yaml --format json`
 
 Phone (iOS) — Auto‑organize into folders:
 - Auto‑assign all apps into folders and place folders from Page 2:
-  - `./bin/phone auto-folders --layout out/ipad.IconState.yaml --plan out/ipad.plan.yaml --place-folders-from-page 2`
+  - `./bin/phone auto-folders --layout ./ipad.IconState.yaml --plan ./ipad.plan.yaml --place-folders-from-page 2`
 - Then build+install the multi‑page profile:
-  - `./bin/ios-pages-sync --plan out/ipad.plan.yaml --layout out/ipad.IconState.yaml --out out/ipad.hslayout.mobileconfig --udid <UDID>`
+  - `./bin/ios-pages-sync --plan ./ipad.plan.yaml --layout ./ipad.IconState.yaml --out ./ipad.hslayout.mobileconfig --udid <UDID>`

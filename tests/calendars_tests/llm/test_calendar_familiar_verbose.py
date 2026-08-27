@@ -11,5 +11,5 @@ class TestCalendarFamiliarVerbose(unittest.TestCase):
             rc = mod.main(["familiar", "--stdout", "--verbose"])
         out = buf.getvalue()
         self.assertEqual(rc, 0)
-        self.assertIn("outlook auth ensure", out)
-        self.assertIn("outlook auth validate", out)
+        self.assertIn("outlook auth.ensure", out)
+        self.assertIn("outlook auth.validate", out)

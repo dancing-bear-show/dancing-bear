@@ -52,4 +52,4 @@ Return findings concisely with file paths and line numbers:
 1. Start broad with Glob patterns (`**/*.py`)
 2. Narrow with Grep for specific terms
 3. Read key files for detailed understanding
-4. Check `.llm/DOMAIN_MAP.md` for directory structure
+4. Generate the domain map on demand: `./bin/llm domain-map --stdout` (no such file exists)

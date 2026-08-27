@@ -50,7 +50,7 @@ familiarize:
   allow:
     - .llm/familiarize.yaml
   optional:
-    - .llm/DOMAIN_MAP.md
+    - domain_map            # generated: ./bin/llm domain-map --stdout
     - agentic_cli_schema
   heavy:
     - README.md

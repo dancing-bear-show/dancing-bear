@@ -37,14 +37,21 @@ This project provides unified CLIs for personal workflows (mail, calendars, sche
 
 - Run quality checks locally:
   ```bash
-  ~/.qlty/bin/qlty check .
+  make lint                      # ruff over src/, tests/, bin/
+  ./bin/qlty-assistant scan      # merged qlty check + smells, ranked by remediation tier
   ```
+- There is no standalone `ruff` on PATH — CI lints through qlty's pinned build, which
+  `make lint` resolves via `bin/ruff-resolve.sh`. A bare `ruff check` fails as
+  "command not found".
+- Do not run `qlty check` from inside `.claude/worktrees/` — that path is excluded, so it
+  scans zero files while printing "✔ No issues". An empty result there means broken
+  environment, not clean code.
 - CI runs `qlty` (ruff + bandit) automatically
 - Fix security issues (bandit S rules) and complexity warnings
 
 ### Architecture
 
-See `.llm/CONTEXT.md` and `.llm/DOMAIN_MAP.md` for:
+See `.llm/CONTEXT.md` and `./bin/llm domain-map --stdout` for:
 - Reading order for familiarization
 - Module organization
 - Development rules (do/avoid)
@@ -97,7 +104,7 @@ Key principles:
 - Breaking changes to stable CLI interfaces
 - Heavy new dependencies without discussion
 - Broad refactors that rename/move public entry points
-- Generated files (`.llm/AGENTIC*.md`, `out/**`)
+- Generated files (`.llm/INVENTORY.md`, `.llm/FLOWS.generated.yaml`) — fix the generator instead
 
 ## Credentials and Testing
 

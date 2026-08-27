@@ -15,7 +15,7 @@ System Identity
 
 Familiarize Mode (Strict + Tiers)
 - Strict (capsule-only): Read `.llm/familiarize.yaml`; generate with `./bin/llm familiar --stdout`.
-- Optional: Programmatic `.llm/DOMAIN_MAP.md`; compact schemas via `--agentic --agentic-format yaml --agentic-compact`.
+- Optional: Domain map (generated on demand): `./bin/llm domain-map --stdout`; compact schemas via `--agentic --agentic-format yaml --agentic-compact`.
 - Extended (explicit): Only open heavy files intentionally (README/AGENTS/large exports).
 
 Architecture Overview
@@ -32,6 +32,7 @@ src/
   charts/       # render time-series charts from JSON (line/bar/area/dual)
   diagrams/     # Mermaid diagram generation (flowchart/sequence/gantt/pie; telemetry cost/token pies)
   slides/       # generate PowerPoint decks from YAML deck definitions
+  sheets/       # generate styled .xlsx spreadsheets from YAML workbook definitions
   workflow/     # YAML DAG workflow engine (parse/compile/run/lint/list/status)
   core/         # shared helpers
   telemetry/    # Claude Code session telemetry (cost, tokens, TUI)
@@ -43,7 +44,8 @@ bin/            # entry wrappers and helper scripts
 tests/          # lightweight unittest suite
 .llm/           # LLM context, flows, capsules
 _disasm/        # decompiled refs (read-only)
-config/, out/   # YAML inputs and derived outputs
+config/         # YAML input templates (canonical config is outside checkout)
+                # Generated output: ~/.local/share/dancing-bear/ (via core/paths.py)
 ```
 
 Development Rules (do)
@@ -75,7 +77,7 @@ Activation Policy (Recommended)
 
 LLM Imperatives
 - Activate env when running Python commands only if needed; prefer `direnv` or direct `.venv/bin/python` when relevant.
-- Use unified wrapper: `./bin/assistant <mail|calendar|schedule|resume|phone|whatsapp|maker>` (preferred), or short names: `./bin/mail`, `./bin/calendar`, `./bin/schedule`, `./bin/phone`, `./bin/wifi`, `./bin/whatsapp`, `./bin/maker`, `./bin/qlty-assistant`. The `-assistant` suffixed forms are legacy aliases, retained for compatibility (except `./bin/qlty-assistant`, whose suffix is required so it does not shadow the real `qlty` binary).
+- `./bin/assistant` apps: apple-music, calendar, mail, maker, music, phone, resume, schedule, slides, whatsapp, wifi. Short wrappers also available: `./bin/mail`, `./bin/calendar`, `./bin/schedule`, `./bin/phone`, `./bin/wifi`, `./bin/whatsapp`, `./bin/maker`, `./bin/qlty-assistant`. The `-assistant` suffixed forms are legacy aliases (except `./bin/qlty-assistant`, whose suffix is required so it does not shadow the real `qlty` binary). `desk` has no bin/ wrapper — use `python3 -m desk`.
 - Persist credentials to INI with profiles (single source of truth)
 - Default to dry-run style flows for destructive operations; provide plan/apply
 
@@ -87,10 +89,10 @@ Agentic Schemas - Notes
 Familiarization Policy (Fast + Lean)
 - Avoid opening large YAML/JSON unless auditing derived vs canonical.
   - Canonical: `~/.config/dancing-bear/filters_unified.yaml` (outside checkout; `config/filters_unified.example.yaml` is the tracked template)
-  - Derived/ephemeral (open only for audits): `out/**` (legacy `_out/**`), `backups/**`, exports
-- Ignore heavy/non-core paths during scanning: `.venv/`, `.cache/`, `.git/`, `src/maker/`, `_disasm/`, `out/`, `_out/` (legacy), `backups/`, `personal_assistants.egg-info/`
+  - Derived/ephemeral (open only for audits): outputs under `~/.local/share/dancing-bear/` (legacy: `_out/**`), `backups/**`, exports
+- Ignore heavy/non-core paths during scanning: `.venv/`, `.cache/`, `.git/`, `src/maker/`, `_disasm/`, `_out/` (legacy), `backups/`, `personal_assistants.egg-info/`
 - Reading order for new contexts:
-  1) `.llm/CONTEXT.md`, `.llm/DOMAIN_MAP.md`, `README.md`
+  1) `.llm/CONTEXT.md`, `README.md`  (domain map: `./bin/llm domain-map --stdout`)
   2) Entry points: `bin/assistant`, `bin/mail`, `bin/calendar`, `bin/schedule`, `bin/phone`, `bin/wifi`, `bin/whatsapp`, `bin/qlty-assistant`
   3) Shared helpers: `src/core/`
   4) Mail config/DSL: `src/mail/dsl.py`, `src/mail/config_resolver.py`, `src/mail/utils/filters.py`
@@ -104,7 +106,7 @@ Familiarization Policy (Fast + Lean)
 Agentic Shortcuts
 - `./bin/assistant mail --agentic` or direct `./bin/mail --agentic` - compact agentic capsule from main parser
 - `./bin/llm agentic --stdout` - compact agentic capsule (LLM CLI)
-- `./bin/llm domain-map --write .llm/DOMAIN_MAP.md` - programmatic CLI tree + flows
+- `./bin/llm domain-map --stdout` - programmatic CLI tree + flows (generated on demand; no file)
 - `./bin/llm derive-all --out-dir .llm --include-generated --stdout` - ensure core capsules
 - `./bin/llm familiar --verbose --write .llm/familiarize.yaml` - token-safe familiarization plan
 - `./bin/llm stale --with-status --limit 10` - staleness overview; see also `deps` and `check`
@@ -136,10 +138,10 @@ Operational Checks (Mail filters/rules)
 - Unified is the source of truth: `~/.config/dancing-bear/filters_unified.yaml` is canonical for both Gmail and Outlook (outside checkout; `config/filters_unified.example.yaml` is the tracked template).
 - Always run a plan first, then apply:
   - Gmail: `filters plan --config ... [--delete-missing]` then `filters sync --delete-missing`.
-  - Outlook: `outlook rules plan --config ... --move-to-folders` then `outlook rules sync --delete-missing`.
+  - Outlook: `outlook rules.plan --config ... --move-to-folders` then `outlook rules.sync --delete-missing`.
 - After apply, verify no extraneous rules exist outside unified:
-  - Gmail: export and compare counts/criteria to derived `out/filters.gmail.from_unified.yaml`.
-  - Outlook: list rules and spot-check criteria vs `out/filters.outlook.from_unified.yaml`.
+  - Gmail: export and compare counts/criteria to the derived filters file.
+  - Outlook: `outlook rules.list` and spot-check criteria vs the derived filters file.
 - Prefer domain-based criteria over generic `query=` rules; deduplicate and merge substantially similar senders.
 - For Kids/* flows, ensure forward-to Vanesa is present and not duplicated across rules.
 

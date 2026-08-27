@@ -2,7 +2,7 @@
 
 Background job queue and daemon for deferred CLI tasks. Entry point: `./bin/worker`.
 
-Does not support `--agentic`; discover subcommands with `./bin/worker --help`.
+Supports `--agentic`: `./bin/worker --agentic --agentic-format yaml --agentic-compact`.
 
 ## Key Commands
 

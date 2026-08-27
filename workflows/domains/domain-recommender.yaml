@@ -128,8 +128,12 @@ stages:
       Step 4 — check whether each domain's bin CLI exposes an agentic schema:
         Run: ./bin/<cli> --agentic --agentic-format yaml --agentic-compact 2>/dev/null
         Set has_agentic_schema=true if exit code == 0.
-        Note: charts, diagrams, workflow, and worker are standalone CLIs with
-        no agentic schema by design — a false here is expected, not a defect.
+        Every app supports --agentic, so a false here is a defect worth
+        reporting, not an expected result. Note the invocation differs for
+        four of them: apple-music is ./bin/apple-music-assistant, qlty is
+        ./bin/qlty-assistant, resume is ./bin/assistant resume, and desk has
+        no wrapper at all (python3 -m desk). Run ./bin/llm inventory --stdout
+        for the authoritative list rather than assuming ./bin/<cli>.
 
       Write domain-map.json:
         {

@@ -4,8 +4,13 @@ from __future__ import annotations
 
 import sys
 
+from functools import lru_cache
+
+from core.assistant import BaseAssistant
 from core.cli_framework import CLIApp
 from core.cli_output import OutputWriter
+
+from .meta import META
 
 from .cli_telemetry import (  # noqa: F401
     _format_tokens,
@@ -34,6 +39,15 @@ _DEFAULT_MMD_LABEL = "diagram.mmd"
 # _cmd_func directly (not app.run()) to preserve this CLI's legacy
 # no-subcommand exit code (0, not CLIApp's default ExitCode.USAGE).
 app = CLIApp("diagrams", "Mermaid diagram generation", add_common_args=False)
+
+assistant = BaseAssistant(META.app_id, META.agentic_fallback)
+
+
+@lru_cache(maxsize=1)
+def _lazy_agentic():
+    from . import agentic as _agentic
+
+    return _agentic.emit_agentic_context
 
 
 # ── Shared I/O helpers ────────────────────────────────────────────────────────
@@ -294,8 +308,15 @@ def cmd_from_yaml(args) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = app.build_parser()
+    assistant.add_agentic_flags(parser)
     _argv = app.normalize_argv(argv if argv is not None else sys.argv[1:])
     args = parser.parse_args(_argv)
+
+    # Handled before the no-subcommand branch so `--agentic` alone exits 0
+    # without going through the legacy help path below.
+    rc = assistant.maybe_emit_agentic(args, _lazy_agentic(), parser=parser)
+    if rc is not None:
+        return rc
 
     cmd_func = getattr(args, "_cmd_func", None)
     if cmd_func is None:

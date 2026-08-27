@@ -2,7 +2,7 @@
 
 YAML DAG engine for composing and running multi-step assistant tasks. Entry point: `./bin/workflow`.
 
-Does not support `--agentic`; discover subcommands with `./bin/workflow --help`.
+Supports `--agentic`: `./bin/workflow --agentic --agentic-format yaml --agentic-compact`.
 
 ## Key Commands
 

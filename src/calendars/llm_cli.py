@@ -29,8 +29,8 @@ def _familiar_extended() -> str:
         "steps:\n"
         "  - run: ./bin/calendar --agentic\n"
         "  - run: ./bin/llm-calendar agentic --stdout\n"
-        "  - run: ./bin/mail-assistant --profile outlook_personal outlook auth ensure || true\n"
-        "  - run: ./bin/mail-assistant --profile outlook_personal outlook auth validate || true\n"
+        "  - run: ./bin/mail-assistant --profile outlook_personal outlook auth.ensure || true\n"
+        "  - run: ./bin/mail-assistant --profile outlook_personal outlook auth.validate || true\n"
     )
 
 

@@ -75,7 +75,7 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
                 return ResultEnvelope(
                     status="error",
                     payload=None,
-                    diagnostics={"error": f"Auth failed: {e}", "code": 2, "hint": "Run outlook auth ensure"},
+                    diagnostics={"error": f"Auth failed: {e}", "code": 2, "hint": "Run outlook auth.ensure"},
                 )
 
             existing = {_canon_rule(r): r for r in existing_rules}

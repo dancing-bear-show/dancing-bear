@@ -11,7 +11,7 @@ These instructions guide LLM agents working in this repository.
 ## Build, Test, and Development Commands
 - Setup venv: `python3 -m venv .venv && source .venv/bin/activate`
 - Install package (editable): `make venv` or `pip install -e .[yaml]`
-- CLI help: `./bin/desk-assistant --help` or `.venv/bin/desk-assistant --help`
+- CLI help: `python3 -m desk --help` (no `bin/` wrapper ships for desk)
 - Scan:
   - `python3 -m desk scan --paths ~/Downloads ~/Desktop --min-size 100MB --older-than 30d --duplicates`
 - Rules

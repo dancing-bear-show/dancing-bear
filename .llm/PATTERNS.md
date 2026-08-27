@@ -20,8 +20,12 @@ Use Existing Commands First
 ./bin/mail --agentic --agentic-format json
 ./bin/mail --agentic --agentic-format json --agentic-compact
 ./bin/mail --agentic --agentic-format json --agentic-domain labels
-# Works identically for all 10 domain CLIs (mail, calendar, schedule, resume, phone,
-# whatsapp, desk, wifi, maker, apple_music)
+# Works for all 18 apps. `./bin/llm inventory --stdout` prints the exact
+# invocation for each, since ./bin/<app> is wrong for four:
+#   apple-music -> ./bin/apple-music-assistant
+#   qlty        -> ./bin/qlty-assistant
+#   resume      -> ./bin/assistant resume
+#   desk        -> python3 -m desk
 ```
 
 Agentic Shortcuts (LLM CLI)
@@ -32,7 +36,7 @@ Agentic Shortcuts (LLM CLI)
 # Generate domain map (CLI tree + flows)
 ./bin/llm domain-map --stdout
 
-# Ensure core .llm files exist (and generate AGENTIC/DOMAIN_MAP)
+# Ensure core .llm files exist (and generate AGENTIC schemas)
 ./bin/llm derive-all --out-dir .llm --include-generated
 
 # Familiarization capsules
@@ -52,7 +56,7 @@ Agentic Shortcuts (LLM CLI)
 
 Familiarization: Reading Order
 ```
-1) .llm/CONTEXT.md, .llm/DOMAIN_MAP.md, README.md
+1) .llm/CONTEXT.md, README.md  (domain map: `./bin/llm domain-map --stdout`)
 2) bin/mail → src/mail/__main__.py
 3) src/mail/dsl.py, src/mail/config_resolver.py, src/mail/utils/filters.py
 4) src/mail/providers/*.py, src/mail/gmail_api.py, src/core/outlook/
@@ -75,7 +79,7 @@ Familiarization: Large YAML/JSON Policy
 ```
 - Only open large YAML/JSON when auditing derived vs canonical.
 - Canonical: ~/.config/dancing-bear/filters_unified.yaml (outside checkout; config/filters_unified.example.yaml is the tracked template)
-- Derived/ephemeral: out/** (legacy _out/**), backups/**, exports (open only for audits)
+- Derived/ephemeral: outputs under ~/.local/share/dancing-bear/ (legacy: out/**), backups/**, exports (open only for audits)
 ```
 
 CLI Entry Pattern
@@ -88,10 +92,11 @@ CLI Entry Pattern
 Schedule Planning/Apply
 ```
 # bin/schedule (plan then apply; apply requires --apply)
-# Prefer writing outputs to out/ (tracked as needed)
-./bin/schedule plan --source schedules/classes.csv --out out/schedule.plan.yaml
-./bin/schedule apply --plan out/schedule.plan.yaml --dry-run
-./bin/schedule apply --plan out/schedule.plan.yaml --apply --calendar "Your Family"
+# Default output: ~/.local/share/dancing-bear/schedule/ (via core/paths.py)
+# Override with --out-dir or $DANCING_BEAR_DATA_HOME
+./bin/schedule plan --source schedules/classes.csv --out /tmp/schedule.plan.yaml
+./bin/schedule apply --plan /tmp/schedule.plan.yaml --dry-run
+./bin/schedule apply --plan /tmp/schedule.plan.yaml --apply --calendar "Your Family"
 ```
 
 Profile-Based Credentials
@@ -261,8 +266,8 @@ Plan/Apply Flow (Safe by Default)
 ./bin/mail labels sync --config labels.yaml
 
 # Outlook rules
-./bin/mail outlook rules plan --config filters.outlook.yaml
-./bin/mail outlook rules sync --config filters.outlook.yaml --dry-run
+./bin/mail outlook rules.plan --config filters.outlook.yaml
+./bin/mail outlook rules.sync --config filters.outlook.yaml --dry-run
 ```
 
 Minimal Test (unittest)
@@ -457,6 +462,8 @@ from .constants import TEMP_PREFIXES, SECTION_PATTERNS
 Phone/iOS Patterns
 ```
 # Export → Plan → Checklist → Profile
+# (replace out/ with a path of your choice — out/ does not exist in the repo;
+#  use ~/.local/share/dancing-bear/phone/ or a temp dir)
 ./bin/phone export-device --out out/ios.IconState.yaml
 ./bin/phone plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml
 ./bin/phone checklist --plan out/ios.plan.yaml --layout out/ios.IconState.yaml
@@ -483,6 +490,5 @@ Calendar Patterns
 WiFi Patterns
 ```
 # Diagnostics
-./bin/wifi-assistant scan
-./bin/wifi-assistant diagnose
+./bin/wifi diagnose
 ```

@@ -48,7 +48,7 @@ def run_outlook_auth_device_code(args) -> int:
 
     prof = getattr(args, 'profile', None)
     prof_flag = f" --profile {prof}" if prof else ""
-    print(f"Next: ./bin/mail-assistant{prof_flag} outlook auth poll --flow {args.out} --token {default_outlook_token_path()}")
+    print(f"Next: ./bin/mail-assistant{prof_flag} outlook auth.poll --flow {args.out} --token {default_outlook_token_path()}")
 
     if getattr(args, 'verbose', False):
         print(f"[device-code] Saved flow to {outp} (client_id={client_id}, tenant={tenant}).")
@@ -73,7 +73,7 @@ def run_outlook_auth_poll(args) -> int:
     client_id = flow.get("_client_id")
     tenant = flow.get("_tenant") or "consumers"
     if not client_id:
-        print("Device flow missing _client_id. Re-run outlook auth device-code.")
+        print("Device flow missing _client_id. Re-run outlook auth.device-code.")
         return 2
 
     cache = msal.SerializableTokenCache()

@@ -16,9 +16,12 @@ from __future__ import annotations
 
 import argparse
 import sys
+from functools import lru_cache
 
+from core.assistant import BaseAssistant
 from core.cli_errors import UsageError
 from core.cli_framework import CLIApp
+from worker.meta import META
 from worker.commands import (
     EnqueueCommand,
     ListCommand,
@@ -75,6 +78,14 @@ def _run_processor(args: argparse.Namespace, cmd: str) -> int:
 # ---------------------------------------------------------------------------
 
 app = CLIApp("worker", "Background worker queue and daemon", add_common_args=False)
+
+assistant = BaseAssistant(META.app_id, META.agentic_fallback)
+
+
+@lru_cache(maxsize=1)
+def _lazy_agentic():
+    from .agentic import emit_agentic_context
+    return emit_agentic_context
 
 
 @app.command("enqueue", help="Enqueue a job")
@@ -177,7 +188,12 @@ def _no_command_usage() -> int:
 
 def main(argv: list[str] | None = None) -> int:
     """Entry point for bin/worker."""
-    return app.run(argv, on_no_command=_no_command_usage)
+    return app.run_with_assistant(
+        assistant,
+        emit_func=lambda fmt, compact: _lazy_agentic()(fmt, compact),
+        argv=argv,
+        on_no_command=_no_command_usage,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover

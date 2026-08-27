@@ -7,9 +7,14 @@ import json
 import sys
 from pathlib import Path
 
+from functools import lru_cache
+
+from core.assistant import BaseAssistant
 from core.cli_errors import CLIError, ExitCode, handle_error
 from core.cli_framework import CLIApp
 from core.cli_output import OutputWriter, OutputConfig, OutputFormat
+
+from .meta import META
 
 # add_common_args=False: charts has no --profile/--dry-run, and its own
 # --output/-o means output *path* (not the CLIApp built-in output *format*
@@ -19,6 +24,15 @@ app = CLIApp(
     "charts — render time-series charts from JSON.",
     add_common_args=False,
 )
+
+assistant = BaseAssistant(META.app_id, META.agentic_fallback)
+
+
+@lru_cache(maxsize=1)
+def _lazy_agentic():
+    from . import agentic as _agentic
+
+    return _agentic.emit_agentic_context
 
 
 def _require_matplotlib() -> None:
@@ -264,8 +278,15 @@ def _handle_reshape(args: argparse.Namespace, writer: OutputWriter | None = None
 def main(argv: list[str] | None = None) -> int:
     """charts CLI entry point."""
     parser = app.build_parser()
+    assistant.add_agentic_flags(parser)
     _argv = app.normalize_argv(argv if argv is not None else sys.argv[1:])
     args = parser.parse_args(_argv)
+
+    # Handled before the no-subcommand branch so `--agentic` alone exits 0
+    # while a bare invocation keeps its legacy exit code of 1.
+    rc = assistant.maybe_emit_agentic(args, _lazy_agentic(), parser=parser)
+    if rc is not None:
+        return rc
 
     cmd_func = getattr(args, "_cmd_func", None)
     if cmd_func is None:
