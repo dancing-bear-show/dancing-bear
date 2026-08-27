@@ -5,7 +5,7 @@ Strict default (capsule‑only):
 - Generate if missing: `./bin/llm familiar --stdout` (or `--write .llm/familiarize.yaml`).
 
 Optional (on‑demand):
-- Add `.llm/DOMAIN_MAP.md` for programmatic CLI tree + key modules.
+- Generate domain map on demand: `./bin/llm domain-map --stdout` (CLI tree + key modules; not a static file).
 - Prefer compact, agentic CLI schemas over `--help`:
   - `./bin/assistant mail --agentic --agentic-format yaml --agentic-compact`
   - `./bin/llm agentic --stdout`

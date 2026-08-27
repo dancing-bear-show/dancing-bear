@@ -63,7 +63,9 @@ Read in order for best context:
 1. `.llm/CONTEXT.md` - system overview and rules
 2. `.llm/MIGRATION_STATE.md` - current status and remaining work
 3. `.llm/PATTERNS.md` - copy-paste templates for common tasks
-4. `.llm/DOMAIN_MAP.md` - where things live in the codebase
+4. `./bin/llm domain-map --stdout` - where things live in the codebase. Generator-owned
+   and not checked in: `.llm/DOMAIN_MAP.md` exists only after
+   `./bin/llm derive-all --include-generated`, so read it via the command, not the path.
 
 ## CLI Argument Conventions
 

@@ -18,8 +18,7 @@ description: >
   Also updates documentation so the normalization sticks: per-domain
   README/AGENTS files (creating them where a touched domain has none —
   telemetry, worker, apple_music, charts, diagrams, workflow
-  currently lack one), .llm/PATTERNS.md and .llm/PIPELINE_MIGRATION.md
-  (marking newly-migrated domains complete), and proposes new entries to
+  currently lack one), .llm/PATTERNS.md, and proposes new entries to
   the concerns/*.md review-guide library (reusing the same propose/human-
   gate/append mechanism as update-review-concerns.yaml) for any genuinely
   new anti-pattern the audit surfaced that isn't covered yet. Concern
@@ -357,8 +356,8 @@ stages:
       - outputs/{domain}-tests.md
 
   # ===========================================================================
-  # G4a: Update docs — README/AGENTS per touched domain, PATTERNS.md,
-  # PIPELINE_MIGRATION.md. Runs in parallel with propose-concerns.
+  # G4a: Update docs — README/AGENTS per touched domain, PATTERNS.md.
+  # Runs in parallel with propose-concerns.
   # ===========================================================================
 
   - name: update-docs
@@ -395,13 +394,9 @@ stages:
         already documented there (rare — flag for propose-concerns instead
         of editing PATTERNS.md if unsure).
 
-      Step 3 — .llm/PIPELINE_MIGRATION.md:
-        For each domain that gained SafeProcessor/BaseProducer coverage in
-        this run, add or update its phase entry: mark the newly-migrated
-        commands with [x] and a one-line note "(SafeProcessor migration via
-        design-criteria-normalize, <today's date>)". If the domain has no
-        existing phase section, append a new "## Phase N+1 — <Domain>"
-        section following the existing phase format.
+      Step 3 — .llm/MIGRATION_STATE.md:
+        Pipeline migration is complete (PIPELINE_MIGRATION.md has been removed).
+        No per-domain phase entries are needed. Skip this step.
 
       Write {workspace}/outputs/docs-updated.md:
         | File | Domain | Change |
@@ -745,7 +740,7 @@ stages:
         {workspace}/design/plan.md                    — approved change plan
         {workspace}/outputs/*-changes.md               — per-domain changes applied
         {workspace}/outputs/*-tests.md                 — per-domain tests added
-        {workspace}/outputs/docs-updated.md             — README/AGENTS/PATTERNS.md/PIPELINE_MIGRATION.md changes
+        {workspace}/outputs/docs-updated.md             — README/AGENTS/PATTERNS.md changes
         {workspace}/outputs/concerns-update-summary.md  — concern-library entries added (if any)
         {workspace}/validation/test-results.md         — suite outcome
         {workspace}/validation/recheck.json            — final qlty + test status

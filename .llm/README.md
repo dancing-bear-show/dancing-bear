@@ -7,7 +7,7 @@ Token-efficient context for agents working on this repo.
 1. `CONTEXT.md` — system overview, architecture, and rules
 2. `MIGRATION_STATE.md` — current status and remaining work
 3. `PATTERNS.md` — copy-paste templates for common tasks
-4. `DOMAIN_MAP.md` — CLI tree, flows index, binaries
+4. Domain map (generated): `./bin/llm domain-map --stdout` — CLI tree, flows index, binaries
 5. `COMMANDS.md` — curated command reference
 
 ## Agentic Schemas

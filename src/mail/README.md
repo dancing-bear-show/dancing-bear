@@ -58,7 +58,7 @@ title: Filter Sync Data Flow
 ---
 flowchart LR
     unified["~/.config/dancing-bear/filters_unified.yaml"]
-    derive["config derive filters\n--in / --out-gmail / --out-outlook"]
+    derive["config derive.filters\n--in / --out-gmail / --out-outlook"]
     gmail_yaml["out/filters.gmail.yaml"]
     outlook_yaml["out/filters.outlook.yaml"]
     plan["filters plan\nFiltersPlanProcessor"]

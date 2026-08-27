@@ -12,7 +12,7 @@ Read these files in order for a fast bootstrap:
 
 ### Tier 2: Detailed Context (On-Demand)
 Load only when deeper detail is needed:
-- **`.llm/DOMAIN_MAP.md`** — CLI tree, flows index, binaries.
+- **`./bin/llm domain-map --stdout`** — CLI tree, flows index, binaries (generated on demand).
 - **`.llm/PATTERNS.md`** — code templates for filters, CLI wiring, etc.
 - **`.llm/MIGRATION_STATE.md`** — provider abstraction status.
 
@@ -31,18 +31,20 @@ Prefer agentic schemas over `--help`:
 ./bin/llm agentic --stdout
 ```
 
-Note: `charts`, `diagrams`, `worker`, and `workflow` do not support `--agentic`. Use `--help` for those.
+`./bin/llm inventory --stdout` lists which CLIs expose `--agentic` and which need `--help`.
 
-## YOLO Mode (Optional)
-For safe auto-approvals, follow `configs/llm/copilot-yolo.md` guidance (shared with other repos). Honor token budgets from `.llm/AGENTIC_BUDGETS.yaml`.
+## Token Budgets
+Honor token budgets from `.llm/AGENTIC_BUDGETS.yaml`.
 
 ## Quick Reference
 - Primary CLIs:
   ```bash
-  ./bin/mail filters plan --config out/filters.gmail.from_unified.yaml --delete-missing
-  ./bin/mail outlook rules plan --config out/filters.outlook.from_unified.yaml --move-to-folders
+  ./bin/mail filters plan --config filters.gmail.from_unified.yaml --delete-missing
+  ./bin/mail outlook rules.plan --config filters.outlook.from_unified.yaml --move-to-folders
   ./bin/calendar outlook add-from-config --config config/calendar/your_family_blas.yaml
   ```
+  Outlook and config subcommands are dot-separated (`rules.plan`, `derive.filters`), not
+  space-separated.
 - Auth: stored in `~/.config/credentials.ini` (use `--profile gmail_personal|outlook_personal`).
 - Tests: `make test` (preferred); never use bare `python3 -m unittest` in a worktree.
 - Code patterns: extend helpers in `src/mail/providers`, `src/mail/utils`, keep CLIs thin, reuse YAML DSLs.

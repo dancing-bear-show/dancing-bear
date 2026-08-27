@@ -32,7 +32,7 @@ make venv
 ```
 
 CLI help:
-- `./bin/assistant <apple-music|calendar|mail|maker|music|phone|resume|schedule|whatsapp|wifi> --help`
+- `./bin/assistant <apple-music|calendar|mail|maker|music|phone|resume|schedule|slides|whatsapp|wifi> --help`
 - `./bin/mail --help`
 - `./bin/calendar --help`
 - `./bin/schedule --help`
@@ -54,6 +54,9 @@ CLI help:
 | Charts | `./bin/charts` | Render time-series charts from JSON |
 | Diagrams | `./bin/diagrams` | Mermaid diagram generation |
 | Slides | `./bin/slides` | Generate PowerPoint decks from YAML |
+| Sheets | `./bin/sheets` | Generate styled .xlsx spreadsheets from YAML |
+| Telemetry | `./bin/telemetry` | Claude Code session cost and token telemetry |
+| Worker | `./bin/worker` | Background job queue and daemon |
 | Workflow | `./bin/workflow` | YAML DAG workflow engine |
 | Qlty | `./bin/qlty-assistant` | Scan, triage, and rank qlty findings by remediation tier |
 
@@ -61,7 +64,7 @@ Legacy `-assistant` suffixed binaries still work (e.g., `./bin/mail-assistant`).
 
 ## Architecture
 
-17 `src/` packages share a common `core/` framework and follow the same plan → dry-run → apply
+19 `src/` packages share a common `core/` framework and follow the same plan → dry-run → apply
 safety pattern before touching any real provider.
 
 ```mermaid
@@ -221,9 +224,9 @@ Unified filters (single YAML → Gmail + Outlook):
 
 Outlook auth (device code):
 ```bash
-./bin/mail --profile outlook_personal outlook auth device-code
-./bin/mail --profile outlook_personal outlook auth poll --flow ~/.config/msal_flow.json --token ~/.config/outlook_token.json
-./bin/mail --profile outlook_personal outlook auth ensure   # silent if cached
+./bin/mail --profile outlook_personal outlook auth.device-code
+./bin/mail --profile outlook_personal outlook auth.poll --flow ~/.config/msal_flow.json --token ~/.config/outlook_token.json
+./bin/mail --profile outlook_personal outlook auth.ensure   # silent if cached
 ```
 
 Other mail commands:
@@ -242,21 +245,21 @@ Other mail commands:
 ## Calendar (Outlook)
 
 ```bash
-./bin/calendar --profile outlook_personal outlook verify-from-config --config out/plan.yaml
-./bin/calendar --profile outlook_personal outlook add-from-config --config out/plan.yaml
-./bin/calendar --profile outlook_personal outlook update-locations --config out/plan.yaml --calendar "Your Family"
-./bin/calendar --profile outlook_personal outlook remove-from-config --config out/plan.yaml --calendar "Your Family" --apply
+./bin/calendar --profile outlook_personal outlook verify-from-config --config plan.yaml
+./bin/calendar --profile outlook_personal outlook add-from-config --config plan.yaml
+./bin/calendar --profile outlook_personal outlook update-locations --config plan.yaml --calendar "Your Family"
+./bin/calendar --profile outlook_personal outlook remove-from-config --config plan.yaml --calendar "Your Family" --apply
 ./bin/calendar --profile outlook_personal outlook dedup --calendar "Your Family" --from 2025-01-01 --to 2026-12-31 --prefer-delete-nonstandard --keep-newest --apply
 ```
 
 ## Schedule
 
 ```bash
-./bin/schedule plan --source schedules/classes.csv --out out/schedule.plan.yaml
-./bin/schedule apply --plan out/schedule.plan.yaml --dry-run
-./bin/schedule apply --plan out/schedule.plan.yaml --apply --calendar "Your Family"
-./bin/schedule verify --plan out/schedule.plan.yaml --calendar "Your Family" --from 2025-10-01 --to 2025-12-31
-./bin/schedule sync --plan out/schedule.plan.yaml --calendar "Your Family" --from 2025-10-01 --to 2025-12-31 --dry-run
+./bin/schedule plan --source schedules/classes.csv --out schedule.plan.yaml
+./bin/schedule apply --plan schedule.plan.yaml --dry-run
+./bin/schedule apply --plan schedule.plan.yaml --apply --calendar "Your Family"
+./bin/schedule verify --plan schedule.plan.yaml --calendar "Your Family" --from 2025-10-01 --to 2025-12-31
+./bin/schedule sync --plan schedule.plan.yaml --calendar "Your Family" --from 2025-10-01 --to 2025-12-31 --dry-run
 ```
 
 ## Resume
@@ -377,7 +380,6 @@ Derive capsules:
 ```
 bin/          CLI wrappers and entry points (see bin/_wrappers.yaml)
 config/       canonical YAML inputs (source of truth)
-out/          derived outputs and plans
 .llm/         agent context, flows, capsules
 workflows/    YAML workflow definitions
 tests/        unittest suite
@@ -389,17 +391,23 @@ src/
   phone/        iOS layout tooling
   whatsapp/     local-only ChatStorage search
   wifi/         diagnostics
-  desk/         macOS filesystem tidying
+  desk/         macOS filesystem tidying (no bin/ wrapper; run python3 -m desk)
   apple_music/  Apple Music API
   maker/        utility generators
   charts/       time-series chart rendering (line/bar/area/dual)
   diagrams/     Mermaid diagram generation
   slides/       PowerPoint deck generation from YAML
+  sheets/       styled .xlsx generation from YAML
+  qlty/         qlty scan/triage wrapper
   workflow/     YAML DAG engine (parse/compile/run/lint/list/status)
   worker/       background job queue and daemon
   telemetry/    Claude Code session telemetry (cost, tokens, TUI)
   core/         shared helpers and CLI framework
 ```
+
+Generated output is written outside the checkout (see `src/core/paths.py`): an explicit
+`--out-dir`, else `$DANCING_BEAR_DATA_HOME`, else `$XDG_DATA_HOME/dancing-bear`, else
+`~/.local/share/dancing-bear`.
 
 ## Code Quality and Testing
 

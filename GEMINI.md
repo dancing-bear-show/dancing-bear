@@ -12,7 +12,7 @@ This yields a YAML snapshot covering policies, roadmap, migration status, and ag
 ## On-Demand Context
 Load only as needed:
 - `.llm/CONTEXT.md` — architecture, rules, commands.
-- `.llm/DOMAIN_MAP.md` — directory/auth map.
+- `./bin/llm domain-map --stdout` — directory/auth map (generated on demand, not a file).
 - `.llm/PATTERNS.md` — code templates for filters, CLI wiring, tests.
 
 ## Tool Discovery: Use --agentic
@@ -24,13 +24,15 @@ Prefer agentic schemas over `--help`:
 ./bin/llm agentic --stdout
 ```
 
-Note: `charts`, `diagrams`, `worker`, and `workflow` do not support `--agentic`. Use `--help` for those.
+`./bin/llm inventory --stdout` lists which CLIs expose `--agentic` and which need `--help`.
 
-## YOLO Mode (Optional)
-If safe auto-approvals are needed, mirror the approach from `configs/llm/gemini-yolo.md` (shared standards). Respect token budgets defined in `.llm/AGENTIC_BUDGETS.yaml`.
+## Token Budgets
+Respect token budgets defined in `.llm/AGENTIC_BUDGETS.yaml`.
 
 ## Quick Reference
 - Primary CLIs: `./bin/mail`, `./bin/calendar`, `./bin/schedule`, `./bin/phone`.
 - Auth: `--profile gmail_personal|outlook_personal` (paths in `~/.config/credentials.ini`).
 - Tests: `make test` (preferred); never use bare `python3 -m unittest` in a worktree.
-- Config SoT: filter YAML lives in `config/`; derived outputs in `out/`.
+- Config SoT: filter YAML lives in `config/`; generated output goes outside the checkout
+  (`src/core/paths.py` — `--out-dir`, `$DANCING_BEAR_DATA_HOME`, `$XDG_DATA_HOME/dancing-bear`,
+  `~/.local/share/dancing-bear`).
