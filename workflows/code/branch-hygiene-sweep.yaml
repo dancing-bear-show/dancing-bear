@@ -429,9 +429,12 @@ stages:
       Which array to read depends on the bucket. Every bucket carries a
       "branches" array EXCEPT ORPHANED_DIR, which carries "dirs" — untracked
       directories that have no branch at all. If {bucket} is ORPHANED_DIR,
-      iterate "dirs" and treat each entry's "path" as the subject; apply check
-      4 below and skip the branch-only checks (1, 2, 5, 6), which have no
-      meaning for a directory with no ref. For every other bucket, iterate
+      iterate "dirs" and treat each entry's "path" as the subject. Apply
+      checks 3 and 4; skip the branch-only checks (1, 2, 5, 6), which have no
+      meaning for a directory with no ref. Check 3 (uncommitted WIP) very much
+      does apply — an orphaned directory is where stranded work is MOST likely
+      to be hiding, since no branch points at it and no commit-based signal can
+      see it. For every other bucket, iterate
       "branches". An empty array is valid — emit an empty findings list, never
       an error.
 
@@ -451,11 +454,21 @@ stages:
            merge-base fails — fall back to content comparison (Signal B).
            Equally, do not mark it SAFE on the PR record alone.
 
-        3. Surface uncommitted WIP regardless of bucket. Run git status in the
-           branch's worktree if it has one, and diff any modifications against
-           main. Uncommitted work dies with the worktree and is invisible to
-           every commit-based signal. If WIP exists, mark NOT_SAFE and include
-           the diff.
+        3. Surface uncommitted WIP regardless of bucket. Uncommitted work dies
+           with the directory and is invisible to every commit-based signal.
+           If WIP exists, mark NOT_SAFE and include the diff.
+
+           For a branch with a worktree: run git status there, then diff each
+           modification against main. Apply GOTCHA 8 — a sparse or broken
+           worktree reports the SHARED CHECKOUT's dirty files, so confirm each
+           reported file physically exists in that worktree before believing
+           it.
+
+           For an ORPHANED_DIR subject there is no branch and git status is
+           meaningless — it would report the shared checkout. Instead compare
+           the directory's own files against main directly:
+             git show origin/main:<relpath> | diff - <dir>/<relpath>
+           A file absent from main, or differing from it, is the WIP here.
 
         4. Orphaned directories: compare their files against main before
            marking deletable. Absent-from-main content means NOT_SAFE.
