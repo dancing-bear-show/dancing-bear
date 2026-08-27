@@ -192,10 +192,15 @@ threshold = 100
 # are genuine width problems.
 #
 # 7 = "6 real parameters, plus the phantom one the tool adds". It clears every
-# artifact and leaves 7 real outliers as a triage backlog:
-# load_deck_from_csv (9 real), retry (7), load_deck_from_markdown (7),
-# _parse_recurring_event (7), _add_text_to_paragraph (7), _set_slide_content
-# (6 + star), load_deck_from_outline (6 + star).
+# artifact and leaves SEVEN findings (the count, not a parameter count) as a
+# triage backlog. Their real arities vary:
+#   9 real -- load_deck_from_csv
+#   7 real -- retry, load_deck_from_markdown, _parse_recurring_event,
+#             _add_text_to_paragraph
+#   6 real -- _set_slide_content, load_deck_from_outline
+#             (each reports 7 because of the bare-* miscount)
+# All seven are genuinely wide enough to be worth grouping into a dataclass;
+# none is a pure artifact.
 #
 # THIS IS NOT A RELAXED STANDARD. concerns/complexity.md still says max 5-6
 # real parameters; it now also records that the tool reads one high on
