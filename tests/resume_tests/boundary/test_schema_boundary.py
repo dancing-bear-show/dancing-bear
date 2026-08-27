@@ -96,9 +96,13 @@ TYPED_DOMAIN_MODULES: tuple[str, ...] = (
 # the tolerance logic with it.
 UNMIGRATED_GET_BASELINE: dict[str, int] = {
     "docx_base.py": 15,
+    # These three are the ``it.get()`` calls in _extract_item_text's dict
+    # branch, which serves the deliberately-untyped ``teaching`` section
+    # (schema-design.md §1). They are not un-migrated work and will not reach
+    # 0 while ``teaching`` stays ``list[Any]``.
     "docx_renderers.py": 3,
     "docx_sections_exp.py": 16,
-    "docx_sections_simple.py": 11,
+    "docx_sections_simple.py": 0,
     "docx_sections_skills.py": 18,
     "docx_sidebar_cells.py": 0,
     "docx_sidebar_sections.py": 22,

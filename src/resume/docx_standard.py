@@ -119,11 +119,14 @@ class StandardResumeWriter(ResumeWriterBase):
         title = sec.get("title") or (key.title() if isinstance(key, str) else "")
         self._render_section_heading(title)
 
+        # Section renderers take the typed Resume. The ones still reading
+        # candidate data as a mapping lift it back themselves, so the dispatch
+        # stays uniform while the migration is in progress.
         renderer = renderer_class(self.doc, self.page_cfg)
         if key in SECTIONS_WITH_KEYWORDS:
-            renderer.render(self.data, sec, keywords)
+            renderer.render(self.resume, sec, keywords)
         else:
-            renderer.render(self.data, sec)
+            renderer.render(self.resume, sec)
 
     def _render_document_header(self) -> None:
         """Render the name, headline, and contact line at the top of the resume."""

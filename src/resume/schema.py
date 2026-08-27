@@ -55,6 +55,10 @@ from typing import Any, ClassVar
 
 __all__ = [
     "CandidateData",
+    # Exported because the render path dispatches on it: the section renderers
+    # need "is this a schema item or a raw dict?" to tell typed sections apart
+    # from the deliberately-untyped ``teaching``.
+    "_Item",
     "PriorityItem",
     "SkillGroupItem",
     "SkillGroup",
@@ -341,7 +345,17 @@ class CertificationItem(NamedDescItem):
     """A ``certifications`` entry.
 
     Accepts ``cert``, matching ``CertificationsSectionRenderer``.
+
+    Declares ``year`` because that renderer reads it as the entry's
+    description (``desc_key="year"`` in docx_sections_simple.py). Left
+    undeclared it survived only in ``extra``, which round-tripped fine but read
+    back as an empty attribute -- so a typed render path would drop the year
+    from every certification while still rendering the name. Like
+    ``Presentation.year`` it is annotated ``str`` and stored uncoerced, so real
+    data's integer years are emitted unchanged.
     """
+
+    year: str = ""
 
     _ALIASES: ClassVar[dict[str, tuple[str, ...]]] = {"name": _CERTIFICATION_NAME_KEYS}
 
@@ -361,6 +375,12 @@ class Presentation(_Item):
 
     Superset of both renderers' field sets: ``authors``/``note`` are sidebar
     only, ``link`` is standard-renderer only. Neither field set loses.
+
+    ``title`` accepts ``name`` because ``PresentationsSectionRenderer`` reads
+    ``title`` or ``name`` (docx_sections_simple.py). Without the alias a
+    ``{"name": ...}`` presentation resolves to an empty ``title`` and renders
+    as nothing once the render path reads attributes -- the same silent-loss
+    case the language/course/cert spellings were added to close.
     """
 
     title: str = ""
@@ -370,6 +390,8 @@ class Presentation(_Item):
     note: str = ""
     link: str = ""
     priority: float = 1.0
+
+    _ALIASES: ClassVar[dict[str, tuple[str, ...]]] = {"title": ("title", "name")}
 
 
 @dataclass

@@ -21,6 +21,7 @@ from .docx_styles import (
     _format_link_display,
 )
 from .docx_links import normalize_link_url
+from .schema import Resume
 
 
 STYLE_HEADING_1 = "Heading 1"
@@ -225,14 +226,23 @@ def set_document_metadata_on_doc(
 class ResumeWriterBase(ABC):
     """Base class for DOCX resume writers."""
 
-    def __init__(self, data: dict[str, Any], template: dict[str, Any]):
+    def __init__(self, data: dict[str, Any] | Resume, template: dict[str, Any]):
         """Initialize writer with resume data and template config.
 
+        Accepts either a typed ``Resume`` or a raw dict. Both are kept: the
+        migrated section renderers read ``self.resume``, while the modules that
+        still consume candidate data as a mapping read ``self.data``. A dict
+        argument is lifted through ``Resume.from_dict``, which is safe because
+        the conversion is idempotent on data that has already been through the
+        schema -- and everything reaching a writer has, since the entry point
+        normalizes on the way in.
+
         Args:
-            data: Resume data (name, experience, education, etc.)
+            data: Resume data, typed or as a dict.
             template: Template configuration (sections, page styles, etc.)
         """
-        self.data = data
+        self.resume = data if isinstance(data, Resume) else Resume.from_dict(data)
+        self.data = self.resume.to_dict()
         self.template = template
         self.page_cfg = template.get("page") or {}
         self.layout_cfg = template.get("layout") or {}
@@ -335,7 +345,7 @@ class ResumeWriterBase(ABC):
 
 
 def create_resume_writer(
-    data: dict[str, Any],
+    data: dict[str, Any] | Resume,
     template: dict[str, Any],
 ) -> ResumeWriterBase:
     """Factory function to create the appropriate resume writer.

@@ -246,8 +246,11 @@ class TestBackwardCompatibility(unittest.TestCase):
     def test_write_resume_docx_sidebar_delegates(self, mock_writer_class):
         """Test that write_resume_docx_sidebar delegates to SidebarResumeWriter.
 
-        The entry point takes a typed ``Resume`` and lowers it once, so the
-        writer class still receives the equivalent dict.
+        The typed ``Resume`` is passed straight through: the writer keeps it
+        and derives its own dict, so the entry point no longer lowers on the
+        way in. Asserting on the object identity is what pins that -- an
+        assertion on an equivalent dict would still pass if the conversion
+        crept back in.
         """
         from resume.docx_sidebar import write_resume_docx_sidebar
         from resume.schema import Resume
@@ -255,12 +258,12 @@ class TestBackwardCompatibility(unittest.TestCase):
         mock_writer = MagicMock()
         mock_writer_class.return_value = mock_writer
 
-        data = make_candidate()
+        resume = Resume.from_dict(make_candidate())
         template = {"page": {}}
 
-        write_resume_docx_sidebar(Resume.from_dict(data), template, test_path("test.docx"))  # nosec B108 - test fixture path
+        write_resume_docx_sidebar(resume, template, test_path("test.docx"))  # nosec B108 - test fixture path
 
-        mock_writer_class.assert_called_once_with(data, template)
+        mock_writer_class.assert_called_once_with(resume, template)
         mock_writer.write.assert_called_once()
 
 

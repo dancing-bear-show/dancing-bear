@@ -13,6 +13,7 @@ from typing import Any
 
 from .docx_renderers import HeaderRenderer, ListSectionRenderer
 from .render_config import DEFAULT_BULLET_STYLE, HeaderLineConfig
+from .schema import Resume
 
 
 def _warn(msg: str) -> None:
@@ -54,10 +55,14 @@ class ExperienceSectionRenderer(ListSectionRenderer):
 
     def render(
         self,
-        data: dict[str, Any],
+        resume: Resume,
         sec: dict[str, Any] | None = None,
         keywords: list[str] | None = None,
     ) -> None:
+        # Not yet migrated: this renderer still reads candidate data as a
+        # mapping. The dispatcher hands over the typed Resume, so lower it here
+        # until this module's own migration step lands.
+        data = resume.to_dict()
         items = data.get("experience") or []
         cfg = sec or {}
         max_items = int(cfg.get("max_items", 999))
@@ -189,7 +194,11 @@ class EducationSectionRenderer(ListSectionRenderer):
         super().__init__(doc, page_cfg)
         self.headers = HeaderRenderer(doc)
 
-    def render(self, data: dict[str, Any], sec: dict[str, Any] | None = None):
+    def render(self, resume: Resume, sec: dict[str, Any] | None = None):
+        # Not yet migrated: this renderer still reads candidate data as a
+        # mapping. The dispatcher hands over the typed Resume, so lower it here
+        # until this module's own migration step lands.
+        data = resume.to_dict()
         for ed in data.get("education") or []:
             degree = str(ed.get("degree") or "").strip()
             institution = str(ed.get("institution") or "").strip()

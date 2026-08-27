@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from tests.resume_tests.fixtures import make_fake_renderer, mock_docx_modules
 from resume.render_config import HeaderLineConfig
+from resume.schema import Resume
 
 
 @mock_docx_modules
@@ -376,7 +377,7 @@ class TestSectionRenderers(unittest.TestCase):
         from resume.docx_sections_simple import InterestsSectionRenderer
         renderer, _ = make_fake_renderer(InterestsSectionRenderer)
         data = {"interests": ["Reading", "Hiking", "Photography"]}
-        result = renderer.render(data)
+        result = renderer.render(Resume.from_dict(data))
         self.assertEqual(len(result), 3)
 
     def test_languages_renderer(self):
@@ -387,7 +388,7 @@ class TestSectionRenderers(unittest.TestCase):
             {"name": "English", "level": "Native"},
             {"language": "Spanish", "level": "Fluent"},
         ]}
-        result = renderer.render(data)
+        result = renderer.render(Resume.from_dict(data))
         self.assertEqual(len(result), 2)
 
     def test_coursework_renderer(self):
@@ -398,7 +399,7 @@ class TestSectionRenderers(unittest.TestCase):
             {"name": "Data Structures"},
             {"course": "Algorithms"},
         ]}
-        result = renderer.render(data)
+        result = renderer.render(Resume.from_dict(data))
         self.assertEqual(len(result), 2)
 
     def test_certifications_renderer(self):
@@ -409,7 +410,7 @@ class TestSectionRenderers(unittest.TestCase):
             {"name": "AWS Certified", "year": "2023"},
             {"cert": "GCP Professional"},
         ]}
-        result = renderer.render(data)
+        result = renderer.render(Resume.from_dict(data))
         self.assertEqual(len(result), 2)
 
     def test_presentations_renderer(self):
@@ -420,7 +421,7 @@ class TestSectionRenderers(unittest.TestCase):
             {"title": "Intro to Python", "event": "PyCon", "year": "2023"},
             "Another Talk",
         ]}
-        result = renderer.render(data)
+        result = renderer.render(Resume.from_dict(data))
         self.assertEqual(len(result), 2)
 
     def test_presentations_link_only_no_duplication(self):
@@ -436,7 +437,7 @@ class TestSectionRenderers(unittest.TestCase):
         data = {"presentations": [
             {"link": "https://slides.example.com/my-talk"},
         ]}
-        result = renderer.render(data)
+        result = renderer.render(Resume.from_dict(data))
 
         # Exactly one item rendered.
         self.assertEqual(len(result), 1)
@@ -461,7 +462,7 @@ class TestSectionRenderers(unittest.TestCase):
         data = {"presentations": [
             {"title": "Secret", "link": "file:///etc/passwd"},
         ]}
-        result = renderer.render(data)
+        result = renderer.render(Resume.from_dict(data))
         self.assertEqual(len(result), 1)
         # The display should be the title, not any URL.
         self.assertEqual(result[0], "Secret")
@@ -478,7 +479,7 @@ class TestSectionRenderers(unittest.TestCase):
         data = {"presentations": [
             {"title": "My Talk", "event": "PyCon", "year": "2024"},
         ]}
-        renderer.render(data, sec=sec)
+        renderer.render(Resume.from_dict(data), sec=sec)
         # At least one paragraph should use 'List Bullet' style.
         styles = [getattr(p.style, "name", None) for p in doc.paragraphs]
         self.assertIn("List Bullet", styles, "Expected 'List Bullet' style for non-plain config.")

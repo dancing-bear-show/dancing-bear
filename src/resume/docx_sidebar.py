@@ -41,9 +41,9 @@ def write_resume_docx_sidebar(
     This function is provided for backward compatibility.
     Prefer using SidebarResumeWriter directly.
 
-    Takes a typed ``Resume`` and lowers it once here;
-    ``SidebarResumeWriter`` and the section renderers below it still read
+    Hands the typed ``Resume`` to ``SidebarResumeWriter``, which keeps both it
+    and a lowered dict; the sidebar section renderers below still read
     candidate data as dicts.
     """
-    writer = SidebarResumeWriter(resume.to_dict(), template)
+    writer = SidebarResumeWriter(resume, template)
     writer.write(out_path, seed)

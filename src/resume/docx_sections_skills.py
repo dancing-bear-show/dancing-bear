@@ -11,6 +11,7 @@ from typing import Any
 
 from .docx_renderers import HeaderRenderer, ListSectionRenderer
 from .render_config import DEFAULT_BULLET_STYLE
+from .schema import Resume
 
 
 def _safe_int_limit(cfg: dict, key: str) -> int:
@@ -38,10 +39,14 @@ class SummarySectionRenderer(ListSectionRenderer):
 
     def render(
         self,
-        data: dict,
+        resume: Resume,
         sec: dict | None = None,
         keywords: list[str] | None = None,
     ) -> None:
+        # Not yet migrated: this renderer still reads candidate data as a
+        # mapping. The dispatcher hands over the typed Resume, so lower it here
+        # until this module's own migration step lands.
+        data = resume.to_dict()
         summary = data.get("summary") or data.get("headline") or ""
         cfg = sec or {}
 
@@ -122,9 +127,13 @@ class SkillsSectionRenderer(ListSectionRenderer):
 
     def render(
         self,
-        data: dict,
+        resume: Resume,
         sec: dict | None = None,
     ) -> None:
+        # Not yet migrated: this renderer still reads candidate data as a
+        # mapping. The dispatcher hands over the typed Resume, so lower it here
+        # until this module's own migration step lands.
+        data = resume.to_dict()
         groups = data.get("skills_groups") or []
         skills = [self.text.clean_inline(str(s)) for s in (data.get("skills") or [])]
         cfg = sec or {}
@@ -214,7 +223,11 @@ class SkillsSectionRenderer(ListSectionRenderer):
 class TechnologiesSectionRenderer(SkillsSectionRenderer):
     """Renders technologies section (similar to skills)."""
 
-    def render(self, data: dict, sec: dict | None = None) -> None:
+    def render(self, resume: Resume, sec: dict | None = None) -> None:
+        # Not yet migrated: this renderer still reads candidate data as a
+        # mapping. The dispatcher hands over the typed Resume, so lower it here
+        # until this module's own migration step lands.
+        data = resume.to_dict()
         tech_items = self._collect_tech_items(data, sec)
         if not tech_items:
             return

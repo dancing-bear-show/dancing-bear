@@ -9,31 +9,34 @@ from __future__ import annotations
 
 from .docx_links import add_hyperlink, display_url, normalize_link_url
 from .docx_renderers import ListSectionRenderer
+from .schema import Presentation, Resume
 
 
 class InterestsSectionRenderer(ListSectionRenderer):
     """Renders interests section."""
 
-    def render(self, data: dict, sec: dict | None = None) -> list[str]:
-        items = data.get("interests") or []
-        return self.render_simple_list(items, sec)
+    def render(self, resume: Resume, sec: dict | None = None) -> list[str]:
+        return self.render_simple_list(resume.interests, sec)
 
 
 class TeachingSectionRenderer(ListSectionRenderer):
     """Renders teaching/instruction section."""
 
-    def render(self, data: dict, sec: dict | None = None) -> list[str]:
-        items = data.get("teaching") or []
-        return self.render_simple_list(items, sec)
+    def render(self, resume: Resume, sec: dict | None = None) -> list[str]:
+        # ``teaching`` is deliberately untyped (schema-design.md §1), so its
+        # entries stay raw strings/dicts and take _extract_item_text's dict path.
+        return self.render_simple_list(resume.teaching, sec)
 
 
 class LanguagesSectionRenderer(ListSectionRenderer):
     """Renders languages section with proficiency levels."""
 
-    def render(self, data: dict, sec: dict | None = None) -> list[str]:
-        items = data.get("languages") or []
+    def render(self, resume: Resume, sec: dict | None = None) -> list[str]:
+        # NamedLevelItem resolves the "language" spelling onto `name` at
+        # from_dict time; name_keys still declares which spellings this
+        # section accepts. See ListSectionRenderer._item_name.
         return self.render_simple_list(
-            items,
+            resume.languages,
             sec,
             name_keys=("name", "language", "title"),
             desc_key="level",
@@ -44,10 +47,9 @@ class LanguagesSectionRenderer(ListSectionRenderer):
 class CourseworkSectionRenderer(ListSectionRenderer):
     """Renders coursework section."""
 
-    def render(self, data: dict, sec: dict | None = None) -> list[str]:
-        items = data.get("coursework") or []
+    def render(self, resume: Resume, sec: dict | None = None) -> list[str]:
         return self.render_simple_list(
-            items,
+            resume.coursework,
             sec,
             name_keys=("name", "course", "title"),
             desc_key="desc",
@@ -58,10 +60,11 @@ class CourseworkSectionRenderer(ListSectionRenderer):
 class CertificationsSectionRenderer(ListSectionRenderer):
     """Renders certifications section."""
 
-    def render(self, data: dict, sec: dict | None = None) -> list[str]:
-        items = data.get("certifications") or []
+    def render(self, resume: Resume, sec: dict | None = None) -> list[str]:
+        # ``year`` is the desc field here and is an int in real data;
+        # _extract_item_text stringifies it, as the dict path did.
         return self.render_simple_list(
-            items,
+            resume.certifications,
             sec,
             name_keys=("name", "title", "cert"),
             desc_key="year",
@@ -73,24 +76,28 @@ class PresentationsSectionRenderer(ListSectionRenderer):
     """Renders presentations/talks section."""
 
     @staticmethod
-    def _format_presentation_dict(it: dict) -> tuple[str, str]:
-        """Return (display_line, link_url) for a presentation dict.
+    def _format_presentation(pres: Presentation) -> tuple[str, str]:
+        """Return (display_line, link_url) for a presentation entry.
 
         display_line is the plain text (title, event, year). link_url is the
         resolved URL from the `link` field, or empty string if absent.
+
+        The old ``it.get("title") or it.get("name")`` fallback is gone because
+        ``Presentation`` now aliases ``name`` onto ``title``, so the spelling
+        is resolved once at ``from_dict`` time rather than at every read.
         """
-        title = str(it.get("title") or it.get("name") or "").strip()
-        event = str(it.get("event") or "").strip()
-        year = str(it.get("year") or "").strip()
-        link = str(it.get("link") or "").strip()
+        title = str(pres.title or "").strip()
+        event = str(pres.event or "").strip()
+        year = str(pres.year or "").strip()
+        link = str(pres.link or "").strip()
         parts = [p for p in [title or event, event if title else "", year] if p]
         line = " — ".join(parts)
         url = normalize_link_url(link) if link else ""
         return line, url
 
-    def _render_dict_item(self, it: dict, glyph: str, plain: bool = True) -> str | None:
-        """Render a single dict presentation item; return display text or None."""
-        line, url = self._format_presentation_dict(it)
+    def _render_presentation(self, pres: Presentation, glyph: str, plain: bool = True) -> str | None:
+        """Render a single presentation entry; return display text or None."""
+        line, url = self._format_presentation(pres)
         cleaned = self.text.clean_inline(line) if line else ""
         if not cleaned and not url:
             return None
@@ -120,26 +127,19 @@ class PresentationsSectionRenderer(ListSectionRenderer):
             p.add_run(text)
         return p
 
-    def _render_str_item(self, it: object, glyph: str) -> str | None:
-        """Render a single string presentation item; return display text or None."""
-        s = str(it).strip()
-        if not s:
-            return None
-        cleaned = self.text.clean_inline(s)
-        self.bullets.add_bullet_line(cleaned, glyph=glyph)
-        return cleaned
+    def render(self, resume: Resume, sec: dict | None = None) -> list[str]:
+        """Render every presentation entry.
 
-    def render(self, data: dict, sec: dict | None = None) -> list[str]:
-        items_raw = data.get("presentations") or []
+        The pre-migration split between a dict branch and a bare-string branch
+        is gone: ``Resume.from_dict`` upgrades a bare string into a
+        ``Presentation`` carrying it as ``title``, and that entry formats to
+        the same single-part line the string branch produced.
+        """
         plain, glyph = self.bullets.get_bullet_config(sec)
         lines: list[str] = []
 
-        for it in items_raw:
-            display = (
-                self._render_dict_item(it, glyph, plain=plain)
-                if isinstance(it, dict)
-                else self._render_str_item(it, glyph)
-            )
+        for pres in resume.presentations:
+            display = self._render_presentation(pres, glyph, plain=plain)
             if display:
                 lines.append(display)
 

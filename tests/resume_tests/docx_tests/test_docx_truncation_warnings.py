@@ -20,6 +20,7 @@ import unittest
 from contextlib import redirect_stderr
 from unittest.mock import patch
 
+from resume.schema import Resume
 from tests.resume_tests.docx_tests.fixtures import make_mock_doc as _make_mock_doc
 from tests.resume_tests.fixtures import mock_docx_modules
 
@@ -56,7 +57,7 @@ class TestExperienceTruncationWarnings(unittest.TestCase):
 
         buf = io.StringIO()
         with redirect_stderr(buf):
-            renderer.render(data, sec)
+            renderer.render(Resume.from_dict(data), sec)
 
         stderr = buf.getvalue()
         self.assertIn("resume:", stderr)
@@ -75,7 +76,7 @@ class TestExperienceTruncationWarnings(unittest.TestCase):
         sec = {"max_items": 5}
 
         with redirect_stderr(io.StringIO()):
-            renderer.render(data, sec)
+            renderer.render(Resume.from_dict(data), sec)
 
         # 5 roles -> 5 header paragraphs (add_paragraph called once per role header)
         self.assertEqual(doc.add_paragraph.call_count, 5)
@@ -99,7 +100,7 @@ class TestExperienceTruncationWarnings(unittest.TestCase):
 
         buf = io.StringIO()
         with redirect_stderr(buf):
-            renderer.render(data, sec)
+            renderer.render(Resume.from_dict(data), sec)
 
         stderr = buf.getvalue()
         self.assertIn("resume:", stderr)
@@ -117,7 +118,7 @@ class TestExperienceTruncationWarnings(unittest.TestCase):
 
         buf = io.StringIO()
         with redirect_stderr(buf):
-            renderer.render(data, sec)
+            renderer.render(Resume.from_dict(data), sec)
 
         self.assertEqual(buf.getvalue(), "")
 
@@ -129,7 +130,7 @@ class TestExperienceTruncationWarnings(unittest.TestCase):
 
         buf = io.StringIO()
         with redirect_stderr(buf):
-            renderer.render(data, sec)
+            renderer.render(Resume.from_dict(data), sec)
 
         self.assertEqual(buf.getvalue(), "")
 
@@ -268,14 +269,14 @@ class TestSummaryListRendersAllBullets(unittest.TestCase):
         renderer, doc = self._make_renderer()
         items = ["Point A", "Point B", "Point C", "Point D"]
         data = {"summary": items}
-        renderer.render(data)
+        renderer.render(Resume.from_dict(data))
         self.assertEqual(doc.add_paragraph.call_count, len(items))
 
     def test_five_list_items_produces_five_paragraphs(self):
         renderer, doc = self._make_renderer()
         items = [f"Claim {i}" for i in range(5)]
         data = {"summary": items}
-        renderer.render(data)
+        renderer.render(Resume.from_dict(data))
         self.assertEqual(doc.add_paragraph.call_count, 5)
 
 

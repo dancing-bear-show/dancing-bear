@@ -224,18 +224,23 @@ def write_resume_docx(
         keywords = [str(k) for k in seed.get("keywords", [])]
 
     sections = _resolve_sections(template, structure)
-    _render_sections(doc, template, data, sections, keywords)
+    _render_sections(doc, template, resume, sections, keywords)
     doc.save(out_path)
 
 
 def _render_sections(
     doc,
     template: dict[str, Any],
-    data: dict[str, Any],
+    resume: Resume,
     sections: list[dict[str, Any]],
     keywords: list[str] | None,
 ) -> None:
-    """Render all sections into the document."""
+    """Render all sections into the document.
+
+    Section renderers take the typed ``Resume``; the ones still reading
+    candidate data as a mapping lift it back themselves, so the dispatch stays
+    uniform while the migration is in progress.
+    """
     page_cfg = template.get("page") or {}
     for sec in sections:
         key = sec.get("key")
@@ -247,6 +252,6 @@ def _render_sections(
         if renderer_class:
             renderer = renderer_class(doc, page_cfg)
             if key in SECTIONS_WITH_KEYWORDS:
-                renderer.render(data, sec, keywords)
+                renderer.render(resume, sec, keywords)
             else:
-                renderer.render(data, sec)
+                renderer.render(resume, sec)
