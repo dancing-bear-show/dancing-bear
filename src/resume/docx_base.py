@@ -233,7 +233,13 @@ class ResumeWriterBase(ABC):
         self.template = template
         self.page_cfg = template.get("page") or {}
         self.layout_cfg = template.get("layout") or {}
-        self.doc = None
+        # Annotated because `write()` reassigns this to a docx Document. Without
+        # it mypy infers the declared type as None and reports every later
+        # `self.doc.add_heading(...)` in the subclasses as an attribute error on
+        # None. Typed as Any rather than Document: python-docx is an optional
+        # dep imported lazily inside write(), so naming the real class here
+        # would require a module-level import this file deliberately avoids.
+        self.doc: Any | None = None
         self.styles = StyleManager()
         self.text = TextFormatter()
 
