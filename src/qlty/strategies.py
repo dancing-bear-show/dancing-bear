@@ -153,11 +153,6 @@ def known_strategies() -> tuple[RuleStrategy, ...]:
     return _STRATEGIES
 
 
-def known_rules() -> tuple[str, ...]:
-    """Rule keys present in the strategy table."""
-    return tuple(_BY_RULE)
-
-
 def tooling_for(rule: str) -> Optional[str]:
     """Existing workflow that automates a rule, if any."""
     if rule == "file-complexity":

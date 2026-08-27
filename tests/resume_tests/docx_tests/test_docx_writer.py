@@ -354,11 +354,14 @@ class TestSectionSynonyms(unittest.TestCase):
 
 
 class TestUsePlainBullets(unittest.TestCase):
-    """Tests for _use_plain_bullets function."""
+    """Tests for BulletRenderer.get_bullet_config (successor to _use_plain_bullets)."""
 
     def test_returns_tuple(self):
-        from resume.docx_writer import _use_plain_bullets
-        result = _use_plain_bullets(None, None)
+        from tests.resume_tests.fixtures import mock_docx_modules, make_fake_renderer
+        with mock_docx_modules:
+            from resume.docx_renderers import BulletRenderer
+            renderer, _doc = make_fake_renderer(BulletRenderer)
+            result = renderer.get_bullet_config(None)
         self.assertIsInstance(result, tuple)
 
 

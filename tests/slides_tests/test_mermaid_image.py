@@ -546,13 +546,6 @@ class TestPopulateBulletSlideBodyPlaceholder(unittest.TestCase):
         mock_slide.shapes.__iter__ = MagicMock(return_value=iter([title_ph, body_ph]))
         return mock_slide
 
-    def _make_slide_without_body(self) -> MagicMock:
-        """Return a slide with only a title placeholder."""
-        title_ph = _make_placeholder(0)
-        mock_slide = MagicMock()
-        mock_slide.shapes.__iter__ = MagicMock(return_value=iter([title_ph]))
-        return mock_slide
-
     def test_body_placeholder_present_passes_keep_body_true(self):
         """When body placeholder exists, _remove_unused_placeholders is called with keep_body=True."""
         mock_slide = self._make_slide_with_body()

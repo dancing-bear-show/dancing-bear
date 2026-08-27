@@ -1638,17 +1638,6 @@ class TestInferLayoutMapNoBulletLayout(unittest.TestCase):
 class TestGenerateRenameFnAndParent(unittest.TestCase):
     """Cover generate() branches: rename_fn missing and output in current directory."""
 
-    def _make_mock_prs(self, include_rename_fn=True):
-        """Build a mock Presentation that simulates the generate() internals."""
-        prs = MagicMock()
-        sld_id = MagicMock()
-        sld_id.rId = "rId1"
-        prs.slides._sldIdLst = [sld_id]
-        if not include_rename_fn:
-            # getattr(prs.part, "rename_slide_parts", None) should return None
-            prs.part = MagicMock(spec=[])  # spec=[] means rename_slide_parts won't exist
-        return prs
-
     @patch("slides.generator.Presentation")
     def test_generate_no_rename_fn_still_saves(self, mock_prs_cls):
         """When prs.part has no rename_slide_parts, generate() still saves without error."""

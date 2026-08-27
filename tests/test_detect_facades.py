@@ -524,22 +524,6 @@ class TestClassify(unittest.TestCase):
 class TestImportsOf(unittest.TestCase):
     """imports_of resolves relative imports to fully-qualified dotted module paths."""
 
-    def _write_src_file(self, rel: str, content: str) -> str:
-        """Write content under a temporary src/ tree and return the absolute path."""
-        tmpdir = tempfile.mkdtemp()
-        self._tmpdirs = getattr(self, "_tmpdirs", [])
-        self._tmpdirs.append(tmpdir)
-        p = os.path.join(tmpdir, rel)
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        with open(p, "w", encoding="utf-8") as fh:
-            fh.write(textwrap.dedent(content))
-        return p
-
-    def tearDown(self):
-        import shutil
-        for d in getattr(self, "_tmpdirs", []):
-            shutil.rmtree(d, ignore_errors=True)
-
     def test_relative_import_resolves_to_dotted_path(self):
         # We need the file to be under a real SRC tree so module_path works.
         # module_path uses os.path.relpath from the module-level SRC constant.

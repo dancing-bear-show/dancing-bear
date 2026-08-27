@@ -230,7 +230,6 @@ def make_mock_manifest(
 # Normalized items
 SAMPLE_APP = make_app_item("com.example.app")
 SAMPLE_FOLDER = make_folder_item("Work", ["com.work.app1", "com.work.app2"])
-EMPTY_FOLDER = make_folder_item("Empty", [])
 WIDGET_ITEM: Dict[str, Any] = {"kind": "widget", "id": "com.widget"}
 UNNAMED_FOLDER: Dict[str, Any] = {"kind": "folder", "apps": []}
 APP_NO_ID: Dict[str, Any] = {"kind": "app"}

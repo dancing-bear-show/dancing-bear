@@ -26,7 +26,6 @@ from .docx_styles import (
     _format_phone_display,
     _format_link_display,
 )
-from .docx_renderers import BulletRenderer
 from .docx_standard import SECTION_RENDERERS, SECTIONS_WITH_KEYWORDS
 
 
@@ -47,18 +46,6 @@ def _match_section_key(title: str) -> str | None:
     return None
 
 
-# Backward-compatible function aliases that delegate to renderers
-def _bold_keywords(paragraph, text: str, keywords: list[str]):
-    """Bold keywords in paragraph text."""
-    renderer = BulletRenderer.__new__(BulletRenderer)
-    renderer._bold_keywords(paragraph, text, keywords)
-
-
-def _add_bullet_line(doc, text: str, *, keywords: list[str] | None = None, glyph: str = "•"):
-    renderer = BulletRenderer(doc)
-    return renderer.add_bullet_line(text, keywords=keywords, glyph=glyph)
-
-
 def _get_header_level(sec: dict[str, Any] | None, page_cfg: dict[str, Any] | None) -> int:
     try:
         if sec and isinstance(sec.get("header_level"), int):
@@ -68,12 +55,6 @@ def _get_header_level(sec: dict[str, Any] | None, page_cfg: dict[str, Any] | Non
     except Exception:  # nosec B110 - invalid header_level
         pass
     return 1
-
-
-def _use_plain_bullets(sec: dict[str, Any] | None, page_cfg: dict[str, Any] | None) -> tuple:
-    renderer = BulletRenderer.__new__(BulletRenderer)
-    renderer.page_cfg = page_cfg or {}
-    return renderer.get_bullet_config(sec)
 
 
 def _extract_experience_locations(data: dict[str, Any]) -> list[str]:
