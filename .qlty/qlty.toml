@@ -202,10 +202,11 @@ threshold = 100
 # All seven are genuinely wide enough to be worth grouping into a dataclass;
 # none is a pure artifact.
 #
-# THIS IS NOT A RELAXED STANDARD. concerns/complexity.md still says max 5-6
-# real parameters; it now also records that the tool reads one high on
-# keyword-only signatures, so a function reported at 7 may be at 6. Read the
-# signature before acting on the finding.
+# THIS IS NOT A RELAXED STANDARD. concerns/complexity.md specifies max 5 real
+# parameters and is unchanged by this. The threshold sits at 7 only because the
+# tool reads one high on keyword-only signatures, so a function reported at 7
+# may really be at 6 — still over the written limit of 5. Read the signature
+# before acting on the finding; the reported number is not the real arity.
 #
 # Test fixtures/factories legitimately take wide keyword surfaces
 # (_make_session_summary takes 12 kwargs). They are excluded via test_patterns
