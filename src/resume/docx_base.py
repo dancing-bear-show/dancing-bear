@@ -237,7 +237,8 @@ class ResumeWriterBase(ABC):
         self.page_cfg = template.get("page") or {}
         self.layout_cfg = template.get("layout") or {}
         # Annotated because `write()` reassigns this to a docx Document. Without
-        # it mypy infers the declared type as None and reports every later
+        # an annotation mypy infers the attribute's type from this assignment
+        # alone — None — and then reports every later
         # `self.doc.add_heading(...)` in the subclasses as an attribute error on
         # None. The import is TYPE_CHECKING-only because `docx.document` is the
         # class's real home, while runtime code constructs it via the
