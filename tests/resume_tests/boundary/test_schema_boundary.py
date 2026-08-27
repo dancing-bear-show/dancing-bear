@@ -108,11 +108,14 @@ UNMIGRATED_GET_BASELINE: dict[str, int] = {
     # top-level scalars; these reads are the fallback for a Resume built
     # directly, bypassing that promotion.
     "docx_base.py": 4,
-    # These three are the ``it.get()`` calls in _extract_item_text's dict
+    # Three of these are the ``it.get()`` calls in _extract_item_text's dict
     # branch, which serves the deliberately-untyped ``teaching`` section
-    # (schema-design.md §1). They are not un-migrated work and will not reach
-    # 0 while ``teaching`` stays ``list[Any]``.
-    "docx_renderers.py": 3,
+    # (schema-design.md §1). The fourth is the ``extra.get()`` in _item_name,
+    # which recovers an alias spelling the schema filed in ``_Item.extra``
+    # because it is not a modelled field. Neither is un-migrated work: the
+    # first will not reach 0 while ``teaching`` stays ``list[Any]``, and the
+    # second has no attribute to migrate to by construction.
+    "docx_renderers.py": 4,
     "docx_sections_exp.py": 0,
     "docx_sections_simple.py": 0,
     "docx_sections_skills.py": 0,

@@ -42,6 +42,12 @@ CANDIDATE_DATA_RECEIVERS: frozenset[str] = frozenset(
         # Presentations and summary content.
         "pres",
         "summary",
+        # ``_Item.extra`` -- the losing alias spellings a schema item preserves
+        # verbatim. This IS candidate data, so it is classified here rather
+        # than as config. It is nonetheless a permanent floor rather than
+        # un-migrated work: ``extra`` exists precisely to hold keys the schema
+        # does not model as fields, so there is no attribute to migrate it to.
+        "extra",
     }
 )
 

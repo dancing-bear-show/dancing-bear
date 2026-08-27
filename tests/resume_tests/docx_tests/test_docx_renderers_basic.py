@@ -338,6 +338,89 @@ class TestListSectionRenderer(unittest.TestCase):
         result = renderer._extract_item_text({}, ("name",), None, " — ")
         self.assertIsNone(result)
 
+    # -- typed (schema item) branch of _extract_item_text --------------------
+    # These exercise the ``isinstance(it, _Item)`` path directly. Before this
+    # suite existed the typed branch was reachable only through golden digests,
+    # which report *that* a rendered byte changed without saying why.
+
+    def test_extract_item_text_named_level_item(self):
+        """A NamedLevelItem renders its name and level."""
+        from resume.schema import NamedLevelItem
+        renderer, _ = self._get_renderer()
+        item = NamedLevelItem.from_dict({"language": "Spanish", "level": "Fluent"})
+        result = renderer._extract_item_text(
+            item, ("name", "language", "title"), "level", " — "
+        )
+        self.assertEqual(result, "Spanish — Fluent")
+
+    def test_extract_item_text_certification_item_year(self):
+        """A CertificationItem renders its year as the description."""
+        from resume.schema import CertificationItem
+        renderer, _ = self._get_renderer()
+        item = CertificationItem.from_dict({"cert": "AWS SAA", "year": "2021"})
+        result = renderer._extract_item_text(
+            item, ("name", "title", "cert"), "year", " — "
+        )
+        self.assertEqual(result, "AWS SAA — 2021")
+
+    def test_extract_item_text_certification_label_is_rejected(self):
+        """A 'label'-keyed certification renders as nothing, deliberately.
+
+        The schema resolves ``label`` onto ``CertificationItem.name``, but the
+        certifications renderer passes ``("name", "title", "cert")`` and has
+        never rendered a label-keyed entry. Pinning the drop here means the
+        follow-up PR that widens the renderer flips this assertion rather than
+        silently regenerating a golden digest.
+        """
+        from resume.schema import CertificationItem
+        renderer, _ = self._get_renderer()
+        item = CertificationItem.from_dict({"label": "Internal Cert", "year": "2020"})
+        result = renderer._extract_item_text(
+            item, ("name", "title", "cert"), "year", " — "
+        )
+        self.assertIsNone(result)
+
+    def test_item_name_prefers_renderer_key_order_over_schema(self):
+        """Renderer precedence wins when the two orderings disagree.
+
+        ``PriorityItem`` aliases ``text`` as ``(text, line, name)`` so the
+        schema resolves ``text`` onto the primary field, while this renderer
+        accepts ``(name, title, label, text)`` and prefers ``name``. The
+        displayed spelling must follow the renderer.
+        """
+        from resume.schema import PriorityItem
+        renderer, _ = self._get_renderer()
+        item = PriorityItem.from_dict({"name": "Cycling", "text": "Chess"})
+        result = renderer._extract_item_text(
+            item, ("name", "title", "label", "text"), None, " — "
+        )
+        self.assertEqual(result, "Cycling")
+
+    def test_item_name_recovers_spelling_the_schema_filed_in_extra(self):
+        """A losing alias spelling still displays when the renderer accepts it.
+
+        ``line`` outranks ``name`` in the schema's alias tuple but is absent
+        from this renderer's keys. Reading the primary field alone would render
+        the item as nothing at all.
+        """
+        from resume.schema import PriorityItem
+        renderer, _ = self._get_renderer()
+        item = PriorityItem.from_dict({"line": "Bullet form", "name": "Cycling"})
+        result = renderer._extract_item_text(
+            item, ("name", "title", "label", "text"), None, " — "
+        )
+        self.assertEqual(result, "Cycling")
+
+    def test_item_name_falls_back_to_primary_field(self):
+        """With no competing spelling, the primary field is displayed."""
+        from resume.schema import PriorityItem
+        renderer, _ = self._get_renderer()
+        item = PriorityItem.from_dict({"text": "Chess"})
+        result = renderer._extract_item_text(
+            item, ("name", "title", "label", "text"), None, " — "
+        )
+        self.assertEqual(result, "Chess")
+
     def test_render_simple_list(self):
         """Test rendering a simple list."""
         renderer, doc = self._get_renderer()

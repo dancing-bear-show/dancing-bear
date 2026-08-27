@@ -344,22 +344,38 @@ class ListSectionRenderer:
         blank -- a section that renders as nothing without raising, which
         nothing outside the goldens would notice.
 
-        The spelling the value arrived under is then checked against
-        ``name_keys``. The schema's alias tuples are a strict SUPERSET of what
-        each renderer accepts: ``CertificationItem`` resolves ``label`` onto
-        ``name``, but ``CertificationsSectionRenderer`` passes
-        ``("name", "title", "cert")`` and has never rendered a ``label``-keyed
-        certification. Skipping this check would make such entries start
-        appearing -- arguably a fix, but a rendering change, and this migration
-        is meant to change representation only. Widening the renderer to accept
-        ``label`` is a separate, deliberate decision.
+        ``name_keys`` is searched in the RENDERER's order, not the schema's.
+        The two disagree, and the disagreement is observable: ``PriorityItem``
+        aliases ``text`` as ``("text", "line", "name")`` while this renderer
+        accepts ``("name", "title", "label", "text")``. For an item spelled
+        ``{"name": "Cycling", "text": "Chess"}`` the schema resolves ``text``
+        onto the primary field and files ``name`` in ``extra``; reading the
+        primary field alone would render "Chess" where the pre-migration dict
+        path rendered "Cycling". Consulting ``name_keys`` in order against the
+        original spellings -- the primary field's replayed key, plus whatever
+        losing spellings ``extra`` retained -- reproduces the dict path exactly.
+
+        A spelling the renderer does not list still yields ``""``. The schema's
+        alias tuples are a strict SUPERSET of what each renderer accepts:
+        ``CertificationItem`` resolves ``label`` onto ``name``, but
+        ``CertificationsSectionRenderer`` passes ``("name", "title", "cert")``
+        and has never rendered a ``label``-keyed certification. Accepting it
+        here would make such entries start appearing -- arguably a fix, but a
+        rendering change, and this migration is meant to change representation
+        only. Widening the renderer to accept ``label`` is a separate,
+        deliberate decision.
         """
         primary = type(it)._primary_field()
         if not primary:
             return ""
-        if name_keys and it._replayed_key(primary) not in name_keys:
-            return ""
-        return str(getattr(it, primary, "") or "").strip()
+        primary_key = it._replayed_key(primary)
+        if not name_keys:
+            return str(getattr(it, primary, "") or "").strip()
+        for key in name_keys:
+            value = getattr(it, primary, "") if key == primary_key else it.extra.get(key)
+            if text := str(value or "").strip():
+                return text
+        return ""
 
     @staticmethod
     def _item_desc(it: _Item, desc_key: str | None) -> str:
