@@ -12,39 +12,34 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 import unittest
 from unittest.mock import patch
 
 from mail.applog import AppLogger
 
+from tests.fixtures import TempDirMixin
 
-class _AppLoggerTestBase(unittest.TestCase):
+
+class _AppLoggerTestBase(TempDirMixin, unittest.TestCase):
     """Shared setUp: build an AppLogger writing to a scratch app.log."""
 
     def setUp(self):
-        self._tmpdir = tempfile.mkdtemp()
-        self.log_path = os.path.join(self._tmpdir, "app.log")
+        super().setUp()
+        self.log_path = os.path.join(self.tmpdir, "app.log")
         self.logger = AppLogger(self.log_path)
 
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self._tmpdir, ignore_errors=True)
 
-
-class AppLoggerInitNoDirTests(unittest.TestCase):
+class AppLoggerInitNoDirTests(TempDirMixin, unittest.TestCase):
     """__init__ with a flat filename — dirname() returns '' so makedirs is skipped."""
 
     def setUp(self):
+        super().setUp()
         self._orig_dir = os.getcwd()
-        self._tmpdir = tempfile.mkdtemp()
-        os.chdir(self._tmpdir)
+        os.chdir(self.tmpdir)
 
     def tearDown(self):
-        import shutil
-
         os.chdir(self._orig_dir)
-        shutil.rmtree(self._tmpdir, ignore_errors=True)
+        super().tearDown()
 
     def test_init_no_directory_component(self):
         # os.path.dirname("app.log") == "" — the `if d:` branch must not call makedirs

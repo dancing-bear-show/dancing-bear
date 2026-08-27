@@ -351,5 +351,299 @@ class RunLabelsCommandsTests(unittest.TestCase):
         client.list_labels.assert_called_once()
 
 
+# ---------------------------------------------------------------------------
+# _print_list_section: boundary tests for line 26 (> 20 items)
+# ---------------------------------------------------------------------------
+
+class PrintListSectionTests(unittest.TestCase):
+    """Tests for _print_list_section in labels/producers.py."""
+
+    def test_empty_items_prints_nothing(self):
+        from mail.labels.producers import _print_list_section
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            _print_list_section("Title", [], lambda x: x)
+        self.assertEqual("", buf.getvalue())
+
+    def test_exactly_20_items_no_trailer(self):
+        from mail.labels.producers import _print_list_section
+        items = [f"item{i}" for i in range(20)]
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            _print_list_section("Title", items, lambda x: x)
+        out = buf.getvalue()
+        self.assertIn("Title:", out)
+        self.assertNotIn("more", out)
+
+    def test_more_than_20_items_shows_trailer(self):
+        from mail.labels.producers import _print_list_section
+        items = [f"item{i}" for i in range(21)]
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            _print_list_section("Title", items, lambda x: x)
+        out = buf.getvalue()
+        self.assertIn("and 1 more", out)
+
+
+# ---------------------------------------------------------------------------
+# LabelsPlanProducer: error-path tests (lines 42-43)
+# ---------------------------------------------------------------------------
+
+class LabelsPlanProducerErrorTests(unittest.TestCase):
+    """LabelsPlanProducer failure paths — pairing each sad path with happy path."""
+
+    def test_produce_succeeds_with_valid_envelope(self):
+        from mail.labels.processors import LabelsPlanResult
+        plan = LabelsPlanResult(to_create=[{"name": "NewX"}], to_update=[], to_delete=[], show_delete=False)
+        envelope = make_success_envelope(payload=plan)
+        buf = io.StringIO()
+        producer = LabelsPlanProducer()
+        with redirect_stdout(buf):
+            producer.produce(envelope)
+        self.assertIn("NewX", buf.getvalue())
+
+    def test_produce_prints_failed_when_result_not_ok(self):
+        # Sad path: result.ok() is False
+        envelope = make_error_envelope()
+        buf = io.StringIO()
+        producer = LabelsPlanProducer()
+        with redirect_stdout(buf):
+            producer.produce(envelope)
+        self.assertIn("Labels plan failed.", buf.getvalue())
+
+    def test_produce_prints_failed_when_payload_is_none(self):
+        # Sad path: ok but empty payload (line 43)
+        envelope = make_success_envelope(payload=None)
+        buf = io.StringIO()
+        producer = LabelsPlanProducer()
+        with redirect_stdout(buf):
+            producer.produce(envelope)
+        self.assertIn("Labels plan failed.", buf.getvalue())
+
+
+# ---------------------------------------------------------------------------
+# LabelsSyncProducer: error-path and apply-path tests
+# ---------------------------------------------------------------------------
+
+class LabelsSyncProducerUncoveredTests(unittest.TestCase):
+    """LabelsSyncProducer: sad-path and apply-path coverage."""
+
+    # -- Failure paths (lines 66-67) -----------------------------------------
+
+    def test_produce_prints_failed_when_result_not_ok(self):
+        client = _make_labels_client()
+        envelope = make_error_envelope()
+        buf = io.StringIO()
+        producer = LabelsSyncProducer(client)
+        with redirect_stdout(buf):
+            producer.produce(envelope)
+        self.assertIn("Labels sync failed.", buf.getvalue())
+
+    def test_produce_prints_failed_when_payload_is_none(self):
+        client = _make_labels_client()
+        envelope = make_success_envelope(payload=None)
+        buf = io.StringIO()
+        producer = LabelsSyncProducer(client)
+        with redirect_stdout(buf):
+            producer.produce(envelope)
+        self.assertIn("Labels sync failed.", buf.getvalue())
+
+    # -- _apply_creates (lines 85, 88) ----------------------------------------
+
+    def test_apply_creates_skips_spec_without_name(self):
+        # Sad path: spec missing 'name' key (line 85 branch — continue)
+        from mail.labels.processors import LabelsPlanResult, LabelsSyncResult
+        client = _make_labels_client()
+        initial_count = len(client.labels)
+        plan = LabelsPlanResult(to_create=[{"color": "red"}], to_update=[], to_delete=[], show_delete=False)
+        sync_result = LabelsSyncResult(plan=plan, redirects=[])
+        envelope = make_success_envelope(payload=sync_result)
+        buf = io.StringIO()
+        producer = LabelsSyncProducer(client, dry_run=False)
+        with redirect_stdout(buf):
+            producer.produce(envelope)
+        self.assertNotIn("Created label:", buf.getvalue())
+        self.assertEqual(initial_count, len(client.labels))
+
+    def test_apply_creates_dry_run_prints_would_create(self):
+        # Happy dry-run path (line 88 not taken)
+        from mail.labels.processors import LabelsPlanResult, LabelsSyncResult
+        client = _make_labels_client()
+        plan = LabelsPlanResult(to_create=[{"name": "DryNew"}], to_update=[], to_delete=[], show_delete=False)
+        sync_result = LabelsSyncResult(plan=plan, redirects=[])
+        envelope = make_success_envelope(payload=sync_result)
+        buf = io.StringIO()
+        producer = LabelsSyncProducer(client, dry_run=True)
+        with redirect_stdout(buf):
+            producer.produce(envelope)
+        self.assertIn("Would create label: DryNew", buf.getvalue())
+        self.assertFalse(any(lab["name"] == "DryNew" for lab in client.labels))
+
+    def test_apply_creates_live_creates_label(self):
+        # Happy live path (line 88 — client.create_label called)
+        from mail.labels.processors import LabelsPlanResult, LabelsSyncResult
+        client = _make_labels_client()
+        plan = LabelsPlanResult(to_create=[{"name": "NewOne"}], to_update=[], to_delete=[], show_delete=False)
+        sync_result = LabelsSyncResult(plan=plan, redirects=[])
+        envelope = make_success_envelope(payload=sync_result)
+        buf = io.StringIO()
+        producer = LabelsSyncProducer(client, dry_run=False)
+        with redirect_stdout(buf):
+            producer.produce(envelope)
+        self.assertIn("Created label: NewOne", buf.getvalue())
+        self.assertTrue(any(lab["name"] == "NewOne" for lab in client.labels))
+
+    # -- _apply_updates (lines 98-109) ----------------------------------------
+
+    def test_apply_updates_dry_run_prints_would_update(self):
+        from mail.labels.processors import LabelsPlanResult, LabelsSyncResult, LabelChange
+        client = _make_labels_client()
+        change = LabelChange(name="Keep", changes={"color": {"from": "#000", "to": "#fff"}}, spec={})
+        plan = LabelsPlanResult(to_create=[], to_update=[change], to_delete=[], show_delete=False)
+        sync_result = LabelsSyncResult(plan=plan, redirects=[])
+        envelope = make_success_envelope(payload=sync_result)
+        buf = io.StringIO()
+        producer = LabelsSyncProducer(client, dry_run=True)
+        with redirect_stdout(buf):
+            producer.produce(envelope)
+        self.assertIn("Would update label: Keep", buf.getvalue())
+
+    def test_apply_updates_live_updates_label(self):
+        # Happy path: label found in map, update_label called
+        from mail.labels.processors import LabelsPlanResult, LabelsSyncResult, LabelChange
+        client = _make_labels_client()
+        change = LabelChange(name="Keep", changes={"color": {"from": "#000", "to": "#fff"}}, spec={})
+        plan = LabelsPlanResult(to_create=[], to_update=[change], to_delete=[], show_delete=False)
+        sync_result = LabelsSyncResult(plan=plan, redirects=[])
+        envelope = make_success_envelope(payload=sync_result)
+        buf = io.StringIO()
+        producer = LabelsSyncProducer(client, dry_run=False)
+        with redirect_stdout(buf):
+            producer.produce(envelope)
+        self.assertIn("Updated label: Keep", buf.getvalue())
+
+    def test_apply_updates_live_skips_label_not_in_map(self):
+        # Sad path: label_id not found in get_label_id_map() — continue (line 106)
+        from mail.labels.processors import LabelsPlanResult, LabelsSyncResult, LabelChange
+        client = _make_labels_client()
+        change = LabelChange(name="NotExist", changes={"color": {"from": "#000", "to": "#fff"}}, spec={})
+        plan = LabelsPlanResult(to_create=[], to_update=[change], to_delete=[], show_delete=False)
+        sync_result = LabelsSyncResult(plan=plan, redirects=[])
+        envelope = make_success_envelope(payload=sync_result)
+        buf = io.StringIO()
+        producer = LabelsSyncProducer(client, dry_run=False)
+        with redirect_stdout(buf):
+            producer.produce(envelope)
+        self.assertNotIn("Updated label: NotExist", buf.getvalue())
+
+    # -- _apply_deletes (lines 115-122) ----------------------------------------
+
+    def test_apply_deletes_dry_run_prints_would_delete(self):
+        from mail.labels.processors import LabelsPlanResult, LabelsSyncResult
+        client = _make_labels_client()
+        plan = LabelsPlanResult(to_create=[], to_update=[], to_delete=["OldLabel"], show_delete=True)
+        sync_result = LabelsSyncResult(plan=plan, redirects=[])
+        envelope = make_success_envelope(payload=sync_result)
+        buf = io.StringIO()
+        producer = LabelsSyncProducer(client, dry_run=True)
+        with redirect_stdout(buf):
+            producer.produce(envelope)
+        self.assertIn("Would delete label: OldLabel", buf.getvalue())
+
+    def test_apply_deletes_live_deletes_label(self):
+        # Happy path: delete_label called, label removed
+        from mail.labels.processors import LabelsPlanResult, LabelsSyncResult
+        client = _make_labels_client()
+        plan = LabelsPlanResult(to_create=[], to_update=[], to_delete=["OldLabel"], show_delete=True)
+        sync_result = LabelsSyncResult(plan=plan, redirects=[])
+        envelope = make_success_envelope(payload=sync_result)
+        buf = io.StringIO()
+        producer = LabelsSyncProducer(client, dry_run=False)
+        with redirect_stdout(buf):
+            producer.produce(envelope)
+        self.assertIn("Deleted label: OldLabel", buf.getvalue())
+        self.assertFalse(any(lab["name"] == "OldLabel" for lab in client.labels))
+
+    def test_apply_deletes_live_skips_label_not_in_map(self):
+        # Sad path: label not found in id map (line 119 branch — label_id falsy)
+        from mail.labels.processors import LabelsPlanResult, LabelsSyncResult
+        client = _make_labels_client()
+        plan = LabelsPlanResult(to_create=[], to_update=[], to_delete=["Ghost"], show_delete=True)
+        sync_result = LabelsSyncResult(plan=plan, redirects=[])
+        envelope = make_success_envelope(payload=sync_result)
+        buf = io.StringIO()
+        producer = LabelsSyncProducer(client, dry_run=False)
+        with redirect_stdout(buf):
+            producer.produce(envelope)
+        self.assertNotIn("Deleted label: Ghost", buf.getvalue())
+
+    # -- _apply_one_redirect (lines 150, 155, 158-159) -----------------------
+
+    def test_apply_one_redirect_same_src_and_dest_skipped(self):
+        # Sad path: old == new (line 149-150, returns None)
+        from mail.labels.processors import LabelsPlanResult, LabelsSyncResult
+        client = _make_labels_client()
+        plan = LabelsPlanResult(to_create=[], to_update=[], to_delete=[], show_delete=False)
+        sync_result = LabelsSyncResult(plan=plan, redirects=[{"from": "Keep", "to": "Keep"}])
+        envelope = make_success_envelope(payload=sync_result)
+        buf = io.StringIO()
+        producer = LabelsSyncProducer(client, dry_run=False)
+        with redirect_stdout(buf):
+            producer.produce(envelope)
+        self.assertNotIn("Merged", buf.getvalue())
+
+    def test_apply_one_redirect_old_id_not_found_skipped(self):
+        # Sad path: old label not in id map (line 155 — not old_id, returns None)
+        from mail.labels.processors import LabelsPlanResult, LabelsSyncResult
+        client = _make_labels_client()
+        plan = LabelsPlanResult(to_create=[], to_update=[], to_delete=[], show_delete=False)
+        sync_result = LabelsSyncResult(plan=plan, redirects=[{"from": "Ghost", "to": "Keep"}])
+        envelope = make_success_envelope(payload=sync_result)
+        buf = io.StringIO()
+        producer = LabelsSyncProducer(client, dry_run=False)
+        with redirect_stdout(buf):
+            producer.produce(envelope)
+        self.assertNotIn("Merged", buf.getvalue())
+
+    def test_apply_one_redirect_dry_run_prints_would_merge(self):
+        # Dry-run path (lines 158-159)
+        from mail.labels.processors import LabelsPlanResult, LabelsSyncResult
+        client = _make_labels_client()
+        plan = LabelsPlanResult(to_create=[], to_update=[], to_delete=[], show_delete=False)
+        sync_result = LabelsSyncResult(plan=plan, redirects=[{"from": "OldLabel", "to": "Keep"}])
+        envelope = make_success_envelope(payload=sync_result)
+        buf = io.StringIO()
+        producer = LabelsSyncProducer(client, dry_run=True)
+        with redirect_stdout(buf):
+            producer.produce(envelope)
+        self.assertIn("Would merge 'OldLabel' into 'Keep'", buf.getvalue())
+
+
+# ---------------------------------------------------------------------------
+# LabelsExportProducer: error-path tests (lines 192-193)
+# ---------------------------------------------------------------------------
+
+class LabelsExportProducerErrorTests(unittest.TestCase):
+    """LabelsExportProducer failure paths."""
+
+    def test_produce_prints_failed_when_result_not_ok(self):
+        # Sad path: ok() returns False (line 192)
+        envelope = make_error_envelope()
+        buf = io.StringIO()
+        producer = LabelsExportProducer()
+        with redirect_stdout(buf):
+            producer.produce(envelope)
+        self.assertIn("Labels export failed.", buf.getvalue())
+
+    def test_produce_prints_failed_when_payload_is_none(self):
+        # Sad path: ok but payload is None (line 192 second condition)
+        envelope = make_success_envelope(payload=None)
+        buf = io.StringIO()
+        producer = LabelsExportProducer()
+        with redirect_stdout(buf):
+            producer.produce(envelope)
+        self.assertIn("Labels export failed.", buf.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

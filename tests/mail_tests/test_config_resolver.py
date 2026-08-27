@@ -1,9 +1,9 @@
 """Tests for mail/config_resolver.py path and profile resolution."""
 
 import os
-import tempfile
 import unittest
 
+from tests.fixtures import TempDirMixin
 from mail.config_resolver import (
     expand_path,
     default_gmail_credentials_path,
@@ -66,21 +66,20 @@ class DefaultPathTests(unittest.TestCase):
         self.assertTrue(path.endswith("msal_flow.json"))
 
 
-class _ConfigResolverTestBase(unittest.TestCase):
+class _ConfigResolverTestBase(TempDirMixin, unittest.TestCase):
     """Shared setUp/tearDown: patch mail.config_resolver._INI_PATHS to a scratch tmpdir."""
 
     def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
+        super().setUp()
         self.ini_path = os.path.join(self.tmpdir, "credentials.ini")
         import mail.config_resolver as cr
         self._orig_ini_paths = cr._INI_PATHS
         cr._INI_PATHS = [self.ini_path]
 
     def tearDown(self):
-        import shutil
         import mail.config_resolver as cr
         cr._INI_PATHS = self._orig_ini_paths
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
+        super().tearDown()
 
 
 class IniOperationsTests(_ConfigResolverTestBase):

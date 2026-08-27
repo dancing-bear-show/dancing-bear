@@ -26,7 +26,7 @@ You are a test specialist for dancing-bear. Use this agent when Sonnet-based tes
 ## After Writing Tests
 
 ```bash
-python3 -m unittest discover tests/<domain>_tests/ -v
+PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/<domain>_tests/ -t . -v
 make test
 ```
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 import time
 import unittest
 from unittest.mock import MagicMock, patch, mock_open
@@ -18,6 +17,8 @@ from core.constants import (
     GRAPH_API_URL,
     GRAPH_API_SCOPES,
 )
+
+from tests.fixtures import TempDirMixin
 
 
 # -------------------- Fixtures --------------------
@@ -140,18 +141,13 @@ class TestOutlookClientBaseInit(unittest.TestCase):
         self.assertTrue(hasattr(client, 'cfg_put_json'))
 
 
-class TestOutlookClientBaseAuthentication(unittest.TestCase):
+class TestOutlookClientBaseAuthentication(TempDirMixin, unittest.TestCase):
     """Tests for OutlookClientBase authentication."""
 
     def setUp(self):
         """Set up test fixtures."""
-        self.temp_dir = tempfile.mkdtemp()
-        self.token_path = os.path.join(self.temp_dir, "token.json")
-
-    def tearDown(self):
-        """Clean up test fixtures."""
-        import shutil
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        super().setUp()
+        self.token_path = os.path.join(self.tmpdir, "token.json")
 
     @patch('core.outlook.client._msal')
     def test_authenticate_device_flow_success(self, mock_msal_fn):

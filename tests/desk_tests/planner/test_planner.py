@@ -1,23 +1,22 @@
 """Tests for desk/planner.py plan generation from config."""
 
 import os
-import tempfile
 import time
 import unittest
 
+from tests.fixtures import TempDirMixin
 from core.cli_errors import NotFoundError
 from desk.planner import plan_from_config
 
 
-class PlanFromConfigTests(unittest.TestCase):
+class PlanFromConfigTests(TempDirMixin, unittest.TestCase):
     def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
+        super().setUp()
         self.test_files_dir = os.path.join(self.tmpdir, "files")
         os.makedirs(self.test_files_dir)
 
     def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
+        super().tearDown()
 
     def _write_config(self, content: str) -> str:
         config_path = os.path.join(self.tmpdir, "config.yaml")
