@@ -85,9 +85,14 @@ def apply_page_styles_to_doc(doc, page_cfg: dict[str, Any]) -> None:
         pass
 
 
-def _extract_locations(data: dict[str, Any]) -> list[str]:
-    """Extract unique non-empty location strings from experience entries."""
-    locs = [str(e.get("location") or "").strip() for e in (data.get("experience") or [])]
+def _extract_locations(resume: Resume) -> list[str]:
+    """Extract unique non-empty location strings from experience entries.
+
+    ``location`` is declared ``str`` but the schema stores whatever the source
+    file supplied, so an explicit ``"location": null`` survives as ``None``.
+    Coerce before stripping, as the pre-migration dict read did.
+    """
+    locs = [str(e.location or "").strip() for e in resume.experience]
     return list(dict.fromkeys([loc for loc in locs if loc]))
 
 
@@ -133,7 +138,7 @@ def _metadata_title(
 
 def _metadata_keywords(
     cp,
-    data: dict[str, Any],
+    resume: Resume,
     page_cfg: dict[str, Any],
     identity_parts: list[str],
     include_pii: bool,
@@ -151,20 +156,27 @@ def _metadata_keywords(
     name = identity_parts[0] if identity_parts else ""
     kw = [k for k in identity_parts if k] if include_pii else [k for k in [name] if k]
     if bool(page_cfg.get("metadata_include_locations", True)):
-        uniq_locs = _extract_locations(data)
+        uniq_locs = _extract_locations(resume)
         kw.extend(uniq_locs)
         if uniq_locs:
             _set_category(cp, uniq_locs)
     return kw
 
 
-def _identity_fields(data: dict[str, Any]) -> tuple[str, str, str, str]:
-    """Derive (name, email, phone, location), falling back to the nested contact dict."""
-    contact = data.get("contact") or {}
-    name = data.get("name") or ""
-    email = data.get("email") or contact.get("email") or ""
-    phone = data.get("phone") or contact.get("phone") or ""
-    location = data.get("location") or contact.get("location") or ""
+def _identity_fields(resume: Resume) -> tuple[str, str, str, str]:
+    """Derive (name, email, phone, location), falling back to the nested contact dict.
+
+    ``Resume.from_dict`` already promotes ``contact`` values onto the matching
+    top-level scalars when those are unset, so the attributes below normally
+    carry the answer. The nested lookup is kept because ``contact`` stays an
+    untyped mapping the schema does not model field-by-field, and a caller can
+    construct a ``Resume`` directly without going through that promotion.
+    """
+    contact = resume.contact or {}
+    name = resume.name or ""
+    email = resume.email or contact.get("email") or ""
+    phone = resume.phone or contact.get("phone") or ""
+    location = resume.location or contact.get("location") or ""
     return name, email, phone, location
 
 
@@ -184,14 +196,14 @@ def _stamp_metadata_dates(cp, page_cfg: dict[str, Any], name: str) -> None:
 
 
 def set_document_metadata_on_doc(
-    doc, data: dict[str, Any], page_cfg: dict[str, Any]
+    doc, resume: Resume, page_cfg: dict[str, Any]
 ) -> None:
     """Set document core properties (title, author, keywords).
 
     Shared implementation used by both ResumeWriterBase and legacy module helpers.
     """
     try:
-        name, email, phone, location = _identity_fields(data)
+        name, email, phone, location = _identity_fields(resume)
         cp = doc.core_properties
 
         # metadata_pii: when False, keep contact details out of core properties.
@@ -210,7 +222,7 @@ def set_document_metadata_on_doc(
             cp.comments = str(comments)
 
         kw = _metadata_keywords(
-            cp, data, page_cfg, [name, email, phone, location], include_pii
+            cp, resume, page_cfg, [name, email, phone, location], include_pii
         )
         # OPC caps core properties at 255 chars and python-docx raises rather
         # than truncating. Trim on a separator boundary so the field degrades
@@ -229,20 +241,19 @@ class ResumeWriterBase(ABC):
     def __init__(self, data: dict[str, Any] | Resume, template: dict[str, Any]):
         """Initialize writer with resume data and template config.
 
-        Accepts either a typed ``Resume`` or a raw dict. Both are kept: the
-        migrated section renderers read ``self.resume``, while the modules that
-        still consume candidate data as a mapping read ``self.data``. A dict
-        argument is lifted through ``Resume.from_dict``, which is safe because
-        the conversion is idempotent on data that has already been through the
-        schema -- and everything reaching a writer has, since the entry point
-        normalizes on the way in.
+        Accepts either a typed ``Resume`` or a raw dict. Every render module on
+        this path now reads candidate data as attributes, so only the typed
+        object is kept -- there is no lowered ``self.data`` mirror to drift out
+        of sync with it. A dict argument is lifted through ``Resume.from_dict``,
+        which is safe because the conversion is idempotent on data that has
+        already been through the schema -- and everything reaching a writer has,
+        since the entry point normalizes on the way in.
 
         Args:
             data: Resume data, typed or as a dict.
             template: Template configuration (sections, page styles, etc.)
         """
         self.resume = data if isinstance(data, Resume) else Resume.from_dict(data)
-        self.data = self.resume.to_dict()
         self.template = template
         self.page_cfg = template.get("page") or {}
         self.layout_cfg = template.get("layout") or {}
@@ -291,12 +302,11 @@ class ResumeWriterBase(ABC):
 
     def _set_document_metadata(self) -> None:
         """Set document core properties (title, author, keywords)."""
-        set_document_metadata_on_doc(self.doc, self.data, self.page_cfg)
+        set_document_metadata_on_doc(self.doc, self.resume, self.page_cfg)
 
     def _extract_experience_locations(self) -> list[str]:
         """Extract unique location strings from experience entries."""
-        locs = [str(e.get("location") or "").strip() for e in (self.data.get("experience") or [])]
-        return list(dict.fromkeys([loc for loc in locs if loc]))
+        return _extract_locations(self.resume)
 
     # -------------------------------------------------------------------------
     # Contact field helpers
@@ -304,8 +314,8 @@ class ResumeWriterBase(ABC):
 
     def _get_contact_field(self, field: str) -> str:
         """Get a contact field from data or nested contact dict."""
-        contact = self.data.get("contact") or {}
-        return self.data.get(field) or contact.get(field) or ""
+        contact = self.resume.contact or {}
+        return getattr(self.resume, field, "") or contact.get(field) or ""
 
     def _collect_link_extras(self) -> list[str]:
         """Collect formatted link extras (website, linkedin, github, links list)."""

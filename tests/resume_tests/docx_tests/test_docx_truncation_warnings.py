@@ -147,35 +147,39 @@ class TestSectionHasData(unittest.TestCase):
         from resume.docx_standard import _section_has_data
         return _section_has_data
 
+    def _resume(self, data):
+        from resume.schema import Resume
+        return Resume.from_dict(data)
+
     def test_unknown_key_is_treated_as_having_data(self):
         # "projects" is not a registered key; we conservatively assume it has data
         # to avoid silently hiding real content from an unrecognised renderer.
         fn = self._fn()
-        self.assertTrue(fn("projects", {}))
+        self.assertTrue(fn("projects", self._resume({})))
 
     def test_known_key_missing_from_data_returns_false(self):
         fn = self._fn()
-        self.assertFalse(fn("interests", {}))
+        self.assertFalse(fn("interests", self._resume({})))
 
     def test_known_key_with_empty_list_returns_false(self):
         fn = self._fn()
-        self.assertFalse(fn("interests", {"interests": []}))
+        self.assertFalse(fn("interests", self._resume({"interests": []})))
 
     def test_known_key_with_data_returns_true(self):
         fn = self._fn()
-        self.assertTrue(fn("interests", {"interests": ["Hiking"]}))
+        self.assertTrue(fn("interests", self._resume({"interests": ["Hiking"]})))
 
     def test_summary_headline_fallback_prevents_false_empty(self):
         fn = self._fn()
-        # SummarySectionRenderer reads data.get("summary") or data.get("headline")
-        self.assertTrue(fn("summary", {"headline": "Software Engineer"}))
-        self.assertFalse(fn("summary", {}))
+        # SummarySectionRenderer reads resume.summary or resume.headline
+        self.assertTrue(fn("summary", self._resume({"headline": "Software Engineer"})))
+        self.assertFalse(fn("summary", self._resume({})))
 
     def test_skills_accepts_skills_groups_or_flat_skills(self):
         fn = self._fn()
-        self.assertTrue(fn("skills", {"skills": ["Python"]}))
-        self.assertTrue(fn("skills", {"skills_groups": [{"title": "Lang", "items": ["Go"]}]}))
-        self.assertFalse(fn("skills", {}))
+        self.assertTrue(fn("skills", self._resume({"skills": ["Python"]})))
+        self.assertTrue(fn("skills", self._resume({"skills_groups": [{"title": "Lang", "items": ["Go"]}]})))
+        self.assertFalse(fn("skills", self._resume({})))
 
 
 # ---------------------------------------------------------------------------

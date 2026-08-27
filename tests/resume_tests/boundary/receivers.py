@@ -82,15 +82,15 @@ CONFIG_RECEIVERS: frozenset[str] = frozenset(
 
 # Receivers whose kind depends on the call site rather than the name.
 #
-# ``s`` is the real case: in ``docx_writer._resolve_sections`` it iterates
+# ``s`` used to live here: in ``docx_writer._resolve_sections`` it iterated
 # template *sections* (config), while in
-# ``docx_sidebar_sections._normalize_summary_items`` it iterates *summary*
-# items (candidate data). A name-keyed classifier cannot tell these apart, and
-# guessing either way would produce a silently wrong result - a false pass on
-# the summary sites, or unfixable false failures on the section sites.
+# ``docx_sidebar_sections._normalize_summary_items`` it iterated *summary*
+# items (candidate data). A name-keyed classifier cannot tell those apart, so
+# the check reported them as "unclassified" rather than encoding a guess.
 #
-# These are reported by the check as "unclassified" rather than counted as
-# violations or silently ignored. The migration should rename them at the call
-# site (``sec`` for config, ``summary_item`` for candidate data), which removes
-# the ambiguity instead of encoding a guess here.
-AMBIGUOUS_RECEIVERS: frozenset[str] = frozenset({"s"})
+# Both sites have since been renamed -- ``sec`` for the config one, and the
+# summary one now reads the typed schema and has no ``.get()`` receiver at all
+# -- so the ambiguity is gone and this set is empty. Add a name here only if a
+# genuinely call-site-dependent receiver reappears; the right fix is to rename
+# it at the call site, as was done for ``s``.
+AMBIGUOUS_RECEIVERS: frozenset[str] = frozenset()

@@ -88,6 +88,7 @@ class TestExtractExperienceLocations(unittest.TestCase):
 
     def test_extracts_unique_locations(self):
         from resume.docx_writer import _extract_experience_locations
+        from resume.schema import Resume
         data = {
             "experience": [
                 {"title": "Engineer", "location": "Seattle, WA"},
@@ -95,11 +96,14 @@ class TestExtractExperienceLocations(unittest.TestCase):
                 {"title": "Director", "location": "Seattle, WA"},  # Duplicate
             ]
         }
-        result = _extract_experience_locations(data)
+        result = _extract_experience_locations(Resume.from_dict(data))
         self.assertEqual(result, ["Seattle, WA", "Portland, OR"])
 
     def test_handles_empty_locations(self):
         from resume.docx_writer import _extract_experience_locations
+        from resume.schema import Resume
+        # `location` is declared str, but an explicit null in the source file
+        # survives as None -- the helper must coerce rather than crash.
         data = {
             "experience": [
                 {"title": "Engineer", "location": ""},
@@ -107,23 +111,27 @@ class TestExtractExperienceLocations(unittest.TestCase):
                 {"title": "Director"},  # No location key
             ]
         }
-        result = _extract_experience_locations(data)
+        result = _extract_experience_locations(Resume.from_dict(data))
         self.assertEqual(result, [])
 
     def test_handles_missing_experience(self):
         from resume.docx_writer import _extract_experience_locations
+        from resume.schema import Resume
         data = {}
-        result = _extract_experience_locations(data)
+        result = _extract_experience_locations(Resume.from_dict(data))
         self.assertEqual(result, [])
 
     def test_handles_none_experience(self):
         from resume.docx_writer import _extract_experience_locations
+        from resume.schema import Resume
+        # experience: None is coerced to an empty list by the schema.
         data = {"experience": None}
-        result = _extract_experience_locations(data)
+        result = _extract_experience_locations(Resume.from_dict(data))
         self.assertEqual(result, [])
 
     def test_preserves_order(self):
         from resume.docx_writer import _extract_experience_locations
+        from resume.schema import Resume
         data = {
             "experience": [
                 {"location": "A"},
@@ -131,7 +139,7 @@ class TestExtractExperienceLocations(unittest.TestCase):
                 {"location": "B"},
             ]
         }
-        result = _extract_experience_locations(data)
+        result = _extract_experience_locations(Resume.from_dict(data))
         self.assertEqual(result, ["A", "C", "B"])
 
 
@@ -140,29 +148,35 @@ class TestGetContactField(unittest.TestCase):
 
     def test_returns_top_level_field(self):
         from resume.docx_writer import _get_contact_field
+        from resume.schema import Resume
         data = {"email": "test@example.com"}
-        result = _get_contact_field(data, "email")
+        result = _get_contact_field(Resume.from_dict(data), "email")
         self.assertEqual(result, "test@example.com")
 
     def test_returns_nested_contact_field(self):
         from resume.docx_writer import _get_contact_field
+        from resume.schema import Resume
+        # Resume.from_dict promotes contact.email to resume.email when the
+        # top-level key is absent, so the field is accessible either way.
         data = {"contact": {"email": "nested@example.com"}}
-        result = _get_contact_field(data, "email")
+        result = _get_contact_field(Resume.from_dict(data), "email")
         self.assertEqual(result, "nested@example.com")
 
     def test_prefers_top_level_over_nested(self):
         from resume.docx_writer import _get_contact_field
+        from resume.schema import Resume
         data = {
             "email": "top@example.com",
             "contact": {"email": "nested@example.com"},
         }
-        result = _get_contact_field(data, "email")
+        result = _get_contact_field(Resume.from_dict(data), "email")
         self.assertEqual(result, "top@example.com")
 
     def test_returns_empty_if_missing(self):
         from resume.docx_writer import _get_contact_field
+        from resume.schema import Resume
         data = {}
-        result = _get_contact_field(data, "email")
+        result = _get_contact_field(Resume.from_dict(data), "email")
         self.assertEqual(result, "")
 
 
@@ -171,36 +185,42 @@ class TestCollectLinkExtras(unittest.TestCase):
 
     def test_collects_website_linkedin_github(self):
         from resume.docx_writer import _collect_link_extras
+        from resume.schema import Resume
         data = {
             "website": "https://example.com",
             "linkedin": "https://linkedin.com/in/johndoe",
             "github": "https://github.com/johndoe",
         }
-        result = _collect_link_extras(data)
+        result = _collect_link_extras(Resume.from_dict(data))
         self.assertEqual(len(result), 3)
 
     def test_collects_from_nested_contact(self):
         from resume.docx_writer import _collect_link_extras
+        from resume.schema import Resume
+        # website is not in _CONTACT_PROMOTED, so it stays in resume.contact
+        # and is read via the contact dict fallback in _get_contact_field.
         data = {
             "contact": {
                 "website": "https://example.com",
             }
         }
-        result = _collect_link_extras(data)
+        result = _collect_link_extras(Resume.from_dict(data))
         self.assertEqual(len(result), 1)
 
     def test_collects_from_links_list(self):
         from resume.docx_writer import _collect_link_extras
+        from resume.schema import Resume
         data = {
             "links": ["https://portfolio.com", "https://blog.com"],
         }
-        result = _collect_link_extras(data)
+        result = _collect_link_extras(Resume.from_dict(data))
         self.assertEqual(len(result), 2)
 
     def test_handles_empty_data(self):
         from resume.docx_writer import _collect_link_extras
+        from resume.schema import Resume
         data = {}
-        result = _collect_link_extras(data)
+        result = _collect_link_extras(Resume.from_dict(data))
         self.assertEqual(result, [])
 
 
@@ -398,34 +418,39 @@ class TestSetDocumentMetadata(unittest.TestCase):
 
     def test_sets_title_from_name(self):
         from resume.docx_writer import _set_document_metadata
+        from resume.schema import Resume
         data = {"name": "John Doe", "email": "john@example.com"}
-        _set_document_metadata(self.doc, data, {})
+        _set_document_metadata(self.doc, Resume.from_dict(data), {})
         self.assertIn("John Doe", self.doc.core_properties.title)
 
     def test_sets_author_from_name(self):
         from resume.docx_writer import _set_document_metadata
+        from resume.schema import Resume
         data = {"name": "Jane Smith"}
-        _set_document_metadata(self.doc, data, {})
+        _set_document_metadata(self.doc, Resume.from_dict(data), {})
         self.assertEqual(self.doc.core_properties.author, "Jane Smith")
 
     def test_includes_experience_locations_in_keywords(self):
         from resume.docx_writer import _set_document_metadata
+        from resume.schema import Resume
         data = {"name": "Test", "experience": [{"location": "NYC"}, {"location": "LA"}]}
         template = {"page": {"metadata_include_locations": True}}
-        _set_document_metadata(self.doc, data, template)
+        _set_document_metadata(self.doc, Resume.from_dict(data), template)
         self.assertIn("NYC", self.doc.core_properties.keywords)
         self.assertIn("LA", self.doc.core_properties.keywords)
 
     def test_excludes_locations_when_disabled(self):
         from resume.docx_writer import _set_document_metadata
+        from resume.schema import Resume
         data = {"name": "Test", "experience": [{"location": "NYC"}]}
         template = {"page": {"metadata_include_locations": False}}
-        _set_document_metadata(self.doc, data, template)
+        _set_document_metadata(self.doc, Resume.from_dict(data), template)
         self.assertNotIn("NYC", self.doc.core_properties.keywords)
 
     def test_handles_missing_data(self):
         from resume.docx_writer import _set_document_metadata
-        _set_document_metadata(self.doc, {}, {})
+        from resume.schema import Resume
+        _set_document_metadata(self.doc, Resume.from_dict({}), {})
         self.assertEqual(self.doc.core_properties.title, "Resume")
 
 

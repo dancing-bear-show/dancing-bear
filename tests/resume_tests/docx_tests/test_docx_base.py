@@ -37,12 +37,19 @@ class TestCreateResumeWriter(unittest.TestCase):
         self.assertEqual(writer.__class__.__name__, "SidebarResumeWriter")
 
     def test_stores_data_and_template(self):
-        """Test writer stores data and template."""
+        """Test writer stores resume and template.
+
+        After the schema migration, input dicts are lifted to a typed Resume
+        object; there is no lowered self.data mirror.  The test checks that the
+        writer keeps a Resume and the original template.
+        """
         from resume.docx_base import create_resume_writer
+        from resume.schema import Resume
         data = {"name": "John Doe"}
         template = {"sections": [], "page": {"compact": True}}
         writer = create_resume_writer(data, template)
-        self.assertEqual(writer.data, data)
+        self.assertIsInstance(writer.resume, Resume)
+        self.assertEqual(writer.resume.name, "John Doe")
         self.assertEqual(writer.template, template)
 
     def test_extracts_page_config(self):

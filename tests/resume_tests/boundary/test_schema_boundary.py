@@ -37,12 +37,17 @@ Rule 1 (strict today): dict-domain modules must not import from ``schema``.
 
 Rule 2 (ratcheted): typed-domain render modules must not call ``.get()`` on a
     candidate-data receiver.
-    Roughly 150 such sites are un-migrated while Steps 3-5 are outstanding, so
-    this rule runs against a per-module baseline: known sites are tolerated, any
+    This rule runs against a per-module baseline: known sites are tolerated, any
     NEW site fails, and a module that drops below its baseline ALSO fails with
     an instruction to lower the number. Without that downward ratchet a baseline
-    silently stops meaning anything as the migration proceeds. When every count
-    reaches zero the rule is fully strict and the baseline can be deleted.
+    silently stops meaning anything as the migration proceeds.
+
+    The render-path migration is now complete, and the nine remaining sites are
+    a documented permanent floor rather than outstanding work: they read the two
+    structures the schema deliberately leaves untyped -- the ``teaching`` section
+    (``list[Any]``) and the nested ``contact`` mapping. See the per-entry notes
+    on UNMIGRATED_GET_BASELINE. The table stays because it still catches NEW
+    dict reads; it can be deleted only if those two structures are ever typed.
 
 Rule 2 keys on the receiver NAME, not the file: the render modules read their
 own configuration as dicts forever, and config reads sit on lines adjacent to
@@ -95,7 +100,14 @@ TYPED_DOMAIN_MODULES: tuple[str, ...] = (
 # way. Target state is every entry at 0, at which point delete this table and
 # the tolerance logic with it.
 UNMIGRATED_GET_BASELINE: dict[str, int] = {
-    "docx_base.py": 15,
+    # The four remaining sites are ``contact.get()`` reads in _identity_fields
+    # and _get_contact_field. ``Resume.contact`` is a nested mapping the schema
+    # deliberately does NOT model field-by-field (it stays
+    # ``dict[str, Any] | None``), so these are a permanent floor, not
+    # un-migrated work. from_dict already promotes contact values onto the
+    # top-level scalars; these reads are the fallback for a Resume built
+    # directly, bypassing that promotion.
+    "docx_base.py": 4,
     # These three are the ``it.get()`` calls in _extract_item_text's dict
     # branch, which serves the deliberately-untyped ``teaching`` section
     # (schema-design.md §1). They are not un-migrated work and will not reach
@@ -110,8 +122,10 @@ UNMIGRATED_GET_BASELINE: dict[str, int] = {
     # docx_renderers.py entry above. Not un-migrated work; will not reach 0
     # while ``teaching`` stays ``list[Any]``.
     "docx_sidebar_sections.py": 1,
-    "docx_standard.py": 1,
-    "docx_writer.py": 5,
+    "docx_standard.py": 0,
+    # The one remaining site is the ``contact.get()`` fallback in
+    # _get_contact_field -- same permanent floor as docx_base.py above.
+    "docx_writer.py": 1,
 }
 
 

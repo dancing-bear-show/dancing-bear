@@ -58,31 +58,36 @@ def _get_header_level(sec: dict[str, Any] | None, page_cfg: dict[str, Any] | Non
     return 1
 
 
-def _extract_experience_locations(data: dict[str, Any]) -> list[str]:
-    """Extract unique location strings from experience entries."""
-    locs = [str(e.get("location") or "").strip() for e in (data.get("experience") or [])]
+def _extract_experience_locations(resume: Resume) -> list[str]:
+    """Extract unique location strings from experience entries.
+
+    ``location`` is declared ``str`` but the schema stores whatever the source
+    file supplied, so an explicit ``"location": null`` survives as ``None``.
+    Coerce before stripping, as the pre-migration dict read did.
+    """
+    locs = [str(e.location or "").strip() for e in resume.experience]
     return list(dict.fromkeys([loc for loc in locs if loc]))
 
 
-def _get_contact_field(data: dict[str, Any], field: str) -> str:
-    """Get a contact field from data or nested contact dict."""
-    contact = data.get("contact") or {}
-    return data.get(field) or contact.get(field) or ""
+def _get_contact_field(resume: Resume, field: str) -> str:
+    """Get a contact field from the resume or its nested contact dict."""
+    contact = resume.contact or {}
+    return getattr(resume, field, "") or contact.get(field) or ""
 
 
-def _collect_link_extras(data: dict[str, Any]) -> list[str]:
+def _collect_link_extras(resume: Resume) -> list[str]:
     """Collect formatted link extras (website, linkedin, github, links list)."""
-    return [display for display, _url in _collect_link_extra_items(data)]
+    return [display for display, _url in _collect_link_extra_items(resume)]
 
 
-def _collect_link_extra_items(data: dict[str, Any]) -> list[tuple[str, str]]:
+def _collect_link_extra_items(resume: Resume) -> list[tuple[str, str]]:
     """Collect link extras as (display, url) pairs for hyperlink rendering."""
     items: list[tuple[str, str]] = []
     for field in ["website", "linkedin", "github"]:
-        val = _get_contact_field(data, field)
+        val = _get_contact_field(resume, field)
         if val:
             items.append((_format_link_display(val), normalize_link_url(val)))
-    links_list = _get_contact_field(data, "links") or []
+    links_list = _get_contact_field(resume, "links") or []
     for val in (links_list if isinstance(links_list, list) else []):
         if isinstance(val, str) and val.strip():
             items.append((_format_link_display(val), normalize_link_url(val)))
@@ -95,11 +100,11 @@ def _apply_page_styles(doc, page_cfg: dict[str, Any]) -> None:
     apply_page_styles_to_doc(doc, page_cfg)
 
 
-def _set_document_metadata(doc, data: dict[str, Any], template: dict[str, Any]) -> None:
+def _set_document_metadata(doc, resume: Resume, template: dict[str, Any]) -> None:
     """Set document core properties (title, author, keywords)."""
     from .docx_base import set_document_metadata_on_doc
     page_cfg = template.get("page") or {}
-    set_document_metadata_on_doc(doc, data, page_cfg)
+    set_document_metadata_on_doc(doc, resume, page_cfg)
 
 
 def _center_paragraph(para) -> None:
@@ -108,14 +113,14 @@ def _center_paragraph(para) -> None:
     StyleManager.center_paragraph(para)
 
 
-def _render_document_header(doc, data: dict[str, Any]) -> None:
+def _render_document_header(doc, resume: Resume) -> None:
     """Render the name, headline, and contact line at the top of the resume."""
-    name = _get_contact_field(data, "name")
-    headline = _get_contact_field(data, "headline")
-    email = _get_contact_field(data, "email")
-    phone = _get_contact_field(data, "phone")
+    name = _get_contact_field(resume, "name")
+    headline = _get_contact_field(resume, "headline")
+    email = _get_contact_field(resume, "email")
+    phone = _get_contact_field(resume, "phone")
     display_phone = _format_phone_display(phone) if phone else ""
-    location = _get_contact_field(data, "location")
+    location = _get_contact_field(resume, "location")
 
     if name:
         doc.add_heading(name, level=0)
@@ -129,7 +134,7 @@ def _render_document_header(doc, data: dict[str, Any]) -> None:
 
     # Contact line: email (mailto: hyperlink) | phone | location | link extras
     plain_parts = [p for p in [display_phone, location] if p]
-    link_items = _collect_link_extra_items(data)
+    link_items = _collect_link_extra_items(resume)
 
     has_content = email or plain_parts or link_items
     if has_content:
@@ -146,7 +151,7 @@ def _resolve_sections(template: dict[str, Any], structure: dict[str, Any] | None
     if structure and isinstance(structure.get("order"), list):
         order_keys: list[str] = structure.get("order", [])
         key_to_title: dict[str, str] = structure.get("titles", {})
-        tpl_by_key = {s.get("key"): s for s in sections if s.get("key")}
+        tpl_by_key = {sec.get("key"): sec for sec in sections if sec.get("key")}
         sections = [
             {**tpl_by_key.get(k, {"key": k, "title": key_to_title.get(k, k.title())})}
             for k in order_keys
@@ -181,12 +186,12 @@ def write_resume_docx(
     This is the main entry point for backward compatibility.
     For new code, prefer using create_resume_writer() from docx_base.
 
-    Takes a typed ``Resume`` and lowers it to a dict once, here. The render
-    modules below still read candidate data as dicts; moving them onto
-    attribute access is a separate step. Converting at the entry point rather
-    than at each caller means the CLI, the golden harness, and the tests all
-    hand over the same typed object, so a caller can no longer feed the
-    renderer a dict that never went through the schema.
+    Takes a typed ``Resume`` and passes it straight down: every render module
+    on this path now reads candidate data as attributes, so nothing below needs
+    a lowered dict. Typing the entry point rather than each caller means the
+    CLI, the golden harness, and the tests all hand over the same object, so a
+    caller can no longer feed the renderer a dict that never went through the
+    schema.
 
     Args:
         resume: Typed candidate data (name, experience, education, etc.)
@@ -208,15 +213,13 @@ def write_resume_docx(
 
     from docx import Document  # type: ignore
 
-    data = resume.to_dict()
-
     doc = Document()
     page_cfg = template.get("page") or {}
 
     # Apply page styles, metadata, and header
     _apply_page_styles(doc, page_cfg)
-    _set_document_metadata(doc, data, template)
-    _render_document_header(doc, data)
+    _set_document_metadata(doc, resume, template)
+    _render_document_header(doc, resume)
 
     # Extract keywords from seed
     keywords = []
@@ -237,9 +240,8 @@ def _render_sections(
 ) -> None:
     """Render all sections into the document.
 
-    Section renderers take the typed ``Resume``; the ones still reading
-    candidate data as a mapping lift it back themselves, so the dispatch stays
-    uniform while the migration is in progress.
+    Section renderers take the typed ``Resume`` and read candidate data as
+    attributes; none of them lower it back to a mapping.
     """
     page_cfg = template.get("page") or {}
     for sec in sections:

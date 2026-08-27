@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from .docx_base import ResumeWriterBase
+from .schema import Resume
 from .docx_links import render_contact_runs
 from .docx_styles import (
     _parse_hex_color,
@@ -72,16 +73,19 @@ _SECTION_DATA_KEYS: dict[str, tuple[str, ...]] = {
 }
 
 
-def _section_has_data(key: str, data: dict[str, Any]) -> bool:
+def _section_has_data(key: str, resume: Resume) -> bool:
     """Return True when the section has at least one non-empty data key.
 
     Sections not in _SECTION_DATA_KEYS are treated as always having data
     (conservative: better to show an empty heading than to suppress real content).
+
+    Every name in _SECTION_DATA_KEYS is a declared ``Resume`` field, so the
+    attribute read below cannot silently miss one the way a dict lookup could.
     """
     data_keys = _SECTION_DATA_KEYS.get(key)
     if data_keys is None:
         return True
-    return any(bool(data.get(k)) for k in data_keys)
+    return any(bool(getattr(resume, k, None)) for k in data_keys)
 
 
 def _seed_keywords(seed: dict[str, Any] | None) -> list[str]:
@@ -113,15 +117,14 @@ class StandardResumeWriter(ResumeWriterBase):
             return
 
         # Skip sections whose data is absent or empty.
-        if not _section_has_data(key, self.data):
+        if not _section_has_data(key, self.resume):
             return
 
         title = sec.get("title") or (key.title() if isinstance(key, str) else "")
         self._render_section_heading(title)
 
-        # Section renderers take the typed Resume. The ones still reading
-        # candidate data as a mapping lift it back themselves, so the dispatch
-        # stays uniform while the migration is in progress.
+        # Section renderers take the typed Resume and read candidate data as
+        # attributes; none of them lower it back to a mapping.
         renderer = renderer_class(self.doc, self.page_cfg)
         if key in SECTIONS_WITH_KEYWORDS:
             renderer.render(self.resume, sec, keywords)
