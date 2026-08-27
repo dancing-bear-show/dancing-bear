@@ -91,16 +91,10 @@ def _resolve_template(template_flag: str | None, deck: "SlideDeck") -> str | Non
     return template_flag or deck.template_path
 
 
-def _apply_layout_map(
-    deck: "SlideDeck",
-    cli_layout_map: dict[str, int] | None,
-    exported_template: str | None = None,
-) -> None:
+def _apply_layout_map(deck: "SlideDeck", cli_layout_map: dict[str, int] | None) -> None:
     """Apply a CLI-supplied layout map to the deck, overriding any YAML value."""
     if cli_layout_map is not None:
         deck.metadata.layout_map = cli_layout_map
-    if exported_template:
-        deck.template_path = exported_template
 
 
 def _list_pptx_layouts(pptx_path: str) -> list[dict[str, str]]:
@@ -166,13 +160,7 @@ def cmd_generate(args) -> int:
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
-    try:
-        _apply_layout_map(deck, layout_map)
-    except Exception as e:
-        # Matches the ported source: layout-map application (including
-        # auto-inference from a template) is best-effort. A failure here warns
-        # but must not block generation of an otherwise-valid deck.
-        print(f"Warning: layout_map auto-inference failed: {e}", file=sys.stderr)
+    _apply_layout_map(deck, layout_map)
 
     template = _resolve_template(args.template, deck)
     if not template:
