@@ -2,7 +2,7 @@
 #
 # Two problems, one workflow, in dependency order.
 #
-# PROBLEM 1 — model drift. src/resume/model.py formally defined 4 sections
+# PROBLEM 1 — model drift. src/resume/model.py formally defined 5 sections
 # (name/summary/skills/experience/education). The dict path actually carries
 # 22, as measured by the audit-sections stage: priority.py:67 filters
 # technologies, interests, presentations, languages, coursework, summary,
@@ -12,8 +12,13 @@
 # spread across renderers. A typo in a renderer key is currently a silent no-op
 # that renders an empty section.
 #
-# PROBLEM 2 — PDF export is unimplemented. cli/main.py:313 raises
-# "PDF rendering planned for future; use .docx output."
+# PROBLEM 2 — PDF export exists only as a separate `export-pdf` subcommand
+# (cli/main.py:645-677) that converts an already-rendered .docx via
+# LibreOffice; `render --out x.pdf` still rejects the request outright
+# (cli/main.py:371-372: "render writes .docx only; use 'resume export-pdf
+# --docx <path>' to convert."). This workflow's PDF work is about the
+# render-time path, not about adding conversion capability that already
+# exists.
 #
 # DEFERRED AT THE HUMAN GATE — multi-role experience. Earlier revisions of this
 # workflow treated "a promotion at one employer needs `roles: list[Role]`
@@ -345,9 +350,6 @@ stages:
       advisory validation.
 
       OUT OF SCOPE, do not fold into this design:
-        - priority.py never filters `teaching`, so `--min-priority` silently
-          does nothing for that section. Real bug, separate change, needs its
-          own regression test. Do NOT fix it inside this migration.
         - The keyword_match.py str() coercions are already fixed and merged
           (PR #271, e6791cc). Do not re-fix them; design the item type to match
           what keyword_normalize.item_text / item_match_text already expect.
@@ -623,9 +625,6 @@ stages:
           landed in PR #271 (e6791cc); keyword_normalize.item_text and
           item_match_text are the current helpers and the schema's item type is
           built to match what they expect.
-        - Do NOT fix priority.py's missing `teaching` filter here. It is a real
-          bug and explicitly out of scope for this run; it needs its own change
-          and regression test.
 
       If the group-by-group test runs show the change is materially larger than
       the numbers above, STOP and report rather than pushing through. A partial
@@ -824,9 +823,9 @@ stages:
           so, that is a finding — report it.
         - src/resume/model.py no longer exists and nothing imports it
         - priority.py no longer hardcodes a section-key tuple. Note that
-          priority.py's missing `teaching` filter is a KNOWN, out-of-scope bug
-          for this run — do not report its continued absence as a failure of
-          this migration, and do not fix it here.
+          priority.py already filters `teaching` (line 67's min-priority
+          tuple includes it) — this is existing, correct behaviour, not a gap
+          to close or a bug to fix here.
         - FULL MIGRATION IS COMPLETE, not partial. Compare the remaining call
           sites against the ~69 recorded in sections.md — NOT against ~55.
           ~55 counts only the `data`-named subset; ~14 further sites reach the
@@ -1027,7 +1026,7 @@ stages:
       restating stage intentions.
 
       Include:
-        - sections typed: before (4) -> after (N of 22), and the three
+        - sections typed: before (5) -> after (N of 22), and the three
           deliberately untyped (`skills`, `teaching`, `contact`) with reasons
         - multi-role experience: DEFERRED at the design-schema gate, with the
           rationale (no production data exercises it) and the additive
@@ -1044,9 +1043,8 @@ stages:
         - any section key still untyped BEYOND the three deliberate ones
         - any call site left on bare string keys (check both `data.get(` and
           `candidate.get(`; the latter is where a partial migration hides)
-        - the two known out-of-scope items, so the next person does not assume
-          they were handled: priority.py never filters `teaching`, and
-          enforcing validation remains an opt-in follow-up
+        - the one known out-of-scope item, so the next person does not assume
+          it was handled: enforcing validation remains an opt-in follow-up
         - whether PDF fidelity was actually verified or only assumed
         - whether the sidebar layout survived conversion
         - anything deferred, and why
