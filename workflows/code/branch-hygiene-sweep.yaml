@@ -58,15 +58,22 @@ description: >
   uncommitted WIP with it. Treat deletion as the hygiene goal and venv
   reclamation as the space goal — they are separate levers.
 
-  RUNNING THIS WORKFLOW: every git-reading stage must run INLINE, executed by
-  the orchestrator itself — not delegated to a spawned subagent. A first real
-  run failed at gather-inventory with WORKTREE_ISOLATION_CONSTRAINT_VIOLATION:
-  subagents INHERIT the session's worktree isolation, and an isolated agent is
-  refused any git command redirected at the shared checkout. Since sessions are
-  normally launched with `claude -w`, that is the default case, not an edge
-  case. The isolation note below is therefore advice this YAML cannot enforce:
-  there is no "must not be isolated" field, and isolation is inherited rather
-  than opted into. Run the stages inline and the constraint disappears.
+  RUNNING THIS WORKFLOW: run it from a NON-ISOLATED session. That is the whole
+  precondition, and it is on the caller — the stages below are ordinary agent
+  stages and this YAML has no way to express or enforce it.
+
+  Why: a spawned subagent INHERITS its session's worktree isolation, and an
+  isolated agent is refused any git command aimed at the shared checkout —
+  which is this workflow's entire input. A first real run failed immediately at
+  gather-inventory with WORKTREE_ISOLATION_CONSTRAINT_VIOLATION. Sessions are
+  normally launched with `claude -w`, so an isolated session is the default
+  case, not an edge case.
+
+  Two ways to satisfy the precondition:
+    - launch the session without `-w`, so spawned stages are not isolated; or
+    - have the orchestrator execute the git-reading stages itself rather than
+      delegating them, which is what the /workflow skill does for stages
+      marked `executor: inline`.
 
   ISOLATION NOTE: Agents in this workflow must NOT use isolation: worktree.
   An isolated worktree cannot see the parent checkout's branches, reflog, or
@@ -333,19 +340,27 @@ stages:
              Check all three, in this order — the first is the cheapest and
              eliminates most candidates:
                # 1. Does THIS branch carry work worth protecting?
-               [ "$(git rev-list --count origin/main..<branch>)" -gt 0 ] || not-a-descendant-case
-               # 2. Does <other> contain this branch's tip?
-               git merge-base --is-ancestor <branch> <other>
-               # 3. Does <other> add anything beyond it? (excludes equal tips)
-               [ "$(git rev-list --count <branch>..<other>)" -gt 0 ]
+               own=$(git rev-list --count "origin/main..$branch")
+               if [ "$own" -eq 0 ]; then
+                 : # No commits of its own -> nothing was built on it.
+                   # Do NOT flag HAS_DESCENDANT. The branch may still be
+                   # spared by recent activity or by its bucket, but "someone
+                   # built on it" is not the reason.
+               else
+                 for other in $branches; do
+                   [ "$other" = "$branch" ] && continue
+                   git merge-base --is-ancestor "$branch" "$other" || continue
+                   ahead=$(git rev-list --count "$branch..$other")
+                   [ "$ahead" -gt 0 ] || continue   # equal tips are not descendants
+                   flag HAS_DESCENDANT "$branch" "descendant: $other"
+                   break
+                 done
+               fi
 
-             A branch failing (1) is not protected by this rule. It may still
-             be spared by recent activity or by its bucket, but "someone built
-             on it" is not the reason.
-
-             for other in branches:
-                 git merge-base --is-ancestor <branch> <other>
-             Exit 0 = <other> descends from <branch>. Flag as HAS_DESCENDANT.
+             All three conditions are required. Dropping any one of them
+             reproduces the original failure: with only the merge-base test,
+             a real run flagged 54 of 66 branches and returned zero deletion
+             candidates.
           b. Recent activity. Two independent signals, and a NULL in either
              one means "no evidence", never "recent":
 
