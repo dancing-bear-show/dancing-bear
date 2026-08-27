@@ -2,8 +2,22 @@
 from __future__ import annotations
 import unittest
 
-from resume.schema import Resume
+from resume.schema import ExperienceEntry, Resume
 from tests.resume_tests.fixtures import make_fake_renderer, mock_docx_modules
+
+
+def _entry(raw: dict) -> ExperienceEntry:
+    """Build one typed experience entry from its raw dict form."""
+    return ExperienceEntry.from_dict(raw)
+
+
+def _bullets(raw: list) -> list:
+    """Build typed bullets from their raw dict/string forms.
+
+    Goes through ``ExperienceEntry`` rather than constructing items directly,
+    so the bullets are normalized by exactly the path production uses.
+    """
+    return ExperienceEntry.from_dict({"bullets": raw}).bullets
 
 
 @mock_docx_modules
@@ -43,27 +57,25 @@ class TestSummarySectionRenderer(unittest.TestCase):
         self.assertEqual(len(doc.paragraphs), 1)
 
     def test_normalize_list_items_dicts(self):
-        """Test normalizing list items from dicts."""
+        """The 'line' alias and the 'desc' fallback both yield display text."""
         renderer, _ = self._get_renderer()
-        items = [
-            {"text": "Item 1"},
-            {"line": "Item 2"},
-            {"desc": "Item 3"},
-        ]
+        items = Resume.from_dict(
+            {"summary": [{"text": "Item 1"}, {"line": "Item 2"}, {"desc": "Item 3"}]}
+        ).summary
         result = renderer._normalize_list_items(items)
         self.assertEqual(result, ["Item 1", "Item 2", "Item 3"])
 
     def test_normalize_list_items_strings(self):
-        """Test normalizing list items from strings."""
+        """Bare-string summary entries are upgraded to items carrying `text`."""
         renderer, _ = self._get_renderer()
-        items = ["Item 1", "Item 2", "Item 3"]
+        items = Resume.from_dict({"summary": ["Item 1", "Item 2", "Item 3"]}).summary
         result = renderer._normalize_list_items(items)
         self.assertEqual(result, ["Item 1", "Item 2", "Item 3"])
 
     def test_normalize_list_items_skips_empty(self):
-        """Blank strings and empty dict items are dropped."""
+        """Items with no text in any readable field are dropped."""
         renderer, _ = self._get_renderer()
-        items = ["Valid", "", {"text": ""}]
+        items = Resume.from_dict({"summary": ["Valid", "", {"text": ""}]}).summary
         result = renderer._normalize_list_items(items)
         self.assertEqual(result, ["Valid"])
 
@@ -115,15 +127,25 @@ class TestSkillsSectionRenderer(unittest.TestCase):
         self.assertEqual(result, ["Python", "JavaScript", "Go"])
 
     def test_normalize_group_items_dicts(self):
-        """Test normalizing group items from dicts."""
+        """The 'title' name alias and the 'description' desc alias both resolve."""
         renderer, _ = self._get_renderer()
-        items = [
-            {"name": "Python", "desc": "Expert"},
-            {"title": "Go", "description": "Intermediate"},
-        ]
+        items = Resume.from_dict(
+            {
+                "skills_groups": [
+                    {
+                        "title": "Group",
+                        "items": [
+                            {"name": "Python", "desc": "Expert"},
+                            {"title": "Go", "description": "Intermediate"},
+                        ],
+                    }
+                ]
+            }
+        ).skills_groups[0].items
         result = renderer._normalize_group_items(items, True, " — ")
         self.assertEqual(len(result), 2)
         self.assertIn("Python — Expert", result)
+        self.assertIn("Go — Intermediate", result)
 
     def test_render_skills_groups_respects_max_groups(self):
         """sec={"max_groups": N} caps the number of groups rendered."""
@@ -163,28 +185,28 @@ class TestExperienceSectionRenderer(unittest.TestCase):
     def test_format_date_span_start_end(self):
         """Test formatting date span with start and end."""
         renderer, _ = self._get_renderer()
-        e = {"start": "2020", "end": "2024"}
+        e = _entry({"start": "2020", "end": "2024"})
         result = renderer._format_date_span(e)
         self.assertEqual(result, "2020 – 2024")
 
     def test_format_date_span_start_only(self):
         """Test formatting date span with start only."""
         renderer, _ = self._get_renderer()
-        e = {"start": "2020"}
+        e = _entry({"start": "2020"})
         result = renderer._format_date_span(e)
         self.assertEqual(result, "2020 – Present")
 
     def test_format_date_span_end_only(self):
         """Test formatting date span with end only."""
         renderer, _ = self._get_renderer()
-        e = {"end": "2024"}
+        e = _entry({"end": "2024"})
         result = renderer._format_date_span(e)
         self.assertEqual(result, "2024")
 
     def test_format_date_span_no_dates(self):
         """No start or end yields an empty string."""
         renderer, _ = self._get_renderer()
-        self.assertEqual(renderer._format_date_span({}), "")
+        self.assertEqual(renderer._format_date_span(_entry({})), "")
 
     def test_normalize_present(self):
         """Test normalizing present variants."""
@@ -215,32 +237,28 @@ class TestExperienceSectionRenderer(unittest.TestCase):
     def test_normalize_bullets_strings(self):
         """Test normalizing bullet strings."""
         renderer, _ = self._get_renderer()
-        bullets = ["Point 1", "Point 2", "Point 3"]
+        bullets = _bullets(["Point 1", "Point 2", "Point 3"])
         result = renderer._normalize_bullets(bullets, 10)
         self.assertEqual(len(result), 3)
 
     def test_normalize_bullets_dicts(self):
         """Test normalizing bullet dicts."""
         renderer, _ = self._get_renderer()
-        bullets = [
-            {"text": "Point 1"},
-            {"line": "Point 2"},
-            {"name": "Point 3"},
-        ]
+        bullets = _bullets([{"text": "Point 1"}, {"line": "Point 2"}, {"name": "Point 3"}])
         result = renderer._normalize_bullets(bullets, 10)
         self.assertEqual(len(result), 3)
 
     def test_normalize_bullets_limit(self):
         """Test bullet limit enforcement."""
         renderer, _ = self._get_renderer()
-        bullets = ["Point 1", "Point 2", "Point 3", "Point 4", "Point 5"]
+        bullets = _bullets(["Point 1", "Point 2", "Point 3", "Point 4", "Point 5"])
         result = renderer._normalize_bullets(bullets, 3)
         self.assertEqual(len(result), 3)
 
     def test_normalize_bullets_skips_empty(self):
         """Blank strings and empty-text dict bullets are dropped."""
         renderer, _ = self._get_renderer()
-        bullets = ["Valid", "", {"text": ""}]
+        bullets = _bullets(["Valid", "", {"text": ""}])
         result = renderer._normalize_bullets(bullets, 10)
         self.assertEqual(len(result), 1)
 
@@ -305,7 +323,7 @@ class TestTechnologiesSectionRenderer(unittest.TestCase):
         """Test collecting tech items from list."""
         renderer, _ = self._get_renderer()
         data = {"technologies": ["Docker", "K8s"]}
-        result = renderer._collect_tech_items(data, None)
+        result = renderer._collect_tech_items(Resume.from_dict(data), None)
         self.assertEqual(result, ["Docker", "K8s"])
 
     def test_collect_tech_items_dicts(self):
@@ -315,7 +333,7 @@ class TestTechnologiesSectionRenderer(unittest.TestCase):
             {"name": "Docker"},
             {"title": "Kubernetes"},
         ]}
-        result = renderer._collect_tech_items(data, None)
+        result = renderer._collect_tech_items(Resume.from_dict(data), None)
         self.assertEqual(len(result), 2)
 
     def test_fallback_to_skills_groups(self):
@@ -327,7 +345,7 @@ class TestTechnologiesSectionRenderer(unittest.TestCase):
                 {"title": "Technologies", "items": ["Docker", "K8s"]},
             ],
         }
-        result = renderer._collect_tech_items(data, None)
+        result = renderer._collect_tech_items(Resume.from_dict(data), None)
         self.assertEqual(result, ["Docker", "K8s"])
 
     def test_render_technologies_with_description(self):

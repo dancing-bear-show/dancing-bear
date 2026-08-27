@@ -265,13 +265,22 @@ class SkillGroupItem(_Item):
 
     Primary display key is ``name``, not ``text`` -- the skills renderers key
     on ``name|title|label`` and never on ``text``.
+
+    ``desc`` accepts the long spelling ``description`` because
+    ``_labeled_item_text`` reads ``desc`` or ``description``
+    (docx_sections_skills.py). Undeclared it would sit in ``extra`` and read
+    back empty, dropping the description from every item that used the long
+    form.
     """
 
     name: str = ""
     desc: str = ""
     priority: float = 1.0
 
-    _ALIASES: ClassVar[dict[str, tuple[str, ...]]] = {"name": _NAME_KEYS}
+    _ALIASES: ClassVar[dict[str, tuple[str, ...]]] = {
+        "name": _NAME_KEYS,
+        "desc": ("desc", "description"),
+    }
 
     @classmethod
     def _primary_field(cls) -> str:

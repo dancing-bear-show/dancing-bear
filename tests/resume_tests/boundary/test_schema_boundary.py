@@ -101,9 +101,9 @@ UNMIGRATED_GET_BASELINE: dict[str, int] = {
     # (schema-design.md §1). They are not un-migrated work and will not reach
     # 0 while ``teaching`` stays ``list[Any]``.
     "docx_renderers.py": 3,
-    "docx_sections_exp.py": 16,
+    "docx_sections_exp.py": 0,
     "docx_sections_simple.py": 0,
-    "docx_sections_skills.py": 18,
+    "docx_sections_skills.py": 0,
     "docx_sidebar_cells.py": 0,
     "docx_sidebar_sections.py": 22,
     "docx_standard.py": 1,
