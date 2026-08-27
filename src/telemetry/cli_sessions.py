@@ -33,9 +33,47 @@ from telemetry.cli_formatters import (
 console = Console()
 
 
-@click.group()
-def main() -> None:
+@click.group(invoke_without_command=True)
+@click.option(
+    "--agentic",
+    "agentic",
+    is_flag=True,
+    default=False,
+    help="Emit compact repo context for LLM agents and exit.",
+)
+@click.option(
+    "--agentic-format",
+    "agentic_format",
+    type=click.Choice(["text", "yaml", "json"]),
+    default="text",
+    show_default=True,
+    help="Output format for --agentic capsule.",
+)
+@click.option(
+    "--agentic-compact",
+    "agentic_compact",
+    is_flag=True,
+    default=False,
+    help="Emit a more compact agentic capsule.",
+)
+@click.pass_context
+def main(
+    ctx: click.Context,
+    agentic: bool,
+    agentic_format: str,
+    agentic_compact: bool,
+) -> None:
     """telemetry — Claude Code session analysis TUI."""
+    if agentic:
+        from telemetry.agentic import emit_agentic_context
+
+        raise SystemExit(emit_agentic_context(agentic_format, agentic_compact))
+    if ctx.invoked_subcommand is None:
+        # Preserve legacy Click behavior: `telemetry` with no subcommand prints
+        # help and exits 2 (matches upstream `@click.group()` without
+        # `invoke_without_command=True`).
+        click.echo(ctx.get_help())
+        ctx.exit(2)
 
 
 @main.command()

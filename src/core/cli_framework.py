@@ -320,6 +320,7 @@ class CLIApp:
         *,
         pre_run_hook: Callable[[], None] | None = None,
         post_build_hook: Callable[[argparse.ArgumentParser], None] | None = None,
+        on_no_command: Callable[[], int] | None = None,
     ) -> int:
         """Run the CLI application with agentic flag support.
 
@@ -332,6 +333,10 @@ class CLIApp:
             argv: Command-line arguments (defaults to sys.argv[1:]).
             pre_run_hook: Optional function to call before parsing (e.g., output masking).
             post_build_hook: Optional function to customize parser after build (e.g., add args).
+            on_no_command: Optional callback invoked instead of the default
+                "print full help, return 0" behavior when no subcommand is given.
+                Mirrors the same parameter on run() so callers can preserve
+                legacy one-line usage messages and exit codes.
 
         Returns:
             Exit code.
@@ -360,6 +365,8 @@ class CLIApp:
         # Resolve and run the command
         cmd_func = getattr(args, "_cmd_func", None)
         if cmd_func is None:
+            if on_no_command is not None:
+                return on_no_command()
             parser.print_help()
             return 0
         return self._run_cmd_func_with_error_handling(cmd_func, args, coerce_int=True)

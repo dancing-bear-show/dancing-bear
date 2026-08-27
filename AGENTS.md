@@ -20,7 +20,7 @@ telemetry).
 ./bin/llm domain-map --stdout
 ```
 
-`./bin/llm inventory --stdout` lists which CLIs expose `--agentic` and which need `--help`.
+All 18 apps support `--agentic`. `./bin/llm inventory --stdout` prints the exact invocation for each — `./bin/<app>` is wrong for four of them.
 
 ## Key Rules
 

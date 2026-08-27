@@ -14,10 +14,12 @@ class TestLLMFamiliarVerbose(unittest.TestCase):
         # Verbose mode includes extended app agentic commands
         self.assertIn("--app resume agentic", out)
         self.assertIn("config inspect", out)
-        # Verbose mode surfaces the visualization + orchestration wrappers
-        self.assertIn("./bin/charts --help", out)
-        self.assertIn("./bin/diagrams --help", out)
-        self.assertIn("./bin/workflow --help", out)
+        # Verbose mode surfaces the visualization + orchestration wrappers.
+        # They emit agentic schemas like every other app, so the capsule points
+        # at --agentic rather than --help.
+        self.assertIn("./bin/charts --agentic", out)
+        self.assertIn("./bin/diagrams --agentic", out)
+        self.assertIn("./bin/workflow --agentic", out)
 
     def test_familiar_fast_path_omits_viz_wrappers(self):
         import mail.llm_cli as mod

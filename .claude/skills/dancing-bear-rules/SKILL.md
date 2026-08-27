@@ -83,8 +83,8 @@ For CLI schemas (prefer over `--help`):
 
 Always pass `--compact`. On `./bin/llm agentic` the uncompacted form is 38KB — it
 inlines CONTEXT.md, MIGRATION_STATE.md, PATTERNS.md and AGENTS.md — versus 2KB
-compact for the same CLI schema. `charts`, `diagrams`, `worker` and `workflow` have
-no agentic schema; use `--help` for those four only.
+compact for the same CLI schema. All 18 apps support `--agentic`; run
+`./bin/llm inventory --stdout` for the exact invocation of each.
 
 Flag asymmetry to know before you type it: `--compact` exists **only** on the
 top-level `./bin/llm agentic`. The per-app route

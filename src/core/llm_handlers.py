@@ -47,12 +47,12 @@ ASSISTANT_AGENTIC_EXTENDED_CMDS = [
     "./bin/llm --app whatsapp agentic --stdout",
 ]
 
-# Standalone visualization + orchestration wrappers (own argparse CLIs, not llm --app
-# routes, so discovered via --help rather than agentic schemas).
+# Standalone visualization + orchestration wrappers: own argparse CLIs rather than
+# llm --app routes, but they emit agentic schemas like every other app.
 ASSISTANT_VIZ_ORCHESTRATION_CMDS = [
-    "./bin/charts --help",
-    "./bin/diagrams --help",
-    "./bin/workflow --help",
+    "./bin/charts --agentic --agentic-compact",
+    "./bin/diagrams --agentic --agentic-compact",
+    "./bin/workflow --agentic --agentic-compact",
 ]
 
 _APP_MODULES = {
@@ -66,6 +66,39 @@ _APP_MODULES = {
     "mail": "mail.llm_cli",
     "wifi": "wifi.llm_cli",
 }
+
+# Every app supports `--agentic`. Broader than _APP_MODULES, which is only the
+# `llm --app <name>` routing table — the apps below are not reachable that way
+# but still emit a schema.
+#
+# Value is the invocation, because `./bin/<app>` is wrong for four of them:
+# apple-music and qlty use -assistant wrappers (bin/qlty would shadow the real
+# qlty binary), resume ships no wrapper and goes through bin/assistant, and desk
+# has no wrapper at all. Verified by running each one.
+_AGENTIC_APPS: dict[str, str] = {
+    "apple-music": "./bin/apple-music-assistant",
+    "calendar": "./bin/calendar",
+    "charts": "./bin/charts",
+    "desk": "python3 -m desk",
+    "diagrams": "./bin/diagrams",
+    "mail": "./bin/mail",
+    "maker": "./bin/maker",
+    "phone": "./bin/phone",
+    "qlty": "./bin/qlty-assistant",
+    "resume": "./bin/assistant resume",
+    "schedule": "./bin/schedule",
+    "sheets": "./bin/sheets",
+    "slides": "./bin/slides",
+    "telemetry": "./bin/telemetry",
+    "whatsapp": "./bin/whatsapp",
+    "wifi": "./bin/wifi",
+    "worker": "./bin/worker",
+    "workflow": "./bin/workflow",
+}
+
+# No CLI is agentic-less any more. Kept so the inventory renders an explicit
+# "none" instead of silently dropping the section if one ever regresses.
+_NO_AGENTIC_CLIS: frozenset[str] = frozenset()
 
 
 # ---------------------------------------------------------------------------
@@ -170,8 +203,8 @@ def _inventory_data() -> dict[str, Any]:
         "wrappers": wrappers,
         "areas": sorted(_APP_MODULES),
         "packages": packages,
-        "agentic_apps": sorted(_APP_MODULES),
-        "viz_orchestration": ["charts", "diagrams", "workflow", "worker"],
+        "agentic_apps": [_AGENTIC_APPS[k] for k in sorted(_AGENTIC_APPS)],
+        "no_agentic_clis": sorted(_NO_AGENTIC_CLIS),
     }
 
 
@@ -187,15 +220,17 @@ def _default_inventory() -> str:
         "",
         ", ".join(f"`{p}`" for p in data["packages"]) or "_none found_",
         "",
-        f"## Agentic-schema apps ({len(data['areas'])})",
+        f"## Agentic-schema apps ({len(data['agentic_apps'])})",
         "",
-        "Discover with `./bin/<app> --agentic --agentic-format yaml --agentic-compact`.",
+        "Append `--agentic --agentic-format yaml --agentic-compact` to any invocation below.",
+        "Most are `./bin/<app>`; the four exceptions are spelled out.",
         "",
-        ", ".join(f"`{a}`" for a in data["areas"]) or "_none_",
+        *(f"- `{cmd}`" for cmd in data["agentic_apps"]),
         "",
         "## Standalone CLIs (no agentic schema)",
         "",
-        ", ".join(f"`{v}`" for v in data["viz_orchestration"]),
+        ", ".join(f"`{v}`" for v in data["no_agentic_clis"])
+        or "_none — every CLI emits an agentic schema._",
         "",
         f"## Wrappers ({len(data['wrappers'])})",
         "",

@@ -20,10 +20,12 @@ Use Existing Commands First
 ./bin/mail --agentic --agentic-format json
 ./bin/mail --agentic --agentic-format json --agentic-compact
 ./bin/mail --agentic --agentic-format json --agentic-domain labels
-# Works for 13 CLIs with --agentic: apple-music, calendar, desk, mail, maker, phone,
-# qlty, resume, schedule, sheets, slides, whatsapp, wifi
-# (desk has no bin/ wrapper — use: python3 -m desk --agentic ...)
-# Use --help for: charts, diagrams, telemetry, worker, workflow
+# Works for all 18 apps. `./bin/llm inventory --stdout` prints the exact
+# invocation for each, since ./bin/<app> is wrong for four:
+#   apple-music -> ./bin/apple-music-assistant
+#   qlty        -> ./bin/qlty-assistant
+#   resume      -> ./bin/assistant resume
+#   desk        -> python3 -m desk
 ```
 
 Agentic Shortcuts (LLM CLI)
