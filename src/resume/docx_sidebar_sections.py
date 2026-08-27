@@ -14,6 +14,7 @@ from docx.shared import Pt, Inches, RGBColor  # type: ignore
 from docx.enum.table import WD_TABLE_ALIGNMENT  # type: ignore
 
 from .docx_base import ResumeWriterBase
+from .schema import ExperienceEntry, PriorityItem, Presentation, Resume, _Item
 from .docx_styles import _parse_hex_color, _tight_paragraph, _apply_paragraph_shading
 from .render_config import CenteredHeaderLineStyle, IndentedRunStyle
 from .docx_sidebar_cells import (
@@ -34,15 +35,45 @@ def _add_colored_bullet_run(p, bullet_color: str) -> None:
         bullet_run.font.color.rgb = RGBColor(*bullet_rgb)
 
 
-def _render_main_education(cell, data: dict[str, Any], page_cfg: dict[str, Any], sec: dict[str, Any] | None = None) -> None:  # nosec - sec kept for API compatibility
+def _replayed_text(item: _Item) -> str:
+    """Return the string these sidebar renderers used to produce for an item.
+
+    The pre-migration code was ``x.get(<key>, x)``: it honoured ONE literal key
+    -- ``text`` for summary entries and bullets, ``name`` for skill items --
+    and fell back to the whole mapping for anything else. python-docx then
+    stringified that mapping by iterating it, so an alias-keyed entry rendered
+    as its KEYS concatenated ("label", or "linepriorityextra" when the entry
+    carried extra keys), never as the prose behind them.
+
+    The schema resolves more spellings than those renderers ever honoured
+    (``line``/``bullet`` onto ``PriorityItem.text``, ``title``/``label`` onto
+    ``SkillGroupItem.name``), so reading the attribute unconditionally would
+    make alias-keyed entries start rendering their real text. That is arguably
+    a fix -- the old output was garbage -- but it is a rendering change, and
+    this migration is meant to change representation only. The original shape
+    is therefore replayed here and the behaviour left exactly as it was, the
+    same call ``_item_name`` in docx_renderers makes for ``label``-keyed
+    certifications. Widening these renderers is a separate, deliberate
+    decision.
+    """
+    primary = type(item)._primary_field()
+    if not primary:
+        return ""
+    if item._replayed_key(primary) == primary:
+        return str(getattr(item, primary, "") or "")
+    # Rebuild the mapping the renderer used to receive and reproduce what
+    # python-docx did with it: iterate it, which yields its keys.
+    return "".join(item.to_dict())
+
+
+def _render_main_education(cell, resume: Resume, page_cfg: dict[str, Any], sec: dict[str, Any] | None = None) -> None:  # nosec - sec kept for API compatibility
     """Render education in main column."""
-    education = data.get("education") or []
     bullet_color = page_cfg.get("main_bullet_color", "#4A90A4")
 
-    for edu in education:
-        degree = edu.get("degree", "")
-        institution = edu.get("institution", "")
-        year = edu.get("year", "")
+    for edu in resume.education:
+        degree = edu.degree
+        institution = edu.institution
+        year = edu.year
 
         p = cell.add_paragraph()
         _add_colored_bullet_run(p, bullet_color)
@@ -54,14 +85,14 @@ def _render_main_education(cell, data: dict[str, Any], page_cfg: dict[str, Any],
         _render_edu_meta(cell, institution, year, page_cfg)
 
 
-def _render_exp_entry(cell, exp: dict[str, Any], page_cfg: dict[str, Any], bullet_color: str, max_bullets: int) -> None:
+def _render_exp_entry(cell, exp: ExperienceEntry, page_cfg: dict[str, Any], bullet_color: str, max_bullets: int) -> None:
     """Render a single experience entry."""
-    title = exp.get("title", "")
-    company = exp.get("company", "")
-    start = exp.get("start", "")
-    end = exp.get("end", "")
+    title = exp.title
+    company = exp.company
+    start = exp.start
+    end = exp.end
     span = f"{start} – {end}" if end else f"{start} – presente"
-    bullets = exp.get("bullets") or []
+    bullets = exp.bullets
 
     p = cell.add_paragraph()
     _add_colored_bullet_run(p, bullet_color)
@@ -88,7 +119,7 @@ def _render_exp_entry(cell, exp: dict[str, Any], page_cfg: dict[str, Any], bulle
         _tight_paragraph(p2, after_pt=2)
 
     for b in bullets[:max_bullets]:
-        text = b.get("text", b) if isinstance(b, dict) else b
+        text = _replayed_text(b)
         p3 = cell.add_paragraph()
         p3.paragraph_format.left_indent = Inches(0.25)
         run = p3.add_run(text)
@@ -96,18 +127,17 @@ def _render_exp_entry(cell, exp: dict[str, Any], page_cfg: dict[str, Any], bulle
         _tight_paragraph(p3, after_pt=1)
 
 
-def _render_main_experience(cell, data: dict[str, Any], page_cfg: dict[str, Any], sec: dict[str, Any]) -> None:
+def _render_main_experience(cell, resume: Resume, page_cfg: dict[str, Any], sec: dict[str, Any]) -> None:
     """Render experience in main column."""
-    experience = data.get("experience") or []
     bullet_color = page_cfg.get("main_bullet_color", "#4A90A4")
     max_bullets = sec.get("recent_max_bullets", 3)
-    for exp in experience:
+    for exp in resume.experience:
         _render_exp_entry(cell, exp, page_cfg, bullet_color, max_bullets)
 
 
-def _render_main_teaching(cell, data: dict[str, Any], page_cfg: dict[str, Any], sec: dict[str, Any] | None = None) -> None:  # nosec - sec kept for API compatibility
+def _render_main_teaching(cell, resume: Resume, page_cfg: dict[str, Any], sec: dict[str, Any] | None = None) -> None:  # nosec - sec kept for API compatibility
     """Render teaching in main column (uppercase titles with institution below)."""
-    teaching = data.get("teaching") or []
+    teaching = resume.teaching
 
     for item in teaching:
         text = item.get("text", item) if isinstance(item, dict) else item
@@ -136,12 +166,12 @@ def _render_main_teaching(cell, data: dict[str, Any], page_cfg: dict[str, Any], 
             _tight_paragraph(p2, after_pt=6)
 
 
-def _render_pres_entry(cell, pres: dict[str, Any], page_cfg: dict[str, Any], bullet_color: str) -> None:
+def _render_pres_entry(cell, pres: Presentation, page_cfg: dict[str, Any], bullet_color: str) -> None:
     """Render a single presentation entry."""
-    title = pres.get("title", "")
-    authors = pres.get("authors", "")
-    event = pres.get("event", "")
-    note = pres.get("note", "")
+    title = pres.title
+    authors = pres.authors
+    event = pres.event
+    note = pres.note
 
     p = cell.add_paragraph()
     _add_colored_bullet_run(p, bullet_color)
@@ -162,11 +192,10 @@ def _render_pres_entry(cell, pres: dict[str, Any], page_cfg: dict[str, Any], bul
             p2.paragraph_format.space_after = Pt(4)
 
 
-def _render_main_presentations(cell, data: dict[str, Any], page_cfg: dict[str, Any], sec: dict[str, Any] | None = None) -> None:  # nosec - sec kept for API compatibility
+def _render_main_presentations(cell, resume: Resume, page_cfg: dict[str, Any], sec: dict[str, Any] | None = None) -> None:  # nosec - sec kept for API compatibility
     """Render presentations/publications in main column."""
-    presentations = data.get("presentations") or []
     bullet_color = page_cfg.get("main_bullet_color", "#4A90A4")
-    for pres in presentations:
+    for pres in resume.presentations:
         _render_pres_entry(cell, pres, page_cfg, bullet_color)
 
 
@@ -366,19 +395,21 @@ class SidebarResumeWriter(ResumeWriterBase):
             )
 
     @staticmethod
-    def _normalize_summary_items(summary: Any) -> list[str]:
-        """Normalize summary to a flat list of strings."""
-        if isinstance(summary, str):
-            return [summary] if summary else []
-        if isinstance(summary, list):
-            return [s.get("text", s) if isinstance(s, dict) else s for s in summary]
-        return []
+    def _normalize_summary_items(summary: list[PriorityItem]) -> list[str]:
+        """Normalize summary to a flat list of strings.
+
+        Load-time normalization already collapsed the scalar-vs-list and
+        str-vs-dict shapes into ``list[PriorityItem]``, so this only has to
+        read the text off each item -- via ``_replayed_text``, which keeps
+        alias-keyed entries rendering exactly as they did before the migration.
+        """
+        return [_replayed_text(summary_item) for summary_item in summary]
 
     def _render_sidebar_summary(self, cell) -> None:
         """Render summary section in sidebar."""
         for sec in (self.template.get("sections") or []):
             if sec.get("key") == "summary":
-                summary_items = self._normalize_summary_items(self.data.get("summary") or [])
+                summary_items = self._normalize_summary_items(self.resume.summary)
                 if summary_items:
                     _render_sidebar_section(
                         cell,
@@ -394,9 +425,9 @@ class SidebarResumeWriter(ResumeWriterBase):
         for sec in (self.template.get("sections") or []):
             if sec.get("key") == "skills":
                 skill_items = [
-                    item.get("name", item) if isinstance(item, dict) else item
-                    for group in (self.data.get("skills_groups") or [])
-                    for item in (group.get("items") or [])
+                    _replayed_text(item)
+                    for group in self.resume.skills_groups
+                    for item in group.items
                 ]
                 if skill_items:
                     _render_sidebar_section(cell, sec.get("title", "Habilidades claves"), skill_items[:8], self.page_cfg)
@@ -408,7 +439,7 @@ class SidebarResumeWriter(ResumeWriterBase):
         self._render_sidebar_skills(cell)
 
     # Maps a section key to its main-column body renderer. Every renderer takes
-    # (cell, data, page_cfg, sec) so the table can call them uniformly; the ones
+    # (cell, resume, page_cfg, sec) so the table can call them uniformly; the ones
     # that don't need `sec` accept it as an ignored optional argument, which
     # lets them be referenced directly rather than wrapped in a pass-through
     # lambda.
@@ -428,6 +459,6 @@ class SidebarResumeWriter(ResumeWriterBase):
             if renderer is None:
                 continue
             _render_main_section_heading(cell, sec.get("title", ""), self.page_cfg)
-            renderer(cell, self.data, self.page_cfg, sec)
+            renderer(cell, self.resume, self.page_cfg, sec)
 
 

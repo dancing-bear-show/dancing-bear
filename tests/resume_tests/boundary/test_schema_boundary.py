@@ -105,7 +105,11 @@ UNMIGRATED_GET_BASELINE: dict[str, int] = {
     "docx_sections_simple.py": 0,
     "docx_sections_skills.py": 0,
     "docx_sidebar_cells.py": 0,
-    "docx_sidebar_sections.py": 22,
+    # The single remaining site is the ``item.get()`` in _render_main_teaching,
+    # which serves the same deliberately-untyped ``teaching`` section as the
+    # docx_renderers.py entry above. Not un-migrated work; will not reach 0
+    # while ``teaching`` stays ``list[Any]``.
+    "docx_sidebar_sections.py": 1,
     "docx_standard.py": 1,
     "docx_writer.py": 5,
 }
