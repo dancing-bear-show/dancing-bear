@@ -30,7 +30,6 @@ class SampleData:
 
 class SampleEnum(Enum):
     FIRST = "first"
-    SECOND = "second"
 
 
 class TestOutputConfig(unittest.TestCase):

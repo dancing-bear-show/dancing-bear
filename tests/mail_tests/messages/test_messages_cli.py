@@ -17,7 +17,6 @@ from mail.messages_cli.commands_reply import run_messages_reply
 # two in sync: a mismatched pair silently produces a test that asserts the wrong
 # year while still passing.
 MESSAGES_INTERNAL_DATE_MS = "1786363200000"
-MESSAGES_DATE_ISO = "2026-08-10T12:00:00Z"
 
 
 def _make_messages_client():

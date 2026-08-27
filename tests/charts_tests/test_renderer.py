@@ -45,23 +45,6 @@ def _make_dual_spec(series=None):
     return DualAxisChartSpec(title="Test Dual", x_field="ts", series=series)
 
 
-def _matplotlib_ctx(ax_override=None):
-    """Return a context-manager stack that stubs all of matplotlib."""
-    import sys
-    mock_mpl = MagicMock()
-    mock_plt = MagicMock()
-    fig = MagicMock()
-    fig.get_facecolor.return_value = "#000000"
-    ax = ax_override or _fake_ax()
-    mock_plt.subplots.return_value = (fig, ax)
-    mock_mpl.pyplot = mock_plt
-    return patch.dict(sys.modules, {
-        "matplotlib": mock_mpl,
-        "matplotlib.pyplot": mock_plt,
-        "matplotlib.dates": MagicMock(),
-    }), fig, ax
-
-
 # ---------------------------------------------------------------------------
 # _base_kwargs
 # ---------------------------------------------------------------------------

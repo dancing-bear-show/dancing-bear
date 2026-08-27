@@ -225,24 +225,6 @@ ignore_names = [
   # categories fields the fake is constructed with. Dropping them would let the
   # fake silently diverge from the client it substitutes for.
   "update_event", "list_rules", "list_categories",
-  # Unused test-module constants: defined for readability/documentation but not
-  # referenced in any test assertion (60% confidence — vulture cannot see that
-  # a constant named SECOND or MESSAGES_DATE_ISO may appear in comments or
-  # string comparisons that were refactored away; too low confidence to delete).
-  "SECOND", "MESSAGES_DATE_ISO", "EMPTY_FOLDER",
-  # Private test helpers with no current caller. These are utility functions
-  # used in the test module they live in — locally scoped and not part of a
-  # shared fixture API. Kept at 60% confidence; deletion would require verifying
-  # no parametric or indirect invocation path exists, which is not possible
-  # without running the suite with instrumentation.
-  "_always_fail", "_make_failing_dispatcher",
-  "_get_mock_get_all_costs", "_write_src_file", "_make_slide_without_body",
-  "_make_mock_prs", "_raw_spec_two_series", "_matplotlib_ctx",
-  # Fake Outlook client methods defined on the test double for API completeness.
-  # Not yet exercised by any test but kept so the fake stays faithful to the
-  # real OutlookClient interface; deleting them would make future tests that
-  # call these methods fail with AttributeError on the fake.
-  "update_event", "list_rules", "list_categories",
 ]
 
 [tool.setuptools]
