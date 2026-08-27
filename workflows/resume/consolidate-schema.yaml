@@ -45,15 +45,15 @@
 #
 # Be honest about the size: no production file imports the dataclasses today
 # (only CandidateData, which is `dict[str, Any]`), so this introduces types
-# into the runtime path for the first time — 13 source files, ~69 call sites,
+# into the runtime path for the first time — 13 source files, ~62 call sites,
 # ~8 test files. The narrower alternative (validate at the boundary, leave
 # renderers on dicts) was considered and rejected in favour of the stronger
 # guarantee.
 #
-# The ~69 figure is the audited one and supersedes the ~55 earlier revisions
+# The ~62 figure is the audited one and supersedes the ~55 earlier revisions
 # recorded. ~55 counted only call sites on a `data`-named variable; the audit
 # found 7 more on a `candidate`-named parameter (keyword_match.py, aligner.py)
-# that the original grep missed. Because ~69 is too many for one edit, the gate
+# that the original grep missed. Because ~62 is too many for one edit, the gate
 # carried forward a constraint: migrate-callsites is SPLIT BY FILE GROUP —
 # parsers, then renderers, then filters/aligner/keyword_match.
 #
@@ -114,7 +114,7 @@ description: >
   graceful tolerance, not an exception.
 
   This is a full migration — renderers and filters take dataclasses, not dicts.
-  It touches 13 source files and ~69 call sites, and it is the first time these
+  It touches 13 source files and ~62 call sites, and it is the first time these
   types enter the runtime path at all. migrate-callsites is sequenced
   boundary-first, split by file group, and tested group-by-group for that
   reason.
@@ -316,10 +316,13 @@ stages:
         3. The reconciliation decision for any key found with two shapes.
            Note that three keys are deliberately left UNTYPED and that is the
            approved outcome, not a gap: `skills` (list[str]), `teaching`
-           (heterogeneous str-or-dict), and `contact` (an overlay-input-only
-           dict that overlays.py already flattens before it reaches Resume).
-           Record the reason for each; a later stage must not silently type
-           them without saying so.
+           (heterogeneous str-or-dict), and `contact` (overlays.py copies its
+           nested fields to the top level but does not remove the `contact`
+           key, and docx_base._identity_fields still falls back to the nested
+           dict when a top-level field is missing — so `contact` remains a
+           live, dual-path field, not one fully flattened before it reaches
+           Resume). Record the reason for each; a later stage must not
+           silently type them without saying so.
         4. The JSON Schema emitter approach (~150 LOC, stdlib only — walk
            dataclass fields via dataclasses.fields() and map types).
         5. BACKWARD COMPATIBILITY: exactly how existing dict data keeps working.
@@ -338,7 +341,7 @@ stages:
              - from_dict() at every read boundary (read_yaml_or_json callers)
              - to_dict() at every write boundary (write_yaml_or_json callers)
              - the 13 modules listed in sections.md's call-site inventory take
-               typed objects as parameters, not dict[str, Any] — ~69 call
+               typed objects as parameters, not dict[str, Any] — ~62 call
                sites, migrated in file groups, not one edit
              - merge_profiles (parsing_experience_text.py:345) returns a typed
                Resume rather than a merged dict
@@ -551,7 +554,7 @@ stages:
       MEASURED SCOPE (verify against {workspace}/sections.md; these numbers are
       the audited ones):
         - 42 .py files under src/resume/
-        - 13 of them read section keys off dicts, via ~69 call sites:
+        - 13 of them read section keys off dicts, via ~62 call sites:
             cli/main.py, docx_base.py, docx_sections_exp.py,
             docx_sections_simple.py, docx_sections_skills.py,
             docx_sidebar_sections.py, docx_standard.py, docx_writer.py,
@@ -561,14 +564,14 @@ stages:
         - 26 read_yaml_or_json/write_yaml_or_json call sites are the I/O
           boundary where from_dict/to_dict must sit
 
-      The ~69 breaks down as ~55 `data.get(` calls plus 7 more reached
+      The ~62 breaks down as ~55 `data.get(` calls plus 7 more reached
       through a parameter named `candidate` — keyword_match.py and aligner.py.
       Earlier revisions of this workflow recorded only the ~55 subset. Grepping
       for `data\.get(` alone will therefore UNDERCOUNT the work by about a
       tenth and make a partial migration look complete.
 
       SPLIT BY FILE GROUP — carried forward as a constraint from the gate.
-      ~69 sites is too many for one edit. Migrate parsers first, then
+      ~62 sites is too many for one edit. Migrate parsers first, then
       renderers, then filters/aligner/keyword_match, committing and running
       `make test` between groups.
 
@@ -829,7 +832,7 @@ stages:
           tuple includes it) — this is existing, correct behaviour, not a gap
           to close or a bug to fix here.
         - FULL MIGRATION IS COMPLETE, not partial. Compare the remaining call
-          sites against the ~69 recorded in sections.md — NOT against ~55.
+          sites against the ~62 recorded in sections.md — NOT against ~55.
           ~55 counts only the `data`-named subset; 7 further sites reach the
           same section keys through a parameter named `candidate`
           (keyword_match.py, aligner.py). Grepping `data\.get(` alone would
@@ -1033,7 +1036,7 @@ stages:
         - multi-role experience: DEFERRED at the design-schema gate, with the
           rationale (no production data exercises it) and the additive
           `group_id` follow-up. Report it as a recorded decision, not a gap.
-        - call sites migrated, by file, against the audited ~69 total
+        - call sites migrated, by file, against the audited ~62 total
         - tests added, with the measured sad-path ratio
         - coverage before -> after on src/resume/
         - code-review findings: critical (must be 0) and minor, with what was
