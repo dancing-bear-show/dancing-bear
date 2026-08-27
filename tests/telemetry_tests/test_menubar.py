@@ -1,9 +1,9 @@
 """Tests for telemetry/menubar.py — the menubar shim module.
 
 What is NOT tested here:
-- _compose_icon_attributed (requires live AppKit objects — calls NSFont, NSMutableAttributedString
-  chain that can't be fully replaced with simple mocks without reimplementing the ObjC bridge)
 - __main__ block (starts the app event loop)
+- Import-time _HAS_FCNTL=False / _HAS_APPKIT=True branches (module-level try/except
+  at import time; cannot be re-exercised after import without reimporting the module)
 
 What IS tested:
 - _load_config / _save_config delegation to _menubar_config with the shim's _CONFIG_PATH
@@ -12,6 +12,7 @@ What IS tested:
 - _get_app_version caching
 - _acquire_instance_lock when _HAS_FCNTL is False (no-op path)
 - _acquire_instance_lock when fcntl raises BlockingIOError (already-running path)
+- _compose_icon_attributed with all token kinds (lit, score var, known var, unknown var/braced)
 - Re-exported names are accessible from menubar module namespace
 """
 from __future__ import annotations
@@ -217,6 +218,170 @@ class TestAcquireInstanceLockSuccess(unittest.TestCase):
                 menubar._acquire_instance_lock()
                 self.assertEqual(menubar._instance_lock_fd, 77)
                 mock_write.assert_called_once()
+
+
+class TestComposeIconAttributed(unittest.TestCase):
+    """_compose_icon_attributed with all AppKit symbols mocked.
+
+    All AppKit symbols (NSFont, NSMutableAttributedString, NSAttributedString,
+    NSFontAttributeName, NSForegroundColorAttributeName) are injected into the
+    menubar module's namespace via patch.multiple so the function body runs
+    without importing AppKit.
+    """
+
+    def _make_appkit_mocks(self):
+        """Return a dict of mocked AppKit symbols for patch.multiple."""
+        mock_font = MagicMock(name="font")
+        mock_ns_font = MagicMock(name="NSFont")
+        mock_ns_font.menuBarFontOfSize_.return_value = mock_font
+
+        mock_attributed = MagicMock(name="NSAttributedString_inst")
+        mock_ns_attributed = MagicMock(name="NSAttributedString")
+        mock_ns_attributed.alloc.return_value.initWithString_attributes_.return_value = mock_attributed
+
+        mock_out = MagicMock(name="NSMutableAttributedString_inst")
+        mock_ns_mutable = MagicMock(name="NSMutableAttributedString")
+        mock_ns_mutable.alloc.return_value.init.return_value = mock_out
+
+        mock_ns_color = MagicMock(name="NSColor")
+        mock_ns_color.systemGreenColor.return_value = "green"
+        mock_ns_color.systemOrangeColor.return_value = "orange"
+        mock_ns_color.systemRedColor.return_value = "red"
+
+        return {
+            "font": mock_font,
+            "NSFont": mock_ns_font,
+            "NSAttributedString": mock_ns_attributed,
+            "NSMutableAttributedString": mock_ns_mutable,
+            "NSColor": mock_ns_color,
+            "NSFontAttributeName": "NSFont",
+            "NSForegroundColorAttributeName": "NSForeground",
+            "out": mock_out,
+        }
+
+    def _run_compose(self, template: str, extra_values: dict | None = None) -> MagicMock:
+        """Run _compose_icon_attributed with mocked AppKit, returning the output mock."""
+        mocks = self._make_appkit_mocks()
+        # icon_ctx drives _icon_substitutions; provide minimal data
+        icon_ctx: dict = {}
+        # Patch the _icon_substitutions to return a simple controlled dict
+        default_values = {"mtd": "$1.23", "score": "5", "today": "$0.10"}
+        if extra_values:
+            default_values.update(extra_values)
+
+        with patch.multiple(
+            menubar,
+            NSFont=mocks["NSFont"],
+            NSAttributedString=mocks["NSAttributedString"],
+            NSMutableAttributedString=mocks["NSMutableAttributedString"],
+            NSColor=mocks["NSColor"],
+            NSFontAttributeName=mocks["NSFontAttributeName"],
+            NSForegroundColorAttributeName=mocks["NSForegroundColorAttributeName"],
+            create=True,
+        ), patch("telemetry.menubar._icon_substitutions", return_value=default_values):
+            menubar._compose_icon_attributed(template, icon_ctx, mtd_cost=1.23, score=3)
+
+        return mocks["out"]
+
+    def test_literal_token_appends_attributed_string(self) -> None:
+        """A plain literal in the template results in appendAttributedString_ being called."""
+        out = self._run_compose("Hello")
+        out.appendAttributedString_.assert_called()
+
+    def test_empty_literal_is_skipped(self) -> None:
+        """An empty literal token does not call appendAttributedString_.
+
+        Patch _icon_token_stream to produce an explicit empty-literal token so
+        the `if text:` False branch inside `kind == 'lit'` is exercised.
+        """
+        mocks = self._make_appkit_mocks()
+        icon_ctx: dict = {}
+        default_values = {"score": "3", "mtd": "$0.10"}
+
+        with patch.multiple(
+            menubar,
+            NSFont=mocks["NSFont"],
+            NSAttributedString=mocks["NSAttributedString"],
+            NSMutableAttributedString=mocks["NSMutableAttributedString"],
+            NSColor=mocks["NSColor"],
+            NSFontAttributeName=mocks["NSFontAttributeName"],
+            NSForegroundColorAttributeName=mocks["NSForegroundColorAttributeName"],
+            create=True,
+        ), patch("telemetry.menubar._icon_substitutions", return_value=default_values), \
+           patch("telemetry.menubar._icon_token_stream", return_value=[("lit", "")]):
+            menubar._compose_icon_attributed("", icon_ctx, mtd_cost=0.0, score=3)
+
+        mocks["out"].appendAttributedString_.assert_not_called()
+
+    def test_score_variable_uses_score_attributes(self) -> None:
+        """$score token calls appendAttributedString_ (with the coloured score attrs)."""
+        out = self._run_compose("$score")
+        out.appendAttributedString_.assert_called()
+
+    def test_known_variable_appends_value(self) -> None:
+        """A known variable like $mtd appends its value from the substitution dict."""
+        out = self._run_compose("Cost: $mtd")
+        out.appendAttributedString_.assert_called()
+
+    def test_unknown_braced_variable_appended_as_literal(self) -> None:
+        """An unrecognised braced variable like ${unknown} is emitted verbatim."""
+        out = self._run_compose("${unknown_var}")
+        out.appendAttributedString_.assert_called()
+
+    def test_unknown_bare_variable_appended_as_literal(self) -> None:
+        """An unrecognised bare variable like $xyz is emitted verbatim."""
+        out = self._run_compose("$xyz_notknown")
+        out.appendAttributedString_.assert_called()
+
+    def test_score_high_uses_red_color(self) -> None:
+        """score >= 7 should invoke systemRedColor."""
+        mocks = self._make_appkit_mocks()
+        icon_ctx: dict = {}
+        default_values = {"score": "8", "mtd": "$5.00"}
+
+        with patch.multiple(
+            menubar,
+            NSFont=mocks["NSFont"],
+            NSAttributedString=mocks["NSAttributedString"],
+            NSMutableAttributedString=mocks["NSMutableAttributedString"],
+            NSColor=mocks["NSColor"],
+            NSFontAttributeName=mocks["NSFontAttributeName"],
+            NSForegroundColorAttributeName=mocks["NSForegroundColorAttributeName"],
+            create=True,
+        ), patch("telemetry.menubar._icon_substitutions", return_value=default_values):
+            menubar._compose_icon_attributed("$score", icon_ctx, mtd_cost=5.0, score=8)
+
+        mocks["NSColor"].systemRedColor.assert_called()
+
+    def test_score_mid_uses_orange_color(self) -> None:
+        """score 4-6 should invoke systemOrangeColor."""
+        mocks = self._make_appkit_mocks()
+        icon_ctx: dict = {}
+        default_values = {"score": "5", "mtd": "$2.00"}
+
+        with patch.multiple(
+            menubar,
+            NSFont=mocks["NSFont"],
+            NSAttributedString=mocks["NSAttributedString"],
+            NSMutableAttributedString=mocks["NSMutableAttributedString"],
+            NSColor=mocks["NSColor"],
+            NSFontAttributeName=mocks["NSFontAttributeName"],
+            NSForegroundColorAttributeName=mocks["NSForegroundColorAttributeName"],
+            create=True,
+        ), patch("telemetry.menubar._icon_substitutions", return_value=default_values):
+            menubar._compose_icon_attributed("$score", icon_ctx, mtd_cost=2.0, score=5)
+
+        mocks["NSColor"].systemOrangeColor.assert_called()
+
+
+class TestMenubarBuildVersionFileNotFound(unittest.TestCase):
+    """Cover the FileNotFoundError branch in _build_version."""
+
+    def test_file_not_found_returns_version_only(self) -> None:
+        with patch.object(menubar.subprocess, "check_output",
+                          side_effect=FileNotFoundError("git not found")):
+            result = menubar._build_version()
+        self.assertEqual(result, menubar._VERSION)
 
 
 if __name__ == "__main__":

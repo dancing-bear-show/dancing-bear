@@ -195,9 +195,17 @@ class TestRunOutlookAuthEnsure(TempDirMixin, unittest.TestCase):
 class TestRunOutlookAuthValidate(TempDirMixin, unittest.TestCase):
     """Tests for run_outlook_auth_validate function."""
 
-    def _run_validate(self, msal, requests, token_path=None, token_text="{}"):
+    def _run_validate(  # nosec B107 - "{}" is empty-JSON token-cache *content*, not a credential
+        self, msal, requests, token_path=None, token_text="{}"
+    ):
         """Write a token cache (unless token_path is pre-set), patch msal/requests,
         and run run_outlook_auth_validate.
+
+        ``token_text`` is the literal file body written to the fake token cache —
+        the default ``"{}"`` is an empty JSON object that the code under test
+        parses. Cases override it to exercise malformed-cache handling. bandit's
+        B107 matches on the parameter *name* containing "token"; there is no
+        secret here.
 
         Returns (rc, output). Shared by cases that only vary the fake
         msal/requests modules, the token path, and the expected (rc, message).

@@ -290,3 +290,38 @@ source files introduce new `sys.exit()` paths, HTTP clients, or mock boundaries.
   # good — -f is unittest's failfast flag
   test_cmd: ""  # e.g. "python3 -m unittest tests/core/ -f -q"
   ```
+
+### test-reimplements-shared-fixture
+- **severity**: minor
+- **check**: Verify that a test file does not hand-roll setup/teardown machinery
+  that `tests/fixtures.py` already provides. The canonical case is a
+  `setUp`/`tearDown` pair that calls `tempfile.mkdtemp()` and
+  `shutil.rmtree(...)` — that is exactly `TempDirMixin`. Every hand-rolled copy
+  is a place where a cleanup bug (a missing `ignore_errors=True`, a teardown
+  that leaks on exception) has to be fixed independently.
+- **triggers**: `tempfile.mkdtemp()` inside a `def setUp` with a matching
+  `shutil.rmtree` in `tearDown`, in a class that does not inherit
+  `TempDirMixin`; a locally defined `capture_stdout`-equivalent
+  `redirect_stdout(io.StringIO())` context manager; a local `write_yaml` /
+  `temp_json_file` / `temp_csv` equivalent; a fake API client defined inline in
+  a test file when `tests/fakes/` already ships one for that provider.
+- **example**:
+  ```python
+  # bad — reimplements TempDirMixin
+  class MyTest(unittest.TestCase):
+      def setUp(self):
+          self.tmpdir = tempfile.mkdtemp()
+      def tearDown(self):
+          shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+  # good — inherit the shared mixin; MRO order matters, mixin first
+  from tests.fixtures import TempDirMixin
+
+  class MyTest(TempDirMixin, unittest.TestCase):
+      ...  # self.tmpdir is provided and cleaned up
+  ```
+- **note**: `tempfile.TemporaryDirectory()` used as a context manager *inside a
+  single test method* is not a trigger — it is correctly scoped and needs no
+  mixin. This concern is about class-level setup/teardown duplication only.
+- **see also**: `conftest-helper-duplication` in reuse.md covers duplicated
+  helper *functions*; this concern covers duplicated setup *machinery*.

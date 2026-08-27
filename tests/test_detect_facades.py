@@ -22,6 +22,8 @@ import textwrap
 import unittest
 from pathlib import Path
 
+from tests.fixtures import TempDirMixin
+
 # ---------------------------------------------------------------------------
 # Load the module under test.  We import it with a chdir so os.walk("src")
 # runs in a temp dir with no src/ tree — the scan completes instantly with
@@ -366,22 +368,15 @@ class TestLazyImportDiscovery(unittest.TestCase):
 # Tests: scan_lines / _scan_file_lines (patch-target strings)
 # ---------------------------------------------------------------------------
 
-class TestScanLines(unittest.TestCase):
+class TestScanLines(TempDirMixin, unittest.TestCase):
     """scan_lines finds patch-target strings in test files.
 
     Uses a fictional module name (example.dummy) so the test file itself
     does not match the detector's real facade scan against live modules.
     """
 
-    def setUp(self):
-        self._tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self._tmpdir, ignore_errors=True)
-
     def _write(self, relpath: str, content: str) -> str:
-        p = os.path.join(self._tmpdir, relpath)
+        p = os.path.join(self.tmpdir, relpath)
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "w", encoding="utf-8") as fh:
             fh.write(content)
@@ -408,7 +403,7 @@ class TestScanLines(unittest.TestCase):
         self._write("notes.txt", content)
         import re
         hits = _scan_file_lines(
-            os.path.join(self._tmpdir, "notes.txt"),
+            os.path.join(self.tmpdir, "notes.txt"),
             re.compile(r'patch'),
         )
         # _scan_file_lines doesn't filter by extension; that's scan_lines's job
@@ -423,7 +418,7 @@ class TestScanLines(unittest.TestCase):
     def test_scan_lines_finds_across_multiple_files(self):
         self._write("tests/a.py", '@patch("example.dummy.run")\n')
         self._write("tests/b.py", '@patch("example.dummy.main")\n')
-        hits = _df.scan_lines(r'patch\("example\.dummy\.', [self._tmpdir])
+        hits = _df.scan_lines(r'patch\("example\.dummy\.', [self.tmpdir])
         self.assertEqual(len(hits), 2)
 
     def test_scan_lines_skips_missing_root(self):

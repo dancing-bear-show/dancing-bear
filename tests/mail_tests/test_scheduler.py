@@ -12,11 +12,10 @@ Covered gaps:
 """
 
 import os
-import shutil
-import tempfile
 import unittest
 from unittest.mock import patch
 
+from tests.fixtures import TempDirMixin
 from mail.scheduler import (
     ScheduledItem,
     _load_queue,
@@ -29,17 +28,16 @@ from mail.scheduler import (
 )
 
 
-class QueuePathXdgFallbackTests(unittest.TestCase):
+class QueuePathXdgFallbackTests(TempDirMixin, unittest.TestCase):
     """Exercise the XDG / default-config-home branch of _queue_path (lines 15-18)."""
 
     def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
+        super().setUp()
         # Remove the shortcut env var so the fallback path is taken
         self.orig_schedule = os.environ.pop("MAIL_ASSISTANT_SCHEDULE_PATH", None)
         self.orig_xdg = os.environ.pop("XDG_CONFIG_HOME", None)
 
     def tearDown(self):
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
         if self.orig_schedule is not None:
             os.environ["MAIL_ASSISTANT_SCHEDULE_PATH"] = self.orig_schedule
         elif "MAIL_ASSISTANT_SCHEDULE_PATH" in os.environ:
@@ -48,6 +46,7 @@ class QueuePathXdgFallbackTests(unittest.TestCase):
             os.environ["XDG_CONFIG_HOME"] = self.orig_xdg
         elif "XDG_CONFIG_HOME" in os.environ:
             del os.environ["XDG_CONFIG_HOME"]
+        super().tearDown()
 
     def test_uses_xdg_config_home_when_set(self):
         os.environ["XDG_CONFIG_HOME"] = self.tmpdir
@@ -73,17 +72,17 @@ class QueuePathXdgFallbackTests(unittest.TestCase):
         self.assertEqual(path.parent.name, "mail")
 
 
-class _ScheduleQueuePathTestBase(unittest.TestCase):
+class _ScheduleQueuePathTestBase(TempDirMixin, unittest.TestCase):
     """Shared setUp/tearDown: point MAIL_ASSISTANT_SCHEDULE_PATH at a scratch file."""
 
     def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
+        super().setUp()
         self.queue_file = os.path.join(self.tmpdir, "scheduled_sends.json")
         os.environ["MAIL_ASSISTANT_SCHEDULE_PATH"] = self.queue_file
 
     def tearDown(self):
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
         del os.environ["MAIL_ASSISTANT_SCHEDULE_PATH"]
+        super().tearDown()
 
 
 class LoadQueueCorruptJsonTests(_ScheduleQueuePathTestBase):

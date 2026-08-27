@@ -3,45 +3,38 @@
 from __future__ import annotations
 
 import os
-import tempfile
 import unittest
 
 from mail.cache import MailCache
 
+from tests.fixtures import TempDirMixin
 
-class MailCacheInitTests(unittest.TestCase):
+
+class MailCacheInitTests(TempDirMixin, unittest.TestCase):
     def setUp(self):
-        self._tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self._tmpdir, ignore_errors=True)
+        super().setUp()
 
     def test_init_creates_meta_dir(self):
-        cache = MailCache(self._tmpdir)
+        cache = MailCache(self.tmpdir)
         self.assertTrue(os.path.isdir(cache.meta_dir))
 
     def test_init_creates_full_dir(self):
-        cache = MailCache(self._tmpdir)
+        cache = MailCache(self.tmpdir)
         self.assertTrue(os.path.isdir(cache.full_dir))
 
     def test_meta_dir_path(self):
-        cache = MailCache(self._tmpdir)
-        self.assertEqual(cache.meta_dir, os.path.join(self._tmpdir, "gmail", "messages", "meta"))
+        cache = MailCache(self.tmpdir)
+        self.assertEqual(cache.meta_dir, os.path.join(self.tmpdir, "gmail", "messages", "meta"))
 
     def test_full_dir_path(self):
-        cache = MailCache(self._tmpdir)
-        self.assertEqual(cache.full_dir, os.path.join(self._tmpdir, "gmail", "messages", "full"))
+        cache = MailCache(self.tmpdir)
+        self.assertEqual(cache.full_dir, os.path.join(self.tmpdir, "gmail", "messages", "full"))
 
 
-class MailCacheMetaTests(unittest.TestCase):
+class MailCacheMetaTests(TempDirMixin, unittest.TestCase):
     def setUp(self):
-        self._tmpdir = tempfile.mkdtemp()
-        self.cache = MailCache(self._tmpdir)
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self._tmpdir, ignore_errors=True)
+        super().setUp()
+        self.cache = MailCache(self.tmpdir)
 
     def test_get_meta_missing_returns_none(self):
         self.assertIsNone(self.cache.get_meta("no-such-id"))
@@ -78,14 +71,10 @@ class MailCacheMetaTests(unittest.TestCase):
         self.assertEqual(path_clean, path_padded)
 
 
-class MailCacheFullTests(unittest.TestCase):
+class MailCacheFullTests(TempDirMixin, unittest.TestCase):
     def setUp(self):
-        self._tmpdir = tempfile.mkdtemp()
-        self.cache = MailCache(self._tmpdir)
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self._tmpdir, ignore_errors=True)
+        super().setUp()
+        self.cache = MailCache(self.tmpdir)
 
     def test_get_full_missing_returns_none(self):
         # Covers lines 40-42: path does not exist -> return None
@@ -126,14 +115,10 @@ class MailCacheFullTests(unittest.TestCase):
         self.assertEqual(self.cache.get_full("shared-id"), full)
 
 
-class MailCachePathTests(unittest.TestCase):
+class MailCachePathTests(TempDirMixin, unittest.TestCase):
     def setUp(self):
-        self._tmpdir = tempfile.mkdtemp()
-        self.cache = MailCache(self._tmpdir)
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self._tmpdir, ignore_errors=True)
+        super().setUp()
+        self.cache = MailCache(self.tmpdir)
 
     def test_meta_path_ends_with_json(self):
         self.assertTrue(self.cache._path("meta", "abc").endswith(".json"))

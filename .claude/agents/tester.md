@@ -35,7 +35,7 @@ You are a test specialist for dancing-bear. You write, expand, and refactor test
 
 ```bash
 # Run domain tests — PYTHONPATH is REQUIRED, never run this bare
-PYTHONPATH="$PWD/src" python3 -m unittest discover tests/<domain>_tests/ -v
+PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/<domain>_tests/ -t . -v
 
 # Full suite (pins PYTHONPATH itself — always prefer it)
 make test
@@ -52,6 +52,10 @@ one, and only turns red once a newly added module is imported by name.
 ## Anti-Patterns (Never Do These)
 
 - Creating duplicate stub classes that exist in `tests/fakes/`
+- Hand-rolling `setUp`/`tearDown` temp-dir machinery — inherit `TempDirMixin`
+  from `tests/fixtures.py` (see `test-reimplements-shared-fixture` in
+  `concerns/tests.md`). Same for `capture_stdout`, `temp_yaml_file`,
+  `temp_json_file`, `temp_csv`, `make_mock_envelope`, `make_mock_processor`
 - Manual construction of Gmail/Outlook API response dicts
 - Generic `assertTrue(x == y)` instead of `assertEqual(x, y)`
 - Tests that hit real APIs or read real credentials files
