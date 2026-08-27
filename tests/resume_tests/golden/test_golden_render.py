@@ -131,18 +131,26 @@ class GoldenRenderTests(unittest.TestCase):
 
     # -- pipeline path: what the migration actually moves -------------------
 
-    def _render_through_pipeline(self, candidate, alignment_path=None):
-        """Lower a fixture through FilterPipeline the way the CLI does.
+    def _render_through_pipeline(self, candidate, alignment_path=None) -> Resume:
+        """Run a fixture through FilterPipeline the way the CLI's render does.
 
         Mirrors ``cli.main._apply_filter_pipeline``: typed in, filters applied,
-        typed out, lowered back to a dict for the writer.
+        typed out. The ``Resume`` is returned as-is, exactly as ``cmd_render``
+        hands it to ``write_resume_docx``. Lowering it with ``to_dict()`` here
+        would re-parse it on the way back into the writer and hide any state
+        that does not survive that round trip -- ``_present``, ``_order``, and
+        the scalar-summary origin marker -- which is the regression class these
+        pipeline goldens exist to catch.
+
+        (``cmd_summarize`` still calls ``.to_dict()`` on this same result, but
+        that is for ``build_summary``, which reads a dict; the writer path,
+        which is what this harness pins, does not.)
         """
         return (
             FilterPipeline(Resume.from_dict(candidate))
             .with_skill_filter(alignment_path)
             .with_experience_filter(alignment_path)
             .execute()
-            .to_dict()
         )
 
     def test_no_op_pipeline_matches_golden(self):
@@ -219,8 +227,8 @@ class GoldenRenderTests(unittest.TestCase):
 
         self.assertNotEqual(unfiltered, filtered)
         self.assertLess(
-            sum(len(g.get("items", [])) for g in filtered.get("skills_groups", [])),
-            sum(len(g.get("items", [])) for g in unfiltered.get("skills_groups", [])),
+            sum(len(g.items) for g in filtered.skills_groups),
+            sum(len(g.items) for g in unfiltered.skills_groups),
         )
 
     def test_scalar_summary_keeps_its_terminal_period(self):
