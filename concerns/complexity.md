@@ -78,11 +78,16 @@ Load this guide when the diff contains `.py` files.
   call sites (easy to swap same-typed positional args), hard to extend without
   breaking every caller, and a signal that related data should travel together.
   This limit is enforced by `[smells.function_parameters]` in `.qlty/qlty.toml`,
-  which is set to 6 (qlty's threshold is the trigger point, not the ceiling).
-  Keep the two in sync — when they diverge, reviewers flag signatures the
-  tooling stays silent on. Note the tool trips one argument earlier than that
-  on keyword-only signatures; see the counting caveat below before treating a
-  reported count as the real parameter count.
+  which is set to 7 (qlty's threshold is the trigger point, not the ceiling).
+  The written limit here stays at 5 real parameters: the tool sits one higher
+  because it counts the bare `*` keyword-only separator as a parameter, so a
+  5-parameter keyword-only signature reports as 6. Measured across `src/` at
+  threshold 6, 18 of 31 findings were exactly that artifact — the rule was
+  penalising keyword-only arguments, which are the better design. 7 clears the
+  phantom without excusing genuinely wide signatures.
+  This is not a relaxed standard: a function reported at 7 may really be at 6.
+  Read the signature before acting on the finding, and see the counting caveat
+  below.
 - **triggers**: A `def`/`async def` with 6+ parameters (excluding `self`/`cls`);
   especially 3+ parameters sharing the same primitive type (e.g. multiple
   `str`/`int` args in a row) where call-site argument order is easy to

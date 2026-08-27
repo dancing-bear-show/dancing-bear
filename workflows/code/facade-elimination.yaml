@@ -600,9 +600,9 @@ stages:
       Step 5 — qlty lint on all modified files.
         Enumerate modified files from git:
           git diff --name-only HEAD -- '*.py'
-        Run qlty from a path OUTSIDE .claude/ — .qlty/qlty.toml excludes
-        **/.claude/**, so a scan from inside a worktree returns an empty result
-        that looks clean but is actually excluded:
+        qlty scans correctly from inside a worktree — the exclusion was
+        narrowed to **/.claude/worktrees/**, which only applies when scanning
+        from the main checkout:
           ~/.qlty/bin/qlty check <files>
         Treat a suspiciously empty result as a broken environment, not a pass.
 
@@ -744,7 +744,8 @@ stages:
         git diff --name-only HEAD -- '*.py'
         ~/.qlty/bin/qlty check <files>
         Auto-fix where safe: ~/.qlty/bin/qlty check --fix <file>
-        Re-run to confirm clean. An empty scan means excluded, not clean.
+        Re-run to confirm clean. An empty scan on files you know changed means
+        something is wrong with the invocation, not that the code is clean.
 
       Step 4 — confirm the diff contains no new re-export block:
         git diff HEAD -- '*.py' | grep -nE "^\+.*noqa: F401"

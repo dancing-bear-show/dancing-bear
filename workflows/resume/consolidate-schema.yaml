@@ -850,11 +850,13 @@ stages:
         - `grep -rn "presentations\|coursework\|technologies" src/resume/`
           shows no remaining bare string-key dispatch
 
-      TRAP — qlty in this worktree. .qlty/qlty.toml excludes **/.claude/**, so
-      `qlty check` inside .claude/worktrees/ scans ZERO files and prints
-      "No issues". That is exclusion, not cleanliness. Use `make lint`. If you
-      run qlty at all, run it from the main checkout, and treat a suspiciously
-      empty result as a broken environment.
+      qlty in this worktree. It scans correctly here — the exclusion was
+      narrowed to **/.claude/worktrees/**, which only applies when scanning from
+      the main checkout. Use `make lint` for the ruff gate; for a deeper scan run
+      `qlty check --all` with NO path argument (`--all` and an explicit path are
+      mutually exclusive). Without `--all` it checks changed files only, so on a
+      clean branch it prints "No issues" regardless — treat a suspiciously empty
+      result as a broken environment, not a pass.
 
       Write {workspace}/verify-schema.md with every number. If any check fails,
       report the specific failure and STOP — do not proceed to PDF on a red

@@ -315,7 +315,7 @@ Qlty Wrapper (./bin/qlty-assistant)
 # Rule strategy table; --counts adds live finding counts (runs a scan)
 ./bin/qlty-assistant rules --counts
 
-# Guard the **/.claude/** exclusion trap: fail if a scan is implausibly empty
+# Guard against an implausibly empty scan being read as a clean repo
 ./bin/qlty-assistant scan --expect-min 10
 ```
 

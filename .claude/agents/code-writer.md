@@ -40,8 +40,9 @@ You are a code implementation agent for dancing-bear, a personal-assistant CLI s
   green is indistinguishable from a real one.
 - Run full suite: `make test`
 - Lint changed files: `make lint`
-  Never `qlty check` from an isolated worktree — `.qlty/qlty.toml` excludes
-  `**/.claude/**`, so it scans zero files and prints "✔ No issues" on real defects.
+  `qlty check --all` works from an isolated worktree now — the exclusion was
+  narrowed to `**/.claude/worktrees/**`. Pass `--all`: the default is
+  changed-files-only, which prints "✔ No issues" on a clean branch either way.
 
 ## Review Concerns (Final Re-Check)
 

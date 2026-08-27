@@ -127,17 +127,23 @@ def _run_scan(args) -> tuple[ScanResult, ScanResult]:
 def _expect_min_failure(result: ScanResult, expect_min: Optional[int]) -> Optional[str]:
     """Message when a scan returned implausibly few findings.
 
-    Guards the `**/.claude/**` exclusion trap: an agent running qlty inside an
-    isolated worktree gets a silently empty scan that is shaped exactly like
-    success. Treat a suspiciously clean scan as a broken environment.
+    An empty scan is shaped exactly like success, so it needs an explicit
+    guard. Common causes: the scan path is covered by ``exclude_patterns``,
+    ``qlty check`` defaulted to changed-files-only on a clean branch, or the
+    path simply does not exist. Treat a suspiciously clean scan as a broken
+    environment rather than a clean repo.
+
+    (The historical ``**/.claude/**`` worktree trap is fixed -- the exclusion
+    was narrowed to ``**/.claude/worktrees/**`` -- but the guard still earns
+    its place for the other causes.)
     """
     if expect_min is None or result.total >= expect_min:
         return None
     return (
         f"expected at least {expect_min} findings, got {result.total}. "
-        "A near-empty scan usually means the scan path was excluded "
-        "(.qlty/qlty.toml excludes **/.claude/**, so isolated worktrees scan "
-        "empty) -- treat this as a broken environment, not a clean repo."
+        "A near-empty scan usually means the scan path was excluded by "
+        ".qlty/qlty.toml, or that `qlty check` fell back to changed-files-only "
+        "-- treat this as a broken environment, not a clean repo."
     )
 
 
@@ -168,9 +174,10 @@ def cmd_scan(args) -> int:
     raw, result = _run_scan(args)
     _emit(_render_scan(result, args.format))
 
-    # --expect-min guards against the worktree-exclusion trap (zero findings from
-    # an excluded path look identical to a clean repo). Apply it to the raw scan
-    # total, not the post-filter total, so --rule never causes a false alarm.
+    # --expect-min guards against an implausibly empty scan (zero findings from
+    # an excluded or nonexistent path look identical to a clean repo). Apply it
+    # to the raw scan total, not the post-filter total, so --rule never causes a
+    # false alarm.
     failure = _expect_min_failure(raw, args.expect_min)
     if failure:
         print(f"error: {failure}", file=sys.stderr)

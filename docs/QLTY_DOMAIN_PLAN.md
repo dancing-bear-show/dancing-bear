@@ -376,6 +376,10 @@ per-group test resolution, and the before/after finding comparison in `recheck`.
 >    proper fix, but it touches shared qlty config used by CI and Qlty Cloud, so
 >    it needs its own change and review.
 >
+> **Update (2026-08-27, PR #289): item 3 is done.** The exclusion is now
+> `**/.claude/worktrees/**`, so agent worktrees scan correctly. Item 2's
+> `--expect-min` guard is kept — an empty scan still has other causes.
+>
 > The wrapper should enforce (2) directly: `qlty-assistant scan` gains
 > `--expect-min N`, exiting nonzero when fewer than N findings are returned, so a
 > path-excluded scan fails loudly instead of reading as success.

@@ -37,9 +37,10 @@ make lint                      # ruff over src/, tests/, bin/
 ./bin/qlty-assistant scan --expect-min 1   # repo-wide triage
 ```
 
-Never `qlty check` from an isolated worktree — `.qlty/qlty.toml` excludes
-`**/.claude/**`, so it scans zero files and prints "✔ No issues" on real defects.
-Treat a suspiciously empty result as a broken environment, not a passing one.
+`qlty check` works from an isolated worktree — the exclusion was narrowed to
+`**/.claude/worktrees/**`, so a scan rooted inside one now sees its files.
+Still pass `--all`: `qlty check` defaults to changed files only, and on a clean
+branch that prints "✔ No issues" whether or not anything was scanned.
 
 ## Review Concerns (What to Check)
 

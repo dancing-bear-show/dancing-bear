@@ -129,9 +129,19 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
   `check` + `smells` (disjoint sets — running one hides the other), defaults to
   `--all`, dedupes clone groups, and ranks findings by remediation tier
 - `./bin/qlty-assistant scan --expect-min N` fails loudly on an implausibly
-  empty scan, which is what the exclusion trap below looks like
-- `.qlty/qlty.toml` `exclude_patterns` ignores `**/.claude/**`, so agents spawned with `isolation: "worktree"` (created under `.claude/worktrees/`) get a silently empty scan — 0 issues means "excluded", not "clean"
-- Run qlty from the main checkout or a worktree outside `.claude/`; treat a suspiciously empty result as a broken environment, not a passing one
+  empty scan — still worth using as a sanity check on any surprisingly clean result
+- **qlty now scans correctly from inside an agent worktree.** The exclusion is
+  `**/.claude/worktrees/**`, narrowed from `**/.claude/**`. The old pattern also
+  matched the `.claude/` directory *inside* each worktree — and since a worktree
+  is a full checkout, a scan run from one reported "0 issues" against 0 scanned
+  files. That false clean was indistinguishable from a real pass and hid findings
+  until CI. Verified by injecting a probe defect: `ruff:F811`, `ruff:E402`, and
+  `bandit:B307` are all reported from within a worktree.
+- The narrowed pattern still excludes worktrees when scanning **from the main
+  checkout**, which is what it is for — there are dozens of them, and each is a
+  full copy of the repo.
+- Exclusions resolve relative to the scan root, which is why the same pattern can
+  exclude a path from one root and not another.
 
 **Linting (ruff directly):**
 - Use `make lint` (or `make lint-fix`), never a bare `ruff check`
@@ -140,11 +150,12 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
   "command not found", and a `pip install ruff` would drift from the version CI
   enforces. `bin/ruff-resolve.sh` resolves the qlty-pinned build (override with
   `RUFF_BIN=`), and `make lint` wraps it over `src/`, `tests/`, and `bin/`
-- This matters because the two obvious fallbacks both **fail silently**: a bare
-  `ruff` may not exist, and `qlty check` inside `.claude/worktrees/` scans zero
-  files while printing "✔ No issues". Neither absence is a passing lint
-- If the tool cache is cold, run any `~/.qlty/bin/qlty check` once from outside
-  `.claude/` to populate it, then `make lint`
+- This matters because a bare `ruff` may not exist, and a missing tool is not a
+  passing lint. (The companion trap — `qlty check` in a worktree silently
+  scanning zero files — was fixed by narrowing the exclusion to
+  `**/.claude/worktrees/**`; see the qlty section above.)
+- If the tool cache is cold, run any `~/.qlty/bin/qlty check` once to populate
+  it, then `make lint`
 - Suppression codes are linter-specific: `# noqa:` takes ruff codes (`F401`,
   `S602`), `# NOSONAR` takes SonarQube codes (`S3776`, `S3516`). A SonarQube code
   in a `# noqa:` suppresses nothing and makes ruff warn on every run
