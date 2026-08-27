@@ -9,22 +9,26 @@ from pathlib import Path
 from unittest.mock import patch
 
 from resume.pipeline import FilterConfig, FilterPipeline, apply_filters_from_args, create_pipeline
+from resume.schema import Resume
 
 
 class TestExecute(unittest.TestCase):
     """Tests for execute method."""
 
     def test_returns_current_data(self):
-        """Returns the current data state."""
-        pipeline = FilterPipeline({"name": "John", "skills": ["Python"]})
+        """Returns the current data state, raised back into the typed domain."""
+        raw = {"name": "John", "skills": ["Python"]}
+        pipeline = FilterPipeline(Resume.from_dict(raw))
         result = pipeline.execute()
-        self.assertEqual(result, {"name": "John", "skills": ["Python"]})
+        self.assertIsInstance(result, Resume)
+        self.assertEqual(result.to_dict(), raw)
 
-    def test_returns_same_dict_object(self):
-        """Returns the actual internal dict (not a copy)."""
-        pipeline = FilterPipeline({"name": "John"})
+    def test_returns_new_resume_not_internal_dict(self):
+        """Returns a Resume built from the interior, not the interior itself."""
+        pipeline = FilterPipeline(Resume.from_dict({"name": "John"}))
         result = pipeline.execute()
-        self.assertIs(result, pipeline._data)
+        self.assertIsInstance(result, Resume)
+        self.assertIsNot(result, pipeline._data)
 
 
 class TestExtractMatchedKeywords(unittest.TestCase):
@@ -54,7 +58,7 @@ class TestExtractMatchedKeywords(unittest.TestCase):
             ]
         })
 
-        pipeline = FilterPipeline({})
+        pipeline = FilterPipeline(Resume())
         result = pipeline._extract_matched_keywords(path)
 
         self.assertEqual(result, ["Python", "AWS"])
@@ -70,7 +74,7 @@ class TestExtractMatchedKeywords(unittest.TestCase):
             ]
         })
 
-        pipeline = FilterPipeline({})
+        pipeline = FilterPipeline(Resume())
         result = pipeline._extract_matched_keywords(path)
 
         self.assertEqual(result, ["Python", "AWS"])
@@ -87,7 +91,7 @@ class TestExtractMatchedKeywords(unittest.TestCase):
             ]
         })
 
-        pipeline = FilterPipeline({})
+        pipeline = FilterPipeline(Resume())
         result = pipeline._extract_matched_keywords(path)
 
         self.assertEqual(result, ["Python", "AWS"])
@@ -97,7 +101,7 @@ class TestExtractMatchedKeywords(unittest.TestCase):
         """Returns empty list for empty matched_keywords."""
         path = self._write_alignment_json({"matched_keywords": []})
 
-        pipeline = FilterPipeline({})
+        pipeline = FilterPipeline(Resume())
         result = pipeline._extract_matched_keywords(path)
 
         self.assertEqual(result, [])
@@ -107,7 +111,7 @@ class TestExtractMatchedKeywords(unittest.TestCase):
         """Returns empty list when matched_keywords key missing."""
         path = self._write_alignment_json({"other": "data"})
 
-        pipeline = FilterPipeline({})
+        pipeline = FilterPipeline(Resume())
         result = pipeline._extract_matched_keywords(path)
 
         self.assertEqual(result, [])
@@ -119,44 +123,49 @@ class TestCreatePipeline(unittest.TestCase):
 
     def test_creates_filter_pipeline(self):
         """Returns a FilterPipeline instance."""
-        result = create_pipeline({"name": "Test"})
+        result = create_pipeline(Resume.from_dict({"name": "Test"}))
         self.assertIsInstance(result, FilterPipeline)
 
     def test_passes_data_to_pipeline(self):
-        """Data is passed to the pipeline."""
-        result = create_pipeline({"name": "John", "skills": ["Python"]})
-        self.assertEqual(result._data, {"name": "John", "skills": ["Python"]})
+        """The resume is lowered into the pipeline's dict interior."""
+        raw = {"name": "John", "skills": ["Python"]}
+        result = create_pipeline(Resume.from_dict(raw))
+        self.assertEqual(result._data, raw)
 
 
 class TestApplyFiltersFromArgs(unittest.TestCase):
     """Tests for apply_filters_from_args convenience function."""
 
     def test_returns_data_without_filters(self):
-        """Returns data when no filters specified."""
-        data = {"name": "John", "skills": ["Python"]}
-        result = apply_filters_from_args(data)
-        self.assertEqual(result["name"], "John")
-        self.assertEqual(result["skills"], ["Python"])
+        """Returns the resume unchanged when no filters specified."""
+        raw = {"name": "John", "skills": ["Python"]}
+        result = apply_filters_from_args(Resume.from_dict(raw))
+        self.assertIsInstance(result, Resume)
+        self.assertEqual(result.name, "John")
+        self.assertEqual(result.skills, ["Python"])
 
     @patch("resume.pipeline.apply_profile_overlays")
     def test_applies_profile_overlay(self, mock_overlay):
         """Applies profile overlay when specified."""
         mock_overlay.return_value = {"name": "John", "profile": "work"}
 
-        result = apply_filters_from_args({"name": "John"}, profile="work")
+        result = apply_filters_from_args(Resume.from_dict({"name": "John"}), profile="work")
 
         mock_overlay.assert_called_once()
-        self.assertEqual(result["profile"], "work")
+        # "profile" is not a declared field, so it round-trips through extra.
+        self.assertEqual(result.extra["profile"], "work")
 
     @patch("resume.pipeline.filter_by_min_priority")
     def test_applies_priority_filter(self, mock_filter):
         """Applies priority filter when specified."""
         mock_filter.return_value = {"name": "John", "filtered": True}
 
-        result = apply_filters_from_args({"name": "John"}, config=FilterConfig(min_priority=0.5))
+        result = apply_filters_from_args(
+            Resume.from_dict({"name": "John"}), config=FilterConfig(min_priority=0.5)
+        )
 
         mock_filter.assert_called_once()
-        self.assertTrue(result["filtered"])
+        self.assertTrue(result.extra["filtered"])
 
     @patch("resume.pipeline.read_yaml_or_json")
     @patch("resume.pipeline.filter_skills_by_keywords")
@@ -166,7 +175,7 @@ class TestApplyFiltersFromArgs(unittest.TestCase):
         mock_filter.return_value = {"skills": ["Python"]}
 
         apply_filters_from_args(
-            {"skills": ["Python", "Java"]},
+            Resume.from_dict({"skills": ["Python", "Java"]}),
             config=FilterConfig(filter_skills_alignment="/alignment.json"),
         )
 
@@ -180,7 +189,7 @@ class TestApplyFiltersFromArgs(unittest.TestCase):
         mock_filter.return_value = {"experience": []}
 
         apply_filters_from_args(
-            {"experience": []},
+            Resume.from_dict({"experience": []}),
             config=FilterConfig(filter_exp_alignment="/alignment.json"),
         )
 

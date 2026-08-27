@@ -46,12 +46,12 @@ title: Resume Processing Pipeline
 flowchart TB
     src["Sources\n(LinkedIn txt, resume docx/pdf/txt)"]
     extract["extract\nparse_linkedin_text / parse_resume_text\nparse_resume_docx / parse_resume_pdf\nmerge_profiles()"]
-    data["data.json\n(CandidateData = Dict[str, Any]\nmodel.py)"]
+    data["data.json\n(Resume dataclass\nschema.py)"]
     overlays["overlays.py\napply_profile_overlays()\nconfig/profiles/<prefix>/"]
     align["align\nalign_candidate_to_job()\nbuild_tailored_candidate()\naligner.py + keyword_matcher.py"]
     job["job.yaml\njob.py build_keyword_spec()"]
     alignment_json["alignment.json\ntailored.json"]
-    filterpipeline["FilterPipeline\npipeline.py\n.with_profile_overlays()\n.with_skill_filter()\n.with_experience_filter()\n.with_priority_filter()"]
+    filterpipeline["FilterPipeline\npipeline.py\nResume in, Resume out\n(dict-domain interior)\n.with_profile_overlays()\n.with_skill_filter()\n.with_experience_filter()\n.with_priority_filter()"]
     summarize["summarize\nbuild_summary()\nsummarizer.py"]
     render["render\nwrite_resume_docx()\ndocx_writer.py\ndocx_sections.py\ndocx_sidebar.py"]
     template["template.yaml\n(sections, page config)"]
@@ -300,6 +300,7 @@ Profiles & Outputs
 
 Pipeline Pattern
 - `FilterPipeline` in `pipeline.py` provides chainable transforms; filter exceptions propagate naturally (no swallowing).
+- `FilterPipeline` takes a `Resume` and returns a `Resume`, converting at its own edges (`to_dict()` in, `Resume.from_dict()` out). Its interior — `overlays.py`, `skills_filter.py`, `experience_filter.py`, `priority.py` — is a **permanent dict domain**, not an unfinished migration: those modules rebuild data with dict spreads and fresh literals that have no safe dataclass equivalent. The round trip is exact, so the conversion changes no output.
 - `KeywordMatchResult` (renamed from `MatchResult`) is the canonical match dataclass in `keyword_normalize.py`; `MatchResult` alias retained in `keyword_matcher.py`.
 - Output routes through `OutputWriter`; `CLIError` used at all error boundaries.
 

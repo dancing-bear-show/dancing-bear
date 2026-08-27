@@ -6,35 +6,50 @@ import unittest
 from unittest.mock import patch
 
 from resume.pipeline import FilterPipeline
+from resume.schema import Resume
 
 
 class TestFilterPipelineInit(unittest.TestCase):
     """Tests for FilterPipeline initialization."""
 
-    def test_init_stores_shallow_copy(self):
-        """Initial data is shallow copied to avoid mutation."""
+    def test_init_does_not_alias_source_mapping(self):
+        """The interior is a fresh mapping, so rebinding keys cannot reach back.
+
+        The isolation comes from ``Resume.to_dict()`` building a new top-level
+        dict, not from the old ``dict(data)`` copy that this constructor used to
+        make. The guarantee is the same either way: no stronger, no weaker.
+        """
         original = {"name": "John", "skills": ["Python"]}
-        pipeline = FilterPipeline(original)
-        # Modify pipeline data
+        resume = Resume.from_dict(original)
+        pipeline = FilterPipeline(resume)
+
         pipeline._data["name"] = "Jane"
-        # Original should be unchanged
+
         self.assertEqual(original["name"], "John")
+        self.assertEqual(resume.name, "John")
+
+    def test_init_lowers_resume_to_dict_interior(self):
+        """A Resume in becomes the equivalent plain dict interior."""
+        raw = {"name": "John", "skills": ["Python"]}
+        pipeline = FilterPipeline(Resume.from_dict(raw))
+        self.assertIsInstance(pipeline._data, dict)
+        self.assertEqual(pipeline._data, raw)
 
     def test_init_synonyms_empty(self):
         """Synonyms start empty."""
-        pipeline = FilterPipeline({"name": "Test"})
+        pipeline = FilterPipeline(Resume.from_dict({"name": "Test"}))
         self.assertEqual(pipeline._synonyms, {})
 
     def test_data_property_returns_copy(self):
         """data property returns a copy."""
-        pipeline = FilterPipeline({"name": "John"})
+        pipeline = FilterPipeline(Resume.from_dict({"name": "John"}))
         data = pipeline.data
         data["name"] = "Jane"
         self.assertEqual(pipeline._data["name"], "John")
 
     def test_synonyms_property_returns_copy(self):
         """synonyms property returns a copy."""
-        pipeline = FilterPipeline({"name": "John"})
+        pipeline = FilterPipeline(Resume.from_dict({"name": "John"}))
         pipeline._synonyms = {"py": ["python"]}
         syns = pipeline.synonyms
         syns["js"] = ["javascript"]
@@ -46,38 +61,38 @@ class TestFilterPipelineChaining(unittest.TestCase):
 
     def test_with_profile_overlays_returns_self(self):
         """with_profile_overlays returns self for chaining."""
-        pipeline = FilterPipeline({"name": "Test"})
+        pipeline = FilterPipeline(Resume.from_dict({"name": "Test"}))
         with patch("resume.pipeline.apply_profile_overlays", return_value={"name": "Test"}):
             result = pipeline.with_profile_overlays("profile")
         self.assertIs(result, pipeline)
 
     def test_with_synonyms_from_job_returns_self(self):
         """with_synonyms_from_job returns self for chaining."""
-        pipeline = FilterPipeline({"name": "Test"})
+        pipeline = FilterPipeline(Resume.from_dict({"name": "Test"}))
         result = pipeline.with_synonyms_from_job(None)
         self.assertIs(result, pipeline)
 
     def test_with_skill_filter_returns_self(self):
         """with_skill_filter returns self for chaining."""
-        pipeline = FilterPipeline({"name": "Test"})
+        pipeline = FilterPipeline(Resume.from_dict({"name": "Test"}))
         result = pipeline.with_skill_filter(None)
         self.assertIs(result, pipeline)
 
     def test_with_experience_filter_returns_self(self):
         """with_experience_filter returns self for chaining."""
-        pipeline = FilterPipeline({"name": "Test"})
+        pipeline = FilterPipeline(Resume.from_dict({"name": "Test"}))
         result = pipeline.with_experience_filter(None)
         self.assertIs(result, pipeline)
 
     def test_with_priority_filter_returns_self(self):
         """with_priority_filter returns self for chaining."""
-        pipeline = FilterPipeline({"name": "Test"})
+        pipeline = FilterPipeline(Resume.from_dict({"name": "Test"}))
         result = pipeline.with_priority_filter(None)
         self.assertIs(result, pipeline)
 
     def test_full_chain(self):
         """Full method chain works."""
-        pipeline = FilterPipeline({"name": "Test"})
+        pipeline = FilterPipeline(Resume.from_dict({"name": "Test"}))
         with patch("resume.pipeline.apply_profile_overlays", return_value={"name": "Test"}), \
              patch("resume.pipeline.filter_by_min_priority", return_value={"name": "Test"}):
             result = (
@@ -88,7 +103,8 @@ class TestFilterPipelineChaining(unittest.TestCase):
                 .with_priority_filter(0.5)
                 .execute()
             )
-        self.assertIsInstance(result, dict)
+        self.assertIsInstance(result, Resume)
+        self.assertEqual(result.name, "Test")
 
 
 class TestWithProfileOverlays(unittest.TestCase):
@@ -97,14 +113,14 @@ class TestWithProfileOverlays(unittest.TestCase):
     def test_none_profile_is_noop(self):
         """None profile does nothing."""
         original = {"name": "John"}
-        pipeline = FilterPipeline(original)
+        pipeline = FilterPipeline(Resume.from_dict(original))
         pipeline.with_profile_overlays(None)
         self.assertEqual(pipeline._data, {"name": "John"})
 
     def test_empty_string_profile_is_noop(self):
         """Empty string profile does nothing (falsy)."""
         original = {"name": "John"}
-        pipeline = FilterPipeline(original)
+        pipeline = FilterPipeline(Resume.from_dict(original))
         pipeline.with_profile_overlays("")
         self.assertEqual(pipeline._data, {"name": "John"})
 
@@ -112,7 +128,7 @@ class TestWithProfileOverlays(unittest.TestCase):
     def test_calls_apply_profile_overlays(self, mock_apply):
         """Calls apply_profile_overlays with data and profile."""
         mock_apply.return_value = {"name": "John", "profile": "work"}
-        pipeline = FilterPipeline({"name": "John"})
+        pipeline = FilterPipeline(Resume.from_dict({"name": "John"}))
         pipeline.with_profile_overlays("work")
         mock_apply.assert_called_once_with({"name": "John"}, "work")
         self.assertEqual(pipeline._data, {"name": "John", "profile": "work"})
@@ -123,7 +139,7 @@ class TestWithSynonymsFromJob(unittest.TestCase):
 
     def test_none_job_path_is_noop(self):
         """None job_path does nothing."""
-        pipeline = FilterPipeline({"name": "Test"})
+        pipeline = FilterPipeline(Resume.from_dict({"name": "Test"}))
         pipeline.with_synonyms_from_job(None)
         self.assertEqual(pipeline._synonyms, {})
 
@@ -134,7 +150,7 @@ class TestWithSynonymsFromJob(unittest.TestCase):
         mock_load.return_value = {"title": "Software Engineer"}
         mock_build.return_value = ({"required": []}, {"py": ["python", "python3"]})
 
-        pipeline = FilterPipeline({"name": "Test"})
+        pipeline = FilterPipeline(Resume.from_dict({"name": "Test"}))
         pipeline.with_synonyms_from_job("/path/to/job.yaml")
 
         mock_load.assert_called_once_with("/path/to/job.yaml")
@@ -147,7 +163,7 @@ class TestWithSynonymsFromJob(unittest.TestCase):
         mock_load.return_value = {}
         mock_build.return_value = ({}, {"js": ["javascript"]})
 
-        pipeline = FilterPipeline({"name": "Test"})
+        pipeline = FilterPipeline(Resume.from_dict({"name": "Test"}))
         pipeline._synonyms = {"py": ["python"]}
         pipeline.with_synonyms_from_job("/path/to/job.yaml")
 
@@ -159,7 +175,7 @@ class TestWithSynonymsFromJob(unittest.TestCase):
         """Silently handles job config load failures."""
         mock_load.side_effect = FileNotFoundError("not found")
 
-        pipeline = FilterPipeline({"name": "Test"})
+        pipeline = FilterPipeline(Resume.from_dict({"name": "Test"}))
         pipeline.with_synonyms_from_job("/nonexistent/job.yaml")
 
         self.assertEqual(pipeline._synonyms, {})
@@ -170,7 +186,7 @@ class TestWithSkillFilter(unittest.TestCase):
 
     def test_none_alignment_path_is_noop(self):
         """None alignment_path does nothing."""
-        pipeline = FilterPipeline({"skills": ["Python"]})
+        pipeline = FilterPipeline(Resume.from_dict({"skills": ["Python"]}))
         pipeline.with_skill_filter(None)
         self.assertEqual(pipeline._data, {"skills": ["Python"]})
 
@@ -183,7 +199,7 @@ class TestWithSkillFilter(unittest.TestCase):
         }
         mock_filter.return_value = {"skills": ["Python", "AWS"]}
 
-        pipeline = FilterPipeline({"skills": ["Python", "AWS", "Java"]})
+        pipeline = FilterPipeline(Resume.from_dict({"skills": ["Python", "AWS", "Java"]}))
         pipeline.with_skill_filter("/path/to/alignment.json")
 
         mock_filter.assert_called_once()
@@ -200,7 +216,7 @@ class TestWithSkillFilter(unittest.TestCase):
         mock_load.return_value = {}
         mock_build.return_value = ({}, {"py": ["python"]})
 
-        pipeline = FilterPipeline({"skills": ["Python"]})
+        pipeline = FilterPipeline(Resume.from_dict({"skills": ["Python"]}))
         pipeline.with_skill_filter("/alignment.json", job_path="/job.yaml")
 
         mock_load.assert_called()
@@ -211,7 +227,7 @@ class TestWithSkillFilter(unittest.TestCase):
         """Alignment file read failures now propagate (C2: exception-swallowing removed)."""
         mock_read.side_effect = FileNotFoundError("not found")
 
-        pipeline = FilterPipeline({"skills": ["Python"]})
+        pipeline = FilterPipeline(Resume.from_dict({"skills": ["Python"]}))
         with self.assertRaises(FileNotFoundError):
             pipeline.with_skill_filter("/nonexistent.json")
 
@@ -220,7 +236,7 @@ class TestWithSkillFilter(unittest.TestCase):
         """Handles alignment with no matched keywords."""
         mock_read.return_value = {"matched_keywords": []}
 
-        pipeline = FilterPipeline({"skills": ["Python"]})
+        pipeline = FilterPipeline(Resume.from_dict({"skills": ["Python"]}))
         pipeline.with_skill_filter("/alignment.json")
 
         # Data unchanged when no keywords matched
@@ -232,7 +248,7 @@ class TestWithExperienceFilter(unittest.TestCase):
 
     def test_none_alignment_path_is_noop(self):
         """None alignment_path does nothing."""
-        pipeline = FilterPipeline({"experience": [{"title": "Dev"}]})
+        pipeline = FilterPipeline(Resume.from_dict({"experience": [{"title": "Dev"}]}))
         pipeline.with_experience_filter(None)
         self.assertEqual(pipeline._data, {"experience": [{"title": "Dev"}]})
 
@@ -245,7 +261,7 @@ class TestWithExperienceFilter(unittest.TestCase):
         }
         mock_filter.return_value = {"experience": [{"title": "Python Dev"}]}
 
-        pipeline = FilterPipeline({"experience": [{"title": "Dev"}, {"title": "Python Dev"}]})
+        pipeline = FilterPipeline(Resume.from_dict({"experience": [{"title": "Dev"}, {"title": "Python Dev"}]}))
         pipeline.with_experience_filter("/alignment.json")
 
         mock_filter.assert_called_once()
@@ -259,7 +275,7 @@ class TestWithExperienceFilter(unittest.TestCase):
         mock_filter.return_value = {"experience": []}
 
         cfg = ExperienceFilterConfig(max_roles=3, max_bullets_per_role=5, min_score=2)
-        pipeline = FilterPipeline({"experience": []})
+        pipeline = FilterPipeline(Resume.from_dict({"experience": []}))
         pipeline.with_experience_filter("/alignment.json", filter_cfg=cfg)
 
         call_kwargs = mock_filter.call_args[1]
@@ -273,7 +289,7 @@ class TestWithExperienceFilter(unittest.TestCase):
         """Alignment file read failures now propagate (C2: exception-swallowing removed)."""
         mock_read.side_effect = FileNotFoundError("not found")
 
-        pipeline = FilterPipeline({"experience": [{"title": "Dev"}]})
+        pipeline = FilterPipeline(Resume.from_dict({"experience": [{"title": "Dev"}]}))
         with self.assertRaises(FileNotFoundError):
             pipeline.with_experience_filter("/nonexistent.json")
 
@@ -283,7 +299,7 @@ class TestWithPriorityFilter(unittest.TestCase):
 
     def test_none_priority_is_noop(self):
         """None min_priority does nothing."""
-        pipeline = FilterPipeline({"skills": ["Python"]})
+        pipeline = FilterPipeline(Resume.from_dict({"skills": ["Python"]}))
         pipeline.with_priority_filter(None)
         self.assertEqual(pipeline._data, {"skills": ["Python"]})
 
@@ -292,7 +308,7 @@ class TestWithPriorityFilter(unittest.TestCase):
         """Applies priority filter with threshold."""
         mock_filter.return_value = {"skills_groups": []}
 
-        pipeline = FilterPipeline({"skills_groups": [{"priority": 0.8}]})
+        pipeline = FilterPipeline(Resume.from_dict({"skills_groups": [{"priority": 0.8}]}))
         pipeline.with_priority_filter(0.5)
 
         mock_filter.assert_called_once_with({"skills_groups": [{"priority": 0.8}]}, 0.5)
@@ -302,7 +318,7 @@ class TestWithPriorityFilter(unittest.TestCase):
         """Converts min_priority to float."""
         mock_filter.return_value = {}
 
-        pipeline = FilterPipeline({})
+        pipeline = FilterPipeline(Resume.from_dict({}))
         pipeline.with_priority_filter(1)  # int
 
         call_args = mock_filter.call_args[0]
@@ -313,7 +329,7 @@ class TestWithPriorityFilter(unittest.TestCase):
         """Zero priority still applies filter (is not None)."""
         mock_filter.return_value = {}
 
-        pipeline = FilterPipeline({})
+        pipeline = FilterPipeline(Resume.from_dict({}))
         pipeline.with_priority_filter(0.0)
 
         mock_filter.assert_called_once()

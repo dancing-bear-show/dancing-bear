@@ -7,10 +7,31 @@ Consolidates the common pattern of:
 4. Filter experience by alignment keywords
 5. Filter by priority/usefulness threshold
 
+Typed boundary, dict-domain interior
+------------------------------------
+`FilterPipeline` accepts and returns a :class:`~resume.schema.Resume`, but its
+interior is **permanently** a dict domain: `__init__` does ``resume.to_dict()``
+and :meth:`FilterPipeline.execute` does ``Resume.from_dict(...)``. Everything in
+between -- `overlays`, `skills_filter`, `experience_filter`, `priority` -- keeps
+operating on plain dicts and is not migrated to the schema.
+
+That is a deliberate, approved boundary, not an unfinished migration. The filters
+rebuild candidate data with dict spreads (``{**e, "bullets": ...}``) and fresh
+dict literals, neither of which has a safe dataclass equivalent: a spread is
+key-agnostic, and `dataclasses.replace` does not update the schema's ``_present``
+set, so writing a previously-absent field would silently drop it on save. Keeping
+the conversion at this class's own edges confines it to one place instead of
+making it every caller's obligation.
+
+The sandwich is lossless. ``Resume.from_dict(d).to_dict() == d`` holds exactly,
+so converting in and back out is a no-op; the filters see, and produce, the same
+dicts they always did.
+
 Usage:
     from resume.pipeline import FilterPipeline
+    from resume.schema import Resume
 
-    data = (FilterPipeline(raw_data)
+    resume = (FilterPipeline(Resume.from_dict(raw_data))
         .with_profile_overlays("my_profile")
         .with_skill_filter("alignment.json", job_path="job.yaml")
         .with_experience_filter("alignment.json", job_path="job.yaml")
@@ -27,6 +48,7 @@ from .io_utils import read_yaml_or_json
 from .job import build_keyword_spec, load_job_config
 from .overlays import apply_profile_overlays
 from .priority import filter_by_min_priority
+from .schema import Resume
 from .skills_filter import filter_skills_by_keywords
 from .experience_filter import filter_experience_by_keywords
 from .render_config import ExperienceFilterConfig
@@ -44,15 +66,25 @@ class FilterConfig:
 
 
 class FilterPipeline:
-    """Chainable pipeline for applying filters to resume/candidate data."""
+    """Chainable pipeline for applying filters to resume/candidate data.
 
-    def __init__(self, data: dict[str, Any]) -> None:
-        """Initialize pipeline with candidate data.
+    Typed at the boundary, dict-domain inside: see the module docstring.
+    """
+
+    def __init__(self, resume: Resume) -> None:
+        """Initialize pipeline with a typed resume.
+
+        The resume is lowered to a dict here, and the filters work on that dict.
+        ``to_dict()`` returns a fresh top-level mapping, so rebinding keys on it
+        cannot reach the caller's ``Resume`` -- the same guarantee the previous
+        ``dict(data)`` shallow copy gave, and no stronger: values that are plain
+        containers (``contact``, unknown ``extra`` keys) are still shared, so
+        mutating one in place would be visible on both sides. No filter does.
 
         Args:
-            data: The candidate/resume data dictionary to transform.
+            resume: The candidate/resume document to transform.
         """
-        self._data = dict(data)  # shallow copy to avoid mutating original
+        self._data: dict[str, Any] = resume.to_dict()
         self._synonyms: dict[str, list[str]] = {}
 
     def with_profile_overlays(self, profile: str | None) -> "FilterPipeline":
@@ -173,13 +205,20 @@ class FilterPipeline:
             self._data = filter_by_min_priority(self._data, float(min_priority))
         return self
 
-    def execute(self) -> dict[str, Any]:
-        """Execute the pipeline and return the transformed data.
+    def execute(self) -> Resume:
+        """Execute the pipeline and return the transformed resume.
+
+        Re-raises the dict interior into the typed domain. This is lossless with
+        respect to what the filters produced -- but note the filters themselves
+        may have dropped keys: ``skills_filter`` rebuilds each group as a fresh
+        ``{"title": ..., "items": ...}`` literal, so a group-level unknown key
+        does not survive that filter. That is pre-existing dict-domain behaviour
+        and identical with or without this conversion.
 
         Returns:
-            The filtered/transformed data dictionary.
+            The filtered/transformed resume.
         """
-        return self._data
+        return Resume.from_dict(self._data)
 
     # -------------------------------------------------------------------------
     # Helper methods
@@ -221,36 +260,36 @@ class FilterPipeline:
 # -----------------------------------------------------------------------------
 
 
-def create_pipeline(data: dict[str, Any]) -> FilterPipeline:
+def create_pipeline(resume: Resume) -> FilterPipeline:
     """Create a new FilterPipeline instance.
 
     Args:
-        data: The candidate/resume data dictionary.
+        resume: The candidate/resume document.
 
     Returns:
         A new FilterPipeline instance.
     """
-    return FilterPipeline(data)
+    return FilterPipeline(resume)
 
 
 def apply_filters_from_args(
-    data: dict[str, Any],
+    resume: Resume,
     profile: str | None = None,
     config: FilterConfig | None = None,
-) -> dict[str, Any]:
+) -> Resume:
     """Apply all filters using a FilterConfig (convenience function).
 
     Args:
-        data: The candidate/resume data.
+        resume: The candidate/resume document.
         profile: Profile name for overlays.
         config: Bundled filter configuration; defaults to no-op if None.
 
     Returns:
-        The filtered data dictionary.
+        The filtered resume.
     """
     cfg = config or FilterConfig()
     return (
-        FilterPipeline(data)
+        FilterPipeline(resume)
         .with_profile_overlays(profile)
         .with_skill_filter(cfg.filter_skills_alignment, cfg.filter_skills_job)
         .with_experience_filter(cfg.filter_exp_alignment, cfg.filter_exp_job)
