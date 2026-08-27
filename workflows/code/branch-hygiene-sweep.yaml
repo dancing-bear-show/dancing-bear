@@ -128,6 +128,12 @@ stages:
 
       Step 3 — enumerate worktree directories (GOTCHA 7: some orphaned dirs
         exist that git worktree list does NOT track).
+
+        If {include_worktrees} is not "true", SKIP this step entirely: emit
+        "orphaned_worktree_dirs": [] and leave every branch's worktree_* fields
+        null. Branch classification still runs; worktrees are simply not swept.
+        Do not silently sweep them anyway — a declared knob that does nothing is
+        worse than no knob, because the operator believes worktrees are safe.
         a. Tracked worktrees:
              git worktree list --porcelain
            Parse each entry: worktree path, HEAD commit, branch.
