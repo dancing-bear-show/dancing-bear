@@ -294,9 +294,11 @@ stages:
              matching an unrelated line. A false negative here deletes a branch
              that is checked out and live.
 
-             Match exactly against the parsed porcelain field already collected
-             in gather-inventory (worktrees[].branch), which holds a bare branch
-             name per worktree. Equivalent direct check:
+             gather-inventory already resolved this per branch: a branch is
+             checked out in a tracked worktree exactly when its
+             branches[].worktree_path is non-null and worktree_tracked is true.
+             Prefer that field — it was derived from --porcelain, not from the
+             human-formatted list. Equivalent direct check if re-deriving:
                  git worktree list --porcelain \
                    | awk '/^branch /{sub("refs/heads/","",$2); print $2}' \
                    | grep -Fxq "<branch>"
