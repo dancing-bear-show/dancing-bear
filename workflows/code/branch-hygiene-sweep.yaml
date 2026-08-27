@@ -377,8 +377,16 @@ stages:
 
       Every branch from inventory.json must appear in exactly one bucket, and
       every entry in orphaned_worktree_dirs must appear in the ORPHANED_DIR
-      bucket. Emit the ORPHANED_DIR item even when empty (with "dirs": []) so
-      the fan-out shape is stable.
+      bucket.
+
+      Emit an item for EVERY bucket name listed above, even when it has no
+      members — branch buckets with "branches": [], ORPHANED_DIR with
+      "dirs": []. This is not cosmetic. verify-candidates fans out over these
+      items and declares one findings-<BUCKET>.json per bucket in writes_to;
+      an omitted item means that agent never runs, its findings file is never
+      written, and cross-check then reads a missing file. Downstream stages
+      cannot distinguish "bucket was empty" from "the stage failed", so the
+      empty item is what makes an empty result legible.
       The "items" key at the top level is required — it is the fan_out source
       for verify-candidates.
     agent:
@@ -694,17 +702,67 @@ stages:
       Step 3 — delete orphaned worktree directories.
         GOTCHA 7: orphaned directories are NOT tracked by git worktree list.
           git worktree remove <orphaned_dir> will fail with "is not a working tree".
-        For each orphaned_worktree_dir in the approved plan:
-          rm -rf <orphaned_dir>
-        Only do this after verifying (in verify-candidates) that files are in main.
+
+        This is the single most dangerous command in the workflow: a recursive
+        delete on a path that came from a filesystem scan rather than from git.
+        An empty variable, a relative path, a trailing "..", or a symlinked
+        directory turns it into a recursive delete somewhere else entirely.
+        Guard every one of those before deleting. For each orphaned_worktree_dir
+        in the approved plan:
+
+          # 1. Must be non-empty.
+          [ -n "$dir" ] || { echo "SKIP: empty path"; continue; }
+
+          # 2. Resolve symlinks and relative segments to a real absolute path.
+          #    Deleting the *link target* is the escape this prevents.
+          real=$(realpath "$dir" 2>/dev/null) || { echo "SKIP: unresolvable $dir"; continue; }
+
+          # 3. Must be a real directory, not a symlink to one.
+          [ -d "$real" ] && [ ! -L "$dir" ] || { echo "SKIP: not a real dir $dir"; continue; }
+
+          # 4. Must sit strictly INSIDE the worktrees root, after resolution.
+          root=$(realpath "$(git rev-parse --show-toplevel)/.claude/worktrees")
+          case "$real" in
+            "$root"/?*) ;;                      # ok: a child of the root
+            *) echo "SKIP: outside $root: $real"; continue ;;
+          esac
+
+          # 5. Never the root itself, and never the current directory.
+          [ "$real" != "$root" ] || { echo "SKIP: refusing to delete the root"; continue; }
+          [ "$real" != "$PWD" ] || { echo "SKIP: refusing to delete cwd"; continue; }
+
+          # 6. Only now, and always with -- to stop option injection.
+          rm -rf -- "$real"
+
+        A skip here is never fatal: log it and carry on to the next directory.
+        Only run this after verify-candidates confirmed the directory's files
+        are present in main (check 4).
 
       Step 4 — delete local branches.
-        For each approved deletion candidate (after worktrees handled):
-          git branch -d <branch> 2>&1 || git branch -D <branch> 2>&1
-        Prefer -d (safe delete) first; escalate to -D only if -d fails and the
-        branch was confirmed merged by Signal A or Signal B.
-        If -D is needed for an unconfirmed branch, SKIP and log — never force-
-        delete a branch that was not confirmed merged.
+
+        Do NOT write `git branch -d X || git branch -D X`. That one-liner
+        escalates to a force delete on ANY failure of -d — unmerged work,
+        a branch checked out elsewhere, a lock file — because the shell cannot
+        see the "only when confirmed merged" condition that belongs to it. The
+        fallback must be gated in the workflow, not by ||.
+
+        For each approved deletion candidate (after worktrees are handled):
+
+          if git branch -d "$branch" 2>&1; then
+            : # safe delete succeeded — git agreed the work is merged
+          elif [ "$confirmed_merged" = "true" ]; then
+            # -d refused, but Signal A (merge-base) or Signal B (content in
+            # main) confirmed this branch. That combination means -d is
+            # objecting to a squash or rebase merge it cannot see, which is
+            # exactly the case GOTCHA 1 describes.
+            git branch -D "$branch" 2>&1
+          else
+            echo "SKIP: $branch — -d refused and merge was never confirmed"
+          fi
+
+        confirmed_merged is true ONLY for branches whose findings entry came
+        from the MERGED_PR or REBASE_MERGED bucket with verdict SAFE. A branch
+        from any other bucket never reaches the -D path, whatever -d says.
 
       Step 5 — delete remote tracking refs for branches that had upstream_gone=true.
         For any deleted branch where has_remote was true and upstream_gone was false
