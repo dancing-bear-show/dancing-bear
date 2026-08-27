@@ -83,12 +83,17 @@ description: >
   execution"). Adopting it therefore means editing these stages AND running
   through the skill; under ./bin/workflow run it fails outright.
 
-  For the record, the first real run of this workflow was completed by the
-  second route: the orchestrator executed the stages itself, under the
-  /workflow skill, after the spawned gather-inventory agent failed on
-  isolation. That is a demonstration that the route works, not a claim that
-  the file is set up for it — it is not, and making it so is the edit
-  described above.
+  For the record, on the first real run neither route was used. The spawned
+  gather-inventory agent failed on isolation, and the orchestrator then carried
+  out each stage's described steps directly, from an ordinary session — no
+  `executor: inline` was added, and this file was not modified to make the run
+  work. `./bin/workflow run` cannot reproduce that: it dispatches every stage
+  to an agent, so it needs the non-isolated session named above.
+
+  Stating it precisely because the distinction is easy to blur: "the
+  orchestrator ran the stages" describes who executed the steps, NOT a
+  supported executor mode. The `executor: inline` route above remains
+  unexercised — no stage in this file has ever declared it.
 
   WHY ISOLATION BREAKS IT: an isolated worktree cannot see the parent
   checkout's branches, reflog, or worktree list, and every stage here needs a
