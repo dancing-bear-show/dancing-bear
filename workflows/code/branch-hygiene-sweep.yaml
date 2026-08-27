@@ -323,7 +323,11 @@ stages:
         ZERO_COMMIT_STALE — no commits beyond origin/main, no PR, idle > threshold
         HAS_UNIQUE_WORK   — Signal C > 0 commits not in main, no MERGED PR; not yet classified
         IN_USE            — HAS_DESCENDANT or recent activity or current worktree
-        ORPHANED_DIR      — entries from inventory.json orphaned_worktree_dirs
+        ORPHANED_DIR      — entries from inventory.json orphaned_worktree_dirs.
+                            NOTE: this bucket holds DIRECTORIES, not branches.
+                            Its item carries a "dirs" array, not "branches" —
+                            see the schema below. Do not force directory entries
+                            into branch shape and do not drop the bucket.
         PROTECTED         — in protect_list or is "main"
 
       Each bucket is an entry in the items array. Branches can only appear in
@@ -350,11 +354,31 @@ stages:
             {
               "bucket": "IN_USE",
               "branches": [...]
+            },
+            {
+              "bucket": "ORPHANED_DIR",
+              "dirs": [
+                {
+                  "path": "<absolute path>",
+                  "evidence": "<one-line justification>",
+                  "idle_seconds": <int>,
+                  "files": ["<relative file path>", ...],
+                  "files_absent_from_main": ["<relative file path>", ...]
+                }
+              ]
             }
           ]
         }
 
-      Every branch from inventory.json must appear in exactly one bucket.
+      ORPHANED_DIR is the one bucket whose item uses "dirs" instead of
+      "branches", because it describes untracked directories that have no
+      branch. Every other bucket uses "branches". Downstream stages must key
+      off the bucket name to know which array to read.
+
+      Every branch from inventory.json must appear in exactly one bucket, and
+      every entry in orphaned_worktree_dirs must appear in the ORPHANED_DIR
+      bucket. Emit the ORPHANED_DIR item even when empty (with "dirs": []) so
+      the fan-out shape is stable.
       The "items" key at the top level is required — it is the fan_out source
       for verify-candidates.
     agent:
@@ -399,16 +423,26 @@ stages:
       You are verifying the "{bucket}" bucket from the fan-out.
 
       Read {workspace}/outputs/buckets.json and select the single item whose
-      "bucket" field equals "{bucket}". Verify ONLY that bucket's branches —
-      another agent owns each of the others.
+      "bucket" field equals "{bucket}". Verify ONLY that item — another agent
+      owns each of the others.
 
-      Your job is adversarial: for each branch, attempt to REFUTE the claim
-      "this branch is safe to delete". You are not confirming the classifier;
+      Which array to read depends on the bucket. Every bucket carries a
+      "branches" array EXCEPT ORPHANED_DIR, which carries "dirs" — untracked
+      directories that have no branch at all. If {bucket} is ORPHANED_DIR,
+      iterate "dirs" and treat each entry's "path" as the subject; apply check
+      4 below and skip the branch-only checks (1, 2, 5, 6), which have no
+      meaning for a directory with no ref. For every other bucket, iterate
+      "branches". An empty array is valid — emit an empty findings list, never
+      an error.
+
+      Your job is adversarial: for each subject, attempt to REFUTE the claim
+      "this is safe to delete". You are not confirming the classifier;
       you are trying to break it. Apply every check below and default to
       NOT_SAFE whenever a signal is ambiguous, missing, or contradictory. A
       wrong NOT_SAFE costs one surviving branch; a wrong SAFE destroys work.
 
-      Checks, all of which must pass before a branch may be marked SAFE:
+      Checks, all of which must pass before a subject may be marked SAFE
+      (checks 1, 2, 5 and 6 are branch-only — skip them for ORPHANED_DIR):
 
         1. Independently re-derive the merged signal. Do not trust the bucket
            label. Re-run the PR record check and merge-base ancestry yourself.
@@ -448,7 +482,10 @@ stages:
           ]
         }
 
-      Every branch in your bucket must appear exactly once in findings.
+      Every subject in your bucket — each branch, or each dir for
+      ORPHANED_DIR — must appear exactly once in findings. Use the branch name
+      as "branch" for branch buckets; for ORPHANED_DIR use the directory path
+      as "branch" so the findings shape stays uniform for cross-check.
     outputs:
       - name: bucket_findings
         mode: generate
@@ -491,7 +528,11 @@ stages:
         - No deletion candidate is the currently checked-out branch of any live worktree
         - All branches in the protect_list appear in PROTECTED findings, nowhere else
         - The "main" branch is in PROTECTED findings and not in any other bucket
-        - Every branch from inventory.json appears in exactly one findings file
+        - Every branch from inventory.json appears in exactly one findings file,
+          and every entry in orphaned_worktree_dirs appears in the ORPHANED_DIR
+          findings file. ORPHANED_DIR subjects are directory PATHS, not branch
+          names — do not report them as missing branches, and do not expect
+          them in the branch accounting above
         - Any branch with non-null wip_diff is flagged with WIP_PRESENT regardless of bucket
         - Orphaned directory entries from inventory.json each have a findings entry
       max_revisions: 1
@@ -668,7 +709,12 @@ stages:
       model: sonnet
       tools: [Read, Write, Bash]
       access: read-write
-    required: false
+    required: true   # MUST stay required: this stage always writes
+                     # outputs/deletions.md (a sentinel even on dry-run), and
+                     # reclaim-venvs + verify-post both depend on it. With
+                     # required:false a crash mid-deletion would not halt the
+                     # DAG, and verify-post would audit an unknown tree
+                     # against a missing deletion log.
     outputs:
       - name: deletions
         mode: generate
