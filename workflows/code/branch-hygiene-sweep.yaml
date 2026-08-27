@@ -1,0 +1,625 @@
+name: branch-hygiene-sweep
+version: "1.0"
+description: >
+  Safely identify and delete stale git branches and worktrees. Every stage is
+  biased toward "prove it is safe before deleting" — the default is to spare a
+  branch when uncertain. Nothing is removed until a human gate approves the
+  plan, and nothing is removed at all when dry_run is true.
+
+  Key correctness rules encoded throughout this workflow:
+    - Never use git cherry alone as a merged/unmerged signal — it cannot detect
+      squash-merges and falsely flags already-merged branches as unmerged.
+    - Never use git diff with two-dot or three-dot ranges as a merged-ness test.
+    - The authoritative merged signal is the GitHub PR record + merge-base check.
+    - Always fetch and prune before any comparison — stale local origin/main
+      gives false "not merged" readings for recently merged PRs.
+    - Rebase-merged PRs have a mergeCommit that is NOT an ancestor of main;
+      fall back to content comparison, not rejection.
+    - Check for descendant branches and live worktrees before proposing deletion.
+    - Use reflog timestamps and worktree dir birth/mtime, not committerdate.
+    - Never use grep -P (unavailable on macOS BSD grep); use awk or plain grep.
+    - Orphaned worktree directories that git worktree list does not track must
+      be removed as plain directories, not via git worktree remove.
+    - A worktree's dirty status may reflect the shared checkout bleeding through
+      when the worktree is sparse/broken; verify files physically exist there.
+    - Uncommitted WIP in a worktree is real work that dies with the directory;
+      always diff it against main and surface it separately from committed work.
+
+  Stage dependency graph:
+
+    gather-inventory
+          |
+    classify-buckets  (produces items for fan-out)
+          |
+    verify-candidates × N  (parallel fan-out per bucket, adversarial)
+          |
+    cross-check
+          |
+    report
+          |
+    human-gate  [human gate — nothing deleted until approved]
+          |
+    execute-deletions  (skipped when dry_run=true)
+          |
+    verify-post
+
+  ISOLATION NOTE: Agents in this workflow must NOT use isolation: worktree.
+  An isolated worktree cannot see the parent checkout's branches, reflog, or
+  worktree list — the entire premise of this workflow requires a live view of
+  the real git state. All stages run against the main checkout directly.
+
+metadata:
+  author: dancing-bear
+  created: "2026-08-27"
+
+trigger:
+  source: manual
+  params:
+    idle_hours: "48"          # worktrees idle at least this long are candidates
+    dry_run: "true"           # when true, NOTHING is deleted; workflow only reports
+    include_worktrees: "true" # also sweep orphaned worktree directories
+    protect: ""               # comma-list of branch names to never touch (e.g. main,develop)
+
+workspace_dir: "{work_dir}/branch-hygiene-sweep"
+
+stages:
+
+  # ===========================================================================
+  # G0: Gather inventory — fetch, prune, enumerate branches, worktrees, PRs
+  # ===========================================================================
+
+  - name: gather-inventory
+    kind: gather
+    depends_on: []
+    description: >
+      Collect a full inventory of local branches, worktrees, reflog ages,
+      filesystem timestamps, and GitHub PR state. Write raw data for
+      classify-buckets to work from.
+
+      GOTCHA 1 — git cherry cannot detect squash-merges.
+        Do NOT run git cherry at any point in this workflow. It compares by
+        patch-id; a squash merge rewrites N commits into one, so every original
+        commit reads as "+" (unmerged). In real runs this falsely flagged 41 of
+        49 already-merged branches as carrying unique work. This workflow never
+        uses git cherry.
+
+      GOTCHA 2 — git diff range operators are not merged-ness tests.
+        Do NOT use git diff origin/main...branch (three-dot) or
+        git diff origin/main..branch (two-dot) to decide if a branch is merged.
+        Three-dot diffs from the merge base, reporting main's newer work as
+        absent — this looks like divergence. Two-dot has a mirror-image problem.
+        Neither answers "is this work already in main".
+
+      Step 1 — fetch and prune (GOTCHA 3a: stale local origin/main causes
+        false "not merged" for recently merged PRs).
+          git fetch origin --prune
+          git remote prune origin
+
+      Step 2 — enumerate local branches.
+          git branch --format="%(refname:short)" | sort
+        For each branch, collect:
+          - Last reflog timestamp (GOTCHA 5: committerdate is useless for
+            ephemeral claude -w branches that inherit the base commit's date):
+              git reflog show --date=unix <branch> | head -1
+            Parse the unix timestamp from the output.
+          - Whether it has a remote tracking ref:
+              git branch -r | grep "origin/<branch>"
+          - Upstream gone flag:
+              git for-each-ref --format="%(upstream:track)" refs/heads/<branch>
+            "gone" means remote was deleted.
+
+      Step 3 — enumerate worktree directories (GOTCHA 7: some orphaned dirs
+        exist that git worktree list does NOT track).
+        a. Tracked worktrees:
+             git worktree list --porcelain
+           Parse each entry: worktree path, HEAD commit, branch.
+        b. Scan for untracked worktree directories under .claude/worktrees/:
+             ls -la .claude/worktrees/ 2>/dev/null || true
+           For each subdirectory, check whether git worktree list includes it.
+           Directories not in that list are orphaned and must be handled as
+           plain filesystem directories (git worktree remove will fail on them
+           with "is not a working tree").
+        c. For each worktree directory (tracked and orphaned), collect:
+           - Birth time (macOS): stat -f '%B' <dir>
+           - Last modified:      stat -f '%m' <dir>
+           - Idle seconds = now_unix - last_modified_unix
+           GOTCHA 5 detail: report both birth and last-modified; idle time
+           (last-modified) is what determines staleness.
+
+      Step 4 — collect GitHub PR state.
+        GOTCHA 6: grep -P is unavailable on macOS BSD grep. Use awk or plain
+        grep for any text processing.
+
+        Run:
+          gh pr list --state all \
+            --json headRefName,state,mergeCommit,number,title \
+            --limit 500
+        Parse output with awk or python3 -c (no grep -P).
+        Build a map: branch_name -> {pr_number, pr_state, merge_commit_sha, title}.
+        Branches with no PR entry map to {pr_number: null, ...}.
+
+      Step 5 — for each branch, check worktree dirty status carefully.
+        GOTCHA 8: a sparse/broken worktree's git status can reflect the SHARED
+        CHECKOUT, not its own content. A worktree may report "9 modified files"
+        that are actually the main checkout's files bleeding through.
+
+        For each tracked worktree that has an associated branch:
+          (cd <worktree_path> && git status --short 2>&1) | head -20
+        For any file reported as modified or untracked:
+          test -f <worktree_path>/<reported_file> || echo "FILE_NOT_PRESENT"
+        If the file does not physically exist in the worktree directory, the
+        dirty status is bleed-through from the main checkout — discard it.
+        Only count dirty files that physically exist in the worktree.
+
+      Step 6 — for each branch with uncommitted worktree changes (real ones,
+        after bleed-through filtering), diff against main.
+        GOTCHA 9: uncommitted WIP is real work that dies with the directory.
+          git diff origin/main -- <file> 2>&1 | head -60
+        Run this from within the worktree directory to capture its state.
+        Store the diff output in the inventory for report to surface separately.
+
+      Step 7 — write {workspace}/outputs/inventory.json:
+        {
+          "fetched_at": "<ISO-8601 timestamp>",
+          "idle_hours_threshold": {idle_hours},
+          "protect_list": [<parsed from {protect} param>],
+          "branches": [
+            {
+              "name": "<branch>",
+              "reflog_unix": <unix timestamp or null>,
+              "has_remote": true|false,
+              "upstream_gone": true|false,
+              "pr": {
+                "number": <int or null>,
+                "state": "MERGED|OPEN|CLOSED|null",
+                "merge_commit_sha": "<sha or null>",
+                "title": "<title or null>"
+              },
+              "worktree_path": "<path or null>",
+              "worktree_tracked": true|false,
+              "worktree_birth_unix": <int or null>,
+              "worktree_mtime_unix": <int or null>,
+              "worktree_idle_seconds": <int or null>,
+              "worktree_real_dirty_files": ["<file>", ...],
+              "worktree_wip_diff": "<diff text or null>"
+            }
+          ],
+          "orphaned_worktree_dirs": [
+            {
+              "path": "<absolute path>",
+              "birth_unix": <int>,
+              "mtime_unix": <int>,
+              "idle_seconds": <int>,
+              "files": ["<relative file path>", ...]
+            }
+          ]
+        }
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read]
+      access: read-only
+    required: true
+    outputs:
+      - name: inventory
+        mode: generate
+        description: >
+          Raw inventory JSON written to {workspace}/outputs/inventory.json.
+          Contains per-branch reflog ages, PR state, worktree paths, real dirty
+          files (bleed-through filtered), WIP diffs, and orphaned worktree dirs.
+    writes_to:
+      - outputs/inventory.json
+
+  # ===========================================================================
+  # G1: Classify branches into deletion-candidate buckets
+  # ===========================================================================
+
+  - name: classify-buckets
+    kind: execute
+    depends_on: [gather-inventory]
+    reads_from: [gather-inventory]
+    description: >
+      Read {workspace}/outputs/inventory.json and apply the correct merged-ness
+      signals to bucket each branch. Write a structured JSON with an "items"
+      array for fan-out.
+
+      NEVER use git cherry (GOTCHA 1) or git diff ranges (GOTCHA 2) here.
+
+      The ONLY correct merged-ness signals are:
+
+        Signal A — PR record + merge-base:
+          For a branch with pr.state == "MERGED" and a non-null merge_commit_sha:
+            git merge-base --is-ancestor <merge_commit_sha> origin/main
+          Exit 0 = commit IS ancestor of main → confirmed merged.
+          Exit 1 = commit IS NOT ancestor of main.
+
+          GOTCHA 3b — rebase-merged PRs: a rebase merge rewrites commits so
+          the mergeCommit SHA is not an ancestor of main. Exit 1 does NOT mean
+          unmerged. Fall back to Signal C.
+
+        Signal B — content in main (for branches with no PR or rebase-merged):
+          If the branch has files not in main, check whether those file paths
+          exist at origin/main:
+            git ls-tree origin/main --name-only <path>
+          For key files, compare content:
+            git show origin/main:<path> | diff - <local_path>
+          Only flag as "content not in main" if files with meaningful content
+          (>10 lines) are absent from main entirely.
+
+        Signal C — commits in branch not in main (for no-PR branches):
+          git log origin/main..<branch> --oneline | wc -l
+          Returns 0 if all commits reachable from branch are also in main.
+          NOTE: This can mis-classify squash-merged branches (GOTCHA 1 variant:
+          squash-merged branch log commits are NOT in main even though the work
+          is). If this returns >0, do NOT auto-classify as unmerged — route to
+          verify-candidates for deeper inspection.
+
+      In-use detection (GOTCHA 4):
+        A branch with no PR and content not in main is NOT necessarily orphaned
+        — another session may be actively building on it.
+
+        For every non-protected branch, check:
+          a. Descendants: does any other local branch descend from this one?
+               for other in branches:
+                 git merge-base --is-ancestor <branch> <other>
+             Exit 0 = <other> descends from <branch>. Flag as HAS_DESCENDANT.
+          b. Recent activity: worktree_idle_seconds < {idle_hours} * 3600
+             OR reflog_unix within the last {idle_hours} hours.
+          c. Current worktree branch: is any tracked worktree currently on
+             this branch?
+                 git worktree list | grep "<branch>"
+
+        A branch with HAS_DESCENDANT OR recent activity OR current worktree
+        is classified as IN_USE regardless of PR state.
+
+      Protected branches: any branch in the protect_list from inventory.json,
+      plus "main", is classified PROTECTED and skipped entirely.
+
+      Bucket definitions:
+        MERGED_PR         — pr.state=MERGED AND Signal A passes (merge-base confirmed)
+        REBASE_MERGED     — pr.state=MERGED AND Signal A fails, Signal B confirms content in main
+        CONTENT_IN_MAIN   — no PR OR Signal A fails, Signal C=0 (all commits in main)
+        ZERO_COMMIT_STALE — no commits beyond origin/main, no PR, idle > threshold
+        HAS_UNIQUE_WORK   — Signal C > 0 commits not in main, no MERGED PR; not yet classified
+        IN_USE            — HAS_DESCENDANT or recent activity or current worktree
+        ORPHANED_DIR      — entries from inventory.json orphaned_worktree_dirs
+        PROTECTED         — in protect_list or is "main"
+
+      Each bucket is an entry in the items array. Branches can only appear in
+      ONE bucket (apply in priority order: PROTECTED > IN_USE > MERGED_PR >
+      REBASE_MERGED > CONTENT_IN_MAIN > ZERO_COMMIT_STALE > HAS_UNIQUE_WORK).
+
+      Write {workspace}/outputs/buckets.json:
+        {
+          "classified_at": "<ISO-8601 timestamp>",
+          "items": [
+            {
+              "bucket": "MERGED_PR",
+              "branches": [
+                {
+                  "name": "<branch>",
+                  "evidence": "<one-line justification>",
+                  "merge_commit_sha": "<sha or null>",
+                  "pr_number": <int or null>,
+                  "worktree_path": "<path or null>",
+                  "wip_diff": "<diff or null>"
+                }
+              ]
+            },
+            {
+              "bucket": "IN_USE",
+              "branches": [...]
+            }
+          ]
+        }
+
+      Every branch from inventory.json must appear in exactly one bucket.
+      The "items" key at the top level is required — it is the fan_out source
+      for verify-candidates.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: buckets
+        mode: generate
+        description: >
+          Classified buckets JSON written to {workspace}/outputs/buckets.json.
+          Contains the "items" array used as fan_out source for verify-candidates.
+    writes_to:
+      - outputs/buckets.json
+
+  # ===========================================================================
+  # G2: Verify candidates — parallel fan-out, one agent per bucket
+  # ===========================================================================
+
+  - name: verify-candidates
+    kind: validate
+    agent:
+      role: unit-validator
+      model: sonnet  # sonnet required: distinguishing a rebase-merged PR from a
+                     # genuinely unmerged branch is judgment, not lookup.
+      tools: [Read, Bash, Grep, Write]
+      access: read-only
+    description: >
+      Adversarially verify one bucket of deletion candidates. Attempt to REFUTE
+      "this branch is safe to delete" for each branch. Default to NOT_SAFE when
+      any signal is ambiguous. The binding contract is in validation.criteria
+      below — kind:validate discards this description at runtime.
+    depends_on: [classify-buckets]
+    reads_from: [classify-buckets, gather-inventory]
+    fan_out:
+      source: classify-buckets
+      field: items
+      key: bucket
+      mode: agent
+    validation:
+      strategy: unit
+      criteria:
+        - For each branch in the bucket, independently attempt to REFUTE "safe to delete"
+        - Default to NOT_SAFE when any signal is ambiguous or missing
+        - Rebase-merged PRs must not be classified UNSAFE solely because merge-base fails
+        - Branches with uncommitted WIP must surface the WIP diff regardless of bucket
+        - Orphaned directories must have files compared against main before marking deletable
+        - No branch with a descendant branch is marked safe
+        - No branch currently checked out in any worktree is marked safe
+      max_revisions: 1
+    required: true
+    outputs:
+      - name: bucket_findings
+        mode: generate
+        description: >
+          Per-bucket adversarial findings written to
+          {workspace}/outputs/findings-{bucket}.json for each bucket processed.
+    writes_to:
+      - outputs/findings-MERGED_PR.json
+      - outputs/findings-REBASE_MERGED.json
+      - outputs/findings-CONTENT_IN_MAIN.json
+      - outputs/findings-ZERO_COMMIT_STALE.json
+      - outputs/findings-HAS_UNIQUE_WORK.json
+      - outputs/findings-IN_USE.json
+      - outputs/findings-ORPHANED_DIR.json
+      - outputs/findings-PROTECTED.json
+
+  # ===========================================================================
+  # G3: Cross-check — consistency across all bucket findings
+  # ===========================================================================
+
+  - name: cross-check
+    kind: validate
+    agent:
+      role: cross-unit-validator
+      model: sonnet
+      tools: [Read, Bash, Grep, Write]
+      access: read-only
+    description: >
+      Cross-unit consistency check across all bucket findings. Verify no branch
+      appears in two buckets, no deletion candidate has a descendant, no candidate
+      is a live worktree's current branch, and protected names are excluded.
+      The binding contract is in validation.criteria below.
+    depends_on: [verify-candidates]
+    reads_from: [verify-candidates, classify-buckets, gather-inventory]
+    validation:
+      strategy: cross_unit
+      criteria:
+        - No branch appears in two bucket findings files
+        - No deletion candidate has another local branch as a descendant (GOTCHA 4, 10)
+        - No deletion candidate is the currently checked-out branch of any live worktree
+        - All branches in the protect_list appear in PROTECTED findings, nowhere else
+        - The "main" branch is in PROTECTED findings and not in any other bucket
+        - Every branch from inventory.json appears in exactly one findings file
+        - Any branch with non-null wip_diff is flagged with WIP_PRESENT regardless of bucket
+        - Orphaned directory entries from inventory.json each have a findings entry
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/cross-check.json
+
+  # ===========================================================================
+  # G4: Report — human-readable summary with per-branch evidence
+  # ===========================================================================
+
+  - name: report
+    kind: execute
+    depends_on: [cross-check]
+    reads_from: [cross-check, verify-candidates, classify-buckets, gather-inventory]
+    description: >
+      Produce a human-readable deletion plan with per-branch evidence showing
+      why each branch is safe to delete or why it is spared.
+
+      Read all findings files from {workspace}/outputs/findings-*.json and
+      {workspace}/validation/cross-check.json.
+
+      Structure the report as:
+
+        ## Branch Hygiene Sweep — Deletion Plan
+        Run at: <timestamp>
+        dry_run: {dry_run}
+        idle_hours threshold: {idle_hours}
+
+        ### Safe to Delete (<N> branches)
+        | Branch | Bucket | Evidence | PR | WIP |
+        |--------|--------|----------|----|-----|
+        | wf-abc123-foo | MERGED_PR | PR #142 merged, merge-base confirmed ancestor | #142 | none |
+        | ... | ZERO_COMMIT_STALE | 0 commits beyond main, no PR, idle 72h | — | none |
+
+        Note worktrees: for each deletion candidate that has an associated
+        worktree, list the worktree path and note it will also be removed.
+
+        Note orphaned directories: list each orphaned_worktree_dir from the
+        inventory separately, with its files and the evidence that all content
+        is already in main (or flag if content is not in main).
+
+        ### WIP Present — SPARED (requires manual review)
+        List every branch where wip_diff is non-null. Show a summary of the diff.
+        These are NEVER deletion candidates even if the branch is merged — the
+        uncommitted work was real (GOTCHA 9: in a real run, one such branch
+        contained a genuine unshipped bug fix).
+
+        ### In Use — SPARED
+        | Branch | Reason | Descendant Branches |
+        |--------|--------|---------------------|
+
+        ### Has Unique Work — SPARED (needs PR or manual decision)
+        | Branch | Commits Not In Main | Suggestion |
+        |--------|---------------------|------------|
+
+        ### Protected — Always Spared
+        List the protect_list plus "main".
+
+        ### Summary
+        Deletion candidates: N branches, M worktree directories, K orphaned dirs
+        Spared (in-use): ...
+        Spared (unique work): ...
+        Spared (WIP present): ...
+        Protected: ...
+
+      Write {workspace}/outputs/deletion-plan.md.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    required: true
+    outputs:
+      - name: deletion_plan
+        mode: generate
+        description: >
+          Human-readable deletion plan written to {workspace}/outputs/deletion-plan.md.
+    writes_to:
+      - outputs/deletion-plan.md
+
+  # ===========================================================================
+  # G5: Human gate — present plan, require approval before any deletion
+  # ===========================================================================
+
+  - name: human-gate
+    kind: validate
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    description: >
+      Present the deletion plan and require explicit approval before anything is
+      removed. The binding contract is in validation.criteria below.
+    human_gate: true
+    depends_on: [report]
+    reads_from: [report, cross-check]
+    validation:
+      strategy: deliverable
+      criteria:
+        - User has reviewed the deletion plan
+        - User explicitly approves or rejects
+        - If dry_run is true, inform user nothing will be deleted regardless
+      max_revisions: 0
+    required: true
+    writes_to:
+      - validation/human-gate-decision.md
+
+  # ===========================================================================
+  # G6: Execute deletions — only runs when dry_run=false AND gate approved
+  # ===========================================================================
+
+  - name: execute-deletions
+    kind: execute
+    depends_on: [human-gate]
+    reads_from: [human-gate, report, classify-buckets]
+    description: >
+      Delete branches and worktrees that were approved in human-gate.
+
+      If {dry_run} is "true", write a sentinel file and exit without touching
+      anything:
+        echo "dry_run=true — no deletions performed" > {workspace}/outputs/deletions.md
+      This sentinel is always written so writes_to is satisfied on all paths.
+
+      If {dry_run} is "false" and the human gate approved, proceed:
+
+      Step 1 — safety patch per branch (always do this first, before any deletion).
+        For each approved deletion candidate branch:
+          git format-patch origin/main..<branch> \
+            --output-directory {workspace}/patches/<branch>/
+        This saves all commits that were not yet in main at patch time.
+        If the branch has zero commits beyond main, the patches directory will
+        be empty — that is expected.
+        If git format-patch fails for any branch, SKIP that branch deletion and
+        log the error. Never delete without a patch attempt.
+
+      Step 2 — delete tracked worktrees before deleting their branches.
+        For each deletion candidate that has worktree_tracked=true:
+          git worktree remove --force <worktree_path>
+        If this fails, log the error and skip the associated branch deletion.
+
+      Step 3 — delete orphaned worktree directories.
+        GOTCHA 7: orphaned directories are NOT tracked by git worktree list.
+          git worktree remove <orphaned_dir> will fail with "is not a working tree".
+        For each orphaned_worktree_dir in the approved plan:
+          rm -rf <orphaned_dir>
+        Only do this after verifying (in verify-candidates) that files are in main.
+
+      Step 4 — delete local branches.
+        For each approved deletion candidate (after worktrees handled):
+          git branch -d <branch> 2>&1 || git branch -D <branch> 2>&1
+        Prefer -d (safe delete) first; escalate to -D only if -d fails and the
+        branch was confirmed merged by Signal A or Signal B.
+        If -D is needed for an unconfirmed branch, SKIP and log — never force-
+        delete a branch that was not confirmed merged.
+
+      Step 5 — delete remote tracking refs for branches that had upstream_gone=true.
+        For any deleted branch where has_remote was true and upstream_gone was false
+        (the remote branch still exists), do NOT delete the remote ref — only local.
+        Remote deletion is out of scope for this workflow.
+
+      Write {workspace}/outputs/deletions.md:
+        | Branch | Worktree | Patches Saved | Deleted | Error |
+        |--------|----------|---------------|---------|-------|
+        | wf-abc123-foo | .claude/worktrees/abc123 | 0 patches (zero commits) | YES | — |
+        | ... | — | 3 patches | YES | — |
+        | bad-branch | — | PATCH_FAILED | SKIPPED | format-patch error |
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: false
+    outputs:
+      - name: deletions
+        mode: generate
+        description: >
+          Deletion log written to {workspace}/outputs/deletions.md.
+          Lists every branch processed, patches saved, and outcome.
+    writes_to:
+      - outputs/deletions.md
+
+  # ===========================================================================
+  # G7: Verify post — confirm protected branches intact, counts match plan
+  # ===========================================================================
+
+  - name: verify-post
+    kind: validate
+    agent:
+      role: unit-validator
+      model: sonnet
+      tools: [Read, Bash, Grep, Write]
+      access: read-only
+    description: >
+      Confirm the post-deletion tree matches the approved plan. The binding
+      contract is in validation.criteria below.
+    depends_on: [execute-deletions]
+    reads_from: [execute-deletions, report, gather-inventory]
+    validation:
+      strategy: deliverable
+      criteria:
+        - If dry_run=true, verify no branches or directories were modified (only sentinel written)
+        - All protected branches (protect_list + main) still exist in git branch output
+        - The main checkout HEAD is unchanged from inventory fetch (no accidental commit)
+        - Count of deleted branches matches the approved plan from deletion-plan.md
+        - Every branch in the IN_USE bucket still exists
+        - Every branch in the HAS_UNIQUE_WORK bucket still exists
+        - No patches directory under {workspace}/patches/ is missing for a deleted branch
+      max_revisions: 0
+    required: true
+    writes_to:
+      - validation/post-check.json
