@@ -39,7 +39,7 @@ description: >
           |
     human-gate  [human gate — nothing deleted until approved]
           |
-    execute-deletions  (skipped when dry_run=true)
+    execute-deletions  (always runs; no-ops and writes a sentinel when dry_run=true)
           |
     reclaim-venvs  (independent of dry_run; only touches KEPT worktrees)
           |
@@ -116,8 +116,12 @@ stages:
             ephemeral claude -w branches that inherit the base commit's date):
               git reflog show --date=unix <branch> | head -1
             Parse the unix timestamp from the output.
-          - Whether it has a remote tracking ref:
-              git branch -r | grep "origin/<branch>"
+          - Whether it has a remote tracking ref. Use exact ref existence,
+            NOT a grep: `git branch -r | grep "origin/<branch>"` also matches
+            origin/<branch>-bar and origin/feat/<branch>, so a branch would be
+            reported as having a remote that does not exist.
+              git show-ref --verify --quiet refs/remotes/origin/<branch>
+            Exit 0 = the remote ref exists; exit 1 = it does not.
           - Upstream gone flag:
               git for-each-ref --format="%(upstream:track)" refs/heads/<branch>
             "gone" means remote was deleted.
@@ -283,8 +287,20 @@ stages:
           b. Recent activity: worktree_idle_seconds < {idle_hours} * 3600
              OR reflog_unix within the last {idle_hours} hours.
           c. Current worktree branch: is any tracked worktree currently on
-             this branch?
-                 git worktree list | grep "<branch>"
+             this branch? Do NOT grep the human-formatted list — the branch
+             name also appears in worktree PATHS and inside longer branch
+             names, so `git worktree list | grep "<branch>"` both false-positives
+             (path contains the name) and, worse, can miss the real case while
+             matching an unrelated line. A false negative here deletes a branch
+             that is checked out and live.
+
+             Match exactly against the parsed porcelain field already collected
+             in gather-inventory (worktrees[].branch), which holds a bare branch
+             name per worktree. Equivalent direct check:
+                 git worktree list --porcelain \
+                   | awk '/^branch /{sub("refs/heads/","",$2); print $2}' \
+                   | grep -Fxq "<branch>"
+             -F -x -q = fixed-string, whole-line, quiet: an exact match.
 
         A branch with HAS_DESCENDANT OR recent activity OR current worktree
         is classified as IN_USE regardless of PR state.
@@ -353,18 +369,17 @@ stages:
   # ===========================================================================
 
   - name: verify-candidates
-    kind: validate
+    kind: execute        # NOT kind: validate — that discards stage.description
+                         # at runtime, which would strip the {bucket} context and
+                         # the output target from every fan-out agent's prompt.
+                         # Same reason workflows/shared/code-review-swarm.yaml
+                         # uses kind: execute for its validate-concerns fan-out.
     agent:
       role: unit-validator
       model: sonnet  # sonnet required: distinguishing a rebase-merged PR from a
                      # genuinely unmerged branch is judgment, not lookup.
       tools: [Read, Bash, Grep, Write]
       access: read-only
-    description: >
-      Adversarially verify one bucket of deletion candidates. Attempt to REFUTE
-      "this branch is safe to delete" for each branch. Default to NOT_SAFE when
-      any signal is ambiguous. The binding contract is in validation.criteria
-      below — kind:validate discards this description at runtime.
     depends_on: [classify-buckets]
     reads_from: [classify-buckets, gather-inventory]
     fan_out:
@@ -372,18 +387,60 @@ stages:
       field: items
       key: bucket
       mode: agent
-    validation:
-      strategy: unit
-      criteria:
-        - For each branch in the bucket, independently attempt to REFUTE "safe to delete"
-        - Default to NOT_SAFE when any signal is ambiguous or missing
-        - Rebase-merged PRs must not be classified UNSAFE solely because merge-base fails
-        - Branches with uncommitted WIP must surface the WIP diff regardless of bucket
-        - Orphaned directories must have files compared against main before marking deletable
-        - No branch with a descendant branch is marked safe
-        - No branch currently checked out in any worktree is marked safe
-      max_revisions: 1
-    required: true
+    description: >
+      You are verifying the "{bucket}" bucket from the fan-out.
+
+      Read {workspace}/outputs/buckets.json and select the single item whose
+      "bucket" field equals "{bucket}". Verify ONLY that bucket's branches —
+      another agent owns each of the others.
+
+      Your job is adversarial: for each branch, attempt to REFUTE the claim
+      "this branch is safe to delete". You are not confirming the classifier;
+      you are trying to break it. Apply every check below and default to
+      NOT_SAFE whenever a signal is ambiguous, missing, or contradictory. A
+      wrong NOT_SAFE costs one surviving branch; a wrong SAFE destroys work.
+
+      Checks, all of which must pass before a branch may be marked SAFE:
+
+        1. Independently re-derive the merged signal. Do not trust the bucket
+           label. Re-run the PR record check and merge-base ancestry yourself.
+
+        2. A rebase-merged PR must NOT be marked UNSAFE merely because
+           merge-base fails — fall back to content comparison (Signal B).
+           Equally, do not mark it SAFE on the PR record alone.
+
+        3. Surface uncommitted WIP regardless of bucket. Run git status in the
+           branch's worktree if it has one, and diff any modifications against
+           main. Uncommitted work dies with the worktree and is invisible to
+           every commit-based signal. If WIP exists, mark NOT_SAFE and include
+           the diff.
+
+        4. Orphaned directories: compare their files against main before
+           marking deletable. Absent-from-main content means NOT_SAFE.
+
+        5. No branch with a descendant branch may be marked SAFE — deleting it
+           breaks the descendant.
+
+        6. No branch currently checked out in any worktree may be marked SAFE.
+           Use the exact-match check, never a substring grep.
+
+      Write {workspace}/outputs/findings-{bucket}.json:
+        {
+          "bucket": "{bucket}",
+          "verified_at": "<ISO-8601>",
+          "findings": [
+            {
+              "branch": "<name>",
+              "verdict": "SAFE" | "NOT_SAFE",
+              "refutation_attempted": "<what you tried in order to break the claim>",
+              "evidence": "<commands run and their actual output>",
+              "wip_diff": "<diff or null>",
+              "blocking_reason": "<why NOT_SAFE, or null>"
+            }
+          ]
+        }
+
+      Every branch in your bucket must appear exactly once in findings.
     outputs:
       - name: bucket_findings
         mode: generate
@@ -537,7 +594,10 @@ stages:
       - validation/human-gate-decision.md
 
   # ===========================================================================
-  # G6: Execute deletions — only runs when dry_run=false AND gate approved
+  # G6: Execute deletions — always runs; deletes only when dry_run=false
+  #     AND the gate approved. There is no `when:` guard on this stage:
+  #     it self-checks {dry_run} and writes a sentinel so writes_to is
+  #     satisfied on every path.
   # ===========================================================================
 
   - name: execute-deletions
