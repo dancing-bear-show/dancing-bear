@@ -41,7 +41,19 @@ description: >
           |
     execute-deletions  (skipped when dry_run=true)
           |
+    reclaim-venvs  (independent of dry_run; only touches KEPT worktrees)
+          |
     verify-post
+
+  DISK NOTE: measured on this repo, a worktree averages ~350M of which ~348M
+  is .venv and only ~27M is source — a worktree is ~93% virtualenv. Deleting
+  branches reclaims almost nothing (refs are bytes; .git is 57M) and does not
+  speed git up (git status runs in ~40ms at 147 branches). The real disk lever
+  is reclaim-venvs, which purges regenerable .venv directories from worktrees
+  that are being KEPT. That is strictly lower-risk than deleting a worktree:
+  a .venv is rebuilt with `make venv`, whereas a deleted worktree takes any
+  uncommitted WIP with it. Treat deletion as the hygiene goal and venv
+  reclamation as the space goal — they are separate levers.
 
   ISOLATION NOTE: Agents in this workflow must NOT use isolation: worktree.
   An isolated worktree cannot see the parent checkout's branches, reflog, or
@@ -59,6 +71,8 @@ trigger:
     dry_run: "true"           # when true, NOTHING is deleted; workflow only reports
     include_worktrees: "true" # also sweep orphaned worktree directories
     protect: ""               # comma-list of branch names to never touch (e.g. main,develop)
+    reclaim_venvs: "true"     # purge .venv from KEPT worktrees idle > venv_idle_hours
+    venv_idle_hours: "24"     # a .venv idle this long is regenerable dead weight
 
 workspace_dir: "{work_dir}/branch-hygiene-sweep"
 
@@ -596,8 +610,78 @@ stages:
     writes_to:
       - outputs/deletions.md
 
+
   # ===========================================================================
-  # G7: Verify post — confirm protected branches intact, counts match plan
+  # G7: Reclaim .venv from kept worktrees — the actual disk win
+  # ===========================================================================
+
+  - name: reclaim-venvs
+    kind: execute
+    depends_on: [execute-deletions]
+    reads_from: [execute-deletions, classify-buckets, gather-inventory]
+    description: >
+      Purge regenerable .venv directories from worktrees that are being KEPT.
+
+      Why this stage exists: on this repo a worktree is ~93% .venv (~348M of
+      ~350M; source is ~27M). Branch deletion reclaims almost nothing. This
+      stage is where the disk actually comes back, and it is far safer than
+      deleting a worktree — a .venv is rebuilt on demand with `make venv`,
+      while a deleted worktree destroys uncommitted WIP permanently.
+
+      Skip entirely if {reclaim_venvs} is not "true". Write the sentinel and
+      exit so writes_to is satisfied on all paths:
+        echo "reclaim_venvs=false — no venvs purged" > {workspace}/outputs/venv-reclaim.md
+
+      This stage runs REGARDLESS of {dry_run}. dry_run governs destruction of
+      work; a .venv is not work. If you want a preview instead, set
+      reclaim_venvs=false.
+
+      Step 1 — enumerate candidate venvs.
+        For every worktree still present after execute-deletions:
+          find .claude/worktrees -maxdepth 2 -name .venv -type d
+        For each, take the PARENT directory's idle time:
+          stat -f '%m' <worktree_dir>
+        A venv is a candidate when parent idle_hours >= {venv_idle_hours}.
+
+      Step 2 — exclude anything live. Never purge a venv when its worktree:
+          - is the current session's worktree (compare against $PWD), OR
+          - is checked out to a PROTECTED or IN_USE branch (read buckets.json), OR
+          - has uncommitted changes that include files under .venv (unusual, but
+            a hand-edited venv is not regenerable), OR
+          - has a running process with a cwd inside it. Check cheaply:
+              lsof +D <worktree_dir>/.venv 2>/dev/null | head -1
+            If lsof reports anything, SKIP — an active test run or REPL lives
+            there and removing it mid-run produces confusing import errors.
+
+      Step 3 — record sizes BEFORE deleting, so the report is truthful:
+          du -sk <worktree>/.venv
+
+      Step 4 — purge:
+          rm -rf <worktree>/.venv
+        A .venv is not tracked by git, so there is no branch or worktree state
+        to update afterwards. Do NOT run git worktree prune here — nothing about
+        the worktree registration changed.
+
+      Step 5 — write {workspace}/outputs/venv-reclaim.md with a table of
+      worktree, idle hours, size reclaimed, and a total. State plainly that
+      each purged worktree needs `make venv` before its next test run.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    required: false
+    outputs:
+      - name: venv_reclaim
+        mode: generate
+        description: >
+          Table of purged venvs with reclaimed size, or a sentinel when the
+          stage was skipped.
+    writes_to:
+      - outputs/venv-reclaim.md
+
+  # ===========================================================================
+  # G8: Verify post — confirm protected branches intact, counts match plan
   # ===========================================================================
 
   - name: verify-post
@@ -610,8 +694,8 @@ stages:
     description: >
       Confirm the post-deletion tree matches the approved plan. The binding
       contract is in validation.criteria below.
-    depends_on: [execute-deletions]
-    reads_from: [execute-deletions, report, gather-inventory]
+    depends_on: [reclaim-venvs]
+    reads_from: [reclaim-venvs, execute-deletions, report, gather-inventory]
     validation:
       strategy: deliverable
       criteria:
