@@ -177,7 +177,7 @@ class ChangedWithPathsUsageErrorTests(unittest.TestCase):
 
 
 class ExpectMinGuardTests(unittest.TestCase):
-    """Guards the **/.claude/** exclusion trap (isolated worktrees scan empty)."""
+    """Guards against an implausibly empty scan being read as a clean repo."""
 
     def test_fails_when_findings_are_implausibly_few(self):
         runner = FakeRunner()
@@ -448,7 +448,7 @@ class RuleFilterTests(unittest.TestCase):
 
     def test_expect_min_uses_raw_total_not_filtered_total(self):
         # Filtering to a rule with zero matches must not trip --expect-min;
-        # the guard is for the worktree-exclusion trap, not for rule coverage.
+        # the guard is for an implausibly empty scan, not for rule coverage.
         findings = [make_finding(rule="file-complexity", path="src/a.py")]
         runner = FakeRunner({Source.SMELLS: [result_of(findings)]})
         with _patched_scanner(runner):

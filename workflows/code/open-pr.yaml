@@ -118,11 +118,15 @@ stages:
         qlty scans correctly from an agent worktree — the exclusion was narrowed
         to `**/.claude/worktrees/**`, which only takes effect when scanning from
         the main checkout. Run it:
-          ~/.qlty/bin/qlty check --all {source_root}
-        Pass `--all`: `qlty check` defaults to changed files only, so on a clean
-        branch it prints "✔ No issues" whether or not anything was scanned. If
-        the result is implausibly empty, treat that as a broken environment and
-        record UNAVAILABLE with what you observed — do not record PASS.
+          ~/.qlty/bin/qlty check {source_root}
+        Note `--all` and an explicit path are mutually exclusive: `qlty check
+        --all {source_root}` errors with "the argument '--all' cannot be used
+        with specified [PATHS]". Passing a path already scans every file under
+        it, so `--all` is neither needed nor accepted here. Use `--all` only for
+        a bare repo-wide `qlty check --all` with no path, where it overrides the
+        changed-files-only default.
+        If the result is implausibly empty, treat that as a broken environment
+        and record UNAVAILABLE with what you observed — do not record PASS.
           Fix any reported issues using Edit tool on individual files.
           After fixes, re-run qlty to confirm clean.
 

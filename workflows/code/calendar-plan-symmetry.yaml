@@ -838,7 +838,7 @@ stages:
       criteria:
         - "SCOPE: you are recording findings, not fixing. Fix ONLY trivially mechanical issues (import order, formatting). Do NOT change logic, tests, or behaviour — the review stage reads this tree immediately after you."
         - "Lint: run `make lint` and confirm it is clean. Do NOT run a bare `ruff check` — there is no ruff on PATH; CI lints via qlty's pinned build."
-        - "Do NOT trust `qlty check` run from inside .claude/worktrees/ — .qlty/qlty.toml excludes **/.claude/**, so it scans zero files while printing 'No issues'. An empty result there means excluded, not clean."
+        - "Lint deeper with `qlty check --all` (no path argument — `--all` and an explicit path are mutually exclusive). It scans correctly from inside a worktree; the exclusion was narrowed to **/.claude/worktrees/**, which only applies when scanning from the main checkout. `qlty check` without `--all` defaults to changed files only, so on a clean branch it prints 'No issues' regardless — treat an implausibly empty result as a broken environment, not a pass."
         - "Tests: run `make test` and confirm it passes. NEVER run a bare `python3 -m unittest` in a worktree — an inherited PYTHONPATH resolves imports to the main checkout and yields a false green."
         - "Agentic schema: run `./bin/calendar --agentic --agentic-format json` and confirm every new subcommand appears with accurate help text (the project requires --agentic never drifts from the real CLI)."
         - "Run `make bin-wrappers-check` if that make target exists."
