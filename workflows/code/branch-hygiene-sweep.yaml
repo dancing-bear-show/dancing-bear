@@ -706,7 +706,18 @@ stages:
         echo "dry_run=true — no deletions performed" > {workspace}/outputs/deletions.md
       This sentinel is always written so writes_to is satisfied on all paths.
 
-      If {dry_run} is "false" and the human gate approved, proceed:
+      Before anything else, read the gate's decision. Being downstream of
+      human-gate in the DAG is sequencing, not consent: the engine runs this
+      stage whatever the user answered.
+
+        Read {workspace}/validation/human-gate-decision.md.
+        Proceed ONLY if it records an explicit approval.
+        If it records REJECTED, is missing, is empty, or is ambiguous, write
+          echo "gate not approved — no deletions performed" > {workspace}/outputs/deletions.md
+        and exit without deleting anything. Fail closed: a decision file you
+        cannot read is a rejection, never an approval.
+
+      If {dry_run} is "false" AND the gate recorded approval, proceed:
 
       Step 1 — safety patch per branch (always do this first, before any deletion).
         For each approved deletion candidate branch:
@@ -827,7 +838,7 @@ stages:
   - name: reclaim-venvs
     kind: execute
     depends_on: [execute-deletions]
-    reads_from: [execute-deletions, classify-buckets, gather-inventory]
+    reads_from: [execute-deletions, human-gate, classify-buckets, gather-inventory]
     description: >
       Purge regenerable .venv directories from worktrees that are being KEPT.
 
@@ -840,6 +851,12 @@ stages:
       Skip entirely if {reclaim_venvs} is not "true". Write the sentinel and
       exit so writes_to is satisfied on all paths:
         echo "reclaim_venvs=false — no venvs purged" > {workspace}/outputs/venv-reclaim.md
+
+      This stage is gated on the human decision exactly like execute-deletions.
+      Read {workspace}/validation/human-gate-decision.md first; if it records
+      REJECTED, is missing, empty, or ambiguous, write the sentinel and exit
+      without purging anything. A rejected plan means the operator declined the
+      whole sweep, not just the branch half.
 
       This stage honours {dry_run} like every other destructive stage. If
       {dry_run} is "true", enumerate and report what WOULD be reclaimed, then
