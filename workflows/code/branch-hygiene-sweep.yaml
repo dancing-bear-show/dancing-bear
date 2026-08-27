@@ -775,6 +775,22 @@ stages:
 
       Step 4 — delete local branches.
 
+        Re-check the protect list HERE, immediately before each deletion. It is
+        applied during classification and verified afterwards by verify-post,
+        but neither helps at the moment that matters: a misclassification or a
+        malformed buckets.json would reach this step, and verify-post reports
+        the loss only once the branch is already gone. This is the last point
+        where refusing still costs nothing.
+
+          protected=$(python3 -c "import json;print('\n'.join(json.load(open('$WS/outputs/inventory.json'))['protect_list']))")
+          if printf '%s\n' "$protected" "main" | grep -Fxq "$branch"; then
+            echo "REFUSED: $branch is protected"; continue
+          fi
+
+        Refuse rather than warn: a protected branch reaching this step means an
+        upstream stage is wrong, and deleting it would destroy exactly what the
+        operator named as off-limits.
+
         Do NOT write `git branch -d X || git branch -D X`. That one-liner
         escalates to a force delete on ANY failure of -d — unmerged work,
         a branch checked out elsewhere, a lock file — because the shell cannot
