@@ -100,14 +100,18 @@ TYPED_DOMAIN_MODULES: tuple[str, ...] = (
 # way. Target state is every entry at 0, at which point delete this table and
 # the tolerance logic with it.
 UNMIGRATED_GET_BASELINE: dict[str, int] = {
-    # The four remaining sites are ``contact.get()`` reads in _identity_fields
-    # and _get_contact_field. ``Resume.contact`` is a nested mapping the schema
+    # The single remaining site is the ``contact.get()`` read in
+    # ``get_contact_field``. ``Resume.contact`` is a nested mapping the schema
     # deliberately does NOT model field-by-field (it stays
-    # ``dict[str, Any] | None``), so these are a permanent floor, not
+    # ``dict[str, Any] | None``), so this is a permanent floor, not
     # un-migrated work. from_dict already promotes contact values onto the
-    # top-level scalars; these reads are the fallback for a Resume built
+    # top-level scalars; this read is the fallback for a Resume built
     # directly, bypassing that promotion.
-    "docx_base.py": 4,
+    #
+    # Was 4: _identity_fields inlined the same fallback per field and
+    # _get_contact_field duplicated it a third time. Consolidating them onto
+    # one helper collapsed four reads into one.
+    "docx_base.py": 1,
     # Three of these are the ``it.get()`` calls in _extract_item_text's dict
     # branch, which serves the deliberately-untyped ``teaching`` section
     # (schema-design.md §1). The fourth is the ``extra.get()`` in _item_name,
@@ -126,9 +130,9 @@ UNMIGRATED_GET_BASELINE: dict[str, int] = {
     # while ``teaching`` stays ``list[Any]``.
     "docx_sidebar_sections.py": 1,
     "docx_standard.py": 0,
-    # The one remaining site is the ``contact.get()`` fallback in
-    # _get_contact_field -- same permanent floor as docx_base.py above.
-    "docx_writer.py": 1,
+    # Was 1: _get_contact_field's ``contact.get()`` fallback. It now delegates
+    # to docx_base.get_contact_field, so the read lives at that single site.
+    "docx_writer.py": 0,
 }
 
 

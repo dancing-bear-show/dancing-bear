@@ -163,6 +163,22 @@ def _metadata_keywords(
     return kw
 
 
+def get_contact_field(resume: Resume, field: str) -> Any:
+    """Read ``field`` off the resume, falling back to its nested contact dict.
+
+    Single definition of the "attribute, else nested ``contact`` entry, else
+    empty" rule. It previously existed three times -- as a module function in
+    ``docx_writer``, as a ``ResumeWriterBase`` method, and inlined per-field in
+    :func:`_identity_fields` -- and the copies drifted: the inlined one omitted
+    the fallback for ``name`` alone, so a ``Resume`` built directly with only a
+    nested ``contact`` shipped a document with no author.
+
+    Returns ``Any`` rather than ``str`` because ``links`` resolves to a list.
+    """
+    contact = resume.contact or {}
+    return getattr(resume, field, "") or contact.get(field) or ""
+
+
 def _identity_fields(resume: Resume) -> tuple[str, str, str, str]:
     """Derive (name, email, phone, location), falling back to the nested contact dict.
 
@@ -171,12 +187,14 @@ def _identity_fields(resume: Resume) -> tuple[str, str, str, str]:
     carry the answer. The nested lookup is kept because ``contact`` stays an
     untyped mapping the schema does not model field-by-field, and a caller can
     construct a ``Resume`` directly without going through that promotion.
+
+    All four fields route through the same helper so none can lose its fallback
+    independently of the others.
     """
-    contact = resume.contact or {}
-    name = resume.name or ""
-    email = resume.email or contact.get("email") or ""
-    phone = resume.phone or contact.get("phone") or ""
-    location = resume.location or contact.get("location") or ""
+    name, email, phone, location = (
+        str(get_contact_field(resume, field) or "")
+        for field in ("name", "email", "phone", "location")
+    )
     return name, email, phone, location
 
 
@@ -312,10 +330,9 @@ class ResumeWriterBase(ABC):
     # Contact field helpers
     # -------------------------------------------------------------------------
 
-    def _get_contact_field(self, field: str) -> str:
+    def _get_contact_field(self, field: str) -> Any:
         """Get a contact field from data or nested contact dict."""
-        contact = self.resume.contact or {}
-        return getattr(self.resume, field, "") or contact.get(field) or ""
+        return get_contact_field(self.resume, field)
 
     def _collect_link_extras(self) -> list[str]:
         """Collect formatted link extras (website, linkedin, github, links list)."""

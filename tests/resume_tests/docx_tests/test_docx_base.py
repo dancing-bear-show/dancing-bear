@@ -174,6 +174,64 @@ class TestResumeWriterBase(unittest.TestCase):
 
 
 @mock_docx_modules
+class TestIdentityFields(unittest.TestCase):
+    """Tests for _identity_fields' nested-contact fallback."""
+
+    def test_all_four_fields_fall_back_to_nested_contact(self):
+        """A directly-built Resume resolves every field through contact.
+
+        ``name`` regressed here: it was the only one of the four missing its
+        ``contact.get()`` fallback, so a Resume constructed without going
+        through ``from_dict``'s promotion lost its name entirely. Because
+        ``set_document_metadata_on_doc`` gates ``cp.author`` on ``if name:``,
+        the document then shipped with no author and raised nothing.
+        """
+        from resume.docx_base import _identity_fields
+        from resume.schema import Resume
+        resume = Resume(
+            contact={
+                "name": "Nested Name",
+                "email": "nested@example.com",
+                "phone": "555-0100",
+                "location": "Springfield",
+            }
+        )
+        self.assertEqual(
+            _identity_fields(resume),
+            ("Nested Name", "nested@example.com", "555-0100", "Springfield"),
+        )
+
+    def test_top_level_fields_win_over_nested_contact(self):
+        """Top-level scalars take precedence over the nested contact dict."""
+        from resume.docx_base import _identity_fields
+        from resume.schema import Resume
+        resume = Resume(
+            name="Top Name",
+            contact={"name": "Nested Name", "email": "nested@example.com"},
+        )
+        name, email, _phone, _location = _identity_fields(resume)
+        self.assertEqual(name, "Top Name")
+        self.assertEqual(email, "nested@example.com")
+
+    def test_absent_everywhere_yields_empty_strings(self):
+        """A Resume with neither source yields empty strings, not None."""
+        from resume.docx_base import _identity_fields
+        from resume.schema import Resume
+        self.assertEqual(_identity_fields(Resume()), ("", "", "", ""))
+
+    def test_author_is_set_from_nested_contact_name(self):
+        """The nested-only name reaches cp.author, not just _identity_fields."""
+        from resume.docx_base import set_document_metadata_on_doc
+        from resume.schema import Resume
+        doc = MagicMock()
+        cp = doc.core_properties
+        resume = Resume(contact={"name": "Nested Name"})
+        set_document_metadata_on_doc(doc, resume, {})
+        self.assertEqual(cp.author, "Nested Name")
+
+
+
+@mock_docx_modules
 class TestResumeWriterBaseWrite(unittest.TestCase):
     """Tests for ResumeWriterBase.write() method."""
 

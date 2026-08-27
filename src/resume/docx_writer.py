@@ -26,6 +26,7 @@ from .docx_styles import (
     _format_phone_display,
     _format_link_display,
 )
+from .docx_base import get_contact_field
 from .docx_standard import SECTION_RENDERERS, SECTIONS_WITH_KEYWORDS
 from .schema import Resume
 
@@ -69,10 +70,9 @@ def _extract_experience_locations(resume: Resume) -> list[str]:
     return list(dict.fromkeys([loc for loc in locs if loc]))
 
 
-def _get_contact_field(resume: Resume, field: str) -> str:
+def _get_contact_field(resume: Resume, field: str) -> Any:
     """Get a contact field from the resume or its nested contact dict."""
-    contact = resume.contact or {}
-    return getattr(resume, field, "") or contact.get(field) or ""
+    return get_contact_field(resume, field)
 
 
 def _collect_link_extras(resume: Resume) -> list[str]:
