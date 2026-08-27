@@ -52,7 +52,7 @@
 #
 # The ~69 figure is the audited one and supersedes the ~55 earlier revisions
 # recorded. ~55 counted only call sites on a `data`-named variable; the audit
-# found ~14 more on a `candidate`-named parameter (keyword_match.py, aligner.py)
+# found 7 more on a `candidate`-named parameter (keyword_match.py, aligner.py)
 # that the original grep missed. Because ~69 is too many for one edit, the gate
 # carried forward a constraint: migrate-callsites is SPLIT BY FILE GROUP —
 # parsers, then renderers, then filters/aligner/keyword_match.
@@ -98,9 +98,11 @@ name: consolidate-resume-schema
 version: "1.0"
 description: >
   Consolidates src/resume's data model into a single typed schema covering all
-  22 real sections, emits a JSON Schema, then implements DOCX->PDF export
-  behind an optional dependency. Multi-role-per-company support was deferred at
-  the design-schema gate — see the DEFERRED note in the header comment.
+  22 real sections, emits a JSON Schema, then adds the render-time DOCX->PDF
+  path behind an optional dependency (conversion itself already exists via the
+  separate `export-pdf` subcommand — see PROBLEM 2 in the header comment).
+  Multi-role-per-company support was deferred at the design-schema gate — see
+  the DEFERRED note in the header comment.
 
   Two rules are load-bearing. First, the on-disk JSON/YAML format never
   changes: from_dict/to_dict sit at the I/O boundary, so every existing profile
@@ -247,7 +249,7 @@ stages:
       pre-migration file here. impl-schema replaces it with schema.py.)
 
       Known starting points (verify each, find the rest):
-        - src/resume/model.py            — the 4 formally typed sections
+        - src/resume/model.py            — the 5 formally typed sections
         - src/resume/priority.py:67      — filters 8 keys incl. teaching,
                                            certifications, coursework
         - src/resume/docx_sidebar_sections.py:331 — renderer dispatch table
@@ -559,11 +561,11 @@ stages:
         - 26 read_yaml_or_json/write_yaml_or_json call sites are the I/O
           boundary where from_dict/to_dict must sit
 
-      The ~69 breaks down as ~55 `data.get(` calls plus ~14 more reached
+      The ~69 breaks down as ~55 `data.get(` calls plus 7 more reached
       through a parameter named `candidate` — keyword_match.py and aligner.py.
       Earlier revisions of this workflow recorded only the ~55 subset. Grepping
       for `data\.get(` alone will therefore UNDERCOUNT the work by about a
-      fifth and make a partial migration look complete.
+      tenth and make a partial migration look complete.
 
       SPLIT BY FILE GROUP — carried forward as a constraint from the gate.
       ~69 sites is too many for one edit. Migrate parsers first, then
@@ -589,7 +591,7 @@ stages:
         4. Renderers: docx_writer.py, docx_standard.py, docx_base.py,
            docx_sections_*.py, docx_sidebar_sections.py. Largest group; expect
            the most churn here.
-        5. keyword_match.py and aligner.py — the ~14 sites reached through a
+        5. keyword_match.py and aligner.py — the 7 sites reached through a
            `candidate`-named parameter rather than `data`. These are the ones a
            `data\.get(` grep does not see; skipping them leaves the migration
            silently partial. Change only the parameter typing here: the str()
@@ -828,10 +830,10 @@ stages:
           to close or a bug to fix here.
         - FULL MIGRATION IS COMPLETE, not partial. Compare the remaining call
           sites against the ~69 recorded in sections.md — NOT against ~55.
-          ~55 counts only the `data`-named subset; ~14 further sites reach the
+          ~55 counts only the `data`-named subset; 7 further sites reach the
           same section keys through a parameter named `candidate`
           (keyword_match.py, aligner.py). Grepping `data\.get(` alone would
-          measure a migration of ~55 as complete while roughly a fifth of the
+          measure a migration of ~55 as complete while roughly a tenth of the
           real call sites are untouched, so this check must cover both:
             grep -rn "data\.get(" src/resume/ | wc -l
             grep -rn "candidate\.get(" src/resume/ | wc -l

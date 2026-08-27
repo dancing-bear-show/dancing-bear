@@ -441,12 +441,16 @@ stages:
       They must match. If they do not, write commit-result.json with
       "pushed": false and the mismatch, report failed, exit non-zero.
 
-      Write {workspace}/outputs/commit-result.json:
+      Write {workspace}/outputs/commit-result.json. files_committed must be
+      exactly the list staged in Step 3 (fix-results.json's files_changed),
+      not a fixed example — a run touching several threads across several
+      files commits all of them in one push:
         {
           "committed": true,
           "pushed": true,
           "sha": "<commit sha>",
-          "files_committed": ["workflows/resume/consolidate-schema.yaml"],
+          "files_committed": ["workflows/code/review-fix-threads.yaml",
+            "workflows/resume/consolidate-schema.yaml"],
           "unexpected_staged": [],
           "reason": null
         }
