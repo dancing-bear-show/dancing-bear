@@ -11,7 +11,7 @@ PIP := $(VENV)/bin/pip
 SRC := $(CURDIR)/src
 RUNPY := PYTHONPATH=$(SRC) $(PY)
 
-.PHONY: venv dev-venv install test clean distclean agentic agentic-md cov cov-html bin-wrappers bin-wrappers-check deadcode
+.PHONY: venv dev-venv install test clean distclean agentic agentic-md cov cov-html bin-wrappers bin-wrappers-check deadcode typecheck
 
 venv:
 	$(PYTHON) -m venv $(VENV)
@@ -155,3 +155,15 @@ hooks-test:
 deadcode: venv
 	@$(PIP) install -q -e ".[dev]"
 	@$(PY) -m vulture --config pyproject.toml
+
+# Report-only, like deadcode: prints findings and always exits 0. CI does not
+# run mypy, so a non-zero exit here would fail local runs on a standard nobody
+# enforces. Scope it with TYPECHECK_PATHS to focus on one package:
+#   make typecheck TYPECHECK_PATHS=src/core
+# (Deliberately not SRC — that is the absolute path pinned onto PYTHONPATH for
+# test resolution, and overriding it would repoint imports at a partial tree.)
+TYPECHECK_PATHS ?= src
+.PHONY: typecheck
+typecheck: venv
+	@$(PIP) install -q -e ".[dev]"
+	@$(PY) -m mypy $(TYPECHECK_PATHS) --ignore-missing-imports || true

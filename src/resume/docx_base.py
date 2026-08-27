@@ -5,7 +5,10 @@ Provides common functionality for resume rendering.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from docx.document import Document
 
 from docx.shared import Pt, Inches, RGBColor  # type: ignore
 
@@ -233,7 +236,14 @@ class ResumeWriterBase(ABC):
         self.template = template
         self.page_cfg = template.get("page") or {}
         self.layout_cfg = template.get("layout") or {}
-        self.doc = None
+        # Annotated because `write()` reassigns this to a docx Document. Without
+        # an annotation mypy infers the attribute's type from this assignment
+        # alone — None — and then reports every later
+        # `self.doc.add_heading(...)` in the subclasses as an attribute error on
+        # None. The import is TYPE_CHECKING-only because `docx.document` is the
+        # class's real home, while runtime code constructs it via the
+        # `docx.Document()` factory.
+        self.doc: Document | None = None
         self.styles = StyleManager()
         self.text = TextFormatter()
 
