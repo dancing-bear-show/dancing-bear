@@ -12,6 +12,8 @@
 #     |
 #   fix-aggregate                (merges per-thread results; flags missing ones)
 #     |
+#   commit-and-push               (commits and pushes fixer edits before anything downstream
+#     |                            describes or verifies them — see its description for why)
 #   verify-fixes
 #     |
 #   check-prose
@@ -367,16 +369,115 @@ stages:
       - fix-results.json
 
   # ===========================================================================
+  # Commit and push — before anything downstream describes or tests the fixes
+  # ===========================================================================
+
+  - name: commit-and-push
+    kind: publish
+    executor: inline
+    depends_on: [fix-aggregate]
+    reads_from: [fix-aggregate, init]
+    description: >
+      Commit and push every fixer's file edits before verify-fixes tests them
+      or update-pr-description describes them. Without this stage, both of
+      those run against whatever happens to be in the working tree: verify-fixes
+      would test an uncommitted state that a later `git checkout` or a second
+      run could discard, and update-pr-description would describe changes that
+      are not yet visible to anyone looking at the PR on GitHub. A reply posted
+      by resolve-threads later in this same run must be able to say "changed
+      X" and have that be true on the remote branch, not just true on this
+      machine's disk.
+
+      Step 1 — read {workspace}/outputs/fix-results.json. If files_changed is
+      empty (every thread was "rejected" or "moot", so nothing touched the
+      tree), write {workspace}/outputs/commit-result.json with
+      {"committed": false, "reason": "no files changed", "sha": null} and stop
+      here — an empty commit is not a valid outcome and `git commit` with
+      nothing staged exits non-zero.
+
+      Step 2 — read {workspace}/outputs/pr-context.json (written by init) to
+      get head_branch, then confirm the local checkout is still on it (init
+      already verified this once; re-check here since Step 4 is about to push
+      to it):
+        git branch --show-current
+      If the current branch does not match pr-context.json's head_branch,
+      write commit-result.json with {"committed": false, "reason": "branch
+      mismatch: expected <head_branch from pr-context.json>, on <current>",
+      "sha": null}, report this stage as failed, and exit non-zero — pushing
+      fixer edits to the wrong branch is unrecoverable by any later stage.
+
+      Step 3 — stage exactly the files fix-results.json lists in
+      files_changed, by name. Never `git add -A` or `git add .`: a fixer only
+      has license to touch the file its thread was anchored to, and staging
+      everything would also pick up unrelated dirty files left by another
+      process on this machine (this workflow shares a checkout with concurrent
+      Claude sessions):
+        git add <file1> <file2> ...
+      Verify nothing else is staged:
+        git status --short
+      If any staged path is not in files_changed, unstage it
+      (`git restore --staged <path>`) and record it in commit-result.json's
+      "unexpected_staged" list — do not silently commit a file no thread
+      claimed to touch.
+
+      Step 4 — commit with a message summarizing the threads addressed (one
+      line per thread, from fix-results.json's per-thread summary field), then
+      push to the head_branch value read from pr-context.json in Step 2 (never
+      a hardcoded branch name):
+        git commit -m "<summary derived from fix-results.json>"
+        git push origin <head_branch from pr-context.json>
+
+      If the push is rejected (e.g. the remote advanced), do not force-push
+      and do not rebase. Write commit-result.json with
+      {"committed": true, "pushed": false, "reason": "<git's rejection
+      message>", "sha": "<local commit sha>"}, report this stage as failed,
+      and exit non-zero — verify-fixes must not test a commit that never
+      reached the remote the PR actually points at.
+
+      Step 5 — verify the push landed by comparing the local HEAD sha against
+      the PR's head sha:
+        git rev-parse HEAD
+        GITHUB_TOKEN= gh pr view {pr_number} --json headRefOid -q .headRefOid
+      They must match. If they do not, write commit-result.json with
+      "pushed": false and the mismatch, report failed, exit non-zero.
+
+      Write {workspace}/outputs/commit-result.json. files_committed must be
+      exactly the list staged in Step 3 (fix-results.json's files_changed),
+      not a fixed example — a run touching several threads across several
+      files commits all of them in one push:
+        {
+          "committed": true,
+          "pushed": true,
+          "sha": "<commit sha>",
+          "files_committed": ["workflows/code/review-fix-threads.yaml",
+            "workflows/resume/consolidate-schema.yaml"],
+          "unexpected_staged": [],
+          "reason": null
+        }
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - commit-result.json
+
+  # ===========================================================================
   # Verify
   # ===========================================================================
 
   - name: verify-fixes
     kind: execute
-    depends_on: [fix-aggregate]
-    reads_from: [fix-aggregate, triage-threads]
+    depends_on: [commit-and-push]
+    reads_from: [fix-aggregate, triage-threads, commit-and-push]
     description: >
       Confirm the aggregate of all fixes leaves the tree green. Individual
       fixers ran narrow tests; this stage owns the full run.
+
+      This runs after commit-and-push, so the tree under test is the pushed
+      state — not a working-tree copy that a concurrent process on this
+      machine could still be mutating.
 
       Step 1 — full test suite:
         {test_cmd}
