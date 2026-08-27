@@ -266,10 +266,22 @@ stages:
 
         Signal B — content in main (for branches with no PR or rebase-merged):
           If the branch has files not in main, check whether those file paths
-          exist at origin/main:
-            git ls-tree origin/main --name-only <path>
+          exist at origin/main. Options come BEFORE the tree-ish; anything
+          after it is a pathspec, so `ls-tree origin/main --name-only <path>`
+          asks git for a file literally named "--name-only":
+            git ls-tree --name-only origin/main -- <path>
+
+          Do NOT test presence by exit status. ls-tree exits 0 for a path that
+          does not exist in the tree, so `&&` on it always succeeds. Presence
+          is EMPTY vs NON-EMPTY output:
+            if [ -n "$(git ls-tree --name-only origin/main -- "$path")" ]; then
+              # path exists in main
+            fi
+          A cleaner single-path check is cat-file, which does use exit status:
+            git cat-file -e "origin/main:$path" 2>/dev/null
+
           For key files, compare content:
-            git show origin/main:<path> | diff - <local_path>
+            git show "origin/main:<path>" | diff - <local_path>
           Only flag as "content not in main" if files with meaningful content
           (>10 lines) are absent from main entirely.
 
@@ -648,16 +660,24 @@ stages:
       access: read-only
     description: >
       Present the deletion plan and require explicit approval before anything is
-      removed. The binding contract is in validation.criteria below.
+      removed. NOTE: kind:validate prompts are built by dispatch.py's _validate(),
+      which never reads stage.description — so every instruction that must reach
+      the agent lives in validation.criteria below, phrased as an action rather
+      than an assertion. This text is orientation for human readers only.
     human_gate: true
     depends_on: [report]
     reads_from: [report, cross-check]
     validation:
       strategy: deliverable
       criteria:
-        - User has reviewed the deletion plan
-        - User explicitly approves or rejects
-        - If dry_run is true, inform user nothing will be deleted regardless
+        - Read {workspace}/outputs/deletion-plan.md and display it to the user in full, including the per-branch evidence column
+        - Read {workspace}/validation/cross-check.json and display any finding whose status is FAIL or WARN
+        - State the exact counts before asking - how many branches, how many worktrees, how many orphaned directories are proposed for deletion
+        - State whether dry_run is true or false, and say plainly that dry_run=true deletes nothing regardless of the answer given
+        - List every branch carrying uncommitted WIP separately and prominently, because that work is unrecoverable once deleted
+        - Ask for explicit approval and wait - never infer approval from silence or from the absence of an objection
+        - Write the verbatim decision and its timestamp to {workspace}/validation/human-gate-decision.md
+        - If the user rejects or gives an ambiguous answer, record REJECTED - anything other than clear approval is a rejection
       max_revisions: 0
     required: true
     writes_to:
@@ -851,8 +871,28 @@ stages:
       Step 3 — record sizes BEFORE deleting, so the report is truthful:
           du -sk <worktree>/.venv
 
-      Step 4 — purge:
-          rm -rf <worktree>/.venv
+      Step 4 — purge. Same discipline as execute-deletions Step 3: this is a
+        recursive delete on a path assembled from a scan, so prove the target
+        is exactly a .venv directory inside the worktrees root before removing
+        it.
+
+          [ -n "$wt" ] || { echo "SKIP: empty worktree path"; continue; }
+          venv=$(realpath "$wt/.venv" 2>/dev/null) || { echo "SKIP: unresolvable"; continue; }
+
+          # Must be a real directory, not a symlink to one.
+          [ -d "$venv" ] && [ ! -L "$wt/.venv" ] || { echo "SKIP: not a real dir"; continue; }
+
+          # Must be named .venv, so a malformed $wt cannot redirect the delete.
+          [ "$(basename "$venv")" = ".venv" ] || { echo "SKIP: not a .venv: $venv"; continue; }
+
+          # Must resolve strictly inside the worktrees root.
+          root=$(realpath "$(git rev-parse --show-toplevel)/.claude/worktrees")
+          case "$venv" in
+            "$root"/?*) ;;
+            *) echo "SKIP: outside $root: $venv"; continue ;;
+          esac
+
+          rm -rf -- "$venv"
         A .venv is not tracked by git, so there is no branch or worktree state
         to update afterwards. Do NOT run git worktree prune here — nothing about
         the worktree registration changed.
