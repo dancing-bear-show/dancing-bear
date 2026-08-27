@@ -4,8 +4,6 @@ import unittest
 from datetime import timedelta
 from unittest import mock
 
-from telemetry.otel.cost_models import SessionCost
-
 from tests.telemetry_tests.otel_analytics._shared_helpers import (
     _make_cost_metrics,
     _make_perf,
@@ -19,11 +17,6 @@ from tests.telemetry_tests.otel_analytics._shared_helpers import (
 # ---------------------------------------------------------------------------
 
 class TestCompareSessions(unittest.TestCase):
-
-    def _get_mock_get_all_costs(self, sessions: list[SessionCost]):
-        mock_fn = mock.MagicMock()
-        mock_fn.return_value = _make_cost_metrics(sessions)
-        return mock_fn
 
     @mock.patch("telemetry.otel.analytics.compare.get_all_costs")
     def test_cost_delta_computed_correctly(self, mock_get_all_costs):

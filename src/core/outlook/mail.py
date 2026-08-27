@@ -301,16 +301,6 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
                 break
         return msgs
 
-    def get_attachments(
-        self: OutlookClientBase,
-        msg_id: str,
-    ) -> list[dict[str, Any]]:
-        """Return list of attachments for a message (includes contentBytes base64)."""
-        url = f"{GRAPH_API_URL}/me/messages/{msg_id}/attachments"
-        r = _requests().get(url, headers=self._headers())
-        r.raise_for_status()
-        return r.json().get("value", [])
-
     # -------------------- Signatures --------------------
     def list_signatures(self: OutlookClientBase) -> list[dict[str, Any]]:
         raise NotImplementedError("Outlook signatures are not available via Microsoft Graph API v1.0")

@@ -32,7 +32,7 @@ class TestXLSXParserWithMockWorkbook(TempDirMixin, unittest.TestCase):
         ws = MagicMock()
         # Header row: ws[1] → list of cells
         header_cells = [make_cell(h) for h in headers]
-        ws.__getitem__ = lambda self_ws, key: header_cells if key == 1 else []
+        ws.__getitem__ = lambda _ws, key: header_cells if key == 1 else []
 
         # iter_rows(min_row=2) → list of cell tuples per row
         rows = []

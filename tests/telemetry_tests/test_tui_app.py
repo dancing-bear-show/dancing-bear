@@ -314,7 +314,7 @@ class TestRefreshTipsTableDedup(unittest.TestCase):
         return tbl, empty_panel
 
     def _query_one_side_effect(self, tbl, empty_panel):
-        def _qone(selector, widget_type=None):
+        def _qone(selector, _widget_type=None):
             if selector == "#tips-table":
                 return tbl
             if selector == "#tips-empty":

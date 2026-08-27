@@ -21,24 +21,6 @@ from tests.workflow_tests.helpers.factories import (
 # ---------------------------------------------------------------------------
 
 
-def _group_of(parallel_groups: tuple, stage: str) -> int | None:
-    """Return the group index that contains `stage`, or None if not found."""
-    for i, g in enumerate(parallel_groups):
-        if stage in g:
-            return i
-    return None
-
-
-def _stages_before(parallel_groups: tuple, stage: str) -> set[str]:
-    """Return all stage names that appear in groups before the group containing `stage`."""
-    result: set[str] = set()
-    for g in parallel_groups:
-        if stage in g:
-            break
-        result.update(g)
-    return result
-
-
 def _make_linear_workflow() -> object:
     """Three stages A→B→C, each depending on the previous."""
     stage_a = make_stage_spec(name="a", kind=StageKind.gather)

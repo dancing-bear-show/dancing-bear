@@ -194,7 +194,7 @@ class TestPrepareWithLayoutMap(unittest.TestCase):
         slides_list = [mock_slide_0, mock_slide_1, mock_slide_2]
         mock_slides = MagicMock()
         mock_slides.__len__ = MagicMock(return_value=3)
-        mock_slides.__getitem__ = lambda self_inner, idx: slides_list[idx]
+        mock_slides.__getitem__ = lambda _s, idx: slides_list[idx]
 
         # Simulate _sldIdLst for deletion; __len__ must track the live list
         mock_sld_ids = []
@@ -204,7 +204,7 @@ class TestPrepareWithLayoutMap(unittest.TestCase):
             entry.rId = f"rId{i}"
             mock_sld_ids.append(entry)
         mock_slides._sldIdLst = mock_sld_ids
-        mock_slides.__len__ = lambda self_inner: len(mock_sld_ids)
+        mock_slides.__len__ = lambda _s: len(mock_sld_ids)
         mock_prs.slides = mock_slides
         mock_prs.part = MagicMock()
 
@@ -266,8 +266,8 @@ class TestPrepareWithLayoutMap(unittest.TestCase):
         mock_slide_0 = MagicMock(slide_layout=mock_layout_0)
         slides_list = [mock_slide_0]
         mock_slides = MagicMock()
-        mock_slides.__len__ = lambda self_inner: len(mock_sld_ids)
-        mock_slides.__getitem__ = lambda self_inner, idx: slides_list[idx]
+        mock_slides.__len__ = lambda _s: len(mock_sld_ids)
+        mock_slides.__getitem__ = lambda _s, idx: slides_list[idx]
 
         mock_sld_ids = []
         entry = MagicMock()
@@ -356,7 +356,7 @@ class TestGenerateWithLayoutMap(unittest.TestCase):
         slides_list = [mock_slide_0, mock_slide_1]
         mock_slides = MagicMock()
         mock_slides.__len__ = MagicMock(return_value=2)
-        mock_slides.__getitem__ = lambda self_inner, idx: slides_list[idx]
+        mock_slides.__getitem__ = lambda _s, idx: slides_list[idx]
 
         # _sldIdLst for deletion; __len__ must track the live list
         mock_sld_ids = []
@@ -366,7 +366,7 @@ class TestGenerateWithLayoutMap(unittest.TestCase):
             entry.rId = f"rId{i}"
             mock_sld_ids.append(entry)
         mock_slides._sldIdLst = mock_sld_ids
-        mock_slides.__len__ = lambda self_inner: len(mock_sld_ids)
+        mock_slides.__len__ = lambda _s: len(mock_sld_ids)
 
         # New slides added by generate()
         new_slide_1 = MagicMock()
