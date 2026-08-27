@@ -371,7 +371,7 @@ class TestOutlookRulesSyncProcessorSadPath(unittest.TestCase):
         self.assertIsNone(result.payload)
         self.assertEqual(result.diagnostics["code"], 2)
         self.assertIn("Auth failed", result.diagnostics["error"])
-        self.assertEqual(result.diagnostics["hint"], "Run outlook auth ensure")
+        self.assertEqual(result.diagnostics["hint"], "Run outlook auth.ensure")
 
     def test_label_id_map_failure_returns_error(self):
         mock_client = Mock()

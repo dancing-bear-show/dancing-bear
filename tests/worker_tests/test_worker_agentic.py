@@ -80,14 +80,9 @@ class TestWorkerMainAgentic(unittest.TestCase):
         self.assertEqual(rc, 0)
         # JSON output must be parseable
         output = buf.getvalue().strip()
-        self.assertTrue(len(output) > 0)
-        try:
-            parsed = json.loads(output)
-            self.assertIsInstance(parsed, dict)
-        except json.JSONDecodeError:
-            # Fallback capsule text is acceptable — it may not be JSON
-            # The important thing is exit 0 and non-empty output
-            pass
+        self.assertGreater(len(output), 0)
+        parsed = json.loads(output)
+        self.assertIsInstance(parsed, dict)
 
     def test_no_subcommand_preserves_legacy_exit_code(self):
         """The legacy no-subcommand exit code (1) must be unchanged."""

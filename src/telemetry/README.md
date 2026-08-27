@@ -2,7 +2,7 @@
 
 Claude Code session analysis: cost tracking, token usage, session browsing, transcript parsing, and OTEL integration. Entry point: `./bin/telemetry`.
 
-Does not support `--agentic`; discover subcommands with `./bin/telemetry --help`.
+Supports `--agentic`: `./bin/telemetry --agentic --agentic-format yaml --agentic-compact`.
 
 `telemetry live` needs Textual, which is an optional extra:
 

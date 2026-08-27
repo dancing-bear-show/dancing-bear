@@ -26,7 +26,7 @@ _COMMANDS: list[tuple[str, str]] = [
     ("session cost/token table", "./bin/telemetry sessions --since 7d"),
     ("per-agent breakdown", "./bin/telemetry agents --since 7d"),
     ("cost by agent or day", "./bin/telemetry cost --since 7d --group-by agent"),
-    ("classification rules", "./bin/telemetry rules --list"),
+    ("classification rules", "./bin/telemetry rules --validate"),
     ("pre-parse transcripts", "./bin/telemetry parse-transcripts --since 7d"),
     ("query local OTel data", "./bin/telemetry otel --help"),
 ]

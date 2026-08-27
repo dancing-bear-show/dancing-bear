@@ -12,7 +12,7 @@ Domain
 Sync Policy (Unified → Providers)
 - Plan before apply; prefer exact-match destructive syncs only with explicit review.
 - Gmail: `filters plan|sync` with optional `--delete-missing`.
-- Outlook: `outlook rules.plan` / `rules.sync`; prefer `--move-to-folders`, use `--categories-only` when required.
+- Outlook: `outlook rules.plan` / `outlook rules.sync`; prefer `--move-to-folders`, use `--categories-only` when required.
 - After applying, verify no drift by exporting/listing and comparing to derived outputs.
 
 Providers

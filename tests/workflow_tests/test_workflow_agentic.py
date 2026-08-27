@@ -85,13 +85,9 @@ class TestWorkflowMainAgentic(unittest.TestCase):
             rc = main(["--agentic", "--agentic-format", "json"])
         self.assertEqual(rc, 0)
         output = buf.getvalue().strip()
-        self.assertTrue(len(output) > 0)
-        try:
-            parsed = json.loads(output)
-            self.assertIsInstance(parsed, dict)
-        except json.JSONDecodeError:
-            # Fallback capsule text is acceptable; the important thing is exit 0
-            pass
+        self.assertGreater(len(output), 0)
+        parsed = json.loads(output)
+        self.assertIsInstance(parsed, dict)
 
     def test_no_subcommand_preserves_legacy_exit_code(self):
         """The legacy no-subcommand exit code (ExitCode.USAGE == 2) must be unchanged."""

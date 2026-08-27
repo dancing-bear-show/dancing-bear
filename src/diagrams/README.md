@@ -2,7 +2,7 @@
 
 Mermaid diagram generation from YAML specs or telemetry data. Entry point: `./bin/diagrams`.
 
-Does not support `--agentic`; discover subcommands with `./bin/diagrams --help`.
+Supports `--agentic`: `./bin/diagrams --agentic --agentic-format yaml --agentic-compact`.
 
 ## Key Commands
 

@@ -180,7 +180,7 @@ def _mail_flows() -> list[dict[str, Any]]:
             'tags': ['unified', 'derive', 'gmail', 'outlook', 'safe'],
             'requires': [["config", "derive", "filters"]],
             'commands': [
-                "./bin/mail-assistant config derive filters --out-gmail out/filters.gmail.from_unified.yaml --out-outlook out/filters.outlook.from_unified.yaml",
+                "./bin/mail-assistant config derive.filters --out-gmail ./filters.gmail.from_unified.yaml --out-outlook ./filters.outlook.from_unified.yaml",
             ],
             'notes': 'Reads ~/.config/dancing-bear/filters_unified.yaml unless --in is given.',
         },
@@ -190,7 +190,7 @@ def _mail_flows() -> list[dict[str, Any]]:
             'tags': ['labels', 'derive', 'gmail', 'outlook', 'safe'],
             'requires': [["config", "derive", "filters"], ["config", "derive", "labels"]],
             'commands': [
-                "./bin/mail-assistant config derive labels --out-gmail out/labels.gmail.from_unified.yaml --out-outlook out/labels.outlook.from_unified.yaml",
+                "./bin/mail-assistant config derive.labels --out-gmail ./labels.gmail.from_unified.yaml --out-outlook ./labels.outlook.from_unified.yaml",
             ],
         },
         {
@@ -199,9 +199,9 @@ def _mail_flows() -> list[dict[str, Any]]:
             'tags': ['gmail', 'filters', 'plan', 'apply', 'verify', 'safe'],
             'requires': [["filters", "plan"], ["filters", "sync"], ["filters", "export"]],
             'commands': [
-                "./bin/mail-assistant filters plan --config out/filters.gmail.from_unified.yaml --delete-missing",
-                "./bin/mail-assistant filters sync --config out/filters.gmail.from_unified.yaml --delete-missing",
-                "./bin/mail-assistant filters export --out out/filters.gmail.export.after.yaml",
+                "./bin/mail-assistant filters plan --config ./filters.gmail.from_unified.yaml --delete-missing",
+                "./bin/mail-assistant filters sync --config ./filters.gmail.from_unified.yaml --delete-missing",
+                "./bin/mail-assistant filters export --out ./filters.gmail.export.after.yaml",
             ],
             'notes': 'Always run plan first; delete-missing removes unmanaged rules.',
         },
@@ -211,9 +211,9 @@ def _mail_flows() -> list[dict[str, Any]]:
             'tags': ['outlook', 'rules', 'plan', 'apply', 'verify', 'safe'],
             'requires': [["outlook", "rules.plan"], ["outlook", "rules.sync"], ["outlook", "rules.list"]],
             'commands': [
-                "./bin/mail-assistant outlook rules plan --config out/filters.outlook.from_unified.yaml --move-to-folders",
-                "./bin/mail-assistant outlook rules sync --config out/filters.outlook.from_unified.yaml --move-to-folders --delete-missing",
-                "./bin/mail-assistant outlook rules list",
+                "./bin/mail-assistant outlook rules.plan --config ./filters.outlook.from_unified.yaml --move-to-folders",
+                "./bin/mail-assistant outlook rules.sync --config ./filters.outlook.from_unified.yaml --move-to-folders --delete-missing",
+                "./bin/mail-assistant outlook rules.list",
             ],
             'notes': 'Use --categories-only on plan/sync when folder moves are restricted.',
         },
@@ -223,7 +223,7 @@ def _mail_flows() -> list[dict[str, Any]]:
             'tags': ['gmail', 'filters', 'sweep', 'dry-run', 'safe'],
             'requires': [["filters", "sweep"]],
             'commands': [
-                "./bin/mail-assistant filters sweep --config out/filters.gmail.from_unified.yaml --days 90 --only-inbox --dry-run",
+                "./bin/mail-assistant filters sweep --config ./filters.gmail.from_unified.yaml --days 90 --only-inbox --dry-run",
             ],
         },
         {
@@ -232,7 +232,7 @@ def _mail_flows() -> list[dict[str, Any]]:
             'tags': ['gmail', 'filters', 'sweep', 'range', 'dry-run', 'safe'],
             'requires': [["filters", "sweep-range"]],
             'commands': [
-                "./bin/mail-assistant filters sweep-range --config out/filters.gmail.from_unified.yaml --from-days 0 --to-days 3650 --step-days 90 --dry-run",
+                "./bin/mail-assistant filters sweep-range --config ./filters.gmail.from_unified.yaml --from-days 0 --to-days 3650 --step-days 90 --dry-run",
             ],
         },
         {
@@ -243,7 +243,7 @@ def _mail_flows() -> list[dict[str, Any]]:
             'commands': [
                 "./bin/mail-assistant labels plan --config config/labels_current.yaml --delete-missing",
                 "./bin/mail-assistant labels sync --config config/labels_current.yaml --delete-missing",
-                "./bin/mail-assistant labels export --out out/labels.export.after.yaml",
+                "./bin/mail-assistant labels export --out ./labels.export.after.yaml",
             ],
             'notes': "Add --sweep-redirects to relabel old→new per 'redirects' then delete old.",
         },
@@ -264,9 +264,9 @@ def _mail_flows() -> list[dict[str, Any]]:
             'tags': ['outlook', 'categories', 'list', 'export', 'sync', 'safe'],
             'requires': [["outlook", "categories.list"], ["outlook", "categories.export"], ["outlook", "categories.sync"]],
             'commands': [
-                "./bin/mail-assistant outlook categories list",
-                "./bin/mail-assistant outlook categories export --out out/outlook.categories.export.yaml",
-                "./bin/mail-assistant outlook categories sync --config out/labels.outlook.from_unified.yaml",
+                "./bin/mail-assistant outlook categories.list",
+                "./bin/mail-assistant outlook categories.export --out ./outlook.categories.export.yaml",
+                "./bin/mail-assistant outlook categories.sync --config ./labels.outlook.from_unified.yaml",
             ],
         },
         {
@@ -275,7 +275,7 @@ def _mail_flows() -> list[dict[str, Any]]:
             'tags': ['outlook', 'folders', 'sync', 'safe'],
             'requires': [["outlook", "folders.sync"]],
             'commands': [
-                "./bin/mail-assistant outlook folders sync --config out/labels.outlook.from_unified.yaml --dry-run",
+                "./bin/mail-assistant outlook folders.sync --config ./labels.outlook.from_unified.yaml --dry-run",
             ],
         },
         {
@@ -298,7 +298,7 @@ def _mail_flows() -> list[dict[str, Any]]:
             'commands': [
                 "./bin/mail-assistant filters add-forward-by-label --label Finance/Statements --forward you@example.com --dry-run",
                 "# Enforce verified forwarders on sync:",
-                "./bin/mail-assistant filters sync --config out/filters.gmail.from_unified.yaml --require-forward-verified --dry-run",
+                "./bin/mail-assistant filters sync --config ./filters.gmail.from_unified.yaml --require-forward-verified --dry-run",
             ],
         },
         {

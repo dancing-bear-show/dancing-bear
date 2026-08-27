@@ -8,10 +8,10 @@ Overview
 
 Key Workflows
 - Plan before apply (prefer exact-match destructive syncs only after review):
-  - Gmail plan: `./bin/mail filters plan --config out/filters.gmail.from_unified.yaml --delete-missing`
-  - Outlook plan: `./bin/mail outlook rules.plan --config out/filters.outlook.from_unified.yaml --move-to-folders`
+  - Gmail plan: `./bin/mail filters plan --config ./filters.gmail.yaml --delete-missing`
+  - Outlook plan: `./bin/mail outlook rules.plan --config ./filters.outlook.yaml --move-to-folders`
 - Verify no drift after apply:
-  - Gmail: `filters export` and compare with `out/filters.gmail.from_unified.yaml`
+  - Gmail: `filters export` and compare with `./filters.gmail.yaml`
   - Outlook: `outlook rules.list` and spot-check against the derived Outlook filters YAML
 
 Auth & Profiles

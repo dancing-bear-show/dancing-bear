@@ -2,7 +2,7 @@
 
 Render time-series charts from JSON data: line, bar, area, and dual-axis. Entry point: `./bin/charts`.
 
-Does not support `--agentic`; discover subcommands with `./bin/charts --help`.
+Supports `--agentic`: `./bin/charts --agentic --agentic-format yaml --agentic-compact`.
 
 ## Key Commands
 
