@@ -3,8 +3,8 @@
 Rewritten against the dest CLIApp decorator pattern: source's
 SlidesCLI._cmd_generate bound method has no equivalent class here.
 slides.cli exposes a module-level cmd_generate(args) -> int function
-instead, plus a module-level _apply_layout_map(deck, cli_layout_map,
-exported_template) helper.
+instead, plus a module-level _apply_layout_map(deck, cli_layout_map)
+helper.
 
 SCOPE REDUCTION (per port-tests-cli stage spec): Google Drive/Slides
 integration (--from-deck, --upload, --profile, --title upload label,

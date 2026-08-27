@@ -186,7 +186,7 @@ class TestCommandDispatch(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# _apply_layout_map: exported_template sets deck.template_path (line 103)
+# _apply_layout_map: a CLI layout map overrides the deck's own
 # ---------------------------------------------------------------------------
 
 class TestApplyLayoutMap(unittest.TestCase):
