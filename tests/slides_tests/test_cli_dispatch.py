@@ -190,21 +190,7 @@ class TestCommandDispatch(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestApplyLayoutMap(unittest.TestCase):
-    """Tests for _apply_layout_map including the exported_template branch."""
-
-    def test_exported_template_sets_deck_template_path(self):
-        """_apply_layout_map sets deck.template_path when exported_template is provided."""
-        from slides.cli import _apply_layout_map
-        deck = argparse.Namespace(metadata=argparse.Namespace(layout_map=None), template_path=None)
-        _apply_layout_map(deck, None, exported_template="/new/template.pptx")
-        self.assertEqual(deck.template_path, "/new/template.pptx")
-
-    def test_no_exported_template_leaves_deck_template_path_unchanged(self):
-        """_apply_layout_map does not touch template_path when exported_template is falsy."""
-        from slides.cli import _apply_layout_map
-        deck = argparse.Namespace(metadata=argparse.Namespace(layout_map=None), template_path="/original.pptx")
-        _apply_layout_map(deck, None, exported_template=None)
-        self.assertEqual(deck.template_path, "/original.pptx")
+    """Tests for _apply_layout_map."""
 
     def test_cli_layout_map_overrides_deck_layout_map(self):
         """_apply_layout_map sets deck.metadata.layout_map when cli_layout_map is provided."""

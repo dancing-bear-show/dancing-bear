@@ -343,56 +343,25 @@ class TestCmdGenerateTemplateFromYaml(unittest.TestCase):
         mock_load_deck.assert_called_once_with("deck.yaml")
 
 
-class TestApplyLayoutMapAutoInference(unittest.TestCase):
-    """Tests for _apply_layout_map auto-inference path."""
+class TestApplyLayoutMap(unittest.TestCase):
+    """Tests for _apply_layout_map."""
 
-    @patch("slides.generator.SlideGenerator.infer_layout_map_from_template")
-    def test_cli_layout_map_overrides_all(self, mock_infer):
-        """_apply_layout_map sets layout_map from cli_layout_map and returns early."""
-        mock_deck = MagicMock()
-        mock_deck.metadata.layout_map = None
-
-        _apply_layout_map(
-            mock_deck,
-            cli_layout_map={"section": 0, "bullet": 1},
-            exported_template=None,
-        )
-
-        self.assertEqual(mock_deck.metadata.layout_map, {"section": 0, "bullet": 1})
-        mock_infer.assert_not_called()
-
-    @patch("slides.generator.SlideGenerator.infer_layout_map_from_template")
-    def test_auto_inference_skips_when_no_exported_template(self, mock_infer):
-        """_apply_layout_map does not call infer when exported_template is None.
-
-        No --from-deck flag exists on the rewritten CLI, so exported_template
-        is always None in practice; this test still exercises the guard
-        clause in _apply_layout_map's implementation.
-        """
-        mock_deck = MagicMock()
-        mock_deck.metadata.layout_map = None
-
-        _apply_layout_map(
-            mock_deck,
-            cli_layout_map=None,
-            exported_template=None,
-        )
-
-        mock_infer.assert_not_called()
-
-    @patch("slides.generator.SlideGenerator.infer_layout_map_from_template")
-    def test_auto_inference_skips_when_deck_already_has_layout_map(self, mock_infer):
-        """_apply_layout_map does not infer when deck.metadata.layout_map is set."""
+    def test_cli_layout_map_overrides_yaml_value(self):
+        """A --layout-map value replaces whatever the deck YAML declared."""
         mock_deck = MagicMock()
         mock_deck.metadata.layout_map = {"existing": 5}
 
-        _apply_layout_map(
-            mock_deck,
-            cli_layout_map=None,
-            exported_template=None,
-        )
+        _apply_layout_map(mock_deck, cli_layout_map={"section": 0, "bullet": 1})
 
-        mock_infer.assert_not_called()
+        self.assertEqual(mock_deck.metadata.layout_map, {"section": 0, "bullet": 1})
+
+    def test_none_leaves_deck_layout_map_untouched(self):
+        """Without --layout-map the deck's own layout_map survives unchanged."""
+        mock_deck = MagicMock()
+        mock_deck.metadata.layout_map = {"existing": 5}
+
+        _apply_layout_map(mock_deck, cli_layout_map=None)
+
         self.assertEqual(mock_deck.metadata.layout_map, {"existing": 5})
 
 
@@ -446,35 +415,6 @@ class TestCmdGenerateLayoutMapParseError(unittest.TestCase):
         result = cmd_generate(args)
 
         self.assertEqual(result, 1)
-
-
-class TestCmdGenerateApplyLayoutMapException(unittest.TestCase):
-    """Tests for cmd_generate _apply_layout_map exception warning path."""
-
-    @patch("slides.generator.SlideGenerator.generate")
-    @patch("slides.cli.load_deck_from_yaml")
-    @patch("slides.cli.Path")
-    def test_apply_layout_map_exception_does_not_block_generation(
-        self, mock_path_class, mock_load_deck, mock_gen
-    ):
-        """cmd_generate calls generate even when _apply_layout_map raises."""
-        mock_path_class.return_value.exists.return_value = True
-        mock_deck = MagicMock()
-        mock_deck.metadata.layout_map = None
-        mock_deck.template_path = None
-        mock_load_deck.return_value = mock_deck
-        mock_gen.return_value = TEST_OUTPUT_PATH
-
-        args = _make_generate_args(
-            output=TEST_OUTPUT_PATH,
-            template=TEST_TEMPLATE_PATH,
-        )
-
-        with patch("slides.cli._apply_layout_map", side_effect=RuntimeError("boom")):
-            result = cmd_generate(args)
-
-        self.assertEqual(result, 0)
-        mock_gen.assert_called_once_with(mock_deck, TEST_OUTPUT_PATH)
 
 
 if __name__ == "__main__":

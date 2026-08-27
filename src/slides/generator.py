@@ -163,6 +163,13 @@ class SlideGenerator(ShapeUtilsMixin, StylingMixin, TableMixin, ContentMixin, Im
     def infer_layout_map_from_template(pptx_path: str) -> dict[str, int] | None:
         """Infer a layout_map from a template .pptx.
 
+        No CLI path reaches this today. Its only caller was the Google Drive
+        export flow (--from-deck), which the slides port (#224) deliberately
+        left out of scope; tests/slides_tests/test_cli_dispatch.py asserts that
+        flag stays absent. The logic itself reads a local template and is fully
+        tested, so it is kept as the library entry point a future
+        --infer-layout-map flag would call rather than deleted and rewritten.
+
         Examines the slide master's named layouts first (preferred — works
         regardless of how many slides the template has), then falls back to
         scanning template slides by index for templates that don't use named
