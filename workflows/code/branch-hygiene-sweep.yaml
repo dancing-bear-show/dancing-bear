@@ -235,7 +235,10 @@ stages:
 
           GOTCHA 3b — rebase-merged PRs: a rebase merge rewrites commits so
           the mergeCommit SHA is not an ancestor of main. Exit 1 does NOT mean
-          unmerged. Fall back to Signal C.
+          unmerged. Fall back to Signal B (content comparison), NOT Signal C.
+          Signal C counts log commits, which a rebase or squash rewrites by
+          definition — it cannot distinguish "rebase-merged" from "never
+          merged" and would send every rebase-merged branch to HAS_UNIQUE_WORK.
 
         Signal B — content in main (for branches with no PR or rebase-merged):
           If the branch has files not in main, check whether those file paths
