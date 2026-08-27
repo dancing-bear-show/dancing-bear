@@ -115,16 +115,14 @@ stages:
         the errors and continue — do not abort; report in scan-results.md.
 
       Step 2 — Lint (qlty + ruff):
-        FIRST check whether qlty can even see this checkout. `.qlty/qlty.toml`
-        excludes `**/.claude/**`, so a worktree under `.claude/worktrees/`
-        scans ZERO files while printing "✔ No issues" — a false clean that is
-        indistinguishable from a real pass.
-          pwd
-        If the path contains `/.claude/`, do NOT run qlty. Record
-        "UNAVAILABLE: worktree under .claude/ is excluded by qlty.toml; the
-        CI qlty job covers this" and rely on ruff below plus the CI check.
-        Otherwise:
-          ~/.qlty/bin/qlty check {source_root}
+        qlty scans correctly from an agent worktree — the exclusion was narrowed
+        to `**/.claude/worktrees/**`, which only takes effect when scanning from
+        the main checkout. Run it:
+          ~/.qlty/bin/qlty check --all {source_root}
+        Pass `--all`: `qlty check` defaults to changed files only, so on a clean
+        branch it prints "✔ No issues" whether or not anything was scanned. If
+        the result is implausibly empty, treat that as a broken environment and
+        record UNAVAILABLE with what you observed — do not record PASS.
           Fix any reported issues using Edit tool on individual files.
           After fixes, re-run qlty to confirm clean.
 
@@ -173,7 +171,7 @@ stages:
 
         qlty status: PASS|FAIL|UNAVAILABLE
         qlty exit: 0|non-zero|n/a
-        [if UNAVAILABLE, state why — e.g. worktree under .claude/ is excluded]
+        [if UNAVAILABLE, state why — e.g. the binary is missing, or the scan returned an implausibly empty result]
 
         ruff (make lint) status: PASS|FAIL
         ruff exit: 0|non-zero

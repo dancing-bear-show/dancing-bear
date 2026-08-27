@@ -150,11 +150,12 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
   "command not found", and a `pip install ruff` would drift from the version CI
   enforces. `bin/ruff-resolve.sh` resolves the qlty-pinned build (override with
   `RUFF_BIN=`), and `make lint` wraps it over `src/`, `tests/`, and `bin/`
-- This matters because the two obvious fallbacks both **fail silently**: a bare
-  `ruff` may not exist, and `qlty check` inside `.claude/worktrees/` scans zero
-  files while printing "✔ No issues". Neither absence is a passing lint
-- If the tool cache is cold, run any `~/.qlty/bin/qlty check` once from outside
-  `.claude/` to populate it, then `make lint`
+- This matters because a bare `ruff` may not exist, and a missing tool is not a
+  passing lint. (The companion trap — `qlty check` in a worktree silently
+  scanning zero files — was fixed by narrowing the exclusion to
+  `**/.claude/worktrees/**`; see the qlty section above.)
+- If the tool cache is cold, run any `~/.qlty/bin/qlty check` once to populate
+  it, then `make lint`
 - Suppression codes are linter-specific: `# noqa:` takes ruff codes (`F401`,
   `S602`), `# NOSONAR` takes SonarQube codes (`S3776`, `S3516`). A SonarQube code
   in a `# noqa:` suppresses nothing and makes ruff warn on every run

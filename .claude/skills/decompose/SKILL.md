@@ -193,8 +193,9 @@ DOMAINS=<domain> PYTHONPATH="$PWD/src" python3 workflows/code/scripts/detect_fac
 find src/<domain>/ -name "*.py" | xargs wc -l | sort -rn | head -10
 ```
 
-Do NOT run `qlty check` from a worktree under `.claude/` — it is excluded there
-and prints a false "✔ No issues" while scanning zero files.
+Run `qlty check --all` — it works from a worktree now (the exclusion was
+narrowed to `**/.claude/worktrees/**`). `--all` matters because the default is
+changed-files-only, which prints "✔ No issues" on a clean branch regardless.
 
 ## Step 5: Report
 
@@ -223,7 +224,7 @@ For multi-file decomposition, spawn one `code-writer` agent per file in a single
 - **Missing non-Python references**: `mock.patch()` target strings, `concerns/*.md` "when loaded" triggers, and README module lists break silently — tests stay green while the concerns guide stops firing
 - **Duplicating code**: shared helpers go into one submodule, not copied into each
 - **Duplicating test bodies**: when splitting a test file, each test must live in exactly one file — copying full method bodies into several files makes them run twice
-- **False-green verification**: bare `python3 -m unittest` in a worktree resolves to the main checkout; `qlty check` under `.claude/` scans zero files. Neither absence is a pass
+- **False-green verification**: bare `python3 -m unittest` in a worktree resolves to the main checkout — a missing tool or an unscanned tree is not a pass. (The `qlty check` half of this trap is fixed; worktrees now scan.)
 - **Losing coverage**: run the test suite before and after; coverage must not drop
 - **Renaming test classes**: keep class names identical in the new files (preserves git blame)
 - **Touching bin/\***: entry point wrappers are public API — never move or rename them

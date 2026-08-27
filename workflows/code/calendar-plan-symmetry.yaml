@@ -800,10 +800,10 @@ stages:
       mechanical (import order, formatting).
 
       1. Lint: run `make lint`. Do NOT run bare `ruff check` — there is no ruff
-         on PATH; CI lints through qlty's pinned build. Do NOT trust
-         `qlty check` run from inside .claude/worktrees/: qlty.toml excludes
-         **/.claude/**, so it scans zero files while printing "No issues".
-         An empty result from this worktree means excluded, not clean.
+         on PATH; CI lints through qlty's pinned build. `qlty check --all`
+         works from inside a worktree now — the exclusion was narrowed to
+         **/.claude/worktrees/**. Pass --all: the default is
+         changed-files-only and prints "No issues" on a clean branch either way.
 
       2. Tests: `make test` (never bare python3 -m unittest — see G3).
 

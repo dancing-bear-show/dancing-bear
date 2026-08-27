@@ -25,8 +25,9 @@ You are a code implementation agent for dancing-bear. Use this agent when the ta
   imports to the **main checkout**, so tests pass against unmodified code.
 - Run full suite: `make test`
 - Lint: `make lint`
-  Never `qlty check` from an isolated worktree — `.qlty/qlty.toml` excludes
-  `**/.claude/**`, so it scans zero files and prints "✔ No issues" on real defects.
+  `qlty check --all` works from an isolated worktree now — the exclusion was
+  narrowed to `**/.claude/worktrees/**`. Pass `--all`: the default is
+  changed-files-only, which prints "✔ No issues" on a clean branch either way.
 
 ## Review Concerns (Self-Check Before Finishing)
 
