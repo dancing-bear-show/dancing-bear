@@ -243,6 +243,80 @@ class TestAlternateSpellings(RoundTripMixin, unittest.TestCase):
         self.assertEqual(resume.certifications[0].name, "CKAD")
 
 
+class TestSectionSpecificNameSpellings(RoundTripMixin, unittest.TestCase):
+    """Domain name keys the DOCX renderers accept must resolve to ``.name``.
+
+    ``docx_sections_simple.py`` reads languages by ``name|language|title``,
+    coursework by ``name|course|title``, and certifications by
+    ``name|title|cert``. A spelling the renderer honours but the schema does
+    not would resolve to an empty ``name`` and render as nothing -- silent
+    data loss for an entry the dict renderer displays correctly.
+    """
+
+    def test_language_spelling_resolves_to_name(self):
+        data = {"languages": [{"language": "Spanish", "level": "native"}]}
+        resume = self.assert_round_trips(data)
+        self.assertEqual(resume.languages[0].name, "Spanish")
+
+    def test_language_spelling_replays_as_language_not_name(self):
+        emitted = Resume.from_dict(
+            {"languages": [{"language": "Spanish"}]}
+        ).to_dict()["languages"][0]
+        self.assertIn("language", emitted)
+        self.assertNotIn("name", emitted)
+
+    def test_course_spelling_resolves_to_name(self):
+        data = {"coursework": [{"course": "Distributed Systems"}]}
+        resume = self.assert_round_trips(data)
+        self.assertEqual(resume.coursework[0].name, "Distributed Systems")
+
+    def test_course_spelling_replays_as_course_not_name(self):
+        emitted = Resume.from_dict({"coursework": [{"course": "Compilers"}]}).to_dict()[
+            "coursework"
+        ][0]
+        self.assertIn("course", emitted)
+        self.assertNotIn("name", emitted)
+
+    def test_cert_spelling_resolves_to_name(self):
+        data = {"certifications": [{"cert": "CKAD", "year": "2024"}]}
+        resume = self.assert_round_trips(data)
+        self.assertEqual(resume.certifications[0].name, "CKAD")
+
+    def test_cert_spelling_replays_as_cert_not_name(self):
+        emitted = Resume.from_dict({"certifications": [{"cert": "CKAD"}]}).to_dict()[
+            "certifications"
+        ][0]
+        self.assertIn("cert", emitted)
+        self.assertNotIn("name", emitted)
+
+    def test_canonical_name_still_wins_over_domain_spelling(self):
+        """``name`` is first in every tuple, so it takes precedence."""
+        data = {"languages": [{"name": "Spanish", "language": "ignored"}]}
+        resume = self.assert_round_trips(data)
+        self.assertEqual(resume.languages[0].name, "Spanish")
+
+    def test_domain_spellings_are_scoped_to_their_own_section(self):
+        """The new aliases are per-class, not a widening of ``_NAME_KEYS``.
+
+        ``course`` must not name a certification, ``cert`` must not name a
+        coursework entry, and ``language`` must not name a skills-group item.
+        Each unrecognised key still survives verbatim via ``extra``.
+        """
+        for section, item in (
+            ("certifications", {"course": "Distributed Systems"}),
+            ("coursework", {"cert": "CKAD"}),
+        ):
+            with self.subTest(section=section):
+                data = {section: [item]}
+                resume = self.assert_round_trips(data)
+                self.assertEqual(getattr(resume, section)[0].name, "")
+
+    def test_language_is_not_a_skills_group_item_spelling(self):
+        data = {"skills_groups": [{"title": "G", "items": [{"language": "X"}]}]}
+        resume = self.assert_round_trips(data)
+        self.assertEqual(resume.skills_groups[0].items[0].name, "")
+
+
 class TestLegacyUpgrades(unittest.TestCase):
     """The two documented one-directional upgrades."""
 

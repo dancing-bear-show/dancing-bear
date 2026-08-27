@@ -60,6 +60,8 @@ __all__ = [
     "SkillGroup",
     "NamedLevelItem",
     "NamedDescItem",
+    "CourseworkItem",
+    "CertificationItem",
     "Education",
     "Presentation",
     "ExperienceEntry",
@@ -76,6 +78,16 @@ CandidateData = dict[str, Any]
 # field names. Order matters: the first key present in the input wins.
 _TEXT_KEYS = ("text", "line", "name")
 _NAME_KEYS = ("name", "title", "label")
+
+# Section-specific name spellings. The DOCX renderers accept a domain-specific
+# key per section (docx_sections_simple.py), and each tuple below mirrors that
+# renderer's own ``name_keys`` for the section, extended with ``label`` for
+# consistency with _NAME_KEYS. They are deliberately NOT folded into
+# _NAME_KEYS: that would make "language" a valid name for a skills-group item,
+# and would let a certification be named by "course".
+_LANGUAGE_NAME_KEYS = ("name", "language", "title", "label")
+_COURSEWORK_NAME_KEYS = ("name", "course", "title", "label")
+_CERTIFICATION_NAME_KEYS = ("name", "title", "label", "cert")
 
 # Marker prefix recording which alternate spelling a field arrived under, so
 # to_dict can replay the original key rather than the canonical one.
@@ -282,22 +294,56 @@ class SkillGroup(_Item):
 
 @dataclass
 class NamedLevelItem(_Item):
-    """A ``languages`` entry."""
+    """A ``languages`` entry.
+
+    Accepts ``language`` as a name spelling, matching
+    ``LanguagesSectionRenderer``. Without it a ``{"language": "Spanish"}``
+    entry resolves to an empty ``name`` and renders as nothing.
+    """
 
     name: str = ""
     level: str = ""
 
-    _ALIASES: ClassVar[dict[str, tuple[str, ...]]] = {"name": _NAME_KEYS}
+    _ALIASES: ClassVar[dict[str, tuple[str, ...]]] = {"name": _LANGUAGE_NAME_KEYS}
 
 
 @dataclass
 class NamedDescItem(_Item):
-    """A ``coursework`` or ``certifications`` entry."""
+    """Base for the ``name``/``desc`` sections.
+
+    Subclassed rather than used directly for ``coursework`` and
+    ``certifications``, because those two renderers accept *disjoint* domain
+    keys. It remains the declared type of both sections' items, so an
+    ``isinstance`` check against it still matches either.
+    """
 
     name: str = ""
     desc: str = ""
 
     _ALIASES: ClassVar[dict[str, tuple[str, ...]]] = {"name": _NAME_KEYS}
+
+
+@dataclass
+class CourseworkItem(NamedDescItem):
+    """A ``coursework`` entry.
+
+    Accepts ``course``, matching ``CourseworkSectionRenderer``. Kept distinct
+    from :class:`CertificationItem` because a single shared tuple would invent
+    aliases neither renderer honours: coursework never accepts ``cert``, and
+    certifications never accept ``course``.
+    """
+
+    _ALIASES: ClassVar[dict[str, tuple[str, ...]]] = {"name": _COURSEWORK_NAME_KEYS}
+
+
+@dataclass
+class CertificationItem(NamedDescItem):
+    """A ``certifications`` entry.
+
+    Accepts ``cert``, matching ``CertificationsSectionRenderer``.
+    """
+
+    _ALIASES: ClassVar[dict[str, tuple[str, ...]]] = {"name": _CERTIFICATION_NAME_KEYS}
 
 
 @dataclass
@@ -358,8 +404,8 @@ _LIST_ITEM_TYPES: dict[str, type[_Item]] = {
     "presentations": Presentation,
     "technologies": SkillGroupItem,
     "languages": NamedLevelItem,
-    "coursework": NamedDescItem,
-    "certifications": NamedDescItem,
+    "coursework": CourseworkItem,
+    "certifications": CertificationItem,
     "education": Education,
 }
 
@@ -415,8 +461,8 @@ class Resume(_Item):
     # priority-filterable, empty in current production data
     technologies: list[SkillGroupItem] = field(default_factory=list)
     languages: list[NamedLevelItem] = field(default_factory=list)
-    coursework: list[NamedDescItem] = field(default_factory=list)
-    certifications: list[NamedDescItem] = field(default_factory=list)
+    coursework: list[CourseworkItem] = field(default_factory=list)
+    certifications: list[CertificationItem] = field(default_factory=list)
 
     education: list[Education] = field(default_factory=list)
 
