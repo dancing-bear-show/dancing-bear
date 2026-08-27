@@ -34,15 +34,20 @@ You are a test specialist for dancing-bear. You write, expand, and refactor test
 ## After Writing Tests
 
 ```bash
-# Run domain tests
+# Run domain tests — PYTHONPATH is REQUIRED, never run this bare
 PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/<domain>_tests/ -t . -v
 
-# Full suite
+# Full suite (pins PYTHONPATH itself — always prefer it)
 make test
 
 # With coverage
 make cov
 ```
+
+Never bare `python3 -m unittest` / `coverage run -m unittest`. In a worktree an
+inherited PYTHONPATH resolves imports to the **main checkout**, so your new tests
+run against unmodified code and pass. That false green looks identical to a real
+one, and only turns red once a newly added module is imported by name.
 
 ## Anti-Patterns (Never Do These)
 

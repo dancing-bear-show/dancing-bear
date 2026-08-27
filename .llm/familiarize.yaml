@@ -3,6 +3,6 @@ meta:
   name: assistants_familiarize
   version: 4
 steps:
-  - run: ./bin/llm agentic --stdout
+  - run: ./bin/llm agentic --stdout --compact
   - run: ./bin/llm --app calendar agentic --stdout || true
   - run: ./bin/llm --app schedule agentic --stdout || true

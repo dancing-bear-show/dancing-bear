@@ -20,10 +20,6 @@ def _always_pass(changes, baseline):
     return "always_pass", []
 
 
-def _always_fail(changes, baseline):
-    return "always_fail", [{"item": c} for c in changes]
-
-
 def _raises(changes, baseline):
     raise ValueError("boom")
 

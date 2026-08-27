@@ -40,17 +40,6 @@ def _raw_spec(kind: str = "line") -> dict:
     }
 
 
-def _raw_spec_two_series() -> dict:
-    return {
-        "title": "Multi",
-        "x_field": "ts",
-        "series": [
-            {"name": "s1", "data": [{"ts": "A", "value": 1.0}]},
-            {"name": "s2", "data": [{"ts": "B", "value": 2.5}]},
-        ],
-    }
-
-
 # ---------------------------------------------------------------------------
 # reshape.json_to_spec — happy paths
 # ---------------------------------------------------------------------------

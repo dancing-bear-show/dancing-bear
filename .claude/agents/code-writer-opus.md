@@ -20,9 +20,13 @@ You are a code implementation agent for dancing-bear. Use this agent when the ta
 
 ## After Making Changes
 
-- Run domain tests: `python3 -m unittest discover tests/<domain>_tests/ -v`
+- Run domain tests: `PYTHONPATH="$PWD/src" python3 -m unittest discover tests/<domain>_tests/ -v`
+  Never bare `python3 -m unittest` — in a worktree an inherited PYTHONPATH resolves
+  imports to the **main checkout**, so tests pass against unmodified code.
 - Run full suite: `make test`
-- Lint: `~/.qlty/bin/qlty check path/to/file.py`
+- Lint: `make lint`
+  Never `qlty check` from an isolated worktree — `.qlty/qlty.toml` excludes
+  `**/.claude/**`, so it scans zero files and prints "✔ No issues" on real defects.
 
 ## Review Concerns (Self-Check Before Finishing)
 

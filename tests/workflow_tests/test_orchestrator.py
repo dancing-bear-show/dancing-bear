@@ -67,31 +67,6 @@ def _make_success_dispatcher(stage_names: tuple[str, ...]) -> MagicMock:
     return dispatcher
 
 
-def _make_failing_dispatcher(fail_name: str) -> MagicMock:
-    """Return a dispatcher mock that fails for *fail_name* and succeeds for others."""
-    dispatcher = MagicMock()
-
-    def _dispatch_group(stages, workspace_dir):
-        results = {}
-        for stage in stages:
-            if stage.spec.name == fail_name:
-                results[stage.spec.name] = make_stage_result(
-                    stage_name=stage.spec.name,
-                    stage_index=stage.index,
-                    status=StageStatus.failed,
-                    errors=[f"Stage {fail_name} failed"],
-                )
-            else:
-                results[stage.spec.name] = make_stage_result(
-                    stage_name=stage.spec.name,
-                    stage_index=stage.index,
-                    status=StageStatus.success,
-                )
-        return results
-
-    dispatcher.dispatch_group.side_effect = _dispatch_group
-    return dispatcher
-
 
 def _make_orch(
     manifest,

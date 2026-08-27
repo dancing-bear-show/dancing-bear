@@ -233,12 +233,15 @@ class TestFamiliarContent(unittest.TestCase):
         self.assertIn('agent_note:', content)
         self.assertIn('skip_paths:', content)
         self.assertIn('heavy_files:', content)
+        # The prescribed step must stay compact: the uncompacted capsule inlines
+        # CONTEXT.md/MIGRATION_STATE.md/PATTERNS.md/AGENTS.md (~38KB vs ~2KB).
+        self.assertIn('./bin/llm agentic --stdout --compact', content)
 
     def test_non_verbose(self):
         content = _familiar_content(verbose=False, compact=False)
         self.assertIn('agent_note:', content)
         self.assertIn('steps:', content)
-        self.assertIn('./bin/llm agentic --stdout', content)
+        self.assertIn('./bin/llm agentic --stdout --compact', content)
         # Should not include extended commands
         self.assertNotIn('resume', content)
 
