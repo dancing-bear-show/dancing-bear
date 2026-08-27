@@ -69,11 +69,23 @@ description: >
   normally launched with `claude -w`, so an isolated session is the default
   case, not an edge case.
 
-  Two ways to satisfy the precondition:
-    - launch the session without `-w`, so spawned stages are not isolated; or
-    - have the orchestrator execute the git-reading stages itself rather than
-      delegating them, which is what the /workflow skill does for stages
-      marked `executor: inline`.
+  How to satisfy it:
+    - Launch the session without `-w`, so spawned stages do not inherit
+      isolation. This is the only option that works as this file stands, and
+      it works under both runners.
+
+  There is a second approach, but it is not available without changing this
+  file and choosing the runner deliberately: mark the git-reading stages
+  `executor: inline` so the orchestrator runs them itself instead of spawning
+  agents. No stage here is marked inline today, and `executor: inline` is
+  supported ONLY by the Claude /workflow skill — `./bin/workflow run` raises
+  NotImplementedError on it ("the Python dispatcher does not implement inline
+  execution"). Adopting it therefore means editing these stages AND running
+  through the skill; under ./bin/workflow run it fails outright.
+
+  This is how the first real run of this workflow was completed: the stages
+  were executed inline by the orchestrator after the spawned gather-inventory
+  agent failed on isolation.
 
   ISOLATION NOTE: Agents in this workflow must NOT use isolation: worktree.
   An isolated worktree cannot see the parent checkout's branches, reflog, or
