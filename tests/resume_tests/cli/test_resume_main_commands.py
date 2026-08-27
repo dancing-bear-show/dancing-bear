@@ -7,6 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from resume.schema import Resume
+
 
 class TestStructureHelpersRealFiles(unittest.TestCase):
     """Real-filesystem coverage for structure helpers.
@@ -509,10 +511,14 @@ class TestResumeCommands(unittest.TestCase):
 
         mock_read.return_value = {"name": "Test"}
         mock_pipeline = MagicMock()
+        # Every builder must return the same mock, or the chain falls off onto
+        # an auto-created child and the execute() stub below is never reached.
         mock_pipeline.with_profile_overlays.return_value = mock_pipeline
         mock_pipeline.with_skill_filter.return_value = mock_pipeline
         mock_pipeline.with_experience_filter.return_value = mock_pipeline
-        mock_pipeline.execute.return_value = {"name": "Test"}
+        mock_pipeline.with_priority_filter.return_value = mock_pipeline
+        # execute() returns a Resume; the caller lowers it back with to_dict().
+        mock_pipeline.execute.return_value = Resume.from_dict({"name": "Test"})
         mock_pipeline_class.return_value = mock_pipeline
 
         mock_build_summary.return_value = {
@@ -555,10 +561,14 @@ class TestResumeCommands(unittest.TestCase):
 
         mock_read.return_value = {"name": "Test"}
         mock_pipeline = MagicMock()
+        # Every builder must return the same mock, or the chain falls off onto
+        # an auto-created child and the execute() stub below is never reached.
         mock_pipeline.with_profile_overlays.return_value = mock_pipeline
         mock_pipeline.with_skill_filter.return_value = mock_pipeline
         mock_pipeline.with_experience_filter.return_value = mock_pipeline
-        mock_pipeline.execute.return_value = {"name": "Test"}
+        mock_pipeline.with_priority_filter.return_value = mock_pipeline
+        # execute() returns a Resume; the caller lowers it back with to_dict().
+        mock_pipeline.execute.return_value = Resume.from_dict({"name": "Test"})
         mock_pipeline_class.return_value = mock_pipeline
 
         mock_build_summary.return_value = {"headline": "Engineer"}

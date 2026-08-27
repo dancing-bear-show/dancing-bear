@@ -26,7 +26,7 @@ from core.paths import ENV_DATA_HOME, config_home, output_dir
 from core.textio import write_text
 
 from ..io_utils import read_text_any, read_text_raw, read_yaml_or_json, write_yaml_or_json
-from ..schema import CandidateData
+from ..schema import CandidateData, Resume
 from ..parsing_linkedin import parse_linkedin_text
 from ..parsing_experience_text import parse_resume_text, merge_profiles
 from ..summarizer import build_summary
@@ -110,9 +110,14 @@ def _extend_seed_with_style(seed: dict, style_profile_path: str | None) -> dict:
 
 
 def _apply_filter_pipeline(data: dict, args: argparse.Namespace, min_priority: float | None = None) -> dict:
-    """Apply profile overlay, skill filter, and experience filter (and optionally priority) via FilterPipeline."""
+    """Apply profile overlay, skill filter, and experience filter (and optionally priority) via FilterPipeline.
+
+    `FilterPipeline` is typed at its edges while this module still holds dicts,
+    so the conversion is done here. The wrapping is temporary: it disappears once
+    the CLI boundary itself loads a ``Resume`` at each ``read_yaml_or_json``.
+    """
     return (
-        FilterPipeline(data)
+        FilterPipeline(Resume.from_dict(data))
         .with_profile_overlays(getattr(args, "profile", None))
         .with_skill_filter(
             getattr(args, "filter_skills_alignment", None),
@@ -124,6 +129,7 @@ def _apply_filter_pipeline(data: dict, args: argparse.Namespace, min_priority: f
         )
         .with_priority_filter(min_priority)
         .execute()
+        .to_dict()
     )
 
 
