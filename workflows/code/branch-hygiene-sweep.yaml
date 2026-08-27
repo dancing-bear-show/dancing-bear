@@ -58,10 +58,44 @@ description: >
   uncommitted WIP with it. Treat deletion as the hygiene goal and venv
   reclamation as the space goal — they are separate levers.
 
-  ISOLATION NOTE: Agents in this workflow must NOT use isolation: worktree.
-  An isolated worktree cannot see the parent checkout's branches, reflog, or
-  worktree list — the entire premise of this workflow requires a live view of
-  the real git state. All stages run against the main checkout directly.
+  RUNNING THIS WORKFLOW: run it from a NON-ISOLATED session. That is the whole
+  precondition, and it is on the caller — the stages below are ordinary agent
+  stages and this YAML has no way to express or enforce it.
+
+  Why: a spawned subagent INHERITS its session's worktree isolation, and an
+  isolated agent is refused any git command aimed at the shared checkout —
+  which is this workflow's entire input. A first real run failed immediately at
+  gather-inventory with WORKTREE_ISOLATION_CONSTRAINT_VIOLATION. Sessions are
+  normally launched with `claude -w`, so an isolated session is the default
+  case, not an edge case.
+
+  How to satisfy it:
+    - Launch the session without `-w`, so spawned stages do not inherit
+      isolation. This is the only option that works as this file stands, and
+      it works under both runners.
+
+  There is a second approach, but it is not available without changing this
+  file and choosing the runner deliberately: mark the git-reading stages
+  `executor: inline` so the orchestrator runs them itself instead of spawning
+  agents. No stage here is marked inline today, and `executor: inline` is
+  supported ONLY by the Claude /workflow skill — `./bin/workflow run` raises
+  NotImplementedError on it ("the Python dispatcher does not implement inline
+  execution"). Adopting it therefore means editing these stages AND running
+  through the skill; under ./bin/workflow run it fails outright.
+
+  For the record, the first real run of this workflow was completed by the
+  second route: the orchestrator executed the stages itself, under the
+  /workflow skill, after the spawned gather-inventory agent failed on
+  isolation. That is a demonstration that the route works, not a claim that
+  the file is set up for it — it is not, and making it so is the edit
+  described above.
+
+  WHY ISOLATION BREAKS IT: an isolated worktree cannot see the parent
+  checkout's branches, reflog, or worktree list, and every stage here needs a
+  live view of the real git state. Note this is a property of the SESSION, not
+  something the stages opt into: there is no "must not be isolated" field to
+  set, and a subagent inherits whatever the session has. That is why the
+  precondition above lands on the caller.
 
 metadata:
   author: dancing-bear
@@ -302,12 +336,64 @@ stages:
         — another session may be actively building on it.
 
         For every non-protected branch, check:
-          a. Descendants: does any other local branch descend from this one?
-               for other in branches:
-                 git merge-base --is-ancestor <branch> <other>
-             Exit 0 = <other> descends from <branch>. Flag as HAS_DESCENDANT.
-          b. Recent activity: worktree_idle_seconds < {idle_hours} * 3600
-             OR reflog_unix within the last {idle_hours} hours.
+          a. Descendants: does any other local branch build ON TOP of this one?
+
+             The test is NOT bare `merge-base --is-ancestor <branch> <other>`.
+             That is true whenever <other> merely contains <branch>'s tip,
+             which includes the case where both point at the SAME commit. In
+             this repo 44 of 66 branches sat on five shared tips (ephemeral
+             `claude -w` branches cut from the same base and never committed
+             to), so the bare check flagged 54 of 66 as having a descendant and
+             left zero deletion candidates. It reports "everything is in use",
+             which reads exactly like a clean repo — the F1 false-clean this
+             workflow exists to prevent, reproduced inside the workflow.
+
+             The guard exists to protect work someone BUILT ON. A branch with
+             no commits of its own has no such work: it is an empty pointer at
+             an old base, and every newer branch trivially "descends" from it
+             once main moves past. In this repo 48 of 66 branches were empty
+             pointers, which is what produced the 54-of-66 false positive.
+
+             Check all three, in this order — the first is the cheapest and
+             eliminates most candidates:
+               # 1. Does THIS branch carry work worth protecting?
+               own=$(git rev-list --count "origin/main..$branch")
+               if [ "$own" -eq 0 ]; then
+                 : # No commits of its own -> nothing was built on it.
+                   # Do NOT flag HAS_DESCENDANT. The branch may still be
+                   # spared by recent activity or by its bucket, but "someone
+                   # built on it" is not the reason.
+               else
+                 for other in $branches; do
+                   [ "$other" = "$branch" ] && continue
+                   git merge-base --is-ancestor "$branch" "$other" || continue
+                   ahead=$(git rev-list --count "$branch..$other")
+                   [ "$ahead" -gt 0 ] || continue   # equal tips are not descendants
+                   flag HAS_DESCENDANT "$branch" "descendant: $other"
+                   break
+                 done
+               fi
+
+             All three conditions are required. Dropping any one of them
+             reproduces the original failure: with only the merge-base test,
+             a real run flagged 54 of 66 branches and returned zero deletion
+             candidates.
+          b. Recent activity. Two independent signals, and a NULL in either
+             one means "no evidence", never "recent":
+
+               worktree_idle_seconds is not null AND < {idle_hours} * 3600
+               OR
+               reflog_unix is not null AND within the last {idle_hours} hours
+
+             A branch with no worktree has worktree_idle_seconds = null.
+             Treating that null as satisfying the test marks every
+             worktree-less branch as active and spares it forever — a
+             false-clean, and the reason a real run produced zero candidates.
+             Test each signal for null before comparing it.
+
+             Note reflog recency is the weaker of the two: a fetch, prune, or
+             checkout elsewhere touches the ref without anyone working on the
+             branch. Prefer the worktree mtime when a worktree exists.
           c. Current worktree branch: is any tracked worktree currently on
              this branch? Do NOT grep the human-formatted list — the branch
              name also appears in worktree PATHS and inside longer branch
