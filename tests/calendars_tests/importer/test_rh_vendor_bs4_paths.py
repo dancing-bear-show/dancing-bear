@@ -212,7 +212,7 @@ class _Soup(_Tag):
 class _FakeBS4Module(types.ModuleType):
     """Fake bs4 module exposing only BeautifulSoup."""
 
-    BeautifulSoup = staticmethod(lambda html, parser: _Soup(html, parser))
+    BeautifulSoup = _Soup
 
 
 @contextmanager

@@ -178,7 +178,7 @@ class TestWriteScriptTempfile(unittest.TestCase):
         finally:
             try:
                 os.unlink(path)
-            except OSError:
+            except OSError:  # nosec B110 - best-effort teardown of the temp script; content already asserted above
                 pass
 
     def test_file_is_executable(self) -> None:
@@ -191,7 +191,7 @@ class TestWriteScriptTempfile(unittest.TestCase):
         finally:
             try:
                 os.unlink(path)
-            except OSError:
+            except OSError:  # nosec B110 - best-effort teardown of the temp script; exec bit already asserted above
                 pass
 
     def test_tempfile_has_sh_suffix(self) -> None:
@@ -203,7 +203,7 @@ class TestWriteScriptTempfile(unittest.TestCase):
         finally:
             try:
                 os.unlink(path)
-            except OSError:
+            except OSError:  # nosec B110 - best-effort teardown of the temp script; suffix already asserted above
                 pass
 
     def test_raises_on_chmod_failure(self) -> None:

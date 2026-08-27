@@ -114,16 +114,37 @@ class TestGoogleCalendarServiceImportError(unittest.TestCase):
         self.assertIn("Google API libraries not installed", str(ctx.exception))
 
     def test_init_happy_path_builds_service(self):
-        """When googleapiclient is available, __init__ calls build() and stores _service."""
+        """When googleapiclient is available, __init__ calls build() and stores _service.
+
+        googleapiclient is optional, so this test cannot rely on the real
+        package being installed. Instead it injects fake ``googleapiclient``
+        and ``googleapiclient.discovery`` modules into sys.modules so the
+        lazy ``from googleapiclient.discovery import build`` inside
+        __init__ resolves to a fake, with no dependency on the real
+        package being present.
+        """
         from calendars.google_calendar_service import GoogleCalendarService
 
         mock_service = MagicMock()
-        with patch("calendars.google_calendar_service.build", return_value=mock_service, create=True):
-            # Patch the lazy import inside __init__ to use our mock build.
-            with patch("googleapiclient.discovery.build", return_value=mock_service):
-                creds = MagicMock()
-                svc = GoogleCalendarService(creds)
+        mock_build = MagicMock(return_value=mock_service)
+
+        fake_googleapiclient = MagicMock()
+        fake_discovery = MagicMock()
+        fake_discovery.build = mock_build
+        fake_googleapiclient.discovery = fake_discovery
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "googleapiclient": fake_googleapiclient,
+                "googleapiclient.discovery": fake_discovery,
+            },
+        ):
+            creds = MagicMock()
+            svc = GoogleCalendarService(creds)
+
         self.assertIs(svc._service, mock_service)
+        mock_build.assert_called_once_with("calendar", "v3", credentials=creds)
 
 
 class TestListEventsSinglePage(unittest.TestCase):
