@@ -301,6 +301,47 @@ class TestNormalizeSummaryItems(unittest.TestCase):
         items = [PriorityItem.from_dict({"text": str(i)}) for i in range(4)]
         self.assertEqual(self._fn(items), ["0", "1", "2", "3"])
 
+    def test_empty_scalar_summary_returns_empty_list(self):
+        """A summary that arrived as an empty *string* suppresses the section.
+
+        Normalization stores ``summary: ""`` as ``[PriorityItem(text='')]``, so
+        the naive read returns ``['']`` -- truthy -- and the caller renders a
+        heading above a blank bullet. Pre-migration the scalar branch returned
+        ``[]`` here, so the section drew nothing.
+        """
+        from resume.schema import Resume
+
+        resume = Resume.from_dict({"summary": ""})
+        self.assertTrue(resume.summary_is_scalar)
+        self.assertEqual(self._fn(resume.summary, resume.summary_is_scalar), [])
+
+    def test_non_empty_scalar_summary_still_renders(self):
+        """A non-empty scalar is unaffected -- only the blank one is suppressed."""
+        from resume.schema import Resume
+
+        resume = Resume.from_dict({"summary": "Real prose."})
+        self.assertTrue(resume.summary_is_scalar)
+        self.assertEqual(
+            self._fn(resume.summary, resume.summary_is_scalar), ["Real prose."]
+        )
+
+    def test_list_form_empty_summary_still_returns_blank_item(self):
+        """Scope guard: the list form keeps its pre-migration behaviour.
+
+        ``[{"text": ""}]`` returned ``['']`` before the migration and rendered a
+        blank bullet. Suppressing it as well would be a new behaviour change,
+        not a restoration, so this pins that the fix does not reach it.
+        """
+        from resume.schema import Resume
+
+        resume = Resume.from_dict({"summary": [{"text": ""}]})
+        self.assertFalse(resume.summary_is_scalar)
+        self.assertEqual(self._fn(resume.summary, resume.summary_is_scalar), [""])
+
+    def test_defaults_to_list_behaviour_when_origin_not_passed(self):
+        """Omitting ``is_scalar`` keeps the plain list reading."""
+        self.assertEqual(self._fn([PriorityItem.from_dict({"text": ""})]), [""])
+
 
 # ===========================================================================
 # SidebarResumeWriter._render_centered_header_line

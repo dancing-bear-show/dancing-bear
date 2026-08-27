@@ -329,6 +329,46 @@ def candidate_scalar_summary() -> dict[str, Any]:
     }
 
 
+def candidate_empty_scalar_summary() -> dict[str, Any]:
+    """An *empty* bare-string ``summary`` — the shape that suppresses a section.
+
+    ``candidate_scalar_summary`` covers a non-empty scalar, so it cannot see
+    what happens when the string is blank. That gap shipped a regression: load
+    normalization stores the empty scalar as ``[PriorityItem(text='')]``, which
+    is truthy where ``''`` was falsy, so the sidebar renderer emitted a
+    ``Profile`` heading above a single empty bullet where it previously drew
+    nothing at all.
+
+    ``headline`` is deliberately omitted. The summary section falls back to the
+    headline when there is no summary text, so a fixture carrying one would
+    render the section anyway and pin nothing about the empty-summary path.
+    """
+    return {
+        "name": "Dana Placeholder",
+        "email": "dana@example.com",
+        "phone": "+1-555-0177",
+        "location": "Blank City, ZZ",
+        "summary": "",
+        "skills": ["Python", "Kubernetes"],
+        "experience": [
+            {
+                "title": "Platform Engineer",
+                "company": "Blank Systems",
+                "start": "2020",
+                "end": "Present",
+                "bullets": ["Kept the section headings honest."],
+            }
+        ],
+        "education": [
+            {
+                "degree": "BSc Placeholder Studies",
+                "institution": "Blank University",
+                "year": "2015",
+            }
+        ],
+    }
+
+
 # name -> (candidate, uses-both-renderers)
 CANDIDATE_FIXTURES: dict[str, Any] = {
     "dict_bullets": candidate_dict_bullets,
@@ -338,12 +378,22 @@ CANDIDATE_FIXTURES: dict[str, Any] = {
     "contact_block": candidate_contact_block,
     "mixed_shapes": candidate_mixed_shapes,
     "scalar_summary": candidate_scalar_summary,
+    "empty_scalar_summary": candidate_empty_scalar_summary,
 }
 
 # Fixtures rendered through both the standard and sidebar layouts. Every
 # fixture is exercised in the standard layout; these additionally run through
 # the sidebar writer, so the same data is pinned in both renderers.
-SIDEBAR_FIXTURES = ("mixed_shapes", "dict_bullets", "extra_keys")
+SIDEBAR_FIXTURES = (
+    "mixed_shapes",
+    "dict_bullets",
+    "extra_keys",
+    # The empty-scalar case is only *observable* in the sidebar layout: the
+    # standard writer emits section headings unconditionally, so its output is
+    # identical either way. Without this entry the suppressed section is
+    # pinned by no golden at all.
+    "empty_scalar_summary",
+)
 
 # --- pipeline fixtures -----------------------------------------------------
 

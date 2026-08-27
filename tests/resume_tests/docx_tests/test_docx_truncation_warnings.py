@@ -181,6 +181,42 @@ class TestSectionHasData(unittest.TestCase):
         self.assertTrue(fn("skills", self._resume({"skills_groups": [{"title": "Lang", "items": ["Go"]}]})))
         self.assertFalse(fn("skills", self._resume({})))
 
+    def test_empty_scalar_summary_reports_no_data(self):
+        """An empty scalar summary is empty, despite normalizing to a list.
+
+        ``summary: ""`` becomes ``[PriorityItem(text='')]``, which is truthy
+        where ``''`` was falsy, so a plain ``bool()`` read reported the section
+        as populated and emitted a heading with nothing under it.
+        """
+        fn = self._fn()
+        self.assertFalse(fn("summary", self._resume({"summary": ""})))
+
+    def test_empty_scalar_summary_still_honours_the_headline_fallback(self):
+        """Suppression must not defeat the headline fallback.
+
+        ``SummarySectionRenderer`` falls through to the headline when a scalar
+        summary is blank, so the section really does have content to draw and
+        must keep reporting as populated.
+        """
+        fn = self._fn()
+        self.assertTrue(
+            fn("summary", self._resume({"summary": "", "headline": "Staff Engineer"}))
+        )
+
+    def test_non_empty_scalar_summary_reports_data(self):
+        fn = self._fn()
+        self.assertTrue(fn("summary", self._resume({"summary": "Real prose."})))
+
+    def test_list_form_empty_summary_still_reports_data(self):
+        """Scope guard: only the scalar origin is special-cased.
+
+        ``[{"text": ""}]`` rendered before the migration and still does, so it
+        must keep reporting as populated. Extending suppression to the list
+        form would be a new behaviour change rather than a restoration.
+        """
+        fn = self._fn()
+        self.assertTrue(fn("summary", self._resume({"summary": [{"text": ""}]})))
+
 
 # ---------------------------------------------------------------------------
 # Defect 2b: StandardResumeWriter section-heading suppression

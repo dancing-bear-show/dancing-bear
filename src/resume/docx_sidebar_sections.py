@@ -395,21 +395,39 @@ class SidebarResumeWriter(ResumeWriterBase):
             )
 
     @staticmethod
-    def _normalize_summary_items(summary: list[PriorityItem]) -> list[str]:
+    def _normalize_summary_items(
+        summary: list[PriorityItem], is_scalar: bool = False
+    ) -> list[str]:
         """Normalize summary to a flat list of strings.
 
         Load-time normalization already collapsed the scalar-vs-list and
-        str-vs-dict shapes into ``list[PriorityItem]``, so this only has to
+        str-vs-dict shapes into ``list[PriorityItem]``, so this mostly has to
         read the text off each item -- via ``_replayed_text``, which keeps
         alias-keyed entries rendering exactly as they did before the migration.
+
+        The one shape normalization cannot speak for is an empty *scalar*
+        summary. It arrives as ``[PriorityItem(text='')]``, so the naive read
+        returns ``['']`` -- a truthy list -- and the caller renders a heading
+        above a single empty bullet. Before the migration the scalar branch
+        returned ``[]`` for an empty string and the section was suppressed, so
+        ``is_scalar`` restores that.
+
+        Only the scalar origin is special-cased. A list-form ``[{"text": ""}]``
+        still returns ``['']`` and still renders, because that is what it did
+        before the migration; normalization makes the two indistinguishable
+        from the items alone, which is why the origin has to be passed in.
         """
+        if is_scalar and not (summary and summary[0].text):
+            return []
         return [_replayed_text(summary_item) for summary_item in summary]
 
     def _render_sidebar_summary(self, cell) -> None:
         """Render summary section in sidebar."""
         for sec in (self.template.get("sections") or []):
             if sec.get("key") == "summary":
-                summary_items = self._normalize_summary_items(self.resume.summary)
+                summary_items = self._normalize_summary_items(
+                    self.resume.summary, self.resume.summary_is_scalar
+                )
                 if summary_items:
                     _render_sidebar_section(
                         cell,

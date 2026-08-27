@@ -73,6 +73,29 @@ _SECTION_DATA_KEYS: dict[str, tuple[str, ...]] = {
 }
 
 
+def _data_key_is_truthy(key: str, resume: Resume) -> bool:
+    """Return True when one data key holds something the renderers will draw.
+
+    Plain truthiness is right for every key except ``summary``, because
+    load-time normalization stores a scalar ``summary`` as a one-item list.
+    An empty string therefore arrives as ``[PriorityItem(text='')]``, which is
+    truthy while ``''`` was falsy -- so a section that used to be suppressed
+    started emitting a bare heading with no body under it.
+
+    Only the *scalar* origin is special-cased. A list-form ``[{"text": ""}]``
+    stays truthy, because that shape rendered before the migration and still
+    does; ``summary_is_scalar`` is what tells the two apart after
+    normalization has made them otherwise identical.
+
+    The headline fallback is unaffected: this reports only on ``summary``,
+    leaving the caller's ``any()`` free to carry the section on ``headline``,
+    which is exactly what ``SummarySectionRenderer`` does with an empty scalar.
+    """
+    if key == "summary" and resume.summary_is_scalar:
+        return bool(resume.summary[0].text)
+    return bool(getattr(resume, key, None))
+
+
 def _section_has_data(key: str, resume: Resume) -> bool:
     """Return True when the section has at least one non-empty data key.
 
@@ -85,7 +108,7 @@ def _section_has_data(key: str, resume: Resume) -> bool:
     data_keys = _SECTION_DATA_KEYS.get(key)
     if data_keys is None:
         return True
-    return any(bool(getattr(resume, k, None)) for k in data_keys)
+    return any(_data_key_is_truthy(k, resume) for k in data_keys)
 
 
 def _seed_keywords(seed: dict[str, Any] | None) -> list[str]:

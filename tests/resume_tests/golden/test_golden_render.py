@@ -256,6 +256,70 @@ class GoldenRenderTests(unittest.TestCase):
                     text = [p.text for p in Document(path).paragraphs if p.text.strip()]
                 self.assertIn(expected, text)
 
+    def test_empty_scalar_summary_renders_no_sidebar_section(self):
+        """An empty scalar summary draws nothing, as it did before the migration.
+
+        Asserted on rendered text rather than a digest, because a golden says
+        only that output moved -- it does not say a heading appeared above an
+        empty bullet, which is the actual defect.
+
+        Verified against ``origin/main``: pre-migration the sidebar drew no
+        Profile section for ``summary: ""``. Normalization then stored it as
+        ``[PriorityItem(text='')]`` -- truthy where ``''`` was falsy -- and the
+        section started rendering a heading with one blank bullet.
+        """
+        from docx import Document
+
+        fixture = CANDIDATE_FIXTURES["empty_scalar_summary"]()
+        self.assertEqual(fixture["summary"], "", "fixture must carry an empty summary")
+        self.assertNotIn("headline", fixture, "a headline would render the section anyway")
+
+        for label, data in (
+            ("direct", fixture),
+            ("pipeline", self._render_through_pipeline(
+                CANDIDATE_FIXTURES["empty_scalar_summary"]())),
+        ):
+            with self.subTest(path=label):
+                with tempfile.TemporaryDirectory() as tmp:
+                    path = self._render(data, sidebar_template(), tmp)
+                    cells = [
+                        cell.text
+                        for table in Document(path).tables
+                        for row in table.rows
+                        for cell in row.cells
+                    ]
+                self.assertFalse(
+                    [c for c in cells if "Profile" in c or "Summary" in c],
+                    "empty scalar summary must not render a sidebar summary section",
+                )
+
+    def test_list_form_empty_summary_still_renders(self):
+        """The scope guard: only the *scalar* origin is suppressed.
+
+        Pre-migration, ``[{"text": ""}]`` returned ``['']`` and DID render a
+        heading with an empty bullet -- verified against ``origin/main``.
+        Suppressing it too would be a new behaviour change in the opposite
+        direction, not a restoration, so this pins that it still renders and
+        stops a later "cleanup" from extending the fix to the list form.
+        """
+        from docx import Document
+
+        fixture = CANDIDATE_FIXTURES["empty_scalar_summary"]()
+        fixture["summary"] = [{"text": ""}]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._render(fixture, sidebar_template(), tmp)
+            cells = [
+                cell.text
+                for table in Document(path).tables
+                for row in table.rows
+                for cell in row.cells
+            ]
+        self.assertTrue(
+            [c for c in cells if "Profile" in c or "Summary" in c],
+            "list-form empty summary must keep rendering, matching pre-migration",
+        )
+
     # -- harness self-checks -----------------------------------------------
 
     def test_rendering_is_reproducible_within_a_run(self):
