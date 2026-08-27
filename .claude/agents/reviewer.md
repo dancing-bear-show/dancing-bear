@@ -33,9 +33,13 @@ You are an analysis agent for dancing-bear. You review code and report findings.
 ## Lint Tools
 
 ```bash
-~/.qlty/bin/qlty check path/to/file.py
-~/.qlty/bin/qlty check mail/
+make lint                      # ruff over src/, tests/, bin/
+./bin/qlty-assistant scan --expect-min 1   # repo-wide triage
 ```
+
+Never `qlty check` from an isolated worktree — `.qlty/qlty.toml` excludes
+`**/.claude/**`, so it scans zero files and prints "✔ No issues" on real defects.
+Treat a suspiciously empty result as a broken environment, not a passing one.
 
 ## Review Concerns (What to Check)
 

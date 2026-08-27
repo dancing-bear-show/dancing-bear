@@ -16,16 +16,22 @@ You are a CI failure specialist for dancing-bear. You diagnose GitHub Actions CI
 # Run full test suite
 make test
 
-# Run specific domain
-python3 -m unittest discover tests/<domain>_tests/ -v
+# Run specific domain — PYTHONPATH is REQUIRED, never run this bare
+PYTHONPATH="$PWD/src" python3 -m unittest discover tests/<domain>_tests/ -v
 
 # Lint check
-~/.qlty/bin/qlty check path/to/file.py
-~/.qlty/bin/qlty check --fix path/to/file.py
+make lint
+make lint-fix
 
 # Coverage
-coverage run -m unittest discover && coverage report
+make cov
 ```
+
+Two silent-pass traps — both look identical to a green run:
+- Bare `python3 -m unittest` / `coverage run` in a worktree resolves imports to the
+  **main checkout** via an inherited PYTHONPATH, so tests pass against unmodified code.
+- `qlty check` inside `.claude/worktrees/` scans zero files (excluded by
+  `.qlty/qlty.toml`) and prints "✔ No issues". Use `make lint`.
 
 ## Diagnosis Workflow
 
@@ -33,7 +39,7 @@ coverage run -m unittest discover && coverage report
 2. **Read the failing test**: Understand what it asserts
 3. **Read the source code**: Find the root cause
 4. **Fix the root cause**: Edit source or test as appropriate
-5. **Run locally**: `python3 -m unittest tests/<domain>_tests/test_<file>.py -v`
+5. **Run locally**: `PYTHONPATH="$PWD/src" python3 -m unittest tests.<domain>_tests.test_<file> -v`
 6. **Run full suite**: `make test`
 
 ## Common Failure Patterns
@@ -43,7 +49,7 @@ coverage run -m unittest discover && coverage report
 | `AttributeError: ... has no attribute 'X'` | Missing attribute in mock/stub | Add attribute to stub |
 | `ImportError` / `ModuleNotFoundError` | Refactored import path | Update import |
 | `AssertionError` in test | Source behavior changed | Fix source or update test |
-| `qlty check` failure | Style/security lint issue | `qlty check --fix` or manual fix |
+| `qlty check` failure in CI | Style/security lint issue | `make lint-fix` or manual fix |
 | Coverage below threshold | New code not tested | Add tests for uncovered lines |
 
 ## Fix Rules
