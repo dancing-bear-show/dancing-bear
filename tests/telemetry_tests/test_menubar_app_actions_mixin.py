@@ -28,9 +28,12 @@ def _make_host() -> ActionsMixin:
         _last_cfg: dict = {}
 
         def _rebuild_menu(self, cfg: dict) -> None:
+            # Intentionally empty: the mixin under test only needs this hook to
+            # exist and be callable. Tests that care assert on the call itself.
             pass
 
         def _refresh(self, sender: object) -> None:
+            # Intentionally empty: see _rebuild_menu above.
             pass
 
     return _Host()
@@ -311,7 +314,7 @@ class TestOnConfigure(unittest.TestCase):
         """If _save_config raises, an alert is shown and rebuild is NOT called."""
         host = _make_host()
         mock_rumps = _make_mock_rumps(clicked=1, text="cfg")
-        load, ctt, parse, save = self._patch_config()
+        load, ctt, parse, _ = self._patch_config()
 
         rebuild_called = []
         host._rebuild_menu = lambda _: rebuild_called.append(True)

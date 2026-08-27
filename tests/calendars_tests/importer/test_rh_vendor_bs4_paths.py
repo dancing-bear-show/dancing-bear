@@ -456,33 +456,30 @@ class TestExtractWeekdaysFromCellsDirect(unittest.TestCase):
 class TestExtractDayHeadersDirect(unittest.TestCase):
     """_extract_day_headers returns day names from a table, with fallback logic."""
 
+    @staticmethod
+    def _first_match(siblings: list[_Tag]):
+        """Return a sibling-match callable scanning `siblings` in order."""
+        def _find(tag_name, attrs, _sibs=siblings):
+            for sib in _sibs:
+                if _Tag._matches(sib, tag_name, attrs):
+                    return sib
+            return None
+        return _find
+
+    def _wire_siblings(self, rows: list[_Tag]) -> None:
+        """Give each row prev/next sibling-match callables over its neighbours."""
+        for i, row in enumerate(rows):
+            row._prev_sibling_match = self._first_match(list(reversed(rows[:i])))
+            row._next_sibling_match = self._first_match(rows[i + 1:])
+
     def _make_table_with_rows(self, row_texts: list[list[str]]) -> _Tag:
         """Build a fake table with given row/cell text structure."""
-        rows = []
-        for cells in row_texts:
-            td_tags = [_Tag("td", {}, [t]) for t in cells]
-            tr_tag = _Tag("tr", {}, td_tags)
-            rows.append(tr_tag)
+        rows = [
+            _Tag("tr", {}, [_Tag("td", {}, [c]) for c in cells])
+            for cells in row_texts
+        ]
         table = _Tag("table", {}, rows)
-        # Wire siblings for rows
-        for i, row in enumerate(rows):
-            prev = rows[:i]
-            next_ = rows[i + 1:]
-
-            def _prev(tn, attrs, _p=prev):
-                for sib in reversed(_p):
-                    if _Tag._matches(sib, tn, attrs):
-                        return sib
-                return None
-
-            def _next(tn, attrs, _n=next_):
-                for sib in _n:
-                    if _Tag._matches(sib, tn, attrs):
-                        return sib
-                return None
-
-            row._prev_sibling_match = _prev
-            row._next_sibling_match = _next
+        self._wire_siblings(rows)
         return table
 
     def test_extracts_from_full_seven_weekday_table(self):

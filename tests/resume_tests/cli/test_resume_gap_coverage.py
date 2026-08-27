@@ -176,7 +176,7 @@ class TestCmdAlignProfileOverlay(unittest.TestCase):
         mock_overlay.assert_called_once_with({"name": "Test"}, "myprofile")
         # align received the overlaid data
         align_call_data = mock_align.call_args[0][0]
-        self.assertEqual(align_call_data.get("overlaid"), True)
+        self.assertTrue(align_call_data.get("overlaid"))
 
     @patch("resume.cli.main.write_yaml_or_json")
     @patch("resume.cli.main.align_candidate_to_job", return_value={"score": 80})

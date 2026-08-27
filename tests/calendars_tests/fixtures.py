@@ -113,9 +113,13 @@ class FakeGoogleCalendarService:
         self.inserted: list[tuple[str, dict[str, Any]]] = []
         self._registered_ids = registered_calendar_ids or {"primary"}
 
-    def list_events(
+    def list_events(  # NOSONAR S1172 - interface parity, see note below
         self, calendar_id: str, time_min: str, time_max: str
     ) -> list[dict[str, Any]]:
+        # time_min/time_max are deliberately unused: they mirror the real
+        # GoogleCalendarService.list_events signature. Dropping them would let a
+        # caller pass the wrong arity and still pass against this fake.
+        del time_min, time_max  # documented-unused; keeps the signature honest
         if calendar_id not in self._registered_ids:
             raise KeyError(f"FakeGoogleCalendarService: unregistered calendar_id {calendar_id!r}")
         return list(self._events)

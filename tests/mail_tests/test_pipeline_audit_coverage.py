@@ -638,7 +638,9 @@ class ResolveGmailCredPathsTests(TestCase):
         self.assertEqual("/default/tok.json", tok)
 
     def test_both_cred_and_token_set_returns_them_unchanged(self):
-        payload = self._make_payload(credentials="/c.json", token="/t.json")
+        # "/t.json" is a token-cache FILE PATH, not a password; B106 matches on
+        # the kwarg name containing "token".
+        payload = self._make_payload(credentials="/c.json", token="/t.json")  # nosec B106
         cred, tok = _resolve_gmail_cred_paths(
             payload, lambda x: x, lambda: "/dc.json", lambda: "/dt.json"
         )
@@ -657,7 +659,7 @@ class ResolveGmailCredPathsTests(TestCase):
 
                 dest = Path(td) / "creds" / "cred.json"
                 payload = self._make_payload(copy_gmail_example=True, credentials=None, token=None)
-                cred, tok = _resolve_gmail_cred_paths(
+                cred, _ = _resolve_gmail_cred_paths(
                     payload,
                     lambda x: x,
                     lambda: str(dest),
