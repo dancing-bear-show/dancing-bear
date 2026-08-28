@@ -112,12 +112,13 @@ class PresentationsSectionRenderer(ListSectionRenderer):
         # (cleaned display of URL) without duplicating the raw URL as plain text.
         #
         # This goes through ``new_bullet_paragraph`` rather than
-        # ``add_bullet_line("")``: the latter unconditionally calls
-        # ``add_run(text)``, so an empty text argument leaves a zero-length run
-        # in the paragraph XML ahead of the hyperlink. That run is invisible in
-        # extracted text but real in the file. ``new_bullet_paragraph`` is the
-        # same shared bullet mechanism ``add_bullet_line`` builds on and yields
-        # the identical glyph-prefixed paragraph, minus the empty run.
+        # ``add_bullet_line("")`` because it is the minimal primitive that says
+        # what is wanted here: a glyph-prefixed paragraph and nothing else.
+        # ``add_bullet_line`` is that same primitive plus a text pass, and
+        # passing it an empty string asks that pass to do nothing -- which
+        # makes the output depend on how the text path treats "", a detail
+        # that has already changed once. ``new_bullet_paragraph`` does not
+        # depend on it at all.
         link_display = display_url(url)
         p = self.bullets.new_bullet_paragraph(glyph)
         add_hyperlink(p, url, link_display)
