@@ -17,7 +17,7 @@ from slides.parsers_markdown import (
     load_deck_from_markdown,
     load_deck_from_outline,
 )
-from slides.schema import BulletItem, SlideDeck
+from slides.schema import BulletItem, DeckOptions, SlideDeck
 from tests.slides_tests.fixtures import assert_metadata_passthrough
 
 
@@ -153,7 +153,7 @@ class TestLoadDeckFromMarkdown(unittest.TestCase):
         """Explicit title parameter overrides first slide title as deck title."""
         md = self._write("titled.md", "# Slide Title\n- A\n")
 
-        deck = load_deck_from_markdown(md, title="Custom Deck Title")
+        deck = load_deck_from_markdown(md, options=DeckOptions(title="Custom Deck Title"))
         self.assertEqual(deck.metadata.title, "Custom Deck Title")
 
     def test_metadata_passthrough(self):
@@ -162,10 +162,12 @@ class TestLoadDeckFromMarkdown(unittest.TestCase):
 
         deck = load_deck_from_markdown(
             md,
-            author="Alice",
-            template_path="/tmp/t.pptx",  # nosec B108 - mock path arg, no file read
-            template_slide_index=5,
-            theme_color="ACCENT_1",
+            options=DeckOptions(
+                author="Alice",
+                template_path="/tmp/t.pptx",  # nosec B108 - mock path arg, no file read
+                template_slide_index=5,
+                theme_color="ACCENT_1",
+            ),
         )
         assert_metadata_passthrough(
             self,
@@ -260,7 +262,7 @@ class TestLoadDeckFromOutline(unittest.TestCase):
         """Basic outline with one slide and prompts."""
         outline = self._write(
             "outline.md",
-            "- Slide 1 \u2014 Introduction\n"
+            "- Slide 1 — Introduction\n"
             "- Prompt (on slide): Welcome everyone\n"
             "- Prompt (on slide): Today we cover X\n",
         )
@@ -276,9 +278,9 @@ class TestLoadDeckFromOutline(unittest.TestCase):
         """Multiple slide definitions in the outline."""
         outline = self._write(
             "multi.md",
-            "- Slide 1 \u2014 Intro\n"
+            "- Slide 1 — Intro\n"
             "- Prompt (on slide): Hello\n"
-            "- Slide 2 \u2014 Details\n"
+            "- Slide 2 — Details\n"
             "- Prompt (on slide): More info\n",
         )
 
@@ -289,7 +291,7 @@ class TestLoadDeckFromOutline(unittest.TestCase):
 
     def test_slide_without_prompts(self):
         """Slide with no prompts gets empty bullets list."""
-        outline = self._write("no_prompts.md", "- Slide 1 \u2014 Title Only\n")
+        outline = self._write("no_prompts.md", "- Slide 1 — Title Only\n")
 
         deck = load_deck_from_outline(outline)
         self.assertEqual(len(deck.slides), 1)
@@ -305,21 +307,23 @@ class TestLoadDeckFromOutline(unittest.TestCase):
 
     def test_custom_title_override(self):
         """Explicit title parameter overrides first slide title."""
-        outline = self._write("titled.md", "- Slide 1 \u2014 First\n")
+        outline = self._write("titled.md", "- Slide 1 — First\n")
 
-        deck = load_deck_from_outline(outline, title="My Deck")
+        deck = load_deck_from_outline(outline, options=DeckOptions(title="My Deck"))
         self.assertEqual(deck.metadata.title, "My Deck")
 
     def test_metadata_passthrough(self):
         """Author, template_path, theme_color pass through."""
-        outline = self._write("meta.md", "- Slide 1 \u2014 First\n")
+        outline = self._write("meta.md", "- Slide 1 — First\n")
 
         deck = load_deck_from_outline(
             outline,
-            author="Bob",
-            template_path="/tmp/t.pptx",  # nosec B108 - mock path arg, no file read
-            template_slide_index=3,
-            theme_color="DARK_1",
+            options=DeckOptions(
+                author="Bob",
+                template_path="/tmp/t.pptx",  # nosec B108 - mock path arg, no file read
+                template_slide_index=3,
+                theme_color="DARK_1",
+            ),
         )
         assert_metadata_passthrough(
             self,
@@ -334,7 +338,7 @@ class TestLoadDeckFromOutline(unittest.TestCase):
         """Slide definitions with [optional tag] are parsed correctly."""
         outline = self._write(
             "tagged.md",
-            "- Slide 1 \u2014 Overview [intro]\n- Prompt (on slide): Hello\n",
+            "- Slide 1 — Overview [intro]\n- Prompt (on slide): Hello\n",
         )
 
         deck = load_deck_from_outline(outline)
@@ -344,7 +348,7 @@ class TestLoadDeckFromOutline(unittest.TestCase):
         """Bold text in prompts produces highlights."""
         outline = self._write(
             "bold.md",
-            "- Slide 1 \u2014 Title\n"
+            "- Slide 1 — Title\n"
             "- Prompt (on slide): Use **kubectl** wisely\n",
         )
 
@@ -357,7 +361,7 @@ class TestLoadDeckFromOutline(unittest.TestCase):
         """Prompt with no text after colon is skipped."""
         outline = self._write(
             "empty_prompt.md",
-            "- Slide 1 \u2014 Title\n"
+            "- Slide 1 — Title\n"
             "- Prompt (on slide): \n",
         )
 

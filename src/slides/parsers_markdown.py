@@ -19,8 +19,6 @@ from slides._parse_text import (
     _parse_bullet_line,
 )
 from slides.constants import (
-    DEFAULT_TEMPLATE_SLIDE_INDEX,
-    DEFAULT_THEME_COLOR,
     DEFAULT_TITLE,
     LAYOUT_BULLET,
     LAYOUT_SECTION,
@@ -28,6 +26,7 @@ from slides.constants import (
 from slides.schema import (
     BulletItem,
     DeckMetadata,
+    DeckOptions,
     SlideContent,
     SlideDeck,
 )
@@ -54,11 +53,7 @@ _SECTION_LAYOUT_ALIASES = frozenset({"section", "section_header"})
 def load_deck_from_markdown(
     md_path: str | Path,
     *,
-    title: str | None = None,
-    author: str | None = None,
-    template_path: str | None = None,
-    template_slide_index: int = DEFAULT_TEMPLATE_SLIDE_INDEX,
-    theme_color: str = DEFAULT_THEME_COLOR,
+    options: DeckOptions | None = None,
     bullet_limit: int = DEFAULT_BULLET_LIMIT,
 ) -> SlideDeck:
     """Parse a markdown file into a SlideDeck.
@@ -74,16 +69,16 @@ def load_deck_from_markdown(
 
     Args:
         md_path: Path to markdown file
-        title: Deck title (default: first slide title)
-        author: Deck author
-        template_path: Path to template .pptx
-        template_slide_index: Template slide index
-        theme_color: Theme color name
+        options: Common deck-metadata options (title, author, template_path,
+            template_slide_index, theme_color); defaults applied when None.
+            title defaults to first slide title when None.
         bullet_limit: Max bullets per slide before auto-pagination
 
     Returns:
         SlideDeck with parsed slides
     """
+    opts = options or DeckOptions()
+
     path = Path(md_path)
     text = path.read_text(encoding="utf-8")
     sections = _SECTION_SEP_RE.split(text)
@@ -102,19 +97,19 @@ def load_deck_from_markdown(
     # Auto-paginate
     slides = _chunk_slides(slides, bullet_limit)
 
-    deck_title = title or (slides[0].title if slides else DEFAULT_TITLE)
+    deck_title = opts.title or (slides[0].title if slides else DEFAULT_TITLE)
 
     metadata = DeckMetadata(
         title=deck_title,
-        author=author,
-        template_slide_index=template_slide_index,
-        theme_color=theme_color,
+        author=opts.author,
+        template_slide_index=opts.template_slide_index,
+        theme_color=opts.theme_color,
     )
 
     return SlideDeck(
         metadata=metadata,
         slides=slides,
-        template_path=template_path,
+        template_path=opts.template_path,
     )
 
 
@@ -263,11 +258,7 @@ def _parse_outline_slides(text: str) -> list[SlideContent]:
 def load_deck_from_outline(
     outline_path: str | Path,
     *,
-    title: str | None = None,
-    author: str | None = None,
-    template_path: str | None = None,
-    template_slide_index: int = DEFAULT_TEMPLATE_SLIDE_INDEX,
-    theme_color: str = DEFAULT_THEME_COLOR,
+    options: DeckOptions | None = None,
 ) -> SlideDeck:
     """Parse an outline markdown file into a SlideDeck.
 
@@ -280,29 +271,29 @@ def load_deck_from_outline(
 
     Args:
         outline_path: Path to outline markdown file
-        title: Deck title
-        author: Deck author
-        template_path: Path to template .pptx
-        template_slide_index: Template slide index
-        theme_color: Theme color name
+        options: Common deck-metadata options (title, author, template_path,
+            template_slide_index, theme_color); defaults applied when None.
+            title defaults to first slide title when None.
 
     Returns:
         SlideDeck with parsed slides
     """
+    opts = options or DeckOptions()
+
     path = Path(outline_path)
     slides = _parse_outline_slides(path.read_text(encoding="utf-8"))
 
-    deck_title = title or (slides[0].title if slides else DEFAULT_TITLE)
+    deck_title = opts.title or (slides[0].title if slides else DEFAULT_TITLE)
 
     metadata = DeckMetadata(
         title=deck_title,
-        author=author,
-        template_slide_index=template_slide_index,
-        theme_color=theme_color,
+        author=opts.author,
+        template_slide_index=opts.template_slide_index,
+        theme_color=opts.theme_color,
     )
 
     return SlideDeck(
         metadata=metadata,
         slides=slides,
-        template_path=template_path,
+        template_path=opts.template_path,
     )
