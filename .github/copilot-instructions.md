@@ -161,11 +161,12 @@ Enforced by qlty in CI; see `concerns/complexity.md` for the full guide.
 - Keep function bodies within 3 levels of nesting.
 - Prefer named helpers, dispatch tables over `if`/`elif` chains, and early
   returns to flatten nesting.
-- Signatures should stay within 5 parameters (excluding `self`/`cls`). Note
-  qlty's reported count is not real arity — it counts `self`/`cls` and the bare
-  `*` separator, so keyword-only signatures report one higher than they take.
-  Read the signature before filing a finding, and don't split a cohesive
-  signature just to lower a count.
+- Signatures should stay within 5 real parameters. qlty's reported count is not
+  real arity — it *excludes* `self`/`cls` but counts the bare `*` separator as a
+  parameter, so a keyword-only signature reports one higher than it takes. Read
+  the signature before filing a finding, and don't split a cohesive signature
+  just to lower a count. Full counting caveat, with verified fixtures, in
+  `concerns/complexity.md#too-many-parameters`.
 - Files over ~800 lines warrant a split by responsibility.
 
 ### CLI Conventions
@@ -189,6 +190,42 @@ Enforced by qlty in CI; see `concerns/complexity.md` for the full guide.
   working directory, which wrote resumes carrying PII into the checkout (#269).
 - Test fixtures must never be seeded from real profile data — goldens built from
   them are committed permanently (#268).
+
+## Concern Library
+
+`concerns/` holds the detailed review guides this file summarises — 14 guides,
+each concern carrying a check, triggers, and a worked example. **Where this file
+and a concern guide disagree, the guide wins**; it is the maintained source and
+carries the reasoning. Load selectively by the file types in the diff rather
+than reading them all. (Per-guide concern counts live in `concerns/README.md`;
+they are not repeated here, as that table has already drifted from the actual
+`###` heading counts.)
+
+| Guide | Load when the diff touches |
+|-------|----------------------------|
+| `correctness.md` | any Python — type safety, logic errors |
+| `patterns.md` | CLI framework, lazy imports, plan/apply safety |
+| `workflow.md` | `FLOWS.yaml`, CLI references, plan/apply order |
+| `tests.md` | test files — quality, coverage, fixture patterns |
+| `workflow-fragments.md` | `.llm/` context files, agent definitions |
+| `docs.md` | docstrings, CLI help text, `.llm/` staleness |
+| `workflow-fanout.md` | fan-out, writes-to contracts, worker queue |
+| `slides-yaml.md` | slide deck YAML — bullet forms, silent drops |
+| `workflow-stages.md` | stage runtime, model tier, tool access |
+| `resume-copy.md` | resume/profile copy — voice, banned phrases |
+| `security.md` | credentials, input validation, `nosec` rationale |
+| `phone-layout.md` | iOS layout — icon map, folders, profile install |
+| `complexity.md` | complexity, nesting, file size, parameter count |
+| `reuse.md` | DRY, intra-domain duplication, shared extraction |
+
+Two concerns worth knowing before filing a finding, because both are commonly
+reported backwards:
+
+- `complexity.md#too-many-parameters` — qlty's count excludes `self`/`cls` but
+  counts the bare `*`, so keyword-only signatures over-report by one.
+- `security.md#nosec-rationale-accuracy` — a `nosec`/`NOSONAR` comment whose
+  stated reason does not match what the code actually does is itself a finding.
+  Check the rationale, not just the presence of a suppression.
 
 ## Files to Skip
 
