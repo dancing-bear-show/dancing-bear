@@ -482,6 +482,142 @@ class TestResumeCommands(unittest.TestCase):
         self.assertIn("experience", written_data)
         self.assertEqual(len(written_data["experience"][0]["bullets"]), 2)
 
+    @staticmethod
+    def _candidate_init_args(max_bullets: int) -> MagicMock:
+        """Build the candidate-init arg namespace used by the bullet-drop tests."""
+        args = MagicMock()
+        args.data = "data.json"
+        args.include_experience = True
+        args.max_bullets = max_bullets
+        args.out = None
+        args.profile = None
+        args.out_dir = "out"
+        return args
+
+    @patch('resume.cli.main.write_yaml_or_json')
+    @patch('resume.cli.main.read_yaml_or_json')
+    def test_cmd_candidate_init_drops_bullets_with_no_text(self, mock_read, mock_write):
+        """Bullets whose item_text() is empty are filtered out of the skeleton."""
+        from resume.cli.main import cmd_candidate_init
+
+        mock_read.return_value = {
+            "name": "Jordan Sample",
+            "experience": [
+                {
+                    "title": "Engineer",
+                    "company": "Acme",
+                    "bullets": [{"text": "Alpha"}, {"priority": 1}, ""],
+                }
+            ],
+        }
+
+        result = cmd_candidate_init(self._candidate_init_args(max_bullets=3))
+
+        self.assertEqual(result, 0)
+        mock_read.assert_called_once()
+        mock_write.assert_called_once()
+        written_data = mock_write.call_args[0][0]
+        self.assertEqual(written_data["experience"][0]["bullets"], ["Alpha"])
+
+    @patch('resume.cli.main.write_yaml_or_json')
+    @patch('resume.cli.main.read_yaml_or_json')
+    def test_cmd_candidate_init_leading_empty_bullet_consumes_a_slice_slot(
+        self, mock_read, mock_write
+    ):
+        """--max-bullets caps bullets CONSIDERED, not bullets emitted.
+
+        The [: args.max_bullets] slice is applied to the source list before the
+        empty-text filter, so a leading textless bullet still consumes a slot
+        and only one real bullet survives at max_bullets=2. Contrast
+        experience_summary.build_experience_summary, which slices after
+        filtering -- see
+        test_empty_bullet_does_not_consume_a_max_bullets_slot in
+        tests/resume_tests/test_experience_summary.py. The asymmetry between the
+        two sites is real and would be silently changed by a consistency
+        refactor.
+        """
+        from resume.cli.main import cmd_candidate_init
+
+        mock_read.return_value = {
+            "name": "Jordan Sample",
+            "experience": [
+                {
+                    "title": "Engineer",
+                    "company": "Acme",
+                    "bullets": [{"priority": 1}, {"text": "Alpha"}, {"text": "Beta"}],
+                }
+            ],
+        }
+
+        result = cmd_candidate_init(self._candidate_init_args(max_bullets=2))
+
+        self.assertEqual(result, 0)
+        mock_read.assert_called_once()
+        mock_write.assert_called_once()
+        written_data = mock_write.call_args[0][0]
+        self.assertEqual(written_data["experience"][0]["bullets"], ["Alpha"])
+
+    @patch('resume.cli.main.write_yaml_or_json')
+    @patch('resume.cli.main.read_yaml_or_json')
+    def test_cmd_candidate_init_keeps_full_slice_when_no_bullet_is_empty(
+        self, mock_read, mock_write
+    ):
+        """Happy-path counterpart: with no empties, max_bullets=2 emits two bullets."""
+        from resume.cli.main import cmd_candidate_init
+
+        mock_read.return_value = {
+            "name": "Jordan Sample",
+            "experience": [
+                {
+                    "title": "Engineer",
+                    "company": "Acme",
+                    "bullets": [{"text": "Alpha"}, {"text": "Beta"}, {"text": "Gamma"}],
+                }
+            ],
+        }
+
+        result = cmd_candidate_init(self._candidate_init_args(max_bullets=2))
+
+        self.assertEqual(result, 0)
+        mock_read.assert_called_once()
+        mock_write.assert_called_once()
+        written_data = mock_write.call_args[0][0]
+        self.assertEqual(written_data["experience"][0]["bullets"], ["Alpha", "Beta"])
+
+    @patch('resume.cli.main.write_yaml_or_json')
+    @patch('resume.cli.main.read_yaml_or_json')
+    def test_cmd_candidate_init_flattens_mixed_bullet_forms(self, mock_read, mock_write):
+        """Dict, bare-string and empty bullets together flatten to prose strings."""
+        from resume.cli.main import cmd_candidate_init
+
+        mock_read.return_value = {
+            "name": "Jordan Sample",
+            "experience": [
+                {
+                    "title": "Engineer",
+                    "company": "Acme",
+                    "bullets": [
+                        "Bare string bullet",
+                        {"priority": 0.9},
+                        {"text": "Dict bullet", "priority": 0.5},
+                        "",
+                        {"line": "Line-keyed bullet"},
+                    ],
+                }
+            ],
+        }
+
+        result = cmd_candidate_init(self._candidate_init_args(max_bullets=5))
+
+        self.assertEqual(result, 0)
+        mock_read.assert_called_once()
+        mock_write.assert_called_once()
+        written_data = mock_write.call_args[0][0]
+        self.assertEqual(
+            written_data["experience"][0]["bullets"],
+            ["Bare string bullet", "Dict bullet", "Line-keyed bullet"],
+        )
+
     @patch('resume.cli.main.write_yaml_or_json')
     @patch('resume.style.build_style_profile')
     def test_cmd_style_build(self, mock_build, mock_write):

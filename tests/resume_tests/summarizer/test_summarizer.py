@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from resume.summarizer import _keyword_hits, build_summary
+from resume.summarizer import _experience_highlight_lines, _keyword_hits, build_summary
 
 
 class TestKeywordHits(unittest.TestCase):
@@ -221,6 +221,82 @@ class TestBuildSummary(unittest.TestCase):
         self.assertEqual(summary["top_skills"][0], "AWS")
         self.assertIn("SRE at Acme", summary["experience_highlights"])
         self.assertIn("Built Kubernetes clusters", summary["experience_highlights"])
+
+
+class TestExperienceHighlightLines(unittest.TestCase):
+    """Bullet filtering and slice ordering in _experience_highlight_lines."""
+
+    def test_keeps_bullets_that_have_text(self):
+        e = {
+            "title": "Engineer",
+            "company": "Acme",
+            "bullets": [{"text": "Alpha"}, {"text": "Beta"}, {"text": "Gamma"}],
+        }
+        # The [:2] slice caps consideration at two bullets, both of which survive.
+        self.assertEqual(_experience_highlight_lines(e), ["Engineer at Acme", "Alpha", "Beta"])
+
+    def test_drops_bullets_with_no_text(self):
+        # item_text() yields "" for a priority dict carrying no text key, and the
+        # comprehension filters it out rather than rendering the dict's repr.
+        e = {
+            "title": "Engineer",
+            "company": "Acme",
+            "bullets": [{"text": "Alpha"}, {"priority": 1}],
+        }
+        self.assertEqual(_experience_highlight_lines(e), ["Engineer at Acme", "Alpha"])
+
+    def test_leading_empty_bullet_consumes_a_slice_slot(self):
+        # The [:2] slice is applied to the SOURCE list, before the empty-text
+        # filter, so a leading textless bullet still consumes one of the two
+        # slots and only one real bullet survives. Contrast the identical input
+        # under experience_summary.build_experience_summary, which slices after
+        # filtering and returns both -- see
+        # test_empty_bullet_does_not_consume_a_max_bullets_slot in
+        # tests/resume_tests/test_experience_summary.py. The asymmetry is real:
+        # making the three bullet-filtering call sites "consistent" would change
+        # this output.
+        e = {
+            "title": "Engineer",
+            "company": "Acme",
+            "bullets": [{"priority": 1}, {"text": "Alpha"}, {"text": "Beta"}],
+        }
+        self.assertEqual(_experience_highlight_lines(e), ["Engineer at Acme", "Alpha"])
+
+    def test_empty_string_bullet_also_consumes_a_slice_slot(self):
+        e = {
+            "title": "Engineer",
+            "company": "Acme",
+            "bullets": ["", "Alpha", "Beta"],
+        }
+        self.assertEqual(_experience_highlight_lines(e), ["Engineer at Acme", "Alpha"])
+
+    def test_mixes_dict_and_string_bullets(self):
+        e = {
+            "title": "Engineer",
+            "company": "Acme",
+            "bullets": ["Bare string bullet", {"text": "Dict bullet", "priority": 0.5}],
+        }
+        self.assertEqual(
+            _experience_highlight_lines(e),
+            ["Engineer at Acme", "Bare string bullet", "Dict bullet"],
+        )
+
+
+class TestBuildSummaryBulletDrop(unittest.TestCase):
+    """The empty-bullet drop as observed through the public build_summary."""
+
+    def test_drops_empty_bullets_from_highlights(self):
+        data = {
+            "experience": [
+                {
+                    "title": "Engineer",
+                    "company": "Acme",
+                    "bullets": [{"priority": 1}, {"text": "Alpha"}, {"text": "Beta"}],
+                }
+            ]
+        }
+        result = build_summary(data)
+        self.assertEqual(result["experience_highlights"], ["Engineer at Acme", "Alpha"])
 
 
 if __name__ == "__main__":
