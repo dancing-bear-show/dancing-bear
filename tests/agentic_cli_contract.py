@@ -59,11 +59,19 @@ class AgenticCLIContractMixin:
     #: name -- ``calendars`` emits ``agentic: calendar`` (singular).
     APP_ID: str
 
-    def _run(self, argv: list[str]) -> tuple[int, str]:
+    def _run(self, argv: list[str], *, expect_rc: int | None = 0) -> tuple[int, str]:
+        """Invoke ``main(argv)`` and capture stdout.
+
+        Asserts ``rc == expect_rc`` by default so every caller enforces the
+        success contract itself rather than leaning on a sibling test to do it.
+        Pass ``expect_rc=None`` to skip the check.
+        """
         module = importlib.import_module(self.MODULE_PATH)
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             rc = module.main(argv)
+        if expect_rc is not None:
+            self.assertEqual(rc, expect_rc, f"{' '.join(argv)} returned {rc}")
         return rc, buf.getvalue()
 
     # -- plain --agentic -------------------------------------------------
@@ -76,10 +84,14 @@ class AgenticCLIContractMixin:
     def test_agentic_output_is_substantial(self):
         """Guards the swallowed-import failure mode, which exits 0 regardless."""
         _, out = self._run(["--agentic"])
+        # Measured in UTF-8 bytes, not code points: several capsules carry
+        # non-ASCII (calendars uses em dashes and arrows), so len(str) and the
+        # byte length genuinely differ and the constant names bytes.
+        size = len(out.encode("utf-8"))
         self.assertGreater(
-            len(out),
+            size,
             MIN_CAPSULE_BYTES,
-            f"capsule is only {len(out)} bytes -- likely a stub from a failed parser import",
+            f"capsule is only {size} bytes -- likely a stub from a failed parser import",
         )
 
     # -- --agentic-format json -------------------------------------------
@@ -116,7 +128,8 @@ class AgenticCLIContractMixin:
         """--agentic-compact exists to save tokens; it must actually do so."""
         _, full = self._run(["--agentic", "--agentic-format", "json"])
         _, compact = self._run(["--agentic", "--agentic-format", "json", "--agentic-compact"])
-        self.assertLess(len(compact), len(full))
+        # Bytes, for the same reason as the capsule floor above.
+        self.assertLess(len(compact.encode("utf-8")), len(full.encode("utf-8")))
 
     def test_compact_still_names_the_prog(self):
         """Compaction strips low-value fields, not the app's identity."""
