@@ -388,10 +388,12 @@ SIDEBAR_FIXTURES = (
     "mixed_shapes",
     "dict_bullets",
     "extra_keys",
-    # The empty-scalar case is only *observable* in the sidebar layout: the
-    # standard writer emits section headings unconditionally, so its output is
-    # identical either way. Without this entry the suppressed section is
-    # pinned by no golden at all.
+    # The empty-scalar case is now observable in both layouts. It used to be
+    # sidebar-only, because the standard writer emitted section headings
+    # unconditionally -- which was the bug: ``write_resume_docx`` skipped the
+    # ``_section_has_data`` guard that the class-based writer applied, so the
+    # CLI rendered a bare "Summary" heading here while the factory path did
+    # not. Both layouts now suppress it, and both are pinned.
     "empty_scalar_summary",
 )
 
