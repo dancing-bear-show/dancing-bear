@@ -475,11 +475,16 @@ class TestCmdExportPdfUnit(unittest.TestCase):
         self.assertEqual(ctx.exception.code, ExitCode.USAGE)
         self.assertIn("not found", str(ctx.exception))
 
-    @patch("resume.australian_rotate.convert_docx_to_pdf", return_value=False)
+    @patch("resume.australian_rotate.convert_docx_to_pdf")
     def test_failed_conversion_raises_cli_error_error(self, mock_convert) -> None:
         """A failed LibreOffice conversion must raise CLIError with ExitCode.ERROR."""
         from core.cli_errors import CLIError, ExitCode
+        from resume.australian_rotate import ConversionFailure, ConversionResult
         from resume.cli.main import cmd_export_pdf
+
+        mock_convert.return_value = ConversionResult(
+            ok=False, failure=ConversionFailure.CONVERTER_MISSING
+        )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             docx_path = os.path.join(tmpdir, "resume.docx")
@@ -491,10 +496,11 @@ class TestCmdExportPdfUnit(unittest.TestCase):
         self.assertEqual(ctx.exception.code, ExitCode.ERROR)
         self.assertIn("LibreOffice", str(ctx.exception))
 
-    @patch("resume.australian_rotate.convert_docx_to_pdf", return_value=True)
+    @patch("resume.australian_rotate.convert_docx_to_pdf")
     def test_happy_path_prints_output_path_and_returns_zero(self, mock_convert) -> None:
         import io
         from contextlib import redirect_stdout
+        from resume.australian_rotate import ConversionResult
         from resume.cli.main import cmd_export_pdf
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -503,6 +509,9 @@ class TestCmdExportPdfUnit(unittest.TestCase):
             out_path = os.path.join(tmpdir, "resume.pdf")
             # Create the expected pdf output so rename logic doesn't fail
             Path(out_path).write_bytes(b"fake pdf")
+            mock_convert.return_value = ConversionResult(
+                ok=True, pdf_path=Path(out_path)
+            )
             args = self._make_args(docx_path=docx_path, out=out_path)
             buf = io.StringIO()
             with redirect_stdout(buf):
@@ -510,11 +519,12 @@ class TestCmdExportPdfUnit(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertIn("resume.pdf", buf.getvalue())
 
-    @patch("resume.australian_rotate.convert_docx_to_pdf", return_value=True)
+    @patch("resume.australian_rotate.convert_docx_to_pdf")
     def test_actual_pdf_renamed_when_libreoffice_writes_different_path(self, mock_convert) -> None:
         """LibreOffice writes <stem>.pdf into outdir; if it differs from out_pdf it is renamed."""
         import io
         from contextlib import redirect_stdout
+        from resume.australian_rotate import ConversionResult
         from resume.cli.main import cmd_export_pdf
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -527,6 +537,9 @@ class TestCmdExportPdfUnit(unittest.TestCase):
             out_pdf = os.path.join(tmpdir, "myresume_final.pdf")
 
             Path(actual_pdf).write_bytes(b"converted pdf")
+            mock_convert.return_value = ConversionResult(
+                ok=True, pdf_path=Path(actual_pdf)
+            )
             args = self._make_args(docx_path=docx_path, out=out_pdf)
             buf = io.StringIO()
             with redirect_stdout(buf):
