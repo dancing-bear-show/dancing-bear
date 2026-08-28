@@ -116,10 +116,11 @@ class ScanRequest:
         3. Otherwise (repo-wide ``--all`` *or* diff-only ``--changed``, both of
            which name no paths) -- off unless ``force_include_tests``. Neither
            can hit the false-clean case, so the flag would only override
-           ``test_patterns`` and surface smells CI never sees: 43
-           fixture-factory ``function-parameters`` findings against a rule
-           ``qlty.toml`` itself documents as over-reporting keyword-only
-           signatures, drowning the real findings.
+           ``test_patterns`` and surface smells CI never reports. In practice
+           that is dominated by test fixture factories tripping
+           ``function-parameters`` -- a rule ``qlty.toml`` itself documents as
+           over-reporting keyword-only signatures -- which drown the findings
+           that matter.
         """
         if not self.include_tests:
             return False
