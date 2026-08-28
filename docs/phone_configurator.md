@@ -170,6 +170,11 @@ To allow edits again, re-enable the restriction and re‑install.
 
 ## Using With the Phone CLI
 
+The examples below write to a relative `out/`, which still works — a relative
+`--out-dir` is honoured as given. New work should prefer the default data home
+(`~/.local/share/dancing-bear/phone`); see
+[architecture.md](architecture.md#8-where-generated-output-goes).
+
 ```bash
 # Full supervised reorg (export-device → plan → profile → install)
 ./bin/phone reorg

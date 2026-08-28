@@ -28,8 +28,15 @@ rather than restating them, so when the two disagree, trust these.
 
 | Doc | Covers |
 |---|---|
-| [phone_configurator.md](phone_configurator.md) | iOS layout tooling internals. |
-| [QLTY_DOMAIN_PLAN.md](QLTY_DOMAIN_PLAN.md) | qlty triage domain plan. |
+| [phone_configurator.md](phone_configurator.md) | Supervising an iPhone with Apple Configurator 2 and applying a Home Screen Layout profile. |
+
+For qlty triage, the shipped CLI is the source of truth — the design proposal
+that preceded it was implemented and has been removed:
+
+```bash
+./bin/qlty-assistant rules   # per-rule remediation tiers and strategies
+./bin/qlty-assistant scan    # merged check + smells, defaults to --all
+```
 
 ## Discovering commands
 
