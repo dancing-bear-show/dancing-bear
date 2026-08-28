@@ -230,7 +230,13 @@ Template Keys (high‑value)
   - `recent_roles_count`, `recent_max_bullets`, `prior_max_bullets`
 - Skills / Technologies
   - `bullets` (glyph only — `style` and `plain_bullets` are accepted but inert; the standard layout has one bullet mechanism)
-  - `show_desc`, `desc_separator`, `separator` (for inline lists), `group_title_color`
+  - `show_desc`, `desc_separator`, `group_title_color`
+  - `separator`: joins items into one inline paragraph, and only on the
+    skills/technologies collapsed path — that is, when `bullets` is falsy.
+    With `bullets: true` (what every shipped template sets) it has no effect.
+    It is never read for the simple list sections (interests, teaching,
+    presentations, certifications, coursework): those always render one bullet
+    per item, and a `bullets: false` there is ignored with a warning.
   - `group_title_bg`: shaded background behind group titles; when set, text color auto‑contrasts if `group_title_color` is omitted
   - `priority`/`usefulness` (float 0–1): optional; used with `--min-priority` to include only higher‑importance items
 

@@ -428,12 +428,35 @@ class TestListSectionRenderer(unittest.TestCase):
         self.assertEqual(result, ["Item 1", "Item 2", "Item 3"])
         self.assertEqual(len(doc.paragraphs), 3)
 
-    def test_render_simple_list_inline(self):
-        """sec={"bullets": False} joins items into a single separator-delimited paragraph."""
+    def test_render_simple_list_ignores_bullets_false(self):
+        """``bullets: false`` no longer collapses the list into one paragraph.
+
+        That branch joined every item with ``separator`` into a single
+        paragraph, burying the glyph inside the text so Word wrapped the
+        section as prose. It is gone: each item gets its own paragraph
+        regardless of the flag, and ``separator`` is not consulted here.
+        """
         renderer, doc = self._get_renderer()
         sec = {"bullets": False, "separator": ", "}
         renderer.render_simple_list(["A", "B", "C"], sec)
-        self.assertEqual(len(doc.paragraphs), 1)
+        self.assertEqual(len(doc.paragraphs), 3)
+        # Bullet text lands in runs, not FakeParagraph.text, so read the runs
+        # -- asserting on p.text would pass vacuously against empty strings.
+        bodies = ["".join(r.text for r in p.runs) for p in doc.paragraphs]
+        self.assertEqual(bodies, ["• A", "• B", "• C"])
+
+    def test_render_simple_list_warns_on_bullets_false(self):
+        """The dropped flag warns rather than changing layout silently."""
+        renderer, _ = self._get_renderer()
+        with self.assertLogs("resume.docx_renderers", level="WARNING") as logs:
+            renderer.render_simple_list(["A", "B"], {"bullets": False})
+        self.assertIn("bullets: false", "".join(logs.output))
+
+    def test_render_simple_list_does_not_warn_by_default(self):
+        """A section that never set the flag must render without a warning."""
+        renderer, _ = self._get_renderer()
+        with self.assertNoLogs("resume.docx_renderers", level="WARNING"):
+            renderer.render_simple_list(["A", "B"], {"bullets": True})
 
     def test_render_simple_list_skips_empty_items(self):
         """Blank strings and empty dict items are dropped from the rendered list."""
