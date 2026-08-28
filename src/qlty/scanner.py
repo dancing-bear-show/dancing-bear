@@ -86,31 +86,40 @@ class ScanRequest:
     told otherwise, so scanning a test file silently analyzes zero files and
     reports a confident "clean" -- a false clean is worse than an error.
 
-    That hazard is specific to PATH-scoped scans, so ``include_tests`` only
-    takes effect there; see ``effective_include_tests``.
+    That hazard is specific to PATH-scoped scans. ``include_tests`` is
+    therefore not read directly: ``effective_include_tests`` resolves it
+    against the scan's scope and ``force_include_tests``, and is what the
+    scanner passes to the runner.
     """
 
     scan_all: bool = True
     include_tests: bool = True
     paths: tuple[str, ...] = ()
     sources: tuple[Source, ...] = (Source.CHECK, Source.SMELLS)
-    # Set by `--include-tests` to force test smells on for a repo-wide scan.
+    # Set by `--include-tests` to force test smells on when no paths are named.
     force_include_tests: bool = False
 
     @property
     def effective_include_tests(self) -> bool:
         """Whether to pass ``--include-tests`` to ``qlty smells`` for this scan.
 
-        ``include_tests`` exists to stop a path-scoped scan of a test file from
-        analysing zero files and reporting a confident "clean". A repo-wide scan
-        cannot hit that: it always analyses hundreds of files. There, the flag
-        does nothing but override ``qlty.toml``'s ``test_patterns`` and surface
-        smells CI never sees -- 43 fixture-factory ``function-parameters``
-        findings against a rule the config itself documents as over-reporting
-        keyword-only signatures, drowning the real findings.
+        Three inputs, resolved in this order:
 
-        So: on by default for path scans, off for repo-wide scans unless
-        ``--include-tests`` explicitly asks for it.
+        1. ``include_tests`` False (``--no-include-tests``) -- off, always. It
+           is an explicit opt-out and overrides everything below. The CLI
+           rejects combining it with ``--include-tests``, but ScanRequest is
+           constructible directly, so the precedence is defined here too.
+        2. ``paths`` non-empty -- on. This is the case the whole setting exists
+           for: ``qlty smells`` honours ``qlty.toml``'s ``test_patterns``, so
+           naming a test file explicitly would otherwise analyse zero files and
+           report a confident "clean" -- a false clean is worse than an error.
+        3. Otherwise (repo-wide ``--all`` *or* diff-only ``--changed``, both of
+           which name no paths) -- off unless ``force_include_tests``. Neither
+           can hit the false-clean case, so the flag would only override
+           ``test_patterns`` and surface smells CI never sees: 43
+           fixture-factory ``function-parameters`` findings against a rule
+           ``qlty.toml`` itself documents as over-reporting keyword-only
+           signatures, drowning the real findings.
         """
         if not self.include_tests:
             return False

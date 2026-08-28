@@ -69,6 +69,16 @@ class MergeTests(unittest.TestCase):
     def test_repo_wide_scan_honours_explicit_force(self):
         self.assertTrue(ScanRequest(force_include_tests=True).effective_include_tests)
 
+    def test_changed_scan_excludes_tests_by_default(self):
+        """--changed names no paths either, so it takes the same branch as --all.
+        It cannot hit the false-clean case, so tests stay excluded."""
+        self.assertFalse(ScanRequest(scan_all=False).effective_include_tests)
+
+    def test_changed_scan_honours_explicit_force(self):
+        self.assertTrue(
+            ScanRequest(scan_all=False, force_include_tests=True).effective_include_tests
+        )
+
     def test_no_include_tests_beats_force(self):
         """Belt-and-braces at the API level: the CLI rejects this combination as a
         UsageError, but ScanRequest is constructible directly, so the opt-out
