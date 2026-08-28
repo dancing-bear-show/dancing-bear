@@ -709,20 +709,20 @@ def cmd_export_pdf(args: argparse.Namespace) -> int:
     out_pdf = _resolve_out(args, ".pdf", kind=docx.stem)
     # LibreOffice always writes <docx_stem>.pdf into the output directory;
     # when that path differs from out_pdf, rename it afterward.
-    # (See australian_rotate.py:101-103 for the same pattern.)
     out_pdf.parent.mkdir(parents=True, exist_ok=True)
 
-    if not convert_docx_to_pdf(str(docx), str(out_pdf)):
-        raise CLIError(
-            "DOCX to PDF conversion failed. Is LibreOffice installed?",
-            ExitCode.ERROR,
-            hint="install LibreOffice and ensure 'soffice' is on PATH "
-            "(macOS: brew install --cask libreoffice)",
-        )
+    conversion = convert_docx_to_pdf(str(docx), str(out_pdf))
+    if not conversion:
+        # The converter distinguishes a missing binary from a converter that
+        # ran but produced nothing; surface that rather than always blaming a
+        # missing LibreOffice install.
+        raise CLIError(conversion.detail(), ExitCode.ERROR, hint=conversion.hint)
 
     # LibreOffice writes <docx_stem>.pdf into the outdir, not the exact target.
-    actual = out_pdf.parent / f"{docx.stem}.pdf"
-    if actual.exists() and actual != out_pdf:
+    # conversion.pdf_path is verified to exist, so the rename cannot silently
+    # no-op into a reported path that holds no file.
+    actual = conversion.pdf_path
+    if actual != out_pdf:
         actual.rename(out_pdf)
 
     print(str(out_pdf))

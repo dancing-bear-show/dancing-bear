@@ -12,13 +12,17 @@ from unittest.mock import MagicMock, patch, mock_open
 class TestConvertDocxToPdf(unittest.TestCase):
     """Tests for convert_docx_to_pdf."""
 
-    def test_returns_true_on_success(self):
+    def test_returns_truthy_on_success(self):
         from resume.australian_rotate import convert_docx_to_pdf
 
         mock_result = MagicMock()
         mock_result.returncode = 0
+        mock_result.stderr = ""
         with patch("subprocess.run", return_value=mock_result) as mock_run:
-            result = convert_docx_to_pdf("/tmp/test.docx", "/tmp/test.pdf")  # nosec B108
+            # LibreOffice's output file must exist for the conversion to count
+            # as a success; patching is_file stands in for it being written.
+            with patch.object(Path, "is_file", lambda _self: True):
+                result = convert_docx_to_pdf("/tmp/test.docx", "/tmp/test.pdf")  # nosec B108
         self.assertTrue(result)
         mock_run.assert_called_once()
         args = mock_run.call_args[0][0]
@@ -26,29 +30,46 @@ class TestConvertDocxToPdf(unittest.TestCase):
         self.assertIn("--headless", args)
         self.assertIn("/tmp/test.docx", args)  # nosec B108 - test-only temp file, not a security concern
 
-    def test_returns_false_on_nonzero_returncode(self):
-        from resume.australian_rotate import convert_docx_to_pdf
+    def test_returns_falsy_on_nonzero_returncode(self):
+        from resume.australian_rotate import ConversionFailure, convert_docx_to_pdf
 
         mock_result = MagicMock()
         mock_result.returncode = 1
+        mock_result.stderr = ""
         with patch("subprocess.run", return_value=mock_result):
             result = convert_docx_to_pdf("/tmp/test.docx", "/tmp/test.pdf")  # nosec B108
         self.assertFalse(result)
+        self.assertIs(result.failure, ConversionFailure.CONVERTER_ERROR)
 
-    def test_returns_false_on_timeout(self):
-        from resume.australian_rotate import convert_docx_to_pdf
+    def test_returns_falsy_when_zero_exit_writes_no_pdf(self):
+        """LibreOffice can exit 0 without producing a file; that is not success."""
+        from resume.australian_rotate import ConversionFailure, convert_docx_to_pdf
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stderr = ""
+        with patch("subprocess.run", return_value=mock_result):
+            with patch.object(Path, "is_file", lambda _self: False):
+                result = convert_docx_to_pdf("/tmp/test.docx", "/tmp/test.pdf")  # nosec B108
+        self.assertFalse(result)
+        self.assertIs(result.failure, ConversionFailure.NO_OUTPUT)
+
+    def test_returns_falsy_on_timeout(self):
+        from resume.australian_rotate import ConversionFailure, convert_docx_to_pdf
         import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 
         with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("soffice", 30)):
             result = convert_docx_to_pdf("/tmp/test.docx", "/tmp/test.pdf")  # nosec B108
         self.assertFalse(result)
+        self.assertIs(result.failure, ConversionFailure.CONVERTER_TIMEOUT)
 
-    def test_returns_false_on_file_not_found(self):
-        from resume.australian_rotate import convert_docx_to_pdf
+    def test_returns_falsy_on_file_not_found(self):
+        from resume.australian_rotate import ConversionFailure, convert_docx_to_pdf
 
         with patch("subprocess.run", side_effect=FileNotFoundError("soffice not found")):
             result = convert_docx_to_pdf("/tmp/test.docx", "/tmp/test.pdf")  # nosec B108
         self.assertFalse(result)
+        self.assertIs(result.failure, ConversionFailure.CONVERTER_MISSING)
 
     def test_uses_correct_outdir(self):
         from resume.australian_rotate import convert_docx_to_pdf
@@ -132,6 +153,13 @@ class TestRotatePdf180(unittest.TestCase):
         self.assertEqual(mock_writer.add_page.call_count, 3)
 
 
+def _converted(pdf_path: str):
+    """A successful ConversionResult naming *pdf_path* as LibreOffice's output."""
+    from resume.australian_rotate import ConversionResult
+
+    return ConversionResult(ok=True, pdf_path=Path(pdf_path))
+
+
 class TestCreateAustralianResume(unittest.TestCase):
     """Tests for create_australian_resume."""
 
@@ -147,22 +175,41 @@ class TestCreateAustralianResume(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tf:  # nosec B108 - test-only temp file, not a security concern
             docx_path = tf.name
         try:
-            with patch("resume.australian_rotate.convert_docx_to_pdf", return_value=False):
+            from resume.australian_rotate import ConversionFailure, ConversionResult
+
+            failure = ConversionResult(
+                ok=False, failure=ConversionFailure.CONVERTER_MISSING
+            )
+            with patch("resume.australian_rotate.convert_docx_to_pdf", return_value=failure):
                 result = create_australian_resume(docx_path)
             self.assertIsNone(result)
         finally:
             os.unlink(docx_path)
 
-    def test_returns_none_when_temp_pdf_missing(self):
-        from resume.australian_rotate import create_australian_resume
+    def test_returns_none_when_no_pdf_was_written(self):
+        """A converter that exits 0 without writing a PDF must abort the render.
+
+        This used to be caught by a redundant existence check in this function
+        after the converter had already reported success.  The check now lives
+        in the converter itself, so the caller sees an ordinary falsy result.
+        """
+        from resume.australian_rotate import (
+            ConversionFailure,
+            ConversionResult,
+            create_australian_resume,
+        )
 
         with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tf:  # nosec B108 - test-only temp file, not a security concern
             docx_path = tf.name
         try:
-            with patch("resume.australian_rotate.convert_docx_to_pdf", return_value=True):
-                # temp_pdf won't exist since we didn't create it
-                result = create_australian_resume(docx_path)
+            no_output = ConversionResult(ok=False, failure=ConversionFailure.NO_OUTPUT)
+            with patch(
+                "resume.australian_rotate.convert_docx_to_pdf", return_value=no_output
+            ):
+                with patch("resume.australian_rotate.rotate_pdf_180") as rotate:
+                    result = create_australian_resume(docx_path)
             self.assertIsNone(result)
+            rotate.assert_not_called()
         finally:
             os.unlink(docx_path)
 
@@ -176,7 +223,10 @@ class TestCreateAustralianResume(unittest.TestCase):
             Path(temp_pdf).write_text("fake pdf")
             out_pdf = os.path.join(tmpdir, "resume.australian.pdf")
 
-            with patch("resume.australian_rotate.convert_docx_to_pdf", return_value=True):
+            with patch(
+                "resume.australian_rotate.convert_docx_to_pdf",
+                return_value=_converted(temp_pdf),
+            ):
                 with patch("resume.australian_rotate.rotate_pdf_180", return_value=True):
                     result = create_australian_resume(docx_path, output_pdf=out_pdf)
 
@@ -192,7 +242,10 @@ class TestCreateAustralianResume(unittest.TestCase):
             Path(temp_pdf).write_text("fake pdf")
             out_pdf = os.path.join(tmpdir, "resume.australian.pdf")
 
-            with patch("resume.australian_rotate.convert_docx_to_pdf", return_value=True):
+            with patch(
+                "resume.australian_rotate.convert_docx_to_pdf",
+                return_value=_converted(temp_pdf),
+            ):
                 with patch("resume.australian_rotate.rotate_pdf_180", return_value=True):
                     create_australian_resume(docx_path, output_pdf=out_pdf)
 
@@ -208,7 +261,10 @@ class TestCreateAustralianResume(unittest.TestCase):
             Path(temp_pdf).write_text("fake pdf")
             out_pdf = os.path.join(tmpdir, "resume.australian.pdf")
 
-            with patch("resume.australian_rotate.convert_docx_to_pdf", return_value=True):
+            with patch(
+                "resume.australian_rotate.convert_docx_to_pdf",
+                return_value=_converted(temp_pdf),
+            ):
                 with patch("resume.australian_rotate.rotate_pdf_180", return_value=True):
                     create_australian_resume(docx_path, output_pdf=out_pdf, keep_temp=True)
 
@@ -223,7 +279,10 @@ class TestCreateAustralianResume(unittest.TestCase):
             temp_pdf = os.path.join(tmpdir, "resume.temp.pdf")
             Path(temp_pdf).write_text("fake pdf")
 
-            with patch("resume.australian_rotate.convert_docx_to_pdf", return_value=True):
+            with patch(
+                "resume.australian_rotate.convert_docx_to_pdf",
+                return_value=_converted(temp_pdf),
+            ):
                 with patch("resume.australian_rotate.rotate_pdf_180", return_value=True):
                     result = create_australian_resume(docx_path)
 
@@ -240,7 +299,10 @@ class TestCreateAustralianResume(unittest.TestCase):
             Path(temp_pdf).write_text("fake pdf")
             out_pdf = os.path.join(tmpdir, "resume.australian.pdf")
 
-            with patch("resume.australian_rotate.convert_docx_to_pdf", return_value=True):
+            with patch(
+                "resume.australian_rotate.convert_docx_to_pdf",
+                return_value=_converted(temp_pdf),
+            ):
                 with patch("resume.australian_rotate.rotate_pdf_180", return_value=False):
                     result = create_australian_resume(docx_path, output_pdf=out_pdf)
 
@@ -258,11 +320,16 @@ class TestCreateAustralianResume(unittest.TestCase):
             Path(actual_temp).write_text("fake pdf")
             out_pdf = os.path.join(tmpdir, "resume.australian.pdf")
 
-            with patch("resume.australian_rotate.convert_docx_to_pdf", return_value=True):
+            with patch(
+                "resume.australian_rotate.convert_docx_to_pdf",
+                return_value=_converted(actual_temp),
+            ):
                 with patch("resume.australian_rotate.rotate_pdf_180", return_value=True):
                     result = create_australian_resume(docx_path, output_pdf=out_pdf)
 
             self.assertEqual(result, out_pdf)
+            # The LibreOffice-named file was renamed to the intermediate path.
+            self.assertFalse(Path(actual_temp).exists())
 
 
 class TestMain(unittest.TestCase):
@@ -285,7 +352,10 @@ class TestMain(unittest.TestCase):
             Path(temp_pdf).write_text("fake pdf")
 
             with patch("sys.argv", ["australian_rotate", docx_path]):
-                with patch("resume.australian_rotate.convert_docx_to_pdf", return_value=True):
+                with patch(
+                    "resume.australian_rotate.convert_docx_to_pdf",
+                    return_value=_converted(temp_pdf),
+                ):
                     with patch("resume.australian_rotate.rotate_pdf_180", return_value=True):
                         exit_code = main()
         self.assertEqual(exit_code, 0)
