@@ -70,7 +70,9 @@ class MergeTests(unittest.TestCase):
         self.assertTrue(ScanRequest(force_include_tests=True).effective_include_tests)
 
     def test_no_include_tests_beats_force(self):
-        """--no-include-tests is an explicit opt-out and wins over the force flag."""
+        """Belt-and-braces at the API level: the CLI rejects this combination as a
+        UsageError, but ScanRequest is constructible directly, so the opt-out
+        still wins rather than silently including tests."""
         self.assertFalse(
             ScanRequest(
                 include_tests=False, force_include_tests=True

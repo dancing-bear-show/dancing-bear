@@ -109,6 +109,13 @@ def _run_scan(args) -> tuple[ScanResult, ScanResult]:
             "files repo-wide."
         )
 
+    if getattr(args, "include_tests", False) and getattr(args, "no_include_tests", False):
+        # Direct opposites of one setting. Resolving them by precedence would
+        # silently discard one of the two flags the caller explicitly passed.
+        raise UsageError(
+            "--include-tests and --no-include-tests are opposites; pass at most one."
+        )
+
     request = ScanRequest(
         # F1: default to --all. Diff-only is opt-in, because `qlty check`
         # defaulting to changed-files-only reports "No issues" on a clean

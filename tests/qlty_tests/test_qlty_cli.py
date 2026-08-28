@@ -173,6 +173,17 @@ class ChangedWithPathsUsageErrorTests(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertIn("--changed cannot be combined with explicit paths", err)
 
+    def test_include_tests_and_no_include_tests_raises_usage_error(self):
+        """Direct opposites of one setting. Resolving by precedence would silently
+        discard one of the two flags the caller explicitly passed."""
+        runner = FakeRunner()
+        with _patched_scanner(runner):
+            code, _, err = run_cli_streams(
+                ["scan", "--include-tests", "--no-include-tests"]
+            )
+        self.assertNotEqual(code, 0)
+        self.assertIn("--include-tests and --no-include-tests are opposites", err)
+
     def test_paths_alone_succeeds(self):
         runner = FakeRunner()
         with _patched_scanner(runner):
