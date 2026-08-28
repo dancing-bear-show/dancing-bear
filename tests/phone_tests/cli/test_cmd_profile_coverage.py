@@ -79,7 +79,7 @@ class TestExtractManifestProfileConfigLayoutError(unittest.TestCase):
         manifest = make_mock_manifest(layout_export_path="nonexistent/export.yaml")
 
         with patch("phone.cli.cmd_profile.read_yaml", side_effect=FileNotFoundError("no file")):
-            plan, layout_export, profile = _extract_manifest_profile_config(manifest)
+            plan, layout_export, _profile = _extract_manifest_profile_config(manifest)
 
         self.assertIsNone(layout_export)
         self.assertEqual(plan, manifest["plan"])
