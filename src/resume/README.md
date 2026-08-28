@@ -107,7 +107,7 @@ Commands
   - With profile overlays: add `--profile <prefix>` to overlay `config/profiles/<prefix>/profile.yaml` (plus grouped skills and experience). Legacy `config/profile.<prefix>.yaml` is still supported.
 - `render` — Render a `.docx` using a YAML/JSON template (optionally mimic a reference resume's structure)
   - **Note:** `--template` is required to render resume sections (Summary, Skills, Experience, Education). Without it, only the header (name, headline, contact) is rendered.
-  - Example: `python3 -m resume render --data out/data.json --template config/template.yaml --seed 'keywords=Python AWS' --out out/jane_doe.docx`
+  - Example: `python3 -m resume render --data out/data.json --template config/template.example.yaml --seed 'keywords=Python AWS' --out out/jane_doe.docx`
   - Mimic structure: add `--structure-from reference.docx` to align section order and headings.
   - With profile prefix (writes to `out/<prefix>/`): `python3 -m resume render --data out/sample/data.json --template config/template.example.yaml --profile sample`
   - Priority cutoff (dynamic sizing): add `--min-priority 0.8` to keep only items with `priority >= 0.8` across Skills/Technologies, summary lists, and experience roles/bullets.
@@ -267,7 +267,7 @@ experience:
       - "Built Terraform modules"
 ```
 - Compact render (keep higher‑priority only):
-  - `python3 -m resume render --data out/data.json --template config/template.yaml --min-priority 0.8 --out out/jane_doe.compact.docx`
+  - `python3 -m resume render --data out/data.json --template config/template.example.yaml --min-priority 0.8 --out out/jane_doe.compact.docx`
 
 Overlays + Filtering
 - Overlays (auto‑applied with `--profile <prefix>`) via `config/profiles/<prefix>/`:
