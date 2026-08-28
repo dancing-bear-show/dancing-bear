@@ -79,12 +79,28 @@ class ScanCommandTests(unittest.TestCase):
             run_cli(["scan", "--changed"])
         self.assertTrue(all(call[1] is False for call in runner.calls))
 
-    def test_scan_defaults_to_including_tests(self):
+    def test_path_scan_defaults_to_including_tests(self):
         # The silent-empty-scan trap: `qlty smells` excludes test_patterns
-        # unless told otherwise, so the default here must be "included".
+        # unless told otherwise, so naming a test file explicitly would
+        # otherwise analyse zero files and report a confident "clean".
+        runner = FakeRunner()
+        with _patched_scanner(runner):
+            run_cli(["scan", "tests/qlty_tests/test_qlty_cli.py"])
+        self.assertTrue(all(call[3] for call in runner.calls))
+
+    def test_repo_wide_scan_defaults_to_excluding_tests(self):
+        # No false-clean hazard repo-wide (hundreds of files are analysed), so
+        # --include-tests would only override qlty.toml's test_patterns and
+        # surface fixture smells that CI never reports.
         runner = FakeRunner()
         with _patched_scanner(runner):
             run_cli(["scan"])
+        self.assertTrue(all(call[3] is False for call in runner.calls))
+
+    def test_include_tests_flag_forces_tests_into_a_repo_wide_scan(self):
+        runner = FakeRunner()
+        with _patched_scanner(runner):
+            run_cli(["scan", "--include-tests"])
         self.assertTrue(all(call[3] for call in runner.calls))
 
     def test_no_include_tests_flag_excludes_tests(self):

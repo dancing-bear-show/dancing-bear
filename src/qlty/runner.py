@@ -305,6 +305,8 @@ class QltyRunner:
         if include_tests and source is Source.SMELLS:
             # `qlty check` does not accept --include-tests and hard-errors if
             # given it; only `smells` excludes test_patterns by default.
+            # Whether include_tests is on for this scan is decided by
+            # ScanRequest.effective_include_tests, not here.
             args.append("--include-tests")
         return args
 

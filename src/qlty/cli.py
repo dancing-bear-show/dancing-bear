@@ -51,7 +51,8 @@ def _scan_arguments(func):
         app.argument("--smells-only", action="store_true", help="Run only qlty smells"),
         app.argument("--check-only", action="store_true", help="Run only qlty check"),
         app.argument("--changed", action="store_true", help="Scan only changed files (default: all)"),
-        app.argument("--no-include-tests", action="store_true", help="Exclude test files from smells (default: included)"),
+        app.argument("--no-include-tests", action="store_true", help="Exclude test files from smells on path-scoped scans"),
+        app.argument("--include-tests", action="store_true", help="Include test files in smells on repo-wide scans"),
         app.argument("--rule", action="append", dest="rules", metavar="RULE",
                      help="Limit output to this rule (repeatable; unknown rule yields empty)"),
         app.argument("paths", nargs="*", help="Limit scan to these paths"),
@@ -114,6 +115,7 @@ def _run_scan(args) -> tuple[ScanResult, ScanResult]:
         # branch, which is indistinguishable from a genuinely clean repo.
         scan_all=not getattr(args, "changed", False),
         include_tests=not getattr(args, "no_include_tests", False),
+        force_include_tests=getattr(args, "include_tests", False),
         paths=tuple(getattr(args, "paths", ()) or ()),
         sources=_sources(args),
     )

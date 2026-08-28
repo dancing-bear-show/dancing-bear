@@ -85,12 +85,38 @@ class ScanRequest:
     excludes anything matching ``.qlty/qlty.toml``'s ``test_patterns`` unless
     told otherwise, so scanning a test file silently analyzes zero files and
     reports a confident "clean" -- a false clean is worse than an error.
+
+    That hazard is specific to PATH-scoped scans, so ``include_tests`` only
+    takes effect there; see ``effective_include_tests``.
     """
 
     scan_all: bool = True
     include_tests: bool = True
     paths: tuple[str, ...] = ()
     sources: tuple[Source, ...] = (Source.CHECK, Source.SMELLS)
+    # Set by `--include-tests` to force test smells on for a repo-wide scan.
+    force_include_tests: bool = False
+
+    @property
+    def effective_include_tests(self) -> bool:
+        """Whether to pass ``--include-tests`` to ``qlty smells`` for this scan.
+
+        ``include_tests`` exists to stop a path-scoped scan of a test file from
+        analysing zero files and reporting a confident "clean". A repo-wide scan
+        cannot hit that: it always analyses hundreds of files. There, the flag
+        does nothing but override ``qlty.toml``'s ``test_patterns`` and surface
+        smells CI never sees -- 43 fixture-factory ``function-parameters``
+        findings against a rule the config itself documents as over-reporting
+        keyword-only signatures, drowning the real findings.
+
+        So: on by default for path scans, off for repo-wide scans unless
+        ``--include-tests`` explicitly asks for it.
+        """
+        if not self.include_tests:
+            return False
+        if self.paths:
+            return True
+        return self.force_include_tests
 
     @property
     def scope(self) -> Scope:
@@ -234,7 +260,7 @@ class Scanner:
             invocation = self._runner.invoke(
                 source,
                 scan_all=request.scan_all,
-                include_tests=request.include_tests,
+                include_tests=request.effective_include_tests,
                 paths=request.paths,
             )
             accumulated.add(invocation.findings)

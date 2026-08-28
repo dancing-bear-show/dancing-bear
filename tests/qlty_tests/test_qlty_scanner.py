@@ -53,6 +53,47 @@ class MergeTests(unittest.TestCase):
         Scanner(runner).scan(ScanRequest(include_tests=False))
         self.assertTrue(all(call[3] is False for call in runner.calls))
 
+    def test_path_scan_includes_tests(self):
+        """A path-scoped scan keeps --include-tests: it is what stops a scan of
+        a test file from analysing zero files and reporting a false clean."""
+        self.assertTrue(
+            ScanRequest(paths=("tests/foo_test.py",)).effective_include_tests
+        )
+
+    def test_repo_wide_scan_excludes_tests_by_default(self):
+        """A repo-wide scan drops it: with hundreds of files analysed there is no
+        false-clean hazard, and the flag would only override qlty.toml's
+        test_patterns and surface fixture smells CI never reports."""
+        self.assertFalse(ScanRequest().effective_include_tests)
+
+    def test_repo_wide_scan_honours_explicit_force(self):
+        self.assertTrue(ScanRequest(force_include_tests=True).effective_include_tests)
+
+    def test_no_include_tests_beats_force(self):
+        """--no-include-tests is an explicit opt-out and wins over the force flag."""
+        self.assertFalse(
+            ScanRequest(
+                include_tests=False, force_include_tests=True
+            ).effective_include_tests
+        )
+
+    def test_no_include_tests_beats_path_scope(self):
+        self.assertFalse(
+            ScanRequest(
+                include_tests=False, paths=("tests/foo_test.py",)
+            ).effective_include_tests
+        )
+
+    def test_repo_wide_scan_does_not_pass_include_tests_to_runner(self):
+        runner = FakeRunner()
+        Scanner(runner).scan(ScanRequest())
+        self.assertTrue(all(call[3] is False for call in runner.calls))
+
+    def test_path_scan_does_pass_include_tests_to_runner(self):
+        runner = FakeRunner()
+        Scanner(runner).scan(ScanRequest(paths=("tests/foo_test.py",)))
+        self.assertTrue(all(call[3] is True for call in runner.calls))
+
     def test_single_source_can_be_selected(self):
         runner = FakeRunner()
         Scanner(runner).scan(ScanRequest(sources=(Source.SMELLS,)))
