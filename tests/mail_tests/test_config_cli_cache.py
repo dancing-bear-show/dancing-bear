@@ -7,11 +7,24 @@ import time
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import TestCase
+from unittest.mock import MagicMock, patch
 
-from tests.fixtures import test_path
+from tests.fixtures import TempDirMixin, capture_stdout, test_path
 from core.pipeline import ResultEnvelope
 
 from mail.config_cli.pipeline_cache import (
+    # Auth
+    AuthRequest,
+    AuthRequestConsumer,
+    AuthProcessor,
+    AuthProducer,
+    AuthResult,
+    # Backup
+    BackupRequest,
+    BackupRequestConsumer,
+    BackupProcessor,
+    BackupProducer,
+    BackupResult,
     # Cache stats
     CacheStatsRequest,
     CacheStatsRequestConsumer,
@@ -269,3 +282,252 @@ class ConfigInspectTests(TestCase):
         output = buf.getvalue()
         self.assertIn("[test]", output)
         self.assertIn("key = value", output)
+
+    def test_config_inspect_processor_section_not_found_raises(self):
+        """ConfigInspectProcessor raises ValueError for a missing section."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ini", delete=False) as f:
+            f.write("[existing_section]\nkey = value\n")
+            ini_path = f.name
+        try:
+            request = ConfigInspectRequest(path=ini_path, section="no_such_section")
+            result = ConfigInspectProcessor().process(request)
+            self.assertFalse(result.ok())
+            self.assertIn("Section not found", result.diagnostics.get("message", ""))
+        finally:
+            os.unlink(ini_path)
+
+    def test_config_inspect_processor_only_mail_filters_sections(self):
+        """ConfigInspectProcessor with only_mail=True returns only mail.* sections."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ini", delete=False) as f:
+            f.write("[mail.personal]\ntoken = /path/token.json\n")
+            f.write("[other_section]\nkey = value\n")
+            ini_path = f.name
+        try:
+            request = ConfigInspectRequest(path=ini_path, only_mail=True)
+            result = ConfigInspectProcessor().process(request)
+            self.assertTrue(result.ok())
+            names = [s.name for s in result.payload.sections]
+            self.assertIn("mail.personal", names)
+            self.assertNotIn("other_section", names)
+        finally:
+            os.unlink(ini_path)
+
+
+class CacheStatsOSErrorTests(TestCase):
+    """CacheStatsProcessor handles OSError on stat() without crashing."""
+
+    def test_inaccessible_file_is_skipped(self):
+        """If stat() raises OSError, the file is skipped and totals are still correct."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            good = Path(tmpdir) / "good.json"
+            good.write_text("hello")
+
+            processor = CacheStatsProcessor()
+            bad_path = MagicMock()
+            bad_path.is_file.return_value = True
+            bad_path.stat.side_effect = OSError("permission denied")
+
+            original_rglob = Path.rglob
+
+            def patched_rglob(self, pattern):
+                if str(self) == tmpdir:
+                    yield from [bad_path, good]
+                else:
+                    yield from original_rglob(self, pattern)
+
+            with patch.object(Path, "rglob", patched_rglob):
+                request = CacheStatsRequest(cache_path=tmpdir)
+                result = processor.process(request)
+
+            self.assertTrue(result.ok())
+            # The good file should still be counted; the bad one is skipped
+            self.assertEqual(result.payload.files, 2)
+            self.assertEqual(result.payload.size_bytes, 5)  # only "hello" counted
+
+
+class CachePruneOSErrorTests(TestCase):
+    """CachePruneProcessor skips files that raise OSError during removal."""
+
+    def test_oserror_on_unlink_is_skipped(self):
+        """Files that raise OSError on unlink are silently skipped."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_file = Path(tmpdir) / "old.json"
+            old_file.write_text("old")
+            old_time = time.time() - (10 * 86400)
+            os.utime(old_file, (old_time, old_time))
+
+            def raise_on_unlink(self, *args, **kwargs):
+                raise OSError("permission denied")
+
+            with patch.object(Path, "unlink", raise_on_unlink):
+                request = CachePruneRequest(cache_path=tmpdir, days=1)
+                result = CachePruneProcessor().process(request)
+
+            # Should not crash; removed count should be 0 since unlink failed
+            self.assertTrue(result.ok())
+            self.assertEqual(result.payload.removed, 0)
+
+
+class AuthTests(TempDirMixin, TestCase):
+    """Tests for AuthProcessor — auth and validate paths."""
+
+    def test_auth_consumer_returns_request(self):
+        """AuthRequestConsumer returns the request unchanged."""
+        request = AuthRequest(profile="personal")
+        consumer = AuthRequestConsumer(request)
+        self.assertEqual(request, consumer.consume())
+
+    def test_auth_processor_authenticate_success(self):
+        """AuthProcessor calls client.authenticate and returns success."""
+        fake_client = MagicMock()
+        fake_client.authenticate.return_value = None
+
+        # Patch at import source since _process_safe uses local imports.
+        with patch("mail.config_resolver.resolve_paths_profile", return_value=("creds.json", "token.json")), \
+             patch("mail.gmail_api.GmailClient", return_value=fake_client), \
+             patch("mail.config_resolver.persist_if_provided"):
+            request = AuthRequest(credentials="creds.json", token="token.json", profile=None, validate=False)
+            result = AuthProcessor().process(request)
+
+        self.assertTrue(result.ok())
+        self.assertEqual(result.payload.message, "Authentication complete.")
+        fake_client.authenticate.assert_called_once_with(allow_interactive=True)
+
+    def test_auth_processor_validate_missing_token_fails(self):
+        """_validate_gmail_token raises ValueError when token file does not exist."""
+        with patch("mail.config_resolver.resolve_paths_profile", return_value=(None, "/nonexistent/token.json")):
+            request = AuthRequest(validate=True, token="/nonexistent/token.json")
+            result = AuthProcessor().process(request)
+
+        self.assertFalse(result.ok())
+        self.assertIn("Token file not found", result.diagnostics.get("message", ""))
+
+    def test_auth_processor_validate_none_token_fails(self):
+        """_validate_gmail_token raises ValueError when token path is None."""
+        with patch("mail.config_resolver.resolve_paths_profile", return_value=(None, None)):
+            request = AuthRequest(validate=True)
+            result = AuthProcessor().process(request)
+
+        self.assertFalse(result.ok())
+        self.assertIn("Token file not found", result.diagnostics.get("message", ""))
+
+    def test_auth_producer_prints_message(self):
+        """AuthProducer prints the result message."""
+        result = ResultEnvelope(
+            status="success",
+            payload=AuthResult(success=True, message="Authentication complete."),
+        )
+        with capture_stdout() as buf:
+            AuthProducer().produce(result)
+        self.assertIn("Authentication complete.", buf.getvalue())
+
+    def test_auth_processor_validate_invalid_token_raises(self):
+        """_validate_gmail_token wraps API errors as ValueError with 'Gmail token invalid'."""
+        token_path = os.path.join(self.tmpdir, "token.json")
+        Path(token_path).write_text('{"token": "bad"}')
+
+        mock_creds = MagicMock()
+        mock_creds.expired = False
+
+        mock_svc = MagicMock()
+        mock_svc.users.return_value.getProfile.return_value.execute.side_effect = Exception("API error")
+
+        # Patch the google imports at their source package paths.
+        with patch("mail.config_resolver.resolve_paths_profile", return_value=(None, token_path)), \
+             patch("google.oauth2.credentials.Credentials") as mock_creds_cls, \
+             patch("google.auth.transport.requests.Request"), \
+             patch("googleapiclient.discovery.build", return_value=mock_svc):
+            mock_creds_cls.from_authorized_user_file.return_value = mock_creds
+            request = AuthRequest(validate=True, token=token_path)
+            result = AuthProcessor().process(request)
+
+        self.assertFalse(result.ok())
+        self.assertIn("Gmail token invalid", result.diagnostics.get("message", ""))
+
+    def test_auth_processor_validate_google_import_failure(self):
+        """_validate_gmail_token raises ValueError when google imports are unavailable."""
+        import sys
+
+        # Setting a sys.modules entry to None causes `from X import Y` to raise ImportError.
+        token_path = os.path.join(self.tmpdir, "token.json")
+        Path(token_path).write_text('{"token": "x"}')
+        with patch("mail.config_resolver.resolve_paths_profile", return_value=(None, token_path)), \
+             patch.dict(sys.modules, {"googleapiclient.discovery": None}):
+            request = AuthRequest(validate=True, token=token_path)
+            result = AuthProcessor().process(request)
+
+        self.assertFalse(result.ok())
+        self.assertIn("Gmail validation unavailable", result.diagnostics.get("message", ""))
+
+    def test_auth_processor_validate_refresh_expired_creds(self):
+        """_validate_gmail_token calls creds.refresh() when creds are expired with refresh_token."""
+        token_path = os.path.join(self.tmpdir, "token.json")
+        Path(token_path).write_text('{"token": "old"}')
+
+        mock_creds = MagicMock()
+        mock_creds.expired = True
+        mock_creds.refresh_token = "my_refresh_token"
+
+        mock_svc = MagicMock()
+        mock_svc.users.return_value.getProfile.return_value.execute.return_value = {"emailAddress": "me@example.com"}
+
+        with patch("mail.config_resolver.resolve_paths_profile", return_value=(None, token_path)), \
+             patch("google.oauth2.credentials.Credentials") as mock_creds_cls, \
+             patch("google.auth.transport.requests.Request") as mock_request, \
+             patch("googleapiclient.discovery.build", return_value=mock_svc):
+            mock_creds_cls.from_authorized_user_file.return_value = mock_creds
+            request = AuthRequest(validate=True, token=token_path)
+            result = AuthProcessor().process(request)
+
+        self.assertTrue(result.ok())
+        self.assertEqual(result.payload.message, "Gmail token valid.")
+        mock_creds.refresh.assert_called_once_with(mock_request())
+
+
+class BackupTests(TempDirMixin, TestCase):
+    """Tests for BackupProcessor and BackupProducer."""
+
+    def test_backup_consumer_returns_request(self):
+        """BackupRequestConsumer returns the request unchanged."""
+        request = BackupRequest(out_dir=self.tmpdir)
+        consumer = BackupRequestConsumer(request)
+        self.assertEqual(request, consumer.consume())
+
+    def test_backup_processor_writes_labels_and_filters(self):
+        """BackupProcessor writes labels.yaml and filters.yaml to the output directory."""
+        from tests.fakes.gmail import FakeGmailClient
+
+        fake_client = FakeGmailClient(
+            labels=[
+                {"id": "LBL1", "name": "Work", "type": "user",
+                 "labelListVisibility": "labelShow", "messageListVisibility": "show"},
+                {"id": "INBOX", "name": "INBOX", "type": "system"},
+            ],
+            filters=[
+                {"id": "F1", "criteria": {"from": "boss@work.com"}, "action": {"addLabelIds": ["LBL1"]}},
+            ],
+        )
+
+        out_dir = os.path.join(self.tmpdir, "backup_out")
+        request = BackupRequest(out_dir=out_dir)
+
+        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=fake_client):
+            result = BackupProcessor().process(request)
+
+        self.assertTrue(result.ok())
+        self.assertEqual(result.payload.out_path, out_dir)
+        self.assertEqual(result.payload.labels_count, 1)  # only user labels, not system
+        self.assertEqual(result.payload.filters_count, 1)
+        self.assertTrue(os.path.exists(os.path.join(out_dir, "labels.yaml")))
+        self.assertTrue(os.path.exists(os.path.join(out_dir, "filters.yaml")))
+
+    def test_backup_producer_prints_path(self):
+        """BackupProducer prints the backup path."""
+        result = ResultEnvelope(
+            status="success",
+            payload=BackupResult(out_path="/some/backup/path", labels_count=3, filters_count=2),
+        )
+        with capture_stdout() as buf:
+            BackupProducer().produce(result)
+        self.assertIn("/some/backup/path", buf.getvalue())
+        self.assertIn("Backup written to", buf.getvalue())
