@@ -4,11 +4,14 @@ Provides BulletRenderer, HeaderRenderer, and ListSectionRenderer base classes.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from .docx_styles import StyleManager, TextFormatter
 from .render_config import HeaderLineConfig, MetaRunConfig
 from .schema import _Item
+
+_logger = logging.getLogger(__name__)
 
 # The paragraph style every bulleted line in the standard layout carries. Set
 # explicitly on each bullet paragraph rather than inherited from the document
@@ -449,7 +452,23 @@ class ListSectionRenderer:
         desc_key: str | None = None,
         desc_sep: str = " — ",
     ) -> list[str]:
-        """Normalize and render a simple list section."""
+        """Normalize and render a simple list section, one bullet per item.
+
+        ``bullets: false`` used to select a second rendering path here that
+        joined every item into a single paragraph with ``separator`` (default
+        " • ") between them. That put the bullet glyph *inside* the text, so
+        Word had no line break to wrap on and rendered the section as one
+        block of prose with glyphs buried in it -- the same defect the skills
+        path was unified to remove. No shipped template selected it, so it was
+        unreachable from this repo's own configs.
+
+        The flag is now ignored and every item gets its own bullet paragraph.
+        A hand-written template still carrying ``bullets: false`` is warned
+        about rather than silently re-rendered, because the layout changes and
+        an unexplained change is harder to act on than a message naming the
+        key. Warning rather than raising matches the advisory convention used
+        for template validation elsewhere.
+        """
         cfg = sec or {}
         lines = [
             txt for it in items
@@ -457,12 +476,12 @@ class ListSectionRenderer:
         ]
 
         if lines:
-            if cfg.get("bullets", True):
-                self.bullets.add_bullets(lines, glyph=self.bullets.resolve_glyph(sec))
-            else:
-                from .docx_styles import StyleManager
-                sep = cfg.get("separator") or " • "
-                p = self.doc.add_paragraph(sep.join(lines))
-                StyleManager.tight_paragraph(p, after_pt=2)
+            if not cfg.get("bullets", True):
+                _logger.warning(
+                    "section config sets 'bullets: false', which is no longer "
+                    "honoured: list items always render as one bullet per line. "
+                    "Remove the key to silence this warning."
+                )
+            self.bullets.add_bullets(lines, glyph=self.bullets.resolve_glyph(sec))
 
         return lines
