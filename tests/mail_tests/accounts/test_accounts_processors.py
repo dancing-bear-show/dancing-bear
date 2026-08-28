@@ -48,7 +48,7 @@ from mail.accounts.pipeline_list_signatures import (
     SyncedSignaturesInfo,
     AccountsSyncSignaturesProcessor,
 )
-from tests.fixtures import capture_stdout
+from tests.fixtures import capture_stderr, capture_stdout
 
 
 # -----------------------------------------------------------------------------
@@ -105,9 +105,18 @@ class TestAccountsResultProducer(unittest.TestCase):
             status="error",
             diagnostics={"message": "Something went wrong"},
         )
-        with capture_stdout() as buf:
+        with capture_stderr() as buf:
             producer.produce(envelope)
         self.assertIn("Error: Something went wrong", buf.getvalue())
+
+    def test_produce_uses_fallback_without_diagnostics(self):
+        class TestProducer(AccountsResultProducer[str]):
+            def _produce_items(self, payload: str) -> None:
+                print(f"Items: {payload}")
+
+        with capture_stderr() as buf:
+            TestProducer().produce(ResultEnvelope(status="error", diagnostics={}))
+        self.assertIn("Error: Failed", buf.getvalue())
 
     def test_produce_calls_produce_items_on_success(self):
         class TestProducer(AccountsResultProducer[str]):

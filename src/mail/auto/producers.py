@@ -1,54 +1,45 @@
 """Producers for auto pipelines."""
 from __future__ import annotations
 
-from core.pipeline import Producer, ResultEnvelope
+from core.pipeline import BaseProducer
 
 from .processors import AutoProposeResult, AutoSummaryResult, AutoApplyResult
 
 
-class AutoProposeProducer(Producer[ResultEnvelope[AutoProposeResult]]):
+class AutoProposeProducer(BaseProducer):
     """Produce auto propose output."""
 
-    def produce(self, result: ResultEnvelope[AutoProposeResult]) -> None:
-        if not result.ok() or not result.payload:
-            diag = result.diagnostics or {}
-            print(f"Error: {diag.get('error', 'Auto propose failed.')}")
-            return
+    failure_message = "Auto propose failed."
 
-        payload = result.payload
-        print(f"Proposal written to {payload.out_path} (selected {payload.selected_count} of {payload.total_considered})")
+    def _produce_success(self, payload: AutoProposeResult, diagnostics: dict | None) -> None:
+        self._writer.print(
+            f"Proposal written to {payload.out_path} "
+            f"(selected {payload.selected_count} of {payload.total_considered})"
+        )
 
 
-class AutoSummaryProducer(Producer[ResultEnvelope[AutoSummaryResult]]):
+class AutoSummaryProducer(BaseProducer):
     """Produce auto summary output."""
 
-    def produce(self, result: ResultEnvelope[AutoSummaryResult]) -> None:
-        if not result.ok() or not result.payload:
-            diag = result.diagnostics or {}
-            print(f"Error: {diag.get('error', 'Auto summary failed.')}")
-            return
+    failure_message = "Auto summary failed."
 
-        payload = result.payload
-        print(f"Messages: {payload.message_count}")
-        print("Top reasons:")
+    def _produce_success(self, payload: AutoSummaryResult, diagnostics: dict | None) -> None:
+        self._writer.print(f"Messages: {payload.message_count}")
+        self._writer.print("Top reasons:")
         for k, v in payload.reasons.items():
-            print(f"  {k}: {v}")
-        print("Label adds:")
+            self._writer.print(f"  {k}: {v}")
+        self._writer.print("Label adds:")
         for k, v in payload.label_adds.items():
-            print(f"  {k}: {v}")
+            self._writer.print(f"  {k}: {v}")
 
 
-class AutoApplyProducer(Producer[ResultEnvelope[AutoApplyResult]]):
+class AutoApplyProducer(BaseProducer):
     """Produce auto apply output."""
 
-    def produce(self, result: ResultEnvelope[AutoApplyResult]) -> None:
-        if not result.ok() or not result.payload:
-            diag = result.diagnostics or {}
-            print(f"Error: {diag.get('error', 'Auto apply failed.')}")
-            return
+    failure_message = "Auto apply failed."
 
-        payload = result.payload
+    def _produce_success(self, payload: AutoApplyResult, diagnostics: dict | None) -> None:
         if payload.dry_run:
             for count, add_ids, rem_ids in payload.groups:
-                print(f"Would modify {count} messages; +{add_ids} -{rem_ids}")
-        print(f"Applied to {payload.total_modified} messages.")
+                self._writer.print_dry_run(f"modify {count} messages; +{add_ids} -{rem_ids}")
+        self._writer.print(f"Applied to {payload.total_modified} messages.")

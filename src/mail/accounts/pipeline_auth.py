@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from typing import Any, Generic, TypeVar
 
-from core.pipeline import Producer, ResultEnvelope, RequestConsumer
+from core.cli_output import OutputWriter
+from core.pipeline import BaseProducer, RequestConsumer
 
 _LOG_PREFIX = "[signatures sync] "
 
@@ -20,17 +21,23 @@ R = TypeVar("R")
 SimpleConsumer = RequestConsumer
 
 
-class AccountsResultProducer(Producer[ResultEnvelope[R]], Generic[R]):
-    """Base producer with common error handling for accounts operations."""
+class AccountsResultProducer(BaseProducer, Generic[R]):
+    """Base producer for accounts operations.
 
-    def __init__(self, dry_run: bool = False) -> None:
+    Was a local reimplementation of BaseProducer's template method; it now
+    derives from it. The extra ``_produce_items`` indirection is kept because
+    nine subclasses across five pipeline_* modules implement it and do not need
+    the diagnostics argument.
+    """
+
+    failure_message = "Failed"
+
+    def __init__(self, dry_run: bool = False, writer: OutputWriter | None = None) -> None:
+        super().__init__(writer)
         self._dry_run = dry_run
 
-    def produce(self, result: ResultEnvelope[R]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        self._produce_items(result.unwrap())
+    def _produce_success(self, payload: R, diagnostics: dict | None) -> None:
+        self._produce_items(payload)
 
     def _produce_items(self, payload: R) -> None:
         """Override to format and print result items."""

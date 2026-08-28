@@ -1,9 +1,10 @@
 """Producers for Outlook pipelines."""
 from __future__ import annotations
 
-from typing import Any, Generic, Protocol, TypeVar
+from typing import Any, Generic, TypeVar
 
-from core.pipeline import Producer, ResultEnvelope
+from core.cli_output import OutputWriter
+from core.pipeline import BaseProducer, ResultEnvelope, diagnostic_message
 
 from .processors_rules import (
     OutlookRulesListResult,
@@ -25,26 +26,20 @@ from .processors_calendar import (
     OutlookCalendarAddFromConfigResult,
 )
 
-_WOULD_SYNC = "Would sync"
 
-class _CreatedSkipped(Protocol):
+class _CreatedSkipped:
     """Result payloads that carry created/skipped tallies.
 
-    Declared read-only because produce() only reads the tallies. A writable
-    attribute here would reject result types that expose them as properties.
+    Declared as a duck-type check; produce() only reads the tallies.
     """
 
     @property
-    def created(self) -> int:
-        ...
+    def created(self) -> int: ...
 
     @property
-    def skipped(self) -> int:
-        ...
+    def skipped(self) -> int: ...
 
 
-# Bound so a result type lacking the tallies is a type error rather than an
-# AttributeError at produce() time.
 _SyncResultT = TypeVar("_SyncResultT", bound=_CreatedSkipped)
 
 
@@ -90,21 +85,20 @@ def _format_rule_details(
     return "  " + " ".join(details)
 
 
-class OutlookRulesListProducer(Producer[ResultEnvelope[OutlookRulesListResult]]):
+class OutlookRulesListProducer(BaseProducer):
     """Produce rules list output."""
 
-    def produce(self, result: ResultEnvelope[OutlookRulesListResult]) -> None:
-        if not result.ok() or not result.payload:
-            diag = result.diagnostics or {}
-            print(f"Error: {diag.get('error', 'Failed to list rules.')}")
-            return
+    failure_message = "Failed to list rules."
 
-        rules = result.payload.rules
+    def __init__(self, writer: OutputWriter | None = None) -> None:
+        super().__init__(writer)
+
+    def _produce_success(self, payload: OutlookRulesListResult, diagnostics: dict | None) -> None:
+        rules = payload.rules
         if not rules:
-            print("No Inbox rules found.")
+            self._writer.print("No Inbox rules found.")
             return
-
-        self._print_rules(rules, result.payload.id_to_name, result.payload.folder_path_rev)
+        self._print_rules(rules, payload.id_to_name, payload.folder_path_rev)
 
     def _print_rules(
         self, rules: list[dict[str, Any]], id_to_name: dict[str, str], folder_path_rev: dict[str, str]
@@ -115,190 +109,199 @@ class OutlookRulesListProducer(Producer[ResultEnvelope[OutlookRulesListResult]])
             crit = r.get("criteria") or {}
             act = r.get("action") or {}
 
-            print(f"{rid}\t{_format_rule_criteria(crit)}")
+            self._writer.print(f"{rid}\t{_format_rule_criteria(crit)}")
             details = _format_rule_details(act, id_to_name, folder_path_rev)
             if details:
-                print(details)
+                self._writer.print(details)
 
 
-class OutlookRulesExportProducer(Producer[ResultEnvelope[OutlookRulesExportResult]]):
+class OutlookRulesExportProducer(BaseProducer):
     """Produce rules export output."""
 
-    def produce(self, result: ResultEnvelope[OutlookRulesExportResult]) -> None:
-        if not result.ok() or not result.payload:
-            diag = result.diagnostics or {}
-            print(f"Error: {diag.get('error', 'Failed to export rules.')}")
-            return
+    failure_message = "Failed to export rules."
 
-        print(f"Exported {result.payload.count} rules to {result.payload.out_path}")
+    def __init__(self, writer: OutputWriter | None = None) -> None:
+        super().__init__(writer)
+
+    def _produce_success(self, payload: OutlookRulesExportResult, diagnostics: dict | None) -> None:
+        self._writer.print(f"Exported {payload.count} rules to {payload.out_path}")
 
 
-class OutlookRulesSyncProducer(Producer[ResultEnvelope[OutlookRulesSyncResult]]):
+class OutlookRulesSyncProducer(BaseProducer):
     """Produce rules sync output."""
 
-    def __init__(self, dry_run: bool = False, delete_missing: bool = False):
+    failure_message = "Failed to sync rules."
+
+    def __init__(
+        self,
+        dry_run: bool = False,
+        delete_missing: bool = False,
+        writer: OutputWriter | None = None,
+    ) -> None:
+        super().__init__(writer)
         self._dry_run = dry_run
         self._delete_missing = delete_missing
 
-    def produce(self, result: ResultEnvelope[OutlookRulesSyncResult]) -> None:
-        if not result.ok() or not result.payload:
+    def produce(self, result: ResultEnvelope) -> None:
+        """Override to also surface the hint diagnostic."""
+        if not result.ok() or result.payload is None:
+            msg = diagnostic_message(result.diagnostics) or self.failure_message
+            if msg:
+                self._writer.print_error(msg)
             diag = result.diagnostics or {}
-            error = diag.get("error", "Failed to sync rules.")
-            print(f"Error: {error}")
             if diag.get("hint"):
-                print(f"Hint: {diag.get('hint')}")
+                self._writer.print(f"Hint: {diag['hint']}")
             return
+        self._produce_success(result.payload, result.diagnostics)
 
-        payload = result.payload
-        prefix = _WOULD_SYNC if self._dry_run else "Sync complete"
-        msg = f"{prefix}. Created: {payload.created}"
+    def _produce_success(self, payload: OutlookRulesSyncResult, diagnostics: dict | None) -> None:
+        msg = f"Sync complete. Created: {payload.created}"
         if self._delete_missing:
             msg += f", Deleted: {payload.deleted}"
-        print(msg)
+        if self._dry_run:
+            self._writer.print_dry_run(f"sync. Created: {payload.created}" + (f", Deleted: {payload.deleted}" if self._delete_missing else ""))
+        else:
+            self._writer.print(msg)
 
 
-class OutlookRulesPlanProducer(Producer[ResultEnvelope[OutlookRulesPlanResult]]):
+class OutlookRulesPlanProducer(BaseProducer):
     """Produce rules plan output."""
 
-    def produce(self, result: ResultEnvelope[OutlookRulesPlanResult]) -> None:
-        if not result.ok() or not result.payload:
-            diag = result.diagnostics or {}
-            print(f"Error: {diag.get('error', 'Failed to plan rules.')}")
-            return
+    failure_message = "Failed to plan rules."
 
-        for item in result.payload.plan_items:
-            print(item)
-        print(f"Plan summary: create={result.payload.would_create}")
+    def __init__(self, writer: OutputWriter | None = None) -> None:
+        super().__init__(writer)
+
+    def _produce_success(self, payload: OutlookRulesPlanResult, diagnostics: dict | None) -> None:
+        for item in payload.plan_items:
+            self._writer.print(item)
+        self._writer.print(f"Plan summary: create={payload.would_create}")
 
 
-class OutlookRulesDeleteProducer(Producer[ResultEnvelope[OutlookRulesDeleteResult]]):
+class OutlookRulesDeleteProducer(BaseProducer):
     """Produce rules delete output."""
 
-    def produce(self, result: ResultEnvelope[OutlookRulesDeleteResult]) -> None:
-        if not result.ok() or not result.payload:
-            diag = result.diagnostics or {}
-            print(f"Error deleting Outlook rule: {diag.get('error', 'unknown error')}")
-            return
+    failure_message = "Failed to delete Outlook rule."
 
-        print(f"Deleted Outlook rule: {result.payload.rule_id}")
+    def __init__(self, writer: OutputWriter | None = None) -> None:
+        super().__init__(writer)
+
+    def _produce_success(self, payload: OutlookRulesDeleteResult, diagnostics: dict | None) -> None:
+        self._writer.print(f"Deleted Outlook rule: {payload.rule_id}")
 
 
-class OutlookRulesSweepProducer(Producer[ResultEnvelope[OutlookRulesSweepResult]]):
+class OutlookRulesSweepProducer(BaseProducer):
     """Produce rules sweep output."""
 
-    def __init__(self, dry_run: bool = False):
+    failure_message = "Failed to sweep."
+
+    def __init__(self, dry_run: bool = False, writer: OutputWriter | None = None) -> None:
+        super().__init__(writer)
         self._dry_run = dry_run
 
-    def produce(self, result: ResultEnvelope[OutlookRulesSweepResult]) -> None:
-        if not result.ok() or not result.payload:
-            diag = result.diagnostics or {}
-            print(f"Error: {diag.get('error', 'Failed to sweep.')}")
-            return
-
-        prefix = "Would move" if self._dry_run else "Sweep summary: moved"
-        print(f"{prefix}={result.payload.moved}")
+    def _produce_success(self, payload: OutlookRulesSweepResult, diagnostics: dict | None) -> None:
+        if self._dry_run:
+            self._writer.print_dry_run(f"move={payload.moved}")
+        else:
+            self._writer.print(f"Sweep summary: moved={payload.moved}")
 
 
-class OutlookCategoriesListProducer(Producer[ResultEnvelope[OutlookCategoriesListResult]]):
+class OutlookCategoriesListProducer(BaseProducer):
     """Produce categories list output."""
 
-    def produce(self, result: ResultEnvelope[OutlookCategoriesListResult]) -> None:
-        if not result.ok() or not result.payload:
-            diag = result.diagnostics or {}
-            print(f"Error: {diag.get('error', 'Failed to list categories.')}")
-            return
+    failure_message = "Failed to list categories."
 
-        cats = result.payload.categories
+    def __init__(self, writer: OutputWriter | None = None) -> None:
+        super().__init__(writer)
+
+    def _produce_success(self, payload: OutlookCategoriesListResult, diagnostics: dict | None) -> None:
+        cats = payload.categories
         if not cats:
-            print("No categories.")
+            self._writer.print("No categories.")
             return
-
         for c in cats:
             name = c.get("name", "")
             cid = c.get("id", "")
-            print(f"{cid}\t{name}")
+            self._writer.print(f"{cid}\t{name}")
 
 
-class OutlookCategoriesExportProducer(Producer[ResultEnvelope[OutlookCategoriesExportResult]]):
+class OutlookCategoriesExportProducer(BaseProducer):
     """Produce categories export output."""
 
-    def produce(self, result: ResultEnvelope[OutlookCategoriesExportResult]) -> None:
-        if not result.ok() or not result.payload:
-            diag = result.diagnostics or {}
-            print(f"Error: {diag.get('error', 'Failed to export categories.')}")
-            return
+    failure_message = "Failed to export categories."
 
-        print(f"Exported {result.payload.count} categories to {result.payload.out_path}")
+    def __init__(self, writer: OutputWriter | None = None) -> None:
+        super().__init__(writer)
+
+    def _produce_success(self, payload: OutlookCategoriesExportResult, diagnostics: dict | None) -> None:
+        self._writer.print(f"Exported {payload.count} categories to {payload.out_path}")
 
 
-class _CreatedSkippedSyncProducer(Producer[ResultEnvelope[_SyncResultT]], Generic[_SyncResultT]):
+class _CreatedSkippedSyncProducer(BaseProducer, Generic[_SyncResultT]):
     """Report a created/skipped sync tally, or the failure diagnostic.
 
     Subclasses supply the two messages that vary between sync targets.
     """
 
-    _error_message: str = ""
     _done_prefix: str = ""
 
-    def __init__(self, dry_run: bool = False):
+    def __init__(self, dry_run: bool = False, writer: OutputWriter | None = None) -> None:
+        super().__init__(writer)
         self._dry_run = dry_run
 
-    def produce(self, result: ResultEnvelope[_SyncResultT]) -> None:
-        if not result.ok() or not result.payload:
-            diag = result.diagnostics or {}
-            print(f"Error: {diag.get('error', self._error_message)}")
-            return
-
-        payload = result.payload
-        prefix = _WOULD_SYNC if self._dry_run else self._done_prefix
-        print(f"{prefix}. Created: {payload.created}, Skipped: {payload.skipped}")
+    def _produce_success(self, payload: _SyncResultT, diagnostics: dict | None) -> None:
+        summary = f"Created: {payload.created}, Skipped: {payload.skipped}"
+        if self._dry_run:
+            self._writer.print_dry_run(f"sync. {summary}")
+        else:
+            self._writer.print(f"{self._done_prefix}. {summary}")
 
 
 class OutlookCategoriesSyncProducer(_CreatedSkippedSyncProducer[OutlookCategoriesSyncResult]):
     """Produce categories sync output."""
 
-    _error_message = "Failed to sync categories."
+    failure_message = "Failed to sync categories."
     _done_prefix = "Categories sync complete"
 
 
 class OutlookFoldersSyncProducer(_CreatedSkippedSyncProducer[OutlookFoldersSyncResult]):
     """Produce folders sync output."""
 
-    _error_message = "Failed to sync folders."
+    failure_message = "Failed to sync folders."
     _done_prefix = "Folders sync complete"
 
 
-class OutlookCalendarAddProducer(Producer[ResultEnvelope[OutlookCalendarAddResult]]):
+class OutlookCalendarAddProducer(BaseProducer):
     """Produce calendar add output."""
 
-    def produce(self, result: ResultEnvelope[OutlookCalendarAddResult]) -> None:
-        if not result.ok() or not result.payload:
-            diag = result.diagnostics or {}
-            print(f"Failed to create event: {diag.get('error', 'unknown error')}")
-            return
+    failure_message = "Failed to create event."
 
-        print(f"Created event: {result.payload.event_id} subject={result.payload.subject}")
+    def __init__(self, writer: OutputWriter | None = None) -> None:
+        super().__init__(writer)
+
+    def _produce_success(self, payload: OutlookCalendarAddResult, diagnostics: dict | None) -> None:
+        self._writer.print(f"Created event: {payload.event_id} subject={payload.subject}")
 
 
-class OutlookCalendarAddRecurringProducer(Producer[ResultEnvelope[OutlookCalendarAddRecurringResult]]):
+class OutlookCalendarAddRecurringProducer(BaseProducer):
     """Produce calendar add recurring output."""
 
-    def produce(self, result: ResultEnvelope[OutlookCalendarAddRecurringResult]) -> None:
-        if not result.ok() or not result.payload:
-            diag = result.diagnostics or {}
-            print(f"Failed to create recurring event: {diag.get('error', 'unknown error')}")
-            return
+    failure_message = "Failed to create recurring event."
 
-        print(f"Created recurring series: {result.payload.event_id} subject={result.payload.subject}")
+    def __init__(self, writer: OutputWriter | None = None) -> None:
+        super().__init__(writer)
+
+    def _produce_success(self, payload: OutlookCalendarAddRecurringResult, diagnostics: dict | None) -> None:
+        self._writer.print(f"Created recurring series: {payload.event_id} subject={payload.subject}")
 
 
-class OutlookCalendarAddFromConfigProducer(Producer[ResultEnvelope[OutlookCalendarAddFromConfigResult]]):
+class OutlookCalendarAddFromConfigProducer(BaseProducer):
     """Produce calendar add from config output."""
 
-    def produce(self, result: ResultEnvelope[OutlookCalendarAddFromConfigResult]) -> None:
-        if not result.ok() or not result.payload:
-            diag = result.diagnostics or {}
-            print(f"Error: {diag.get('error', 'Failed to add events from config.')}")
-            return
+    failure_message = "Failed to add events from config."
 
-        print(f"Created {result.payload.created} events/series from config")
+    def __init__(self, writer: OutputWriter | None = None) -> None:
+        super().__init__(writer)
+
+    def _produce_success(self, payload: OutlookCalendarAddFromConfigResult, diagnostics: dict | None) -> None:
+        self._writer.print(f"Created {payload.created} events/series from config")

@@ -1,7 +1,9 @@
 """Tests for mail/outlook/producers.py."""
 
 import unittest
+from io import StringIO
 
+from core.cli_output import OutputConfig, OutputWriter
 from core.pipeline import ResultEnvelope
 from tests.fixtures import capture_stdout, test_path
 
@@ -39,6 +41,11 @@ from mail.outlook.producers import (
     OutlookCalendarAddRecurringProducer,
     OutlookCalendarAddFromConfigProducer,
 )
+
+
+def _writer(buf: StringIO) -> OutputWriter:
+    """Return an OutputWriter whose error_stream is also buf."""
+    return OutputWriter(OutputConfig(file=buf))
 
 
 class TestOutlookRulesListProducer(unittest.TestCase):
@@ -80,20 +87,6 @@ class TestOutlookRulesListProducer(unittest.TestCase):
 
         self.assertIn("No Inbox rules found", buf.getvalue())
 
-    def test_error_result(self):
-        result = ResultEnvelope(
-            status="error",
-            payload=None,
-            diagnostics={"error": "API failure"},
-        )
-        producer = OutlookRulesListProducer()
-
-        with capture_stdout() as buf:
-            producer.produce(result)
-
-        self.assertIn("Error", buf.getvalue())
-        self.assertIn("API failure", buf.getvalue())
-
     def test_rule_with_forward_and_move(self):
         result = ResultEnvelope(
             status="success",
@@ -120,6 +113,37 @@ class TestOutlookRulesListProducer(unittest.TestCase):
         self.assertIn("forward=archive@example.com", buf.getvalue())
         self.assertIn("moveToFolder=Archive/Newsletters", buf.getvalue())
 
+    def test_error_cases(self):
+        cases = [
+            ("no diagnostics", {}, "Failed to list rules."),
+            ("error key", {"error": "API failure"}, "API failure"),
+        ]
+        for label, diag, expected in cases:
+            with self.subTest(label):
+                buf = StringIO()
+                producer = OutlookRulesListProducer(writer=_writer(buf))
+                producer.produce(ResultEnvelope(status="error", payload=None, diagnostics=diag))
+                out = buf.getvalue()
+                self.assertIn("Error:", out, msg=f"no Error: prefix in {out!r}")
+                self.assertIn(expected, out)
+                # ensure no double prefix
+                self.assertNotIn("Error: Error:", out)
+
+    def test_success_no_failure_text(self):
+        buf = StringIO()
+        producer = OutlookRulesListProducer(writer=_writer(buf))
+        producer.produce(ResultEnvelope(
+            status="success",
+            payload=OutlookRulesListResult(rules=[], id_to_name={}, folder_path_rev={}),
+        ))
+        self.assertNotIn("Failed to list rules", buf.getvalue())
+
+    def test_payload_none_uses_fallback(self):
+        buf = StringIO()
+        producer = OutlookRulesListProducer(writer=_writer(buf))
+        producer.produce(ResultEnvelope(status="success", payload=None))
+        self.assertIn("Failed to list rules.", buf.getvalue())
+
 
 class TestOutlookRulesExportProducer(unittest.TestCase):
     """Tests for OutlookRulesExportProducer."""
@@ -137,18 +161,26 @@ class TestOutlookRulesExportProducer(unittest.TestCase):
         self.assertIn("Exported 5 rules", buf.getvalue())
         self.assertIn(test_path("rules.yaml"), buf.getvalue())  # noqa: S108 - test fixture path
 
-    def test_error(self):
-        result = ResultEnvelope(
-            status="error",
-            payload=None,
-            diagnostics={"error": "Write failed"},
-        )
-        producer = OutlookRulesExportProducer()
+    def test_error_cases(self):
+        cases = [
+            ("no diagnostics", {}, "Failed to export rules."),
+            ("error key", {"error": "Write failed"}, "Write failed"),
+        ]
+        for label, diag, expected in cases:
+            with self.subTest(label):
+                buf = StringIO()
+                producer = OutlookRulesExportProducer(writer=_writer(buf))
+                producer.produce(ResultEnvelope(status="error", payload=None, diagnostics=diag))
+                out = buf.getvalue()
+                self.assertIn("Error:", out)
+                self.assertIn(expected, out)
+                self.assertNotIn("Error: Error:", out)
 
-        with capture_stdout() as buf:
-            producer.produce(result)
-
-        self.assertIn("Error", buf.getvalue())
+    def test_payload_none_uses_fallback(self):
+        buf = StringIO()
+        producer = OutlookRulesExportProducer(writer=_writer(buf))
+        producer.produce(ResultEnvelope(status="success", payload=None))
+        self.assertIn("Failed to export rules.", buf.getvalue())
 
 
 class TestOutlookRulesSyncProducer(unittest.TestCase):
@@ -177,7 +209,7 @@ class TestOutlookRulesSyncProducer(unittest.TestCase):
         with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("Would sync", buf.getvalue())
+        self.assertIn("[dry-run]", buf.getvalue())
         self.assertIn("Deleted: 1", buf.getvalue())
 
     def test_error_with_hint(self):
@@ -186,13 +218,33 @@ class TestOutlookRulesSyncProducer(unittest.TestCase):
             payload=None,
             diagnostics={"error": "Auth failed", "hint": "Run outlook auth ensure"},
         )
-        producer = OutlookRulesSyncProducer()
+        buf = StringIO()
+        producer = OutlookRulesSyncProducer(writer=_writer(buf))
+        producer.produce(result)
+        out = buf.getvalue()
+        self.assertIn("Auth failed", out)
+        self.assertIn("outlook auth ensure", out)
 
-        with capture_stdout() as buf:
-            producer.produce(result)
+    def test_error_cases(self):
+        cases = [
+            ("no diagnostics", {}, "Failed to sync rules."),
+            ("error key", {"error": "Auth failed"}, "Auth failed"),
+        ]
+        for label, diag, expected in cases:
+            with self.subTest(label):
+                buf = StringIO()
+                producer = OutlookRulesSyncProducer(writer=_writer(buf))
+                producer.produce(ResultEnvelope(status="error", payload=None, diagnostics=diag))
+                out = buf.getvalue()
+                self.assertIn("Error:", out)
+                self.assertIn(expected, out)
+                self.assertNotIn("Error: Error:", out)
 
-        self.assertIn("Auth failed", buf.getvalue())
-        self.assertIn("outlook auth ensure", buf.getvalue())
+    def test_payload_none_uses_fallback(self):
+        buf = StringIO()
+        producer = OutlookRulesSyncProducer(writer=_writer(buf))
+        producer.produce(ResultEnvelope(status="success", payload=None))
+        self.assertIn("Failed to sync rules.", buf.getvalue())
 
 
 class TestOutlookRulesPlanProducer(unittest.TestCase):
@@ -214,6 +266,36 @@ class TestOutlookRulesPlanProducer(unittest.TestCase):
         self.assertIn("Would create: rule1", buf.getvalue())
         self.assertIn("create=2", buf.getvalue())
 
+    def test_error_cases(self):
+        cases = [
+            ("no diagnostics", {}, "Failed to plan rules."),
+            ("error key", {"error": "Network error"}, "Network error"),
+        ]
+        for label, diag, expected in cases:
+            with self.subTest(label):
+                buf = StringIO()
+                producer = OutlookRulesPlanProducer(writer=_writer(buf))
+                producer.produce(ResultEnvelope(status="error", payload=None, diagnostics=diag))
+                out = buf.getvalue()
+                self.assertIn("Error:", out)
+                self.assertIn(expected, out)
+                self.assertNotIn("Error: Error:", out)
+
+    def test_payload_none_uses_fallback(self):
+        buf = StringIO()
+        producer = OutlookRulesPlanProducer(writer=_writer(buf))
+        producer.produce(ResultEnvelope(status="success", payload=None))
+        self.assertIn("Failed to plan rules.", buf.getvalue())
+
+    def test_success_no_failure_text(self):
+        buf = StringIO()
+        producer = OutlookRulesPlanProducer(writer=_writer(buf))
+        producer.produce(ResultEnvelope(
+            status="success",
+            payload=OutlookRulesPlanResult(would_create=0, plan_items=[]),
+        ))
+        self.assertNotIn("Failed to plan rules", buf.getvalue())
+
 
 class TestOutlookRulesDeleteProducer(unittest.TestCase):
     """Tests for OutlookRulesDeleteProducer."""
@@ -231,18 +313,26 @@ class TestOutlookRulesDeleteProducer(unittest.TestCase):
         self.assertIn("Deleted Outlook rule", buf.getvalue())
         self.assertIn("rule-xyz", buf.getvalue())
 
-    def test_error(self):
-        result = ResultEnvelope(
-            status="error",
-            payload=None,
-            diagnostics={"error": "Rule not found"},
-        )
-        producer = OutlookRulesDeleteProducer()
+    def test_error_cases(self):
+        cases = [
+            ("no diagnostics", {}, "Failed to delete Outlook rule."),
+            ("error key", {"error": "Rule not found"}, "Rule not found"),
+        ]
+        for label, diag, expected in cases:
+            with self.subTest(label):
+                buf = StringIO()
+                producer = OutlookRulesDeleteProducer(writer=_writer(buf))
+                producer.produce(ResultEnvelope(status="error", payload=None, diagnostics=diag))
+                out = buf.getvalue()
+                self.assertIn("Error:", out)
+                self.assertIn(expected, out)
+                self.assertNotIn("Error: Error:", out)
 
-        with capture_stdout() as buf:
-            producer.produce(result)
-
-        self.assertIn("Error deleting", buf.getvalue())
+    def test_payload_none_uses_fallback(self):
+        buf = StringIO()
+        producer = OutlookRulesDeleteProducer(writer=_writer(buf))
+        producer.produce(ResultEnvelope(status="success", payload=None))
+        self.assertIn("Failed to delete Outlook rule.", buf.getvalue())
 
 
 class TestOutlookRulesSweepProducer(unittest.TestCase):
@@ -270,7 +360,38 @@ class TestOutlookRulesSweepProducer(unittest.TestCase):
         with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("Would move=10", buf.getvalue())
+        self.assertIn("[dry-run]", buf.getvalue())
+        self.assertIn("move=10", buf.getvalue())
+
+    def test_error_cases(self):
+        cases = [
+            ("no diagnostics", {}, "Failed to sweep."),
+            ("error key", {"error": "Sweep failed"}, "Sweep failed"),
+        ]
+        for label, diag, expected in cases:
+            with self.subTest(label):
+                buf = StringIO()
+                producer = OutlookRulesSweepProducer(writer=_writer(buf))
+                producer.produce(ResultEnvelope(status="error", payload=None, diagnostics=diag))
+                out = buf.getvalue()
+                self.assertIn("Error:", out)
+                self.assertIn(expected, out)
+                self.assertNotIn("Error: Error:", out)
+
+    def test_payload_none_uses_fallback(self):
+        buf = StringIO()
+        producer = OutlookRulesSweepProducer(writer=_writer(buf))
+        producer.produce(ResultEnvelope(status="success", payload=None))
+        self.assertIn("Failed to sweep.", buf.getvalue())
+
+    def test_success_no_failure_text(self):
+        buf = StringIO()
+        producer = OutlookRulesSweepProducer(dry_run=False, writer=_writer(buf))
+        producer.produce(ResultEnvelope(
+            status="success",
+            payload=OutlookRulesSweepResult(moved=0),
+        ))
+        self.assertNotIn("Failed to sweep", buf.getvalue())
 
 
 class TestOutlookCategoriesListProducer(unittest.TestCase):
@@ -307,6 +428,36 @@ class TestOutlookCategoriesListProducer(unittest.TestCase):
 
         self.assertIn("No categories", buf.getvalue())
 
+    def test_error_cases(self):
+        cases = [
+            ("no diagnostics", {}, "Failed to list categories."),
+            ("error key", {"error": "API down"}, "API down"),
+        ]
+        for label, diag, expected in cases:
+            with self.subTest(label):
+                buf = StringIO()
+                producer = OutlookCategoriesListProducer(writer=_writer(buf))
+                producer.produce(ResultEnvelope(status="error", payload=None, diagnostics=diag))
+                out = buf.getvalue()
+                self.assertIn("Error:", out)
+                self.assertIn(expected, out)
+                self.assertNotIn("Error: Error:", out)
+
+    def test_payload_none_uses_fallback(self):
+        buf = StringIO()
+        producer = OutlookCategoriesListProducer(writer=_writer(buf))
+        producer.produce(ResultEnvelope(status="success", payload=None))
+        self.assertIn("Failed to list categories.", buf.getvalue())
+
+    def test_success_no_failure_text(self):
+        buf = StringIO()
+        producer = OutlookCategoriesListProducer(writer=_writer(buf))
+        producer.produce(ResultEnvelope(
+            status="success",
+            payload=OutlookCategoriesListResult(categories=[]),
+        ))
+        self.assertNotIn("Failed to list categories", buf.getvalue())
+
 
 class TestOutlookCategoriesExportProducer(unittest.TestCase):
     """Tests for OutlookCategoriesExportProducer."""
@@ -322,6 +473,36 @@ class TestOutlookCategoriesExportProducer(unittest.TestCase):
             producer.produce(result)
 
         self.assertIn("Exported 3 categories", buf.getvalue())
+
+    def test_error_cases(self):
+        cases = [
+            ("no diagnostics", {}, "Failed to export categories."),
+            ("error key", {"error": "Disk full"}, "Disk full"),
+        ]
+        for label, diag, expected in cases:
+            with self.subTest(label):
+                buf = StringIO()
+                producer = OutlookCategoriesExportProducer(writer=_writer(buf))
+                producer.produce(ResultEnvelope(status="error", payload=None, diagnostics=diag))
+                out = buf.getvalue()
+                self.assertIn("Error:", out)
+                self.assertIn(expected, out)
+                self.assertNotIn("Error: Error:", out)
+
+    def test_payload_none_uses_fallback(self):
+        buf = StringIO()
+        producer = OutlookCategoriesExportProducer(writer=_writer(buf))
+        producer.produce(ResultEnvelope(status="success", payload=None))
+        self.assertIn("Failed to export categories.", buf.getvalue())
+
+    def test_success_no_failure_text(self):
+        buf = StringIO()
+        producer = OutlookCategoriesExportProducer(writer=_writer(buf))
+        producer.produce(ResultEnvelope(
+            status="success",
+            payload=OutlookCategoriesExportResult(count=0, out_path="/tmp/out.yaml"),  # noqa: S108 - test fixture path
+        ))
+        self.assertNotIn("Failed to export categories", buf.getvalue())
 
 
 class TestOutlookCategoriesSyncProducer(unittest.TestCase):
@@ -341,6 +522,46 @@ class TestOutlookCategoriesSyncProducer(unittest.TestCase):
         self.assertIn("Created: 2", buf.getvalue())
         self.assertIn("Skipped: 5", buf.getvalue())
 
+    def test_dry_run(self):
+        buf = StringIO()
+        producer = OutlookCategoriesSyncProducer(dry_run=True, writer=_writer(buf))
+        producer.produce(ResultEnvelope(
+            status="success",
+            payload=OutlookCategoriesSyncResult(created=1, skipped=0),
+        ))
+        self.assertIn("[dry-run]", buf.getvalue())
+        self.assertIn("Created: 1", buf.getvalue())
+
+    def test_error_cases(self):
+        cases = [
+            ("no diagnostics", {}, "Failed to sync categories."),
+            ("error key", {"error": "Token expired"}, "Token expired"),
+        ]
+        for label, diag, expected in cases:
+            with self.subTest(label):
+                buf = StringIO()
+                producer = OutlookCategoriesSyncProducer(writer=_writer(buf))
+                producer.produce(ResultEnvelope(status="error", payload=None, diagnostics=diag))
+                out = buf.getvalue()
+                self.assertIn("Error:", out)
+                self.assertIn(expected, out)
+                self.assertNotIn("Error: Error:", out)
+
+    def test_payload_none_uses_fallback(self):
+        buf = StringIO()
+        producer = OutlookCategoriesSyncProducer(writer=_writer(buf))
+        producer.produce(ResultEnvelope(status="success", payload=None))
+        self.assertIn("Failed to sync categories.", buf.getvalue())
+
+    def test_success_no_failure_text(self):
+        buf = StringIO()
+        producer = OutlookCategoriesSyncProducer(writer=_writer(buf))
+        producer.produce(ResultEnvelope(
+            status="success",
+            payload=OutlookCategoriesSyncResult(created=0, skipped=0),
+        ))
+        self.assertNotIn("Failed to sync categories", buf.getvalue())
+
 
 class TestOutlookFoldersSyncProducer(unittest.TestCase):
     """Tests for OutlookFoldersSyncProducer."""
@@ -357,6 +578,46 @@ class TestOutlookFoldersSyncProducer(unittest.TestCase):
 
         self.assertIn("sync complete", buf.getvalue())
         self.assertIn("Created: 1", buf.getvalue())
+
+    def test_dry_run(self):
+        buf = StringIO()
+        producer = OutlookFoldersSyncProducer(dry_run=True, writer=_writer(buf))
+        producer.produce(ResultEnvelope(
+            status="success",
+            payload=OutlookFoldersSyncResult(created=3, skipped=2),
+        ))
+        self.assertIn("[dry-run]", buf.getvalue())
+        self.assertIn("Created: 3", buf.getvalue())
+
+    def test_error_cases(self):
+        cases = [
+            ("no diagnostics", {}, "Failed to sync folders."),
+            ("error key", {"error": "Folder not found"}, "Folder not found"),
+        ]
+        for label, diag, expected in cases:
+            with self.subTest(label):
+                buf = StringIO()
+                producer = OutlookFoldersSyncProducer(writer=_writer(buf))
+                producer.produce(ResultEnvelope(status="error", payload=None, diagnostics=diag))
+                out = buf.getvalue()
+                self.assertIn("Error:", out)
+                self.assertIn(expected, out)
+                self.assertNotIn("Error: Error:", out)
+
+    def test_payload_none_uses_fallback(self):
+        buf = StringIO()
+        producer = OutlookFoldersSyncProducer(writer=_writer(buf))
+        producer.produce(ResultEnvelope(status="success", payload=None))
+        self.assertIn("Failed to sync folders.", buf.getvalue())
+
+    def test_success_no_failure_text(self):
+        buf = StringIO()
+        producer = OutlookFoldersSyncProducer(writer=_writer(buf))
+        producer.produce(ResultEnvelope(
+            status="success",
+            payload=OutlookFoldersSyncResult(created=0, skipped=0),
+        ))
+        self.assertNotIn("Failed to sync folders", buf.getvalue())
 
 
 class TestOutlookCalendarAddProducer(unittest.TestCase):
@@ -376,18 +637,35 @@ class TestOutlookCalendarAddProducer(unittest.TestCase):
         self.assertIn("evt-123", buf.getvalue())
         self.assertIn("Meeting", buf.getvalue())
 
-    def test_error(self):
-        result = ResultEnvelope(
-            status="error",
-            payload=None,
-            diagnostics={"error": "Calendar not found"},
-        )
-        producer = OutlookCalendarAddProducer()
+    def test_error_cases(self):
+        cases = [
+            ("no diagnostics", {}, "Failed to create event."),
+            ("error key", {"error": "Calendar not found"}, "Calendar not found"),
+        ]
+        for label, diag, expected in cases:
+            with self.subTest(label):
+                buf = StringIO()
+                producer = OutlookCalendarAddProducer(writer=_writer(buf))
+                producer.produce(ResultEnvelope(status="error", payload=None, diagnostics=diag))
+                out = buf.getvalue()
+                self.assertIn("Error:", out)
+                self.assertIn(expected, out)
+                self.assertNotIn("Error: Error:", out)
 
-        with capture_stdout() as buf:
-            producer.produce(result)
+    def test_payload_none_uses_fallback(self):
+        buf = StringIO()
+        producer = OutlookCalendarAddProducer(writer=_writer(buf))
+        producer.produce(ResultEnvelope(status="success", payload=None))
+        self.assertIn("Failed to create event.", buf.getvalue())
 
-        self.assertIn("Failed to create event", buf.getvalue())
+    def test_success_no_failure_text(self):
+        buf = StringIO()
+        producer = OutlookCalendarAddProducer(writer=_writer(buf))
+        producer.produce(ResultEnvelope(
+            status="success",
+            payload=OutlookCalendarAddResult(event_id="e1", subject="S"),
+        ))
+        self.assertNotIn("Failed to create event", buf.getvalue())
 
 
 class TestOutlookCalendarAddRecurringProducer(unittest.TestCase):
@@ -408,6 +686,36 @@ class TestOutlookCalendarAddRecurringProducer(unittest.TestCase):
         self.assertIn("Created recurring series", buf.getvalue())
         self.assertIn("series-abc", buf.getvalue())
 
+    def test_error_cases(self):
+        cases = [
+            ("no diagnostics", {}, "Failed to create recurring event."),
+            ("error key", {"error": "Recurrence invalid"}, "Recurrence invalid"),
+        ]
+        for label, diag, expected in cases:
+            with self.subTest(label):
+                buf = StringIO()
+                producer = OutlookCalendarAddRecurringProducer(writer=_writer(buf))
+                producer.produce(ResultEnvelope(status="error", payload=None, diagnostics=diag))
+                out = buf.getvalue()
+                self.assertIn("Error:", out)
+                self.assertIn(expected, out)
+                self.assertNotIn("Error: Error:", out)
+
+    def test_payload_none_uses_fallback(self):
+        buf = StringIO()
+        producer = OutlookCalendarAddRecurringProducer(writer=_writer(buf))
+        producer.produce(ResultEnvelope(status="success", payload=None))
+        self.assertIn("Failed to create recurring event.", buf.getvalue())
+
+    def test_success_no_failure_text(self):
+        buf = StringIO()
+        producer = OutlookCalendarAddRecurringProducer(writer=_writer(buf))
+        producer.produce(ResultEnvelope(
+            status="success",
+            payload=OutlookCalendarAddRecurringResult(event_id="e1", subject="S"),
+        ))
+        self.assertNotIn("Failed to create recurring event", buf.getvalue())
+
 
 class TestOutlookCalendarAddFromConfigProducer(unittest.TestCase):
     """Tests for OutlookCalendarAddFromConfigProducer."""
@@ -423,6 +731,36 @@ class TestOutlookCalendarAddFromConfigProducer(unittest.TestCase):
             producer.produce(result)
 
         self.assertIn("Created 5 events", buf.getvalue())
+
+    def test_error_cases(self):
+        cases = [
+            ("no diagnostics", {}, "Failed to add events from config."),
+            ("error key", {"error": "Config invalid"}, "Config invalid"),
+        ]
+        for label, diag, expected in cases:
+            with self.subTest(label):
+                buf = StringIO()
+                producer = OutlookCalendarAddFromConfigProducer(writer=_writer(buf))
+                producer.produce(ResultEnvelope(status="error", payload=None, diagnostics=diag))
+                out = buf.getvalue()
+                self.assertIn("Error:", out)
+                self.assertIn(expected, out)
+                self.assertNotIn("Error: Error:", out)
+
+    def test_payload_none_uses_fallback(self):
+        buf = StringIO()
+        producer = OutlookCalendarAddFromConfigProducer(writer=_writer(buf))
+        producer.produce(ResultEnvelope(status="success", payload=None))
+        self.assertIn("Failed to add events from config.", buf.getvalue())
+
+    def test_success_no_failure_text(self):
+        buf = StringIO()
+        producer = OutlookCalendarAddFromConfigProducer(writer=_writer(buf))
+        producer.produce(ResultEnvelope(
+            status="success",
+            payload=OutlookCalendarAddFromConfigResult(created=0),
+        ))
+        self.assertNotIn("Failed to add events from config", buf.getvalue())
 
 
 if __name__ == "__main__":
