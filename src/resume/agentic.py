@@ -45,7 +45,7 @@ def _flow_map() -> str:
     if _cli_path_exists(["align"]):
         lines.append("- Align to job posting: ./bin/assistant resume align --data out/profile.json --job jobs/default.yaml --out out/alignment.yaml")
     if _cli_path_exists(["style"]):
-        lines.append("- Style profile: ./bin/assistant resume style build --templates templates/style.json --out out/style_profile.json")
+        lines.append("- Style profile: ./bin/assistant resume style build --corpus-dir corpus/ --out out/style_profile.json")
     if _cli_path_exists(["cleanup"]):
         lines.append("- Cleanup workspace: ./bin/assistant resume cleanup tidy --plan out/cleanup.plan.yaml --apply")
     return "\n".join(lines)

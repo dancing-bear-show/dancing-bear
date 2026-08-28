@@ -64,7 +64,7 @@ def _outlook_manage_flows(lines: list[str]) -> None:
         lines.append("  - Delete: ./bin/calendar outlook remove-from-config --config schedules/plan.yaml --apply")
     if _cli_path_exists(["outlook", "calendar-share"]):
         lines.append("- Share")
-        lines.append("  - Share calendar: ./bin/calendar outlook calendar-share --calendar 'Your Family' --user someone@example.com --role reviewer")
+        lines.append("  - Share calendar: ./bin/calendar outlook calendar-share --calendar 'Your Family' --with someone@example.com --role read")
 
 
 def _gmail_scan_flows(lines: list[str]) -> None:
