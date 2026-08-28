@@ -7,6 +7,10 @@ Defect 1: _load_parser() imported non-existent build_parser from cli.main;
 Defect 2: _flow_map() passed [["extract"]] (nested list) instead of
            ["extract"] to _cli_path_exists, so the check always failed
            and the resume workflow block was never rendered.
+
+Defect 3: ["cleanup"] guard was always False (wrong name for "files tidy")
+           and all command strings pointed at ./bin/resume-assistant which
+           does not exist — the real entry point is ./bin/assistant resume.
 """
 import unittest
 
@@ -125,6 +129,28 @@ class TestResumAgenticFlowMap(unittest.TestCase):
         flow = self._flow_map()
         self.assertIn("Render DOCX:", flow)
 
+    def test_flow_map_contains_align(self):
+        flow = self._flow_map()
+        self.assertIn("Align to job posting:", flow)
+
+    def test_flow_map_contains_style(self):
+        flow = self._flow_map()
+        self.assertIn("Style profile:", flow)
+
+    def test_flow_map_all_four_entries_present(self):
+        flow = self._flow_map()
+        self.assertIn("Resume workflow", flow)
+        self.assertIn("Align to job posting:", flow)
+        self.assertIn("Style profile:", flow)
+        self.assertIn("Tidy workspace:", flow)
+
+    def test_flow_map_uses_bin_assistant_resume(self):
+        # All advertised commands must use the real entry point.
+        # ./bin/resume-assistant does not exist; ./bin/assistant resume does.
+        flow = self._flow_map()
+        self.assertNotIn("./bin/resume-assistant", flow)
+        self.assertIn("./bin/assistant resume", flow)
+
 
 class TestResumAgenticCliTree(unittest.TestCase):
     """_cli_tree() must return a non-empty string."""
@@ -146,6 +172,28 @@ class TestResumAgenticCliTree(unittest.TestCase):
 
     def test_cli_tree_contains_render(self):
         self.assertIn("render", self._cli_tree())
+
+
+class TestResumAgenticCapsule(unittest.TestCase):
+    """build_agentic_capsule() must use the real entry point throughout."""
+
+    def _capsule(self):
+        import sys
+        from pathlib import Path
+        src = Path(__file__).parents[3] / "src"
+        sys.path.insert(0, str(src))
+        from resume.agentic import build_agentic_capsule
+        return build_agentic_capsule()
+
+    def test_capsule_uses_bin_assistant_resume(self):
+        capsule = self._capsule()
+        self.assertNotIn("./bin/resume-assistant", capsule)
+        self.assertIn("./bin/assistant resume", capsule)
+
+    def test_capsule_contains_all_commands(self):
+        capsule = self._capsule()
+        for cmd in ("extract", "summarize", "render", "align"):
+            self.assertIn(cmd, capsule)
 
 
 if __name__ == "__main__":
