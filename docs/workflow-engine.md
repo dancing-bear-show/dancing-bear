@@ -72,11 +72,22 @@ Each stage carries:
 `depends_on` is the only thing that orders stages. Stages with no dependency
 relationship share a parallel group and run concurrently.
 
-A `kind: sub-workflow` stage runs another workflow inline: the orchestrator
-invokes the `/workflow` skill on the YAML named in `sub_workflow`. The two
-fields are a strict pair. Setting one without the other is a parse error, in
-either direction (`src/workflow/parser_fields.py:286`), so unlike the two traps
-below the parser does catch this one. No checked-in workflow uses the kind yet.
+A `kind: sub-workflow` stage runs another workflow: the agent dispatcher invokes
+the `/workflow` skill on the YAML named in `sub_workflow`. The two fields are a
+strict pair. Setting one without the other is a parse error, in either direction
+(`src/workflow/parser_fields.py:286`), so unlike the two traps below the parser
+does catch this one. No checked-in workflow uses the kind yet.
+
+`./bin/workflow run` handles these stages normally — they route through the
+agent dispatcher like any `validate` stage (`dispatchers.py:344`).
+
+> **Don't confuse `kind: sub-workflow` with `executor: inline`.** They are
+> separate fields. `executor` defaults to `agent` and is what decides *who* runs
+> a stage; `kind` describes *what the stage is for*. `executor: inline` means
+> the Claude `/workflow` skill orchestrator runs the stage in its own session,
+> and the Python runner raises `NotImplementedError` for it
+> (`dispatchers.py:360`). A sub-workflow stage left at the default executor is
+> unaffected.
 
 ## Worked example: mail-filter-apply
 
