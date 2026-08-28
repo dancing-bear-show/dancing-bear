@@ -108,6 +108,14 @@ SKILL_GROUP_TITLE = "Platform"
 SKILL_GROUP_ITEM = "Kubernetes"
 TEACHING_ENTRY = "Intro to Nothing"
 UNTYPED_SKILL = "Python"
+NAME = "Ada Placeholder"
+HEADLINE = "Staff Platform Engineer"
+EMAIL = "ada@example.com"
+PHONE = "+1-555-0142"
+LOCATION = "Fictional City, ZZ"
+# Nested under ``contact``; never promoted to ``Resume.website`` -- the
+# renderer reads it live from the dict via ``_get_contact_field``.
+CONTACT_WEBSITE = "ada.example.invalid"
 
 
 def make_full_candidate() -> dict[str, Any]:
@@ -119,11 +127,11 @@ def make_full_candidate() -> dict[str, Any]:
     raw form.
     """
     return {
-        "name": "Ada Placeholder",
-        "headline": "Staff Platform Engineer",
-        "email": "ada@example.com",
-        "phone": "+1-555-0142",
-        "location": "Fictional City, ZZ",
+        "name": NAME,
+        "headline": HEADLINE,
+        "email": EMAIL,
+        "phone": PHONE,
+        "location": LOCATION,
         "summary": [{"text": SUMMARY_TEXT, "priority": 1.0}],
         "skills_groups": [
             {
@@ -149,7 +157,7 @@ def make_full_candidate() -> dict[str, Any]:
         # Deliberately untyped sections (schema-design.md §1).
         "skills": [UNTYPED_SKILL, "Go"],
         "teaching": [{"name": TEACHING_ENTRY, "desc": "Guest lecture"}],
-        "contact": {"website": "ada.example.invalid"},
+        "contact": {"website": CONTACT_WEBSITE},
     }
 
 
@@ -166,7 +174,7 @@ def two_roles_same_company() -> list[dict[str, Any]]:
             "company": COMPANY,
             "start": "2021",
             "end": "2025",
-            "location": "Fictional City, ZZ",
+            "location": LOCATION,
             "bullets": [{"text": BULLET_RECENT, "priority": 1.0}],
         },
         {
@@ -174,7 +182,7 @@ def two_roles_same_company() -> list[dict[str, Any]]:
             "company": COMPANY,
             "start": "2019",
             "end": "2021",
-            "location": "Fictional City, ZZ",
+            "location": LOCATION,
             "bullets": [{"text": BULLET_PRIOR, "priority": 1.0}],
         },
     ]
@@ -310,11 +318,11 @@ class SchemaLoadTests(E2EPipelineTestBase):
         self.resume = Resume.from_dict(make_full_candidate())
 
     def test_scalar_identity_fields_load(self) -> None:
-        self.assertEqual("Ada Placeholder", self.resume.name)
-        self.assertEqual("Staff Platform Engineer", self.resume.headline)
-        self.assertEqual("ada@example.com", self.resume.email)
-        self.assertEqual("+1-555-0142", self.resume.phone)
-        self.assertEqual("Fictional City, ZZ", self.resume.location)
+        self.assertEqual(NAME, self.resume.name)
+        self.assertEqual(HEADLINE, self.resume.headline)
+        self.assertEqual(EMAIL, self.resume.email)
+        self.assertEqual(PHONE, self.resume.phone)
+        self.assertEqual(LOCATION, self.resume.location)
 
     def test_typed_list_sections_load_with_element_types(self) -> None:
         """Each typed section is a list of its declared element type."""
@@ -353,7 +361,7 @@ class SchemaLoadTests(E2EPipelineTestBase):
         """``skills``/``teaching``/``contact`` stay raw by design."""
         self.assertEqual([UNTYPED_SKILL, "Go"], self.resume.skills)
         self.assertEqual([{"name": TEACHING_ENTRY, "desc": "Guest lecture"}], self.resume.teaching)
-        self.assertEqual({"website": "ada.example.invalid"}, self.resume.contact)
+        self.assertEqual({"website": CONTACT_WEBSITE}, self.resume.contact)
 
     def test_two_roles_at_one_company_stay_two_flat_entries(self) -> None:
         """No promotion, no nesting: two positions are two entries."""
@@ -467,14 +475,45 @@ class RenderRoundTripTests(E2EPipelineTestBase):
     def setUp(self) -> None:  # NOSONAR - required unittest lifecycle method name
         super().setUp()
         filtered, _ = self.run_pipeline(make_full_candidate())
+        self.resume_under_test = filtered
         self.paragraphs = render_text(filtered, make_template(), self.out_dir)
 
     def test_identity_header_round_trips(self) -> None:
-        self.assertProseIn("Ada Placeholder", self.paragraphs)
-        self.assertProseIn("Staff Platform Engineer", self.paragraphs)
-        self.assertProseIn("ada@example.com", self.paragraphs)
-        self.assertProseIn("+1-555-0142", self.paragraphs)
-        self.assertProseIn("Fictional City, ZZ", self.paragraphs)
+        self.assertProseIn(NAME, self.paragraphs)
+        self.assertProseIn(HEADLINE, self.paragraphs)
+        self.assertProseIn(EMAIL, self.paragraphs)
+        self.assertProseIn(PHONE, self.paragraphs)
+        self.assertProseIn(LOCATION, self.paragraphs)
+
+    def test_nested_contact_website_reaches_the_header(self) -> None:
+        """The website lives only under ``contact`` and still renders.
+
+        Nothing promotes it: ``Resume.website`` stays ``""`` because
+        ``_promote_contact`` fills the identity scalars (name/email/phone/
+        location) and not the link fields. The header gets it because
+        ``_collect_link_extra_items`` resolves each link field through
+        ``get_contact_field``, which falls back to the nested dict.
+
+        That fallback is the whole mechanism, and it is a single lookup away
+        from silently returning nothing. Contact handling has already produced
+        two bugs in this migration -- a missing ``name`` fallback and a
+        non-dict ``contact`` crashing the render -- so the untested path is
+        pinned here rather than assumed.
+        """
+        self.assertEqual("", self.resume_under_test.website)
+        self.assertEqual({"website": CONTACT_WEBSITE}, self.resume_under_test.contact)
+        self.assertProseIn(CONTACT_WEBSITE, self.paragraphs)
+
+    def test_contact_website_shares_the_contact_line(self) -> None:
+        """It is a link extra on the contact line, not a stray paragraph.
+
+        Pins placement as well as presence: a regression that rendered the
+        website into its own orphan paragraph would still satisfy a bare
+        ``assertProseIn`` while visibly breaking the header.
+        """
+        lines = [p for p in self.paragraphs if CONTACT_WEBSITE in p]
+        self.assertEqual(1, len(lines))
+        self.assertIn(EMAIL, lines[0])
 
     def test_every_section_body_round_trips(self) -> None:
         """The prose of each section, not merely its heading.
@@ -484,14 +523,14 @@ class RenderRoundTripTests(E2EPipelineTestBase):
         every bug this stage exists to catch.
         """
         expected = {
-            "summary": "Runs invented systems at an invented scale",
+            "summary": SUMMARY_TEXT.rstrip("."),
             "skills_groups": SKILL_GROUP_ITEM,
             "technologies": TECHNOLOGY,
             "experience_recent_title": TITLE_RECENT,
             "experience_prior_title": TITLE_PRIOR,
             "experience_company": COMPANY,
-            "experience_recent_bullet": "Reduced imaginary Kubernetes latency by a fictional margin",
-            "experience_prior_bullet": "Built a make-believe Terraform deployment pipeline",
+            "experience_recent_bullet": BULLET_RECENT.rstrip("."),
+            "experience_prior_bullet": BULLET_PRIOR.rstrip("."),
             "education_degree": DEGREE,
             "education_institution": INSTITUTION,
             "presentations": PRESENTATION,
@@ -538,7 +577,7 @@ class EmptyAndMissingSectionTests(E2EPipelineTestBase):
         resume = Resume.from_dict(candidate)
         paragraphs = render_text(resume, make_template(), self.out_dir)
         self.assertProseIn("Empty Placeholder", paragraphs)
-        self.assertProseIn("Runs invented systems", paragraphs)
+        self.assertProseIn(SUMMARY_TEXT.rstrip("."), paragraphs)
 
     def test_empty_section_renders_without_body_through_writer_factory(self) -> None:
         """``create_resume_writer`` suppresses the heading of an empty section.
@@ -551,7 +590,7 @@ class EmptyAndMissingSectionTests(E2EPipelineTestBase):
         candidate = {"name": "Empty Placeholder", "summary": SUMMARY_TEXT, "interests": []}
         resume = Resume.from_dict(candidate)
         paragraphs = render_text_via_factory(resume, make_template(), self.out_dir)
-        self.assertProseIn("Runs invented systems", paragraphs)
+        self.assertProseIn(SUMMARY_TEXT.rstrip("."), paragraphs)
         self.assertProseNotIn("Interests", paragraphs)
 
     def test_empty_scalar_summary_emits_no_summary_heading(self) -> None:
@@ -602,7 +641,7 @@ class EmptyAndMissingSectionTests(E2EPipelineTestBase):
 
         paragraphs = render_text(resume, make_template(), self.out_dir)
         self.assertProseIn(COMPANY, paragraphs)
-        self.assertProseIn("Reduced imaginary Kubernetes latency", paragraphs)
+        self.assertProseIn(BULLET_RECENT.rstrip("."), paragraphs)
 
 
 class InvalidShapeTests(E2EPipelineTestBase):
@@ -639,7 +678,7 @@ class InvalidShapeTests(E2EPipelineTestBase):
 
         paragraphs = render_text(resume, make_template(), self.out_dir)
         self.assertProseIn("Malformed Placeholder", paragraphs)
-        self.assertProseIn("Runs invented systems", paragraphs)
+        self.assertProseIn(SUMMARY_TEXT.rstrip("."), paragraphs)
         self.assertProseIn(DEGREE, paragraphs)
 
     def test_invalid_top_level_document_falls_back_to_defaults(self) -> None:
@@ -686,7 +725,7 @@ class CorruptedCandidateJsonTests(E2EPipelineTestBase):
         return str(path)
 
     def test_rejects_truncated_candidate_json_with_a_clear_error(self) -> None:
-        path = self._write("truncated.json", '{"name": "Ada Placeholder", "experience": [{"title": "Eng"')
+        path = self._write("truncated.json", f'{{"name": "{NAME}", "experience": [{{"title": "Eng"')
 
         with self.assertRaises(json.JSONDecodeError) as ctx:
             read_yaml_or_json(path)
@@ -719,7 +758,7 @@ class CorruptedCandidateJsonTests(E2EPipelineTestBase):
 
         resume = Resume.from_dict(loaded)
         paragraphs = render_text(resume, make_template(), self.out_dir)
-        self.assertProseIn("Ada Placeholder", paragraphs)
+        self.assertProseIn(NAME, paragraphs)
         self.assertProseIn(CERTIFICATION, paragraphs)
 
 
