@@ -1,0 +1,63 @@
+# Two-column sidebar resume template (general purpose)
+#
+# Guidance
+# - Summary and Skills render in the shaded left column; everything else in the
+#   wider main column. Keep sidebar text short — the column is 2.5" wide.
+# - The sidebar caps what it shows: 6 summary bullets, 8 skill items. Order
+#   your data by priority, because the overflow is dropped silently.
+# - Experience bullets are capped per role by `recent_max_bullets` below.
+#
+# IMPORTANT — the sidebar layout supports exactly six section keys:
+#   left column  (SidebarResumeWriter._render_sidebar_content):
+#     summary, skills
+#   main column  (SidebarResumeWriter._MAIN_SECTION_RENDERERS):
+#     education, experience, teaching, presentations
+# Any other key (interests, certifications, languages, technologies, projects,
+# coursework, ...) is SILENTLY SKIPPED — it renders nothing and reports
+# nothing. Do not add one here expecting it to appear; extend
+# src/resume/docx_sidebar_sections.py first.
+#
+# Contact details are NOT a section. Name, headline, phone, email, location and
+# link extras are read straight off the candidate data by _render_page_header
+# and printed in the repeating page header, so a `contact` section key would be
+# one of the silently-skipped keys above.
+#
+# `teaching` is deliberately omitted here: most candidates have none, and the
+# main-column renderer emits the section heading before its body, so an empty
+# section leaves a bare heading on the page. See template.sidebar.medical.yaml
+# for a variant that includes it.
+
+layout:
+  type: sidebar          # selects SidebarResumeWriter (docx_writer.py)
+  sidebar_width: 2.5     # inches, NOT percent
+  main_width: 5.0        # inches; sidebar_width + main_width must fit the
+                         # usable page width (8.5" - 2 x margins_in = 7.5")
+  sidebar_bg: "#F7F9FC"  # left-column cell shading
+
+sections:
+  - key: summary
+    title: Profile
+  - key: skills
+    title: Core Skills
+  - key: education
+    title: Education
+  - key: experience
+    title: Professional Experience
+    recent_max_bullets: 3
+  - key: presentations
+    title: Talks & Publications
+
+page:
+  compact: true                     # required for margins_in to be applied
+  margins_in: 0.5
+  body_pt: 10
+  h1_pt: 13                         # section headings, both columns
+  meta_pt: 9                        # dates, institutions, employers
+  h1_color: "#C9A227"               # section headings, both columns
+  sidebar_name_pt: 28               # candidate name in the page header
+  sidebar_name_color: "#1A365D"
+  sidebar_headline_pt: 11
+  sidebar_text_color: "#2D3748"     # sidebar body text
+  sidebar_bullet_color: "#3182CE"   # sidebar bullet glyphs
+  main_bullet_color: "#3182CE"      # main-column bullet glyphs
+  header_bg: "#F7F9FC"              # page-header shading; match sidebar_bg
