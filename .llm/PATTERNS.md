@@ -261,7 +261,7 @@ Plan/Apply Flow (Safe by Default)
 ./bin/mail filters sync --config filters.yaml
 
 # Mail labels
-./bin/mail labels plan --config labels.yaml --delete-missing
+./bin/mail labels plan --config labels.yaml
 ./bin/mail labels sync --config labels.yaml --dry-run
 ./bin/mail labels sync --config labels.yaml
 

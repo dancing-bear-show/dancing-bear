@@ -85,7 +85,7 @@ def _flow_map() -> str:
     if _cli_path_exists(["manifest", "create"]):
         lines.append("- Manifests")
         lines.append(
-            "  - Create manifest: ./bin/phone manifest create --plan out/ios.plan.yaml --out out/ios.manifest.yaml"
+            "  - Create manifest: ./bin/phone manifest create --from-plan ios.plan.yaml --out ios.manifest.yaml"
         )
         if _cli_path_exists(["manifest", "install"]):
             lines.append(

@@ -34,24 +34,24 @@ def _flow_map() -> str:
     lines: list[str] = []
     if all(_cli_path_exists([cmd]) for cmd in [["extract"], ["summarize"], ["render"]]):
         lines.append("- Resume workflow")
-        lines.append("  - Extract: ./bin/resume-assistant extract --linkedin data/linkedin.txt --resume data/resume.pdf --out out/profile.json")
-        lines.append("  - Summarize: ./bin/resume-assistant summarize --data out/profile.json --seed seeds/general.yaml")
-        lines.append("  - Render DOCX: ./bin/resume-assistant render --data out/profile.json --template templates/modern.yaml --profile default")
+        lines.append("  - Extract: ./bin/assistant resume extract --linkedin data/linkedin.txt --resume data/resume.pdf --out out/profile.json")
+        lines.append("  - Summarize: ./bin/assistant resume summarize --data out/profile.json --seed seeds/general.yaml")
+        lines.append("  - Render DOCX: ./bin/assistant resume render --data out/profile.json --template templates/modern.yaml --profile default")
     if _cli_path_exists(["align"]):
-        lines.append("- Align to job posting: ./bin/resume-assistant align --data out/profile.json --job jobs/default.yaml --out out/alignment.yaml")
+        lines.append("- Align to job posting: ./bin/assistant resume align --data out/profile.json --job jobs/default.yaml --out out/alignment.yaml")
     if _cli_path_exists(["style"]):
-        lines.append("- Style profile: ./bin/resume-assistant style build --templates templates/style.json --out out/style_profile.json")
+        lines.append("- Style profile: ./bin/assistant resume style build --templates templates/style.json --out out/style_profile.json")
     if _cli_path_exists(["cleanup"]):
-        lines.append("- Cleanup workspace: ./bin/resume-assistant cleanup tidy --plan out/cleanup.plan.yaml --apply")
+        lines.append("- Cleanup workspace: ./bin/assistant resume cleanup tidy --plan out/cleanup.plan.yaml --apply")
     return "\n".join(lines)
 
 
 def build_agentic_capsule() -> str:
     commands = [
-        "extract: ./bin/resume-assistant extract --linkedin data/linkedin.txt --resume data/resume.pdf --out out/profile.json",
-        "summarize: ./bin/resume-assistant summarize --data out/profile.json --seed seeds/general.yaml",
-        "render: ./bin/resume-assistant render --data out/profile.json --template templates/modern.yaml --profile default",
-        "align: ./bin/resume-assistant align --data out/profile.json --job jobs/default.yaml",
+        "extract: ./bin/assistant resume extract --linkedin data/linkedin.txt --resume data/resume.pdf --out out/profile.json",
+        "summarize: ./bin/assistant resume summarize --data out/profile.json --seed seeds/general.yaml",
+        "render: ./bin/assistant resume render --data out/profile.json --template templates/modern.yaml --profile default",
+        "align: ./bin/assistant resume align --data out/profile.json --job jobs/default.yaml",
     ]
     return _build_capsule(
         "resume",

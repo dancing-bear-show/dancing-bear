@@ -31,22 +31,22 @@ def _cli_path_exists(path: list[str]) -> bool:
 def _flow_map() -> str:
     lines: list[str] = []
     if _cli_path_exists(["scan"]):
-        lines.append("- Scan clutter: ./bin/desk-assistant scan --paths ~/Downloads ~/Desktop --duplicates --out out/desk.scan.yaml")
+        lines.append("- Scan clutter: python3 -m desk scan --paths ~/Downloads ~/Desktop --duplicates --out out/desk.scan.yaml")
     if _cli_path_exists(["plan"]):
-        lines.append("- Plan cleanup: ./bin/desk-assistant plan --config config/rules.yaml --out out/desk.plan.yaml")
+        lines.append("- Plan cleanup: python3 -m desk plan --config config/rules.yaml --out out/desk.plan.yaml")
     if _cli_path_exists(["apply"]):
-        lines.append("- Apply plan (dry-run first): ./bin/desk-assistant apply --plan out/desk.plan.yaml --dry-run")
+        lines.append("- Apply plan (dry-run first): python3 -m desk apply --plan out/desk.plan.yaml --dry-run")
     if _cli_path_exists(["rules", "export"]):
-        lines.append("- Starter rules: ./bin/desk-assistant rules export --out config/rules.example.yaml")
+        lines.append("- Starter rules: python3 -m desk rules export --out config/rules.example.yaml")
     return "\n".join(lines)
 
 
 def build_agentic_capsule() -> str:
     commands = [
-        "scan: ./bin/desk-assistant scan --paths ~/Downloads ~/Desktop --duplicates --out out/desk.scan.yaml",
-        "plan: ./bin/desk-assistant plan --config config/desk_rules.yaml --out out/desk.plan.yaml",
-        "apply: ./bin/desk-assistant apply --plan out/desk.plan.yaml --dry-run",
-        "rules export: ./bin/desk-assistant rules export --out config/desk_rules.example.yaml",
+        "scan: python3 -m desk scan --paths ~/Downloads ~/Desktop --duplicates --out out/desk.scan.yaml",
+        "plan: python3 -m desk plan --config config/desk_rules.yaml --out out/desk.plan.yaml",
+        "apply: python3 -m desk apply --plan out/desk.plan.yaml --dry-run",
+        "rules export: python3 -m desk rules export --out config/desk_rules.example.yaml",
     ]
     return _build_capsule(
         "desk",

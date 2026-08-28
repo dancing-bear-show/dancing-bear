@@ -59,8 +59,10 @@ class TestBuildAgenticCapsule(unittest.TestCase):
     def test_includes_commands_in_output(self):
         from desk.agentic import build_agentic_capsule
         result = build_agentic_capsule()
-        # Commands are always included regardless of CLI parser availability
-        self.assertIn("desk-assistant", result)
+        # Commands are always included regardless of CLI parser availability.
+        # desk ships no bin/ wrapper — `./bin/desk-assistant` never existed, so
+        # the capsule advertises the form that actually runs.
+        self.assertIn("python3 -m desk", result)
 
 
 class TestBuildDomainMap(unittest.TestCase):
