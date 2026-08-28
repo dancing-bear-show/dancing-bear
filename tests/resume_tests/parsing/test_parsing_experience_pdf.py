@@ -10,10 +10,8 @@ from resume.parsing_experience_pdf import (
     _pdf_empty_result,
     _pdf_extract_education,
     _pdf_extract_experience,
-    _pdf_extract_name_headline,
     _pdf_extract_summary,
     _pdf_find_sections,
-    _pdf_get_section_lines,
     parse_resume_pdf,
 )
 
