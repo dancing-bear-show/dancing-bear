@@ -5,27 +5,26 @@ import unittest
 from tests.fixtures import capture_stdout
 
 from wifi.agentic import (
-    _section,
     build_agentic_capsule,
     build_domain_map,
     emit_agentic_context,
 )
 
 
-class TestSection(unittest.TestCase):
-    """Test _section helper function."""
+class TestCoreAgenticSection(unittest.TestCase):
+    """Verify wifi/agentic uses core.agentic.section (== Title == format)."""
 
-    def test_formats_title_and_body(self):
-        result = _section("Title", "body text")
-        self.assertEqual(result, "Title:\nbody text")
+    def test_probes_section_uses_core_format(self):
+        result = build_agentic_capsule()
+        self.assertIn("== Probes ==", result)
 
-    def test_multiline_body(self):
-        result = _section("Probes", "- line1\n- line2")
-        self.assertEqual(result, "Probes:\n- line1\n- line2")
+    def test_cli_tree_section_uses_core_format(self):
+        result = build_agentic_capsule()
+        self.assertIn("== CLI Tree ==", result)
 
-    def test_empty_body(self):
-        result = _section("Empty", "")
-        self.assertEqual(result, "Empty:\n")
+    def test_domain_map_cli_tree_uses_core_format(self):
+        result = build_domain_map()
+        self.assertIn("== CLI Tree ==", result)
 
 
 class TestBuildAgenticCapsule(unittest.TestCase):
@@ -51,7 +50,7 @@ class TestBuildAgenticCapsule(unittest.TestCase):
 
     def test_contains_probes_section(self):
         result = build_agentic_capsule()
-        self.assertIn("Probes:", result)
+        self.assertIn("Probes", result)
         self.assertIn("gateway detection", result)
         self.assertIn("ping sweep", result)
         self.assertIn("DNS timing", result)

@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -407,18 +407,28 @@ class LabelsPlanProducerErrorTests(unittest.TestCase):
         envelope = make_error_envelope()
         buf = io.StringIO()
         producer = LabelsPlanProducer()
-        with redirect_stdout(buf):
+        with redirect_stderr(buf):
             producer.produce(envelope)
         self.assertIn("Labels plan failed.", buf.getvalue())
 
     def test_produce_prints_failed_when_payload_is_none(self):
-        # Sad path: ok but empty payload (line 43)
+        # Sad path: ok but empty payload
         envelope = make_success_envelope(payload=None)
         buf = io.StringIO()
         producer = LabelsPlanProducer()
-        with redirect_stdout(buf):
+        with redirect_stderr(buf):
             producer.produce(envelope)
         self.assertIn("Labels plan failed.", buf.getvalue())
+
+    def test_produce_prefers_diagnostics_message_over_fallback(self):
+        # A processor-supplied message wins over the class fallback.
+        envelope = make_error_envelope(diagnostics={"message": "quota exceeded"})
+        buf = io.StringIO()
+        producer = LabelsPlanProducer()
+        with redirect_stderr(buf):
+            producer.produce(envelope)
+        self.assertIn("quota exceeded", buf.getvalue())
+        self.assertNotIn("Labels plan failed.", buf.getvalue())
 
 
 # ---------------------------------------------------------------------------
@@ -435,7 +445,7 @@ class LabelsSyncProducerUncoveredTests(unittest.TestCase):
         envelope = make_error_envelope()
         buf = io.StringIO()
         producer = LabelsSyncProducer(client)
-        with redirect_stdout(buf):
+        with redirect_stderr(buf):
             producer.produce(envelope)
         self.assertIn("Labels sync failed.", buf.getvalue())
 
@@ -444,7 +454,7 @@ class LabelsSyncProducerUncoveredTests(unittest.TestCase):
         envelope = make_success_envelope(payload=None)
         buf = io.StringIO()
         producer = LabelsSyncProducer(client)
-        with redirect_stdout(buf):
+        with redirect_stderr(buf):
             producer.produce(envelope)
         self.assertIn("Labels sync failed.", buf.getvalue())
 
@@ -476,7 +486,7 @@ class LabelsSyncProducerUncoveredTests(unittest.TestCase):
         producer = LabelsSyncProducer(client, dry_run=True)
         with redirect_stdout(buf):
             producer.produce(envelope)
-        self.assertIn("Would create label: DryNew", buf.getvalue())
+        self.assertIn("[dry-run] create label: DryNew", buf.getvalue())
         self.assertFalse(any(lab["name"] == "DryNew" for lab in client.labels))
 
     def test_apply_creates_live_creates_label(self):
@@ -506,7 +516,7 @@ class LabelsSyncProducerUncoveredTests(unittest.TestCase):
         producer = LabelsSyncProducer(client, dry_run=True)
         with redirect_stdout(buf):
             producer.produce(envelope)
-        self.assertIn("Would update label: Keep", buf.getvalue())
+        self.assertIn("[dry-run] update label: Keep", buf.getvalue())
 
     def test_apply_updates_live_updates_label(self):
         # Happy path: label found in map, update_label called
@@ -548,7 +558,7 @@ class LabelsSyncProducerUncoveredTests(unittest.TestCase):
         producer = LabelsSyncProducer(client, dry_run=True)
         with redirect_stdout(buf):
             producer.produce(envelope)
-        self.assertIn("Would delete label: OldLabel", buf.getvalue())
+        self.assertIn("[dry-run] delete label: OldLabel", buf.getvalue())
 
     def test_apply_deletes_live_deletes_label(self):
         # Happy path: delete_label called, label removed
@@ -616,7 +626,7 @@ class LabelsSyncProducerUncoveredTests(unittest.TestCase):
         producer = LabelsSyncProducer(client, dry_run=True)
         with redirect_stdout(buf):
             producer.produce(envelope)
-        self.assertIn("Would merge 'OldLabel' into 'Keep'", buf.getvalue())
+        self.assertIn("[dry-run] merge 'OldLabel' into 'Keep'", buf.getvalue())
 
 
 # ---------------------------------------------------------------------------
@@ -627,20 +637,20 @@ class LabelsExportProducerErrorTests(unittest.TestCase):
     """LabelsExportProducer failure paths."""
 
     def test_produce_prints_failed_when_result_not_ok(self):
-        # Sad path: ok() returns False (line 192)
+        # Sad path: ok() returns False
         envelope = make_error_envelope()
         buf = io.StringIO()
         producer = LabelsExportProducer()
-        with redirect_stdout(buf):
+        with redirect_stderr(buf):
             producer.produce(envelope)
         self.assertIn("Labels export failed.", buf.getvalue())
 
     def test_produce_prints_failed_when_payload_is_none(self):
-        # Sad path: ok but payload is None (line 192 second condition)
+        # Sad path: ok but payload is None
         envelope = make_success_envelope(payload=None)
         buf = io.StringIO()
         producer = LabelsExportProducer()
-        with redirect_stdout(buf):
+        with redirect_stderr(buf):
             producer.produce(envelope)
         self.assertIn("Labels export failed.", buf.getvalue())
 

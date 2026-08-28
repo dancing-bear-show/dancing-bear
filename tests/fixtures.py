@@ -15,7 +15,7 @@ import os
 import subprocess  # nosec B404
 import sys
 import tempfile
-from contextlib import contextmanager, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 from unittest.mock import MagicMock
@@ -80,6 +80,19 @@ def capture_stdout():
     """Context manager that captures stdout and yields a StringIO buffer."""
     buf = io.StringIO()
     with redirect_stdout(buf):
+        yield buf
+
+
+@contextmanager
+def capture_stderr():
+    """Context manager that captures stderr and yields a StringIO buffer.
+
+    Producers built on core.pipeline.BaseProducer report failures through
+    OutputWriter.print_error, which writes to stderr — so sad-path assertions
+    need this rather than capture_stdout.
+    """
+    buf = io.StringIO()
+    with redirect_stderr(buf):
         yield buf
 
 

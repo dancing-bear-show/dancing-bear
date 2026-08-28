@@ -4,7 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import time
 
-from core.pipeline import Producer, ResultEnvelope
+from core.cli_output import OutputWriter
+from core.pipeline import BaseProducer
 from core.retry import exponential_backoff
 
 from ..providers.base import BaseProvider
@@ -29,26 +30,26 @@ class SweepProducerConfig:
     dry_run: bool = False
 
 
-class FiltersSweepProducer(Producer[ResultEnvelope[FiltersSweepResult]]):
+class FiltersSweepProducer(BaseProducer):
     """Apply sweep actions to historical messages."""
 
-    def __init__(self, client: BaseProvider, config: SweepProducerConfig):
+    failure_message = "Filters sweep failed."
+
+    def __init__(self, client: BaseProvider, config: SweepProducerConfig, writer: OutputWriter | None = None):
+        super().__init__(writer)
         self.client = client
         self.config = config
 
-    def produce(self, result: ResultEnvelope[FiltersSweepResult]) -> None:
-        if not result.ok() or not result.payload:
-            print("Filters sweep failed.")
-            return
+    def _produce_success(self, payload: FiltersSweepResult, diagnostics: dict | None) -> None:
         total = 0
-        for instruction in result.payload.instructions:
+        for instruction in payload.instructions:
             ids = _list_message_ids_shared(
                 self.client,
                 MessageQueryParams(query=instruction.query, pages=self.config.pages, max_msgs=self.config.max_msgs),
             )
             query_display = instruction.query if instruction.query else _EMPTY_QUERY
             if self.config.dry_run:
-                print(
+                self._writer.print_dry_run(
                     f"Query: {query_display} => {len(ids)} messages; "
                     f"+{instruction.add_label_ids} -{instruction.remove_label_ids}"
                 )
@@ -62,25 +63,25 @@ class FiltersSweepProducer(Producer[ResultEnvelope[FiltersSweepResult]]):
                     ids,
                     self.config.batch_size,
                 )
-                print(f"Modified {len(ids)} messages for rule")
+                self._writer.print(f"Modified {len(ids)} messages for rule")
             total += len(ids)
-        print(f"Sweep complete. Modified {total} messages total.")
+        self._writer.print(f"Sweep complete. Modified {total} messages total.")
 
 
-class FiltersSweepRangeProducer(Producer[ResultEnvelope[FiltersSweepRangeResult]]):
+class FiltersSweepRangeProducer(BaseProducer):
     """Apply sweep actions across multiple windows."""
 
-    def __init__(self, client: BaseProvider, config: SweepProducerConfig):
+    failure_message = "Filters sweep-range failed."
+
+    def __init__(self, client: BaseProvider, config: SweepProducerConfig, writer: OutputWriter | None = None):
+        super().__init__(writer)
         self.client = client
         self.config = config
 
-    def produce(self, result: ResultEnvelope[FiltersSweepRangeResult]) -> None:
-        if not result.ok() or not result.payload:
-            print("Filters sweep-range failed.")
-            return
+    def _produce_success(self, payload: FiltersSweepRangeResult, diagnostics: dict | None) -> None:
         total = 0
-        for window in result.payload.windows:
-            print(f"\nWindow: {window.label}")
+        for window in payload.windows:
+            self._writer.print(f"\nWindow: {window.label}")
             window_total = 0
             for instruction in window.instructions:
                 ids = _list_message_ids_shared(
@@ -89,7 +90,7 @@ class FiltersSweepRangeProducer(Producer[ResultEnvelope[FiltersSweepRangeResult]
                 )
                 if self.config.dry_run:
                     query_display = instruction.query if instruction.query else _EMPTY_QUERY
-                    print(
+                    self._writer.print_dry_run(
                         f"  {len(ids)} msgs; +{instruction.add_label_ids} "
                         f"-{instruction.remove_label_ids} | {query_display}"
                     )
@@ -104,23 +105,22 @@ class FiltersSweepRangeProducer(Producer[ResultEnvelope[FiltersSweepRangeResult]
                         self.config.batch_size,
                     )
                 window_total += len(ids)
-            print(f"Window modified: {window_total}")
+            self._writer.print(f"Window modified: {window_total}")
             total += window_total
-        print(f"Total modified across windows: {total}")
+        self._writer.print(f"Total modified across windows: {total}")
 
 
-class FiltersPruneProducer(Producer[ResultEnvelope[FiltersPruneResult]]):
+class FiltersPruneProducer(BaseProducer):
     """Delete filters that match no messages."""
 
-    def __init__(self, client: BaseProvider, *, dry_run: bool = False):
+    failure_message = "Filters prune failed."
+
+    def __init__(self, client: BaseProvider, *, dry_run: bool = False, writer: OutputWriter | None = None):
+        super().__init__(writer)
         self.client = client
         self.dry_run = dry_run
 
-    def produce(self, result: ResultEnvelope[FiltersPruneResult]) -> None:
-        if not result.ok() or not result.payload:
-            print("Filters prune failed.")
-            return
-        payload = result.payload
+    def _produce_success(self, payload: FiltersPruneResult, diagnostics: dict | None) -> None:
         total = len(payload.candidates)
         deleted = 0
         for cand in payload.candidates:
@@ -129,11 +129,11 @@ class FiltersPruneProducer(Producer[ResultEnvelope[FiltersPruneResult]]):
             fid = cand.filter_obj.get("id")
             query_display = cand.query if cand.query else _EMPTY_QUERY
             if self.dry_run:
-                print(f"Would delete filter id={fid} | {query_display}")
+                self._writer.print_dry_run(f"delete filter id={fid} | {query_display}")
             else:
                 if self._delete_with_retry(fid):
                     deleted += 1
-        print(f"Prune complete. Examined: {total} Deleted: {deleted}")
+        self._writer.print(f"Prune complete. Examined: {total} Deleted: {deleted}")
 
     def _delete_with_retry(self, fid: str | None) -> bool:
         if not fid:
@@ -142,10 +142,10 @@ class FiltersPruneProducer(Producer[ResultEnvelope[FiltersPruneResult]]):
         for attempt in range(3):
             try:
                 self.client.delete_filter(fid)
-                print(f"Deleted filter id={fid}")
+                self._writer.print(f"Deleted filter id={fid}")
                 return True
             except Exception as exc:  # pragma: no cover - retry logging
                 last_err = exc
                 time.sleep(exponential_backoff(attempt, base_delay=1.5, multiplier=2.0))
-        print(f"Warning: failed to delete filter id={fid}: {last_err}")
+        self._writer.print_warning(f"failed to delete filter id={fid}: {last_err}")
         return False

@@ -1,7 +1,17 @@
-"""Producers for forwarding pipelines."""
+"""Producers for forwarding pipelines.
+
+Note on the split base classes below: ForwardingList/Add use BaseProducer, but
+Status/Enable/Disable deliberately do not. BaseProducer prints the diagnostics
+message on its own line ("Error: <msg>"), whereas those three embed it inside a
+sentence ("Failed to fetch auto-forwarding: <msg>"), and Enable additionally
+branches on the message text. Expressing that through the shared template would
+mean adding a formatting hook to BaseProducer for three call sites, so they keep
+their hand-written produce().
+"""
 from __future__ import annotations
 
-from core.pipeline import Producer, ResultEnvelope
+from core.cli_output import OutputWriter
+from core.pipeline import BaseProducer, Producer, ResultEnvelope
 
 from .processors import (
     ForwardingListResult,
@@ -12,71 +22,83 @@ from .processors import (
 )
 
 
-class ForwardingListProducer(Producer[ResultEnvelope[ForwardingListResult]]):
+class ForwardingListProducer(BaseProducer):
     """Produce forwarding list output."""
 
-    def produce(self, result: ResultEnvelope[ForwardingListResult]) -> None:
-        if not result.ok() or not result.payload:
-            diag = result.diagnostics or {}
-            print(f"Error: {diag.get('error', 'Failed to list forwarding addresses.')}")
-            return
+    failure_message = "Failed to list forwarding addresses."
 
-        for addr in result.payload.addresses:
+    def _produce_success(self, payload: ForwardingListResult, diagnostics: dict | None) -> None:
+        for addr in payload.addresses:
             email = addr.get("forwardingEmail", "")
             status = addr.get("verificationStatus", "unknown")
-            print(f"{email}\t{status}")
+            self._writer.print(f"{email}\t{status}")
 
 
-class ForwardingAddProducer(Producer[ResultEnvelope[ForwardingAddResult]]):
+class ForwardingAddProducer(BaseProducer):
     """Produce forwarding add output."""
 
-    def produce(self, result: ResultEnvelope[ForwardingAddResult]) -> None:
-        if not result.ok() or not result.payload:
-            diag = result.diagnostics or {}
-            print(f"Error: {diag.get('error', 'Failed to add forwarding address.')}")
-            return
+    failure_message = "Failed to add forwarding address."
 
-        payload = result.payload
-        print(f"Added forwarding address: {payload.email} (status: {payload.status}). Check inbox at that address to verify.")
+    def _produce_success(self, payload: ForwardingAddResult, diagnostics: dict | None) -> None:
+        self._writer.print(
+            f"Added forwarding address: {payload.email} (status: {payload.status}). "
+            "Check inbox at that address to verify."
+        )
 
 
 class ForwardingStatusProducer(Producer[ResultEnvelope[ForwardingStatusResult]]):
     """Produce forwarding status output."""
 
+    def __init__(self, writer: OutputWriter | None = None) -> None:
+        self._writer = writer or OutputWriter()
+
     def produce(self, result: ResultEnvelope[ForwardingStatusResult]) -> None:
         if not result.ok() or not result.payload:
             diag = result.diagnostics or {}
-            print(f"Failed to fetch auto-forwarding: {diag.get('error', 'unknown error')}")
+            self._writer.print_error(f"Failed to fetch auto-forwarding: {diag.get('error', 'unknown error')}")
             return
 
         payload = result.payload
-        print(f"enabled={payload.enabled} emailAddress={payload.email_address} disposition={payload.disposition}")
+        self._writer.print(
+            f"enabled={payload.enabled} emailAddress={payload.email_address} "
+            f"disposition={payload.disposition}"
+        )
 
 
 class ForwardingEnableProducer(Producer[ResultEnvelope[ForwardingEnableResult]]):
     """Produce forwarding enable output."""
 
+    def __init__(self, writer: OutputWriter | None = None) -> None:
+        self._writer = writer or OutputWriter()
+
     def produce(self, result: ResultEnvelope[ForwardingEnableResult]) -> None:
         if not result.ok() or not result.payload:
             diag = result.diagnostics or {}
             error = diag.get("error", "unknown error")
+            # An unverified address is the expected, actionable case, so it is
+            # reported bare rather than wrapped in "Failed to enable ...".
             if "not verified" in error.lower():
-                print(f"Error: {error}")
+                self._writer.print_error(error)
             else:
-                print(f"Failed to enable auto-forwarding: {error}")
+                self._writer.print_error(f"Failed to enable auto-forwarding: {error}")
             return
 
         payload = result.payload
-        print(f"Auto-forwarding enabled → {payload.email_address}; disposition={payload.disposition}")
+        self._writer.print(
+            f"Auto-forwarding enabled → {payload.email_address}; disposition={payload.disposition}"
+        )
 
 
 class ForwardingDisableProducer(Producer[ResultEnvelope[ForwardingDisableResult]]):
     """Produce forwarding disable output."""
 
+    def __init__(self, writer: OutputWriter | None = None) -> None:
+        self._writer = writer or OutputWriter()
+
     def produce(self, result: ResultEnvelope[ForwardingDisableResult]) -> None:
         if not result.ok() or not result.payload:
             diag = result.diagnostics or {}
-            print(f"Failed to disable auto-forwarding: {diag.get('error', 'unknown error')}")
+            self._writer.print_error(f"Failed to disable auto-forwarding: {diag.get('error', 'unknown error')}")
             return
 
-        print("Auto-forwarding disabled.")
+        self._writer.print("Auto-forwarding disabled.")

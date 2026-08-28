@@ -292,5 +292,82 @@ class ForwardingDisablePipelineTests(unittest.TestCase):
         self.assertIn("disabled", output.lower())
 
 
+class ForwardingProducerSadPathTests(unittest.TestCase):
+    """Error-path coverage for the forwarding producers.
+
+    List/Add use BaseProducer; Status/Enable/Disable keep a hand-written
+    produce() because they embed the diagnostics message inside a sentence
+    rather than printing it on its own line. Both shapes are pinned here.
+    """
+
+    def _capture(self, producer, envelope) -> str:
+        from core.cli_output import OutputConfig, OutputWriter
+
+        buf = io.StringIO()
+        producer._writer = OutputWriter(OutputConfig(file=buf))
+        producer.produce(envelope)
+        return buf.getvalue()
+
+    def test_base_producers_use_fallback_without_diagnostics(self):
+        from core.pipeline import ResultEnvelope
+        from mail.forwarding.producers import ForwardingAddProducer, ForwardingListProducer
+
+        cases = [
+            (ForwardingListProducer(), "failed to list forwarding addresses."),
+            (ForwardingAddProducer(), "failed to add forwarding address."),
+        ]
+        for producer, expected in cases:
+            with self.subTest(producer=type(producer).__name__):
+                out = self._capture(producer, ResultEnvelope(status="error", diagnostics={}))
+                self.assertIn(expected, out.lower())
+
+    def test_base_producers_prefer_diagnostics_error_key(self):
+        from core.pipeline import ResultEnvelope
+        from mail.forwarding.producers import ForwardingAddProducer, ForwardingListProducer
+
+        for producer in (ForwardingListProducer(), ForwardingAddProducer()):
+            with self.subTest(producer=type(producer).__name__):
+                out = self._capture(
+                    producer, ResultEnvelope(status="error", diagnostics={"error": "quota hit"})
+                )
+                self.assertIn("quota hit", out)
+                self.assertNotIn("failed to", out.lower())
+
+    def test_sentence_producers_embed_the_message(self):
+        from core.pipeline import ResultEnvelope
+        from mail.forwarding.producers import (
+            ForwardingDisableProducer,
+            ForwardingStatusProducer,
+        )
+
+        cases = [
+            (ForwardingStatusProducer(), "failed to fetch auto-forwarding: boom"),
+            (ForwardingDisableProducer(), "failed to disable auto-forwarding: boom"),
+        ]
+        for producer, expected in cases:
+            with self.subTest(producer=type(producer).__name__):
+                out = self._capture(
+                    producer, ResultEnvelope(status="error", diagnostics={"error": "boom"})
+                )
+                self.assertIn(expected, out.lower())
+
+    def test_enable_reports_unverified_bare_but_wraps_other_errors(self):
+        from core.pipeline import ResultEnvelope
+        from mail.forwarding.producers import ForwardingEnableProducer
+
+        unverified = self._capture(
+            ForwardingEnableProducer(),
+            ResultEnvelope(status="error", diagnostics={"error": "Address not verified"}),
+        )
+        self.assertIn("address not verified", unverified.lower())
+        self.assertNotIn("failed to enable", unverified.lower())
+
+        other = self._capture(
+            ForwardingEnableProducer(),
+            ResultEnvelope(status="error", diagnostics={"error": "quota hit"}),
+        )
+        self.assertIn("failed to enable auto-forwarding: quota hit", other.lower())
+
+
 if __name__ == "__main__":
     unittest.main()

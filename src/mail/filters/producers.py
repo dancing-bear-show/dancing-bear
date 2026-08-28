@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from core.cli_output import OutputWriter
-from core.pipeline import Producer, ResultEnvelope
+from core.pipeline import BaseProducer
 
 from ..providers.base import BaseProvider
 from ..utils.cli_helpers import preview_criteria
@@ -38,18 +38,16 @@ from .producers_token import (  # noqa: F401
 _EMPTY_QUERY = "(empty)"
 
 
-class FiltersPlanProducer(Producer[ResultEnvelope[FiltersPlanResult]]):
+class FiltersPlanProducer(BaseProducer):
     """Render plan results in the legacy human-readable format."""
 
-    def __init__(self, preview_limit: int = 20, writer: OutputWriter | None = None):
-        self.preview_limit = preview_limit
-        self._writer = writer or OutputWriter()
+    failure_message = "Filters plan failed."
 
-    def produce(self, result: ResultEnvelope[FiltersPlanResult]) -> None:
-        if not result.ok() or not result.payload:
-            self._writer.print("Filters plan failed.")
-            return
-        payload = result.payload
+    def __init__(self, preview_limit: int = 20, writer: OutputWriter | None = None):
+        super().__init__(writer)
+        self.preview_limit = preview_limit
+
+    def _produce_success(self, payload: FiltersPlanResult, diagnostics: dict | None) -> None:
         print_plan_summary(create=len(payload.to_create), delete=len(payload.to_delete))
         if payload.add_counts:
             self._writer.print("Adds distribution:")
@@ -94,33 +92,31 @@ class FiltersPlanProducer(Producer[ResultEnvelope[FiltersPlanResult]]):
         )
 
 
-class FiltersSyncProducer(Producer[ResultEnvelope[FiltersSyncResult]]):
+class FiltersSyncProducer(BaseProducer):
     """Apply create/delete operations for filters sync."""
 
-    def __init__(self, client: BaseProvider, *, dry_run: bool = False):
+    failure_message = "Filters sync failed."
+
+    def __init__(self, client: BaseProvider, *, dry_run: bool = False, writer: OutputWriter | None = None):
+        super().__init__(writer)
         self.client = client
         self.dry_run = dry_run
 
-    def produce(self, result: ResultEnvelope[FiltersSyncResult]) -> None:
-        if not result.ok() or not result.payload:
-            print("Filters sync failed.")
-            return
-
-        payload = result.payload
+    def _produce_success(self, payload: FiltersSyncResult, diagnostics: dict | None) -> None:
         created = self._apply_creates(payload.to_create)
         deleted = self._apply_deletes(payload.to_delete)
-        print(f"Filters sync complete. Created: {created}, Deleted: {deleted}.")
+        self._writer.print(f"Filters sync complete. Created: {created}, Deleted: {deleted}.")
 
     def _apply_creates(self, entries: list[FilterPlanEntry]) -> int:
         created = 0
         for entry in entries:
             actions = entry.action_names
             if self.dry_run:
-                print(f"Would create filter: criteria={entry.criteria} action={actions}")
+                self._writer.print_dry_run(f"create filter: criteria={entry.criteria} action={actions}")
             else:
                 act_ids = self._build_action_ids(actions)
                 self.client.create_filter(entry.criteria, act_ids)
-                print("Created filter.")
+                self._writer.print("Created filter.")
             created += 1
         return created
 
@@ -129,11 +125,11 @@ class FiltersSyncProducer(Producer[ResultEnvelope[FiltersSyncResult]]):
         for existing in entries:
             fid = existing.get("id")
             if self.dry_run:
-                print(f"Would delete filter: id={fid}")
+                self._writer.print_dry_run(f"delete filter: id={fid}")
             else:
                 if fid:
                     self.client.delete_filter(fid)
-                    print(f"Deleted filter: id={fid}")
+                    self._writer.print(f"Deleted filter: id={fid}")
             deleted += 1
         return deleted
 
@@ -153,36 +149,29 @@ class FiltersSyncProducer(Producer[ResultEnvelope[FiltersSyncResult]]):
         return act_ids
 
 
-class FiltersImpactProducer(Producer[ResultEnvelope[FiltersImpactResult]]):
+class FiltersImpactProducer(BaseProducer):
     """Render impact counts for filters."""
 
-    def __init__(self, writer: OutputWriter | None = None):
-        self._writer = writer or OutputWriter()
+    failure_message = "Filters impact failed."
 
-    def produce(self, result: ResultEnvelope[FiltersImpactResult]) -> None:
-        if not result.ok() or not result.payload:
-            self._writer.print("Filters impact failed.")
-            return
-        payload = result.payload
+    def _produce_success(self, payload: FiltersImpactResult, diagnostics: dict | None) -> None:
         for record in payload.records:
             query = record.query or _EMPTY_QUERY
             self._writer.print(f"{record.count:6d}  {query}")
         self._writer.print(f"Total impacted: {payload.total}")
 
 
-class FiltersAddForwardProducer(Producer[ResultEnvelope[FiltersAddForwardResult]]):
+class FiltersAddForwardProducer(BaseProducer):
     """Apply forward actions to matching filters."""
 
-    def __init__(self, client: BaseProvider, *, dry_run: bool = False):
+    failure_message = "Filters add-forward failed."
+
+    def __init__(self, client: BaseProvider, *, dry_run: bool = False, writer: OutputWriter | None = None):
+        super().__init__(writer)
         self.client = client
         self.dry_run = dry_run
 
-    def produce(self, result: ResultEnvelope[FiltersAddForwardResult]) -> None:
-        if not result.ok() or not result.payload:
-            diagnostics = (result.diagnostics or {}).get("message")
-            print(diagnostics if diagnostics else "Filters add-forward failed.")
-            return
-        payload = result.payload
+    def _produce_success(self, payload: FiltersAddForwardResult, diagnostics: dict | None) -> None:
         from ..utils.cli_helpers import preview_criteria as preview_crit
 
         changed = sum(
@@ -190,9 +179,9 @@ class FiltersAddForwardProducer(Producer[ResultEnvelope[FiltersAddForwardResult]
             for update in payload.updates
         )
         if not payload.updates:
-            print("No matching filters found for given label prefix.")
+            self._writer.print("No matching filters found for given label prefix.")
         else:
-            print(f"Updated {changed} filters.")
+            self._writer.print(f"Updated {changed} filters.")
 
     def _apply_forward_update(self, update, destination: str, preview_crit) -> int:
         """Apply or preview a single forward update. Returns 1 on success/preview, 0 on error."""
@@ -203,8 +192,8 @@ class FiltersAddForwardProducer(Producer[ResultEnvelope[FiltersAddForwardResult]
         if self.dry_run:
             add_names = update.action.get("addLabelIds") or []
             rem_names = update.action.get("removeLabelIds") or []
-            print(
-                f"Would update filter id={fid}: "
+            self._writer.print_dry_run(
+                f"update filter id={fid}: "
                 f"{preview_crit(criteria)} -> add={add_names} "
                 f"remove={rem_names} forward={destination}"
             )
@@ -213,28 +202,26 @@ class FiltersAddForwardProducer(Producer[ResultEnvelope[FiltersAddForwardResult]
             self.client.create_filter(criteria, action)
             if fid:
                 self.client.delete_filter(fid)
-            print(f"Updated filter id={fid} (added forward={destination})")
+            self._writer.print(f"Updated filter id={fid} (added forward={destination})")
             return 1
         except Exception as exc:  # pragma: no cover - network
-            print(f"Failed to update filter id={fid}: {exc}")
+            self._writer.print_error(f"Failed to update filter id={fid}: {exc}")
             return 0
 
 
-class FiltersExportProducer(Producer[ResultEnvelope[FiltersExportResult]]):
+class FiltersExportProducer(BaseProducer):
     """Write filter DSL export."""
 
-    def __init__(self):
+    failure_message = "Filters export failed."
+
+    def __init__(self, writer: OutputWriter | None = None):
         from core.yamlio import dump_config  # lazy import
 
+        super().__init__(writer)
         self._dump_config = dump_config
 
-    def produce(self, result: ResultEnvelope[FiltersExportResult]) -> None:
-        if not result.ok() or not result.payload:
-            print("Filters export failed.")
-            return
-        payload = result.payload
-        out = payload.out_path
-        path = Path(out)
+    def _produce_success(self, payload: FiltersExportResult, diagnostics: dict | None) -> None:
+        path = Path(payload.out_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         self._dump_config(str(path), {"filters": payload.filters})
-        print(f"Exported {len(payload.filters)} filters to {path}")
+        self._writer.print(f"Exported {len(payload.filters)} filters to {path}")

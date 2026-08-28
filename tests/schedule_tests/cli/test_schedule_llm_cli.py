@@ -1,27 +1,15 @@
-import tempfile
+"""Contract tests for schedule.llm_cli."""
+
 import unittest
-from pathlib import Path
 
-from tests.fixtures import capture_stdout
+from tests.llm_cli_contract import LLMCLIContractMixin
 
 
-class TestScheduleLLMCLI(unittest.TestCase):
-    def test_agentic_stdout(self):
-        import schedule.llm_cli as mod
-
-        with capture_stdout() as buf:
-            rc = mod.main(["agentic", "--stdout"])
-        self.assertEqual(rc, 0)
-        self.assertIn("agentic: schedule", buf.getvalue())
-
-    def test_derive_all_outputs_files(self):
-        import schedule.llm_cli as mod
-
-        with tempfile.TemporaryDirectory() as td:
-            rc = mod.main(["derive-all", "--out-dir", td, "--include-generated", "--stdout"])
-            self.assertEqual(rc, 0)
-            self.assertTrue((Path(td) / "AGENTIC_SCHEDULE.md").exists())
-            self.assertTrue((Path(td) / "DOMAIN_MAP_SCHEDULE.md").exists())
+class TestScheduleLLMCLI(LLMCLIContractMixin, unittest.TestCase):
+    MODULE_PATH = "schedule.llm_cli"
+    APP_ID = "schedule"
+    DOC_SUFFIX = "SCHEDULE"
+    EXPECTED_PROG = "llm-schedule"
 
 
 if __name__ == "__main__":

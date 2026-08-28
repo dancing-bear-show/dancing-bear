@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.pipeline import Producer, ResultEnvelope
+from core.pipeline import BaseProducer
 
 from core.yamlio import dump_config
 from .processors import (
@@ -13,16 +13,12 @@ from .processors import (
 )
 
 
-class SignaturesExportProducer(Producer[ResultEnvelope[SignaturesExportResult]]):
+class SignaturesExportProducer(BaseProducer):
     """Produce signatures export output."""
 
-    def produce(self, result: ResultEnvelope[SignaturesExportResult]) -> None:
-        if not result.ok() or not result.payload:
-            diag = result.diagnostics or {}
-            print(diag.get("error", "Signatures export failed."))
-            return
+    failure_message = "Signatures export failed."
 
-        payload = result.payload
+    def _produce_success(self, payload: SignaturesExportResult, diagnostics: dict | None) -> None:
         doc: dict[str, Any] = {"signatures": {"gmail": payload.gmail_signatures, "ios": {}, "outlook": []}}
         if payload.default_html:
             doc["signatures"]["default_html"] = payload.default_html
@@ -33,37 +29,29 @@ class SignaturesExportProducer(Producer[ResultEnvelope[SignaturesExportResult]])
         msg = f"Exported signatures to {payload.out_path}"
         if payload.ios_asset_path:
             msg += f"; iOS asset at {payload.ios_asset_path}"
-        print(msg)
+        self._writer.print(msg)
 
 
-class SignaturesSyncProducer(Producer[ResultEnvelope[SignaturesSyncResult]]):
+class SignaturesSyncProducer(BaseProducer):
     """Produce signatures sync output."""
 
-    def produce(self, result: ResultEnvelope[SignaturesSyncResult]) -> None:
-        if not result.ok() or not result.payload:
-            diag = result.diagnostics or {}
-            print(diag.get("error", "Signatures sync failed."))
-            return
+    failure_message = "Signatures sync failed."
 
-        payload = result.payload
+    def _produce_success(self, payload: SignaturesSyncResult, diagnostics: dict | None) -> None:
         for update in payload.gmail_updates:
-            print(update)
+            self._writer.print(update)
 
         if payload.ios_asset_written:
-            print(f"Wrote iOS signature asset to {payload.ios_asset_written}")
+            self._writer.print(f"Wrote iOS signature asset to {payload.ios_asset_written}")
 
         if payload.outlook_note_written:
-            print(f"Wrote Outlook guidance to {payload.outlook_note_written}")
+            self._writer.print(f"Wrote Outlook guidance to {payload.outlook_note_written}")
 
 
-class SignaturesNormalizeProducer(Producer[ResultEnvelope[SignaturesNormalizeResult]]):
+class SignaturesNormalizeProducer(BaseProducer):
     """Produce signatures normalize output."""
 
-    def produce(self, result: ResultEnvelope[SignaturesNormalizeResult]) -> None:
-        if not result.ok() or not result.payload:
-            diag = result.diagnostics or {}
-            print(diag.get("error", "Signatures normalize failed."))
-            return
+    failure_message = "Signatures normalize failed."
 
-        payload = result.payload
-        print(f"Wrote normalized signature to {payload.out_path}")
+    def _produce_success(self, payload: SignaturesNormalizeResult, diagnostics: dict | None) -> None:
+        self._writer.print(f"Wrote normalized signature to {payload.out_path}")

@@ -15,6 +15,19 @@ T = TypeVar("T")
 R = TypeVar("R")
 
 
+def diagnostic_message(diagnostics: dict[str, Any] | None) -> str | None:
+    """Return the human-readable message from a diagnostics dict, if any.
+
+    Two conventions exist in this repo: SafeProcessor writes "message", while
+    most hand-written processors (mail signatures, forwarding, outlook) write
+    "error". Reading only one silently discards the other's text, so accept
+    both rather than rewriting 27 call sites.
+    """
+    if not diagnostics:
+        return None
+    return diagnostics.get("message") or diagnostics.get("error")
+
+
 @dataclass
 class ResultEnvelope(Generic[ResultT]):
     status: str
@@ -83,15 +96,19 @@ class BaseProducer:
         """Initialise with an optional OutputWriter (defaults to a plain OutputWriter)."""
         self._writer: OutputWriter = writer or OutputWriter()
 
+    #: Fallback text printed when a result fails without a diagnostics message.
+    #: Subclasses paired with a plain Processor (rather than SafeProcessor, which
+    #: always sets "message") should set this so a failure is never silent.
+    failure_message: str | None = None
+
     def produce(self, result: ResultEnvelope) -> None:
         """Template method: handle errors, delegate success to subclass."""
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
+        if not result.ok() or result.payload is None:
+            msg = diagnostic_message(result.diagnostics) or self.failure_message
             if msg:
                 self._writer.print_error(msg)
             return
-        if result.payload is not None:
-            self._produce_success(result.payload, result.diagnostics)
+        self._produce_success(result.payload, result.diagnostics)
 
     def _produce_success(self, payload: Any, diagnostics: dict[str, Any] | None) -> None:
         """Override in subclass to handle successful result output."""
@@ -101,7 +118,7 @@ class BaseProducer:
         """Print error message if result failed. Returns True if error was printed."""
         if result.ok():
             return False
-        msg = (result.diagnostics or {}).get("message")
+        msg = diagnostic_message(result.diagnostics) or self.failure_message
         if msg:
             self._writer.print_error(msg)
         return True

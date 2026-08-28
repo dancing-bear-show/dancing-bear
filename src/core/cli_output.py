@@ -34,6 +34,17 @@ class OutputConfig:
         """Get the output stream."""
         return self.file or sys.stdout
 
+    @property
+    def error_stream(self) -> TextIO:
+        """Get the stream for errors and warnings.
+
+        Defaults to stderr, but an explicitly configured ``file`` wins so that
+        an injected writer captures diagnostics too. Without this, a test that
+        passes ``OutputConfig(file=buf)`` silently misses everything written by
+        print_error/print_warning.
+        """
+        return self.file or sys.stderr
+
 
 class OutputWriter:
     """Handles formatted output for CLI commands."""
@@ -49,12 +60,12 @@ class OutputWriter:
         print(*args, **kwargs)
 
     def print_error(self, message: str) -> None:
-        """Print an error message to stderr."""
-        print(f"Error: {message}", file=sys.stderr)
+        """Print an error message to stderr (or the configured file)."""
+        print(f"Error: {message}", file=self.config.error_stream)
 
     def print_warning(self, message: str) -> None:
-        """Print a warning message to stderr."""
-        print(f"Warning: {message}", file=sys.stderr)
+        """Print a warning message to stderr (or the configured file)."""
+        print(f"Warning: {message}", file=self.config.error_stream)
 
     def print_verbose(self, message: str) -> None:
         """Print a verbose message (only if verbose mode is enabled)."""

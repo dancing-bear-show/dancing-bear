@@ -38,7 +38,7 @@ def _do_move(src: str, dest: str, dry_run: bool = False, writer: OutputWriter | 
     writer = writer or OutputWriter()
     dest_dir = os.path.dirname(dest)
     if dry_run:
-        writer.print(f"DRY-RUN move: {src} -> {dest}")
+        writer.print_dry_run(f"move: {src} -> {dest}")
         return
     os.makedirs(dest_dir, exist_ok=True)
     try:
@@ -53,7 +53,7 @@ def _do_trash(src: str, dry_run: bool = False, writer: OutputWriter | None = Non
     trash_dir = os.path.expanduser("~/.Trash")
     dest = os.path.join(trash_dir, os.path.basename(src))
     if dry_run:
-        writer.print(f"DRY-RUN trash: {src} -> {dest}")
+        writer.print_dry_run(f"trash: {src} -> {dest}")
         return
     try:
         shutil.move(src, dest)

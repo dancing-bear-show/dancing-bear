@@ -80,7 +80,7 @@ class DoMoveTests(TempDirMixin, unittest.TestCase):
 
         self.assertTrue(os.path.exists(src))  # Still exists
         self.assertFalse(os.path.exists(dest))  # Not moved
-        self.assertIn("DRY-RUN", output)
+        self.assertIn("[dry-run]", output)
 
     def test_move_failure_surfaces_as_stderr_not_exception(self):
         """C8: shutil.move failure must route through writer.print_error() to stderr,
@@ -113,7 +113,7 @@ class DoTrashTests(TempDirMixin, unittest.TestCase):
             output = mock_out.getvalue()
 
         self.assertTrue(os.path.exists(src))  # Still exists
-        self.assertIn("DRY-RUN", output)
+        self.assertIn("[dry-run]", output)
         self.assertIn("trash", output.lower())
 
 

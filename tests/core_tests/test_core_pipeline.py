@@ -7,7 +7,7 @@ from io import StringIO
 from unittest.mock import patch
 
 from core.cli_output import OutputWriter, OutputConfig
-from core.pipeline import BaseProducer, ResultEnvelope, SafeProcessor
+from core.pipeline import BaseProducer, ResultEnvelope, SafeProcessor, diagnostic_message
 
 
 class TestResultEnvelopeUnwrap(unittest.TestCase):
@@ -197,6 +197,77 @@ class TestSafeProcessorBasic(unittest.TestCase):
         result = BoomProcessor().process("anything")
         self.assertFalse(result.ok())
         self.assertIn("oops", result.diagnostics.get("message", ""))
+
+
+class TestDiagnosticMessage(unittest.TestCase):
+    """Both diagnostics conventions in this repo must be readable.
+
+    SafeProcessor writes "message"; most hand-written processors (mail
+    signatures, forwarding, outlook) write "error". Reading only one silently
+    discards the other's text.
+    """
+
+    def test_reads_message_key(self):
+        self.assertEqual(diagnostic_message({"message": "m"}), "m")
+
+    def test_reads_error_key(self):
+        self.assertEqual(diagnostic_message({"error": "e"}), "e")
+
+    def test_message_wins_when_both_present(self):
+        self.assertEqual(diagnostic_message({"message": "m", "error": "e"}), "m")
+
+    def test_none_and_empty_yield_none(self):
+        self.assertIsNone(diagnostic_message(None))
+        self.assertIsNone(diagnostic_message({}))
+        self.assertIsNone(diagnostic_message({"code": 1}))
+
+
+class TestBaseProducerFailureMessage(unittest.TestCase):
+    """failure_message is a fallback, never an override."""
+
+    class _P(BaseProducer):
+        failure_message = "widget failed."
+
+        def _produce_success(self, payload, diagnostics):
+            self._writer.print(f"ok:{payload}")
+
+    def _run(self, envelope):
+        buf = StringIO()
+        self._P(OutputWriter(OutputConfig(file=buf))).produce(envelope)
+        return buf.getvalue()
+
+    def test_diagnostics_message_wins_over_fallback(self):
+        out = self._run(ResultEnvelope(status="error", diagnostics={"message": "real cause"}))
+        self.assertIn("real cause", out)
+        self.assertNotIn("widget failed.", out)
+
+    def test_error_key_also_wins_over_fallback(self):
+        out = self._run(ResultEnvelope(status="error", diagnostics={"error": "real cause"}))
+        self.assertIn("real cause", out)
+
+    def test_fallback_used_when_no_message(self):
+        self.assertIn("widget failed.", self._run(ResultEnvelope(status="error", diagnostics={})))
+
+    def test_fallback_used_when_ok_but_payload_none(self):
+        self.assertIn("widget failed.", self._run(ResultEnvelope(status="success", payload=None)))
+
+    def test_success_path_is_not_treated_as_failure(self):
+        out = self._run(ResultEnvelope(status="success", payload="v"))
+        self.assertIn("ok:v", out)
+        self.assertNotIn("widget failed.", out)
+
+    def test_subclass_without_fallback_stays_silent(self):
+        class Quiet(BaseProducer):
+            def _produce_success(self, payload, diagnostics):
+                # Intentionally empty: this test asserts the failure branch
+                # prints nothing, so the success branch must not emit either.
+                pass
+
+        buf = StringIO()
+        Quiet(OutputWriter(OutputConfig(file=buf))).produce(
+            ResultEnvelope(status="error", diagnostics={})
+        )
+        self.assertEqual(buf.getvalue(), "")
 
 
 if __name__ == "__main__":

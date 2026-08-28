@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from core.cli_output import OutputWriter
-from core.pipeline import Producer, ResultEnvelope
+from core.pipeline import BaseProducer
 
 from ..providers.base import BaseProvider
 from ..utils.plan import print_plan_summary
@@ -31,17 +31,12 @@ def _fmt_label_change(change: "LabelChange") -> str:
     return f"{change.name} ({', '.join(parts)})"
 
 
-class LabelsPlanProducer(Producer[ResultEnvelope[LabelsPlanResult]]):
+class LabelsPlanProducer(BaseProducer):
     """Render labels plan output identically to the legacy command."""
 
-    def __init__(self, writer: OutputWriter | None = None):
-        self._writer = writer or OutputWriter()
+    failure_message = "Labels plan failed."
 
-    def produce(self, result: ResultEnvelope[LabelsPlanResult]) -> None:
-        if not result.ok() or not result.payload:
-            self._writer.print("Labels plan failed.")
-            return
-        payload = result.payload
+    def _produce_success(self, payload: LabelsPlanResult, diagnostics: dict | None) -> None:
         delete_count = len(payload.to_delete) if payload.show_delete else None
         print_plan_summary(
             create=len(payload.to_create),
@@ -53,19 +48,17 @@ class LabelsPlanProducer(Producer[ResultEnvelope[LabelsPlanResult]]):
         _print_list_section("Would delete", payload.to_delete, lambda n: n, self._writer)
 
 
-class LabelsSyncProducer(Producer[ResultEnvelope[LabelsSyncResult]]):
+class LabelsSyncProducer(BaseProducer):
     """Apply label creates/updates/deletes plus redirect sweeps."""
 
+    failure_message = "Labels sync failed."
+
     def __init__(self, client: BaseProvider, *, dry_run: bool = False, writer: OutputWriter | None = None):
+        super().__init__(writer)
         self.client = client
         self.dry_run = dry_run
-        self._writer = writer or OutputWriter()
 
-    def produce(self, result: ResultEnvelope[LabelsSyncResult]) -> None:
-        if not result.ok() or not result.payload:
-            self._writer.print("Labels sync failed.")
-            return
-        payload = result.payload
+    def _produce_success(self, payload: LabelsSyncResult, diagnostics: dict | None) -> None:
         plan = payload.plan
         created = self._apply_creates(plan.to_create)
         updated = self._apply_updates(plan.to_update)
@@ -85,7 +78,7 @@ class LabelsSyncProducer(Producer[ResultEnvelope[LabelsSyncResult]]):
                 continue
             body = _label_body_from_spec(spec)
             if self.dry_run:
-                self._writer.print(f"Would create label: {name}")
+                self._writer.print_dry_run(f"create label: {name}")
             else:
                 self.client.create_label(**body)
                 self._writer.print(f"Created label: {name}")
@@ -99,7 +92,7 @@ class LabelsSyncProducer(Producer[ResultEnvelope[LabelsSyncResult]]):
             for key, diff in change.changes.items():
                 body[key] = diff["to"]
             if self.dry_run:
-                self._writer.print(f"Would update label: {change.name}")
+                self._writer.print_dry_run(f"update label: {change.name}")
             else:
                 label_id = self.client.get_label_id_map().get(change.name)
                 if not label_id:
@@ -113,7 +106,7 @@ class LabelsSyncProducer(Producer[ResultEnvelope[LabelsSyncResult]]):
         count = 0
         for name in names:
             if self.dry_run:
-                self._writer.print(f"Would delete label: {name}")
+                self._writer.print_dry_run(f"delete label: {name}")
             else:
                 label_id = self.client.get_label_id_map().get(name)
                 if label_id:
@@ -155,7 +148,7 @@ class LabelsSyncProducer(Producer[ResultEnvelope[LabelsSyncResult]]):
             return None
         ids = self.client.list_message_ids(label_ids=[old_id], max_pages=50, page_size=500)
         if self.dry_run:
-            self._writer.print(f"Would merge '{old}' into '{new}' ({len(ids)} messages).")
+            self._writer.print_dry_run(f"merge '{old}' into '{new}' ({len(ids)} messages).")
             return None
         self._merge_redirect_messages(old_id, new_id, ids)
         self._delete_redirect_source_label(old, new, old_id)
@@ -178,20 +171,18 @@ def _label_body_from_spec(spec: dict) -> dict:
     return body
 
 
-class LabelsExportProducer(Producer[ResultEnvelope[LabelsExportResult]]):
+class LabelsExportProducer(BaseProducer):
     """Write labels export YAML."""
+
+    failure_message = "Labels export failed."
 
     def __init__(self, writer: OutputWriter | None = None):
         from core.yamlio import dump_config  # lazy import
 
+        super().__init__(writer)
         self._dump_config = dump_config
-        self._writer = writer or OutputWriter()
 
-    def produce(self, result: ResultEnvelope[LabelsExportResult]) -> None:
-        if not result.ok() or not result.payload:
-            self._writer.print("Labels export failed.")
-            return
-        payload = result.payload
+    def _produce_success(self, payload: LabelsExportResult, diagnostics: dict | None) -> None:
         out = payload.out_path
         out.parent.mkdir(parents=True, exist_ok=True)
         self._dump_config(str(out), {"labels": payload.labels, "redirects": payload.redirects})
