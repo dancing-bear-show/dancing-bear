@@ -1,6 +1,6 @@
 # Check whether an existing workflow already does a task, before building it by hand.
 #
-# This repo has ~30 workflows. The recurring failure is not that they are missing,
+# This repo has 52 workflows. The recurring failure is not that they are missing,
 # it is that nobody looks: a task gets done ad hoc, and a second diverging
 # implementation of an existing process is born. This workflow makes the check
 # cheap and explicit so it actually happens.
