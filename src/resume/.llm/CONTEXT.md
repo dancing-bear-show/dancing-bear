@@ -27,7 +27,7 @@ Current Abstractions (use consistently)
 Section Defaults & Keys
 - Global (page): `header_level`, `bullets`, fonts, margins, heading color
 - Experience/Education: `item_color`, `location_color`, `duration_color`, `location_brackets`, `duration_brackets`, `meta_pt`, `recent_roles_count`, `recent_max_bullets`, `prior_max_bullets`
-- Skills/Technologies: `show_desc`, `desc_separator`, `separator`, `columns`, `compact`, `plain_bullets`
+- Skills/Technologies: `show_desc`, `desc_separator`, `separator`, `columns`, `compact` (`plain_bullets` is inert — one bullet mechanism)
 
 Scope Filters
 - Filter Skills and Experience to matched keywords via alignment JSON: `--filter-skills-alignment`, `--filter-exp-alignment`; supply job YAML for synonyms.

@@ -221,7 +221,7 @@ Template Keys (high‑value)
   - `location_brackets`, `duration_brackets`, `meta_pt`
   - `recent_roles_count`, `recent_max_bullets`, `prior_max_bullets`
 - Skills / Technologies
-  - `bullets` (style/glyph), `plain_bullets`, `columns`, `compact`
+  - `bullets` (glyph only — `style` and `plain_bullets` are accepted but inert; the standard layout has one bullet mechanism), `columns`, `compact`
   - `show_desc`, `desc_separator`, `separator` (for inline lists), `group_title_color`
   - `group_title_bg`: shaded background behind group titles; when set, text color auto‑contrasts if `group_title_color` is omitted
   - `priority`/`usefulness` (float 0–1): optional; used with `--min-priority` to include only higher‑importance items
