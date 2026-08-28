@@ -64,7 +64,7 @@ trigger:
     resume_file: ""         # REQUIRED: baseline resume DOCX/PDF to tailor from
     company: "company"      # short slug used in output filenames, e.g. "okta"
     out_dir: "~/.local/share/dancing-bear/resume/tailored"  # outside checkout; primary PII protection
-    template: "src/resume/config/template.brian.yaml"
+    template: "src/resume/config/template.dark-friendly.yaml"
     max_bullets: "5"        # max bullets per role in the tailored output
 
 workspace_dir: "{out_dir}/{company}"
