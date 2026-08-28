@@ -125,7 +125,7 @@ class TestCreateRuleIfNewApplyPath(unittest.TestCase):
             dry_run=False,
         )
         self.assertIsNotNone(result)
-        key, was_created = result
+        _key, was_created = result
         self.assertTrue(was_created)
         mock_client.create_filter.assert_called_once()
 
@@ -143,7 +143,7 @@ class TestCreateRuleIfNewApplyPath(unittest.TestCase):
             dry_run=False,
         )
         self.assertIsNotNone(result)
-        key, was_created = result
+        _key, was_created = result
         self.assertTrue(was_created)
         mock_client.create_filter.assert_called_once()
 

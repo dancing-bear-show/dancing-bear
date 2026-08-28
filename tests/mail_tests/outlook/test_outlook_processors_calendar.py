@@ -63,7 +63,7 @@ class TestCategoriesExportBranches(unittest.TestCase):
             {"name": "Work", "color": {"preset": "light-blue"}},  # no 'name' key
         ]
         with patch("core.yamlio.dump_config"):
-            payload = OutlookCategoriesExportPayload(client=mock_client, out_path="/tmp/test.yaml")
+            payload = OutlookCategoriesExportPayload(client=mock_client, out_path="/tmp/test.yaml")  # nosec B108 - dump_config is patched; nothing is written
             envelope = OutlookCategoriesExportProcessor().process(payload)
 
         self.assertEqual(envelope.status, "success")
@@ -74,7 +74,7 @@ class TestCategoriesExportBranches(unittest.TestCase):
         mock_client = MagicMock()
         mock_client.list_labels.return_value = [{"name": "NoColor"}]
         with patch("core.yamlio.dump_config"):
-            payload = OutlookCategoriesExportPayload(client=mock_client, out_path="/tmp/test.yaml")
+            payload = OutlookCategoriesExportPayload(client=mock_client, out_path="/tmp/test.yaml")  # nosec B108 - dump_config is patched; nothing is written
             envelope = OutlookCategoriesExportProcessor().process(payload)
 
         self.assertEqual(envelope.status, "success")
@@ -84,7 +84,7 @@ class TestCategoriesExportBranches(unittest.TestCase):
         mock_client = MagicMock()
         mock_client.list_labels.side_effect = RuntimeError("graph down")
 
-        payload = OutlookCategoriesExportPayload(client=mock_client, out_path="/tmp/export.yaml")
+        payload = OutlookCategoriesExportPayload(client=mock_client, out_path="/tmp/export.yaml")  # nosec B108 - list_labels raises first; the path is never opened
         envelope = OutlookCategoriesExportProcessor().process(payload)
 
         self.assertEqual(envelope.status, "error")

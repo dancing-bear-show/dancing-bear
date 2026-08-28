@@ -741,7 +741,7 @@ class TestResolveProviders(unittest.TestCase):
 
         with patch("mail.config_cli.commands._detect_gmail_available", return_value=False), \
                 patch("mail.config_cli.commands._detect_outlook_available", return_value=False):
-            requested, run_gmail, run_outlook = _resolve_providers(self._make_args(providers="gmail,outlook"))
+            _requested, run_gmail, run_outlook = _resolve_providers(self._make_args(providers="gmail,outlook"))
         self.assertTrue(run_gmail)
         self.assertTrue(run_outlook)
 
