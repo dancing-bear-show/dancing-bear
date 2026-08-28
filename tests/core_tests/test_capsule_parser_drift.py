@@ -27,7 +27,9 @@ import json
 import os
 import re
 import subprocess
+import sys
 import unittest
+from functools import lru_cache
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -122,18 +124,32 @@ _NOT_A_SUBCOMMAND = re.compile(
 
 
 def _run(args: list[str]) -> subprocess.CompletedProcess:
-    # Pin PYTHONPATH to this checkout. `python3 -m desk` otherwise resolves via
-    # whatever is installed (or an inherited PYTHONPATH from another checkout),
-    # so the subprocess renders a capsule from code this test did not change —
-    # a false green indistinguishable from a real one.
+    # Two ways this subprocess can silently test the wrong code, both of which
+    # surface as a passing test rather than an error:
+    #
+    #   1. PYTHONPATH. Unpinned, `-m desk` imports whatever is installed (or an
+    #      inherited path from another checkout), so the capsule under test is
+    #      rendered from code this run did not change.
+    #   2. The interpreter. A literal `python3` is resolved from PATH, which in
+    #      this repo points at the MAIN checkout's venv even when the suite runs
+    #      from a worktree — verified: `which python3` gives
+    #      dancing-bear/.venv/bin/python3 while the suite runs
+    #      .claude/worktrees/<wt>/.venv/bin/python. It may also be absent or a
+    #      different version entirely. sys.executable is the interpreter running
+    #      this test, which is the one whose behaviour we mean to check.
+    #
+    # APPS keeps the literal "python3" because the capsule text says python3;
+    # only the spawned argv is rewritten.
+    argv = [sys.executable if a == "python3" else a for a in args]
     env = dict(os.environ)
     env["PYTHONPATH"] = str(REPO_ROOT / "src")
     return subprocess.run(
-        args, cwd=REPO_ROOT, capture_output=True, text=True, timeout=120, env=env
+        argv, cwd=REPO_ROOT, capture_output=True, text=True, timeout=120, env=env
     )
 
 
-def _schema(invocation: list[str]) -> dict:
+@lru_cache(maxsize=None)
+def _schema(invocation: tuple[str, ...]) -> dict:
     proc = _run([*invocation, "--agentic", "--agentic-format", "json"])
     shown = " ".join(invocation)
     if proc.returncode != 0:
@@ -144,7 +160,8 @@ def _schema(invocation: list[str]) -> dict:
     return json.loads(proc.stdout)
 
 
-def _capsule(invocation: list[str]) -> str:
+@lru_cache(maxsize=None)
+def _capsule(invocation: tuple[str, ...]) -> str:
     proc = _run([*invocation, "--agentic"])
     shown = " ".join(invocation)
     if proc.returncode != 0:
@@ -261,11 +278,11 @@ class CapsuleMatchesParser(unittest.TestCase):
         prefixes = APPS[app]
         primary = prefixes[0]
         shown = " ".join(primary)
-        index, booleans = _index(_schema(primary))
+        index, booleans = _index(_schema(tuple(primary)))
         known = set(index)
         problems: list[str] = []
 
-        capsule = _capsule(primary)
+        capsule = _capsule(tuple(primary))
         checked = _invocations(capsule, prefixes, booleans)
 
         # Guard against vacuous coverage: a capsule whose commands use a spelling
@@ -313,6 +330,29 @@ class CapsuleMatchesParser(unittest.TestCase):
                 "fix the capsule to match --help (not the other way around).\n  - "
                 + "\n  - ".join(problems)
             )
+
+
+class SubprocessEnvironment(unittest.TestCase):
+    """The subprocess must run this checkout's code under this interpreter.
+
+    Both of these fail as a *passing* test rather than an error, which is why
+    they are asserted rather than assumed.
+    """
+
+    def test_spawns_the_interpreter_running_this_suite(self):
+        # A literal "python3" resolves from PATH, which in this repo points at
+        # the main checkout's venv even when the suite runs from a worktree.
+        proc = _run(["python3", "-c", "import sys; print(sys.executable)"])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.strip(), sys.executable)
+
+    def test_imports_resolve_to_this_checkout(self):
+        proc = _run(["python3", "-c", "import desk; print(desk.__file__)"])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(
+            proc.stdout.strip().startswith(str(REPO_ROOT / "src")),
+            f"desk imported from {proc.stdout.strip()!r}, not {REPO_ROOT / 'src'}",
+        )
 
 
 class InvocationParsing(unittest.TestCase):
