@@ -14,29 +14,29 @@ class TestMailBuildAgenticCapsuleCompact(unittest.TestCase):
     """build_agentic_capsule(compact=True) skips .llm context files and flows index."""
 
     def test_compact_returns_string(self):
-        from mail.agentic import build_agentic_capsule
-        self.assertIsInstance(build_agentic_capsule(compact=True), str)
+        import mail.agentic as mod
+        self.assertIsInstance(mod.build_agentic_capsule(compact=True), str)
 
     def test_compact_contains_app_id(self):
-        from mail.agentic import build_agentic_capsule
-        self.assertIn("agentic: mail", build_agentic_capsule(compact=True))
+        import mail.agentic as mod
+        self.assertIn("agentic: mail", mod.build_agentic_capsule(compact=True))
 
     def test_compact_contains_core_commands(self):
-        from mail.agentic import build_agentic_capsule
-        result = build_agentic_capsule(compact=True)
+        import mail.agentic as mod
+        result = mod.build_agentic_capsule(compact=True)
         self.assertIn("labels export", result)
         self.assertIn("messages search", result)
 
     def test_compact_never_longer_than_full(self):
         """Compact mode always has <= bytes vs full mode (it skips file sections)."""
-        from mail.agentic import build_agentic_capsule
-        compact = build_agentic_capsule(compact=True)
-        full = build_agentic_capsule(compact=False)
+        import mail.agentic as mod
+        compact = mod.build_agentic_capsule(compact=True)
+        full = mod.build_agentic_capsule(compact=False)
         self.assertLessEqual(len(compact), len(full))
 
     def test_full_mode_returns_string(self):
-        from mail.agentic import build_agentic_capsule
-        result = build_agentic_capsule(compact=False)
+        import mail.agentic as mod
+        result = mod.build_agentic_capsule(compact=False)
         self.assertIsInstance(result, str)
         self.assertIn("agentic: mail", result)
 
@@ -45,33 +45,33 @@ class TestMailEmitAgenticContext(unittest.TestCase):
     """emit_agentic_context() compact and format variants."""
 
     def test_emit_default_returns_zero(self):
-        from mail.agentic import emit_agentic_context
+        import mail.agentic as mod
         with capture_stdout():
-            rc = emit_agentic_context()
+            rc = mod.emit_agentic_context()
         self.assertEqual(rc, 0)
 
     def test_emit_compact_returns_zero(self):
-        from mail.agentic import emit_agentic_context
+        import mail.agentic as mod
         with capture_stdout():
-            rc = emit_agentic_context(compact=True)
+            rc = mod.emit_agentic_context(compact=True)
         self.assertEqual(rc, 0)
 
     def test_emit_fmt_yaml_returns_zero(self):
-        from mail.agentic import emit_agentic_context
+        import mail.agentic as mod
         with capture_stdout():
-            rc = emit_agentic_context(_fmt="yaml")
+            rc = mod.emit_agentic_context(_fmt="yaml")
         self.assertEqual(rc, 0)
 
     def test_emit_output_contains_header(self):
-        from mail.agentic import emit_agentic_context
+        import mail.agentic as mod
         with capture_stdout() as buf:
-            emit_agentic_context()
+            mod.emit_agentic_context()
         self.assertIn("agentic: mail", buf.getvalue())
 
     def test_emit_compact_output_contains_header(self):
-        from mail.agentic import emit_agentic_context
+        import mail.agentic as mod
         with capture_stdout() as buf:
-            emit_agentic_context(compact=True)
+            mod.emit_agentic_context(compact=True)
         self.assertIn("agentic: mail", buf.getvalue())
 
 
@@ -188,12 +188,12 @@ class TestMailBuildDomainMap(unittest.TestCase):
     """build_domain_map() generates full map including key modules and folder sections."""
 
     def test_returns_string(self):
-        from mail.agentic import build_domain_map
-        self.assertIsInstance(build_domain_map(), str)
+        import mail.agentic as mod
+        self.assertIsInstance(mod.build_domain_map(), str)
 
     def test_contains_top_level_entry(self):
-        from mail.agentic import build_domain_map
-        self.assertIn("Top-Level", build_domain_map())
+        import mail.agentic as mod
+        self.assertIn("Top-Level", mod.build_domain_map())
 
     def test_key_modules_section_when_files_exist(self):
         """build_domain_map includes Key Modules when a key file is found in cwd."""
@@ -234,8 +234,8 @@ class TestMailBuildFlows(unittest.TestCase):
     """build_flows() phone-conditional behavior."""
 
     def test_build_flows_returns_list(self):
-        from mail.agentic import build_flows
-        self.assertIsInstance(build_flows(), list)
+        import mail.agentic as mod
+        self.assertIsInstance(mod.build_flows(), list)
 
     def test_without_phone_binary_excludes_ios_flows(self):
         import mail.agentic as mod
