@@ -70,18 +70,20 @@ class _RenderHelpers:
         from resume.docx_writer import write_resume_docx
         from resume.schema import Resume
 
-        out = os.path.join(tempfile.mkdtemp(), "writer.docx")
-        write_resume_docx(Resume.from_dict(data), template, out)
-        return self._headings(out)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = os.path.join(tmpdir, "writer.docx")
+            write_resume_docx(Resume.from_dict(data), template, out)
+            return self._headings(out)
 
     def _render_via_factory(self, data: dict, template: dict) -> list[str]:
         """Render through the class-based path and return its headings."""
         from resume.docx_base import create_resume_writer
         from resume.schema import Resume
 
-        out = os.path.join(tempfile.mkdtemp(), "factory.docx")
-        create_resume_writer(Resume.from_dict(data), template).write(out)
-        return self._headings(out)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = os.path.join(tmpdir, "factory.docx")
+            create_resume_writer(Resume.from_dict(data), template).write(out)
+            return self._headings(out)
 
 
 @unittest.skipUnless(_docx_available(), "python-docx not installed")
@@ -119,15 +121,17 @@ class TestWriteResumeDocxSkipsEmptySections(_RenderHelpers, unittest.TestCase):
                 }
             ],
         }
-        out = os.path.join(tempfile.mkdtemp(), "populated.docx")
-        write_resume_docx(Resume.from_dict(data), _TEMPLATE, out)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = os.path.join(tmpdir, "populated.docx")
+            write_resume_docx(Resume.from_dict(data), _TEMPLATE, out)
 
-        self.assertEqual(
-            self._headings(out), ["Summary", "Skills", "Experience"]
-        )
+            self.assertEqual(
+                self._headings(out), ["Summary", "Skills", "Experience"]
+            )
 
-        # The bodies must be present too, not just the headings.
-        body = "\n".join(p.text for p in Document(out).paragraphs)
+            # The bodies must be present too, not just the headings.
+            body = "\n".join(p.text for p in Document(out).paragraphs)
+
         self.assertIn("Reliability engineer", body)
         self.assertIn("Python", body)
         self.assertIn("Reduced page volume", body)
@@ -224,16 +228,21 @@ class TestUnrecognizedSectionKeysStillRender(unittest.TestCase):
         patched["projects"] = _ProjectsRenderer
 
         template = {"sections": [{"key": "projects", "title": "Projects"}]}
-        out = os.path.join(tempfile.mkdtemp(), "unmapped.docx")
 
-        with patch.dict(
-            "resume.docx_writer.SECTION_RENDERERS", patched, clear=True
-        ):
-            write_resume_docx(Resume.from_dict({"name": "Casey Synthetic"}), template, out)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = os.path.join(tmpdir, "unmapped.docx")
 
-        from docx import Document
+            with patch.dict(
+                "resume.docx_writer.SECTION_RENDERERS", patched, clear=True
+            ):
+                write_resume_docx(
+                    Resume.from_dict({"name": "Casey Synthetic"}), template, out
+                )
 
-        text = "\n".join(p.text for p in Document(out).paragraphs)
+            from docx import Document
+
+            text = "\n".join(p.text for p in Document(out).paragraphs)
+
         self.assertEqual(rendered, ["called"], "unmapped section renderer was skipped")
         self.assertIn("Projects", text)
         self.assertIn("Synthetic project body", text)
@@ -249,12 +258,17 @@ class TestUnrecognizedSectionKeysStillRender(unittest.TestCase):
         from resume.schema import Resume
 
         template = {"sections": [{"key": "projects", "title": "Projects"}]}
-        out = os.path.join(tempfile.mkdtemp(), "norenderer.docx")
-        write_resume_docx(Resume.from_dict({"name": "Casey Synthetic"}), template, out)
 
-        from docx import Document
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = os.path.join(tmpdir, "norenderer.docx")
+            write_resume_docx(
+                Resume.from_dict({"name": "Casey Synthetic"}), template, out
+            )
 
-        text = "\n".join(p.text for p in Document(out).paragraphs)
+            from docx import Document
+
+            text = "\n".join(p.text for p in Document(out).paragraphs)
+
         self.assertNotIn("Projects", text)
 
 
