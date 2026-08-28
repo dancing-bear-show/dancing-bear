@@ -7,10 +7,10 @@ Provides:
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from .docx_renderers import HeaderRenderer, ListSectionRenderer
-from .render_config import DEFAULT_BULLET_STYLE
 from .schema import PriorityItem, Resume, SkillGroup, SkillGroupItem
 
 
@@ -22,23 +22,62 @@ def _safe_int_limit(cfg: dict, key: str) -> int:
         return 0
 
 
-def _labeled_item_text(item: Any, show_desc: bool, desc_sep: str) -> str:
-    """Extract 'name[desc_sep]desc' text from a skills item.
+@dataclass(frozen=True)
+class LabeledItem:
+    """One skills entry with its name and description still separable.
+
+    WHY THIS EXISTS
+        The renderer needs to bold the name half of a skill bullet and leave
+        the separator and description plain, which means it needs to know
+        where the name ends. That boundary is known exactly at normalization
+        time -- ``SkillGroupItem`` carries ``name`` and ``desc`` as distinct
+        fields -- and was previously destroyed by flattening both into one
+        string, then guessed back by splitting that string on the separator.
+
+        The guess did not work. ``_render_groups`` joined with a
+        ``desc_separator`` defaulting to " -- " while ``_render_bullet_items``
+        re-split on one defaulting to ": ", so with no explicit config the
+        split never matched and every item rendered as a single plain run.
+        Worse, splitting is ambiguous whenever a description itself contains
+        the separator.
+
+        Carrying the parts through instead makes the boundary exact and the
+        two defaults unable to disagree.
+
+    ``text`` is the flattened form, preserved verbatim so callers that only
+    want a string (the technologies collector, the non-bullet joined form)
+    read the same value they always did.
+    """
+
+    name: str
+    desc: str
+    text: str
+
+    @property
+    def has_desc(self) -> bool:
+        """Whether a description was present and requested for display."""
+        return bool(self.desc)
+
+
+def _labeled_item(item: Any, show_desc: bool, desc_sep: str) -> LabeledItem:
+    """Split a skills item into its name and description halves.
 
     ``SkillGroupItem`` resolves ``name|title|label`` onto ``name`` and
     ``desc|description`` onto ``desc`` at from_dict time, so both are read
     from the canonical field rather than searched for here.
 
     Non-schema values (a bare string that never went through the schema, a
-    number) are stringified, matching the previous scalar branch.
+    number) are stringified into ``name`` with no description, matching the
+    previous scalar branch.
     """
     if not isinstance(item, SkillGroupItem):
-        return str(item)
-    desc = item.desc
-    text = item.name.strip()
-    if desc and show_desc:
-        text = f"{text}{desc_sep}{desc.strip()}"
-    return text
+        text = str(item)
+        return LabeledItem(name=text, desc="", text=text)
+
+    name = item.name.strip()
+    desc = item.desc.strip() if (item.desc and show_desc) else ""
+    text = f"{name}{desc_sep}{desc}" if desc else name
+    return LabeledItem(name=name, desc=desc, text=text)
 
 
 class SummarySectionRenderer(ListSectionRenderer):
@@ -94,8 +133,9 @@ class SummarySectionRenderer(ListSectionRenderer):
         if not items:
             return
         norm_items = [self.text.normalize_bullet(it) for it in items]
-        plain, glyph = self.bullets.get_bullet_config(sec)
-        self.bullets.add_bullets(norm_items, keywords=keywords, plain=plain, glyph=glyph)
+        self.bullets.add_bullets(
+            norm_items, keywords=keywords, glyph=self.bullets.resolve_glyph(sec)
+        )
 
     def _normalize_list_items(self, summary: list[PriorityItem]) -> list[str]:
         """Extract the display text from each summary item, dropping empties.
@@ -152,9 +192,8 @@ class SummarySectionRenderer(ListSectionRenderer):
         if max_sent > 0:
             items = items[:max_sent]
         norm_items = [self.text.normalize_bullet(it) for it in items]
-        plain, glyph = self.bullets.get_bullet_config(cfg)
         self.bullets.add_bullets(
-            norm_items, keywords=keywords, plain=plain, glyph=glyph
+            norm_items, keywords=keywords, glyph=self.bullets.resolve_glyph(cfg)
         )
 
 
@@ -208,46 +247,135 @@ class SkillsSectionRenderer(ListSectionRenderer):
 
     def _normalize_group_items(
         self, raw_items: list[SkillGroupItem], show_desc: bool, desc_sep: str
-    ) -> list[str]:
-        """Normalize items from a skills group."""
-        return [
-            self.text.clean_inline(_labeled_item_text(x, show_desc, desc_sep))
-            for x in raw_items
-        ]
+    ) -> list[LabeledItem]:
+        """Normalize items from a skills group, dropping ones that render empty.
 
-    def _render_bullet_items(self, items: list[str], cfg: dict) -> None:
-        """Render items as bullets."""
-        plain, glyph = self.bullets.get_bullet_config(cfg)
-        desc_sep = str(cfg.get("desc_separator") or ": ")
+        ``clean_inline`` is applied to each half rather than to the joined
+        string so the name/desc boundary survives normalization. The renderer
+        bolds the name half, so flattening the two together here and splitting
+        them back apart later is what previously lost that boundary.
+
+        An item with no recognised name key (``name|title|label``) and no
+        ``desc`` normalizes to "". Kept in the list it reaches the renderers as
+        a textless bullet -- a bare glyph on a line of its own. Both branches
+        of ``_render_groups`` emit that glyph, so dropping the item here covers
+        them at their one shared chokepoint, and matches what
+        ``_normalize_group_tech_items`` already does on the technologies path.
+
+        The drop has to happen *here* rather than in the caller: a
+        ``LabeledItem`` is a dataclass and therefore always truthy, so an empty
+        one would survive the caller's ``if not items`` guard.
+
+        The test is the *normalized* text, so an item that resolves to content
+        through an alias, or one carrying only ``desc``, still renders.
+        """
+        normalized: list[LabeledItem] = []
+        for x in raw_items:
+            item = _labeled_item(x, show_desc, desc_sep)
+            name = self.text.clean_inline(item.name)
+            desc = self.text.clean_inline(item.desc)
+            if not name and not desc:
+                continue
+            text = f"{name}{desc_sep}{desc}" if desc else name
+            normalized.append(LabeledItem(name=name, desc=desc, text=text))
+        return normalized
+
+    def _render_bullet_items(self, items: list[LabeledItem], cfg: dict) -> None:
+        """Render items as bullets, bolding the name half when one is present.
+
+        Both branches emit the same kind of paragraph -- they differ only in
+        run formatting, not in bullet mechanism. ``add_named_bullet`` and
+        ``add_bullet_line`` both build on ``new_bullet_paragraph``.
+
+        An item with a name but no description takes the plain branch, which
+        emits the bold name via ``add_named_bullet`` with nothing after it --
+        no dangling separator. The separator is supplied by the item that was
+        normalized with it, so the two halves can no longer disagree about
+        which separator is in play.
+        """
+        glyph = self.bullets.resolve_glyph(cfg)
+        desc_sep = str(cfg.get("desc_separator") or " — ")
 
         for it in items:
-            if plain and cfg.get("show_desc") and desc_sep in it:
-                left, right = it.split(desc_sep, 1)
-                self.bullets.add_named_bullet(left, right, sec=cfg, glyph=glyph, sep=desc_sep)
-            elif plain:
-                self.bullets.add_bullet_line(it, glyph=glyph)
+            if not it.name:
+                # Description with no name: nothing to bold, and emitting an
+                # empty bold run followed by a separator would print a leading
+                # separator. Render the description as a plain bullet.
+                self.bullets.add_bullet_line(it.desc, glyph=glyph)
+            elif it.has_desc:
+                self.bullets.add_named_bullet(
+                    it.name, it.desc, sec=cfg, glyph=glyph, sep=desc_sep
+                )
             else:
-                p = self.doc.add_paragraph(style=DEFAULT_BULLET_STYLE)
-                self.bullets.styles.tight_paragraph(p, after_pt=0)
-                self.bullets.styles.compact_bullet(p)
-                p.add_run(it)
+                self.bullets.add_named_bullet(it.name, "", sec=cfg, glyph=glyph, sep="")
 
     def _render_inline_items(
-        self, title: str, items: list[str], cfg: dict, sep: str
+        self, title: str, items: list[LabeledItem], cfg: dict, sep: str
     ) -> None:
-        """Render items inline with optional title."""
-        compact = bool(cfg.get("compact", True))
+        """Render a skills group as a title line plus one paragraph per item.
+
+        Despite the name this is the *non-bullet* branch -- the one taken when
+        a section config omits ``bullets``. It used to join every item of a
+        group into a single paragraph with ``sep`` (default " • ") between
+        them, which put the bullet glyph *inside* the text: a seven-group
+        resume produced seven paragraphs of ~530 characters each, five glyphs
+        buried in every one. Word has no line break to work with there, so it
+        wrapped the whole thing as prose and no item was visually separable.
+
+        Items now get one paragraph each, prefixed with the configured bullet
+        glyph from ``resolve_glyph`` (default "•"), and the group title
+        keeps its own unprefixed line. That matches the reference resume this
+        output is styled after, which uses ``Normal`` paragraphs with a literal
+        glyph and never nests a glyph inside a paragraph.
+
+        Items are already filtered by ``_normalize_group_items``, so nothing
+        reaching here normalizes to empty; an empty one would otherwise render
+        as a bare glyph on a line of its own.
+
+        Those per-item paragraphs used to be built here by hand, which is how
+        this section ended up at a different left edge from every other one:
+        the hand-rolled version set spacing but never reset the indent, so its
+        paragraphs carried ``left_indent=None`` while every other bulleted line
+        in the document carried ``left_indent=0``. They now go through
+        ``add_bullet_line`` like everything else.
+
+        ``sep`` is intentionally no longer used to join: it was only ever a
+        visual separator for the collapsed form. It stays in the signature
+        because the caller reads it from config and the surrounding branch
+        still passes it.
+
+        The group title is emitted bold and the item names are emitted bold
+        with their descriptions plain, matching the reference document this
+        output is styled after. Items go through ``_render_bullet_items``, the
+        same helper the bulleted branch uses, so the two branches cannot drift
+        apart in weighting.
+
+        The title is still built here rather than delegated to
+        ``add_group_title``. That helper also applies ``flush_left`` and
+        config-driven background shading, which would move this paragraph's
+        indentation and not merely its weight -- a formatting change beyond
+        bolding. Only the bold run is added; spacing and indentation are left
+        exactly as they were.
+        """
         if title:
-            text = f"{title}: {sep.join(items)}" if compact else (title + ":\n" + "\n".join(items))
-        else:
-            text = sep.join(items) if compact else "\n".join(items)
-        p = self.doc.add_paragraph(text)
-        self.bullets.styles.tight_paragraph(p, after_pt=0)
+            tp = self.doc.add_paragraph()
+            self.bullets.styles.tight_paragraph(tp, after_pt=0)
+            tp.add_run(title).bold = True
+
+        self._render_bullet_items(items, cfg)
 
     def _render_bullets_or_joined(self, items: list[str], cfg: dict, sep: str) -> None:
-        """Render items as bullets, or as a single sep-joined inline paragraph."""
+        """Render plain string items as bullets, or as one sep-joined paragraph.
+
+        These items are bare strings that never carried a name/description
+        split -- ``resume.skills`` is deliberately untyped -- so there is no
+        name half to bold and they stay plain. Bolding the whole of every flat
+        skill would be a weighting change this data cannot justify.
+        """
         if bool(cfg.get("bullets", False)):
-            self._render_bullet_items(items, cfg)
+            glyph = self.bullets.resolve_glyph(cfg)
+            for it in items:
+                self.bullets.add_bullet_line(it, glyph=glyph)
         else:
             p = self.doc.add_paragraph(sep.join(items))
             self.bullets.styles.tight_paragraph(p, after_pt=2)
@@ -276,21 +404,23 @@ class TechnologiesSectionRenderer(SkillsSectionRenderer):
         if bool(cfg.get("bullets", True)):
             self._render_bullet_items(tech_items, cfg)
         else:
-            p = self.doc.add_paragraph(sep.join(tech_items))
+            p = self.doc.add_paragraph(sep.join(it.text for it in tech_items))
             self.bullets.styles.tight_paragraph(p, after_pt=2)
 
     def _collect_tech_items(
         self, resume: Resume, sec: dict | None
-    ) -> list[str]:
+    ) -> list[LabeledItem]:
         """Collect technology items from data sources."""
         cfg = sec or {}
         desc_sep = str(cfg.get("desc_separator") or ": ")
         show_desc = bool(cfg.get("show_desc", False))
-        tech_items: list[str] = []
+        tech_items: list[LabeledItem] = []
 
         for t in resume.technologies:
             item = self._normalize_tech_item(t, show_desc, desc_sep)
-            if item:
+            # Explicit None check: a LabeledItem is a dataclass and therefore
+            # always truthy, so `if item:` would keep the empties this drops.
+            if item is not None:
                 tech_items.append(item)
 
         if not tech_items:
@@ -300,32 +430,40 @@ class TechnologiesSectionRenderer(SkillsSectionRenderer):
 
     def _normalize_tech_item(
         self, t: Any, show_desc: bool, desc_sep: str
-    ) -> str | None:
-        """Normalize a single technology item.
+    ) -> LabeledItem | None:
+        """Normalize a single technology item, keeping name and desc separable.
 
         A schema item that yields no text is dropped; a non-schema scalar is
         kept even when it stringifies to something empty-looking, which is what
         the dict/scalar split did before the migration.
+
+        Each half is cleaned independently so the name/desc boundary survives,
+        for the same reason as ``_normalize_group_items``.
         """
-        text = _labeled_item_text(t, show_desc, desc_sep)
-        if isinstance(t, SkillGroupItem) and not text:
+        item = _labeled_item(t, show_desc, desc_sep)
+        if isinstance(t, SkillGroupItem) and not item.text:
             return None
-        return self.text.clean_inline(text)
+
+        name = self.text.clean_inline(item.name)
+        desc = self.text.clean_inline(item.desc)
+        text = f"{name}{desc_sep}{desc}" if desc else name
+        return LabeledItem(name=name, desc=desc, text=text)
 
     def _normalize_group_tech_items(
         self, raw_items: list[SkillGroupItem], show_desc: bool, desc_sep: str
-    ) -> list[str]:
+    ) -> list[LabeledItem]:
         """Normalize every item in a single skills group, dropping empties."""
-        items: list[str] = []
+        items: list[LabeledItem] = []
         for x in raw_items:
             item = self._normalize_tech_item(x, show_desc, desc_sep)
-            if item:
+            # `is not None` rather than truthiness: see _collect_tech_items.
+            if item is not None and item.text:
                 items.append(item)
         return items
 
     def _extract_from_skills_groups(
         self, resume: Resume, show_desc: bool, desc_sep: str
-    ) -> list[str]:
+    ) -> list[LabeledItem]:
         """Extract tech items from skills_groups with technology titles."""
         tech_titles = {"technology", "technologies", "tooling", "tools"}
 

@@ -92,7 +92,6 @@ sections:
     max_items: 5
     inline_dates: true
     role_style: Heading 2   # 4.0 light / 4.1 dark; also gives nav-pane entries
-    bullet_style: List Bullet
 
   - key: education
     title: Education

@@ -4,11 +4,20 @@ Provides BulletRenderer, HeaderRenderer, and ListSectionRenderer base classes.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from .docx_styles import StyleManager, TextFormatter
 from .render_config import HeaderLineConfig, MetaRunConfig
 from .schema import _Item
+
+_logger = logging.getLogger(__name__)
+
+# The paragraph style every bulleted line in the standard layout carries. Set
+# explicitly on each bullet paragraph rather than inherited from the document
+# default, so the single-mechanism contract holds for any document this
+# renderer is handed, including one whose default style is not ``Normal``.
+NORMAL_PARAGRAPH_STYLE = "Normal"
 
 
 class BulletRenderer:
@@ -20,35 +29,56 @@ class BulletRenderer:
         self.styles = StyleManager()
         self.text = TextFormatter()
 
-    def _apply_page_bullet_config(self, style: str | None, glyph: str | None) -> tuple[str | None, str | None]:
-        """Apply page-level bullet config if style not already set."""
-        if not style and isinstance(self.page_cfg.get("bullets"), dict):
-            bulp = self.page_cfg.get("bullets") or {}
-            style = bulp.get("style") or style
-            glyph = bulp.get("glyph") or glyph
-        return style, glyph
+    def resolve_glyph(self, sec: dict[str, Any] | None) -> str:
+        """Resolve the bullet glyph for a section, falling back to page config.
 
-    def get_bullet_config(self, sec: dict[str, Any] | None) -> tuple:
-        """Determine bullet style and glyph from config.
+        Section config wins over page config, and both default to ``"•"``.
 
-        Returns:
-            Tuple of (use_plain: bool, glyph: str)
+        The companion ``style`` key that used to be read alongside the glyph
+        (``bullets.style``, ``plain_bullets``) selected between two different
+        bullet mechanisms and no longer does anything -- there is only one. It
+        is still accepted in config and simply ignored, so existing templates
+        keep loading; only the glyph is honoured. See ``new_bullet_paragraph``.
         """
-        glyph = "•"
-        style = None
-        if sec:
-            bul = sec.get("bullets") if isinstance(sec.get("bullets"), dict) else {}
-            if bul:
-                style = bul.get("style") or style
-                glyph = bul.get("glyph") or glyph
-            if sec.get("plain_bullets") is True:
-                style = "plain"
-        style, glyph = self._apply_page_bullet_config(style, glyph)
-        return (style == "plain" or (sec and sec.get("plain_bullets") is True), glyph)
+        for cfg in (sec, self.page_cfg):
+            if cfg and isinstance(cfg.get("bullets"), dict):
+                if glyph := (cfg["bullets"] or {}).get("glyph"):
+                    return str(glyph)
+        return "•"
 
-    def _new_glyph_paragraph(self, glyph: str):
-        """Start a new tight, flush-left paragraph with a leading glyph run."""
-        p = self.doc.add_paragraph()
+    def new_bullet_paragraph(self, glyph: str = "•"):
+        """Start the one and only kind of bulleted paragraph this layout emits.
+
+        THIS IS THE SINGLE BULLET MECHANISM for the standard layout. Every
+        bulleted line in every section -- summary, skills, experience,
+        presentations, teaching, certifications, interests, languages,
+        coursework -- must originate here, so that all of them share one style
+        and one left edge and can therefore line up with each other.
+
+        The paragraph is explicitly styled ``Normal`` rather than left to the
+        document default, so the single-mechanism guarantee does not depend on
+        what that default happens to be. It carries a literal ``"<glyph> "``
+        run and is flushed to ``left_indent=0`` / ``first_line_indent=0``.
+        That matches the reference document this output is styled after, which
+        uses ``Normal`` throughout and contains no ``List Bullet`` paragraphs
+        at all.
+
+        WHY NOT ``List Bullet``
+            Word's ``List Bullet`` style draws its glyph from a numbering
+            definition in ``word/numbering.xml`` and carries that definition's
+            own indent, which is NOT the paragraph indent and is not reset by
+            ``flush_left``. Sections that used it therefore rendered at a
+            different left edge from sections that printed a literal glyph, and
+            no amount of per-section indent tuning could reconcile the two --
+            they are different systems. The standard layout used to mix three
+            such mechanisms (``List Bullet``, literal-glyph-with-indent-reset,
+            and literal-glyph-with-no-indent-reset), which is exactly why its
+            sections could not be aligned.
+
+        Adding a second way to emit a bullet is how the three-mechanism split
+        happened in the first place. Route new callers through here instead.
+        """
+        p = self.doc.add_paragraph(style=NORMAL_PARAGRAPH_STYLE)
         self.styles.tight_paragraph(p, after_pt=0)
         self.styles.flush_left(p)
         p.add_run(f"{glyph} ")
@@ -68,8 +98,8 @@ class BulletRenderer:
         keywords: list[str] | None = None,
         glyph: str = "•",
     ):
-        """Add a plain bullet line (glyph + text)."""
-        p = self._new_glyph_paragraph(glyph)
+        """Add a bullet line (glyph + text) via the shared bullet mechanism."""
+        p = self.new_bullet_paragraph(glyph)
         self._add_text_with_optional_keywords(p, text, keywords)
         return p
 
@@ -82,8 +112,16 @@ class BulletRenderer:
         glyph: str = "•",
         sep: str = ": ",
     ):
-        """Add a bullet with bold name and description."""
-        p = self._new_glyph_paragraph(glyph)
+        """Add a bullet with bold name and plain description.
+
+        A name with no description emits the bold name alone. The separator
+        and description runs are skipped rather than added empty, so such an
+        item carries no dangling separator and no zero-length runs -- an empty
+        run is invisible on the page but real in the XML, and would otherwise
+        make a name-only bullet indistinguishable from one whose description
+        was silently dropped.
+        """
+        p = self.new_bullet_paragraph(glyph)
 
         cfg = sec or {}
         name_color = cfg.get("name_color") or cfg.get("item_color") or cfg.get("title_color")
@@ -92,8 +130,10 @@ class BulletRenderer:
         r_name.bold = True
         self.styles.apply_run_color(r_name, name_color)
 
-        p.add_run(sep)
-        p.add_run(desc)
+        if desc:
+            if sep:
+                p.add_run(sep)
+            p.add_run(desc)
         return p
 
     def add_bullets(
@@ -101,21 +141,18 @@ class BulletRenderer:
         items: list[str],
         *,
         keywords: list[str] | None = None,
-        plain: bool = True,
         glyph: str = "•",
-        list_style: str = "List Bullet",
-    ):
-        """Render a list of bullet items."""
-        if plain:
-            for it in items:
-                self.add_bullet_line(it, keywords=keywords, glyph=glyph)
-            return
+    ) -> None:
+        """Render a list of bullet items through the shared bullet mechanism.
 
+        There is deliberately no ``plain``/``list_style`` switch here any more.
+        It used to select between a literal-glyph paragraph and a Word
+        ``List Bullet`` paragraph, and because different sections resolved that
+        switch differently, the same document rendered its bullets at two
+        different left edges. See ``new_bullet_paragraph``.
+        """
         for it in items:
-            p = self.doc.add_paragraph(style=list_style)
-            self.styles.tight_paragraph(p, after_pt=0)
-            self.styles.compact_bullet(p)
-            self._add_text_with_optional_keywords(p, it, keywords)
+            self.add_bullet_line(it, keywords=keywords, glyph=glyph)
 
     @staticmethod
     def _find_earliest_keyword(lowered: str, text: str, keywords: list[str], from_idx: int):
@@ -415,7 +452,23 @@ class ListSectionRenderer:
         desc_key: str | None = None,
         desc_sep: str = " — ",
     ) -> list[str]:
-        """Normalize and render a simple list section."""
+        """Normalize and render a simple list section, one bullet per item.
+
+        ``bullets: false`` used to select a second rendering path here that
+        joined every item into a single paragraph with ``separator`` (default
+        " • ") between them. That put the bullet glyph *inside* the text, so
+        Word had no line break to wrap on and rendered the section as one
+        block of prose with glyphs buried in it -- the same defect the skills
+        path was unified to remove. No shipped template selected it, so it was
+        unreachable from this repo's own configs.
+
+        The flag is now ignored and every item gets its own bullet paragraph.
+        A hand-written template still carrying ``bullets: false`` is warned
+        about rather than silently re-rendered, because the layout changes and
+        an unexplained change is harder to act on than a message naming the
+        key. Warning rather than raising matches the advisory convention used
+        for template validation elsewhere.
+        """
         cfg = sec or {}
         lines = [
             txt for it in items
@@ -423,13 +476,12 @@ class ListSectionRenderer:
         ]
 
         if lines:
-            if cfg.get("bullets", True):
-                plain, glyph = self.bullets.get_bullet_config(sec)
-                self.bullets.add_bullets(lines, plain=plain, glyph=glyph)
-            else:
-                from .docx_styles import StyleManager
-                sep = cfg.get("separator") or " • "
-                p = self.doc.add_paragraph(sep.join(lines))
-                StyleManager.tight_paragraph(p, after_pt=2)
+            if not cfg.get("bullets", True):
+                _logger.warning(
+                    "section config sets 'bullets: false', which is no longer "
+                    "honoured: list items always render as one bullet per line. "
+                    "Remove the key to silence this warning."
+                )
+            self.bullets.add_bullets(lines, glyph=self.bullets.resolve_glyph(sec))
 
         return lines

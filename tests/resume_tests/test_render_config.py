@@ -13,8 +13,6 @@ class TestBulletConfig(unittest.TestCase):
 
         cfg = BulletConfig()
         self.assertEqual(cfg.glyph, "•")
-        self.assertEqual(cfg.list_style, "List Bullet")
-        self.assertTrue(cfg.plain)
         self.assertEqual(cfg.sep, ": ")
 
     def test_custom_glyph(self):
@@ -23,17 +21,13 @@ class TestBulletConfig(unittest.TestCase):
         cfg = BulletConfig(glyph="-")
         self.assertEqual(cfg.glyph, "-")
 
-    def test_custom_list_style(self):
+    def test_carries_no_word_list_style_field(self):
+        """The list-style switch is gone; one bullet mechanism means no choice."""
         from resume.render_config import BulletConfig
 
-        cfg = BulletConfig(list_style="List Bullet 2")
-        self.assertEqual(cfg.list_style, "List Bullet 2")
-
-    def test_plain_false(self):
-        from resume.render_config import BulletConfig
-
-        cfg = BulletConfig(plain=False)
-        self.assertFalse(cfg.plain)
+        cfg = BulletConfig()
+        self.assertFalse(hasattr(cfg, "list_style"))
+        self.assertFalse(hasattr(cfg, "plain"))
 
     def test_custom_sep(self):
         from resume.render_config import BulletConfig
@@ -147,19 +141,17 @@ class TestExperienceRenderConfig(unittest.TestCase):
 
         cfg = ExperienceRenderConfig()
         self.assertEqual(cfg.role_style, "Normal")
-        self.assertEqual(cfg.bullet_style, "List Bullet")
         self.assertEqual(cfg.max_bullets, -1)
+        self.assertFalse(hasattr(cfg, "bullet_style"))
 
     def test_custom_values(self):
         from resume.render_config import ExperienceRenderConfig
 
         cfg = ExperienceRenderConfig(
             role_style="Heading 3",
-            bullet_style="List Bullet 2",
             max_bullets=5,
         )
         self.assertEqual(cfg.role_style, "Heading 3")
-        self.assertEqual(cfg.bullet_style, "List Bullet 2")
         self.assertEqual(cfg.max_bullets, 5)
 
     def test_max_bullets_zero(self):
