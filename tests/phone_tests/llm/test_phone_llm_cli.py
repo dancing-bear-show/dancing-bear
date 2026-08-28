@@ -1,17 +1,20 @@
+"""Contract tests for phone.llm_cli.
+
+Note: phone.llm_cli uses ``prog="llm"`` rather than ``prog="llm-phone"``.
+This is intentional — the phone assistant shares the top-level ``llm`` prog
+name. The EXPECTED_PROG override reflects that.
+"""
+
 import unittest
 
-from tests.fixtures import capture_stdout
+from tests.llm_cli_contract import LLMCLIContractMixin
 
 
-class TestPhoneLlmCli(unittest.TestCase):
-    def test_agentic_stdout(self):
-        import phone.llm_cli as mod
-
-        with capture_stdout() as buf:
-            rc = mod.main(["agentic", "--stdout"])
-        out = buf.getvalue()
-        self.assertEqual(rc, 0)
-        self.assertIn("agentic: phone", out)
+class TestPhoneLLMCLI(LLMCLIContractMixin, unittest.TestCase):
+    MODULE_PATH = "phone.llm_cli"
+    APP_ID = "phone"
+    DOC_SUFFIX = "PHONE"
+    EXPECTED_PROG = "llm"  # phone uses "llm" not "llm-phone"
 
 
 if __name__ == "__main__":

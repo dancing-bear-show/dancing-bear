@@ -1,46 +1,15 @@
-import tempfile
+"""Contract tests for calendars.llm_cli."""
+
 import unittest
 
-from tests.fixtures import capture_stdout
+from tests.llm_cli_contract import LLMCLIContractMixin
 
 
-class TestCalendarLLMCLI(unittest.TestCase):
-    def test_llm_calendar_agentic(self):
-        import calendars.llm_cli as mod
-
-        with capture_stdout() as buf:
-            rc = mod.main(["agentic", "--stdout"])
-        out = buf.getvalue()
-        self.assertEqual(rc, 0)
-        self.assertIn("agentic: calendar", out)
-
-    def test_llm_calendar_derive_all(self):
-        import calendars.llm_cli as mod
-
-        with tempfile.TemporaryDirectory() as td:
-            with capture_stdout() as buf:
-                rc = mod.main(["derive-all", "--out-dir", td, "--stdout"])
-            out = buf.getvalue()
-            self.assertEqual(rc, 0)
-            self.assertIn("Generated:", out)
-
-    def test_llm_calendar_inventory(self):
-        import calendars.llm_cli as mod
-
-        with capture_stdout() as buf:
-            rc = mod.main(["inventory", "--stdout"])
-        out = buf.getvalue()
-        self.assertEqual(rc, 0)
-        self.assertIn("LLM Agent Inventory", out)
-
-    def test_llm_calendar_policies(self):
-        import calendars.llm_cli as mod
-
-        with capture_stdout() as buf:
-            rc = mod.main(["policies", "--stdout"])
-        out = buf.getvalue()
-        self.assertEqual(rc, 0)
-        self.assertIn("policies:", out)
+class TestCalendarLLMCLI(LLMCLIContractMixin, unittest.TestCase):
+    MODULE_PATH = "calendars.llm_cli"
+    APP_ID = "calendar"
+    DOC_SUFFIX = "CALENDAR"
+    EXPECTED_PROG = "llm-calendar"
 
 
 if __name__ == "__main__":

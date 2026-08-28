@@ -1,129 +1,15 @@
-import sys
-import tempfile
+"""Contract tests for resume.llm_cli."""
+
 import unittest
-from pathlib import Path
 
-from tests.fixtures import capture_stdout, repo_root
-
-
-class TestResumeLLMCLI(unittest.TestCase):
-    def _import_mod(self):
-        root = repo_root()
-        sys.path.insert(0, str(root))
-        sys.path.insert(0, str(root.parent))
-        import resume.llm_cli as mod  # type: ignore
-
-        return mod
-
-    def test_agentic_stdout(self):
-        mod = self._import_mod()
-        with capture_stdout() as buf:
-            rc = mod.main(["agentic", "--stdout"])
-        self.assertEqual(rc, 0)
-        self.assertIn("agentic: resume", buf.getvalue())
-
-    def test_derive_all_outputs_files(self):
-        mod = self._import_mod()
-        with tempfile.TemporaryDirectory() as td:
-            rc = mod.main(["derive-all", "--out-dir", td, "--include-generated", "--stdout"])
-            self.assertEqual(rc, 0)
-            self.assertTrue((Path(td) / "AGENTIC_RESUME.md").exists())
-            self.assertTrue((Path(td) / "DOMAIN_MAP_RESUME.md").exists())
+from tests.llm_cli_contract import LLMCLIContractMixin
 
 
-class TestResumeLLMCLIInternals(unittest.TestCase):
-    """Test internal functions and configuration of resume.llm_cli."""
-
-    def _import_mod(self):
-        root = repo_root()
-        sys.path.insert(0, str(root))
-        sys.path.insert(0, str(root.parent))
-        import resume.llm_cli as mod
-
-        return mod
-
-    def test_agentic_function_returns_string(self):
-        mod = self._import_mod()
-        result = mod.CONFIG.agentic()
-        self.assertIsInstance(result, str)
-        self.assertIn("resume", result.lower())
-
-    def test_domain_map_function_returns_string(self):
-        mod = self._import_mod()
-        result = mod.CONFIG.domain_map()
-        self.assertIsInstance(result, str)
-
-    def test_inventory_function_returns_string(self):
-        mod = self._import_mod()
-        result = mod.CONFIG.inventory()
-        self.assertIsInstance(result, str)
-        self.assertIn("Inventory", result)
-
-    def test_familiar_compact_function_returns_string(self):
-        mod = self._import_mod()
-        result = mod.CONFIG.familiar_compact()
-        self.assertIsInstance(result, str)
-        # Should contain YAML-like structure
-        self.assertTrue("meta:" in result or "steps:" in result or "name:" in result)
-
-    def test_familiar_extended_function_returns_string(self):
-        mod = self._import_mod()
-        result = mod.CONFIG.familiar_extended()
-        self.assertIsInstance(result, str)
-        self.assertIn("meta:", result)
-        self.assertIn("steps:", result)
-
-    def test_policies_function_returns_string(self):
-        mod = self._import_mod()
-        result = mod.CONFIG.policies()
-        self.assertIsInstance(result, str)
-        self.assertIn("policies", result.lower())
-
-    def test_config_has_required_fields(self):
-        mod = self._import_mod()
-        config = mod.CONFIG
-        self.assertEqual(config.prog, "llm-resume")
-        self.assertIn("Resume", config.description)
-        self.assertIsNotNone(config.agentic)
-        self.assertIsNotNone(config.domain_map)
-        self.assertIsNotNone(config.inventory)
-        self.assertIsNotNone(config.familiar_compact)
-        self.assertIsNotNone(config.familiar_extended)
-        self.assertIsNotNone(config.policies)
-        self.assertEqual(config.agentic_filename, "AGENTIC_RESUME.md")
-        self.assertEqual(config.domain_map_filename, "DOMAIN_MAP_RESUME.md")
-
-    def test_build_parser_returns_parser(self):
-        mod = self._import_mod()
-        parser = mod.build_parser()
-        self.assertIsNotNone(parser)
-        # Should have common subcommands
-        help_text = parser.format_help()
-        self.assertIn("agentic", help_text)
-
-    def test_domain_map_stdout(self):
-        mod = self._import_mod()
-        with capture_stdout():
-            rc = mod.main(["domain-map", "--stdout"])
-        self.assertEqual(rc, 0)
-
-    def test_inventory_stdout(self):
-        mod = self._import_mod()
-        with capture_stdout():
-            rc = mod.main(["inventory", "--stdout"])
-        self.assertEqual(rc, 0)
-
-    def test_familiar_stdout(self):
-        mod = self._import_mod()
-        with capture_stdout():
-            rc = mod.main(["familiar", "--stdout"])
-        self.assertEqual(rc, 0)
-
-    def test_policies_stdout(self):
-        mod = self._import_mod()
-        with capture_stdout():
-            rc = mod.main(["policies", "--stdout"])
-        self.assertEqual(rc, 0)
+class TestResumeLLMCLI(LLMCLIContractMixin, unittest.TestCase):
+    MODULE_PATH = "resume.llm_cli"
+    APP_ID = "resume"
+    DOC_SUFFIX = "RESUME"
+    EXPECTED_PROG = "llm-resume"
 
 
 if __name__ == "__main__":
