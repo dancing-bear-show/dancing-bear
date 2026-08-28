@@ -67,6 +67,59 @@ class TestBuildExperienceSummary(unittest.TestCase):
         result = build_experience_summary(data)
         self.assertEqual(result["experience"][0]["bullets"], ["123", "True"])
 
+    def test_drops_bullets_with_no_text(self):
+        # item_text() yields "" for a priority dict carrying no text key and for
+        # an empty string, and the comprehension filters those out entirely.
+        data = {
+            "experience": [
+                {
+                    "title": "Dev",
+                    "bullets": [{"priority": 1}, {"text": "Alpha"}, "", {"text": "Beta"}],
+                }
+            ]
+        }
+        result = build_experience_summary(data)
+        self.assertEqual(result["experience"][0]["bullets"], ["Alpha", "Beta"])
+
+    def test_empty_bullet_does_not_consume_a_max_bullets_slot(self):
+        # This site slices AFTER filtering, so a dropped bullet costs no slot:
+        # max_bullets=2 still yields two real bullets despite the leading empty.
+        # summarizer._experience_highlight_lines and the candidate-init skeleton
+        # slice BEFORE filtering and behave differently -- see
+        # test_leading_empty_bullet_consumes_a_slice_slot in
+        # tests/resume_tests/summarizer/test_summarizer.py.
+        data = {
+            "experience": [
+                {
+                    "title": "Dev",
+                    "bullets": [{"priority": 1}, {"text": "Alpha"}, {"text": "Beta"}],
+                }
+            ]
+        }
+        result = build_experience_summary(data, max_bullets=2)
+        self.assertEqual(result["experience"][0]["bullets"], ["Alpha", "Beta"])
+
+    def test_drops_empty_bullets_among_dict_and_string_forms(self):
+        data = {
+            "experience": [
+                {
+                    "title": "Dev",
+                    "bullets": [
+                        "Bare string bullet",
+                        {"priority": 0.9},
+                        {"text": "Dict bullet", "priority": 0.5},
+                        "",
+                        {"line": "Line-keyed bullet"},
+                    ],
+                }
+            ]
+        }
+        result = build_experience_summary(data)
+        self.assertEqual(
+            result["experience"][0]["bullets"],
+            ["Bare string bullet", "Dict bullet", "Line-keyed bullet"],
+        )
+
     def test_handles_missing_fields(self):
         data = {"experience": [{"title": "Dev"}]}
         result = build_experience_summary(data)
