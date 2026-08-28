@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import json
 import os
 import re
 from typing import Iterable
 
 from core.cli_output import emit_one
+from core.fileutil import atomic_write_json as _write_json
 from core.yamlio import dump_config as _dump_yaml
 
 
@@ -80,5 +80,4 @@ def dump_output(obj: dict, out_path: str | None) -> None:
     if out_path.lower().endswith((".yaml", ".yml")):
         _dump_yaml(out_path, obj)
         return
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(obj, f, indent=2)
+    _write_json(out_path, obj)

@@ -12,7 +12,7 @@ from zipfile import ZipFile
 
 from core.assistant import BaseAssistant
 from core.cli_framework import CLIApp
-from core.cli_output import emit_rows
+from core.cli_output import emit_rows, output_yaml
 
 from .meta import META
 
@@ -130,9 +130,7 @@ def _emit_templates(rows: list[dict[str, str]], fmt: str) -> int:
         print(json.dumps(rows))
         return 0
     if fmt == "yaml":
-        import yaml
-
-        print(yaml.safe_dump(rows, sort_keys=False, default_flow_style=False))
+        output_yaml(rows)
         return 0
     return emit_rows(rows, fmt, headers=["name", "rel"])
 

@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
+
+from core.date_utils import now_utc
 
 
 @dataclass(frozen=True)
@@ -162,7 +164,7 @@ def _unavailable() -> OtelDisplayData:
     """Return an OtelDisplayData indicating the collector is unavailable."""
     return OtelDisplayData(
         available=False,
-        collected_at=datetime.now(tz=timezone.utc),
+        collected_at=now_utc(),
         otel_usage=_zero_usage(),
         otel_models=_zero_models(),
         meta_stats=_zero_meta(),

@@ -48,45 +48,45 @@ class TestWifiLLMCLIInternals(unittest.TestCase):
 
     def test_agentic_function_returns_string(self):
         mod = self._import_mod()
-        result = mod._agentic()
+        result = mod.CONFIG.agentic()
         self.assertIsInstance(result, str)
         self.assertIn("wifi", result.lower())
 
     def test_domain_map_function_returns_string(self):
         mod = self._import_mod()
-        result = mod._domain_map()
+        result = mod.CONFIG.domain_map()
         self.assertIsInstance(result, str)
 
     def test_inventory_function_returns_string(self):
         mod = self._import_mod()
-        result = mod._inventory()
+        result = mod.CONFIG.inventory()
         self.assertIsInstance(result, str)
         self.assertIn("Inventory", result)
 
     def test_familiar_compact_function_returns_string(self):
         mod = self._import_mod()
-        result = mod._familiar_compact()
+        result = mod.CONFIG.familiar_compact()
         self.assertIsInstance(result, str)
         # Should contain YAML-like structure
         self.assertTrue("meta:" in result or "steps:" in result or "name:" in result)
 
     def test_familiar_extended_function_returns_string(self):
         mod = self._import_mod()
-        result = mod._familiar_extended()
+        result = mod.CONFIG.familiar_extended()
         self.assertIsInstance(result, str)
         self.assertIn("meta:", result)
         self.assertIn("steps:", result)
 
     def test_policies_function_returns_string(self):
         mod = self._import_mod()
-        result = mod._policies()
+        result = mod.CONFIG.policies()
         self.assertIsInstance(result, str)
         self.assertIn("policies", result.lower())
 
     def test_config_has_required_fields(self):
         mod = self._import_mod()
         config = mod.CONFIG
-        self.assertEqual(config.prog, "llm")
+        self.assertEqual(config.prog, "llm-wifi")
         self.assertIn("Wi-Fi", config.description)
         self.assertIsNotNone(config.agentic)
         self.assertIsNotNone(config.domain_map)

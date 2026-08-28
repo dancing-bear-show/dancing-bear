@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import collections
 import time
-from datetime import datetime, timezone
+
+from core.date_utils import now_utc
 
 from telemetry.otel.menubar_dataclasses import (
     CodeImpact,
@@ -121,7 +122,7 @@ class OtelMenubarProvider:
 
         return OtelDisplayData(
             available=True,
-            collected_at=datetime.now(tz=timezone.utc),
+            collected_at=now_utc(),
             otel_usage=otel_usage,
             otel_models=otel_models,
             meta_stats=meta_stats,

@@ -7,7 +7,7 @@ and from telemetry/cli_formatters.py.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from pathlib import Path
 
 import click
@@ -15,6 +15,7 @@ from rich.console import Console
 from rich.table import Table
 
 from core.cli_output import emit_one
+from core.date_utils import now_utc
 from telemetry.cli_formatters import (
     _AGENT_SORT_KEYS,
     _breakdown_by_agent,
@@ -121,7 +122,7 @@ def history(days: int) -> None:
     """List recent sessions in a Rich table."""
     from telemetry.providers.transcript import TranscriptProvider
 
-    since = datetime.now(tz=timezone.utc) - timedelta(days=days)
+    since = now_utc() - timedelta(days=days)
     transcript = TranscriptProvider()
     sessions = transcript.get_sessions(since=since)
 

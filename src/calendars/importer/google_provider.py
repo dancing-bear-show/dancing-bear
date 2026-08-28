@@ -141,6 +141,19 @@ def _parse_positive_int(raw: str | None) -> int | None:
     return value if value > 1 else None
 
 
+@dataclass(frozen=True)
+class _RecurrenceParseCtx:
+    """Bundled context for parsing a single recurring Google event."""
+
+    ev_id: str
+    subject: str
+    start: str
+    end: str
+    tz: str | None
+    location: str | None
+    recurrence: list[str]
+
+
 def _reject_recurrence_lines(
     rrule_lines: list[str],
     rdate_lines: list[str],
@@ -322,38 +335,37 @@ class GoogleCalendarProvider:
             )
 
         # Parse recurrence lines
-        return self._parse_recurring_event(ev_id, subject, start, end, tz, location, recurrence)
+        return self._parse_recurring_event(_RecurrenceParseCtx(
+            ev_id=ev_id,
+            subject=subject,
+            start=start,
+            end=end,
+            tz=tz,
+            location=location,
+            recurrence=recurrence,
+        ))
 
-    def _parse_recurring_event(
-        self,
-        ev_id: str,
-        subject: str,
-        start: str,
-        end: str,
-        tz: str | None,
-        location: str | None,
-        recurrence: list[str],
-    ) -> CalendarEvent | None:
+    def _parse_recurring_event(self, ctx: _RecurrenceParseCtx) -> CalendarEvent | None:
         """Parse recurrence lines into a CalendarEvent, skipping unrepresentable forms."""
         # Collect RRULEs and check for multiple
-        rrule_lines = [line for line in recurrence if line.upper().startswith("RRULE:")]
-        rdate_lines = [line for line in recurrence if line.upper().startswith("RDATE")]
+        rrule_lines = [line for line in ctx.recurrence if line.upper().startswith("RRULE:")]
+        rdate_lines = [line for line in ctx.recurrence if line.upper().startswith("RDATE")]
 
         reason = _reject_recurrence_lines(rrule_lines, rdate_lines)
         if reason is not None:
-            self.skipped.append({"id": ev_id, "subject": subject, "reason": reason})
+            self.skipped.append({"id": ctx.ev_id, "subject": ctx.subject, "reason": reason})
             return None
 
         if not rrule_lines:
             # Recurrence list with no RRULE (e.g. only EXDATE) — treat as non-recurring
             return CalendarEvent(
-                id=ev_id,
-                subject=subject,
-                start=start,
-                end=end,
+                id=ctx.ev_id,
+                subject=ctx.subject,
+                start=ctx.start,
+                end=ctx.end,
                 calendar=self.calendar_id,
-                tz=tz,
-                location=location,
+                tz=ctx.tz,
+                location=ctx.location,
             )
 
         params = _parse_rrule(rrule_lines[0])
@@ -363,7 +375,7 @@ class GoogleCalendarProvider:
         # YEARLY + unsupported combos in a single pass
         skip = _reject_rrule_params(params, freq)
         if skip is not None:
-            self.skipped.append({"id": ev_id, "subject": subject, **skip})
+            self.skipped.append({"id": ctx.ev_id, "subject": ctx.subject, **skip})
             return None
 
         repeat = _FREQ_MAP[freq]
@@ -381,8 +393,8 @@ class GoogleCalendarProvider:
             interval = _parse_positive_int(interval_raw)
         except ValueError:
             self.skipped.append({
-                "id": ev_id,
-                "subject": subject,
+                "id": ctx.ev_id,
+                "subject": ctx.subject,
                 "reason": "malformed_interval",
                 "value": str(interval_raw),
             })
@@ -395,7 +407,7 @@ class GoogleCalendarProvider:
         if "UNTIL" in params:
             until_date = _until_to_date(params["UNTIL"])
             # range start_date from the event start
-            range_start = start.split("T")[0] if "T" in start else start
+            range_start = ctx.start.split("T")[0] if "T" in ctx.start else ctx.start
             range_dict = {"start_date": range_start, "until": until_date}
         elif "COUNT" in params:
             # A malformed COUNT dropped silently turns a bounded series into an
@@ -404,32 +416,32 @@ class GoogleCalendarProvider:
                 count = int(params["COUNT"])
             except ValueError:
                 self.skipped.append({
-                    "id": ev_id,
-                    "subject": subject,
+                    "id": ctx.ev_id,
+                    "subject": ctx.subject,
                     "reason": "malformed_count",
                     "value": str(params["COUNT"]),
                 })
                 return None
 
         # EXDATE lines
-        exdates = _collect_exdates_from_recurrence(recurrence)
+        exdates = _collect_exdates_from_recurrence(ctx.recurrence)
 
         # Recurring events: start_time / end_time extracted from dateTime strings
         start_time: str | None = None
         end_time: str | None = None
-        if "T" in start:
-            start_time = start.split("T")[1][:5]  # HH:MM
-        if "T" in end:
-            end_time = end.split("T")[1][:5]
+        if "T" in ctx.start:
+            start_time = ctx.start.split("T")[1][:5]  # HH:MM
+        if "T" in ctx.end:
+            end_time = ctx.end.split("T")[1][:5]
 
         return CalendarEvent(
-            id=ev_id,
-            subject=subject,
-            start=start,
-            end=end,
+            id=ctx.ev_id,
+            subject=ctx.subject,
+            start=ctx.start,
+            end=ctx.end,
             calendar=self.calendar_id,
-            tz=tz,
-            location=location,
+            tz=ctx.tz,
+            location=ctx.location,
             repeat=repeat,
             interval=interval,
             byday=byday,

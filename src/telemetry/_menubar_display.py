@@ -2,6 +2,8 @@
 
 from datetime import datetime, timedelta, timezone
 
+from core.date_utils import now_utc
+
 _BLOCK_CHARS = " ▁▂▃▄▅▆▇█"  # index 0 = space (zero)
 _BLOCK_LEVELS = len(_BLOCK_CHARS) - 1  # 8 non-zero levels
 
@@ -38,7 +40,7 @@ def _window_since_impl(seconds: int | None) -> datetime:
             hour=0, minute=0, second=0, microsecond=0
         )
         return local_midnight.astimezone(timezone.utc)
-    return datetime.now(timezone.utc) - timedelta(seconds=seconds)
+    return now_utc() - timedelta(seconds=seconds)
 
 
 def _age_str(age_secs: float) -> str:

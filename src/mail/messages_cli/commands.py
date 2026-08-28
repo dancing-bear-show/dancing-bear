@@ -268,10 +268,8 @@ def _fetch_message_record(client, msg_id: str) -> dict[str, str] | None:
         print(f"Failed to fetch message '{msg_id}': {exc}", file=sys.stderr)
         return None
 
-    headers = {
-        h.get("name", "").lower(): h.get("value", "")
-        for h in ((msg.get("payload") or {}).get("headers") or [])
-    }
+    from ..gmail_api import GmailClient
+    headers = GmailClient.headers_to_dict(msg)
     try:
         body = client.get_message_text(msg_id)
     except Exception as exc:

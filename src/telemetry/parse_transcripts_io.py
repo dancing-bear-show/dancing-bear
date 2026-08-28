@@ -214,7 +214,7 @@ def _process_jsonl_file(
 
     session_index["prompt_count"] = len(session_index["prompts"])  # type: ignore[arg-type]
     session_index["bash_count"] = len(session_index["bash_commands"])  # type: ignore[arg-type]
-    session_index["last_updated"] = datetime.now(timezone.utc).isoformat()
+    session_index["last_updated"] = now_utc().isoformat()
     session_index["project_path"] = project_path
 
     return prompts_added, bash_added, bytes_processed, new_offset

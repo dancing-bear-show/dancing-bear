@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from core.date_utils import parse_iso_utc
+from core.date_utils import now_utc, parse_iso_utc
 from typing import Any, Iterator
 
 
@@ -58,7 +58,7 @@ def iter_session_files(days: int = 7) -> Iterator[Path]:
     """Yield .jsonl files modified within the last N days."""
     if not PROJECTS_DIR.is_dir():
         return
-    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days)
+    cutoff = now_utc() - timedelta(days=days)
     for proj in PROJECTS_DIR.iterdir():
         if not proj.is_dir():
             continue

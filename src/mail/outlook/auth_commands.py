@@ -1,12 +1,12 @@
 """Outlook authentication commands - interactive device code flow."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-from ..config_resolver import expand_path, default_outlook_token_path
 from core.auth import resolve_outlook_credentials
 from core.constants import GRAPH_API_URL, GRAPH_DEFAULT_SCOPE
+from core.fileutil import atomic_write_json, load_json_or_exit
+from ..config_resolver import expand_path, default_outlook_token_path
 
 _MSAL_MISSING_MSG = "Missing msal dependency: {}. Run: pip install msal"
 
@@ -37,11 +37,10 @@ def run_outlook_auth_device_code(args) -> int:
         return 1
 
     outp = Path(args.out)
-    outp.parent.mkdir(parents=True, exist_ok=True)
     flow_out = dict(flow)
     flow_out["_client_id"] = client_id
     flow_out["_tenant"] = tenant
-    outp.write_text(json.dumps(flow_out), encoding="utf-8")
+    atomic_write_json(outp, flow_out)
 
     msg = flow.get("message") or f"To sign in, visit {flow.get('verification_uri')} and enter code: {flow.get('user_code')}"
     print(msg)
@@ -69,7 +68,7 @@ def run_outlook_auth_poll(args) -> int:
         print(f"Device flow file not found: {flow_path}")
         return 2
 
-    flow = json.loads(flow_path.read_text())
+    flow = load_json_or_exit(flow_path)
     client_id = flow.get("_client_id")
     tenant = flow.get("_tenant") or "consumers"
     if not client_id:

@@ -11,10 +11,9 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Callable, Iterator
-from datetime import datetime, timezone
 from pathlib import Path
 
-from telemetry.timeutil import parse_iso_utc
+from telemetry.timeutil import now_utc, parse_iso_utc
 from telemetry.models import AgentSummary, SessionEvent
 
 logger = logging.getLogger(__name__)
@@ -45,7 +44,7 @@ def parse_assistant_record(
     """
     new_events: list[SessionEvent] = []
     session_id = record.get("sessionId", "")
-    ts = parse_iso_utc(record.get("timestamp", "")) or datetime.now(timezone.utc)
+    ts = parse_iso_utc(record.get("timestamp", "")) or now_utc()
     msg = record.get("message", {})
     usage = msg.get("usage", {})
     model = msg.get("model", "")
