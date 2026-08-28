@@ -1,7 +1,7 @@
 """Producers for Outlook pipelines."""
 from __future__ import annotations
 
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Protocol, TypeVar
 
 from core.cli_output import OutputWriter
 from core.pipeline import BaseProducer, ResultEnvelope, diagnostic_message
@@ -27,10 +27,13 @@ from .processors_calendar import (
 )
 
 
-class _CreatedSkipped:
+class _CreatedSkipped(Protocol):
     """Result payloads that carry created/skipped tallies.
 
-    Declared as a duck-type check; produce() only reads the tallies.
+    A Protocol rather than a base class: the sync result dataclasses do not
+    inherit from it, they merely satisfy it structurally, and produce() only
+    reads the two tallies. As a plain class the ellipsis property bodies were
+    no-op statements; under Protocol they are the declaration itself.
     """
 
     @property
