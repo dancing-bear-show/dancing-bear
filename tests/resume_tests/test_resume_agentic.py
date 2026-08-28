@@ -53,7 +53,7 @@ class TestResumeFlowMapBranches(unittest.TestCase):
         self.assertIn("Resume workflow", result)
         self.assertIn("Align to job posting", result)
         self.assertIn("Style profile", result)
-        self.assertIn("Cleanup workspace", result)
+        self.assertIn("Tidy workspace", result)
 
     def test_all_true_main_workflow_contains_three_commands(self):
         result, _ = self._patched_flow_map_collect(always=True)
@@ -75,7 +75,7 @@ class TestResumeFlowMapBranches(unittest.TestCase):
         self.assertNotIn("Resume workflow", result)
         self.assertNotIn("Align to job posting", result)
         self.assertNotIn("Style profile", result)
-        self.assertNotIn("Cleanup workspace", result)
+        self.assertNotIn("Tidy workspace", result)
 
     # -------------------------------------------------------------------------
     # Selective happy/sad: each simple branch independently
@@ -91,11 +91,11 @@ class TestResumeFlowMapBranches(unittest.TestCase):
             result = mod._flow_map()
         self.assertIn("Align to job posting", result)
         self.assertNotIn("Style profile", result)
-        self.assertNotIn("Cleanup workspace", result)
+        self.assertNotIn("Tidy workspace", result)
 
     def test_style_entry_only_when_style_path_true(self):
         def only_style(path: list) -> bool:
-            return path == ["style"]
+            return path == ["style", "build"]
 
         with patch("resume.agentic._cli_path_exists", side_effect=only_style):
             import resume.agentic as mod
@@ -103,14 +103,14 @@ class TestResumeFlowMapBranches(unittest.TestCase):
         self.assertIn("Style profile", result)
         self.assertNotIn("Align to job posting", result)
 
-    def test_cleanup_entry_only_when_cleanup_path_true(self):
-        def only_cleanup(path: list) -> bool:
-            return path == ["cleanup"]
+    def test_tidy_entry_only_when_files_tidy_path_true(self):
+        def only_tidy(path: list) -> bool:
+            return path == ["files", "tidy"]
 
-        with patch("resume.agentic._cli_path_exists", side_effect=only_cleanup):
+        with patch("resume.agentic._cli_path_exists", side_effect=only_tidy):
             import resume.agentic as mod
             result = mod._flow_map()
-        self.assertIn("Cleanup workspace", result)
+        self.assertIn("Tidy workspace", result)
         self.assertNotIn("Align to job posting", result)
 
     # -------------------------------------------------------------------------
@@ -137,8 +137,8 @@ class TestResumeFlowMapBranches(unittest.TestCase):
         self.assertEqual(len(calls), 4)
         self.assertEqual(calls[0], ["extract"])
         self.assertEqual(calls[1], ["align"])
-        self.assertEqual(calls[2], ["style"])
-        self.assertEqual(calls[3], ["cleanup"])
+        self.assertEqual(calls[2], ["style", "build"])
+        self.assertEqual(calls[3], ["files", "tidy"])
         for call in calls:
             for element in call:
                 self.assertIsInstance(
