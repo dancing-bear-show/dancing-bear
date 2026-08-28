@@ -282,7 +282,23 @@ class ResumeWriterBase(ABC):
         Args:
             data: Typed candidate data.
             template: Template configuration (sections, page styles, etc.)
+
+        Raises:
+            TypeError: If ``data`` is not a ``Resume``. This is a programming
+                error at an API boundary, not malformed candidate data, so it
+                raises rather than following the advisory-warning policy that
+                :mod:`resume.schema` applies to bad *values*. Without the check
+                a dict is not merely accepted -- it is stored as ``self.resume``
+                and the writer is built in a broken state, so the failure
+                surfaces later as an ``AttributeError`` naming a render
+                internal instead of the boundary that was misused.
         """
+        if not isinstance(data, Resume):
+            raise TypeError(
+                f"{type(self).__name__} requires a typed Resume, got "
+                f"{type(data).__name__}. The caller is responsible for lifting "
+                f"raw candidate data: pass Resume.from_dict(data) instead."
+            )
         self.resume = data
         self.template = template
         self.page_cfg = template.get("page") or {}
@@ -395,6 +411,11 @@ def create_resume_writer(
 
     Returns:
         ResumeWriterBase subclass instance (StandardResumeWriter or SidebarResumeWriter)
+
+    Raises:
+        TypeError: If ``data`` is not a ``Resume``. Neither writer subclass
+            overrides ``__init__``, so this is enforced once by
+            :meth:`ResumeWriterBase.__init__` on both branches below.
 
     Examples:
         >>> # Standard single-column layout

@@ -361,5 +361,93 @@ class TestNonDictContact(unittest.TestCase):
         self.assertEqual(get_contact_field(Resume(), "email"), "")
 
 
+@mock_docx_modules
+class TestWriterRejectsUntypedResume(unittest.TestCase):
+    """The DOCX writer boundary requires a typed Resume and fails fast.
+
+    Both public entry points -- ``create_resume_writer`` and constructing a
+    writer directly -- funnel through ``ResumeWriterBase.__init__``, because
+    neither ``StandardResumeWriter`` nor ``SidebarResumeWriter`` overrides
+    ``__init__``. The single guard there covers both, so these tests exercise
+    each entry point to prove the delegation actually holds.
+
+    Before the guard, a dict was not rejected -- it was stored as
+    ``writer.resume``, leaving the writer in a broken state whose failure
+    surfaced later as an ``AttributeError`` inside rendering.
+    """
+
+    def _assert_names_the_fix(self, ctx) -> None:
+        """Assert the error names the required type and how to satisfy it."""
+        msg = str(ctx.exception)
+        self.assertIn("Resume.from_dict", msg)
+        self.assertIn("typed Resume", msg)
+
+    def test_rejects_dict_from_factory(self):
+        """A dict passed to the factory raises instead of being stored."""
+        from resume.docx_base import create_resume_writer
+
+        with self.assertRaises(TypeError) as ctx:
+            create_resume_writer({"name": "Ada Example"}, {"sections": []})
+        self._assert_names_the_fix(ctx)
+        self.assertIn("got dict", str(ctx.exception))
+
+    def test_rejects_dict_from_sidebar_factory_branch(self):
+        """The sidebar branch of the factory is guarded too."""
+        from resume.docx_base import create_resume_writer
+
+        with self.assertRaises(TypeError) as ctx:
+            create_resume_writer(
+                {"name": "Ada Example"},
+                {"sections": [], "layout": {"type": "sidebar"}},
+            )
+        self._assert_names_the_fix(ctx)
+
+    def test_rejects_dict_from_direct_construction(self):
+        """Constructing a writer directly with a dict raises at the boundary."""
+        from resume.docx_standard import StandardResumeWriter
+
+        with self.assertRaises(TypeError) as ctx:
+            StandardResumeWriter({"name": "Ada Example"}, {"sections": []})
+        self._assert_names_the_fix(ctx)
+
+    def test_rejects_none(self):
+        """``None`` is reported by name rather than failing later."""
+        from resume.docx_base import create_resume_writer
+
+        with self.assertRaises(TypeError) as ctx:
+            create_resume_writer(None, {"sections": []})
+        self._assert_names_the_fix(ctx)
+        self.assertIn("got NoneType", str(ctx.exception))
+
+    def test_rejects_unrelated_type(self):
+        """An unrelated type is reported by name."""
+        from resume.docx_base import create_resume_writer
+
+        with self.assertRaises(TypeError) as ctx:
+            create_resume_writer("Ada Example", {"sections": []})
+        self._assert_names_the_fix(ctx)
+        self.assertIn("got str", str(ctx.exception))
+
+    def test_typed_resume_is_accepted_unchanged(self):
+        """Regression guard: the typed happy path still builds and stores."""
+        from resume.docx_base import create_resume_writer
+
+        data = Resume.from_dict({"name": "Ada Example"})
+        writer = create_resume_writer(data, {"sections": []})
+        self.assertIs(writer.resume, data)
+        self.assertEqual(writer.resume.name, "Ada Example")
+
+    def test_typed_resume_is_accepted_by_sidebar_branch(self):
+        """Regression guard: the sidebar branch still builds from a Resume."""
+        from resume.docx_base import create_resume_writer
+
+        data = Resume.from_dict({"name": "Ada Example"})
+        writer = create_resume_writer(
+            data, {"sections": [], "layout": {"type": "sidebar"}}
+        )
+        self.assertEqual(writer.__class__.__name__, "SidebarResumeWriter")
+        self.assertIs(writer.resume, data)
+
+
 if __name__ == "__main__":
     unittest.main()
