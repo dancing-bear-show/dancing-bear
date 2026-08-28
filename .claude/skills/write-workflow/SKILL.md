@@ -61,6 +61,12 @@ Ask the user (or infer from their request) the following. If the initial request
    - **`worker-queue-babysitter.yaml`** — Watches a background worker queue drain after a `worker_queue` stage or fan-out.
    - **`otel-workflow-telemetry.yaml`** — Collects per-run workflow cost/stage telemetry from stage JSON files under each run's workspace.
 
+   **PR and docs**
+   - **`pr-describe.yaml`** — Generates or refreshes a PR title and description from the branch diff.
+   - **`pr-review-threads.yaml`** — Fetches every PR review thread, triages each, fans out fixes, then replies and resolves.
+   - **`sync-docs-on-land.yaml`** — Updates docs that reference changed surfaces once a branch lands.
+   - **`prompt-mine-transcripts.yaml`** — Mines session transcripts for recurring prompts and workflow candidates.
+
 Before drafting, summarize your understanding back to the user in a short numbered list and confirm the shape is correct.
 
 ---
