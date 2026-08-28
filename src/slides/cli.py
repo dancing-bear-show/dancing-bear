@@ -97,7 +97,7 @@ def _apply_layout_map(deck: "SlideDeck", cli_layout_map: dict[str, int] | None) 
         deck.metadata.layout_map = cli_layout_map
 
 
-def _list_pptx_layouts(pptx_path: str) -> list[dict[str, str]]:
+def _list_pptx_layouts(pptx_path: str | Path) -> list[dict[str, str]]:
     """List slide layouts in a .pptx template.
 
     Opens the .pptx as a ZIP and regexes ppt/slideLayouts/*.xml (excluding

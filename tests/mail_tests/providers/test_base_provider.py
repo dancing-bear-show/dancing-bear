@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 # Minimal concrete subclass used throughout the tests
 # ---------------------------------------------------------------------------
 
-def _make_concrete_class():
+def _make_concrete_class():  # NOSONAR S1142 - returns counted across nested stubs implementing every BaseProvider abstract method; the count is the interface size
     """Import BaseProvider and return a concrete implementation."""
     from mail.providers.base import BaseProvider
 

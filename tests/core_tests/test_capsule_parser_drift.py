@@ -103,24 +103,36 @@ _TRAILING_PROSE = "),.;:`'\"]}"
 _UNIVERSAL_FLAGS = frozenset({"--help"})
 
 # Tokens that look like subcommands but are placeholders or shell noise.
+# Decomposed into individual patterns for readability and to stay within the
+# S5843 complexity limit; _is_noise() checks them in order.
 #
 # Dots do NOT disqualify a token: this repo's Outlook and config subcommands are
 # dot-separated (`rules.plan`, `derive.filters`, `auth.ensure`), so a blanket
 # "contains a dot means filename" rule would silently skip exactly the commands
 # most prone to drift. Only a dot with a known file extension is treated as a
 # path, and `/` always is.
-_NOT_A_SUBCOMMAND = re.compile(
-    r"""^(
-        <.*>                            # <job-id>, <file.yaml>
-        | \[.*\]                        # [options]
-        | \{.*\}                        # {a,b}
-        | .*/.*                         # paths: out/x.yaml, ~/.config/x
-        | .*\.(ya?ml|json|md|py|csv|txt|png|svg|pptx|xlsx|mmd|docx|pdf)$
-        | \d+[a-z]?                     # bare numbers and durations: 7, 7d
-        | '.*|.*'                       # quoted fragments
-    )$""",
-    re.VERBOSE,
-)
+_NOISE_ANGLE = re.compile(r"^<.*>$")           # <job-id>, <file.yaml>
+_NOISE_BRACKET = re.compile(r"^\[.*\]$")       # [options]
+_NOISE_BRACE = re.compile(r"^\{.*\}$")         # {a,b}
+_NOISE_PATH = re.compile(r".*/")               # paths: out/x.yaml, ~/.config/x
+_NOISE_EXT = re.compile(
+    r"\.(ya?ml|json|md|py|csv|txt|png|svg|pptx|xlsx|mmd|docx|pdf)$"
+)                                               # bare filenames with known extensions
+_NOISE_NUMBER = re.compile(r"^\d+[a-z]?$")    # bare numbers and durations: 7, 7d
+_NOISE_QUOTED = re.compile(r"'")               # quoted fragments: any token containing a single-quote
+
+
+def _is_noise(token: str) -> bool:
+    """Return True when ``token`` is a placeholder or shell noise, not a subcommand."""
+    return bool(
+        _NOISE_ANGLE.search(token)
+        or _NOISE_BRACKET.search(token)
+        or _NOISE_BRACE.search(token)
+        or _NOISE_PATH.search(token)
+        or _NOISE_EXT.search(token)
+        or _NOISE_NUMBER.match(token)
+        or _NOISE_QUOTED.search(token)
+    )
 
 
 def _run(args: list[str]) -> subprocess.CompletedProcess:
@@ -143,7 +155,7 @@ def _run(args: list[str]) -> subprocess.CompletedProcess:
     argv = [sys.executable if a == "python3" else a for a in args]
     env = dict(os.environ)
     env["PYTHONPATH"] = str(REPO_ROOT / "src")
-    return subprocess.run(
+    return subprocess.run(  # nosec B603 - argv is constructed from APPS (hardcoded repo-local commands) with python3 rewritten to sys.executable; no user input reaches here
         argv, cwd=REPO_ROOT, capture_output=True, text=True, timeout=120, env=env
     )
 
@@ -187,6 +199,39 @@ def _is_boolean(opt: dict) -> bool:
     return "StoreTrue" in action or "StoreFalse" in action
 
 
+def _flags_of_node(node: dict, booleans: set[str]) -> set[str]:
+    """Collect all long-flag names from a schema node's options list.
+
+    Populates ``booleans`` in place with any flag that takes no value.
+    """
+    found: set[str] = set()
+    for opt in node.get("options") or []:
+        names = [f for f in (opt.get("flags") or []) if f.startswith("--")]
+        name = opt.get("name")
+        if isinstance(name, str) and name.startswith("--"):
+            names.append(name)
+        found.update(names)
+        if _is_boolean(opt):
+            booleans.update(names)
+    return found
+
+
+def _walk_schema(
+    node: dict,
+    prefix: str,
+    index: dict[str, set[str]],
+    booleans: set[str],
+) -> None:
+    """Recursively index every sub-path and its valid flags."""
+    index.setdefault(prefix, set()).update(_flags_of_node(node, booleans))
+    children = (node.get("subcommands") or []) + (node.get("commands") or [])
+    for child in children:
+        name = child.get("name")
+        if not name:
+            continue
+        _walk_schema(child, f"{prefix} {name}".strip(), index, booleans)
+
+
 def _index(schema: dict) -> tuple[dict[str, set[str]], set[str]]:
     """Return (sub path -> long flags valid there, all boolean long flags).
 
@@ -196,29 +241,49 @@ def _index(schema: dict) -> tuple[dict[str, set[str]], set[str]]:
     """
     index: dict[str, set[str]] = {}
     booleans: set[str] = set()
-
-    def flags_of(node: dict) -> set[str]:
-        found: set[str] = set()
-        for opt in node.get("options") or []:
-            names = [f for f in (opt.get("flags") or []) if f.startswith("--")]
-            name = opt.get("name")
-            if isinstance(name, str) and name.startswith("--"):
-                names.append(name)
-            found.update(names)
-            if _is_boolean(opt):
-                booleans.update(names)
-        return found
-
-    def walk(node: dict, prefix: str) -> None:
-        index.setdefault(prefix, set()).update(flags_of(node))
-        for child in (node.get("subcommands") or []) + (node.get("commands") or []):
-            name = child.get("name")
-            if not name:
-                continue
-            walk(child, f"{prefix} {name}".strip())
-
-    walk(schema, "")
+    _walk_schema(schema, "", index, booleans)
     return index, booleans
+
+
+def _match_prefix(
+    parts: list[str], prefixes: list[list[str]]
+) -> list[str] | None:
+    """Return the tokens after the matched prefix, or None if no prefix matches."""
+    for prefix in prefixes:
+        if parts[: len(prefix)] == prefix:
+            return parts[len(prefix) :]
+    return None
+
+
+def _parse_tokens(
+    tokens: list[str], booleans: frozenset[str] | set[str]
+) -> tuple[list[str], list[str]]:
+    """Classify tokens into (subcommand names, long flags).
+
+    Only the token immediately after a value-taking flag is its value.
+    Two ways to get this wrong, both of which silently drop real tokens:
+    treating every later bare word as a value loses subcommands (global
+    flags precede the subcommand: ``mail --profile p messages search``),
+    and treating a boolean as value-taking swallows the next subcommand
+    (``mail --dry-run labels plan`` would parse as just ``plan``). The
+    parser's own schema says which flags take values.
+    """
+    subs: list[str] = []
+    flags: list[str] = []
+    expect_value = False
+    for raw_token in tokens:
+        token = raw_token.rstrip(_TRAILING_PROSE)
+        if not token:
+            continue
+        if token.startswith("--"):
+            name = token.split("=", 1)[0]
+            flags.append(name)
+            expect_value = "=" not in token and name not in booleans
+        elif expect_value:
+            expect_value = False
+        elif not _is_noise(token):
+            subs.append(token)
+    return subs, flags
 
 
 def _invocations(
@@ -226,7 +291,7 @@ def _invocations(
     prefixes: list[list[str]],
     booleans: frozenset[str] | set[str] = frozenset(),
 ) -> list[tuple[list[str], list[str], str]]:
-    """Yield (subcommand tokens, long flags, raw text) per matching command.
+    """Return (subcommand tokens, long flags, raw text) per matching command.
 
     Only commands starting with one of this app's own prefixes. Capsules
     routinely cite sibling wrappers (``./bin/llm agentic`` inside the mail
@@ -237,36 +302,44 @@ def _invocations(
     out = []
     for match in _INVOCATION.finditer(capsule):
         raw = match.group(0)
-        parts = raw.split()
-        for prefix in prefixes:
-            if parts[: len(prefix)] == prefix:
-                tokens = parts[len(prefix) :]
-                break
-        else:
+        tokens = _match_prefix(raw.split(), prefixes)
+        if tokens is None:
             continue
-        subs, flags = [], []
-        # Only the token immediately after a value-taking flag is its value.
-        # Two ways to get this wrong, both of which silently drop real tokens:
-        # treating every later bare word as a value loses subcommands (global
-        # flags precede the subcommand: `mail --profile p messages search`),
-        # and treating a boolean as value-taking swallows the next subcommand
-        # (`mail --dry-run labels plan` would parse as just `plan`). The
-        # parser's own schema says which flags take values.
-        expect_value = False
-        for token in tokens:
-            token = token.rstrip(_TRAILING_PROSE)
-            if not token:
-                continue
-            if token.startswith("--"):
-                name = token.split("=", 1)[0]
-                flags.append(name)
-                expect_value = "=" not in token and name not in booleans
-            elif expect_value:
-                expect_value = False
-            elif not _NOT_A_SUBCOMMAND.match(token):
-                subs.append(token)
+        subs, flags = _parse_tokens(tokens, booleans)
         out.append((subs, flags, raw))
     return out
+
+
+def _resolve_path(subs: list[str], known: set[str]) -> str | None:
+    """Find the deepest known subcommand path for ``subs``, or None if unknown."""
+    for depth in range(len(subs), 0, -1):
+        candidate = " ".join(subs[:depth])
+        if candidate in known:
+            return candidate
+    return None
+
+
+def _collect_problems(
+    checked: list[tuple[list[str], list[str], str]],
+    index: dict[str, set[str]],
+) -> list[str]:
+    """Return a list of drift problems found in the checked invocations."""
+    known = set(index)
+    problems: list[str] = []
+    for subs, flags, raw in checked:
+        path = _resolve_path(subs, known)
+        if path is None:
+            if subs:
+                problems.append(
+                    f"subcommand {' '.join(subs)!r} does not exist  ({raw})"
+                )
+            continue
+        valid = index.get(path, set()) | index.get("", set()) | _UNIVERSAL_FLAGS
+        for flag in flags:
+            if flag not in valid:
+                where = f"'{path}'" if path else "the top level"
+                problems.append(f"flag {flag!r} does not exist on {where}  ({raw})")
+    return problems
 
 
 class CapsuleMatchesParser(unittest.TestCase):
@@ -279,8 +352,6 @@ class CapsuleMatchesParser(unittest.TestCase):
         primary = prefixes[0]
         shown = " ".join(primary)
         index, booleans = _index(_schema(tuple(primary)))
-        known = set(index)
-        problems: list[str] = []
 
         capsule = _capsule(tuple(primary))
         checked = _invocations(capsule, prefixes, booleans)
@@ -303,26 +374,7 @@ class CapsuleMatchesParser(unittest.TestCase):
                 f"Add the missing prefix (or fix the capsule). Seen: {unmatched}"
             )
 
-        for subs, flags, raw in checked:
-            path = ""
-            for depth in range(len(subs), 0, -1):
-                candidate = " ".join(subs[:depth])
-                if candidate in known:
-                    path = candidate
-                    break
-            else:
-                if subs:
-                    problems.append(
-                        f"subcommand {' '.join(subs)!r} does not exist  ({raw})"
-                    )
-                    continue
-
-            valid = index.get(path, set()) | index.get("", set()) | _UNIVERSAL_FLAGS
-            for flag in flags:
-                if flag not in valid:
-                    where = f"'{path}'" if path else "the top level"
-                    problems.append(f"flag {flag!r} does not exist on {where}  ({raw})")
-
+        problems = _collect_problems(checked, index)
         if problems:
             self.fail(
                 f"{shown} --agentic advertises commands its parser rejects.\n"
