@@ -29,8 +29,22 @@ import os
 import tempfile
 import unittest
 
-from resume.docx_writer import write_resume_docx
-from resume.schema import Resume
+
+def _docx_available() -> bool:
+    """Check if python-docx is installed."""
+    try:
+        import docx  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+# Guarded at module scope, not merely on the test class: ``resume.docx_styles``
+# imports ``docx.*`` eagerly, so importing the resume DOCX modules below is
+# itself what raises ImportError when python-docx is absent.
+if _docx_available():
+    from resume.docx_writer import write_resume_docx
+    from resume.schema import Resume
 
 BULLET_GLYPH = "•"
 
@@ -159,6 +173,7 @@ def _render_standard(template: dict | None = None) -> list[_Paragraph]:
         return paragraphs
 
 
+@unittest.skipUnless(_docx_available(), "python-docx not installed")
 class StandardLayoutBulletMechanismTests(unittest.TestCase):
     """One bullet mechanism, asserted across every section at once."""
 

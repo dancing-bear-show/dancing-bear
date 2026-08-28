@@ -10,6 +10,12 @@ from .docx_styles import StyleManager, TextFormatter
 from .render_config import HeaderLineConfig, MetaRunConfig
 from .schema import _Item
 
+# The paragraph style every bulleted line in the standard layout carries. Set
+# explicitly on each bullet paragraph rather than inherited from the document
+# default, so the single-mechanism contract holds for any document this
+# renderer is handed, including one whose default style is not ``Normal``.
+NORMAL_PARAGRAPH_STYLE = "Normal"
+
 
 class BulletRenderer:
     """Renders bullet lists with various styles."""
@@ -46,8 +52,10 @@ class BulletRenderer:
         coursework -- must originate here, so that all of them share one style
         and one left edge and can therefore line up with each other.
 
-        The paragraph is ``Normal``, carries a literal ``"<glyph> "`` run, and
-        is explicitly flushed to ``left_indent=0`` / ``first_line_indent=0``.
+        The paragraph is explicitly styled ``Normal`` rather than left to the
+        document default, so the single-mechanism guarantee does not depend on
+        what that default happens to be. It carries a literal ``"<glyph> "``
+        run and is flushed to ``left_indent=0`` / ``first_line_indent=0``.
         That matches the reference document this output is styled after, which
         uses ``Normal`` throughout and contains no ``List Bullet`` paragraphs
         at all.
@@ -67,7 +75,7 @@ class BulletRenderer:
         Adding a second way to emit a bullet is how the three-mechanism split
         happened in the first place. Route new callers through here instead.
         """
-        p = self.doc.add_paragraph()
+        p = self.doc.add_paragraph(style=NORMAL_PARAGRAPH_STYLE)
         self.styles.tight_paragraph(p, after_pt=0)
         self.styles.flush_left(p)
         p.add_run(f"{glyph} ")

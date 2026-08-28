@@ -15,11 +15,32 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from typing import TYPE_CHECKING
 
-from resume.docx_writer import write_resume_docx
-from resume.schema import Resume
+if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
+    from docx.text.paragraph import Paragraph
 
-from tests.resume_tests.golden.golden_fixtures import sidebar_template, standard_template
+
+def _docx_available() -> bool:
+    """Check if python-docx is installed."""
+    try:
+        import docx  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+# Guarded at module scope, not merely on the test classes: ``resume.docx_styles``
+# imports ``docx.*`` eagerly, so importing the resume DOCX modules below is
+# itself what raises ImportError when python-docx is absent.
+if _docx_available():
+    from resume.docx_writer import write_resume_docx
+    from resume.schema import Resume
+
+    from tests.resume_tests.golden.golden_fixtures import (
+        sidebar_template,
+        standard_template,
+    )
 
 BULLET = "•"
 
@@ -28,7 +49,7 @@ BULLET = "•"
 REFERENCE_MAX_PARAGRAPH_CHARS = 310
 
 
-def _all_paragraphs(path: str) -> list:
+def _all_paragraphs(path: str) -> list[Paragraph]:
     """Every paragraph in the document, including those inside table cells.
 
     The sidebar layout puts its content in a table, so a body-only walk would
@@ -45,7 +66,7 @@ def _all_paragraphs(path: str) -> list:
     return paragraphs
 
 
-def _render(resume_data: dict, template: dict) -> list:
+def _render(resume_data: dict, template: dict) -> list[Paragraph]:
     """Render a fixture through the public writer and return its paragraphs."""
     with tempfile.TemporaryDirectory() as tmp:
         out = os.path.join(tmp, "resume.docx")
@@ -76,6 +97,7 @@ def _multi_group_skills(group_count: int = 7, items_per_group: int = 6) -> dict:
             "skills_groups": groups}
 
 
+@unittest.skipUnless(_docx_available(), "python-docx not installed")
 class SkillsGroupBulletLayoutTests(unittest.TestCase):
     """Each skill item renders as its own bullet paragraph."""
 
@@ -142,6 +164,7 @@ class SkillsGroupBulletLayoutTests(unittest.TestCase):
         self.assertEqual(offenders, [])
 
 
+@unittest.skipUnless(_docx_available(), "python-docx not installed")
 class SidebarEntryIndentTests(unittest.TestCase):
     """A sidebar entry's bullet line and its continuation lines agree.
 
@@ -201,3 +224,132 @@ class SidebarEntryIndentTests(unittest.TestCase):
                 f"{p.text!r} carries an explicit indent; sidebar bullet lines "
                 "hang the glyph at the margin instead",
             )
+
+
+def _group_with_items(items: list[dict]) -> dict:
+    """A single-group skills resume carrying exactly the given raw items."""
+    return {
+        "name": "Example Candidate",
+        "skills_groups": [{"title": "Cloud", "items": items}],
+    }
+
+
+def _bullet_texts(paragraphs: list[Paragraph]) -> list[str]:
+    """Text of every paragraph that starts with the bullet glyph."""
+    return [p.text for p in paragraphs if p.text.strip().startswith(BULLET)]
+
+
+def _bullet_bodies(paragraphs: list[Paragraph]) -> list[str]:
+    """The text of each bullet paragraph with its leading glyph removed."""
+    return [t.strip()[len(BULLET):].strip() for t in _bullet_texts(paragraphs)]
+
+
+@unittest.skipUnless(_docx_available(), "python-docx not installed")
+class SkillsGroupEmptyItemTests(unittest.TestCase):
+    """An item that normalizes to empty produces no paragraph at all.
+
+    A ``SkillGroupItem`` built from a dict carrying no recognised name key
+    (``name|title|label``) and no ``desc`` resolves to the empty string.
+    Emitted anyway it became a bare "• " line -- a visible empty bullet.
+
+    These assert paragraph *counts* rather than merely the absence of the
+    glyph, because an empty bullet still starts with the glyph: only counting
+    distinguishes "skipped" from "emitted with no text".
+    """
+
+    def test_rejects_item_with_unknown_name_key(self):
+        """An unrecognised key yields no paragraph, not a bare glyph."""
+        data = _group_with_items(
+            [{"name": "AWS"}, {"bogus": "ignored"}, {"name": "K8s"}]
+        )
+        paragraphs = _render(data, standard_template())
+
+        self.assertEqual(
+            _bullet_bodies(paragraphs), ["AWS", "K8s"],
+            "an item normalizing to empty must emit no paragraph at all",
+        )
+
+    def test_rejects_item_whose_name_is_only_whitespace(self):
+        """A whitespace-only name normalizes to empty and is skipped."""
+        data = _group_with_items(
+            [{"name": "AWS"}, {"name": "   "}, {"name": "K8s"}]
+        )
+
+        self.assertEqual(
+            _bullet_bodies(_render(data, standard_template())), ["AWS", "K8s"]
+        )
+
+    def test_surrounding_items_render_in_order(self):
+        """Skipping an empty item does not disturb the items around it."""
+        data = _group_with_items(
+            [
+                {"name": "AWS"},
+                {"bogus": "ignored"},
+                {"name": "K8s"},
+                {"name": "Terraform"},
+            ]
+        )
+
+        self.assertEqual(
+            _bullet_bodies(_render(data, standard_template())),
+            ["AWS", "K8s", "Terraform"],
+        )
+
+    def test_alias_keyed_item_still_renders(self):
+        """``title`` and ``label`` alias onto ``name`` and must not be skipped.
+
+        Guards against over-skipping: these resolve to real text, so a guard
+        keyed off the raw dict rather than the normalized string would drop
+        them silently.
+        """
+        data = _group_with_items(
+            [{"title": "Aliased Title"}, {"label": "Aliased Label"}]
+        )
+
+        self.assertEqual(
+            _bullet_bodies(_render(data, standard_template())),
+            ["Aliased Title", "Aliased Label"],
+        )
+
+    def test_rejects_empty_item_in_the_bullets_branch_too(self):
+        """The other branch of ``_render_groups`` shares the same chokepoint.
+
+        ``_render_groups`` routes to ``_render_bullet_items`` or
+        ``_render_inline_items`` purely on the ``bullets`` config flag, so a
+        filter applied to only one branch would leave the bare glyph reachable
+        by flipping one config value. Asserted through the renderer directly
+        because the standard template does not enable the plain-bullet branch.
+        """
+        import docx
+
+        from resume.docx_sections_skills import SkillsSectionRenderer
+        from resume.schema import SkillGroupItem
+
+        renderer = SkillsSectionRenderer(docx.Document())
+        raw = [
+            SkillGroupItem.from_dict({"name": "AWS"}),
+            SkillGroupItem.from_dict({"bogus": "ignored"}),
+            SkillGroupItem.from_dict({"name": "K8s"}),
+        ]
+
+        self.assertEqual(
+            renderer._normalize_group_items(raw, True, " - "), ["AWS", "K8s"],
+            "the empty item must be dropped before either render branch",
+        )
+
+    def test_description_only_item_still_renders(self):
+        """An item carrying only ``desc`` has real content and must render.
+
+        ``_labeled_item_text`` joins the empty name to the desc with the
+        separator, so this normalizes to non-empty text rather than "".
+        """
+        data = _group_with_items(
+            [{"name": "AWS"}, {"desc": "a real description"}, {"name": "K8s"}]
+        )
+        bodies = _bullet_bodies(_render(data, standard_template()))
+
+        self.assertEqual(len(bodies), 3, f"desc-only item was dropped: {bodies}")
+        self.assertTrue(
+            any("a real description" in b for b in bodies),
+            f"desc-only item lost its text: {bodies}",
+        )

@@ -208,11 +208,24 @@ class SkillsSectionRenderer(ListSectionRenderer):
     def _normalize_group_items(
         self, raw_items: list[SkillGroupItem], show_desc: bool, desc_sep: str
     ) -> list[str]:
-        """Normalize items from a skills group."""
-        return [
-            self.text.clean_inline(_labeled_item_text(x, show_desc, desc_sep))
-            for x in raw_items
-        ]
+        """Normalize items from a skills group, dropping ones that render empty.
+
+        An item with no recognised name key (``name|title|label``) and no
+        ``desc`` normalizes to "". Kept in the list it reaches the renderers as
+        a textless bullet -- a bare glyph on a line of its own. Both branches
+        of ``_render_groups`` emit that glyph, so dropping the item here covers
+        them at their one shared chokepoint, and matches what
+        ``_normalize_group_tech_items`` already does on the technologies path.
+
+        The test is the *normalized* text, so an item that resolves to content
+        through an alias, or one carrying only ``desc``, still renders.
+        """
+        items: list[str] = []
+        for x in raw_items:
+            text = self.text.clean_inline(_labeled_item_text(x, show_desc, desc_sep))
+            if text:
+                items.append(text)
+        return items
 
     def _render_bullet_items(self, items: list[str], cfg: dict) -> None:
         """Render items as bullets, bolding the name half when one is present.
@@ -244,11 +257,15 @@ class SkillsSectionRenderer(ListSectionRenderer):
         buried in every one. Word has no line break to work with there, so it
         wrapped the whole thing as prose and no item was visually separable.
 
-        Items now get one paragraph each, prefixed with a literal "• ", and
-        the group title keeps its own unprefixed line. That matches the
-        reference resume this output is styled after, which uses ``Normal``
-        paragraphs with a literal glyph and never nests a glyph inside a
-        paragraph.
+        Items now get one paragraph each, prefixed with the configured bullet
+        glyph from ``resolve_glyph`` (default "•"), and the group title
+        keeps its own unprefixed line. That matches the reference resume this
+        output is styled after, which uses ``Normal`` paragraphs with a literal
+        glyph and never nests a glyph inside a paragraph.
+
+        Items are already filtered by ``_normalize_group_items``, so nothing
+        reaching here normalizes to empty; an empty one would otherwise render
+        as a bare glyph on a line of its own.
 
         Those per-item paragraphs used to be built here by hand, which is how
         this section ended up at a different left edge from every other one:
