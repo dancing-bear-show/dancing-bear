@@ -225,7 +225,7 @@ accounts:
             with patch("mail.outlook.helpers.resolve_outlook_credentials") as mock_resolve:
                 # Profile resolves client_id but not cache
                 mock_resolve.return_value = ("profile-client-id", "consumers", None)
-                client_id, tenant, token_path, cache_dir = resolve_outlook_args(args)
+                client_id, _, _, cache_dir = resolve_outlook_args(args)
 
             # client_id from profile, cache_dir from accounts config
             self.assertEqual(client_id, "profile-client-id")

@@ -435,7 +435,7 @@ class AuthTests(TempDirMixin, TestCase):
         with patch("mail.config_resolver.resolve_paths_profile", return_value=("creds.json", "token.json")), \
              patch("mail.gmail_api.GmailClient", return_value=fake_client), \
              patch("mail.config_resolver.persist_if_provided"):
-            request = AuthRequest(credentials="creds.json", token="token.json", profile=None, validate=False)
+            request = AuthRequest(credentials="creds.json", token="token.json", profile=None, validate=False)  # nosec B106 - test file path, not a secret
             result = AuthProcessor().process(request)
 
         self.assertTrue(result.ok())
@@ -452,7 +452,7 @@ class AuthTests(TempDirMixin, TestCase):
         fake_modules, _ = _fake_google_modules(MagicMock(), MagicMock())
         with patch("mail.config_resolver.resolve_paths_profile", return_value=(None, "/nonexistent/token.json")), \
              patch.dict(sys.modules, fake_modules, clear=False):
-            request = AuthRequest(validate=True, token="/nonexistent/token.json")
+            request = AuthRequest(validate=True, token="/nonexistent/token.json")  # nosec B106 - test file path, not a secret
             result = AuthProcessor().process(request)
 
         self.assertFalse(result.ok())
@@ -527,7 +527,7 @@ class AuthTests(TempDirMixin, TestCase):
 
         mock_creds = MagicMock()
         mock_creds.expired = True
-        mock_creds.refresh_token = "my_refresh_token"
+        mock_creds.refresh_token = "my_refresh_token"  # nosec B105 - fake token on a mock
 
         mock_svc = MagicMock()
         mock_svc.users.return_value.getProfile.return_value.execute.return_value = {"emailAddress": "me@example.com"}
