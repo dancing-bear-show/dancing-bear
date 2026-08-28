@@ -71,7 +71,9 @@ def load_deck_from_markdown(
         md_path: Path to markdown file
         options: Common deck-metadata options (title, author, template_path,
             template_slide_index, theme_color); defaults applied when None.
-            title defaults to first slide title when None.
+            title falls back to the first slide's title when None OR empty
+            (a truthiness check), unlike the CSV loader, which keeps an
+            explicitly empty title.
         bullet_limit: Max bullets per slide before auto-pagination
 
     Returns:
@@ -273,7 +275,9 @@ def load_deck_from_outline(
         outline_path: Path to outline markdown file
         options: Common deck-metadata options (title, author, template_path,
             template_slide_index, theme_color); defaults applied when None.
-            title defaults to first slide title when None.
+            title falls back to the first slide's title when None OR empty
+            (a truthiness check), unlike the CSV loader, which keeps an
+            explicitly empty title.
 
     Returns:
         SlideDeck with parsed slides
