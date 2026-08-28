@@ -114,6 +114,40 @@ codes (B603). A SonarQube code in a `# noqa:` suppresses nothing.
 - Cover both the happy and the sad path. Several recent fixes (#292, #294, #297,
   #298) were rendering defects that a happy-path-only test suite passed over.
 
+### Type Boundaries
+
+An active migration is closing `dict[str, Any]` boundaries onto typed schemas
+(#279, #290, #294, #295). Two rules follow from it:
+
+- Do not accept `Resume | dict` (or similar unions) at an entry point and lift
+  the dict internally. `Resume.from_dict` applies one-directional upgrades that
+  **rewrite** the data — a scalar `summary` becomes a single-item list, `list[str]`
+  bullets become `PriorityItem`s, contact values get promoted to top-level
+  scalars. The same dict was a type error on one path and silently normalized on
+  its sibling (#295). Require the typed object; convert at the outer edge.
+- Flag sibling entry points in one module that disagree on whether they accept a
+  typed value or a dict. That asymmetry is the bug.
+
+### Subprocess Calls
+
+`subprocess` invocations carry a pinned contract (#299). When reviewing one:
+
+- argv must be a `list` of `str`, and `shell=` must never be passed.
+- Assert the invocation element-by-element, not with `assertIn`. Paths
+  containing spaces, quotes, `;`, `$( )`, backticks, `&&` or `|` must reach argv
+  verbatim — a path with a space stays one element.
+- Pin `timeout` and `capture_output`.
+- Test the negative: assert the subprocess is **not** invoked when a pre-check
+  fails, and that argument validation raises before the process would run.
+
+### Workflow YAML
+
+- Workflows call tested CLI surfaces; do not embed Python in workflow YAML
+  (#270). Embedded code is untestable and unauditable.
+- `writes_to` gets no `{param}` substitution, and `kind: validate` stages
+  discard `description` — the contract must live in `validation.criteria`.
+  Neither is visible to `workflow lint`.
+
 ### Complexity
 
 Enforced by qlty in CI; see `concerns/complexity.md` for the full guide.
