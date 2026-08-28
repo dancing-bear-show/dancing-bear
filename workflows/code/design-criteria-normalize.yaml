@@ -185,7 +185,7 @@ stages:
                 {
                   "criterion": "C2",
                   "description": "Convert cost.py's manual try/except CLI handler to CostRequest/CostProcessor(SafeProcessor)/CostProducer(BaseProducer)",
-                  "files": ["src/telemetry/cost.py", "src/telemetry/cli.py"]
+                  "files": ["src/telemetry/otel/cli/cost.py", "src/telemetry/cli.py"]
                 }
               ]
             }

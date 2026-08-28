@@ -187,7 +187,7 @@ stages:
               "id": "C2",
               "status": "FAIL",
               "detail": "0 of 77 files use SafeProcessor/BaseProducer; all CLI commands do manual try/except + print()",
-              "citations": ["src/telemetry/cli.py:112", "src/telemetry/cost.py:44"],
+              "citations": ["src/telemetry/cli.py:112", "src/telemetry/otel/cli/cost.py:44"],
               "confidence": "high|medium|low"
               # high: files_sampled/files_total >= 0.5 or files_total <= 10
               # medium: >= 0.2

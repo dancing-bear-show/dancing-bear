@@ -58,7 +58,7 @@ Each stage carries:
 | Field | Purpose |
 |---|---|
 | `name` | stage identifier, referenced by `depends_on` / `reads_from` |
-| `kind` | `gather`, `propose`, `execute`, `validate`, or `publish` |
+| `kind` | `gather`, `propose`, `execute`, `validate`, `publish`, or `sub-workflow` |
 | `description` | the instruction sent to the agent (see gotcha 1) |
 | `agent.role` | which agent definition runs it (`researcher`, `reviewer`, `code-writer`, `tester`, …) |
 | `depends_on` | upstream stage names; these form the DAG |
@@ -67,9 +67,16 @@ Each stage carries:
 | `human_gate` | `true` pauses the run for sign-off after this stage |
 | `validates_output` | `path` + `checks` such as `[is_json, is_dict]` |
 | `validation` | `strategy` + `criteria` for `kind: validate` stages |
+| `sub_workflow` | path to another workflow YAML; required by `kind: sub-workflow` |
 
 `depends_on` is the only thing that orders stages. Stages with no dependency
 relationship share a parallel group and run concurrently.
+
+A `kind: sub-workflow` stage runs another workflow inline: the orchestrator
+invokes the `/workflow` skill on the YAML named in `sub_workflow`. The two
+fields are a strict pair. Setting one without the other is a parse error, in
+either direction (`src/workflow/parser_fields.py:286`), so unlike the two traps
+below the parser does catch this one. No checked-in workflow uses the kind yet.
 
 ## Worked example: mail-filter-apply
 

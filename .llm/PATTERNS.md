@@ -136,6 +136,8 @@ def write_yaml(path, data):
 
 Provider Capability Gate
 ```python
+from core.cli_errors import UsageError
+
 # capabilities() returns set[str] (mail/providers/base.py:130) — test membership.
 # Do NOT use .get("x"); that raises AttributeError on a set.
 if "signatures" not in provider.capabilities():
