@@ -539,7 +539,12 @@ class Resume(_Item):
 
         The *argument type* is the one exception, and it is not user data. A
         non-dict ``data`` is a programming error at an API boundary -- there is
-        no document to salvage and no section to default -- so it raises. This
+        no document to salvage and no section to default -- so it raises. The
+        contract is ``dict`` specifically, not :class:`collections.abc.Mapping`:
+        the generic :meth:`from_dict` this delegates to gates on ``isinstance(
+        data, dict)`` too, and routes anything else to ``_from_scalar``. A
+        ``mappingproxy`` admitted here would clear that guard and then silently
+        default every section, which is the blank-document failure below. This
         matches the guard in :meth:`resume.docx_base.ResumeWriterBase.__init__`
         for the same reason: silently returning an empty ``Resume`` let a
         truncated or malformed data file render a blank document with nothing
@@ -550,9 +555,10 @@ class Resume(_Item):
         """
         if not isinstance(data, dict):
             raise TypeError(
-                f"Resume.from_dict requires a mapping of resume sections, got "
-                f"{type(data).__name__}. Candidate data must be a dict; fix the "
-                f"caller or the source document that produced it."
+                f"Resume.from_dict requires a dict of resume sections, got "
+                f"{type(data).__name__}. Candidate data must be a dict -- not "
+                f"merely a Mapping; fix the caller or the source document that "
+                f"produced it."
             )
 
         resume: Resume = super().from_dict(data)

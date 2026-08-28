@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import logging
 import unittest
+from collections import OrderedDict
+from types import MappingProxyType
 
 from resume.schema import (
     ExperienceEntry,
@@ -640,7 +642,7 @@ class TestRejectsNonDictInput(unittest.TestCase):
         with self.assertRaises(TypeError) as ctx:
             Resume.from_dict("not a resume")
         self.assertIn("str", str(ctx.exception))
-        self.assertIn("mapping", str(ctx.exception))
+        self.assertIn("dict", str(ctx.exception))
 
     def test_rejects_none_document(self):
         with self.assertRaises(TypeError) as ctx:
@@ -661,6 +663,32 @@ class TestRejectsNonDictInput(unittest.TestCase):
         with self.assertRaises(TypeError) as ctx:
             Resume.from_dict([])
         self.assertIn("list", str(ctx.exception))
+
+    def test_rejects_non_dict_mapping_document(self):
+        """A genuine ``Mapping`` that is not a ``dict`` is still rejected.
+
+        The contract is ``dict``, not :class:`collections.abc.Mapping`, and the
+        message says so. Broadening only this guard would not work: the generic
+        ``from_dict`` it delegates to gates on ``isinstance(data, dict)`` as
+        well and sends anything else to ``_from_scalar``, so a ``mappingproxy``
+        admitted here would silently default every section -- the blank
+        document the guard exists to prevent.
+        """
+        with self.assertRaises(TypeError) as ctx:
+            Resume.from_dict(MappingProxyType({"name": "Ada Example"}))
+        msg = str(ctx.exception)
+        self.assertIn("mappingproxy", msg)
+        self.assertIn("dict", msg)
+
+    def test_dict_subclass_document_is_accepted(self):
+        """A ``dict`` subclass satisfies the guard and round-trips normally.
+
+        Pins the accepting half of the same boundary, so the reworded message
+        cannot be read as narrowing the contract to exactly ``dict``.
+        """
+        resume = Resume.from_dict(OrderedDict(name="Ada Example"))
+        self.assertEqual(resume.name, "Ada Example")
+        self.assertEqual(resume.to_dict(), {"name": "Ada Example"})
 
     def test_invalid_empty_document_round_trips_as_empty(self):
         resume = Resume.from_dict({})

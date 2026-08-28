@@ -295,7 +295,7 @@ class TestRejectsNonMappingDataFile(unittest.TestCase):
             self._load(text)
         self.assertEqual(ctx.exception.code, ExitCode.USAGE)
         msg = str(ctx.exception)
-        self.assertIn("mapping of resume sections", msg)
+        self.assertIn("dict of resume sections", msg)
         self.assertIn(expected_type, msg)
         self.assertIn("data.yaml", msg)
 
@@ -305,14 +305,20 @@ class TestRejectsNonMappingDataFile(unittest.TestCase):
     def test_rejects_bare_string_data_file(self):
         self._assert_usage_error("just a string\n", "str")
 
-    def test_rejects_non_mapping_without_raising_type_error(self):
-        """The TypeError must not escape as a traceback to the user."""
-        try:
-            self._load("- one\n- two\n")
-        except CLIError:
-            pass
-        except TypeError as exc:  # pragma: no cover - guard for a regression
-            self.fail(f"TypeError escaped instead of CLIError: {exc}")
+    def test_rejects_non_dict_without_raising_type_error(self):
+        """A CLIError must be raised, and the TypeError must not escape.
+
+        Both halves are load-bearing. ``assertRaises`` makes the *absence* of
+        an exception a failure: an earlier version only caught, so a regression
+        that let ``_load`` return normally still passed. The explicit
+        ``TypeError`` branch keeps a schema-level ``TypeError`` reported as an
+        escaped traceback rather than being swallowed as "not a CLIError".
+        """
+        with self.assertRaises(CLIError):
+            try:
+                self._load("- one\n- two\n")
+            except TypeError as exc:  # pragma: no cover - guard for a regression
+                self.fail(f"TypeError escaped instead of CLIError: {exc}")
 
     def test_mapping_data_file_loads(self):
         """Happy path: a genuine mapping still loads and normalizes."""
