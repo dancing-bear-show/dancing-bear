@@ -127,9 +127,44 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 - Check module: `~/.qlty/bin/qlty check src/mail/`
 - Auto-fix: `~/.qlty/bin/qlty check --fix path/to/file.py`
 - Linters: ruff (style), bandit (security), complexity metrics
+
+- **`make lint` is NOT sufficient before opening a PR.** It runs ruff only.
+  CI runs `qlty check`, which adds bandit and radarlint on top — so a branch
+  can be green on `make lint` and still fail CI. Always run qlty over the files
+  the branch actually changes before pushing:
+
+  ```bash
+  git diff --name-only main...HEAD          # note THREE dots
+  ~/.qlty/bin/qlty check $(git diff --name-only main...HEAD)
+  ```
+
+  The destructive-bash guard hook rejects that second form in a worktree-isolated
+  session ("too complex to verify") because of the command substitution. Split it:
+  write the list to a file first, then pass the paths explicitly.
+
+  Findings that ruff never reports and qlty does: `bandit:B105`/`B106`
+  (hardcoded-password heuristics, which fire on any `token=`/`password=` kwarg
+  — usually false positives in tests), and `radarlint-python:python:S1481`
+  (unused local, where ruff's F841 stays silent because an attribute
+  assignment like `args.profile = None` counts as a use).
+- **Use `main...HEAD` (three dots), not `main..HEAD`.** Two dots diffs against
+  the current tip of main, so every commit merged into main since you branched
+  shows up as if it were yours. On a day-old branch that turned 9 changed files
+  into 46, burying the real findings. Three dots diffs against the merge-base —
+  your changes only, and the same set CI evaluates.
+- Suppress a genuine false positive inline with a reason, matching the existing
+  convention (`# nosec B106 - test file path, not a secret`). See
+  `tests/mail_tests/test_config_resolver.py` for the house style.
 - For repo-wide triage prefer `./bin/qlty-assistant` over raw qlty: it merges
   `check` + `smells` (disjoint sets — running one hides the other), defaults to
   `--all`, dedupes clone groups, and ranks findings by remediation tier
+- That repo-wide form is for *triage*, not for pre-PR verification. It reports
+  findings across the whole tree, most of which predate your branch, so a real
+  regression of yours is easy to miss in the volume. Scope to `main...HEAD` as
+  above when the question is "did I introduce anything new?"
+- On a test-heavy branch `qlty smells` adds little: it skips test files, so a
+  9-path scan may analyse structure on only 1 of them. `qlty check` is the gate
+  that matters there.
 - `./bin/qlty-assistant scan --expect-min N` fails loudly on an implausibly
   empty scan — still worth using as a sanity check on any surprisingly clean result
 - **qlty now scans correctly from inside an agent worktree.** The exclusion is
