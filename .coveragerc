@@ -19,6 +19,14 @@ exclude_lines =
     pragma: no cover
     def __repr__
     raise NotImplementedError
+    # Type-only stub bodies: `@abstractmethod` and `Protocol` method
+    # signatures whose entire body is `...`. Never executed — a concrete
+    # subclass replaces the body, and a Protocol is never instantiated.
+    # Hitting these requires calling `super()` into an abstract method
+    # purely to move the number, which the project rules prohibit.
+    # Same concept as the `raise NotImplementedError` line above, just
+    # the other spelling of an unimplemented stub.
+    ^\s*\.\.\.$
     if __name__ == .__main__.:
     if TYPE_CHECKING:
 show_missing = True

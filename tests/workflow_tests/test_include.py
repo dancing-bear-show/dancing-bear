@@ -302,5 +302,472 @@ class TestCompileWithInclude(unittest.TestCase):
             self.assertTrue(any("not found" in e.message for e in result.errors))
 
 
+# ---------------------------------------------------------------------------
+# resolve_fragment_path: cwd-relative resolution
+# ---------------------------------------------------------------------------
+
+
+class TestResolveFragmentPath(unittest.TestCase):
+    def test_absolute_path_returned_unchanged(self) -> None:
+        from workflow.include import resolve_fragment_path
+
+        p = Path("/some/absolute/path.yaml")
+        result = resolve_fragment_path(str(p), Path("/other/dir/workflow.yaml"))
+        self.assertEqual(result, p)
+
+    def test_cwd_relative_returned_when_exists(self) -> None:
+        """Line 54: cwd_relative.exists() is True — return cwd_relative."""
+        import os
+
+        from workflow.include import resolve_fragment_path
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            frag = tmp_path / "frag.yaml"
+            frag.write_text("fragment: true\nstages: []\n")
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(tmp_path)
+                result = resolve_fragment_path("frag.yaml", tmp_path / "workflow.yaml")
+                self.assertEqual(result.name, "frag.yaml")
+                self.assertTrue(result.exists())
+            finally:
+                os.chdir(old_cwd)
+
+    def test_source_relative_returned_when_cwd_relative_missing(self) -> None:
+        """Fallback: cwd_relative does not exist — fall back to source parent."""
+        from workflow.include import resolve_fragment_path
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            frag = tmp_path / "frag.yaml"
+            frag.write_text("fragment: true\nstages: []\n")
+            result = resolve_fragment_path("frag.yaml", tmp_path / "workflow.yaml")
+            self.assertEqual(result, tmp_path / "frag.yaml")
+
+
+# ---------------------------------------------------------------------------
+# parse_fragment: FileNotFoundError and OSError paths (lines 90-93)
+# ---------------------------------------------------------------------------
+
+
+class TestParseFragment(unittest.TestCase):
+    def test_missing_file_raises_parse_error(self) -> None:
+        """Lines 90-91: FileNotFoundError -> WorkflowParseError."""
+        from workflow.include import parse_fragment
+        from workflow.parser import WorkflowParseError
+
+        with self.assertRaisesRegex(WorkflowParseError, "fragment file not found"):
+            parse_fragment("/nonexistent/path/frag.yaml")
+
+    def test_oserror_raises_parse_error(self) -> None:
+        """Lines 92-93: OSError -> WorkflowParseError."""
+        from unittest.mock import patch
+
+        from workflow.include import parse_fragment
+        from workflow.parser import WorkflowParseError
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            frag = Path(tmp_dir) / "frag.yaml"
+            frag.write_text("fragment: true\nstages: []\n")
+            with patch.object(Path, "read_text", side_effect=OSError("permission denied")):
+                with self.assertRaisesRegex(WorkflowParseError, "cannot read fragment"):
+                    parse_fragment(str(frag))
+
+
+# ---------------------------------------------------------------------------
+# _parse_fragment_str: error branches (lines 115-116, 119, 131)
+# ---------------------------------------------------------------------------
+
+
+class TestParseFragmentStr(unittest.TestCase):
+    def test_invalid_yaml_raises(self) -> None:
+        """Lines 115-116: YAML parse error."""
+        from workflow.include import _parse_fragment_str
+        from workflow.parser import WorkflowParseError
+
+        bad_yaml = ":\n  - invalid: [unclosed"
+        with self.assertRaisesRegex(WorkflowParseError, "invalid YAML"):
+            _parse_fragment_str(bad_yaml, source="test.yaml")
+
+    def test_non_mapping_top_level_raises(self) -> None:
+        """Line 119: top-level is a list, not a dict."""
+        from workflow.include import _parse_fragment_str
+        from workflow.parser import WorkflowParseError
+
+        with self.assertRaisesRegex(WorkflowParseError, "expected a YAML mapping"):
+            _parse_fragment_str("- item1\n- item2\n", source="test.yaml")
+
+    def test_empty_stages_list_raises(self) -> None:
+        """Line 131: stages is an empty list."""
+        from workflow.include import _parse_fragment_str
+        from workflow.parser import WorkflowParseError
+
+        content = "fragment: true\nstages: []\n"
+        with self.assertRaisesRegex(WorkflowParseError, "non-empty list"):
+            _parse_fragment_str(content, source="test.yaml")
+
+    def test_stages_not_a_list_raises(self) -> None:
+        """Line 130: stages is not a list at all."""
+        from workflow.include import _parse_fragment_str
+        from workflow.parser import WorkflowParseError
+
+        content = "fragment: true\nstages: not-a-list\n"
+        with self.assertRaisesRegex(WorkflowParseError, "non-empty list"):
+            _parse_fragment_str(content, source="test.yaml")
+
+
+# ---------------------------------------------------------------------------
+# _require_list and _require_dict: type-check branches (lines 140, 151)
+# ---------------------------------------------------------------------------
+
+
+class TestRequireListAndDict(unittest.TestCase):
+    def test_require_list_raises_on_non_list(self) -> None:
+        """Line 140: _require_list rejects a non-list value."""
+        from workflow.include import _require_list
+        from workflow.parser import WorkflowParseError
+
+        with self.assertRaisesRegex(WorkflowParseError, "must be a list"):
+            _require_list("not-a-list", "depends_on", "frag.yaml", "<test>")
+
+    def test_require_list_accepts_list(self) -> None:
+        """Happy path: list passes through."""
+        from workflow.include import _require_list
+
+        result = _require_list(["a", "b"], "depends_on", "frag.yaml", "<test>")
+        self.assertEqual(result, ["a", "b"])
+
+    def test_require_list_accepts_tuple(self) -> None:
+        """Happy path: tuple is also accepted."""
+        from workflow.include import _require_list
+
+        result = _require_list(("x",), "depends_on", "frag.yaml", "<test>")
+        self.assertEqual(result, ["x"])
+
+    def test_require_dict_raises_on_non_dict(self) -> None:
+        """Line 151: _require_dict rejects a non-dict value."""
+        from workflow.include import _require_dict
+        from workflow.parser import WorkflowParseError
+
+        with self.assertRaisesRegex(WorkflowParseError, "must be a mapping"):
+            _require_dict(["not", "a", "dict"], "params", "frag.yaml", "<test>")
+
+    def test_require_dict_accepts_dict(self) -> None:
+        """Happy path: dict passes through."""
+        from workflow.include import _require_dict
+
+        result = _require_dict({"k": "v"}, "params", "frag.yaml", "<test>")
+        self.assertEqual(result, {"k": "v"})
+
+
+# ---------------------------------------------------------------------------
+# _parse_include: validation branches (lines 163, 167)
+# ---------------------------------------------------------------------------
+
+
+class TestParseInclude(unittest.TestCase):
+    def test_non_dict_entry_raises(self) -> None:
+        """Line 163: include entry is not a dict."""
+        from workflow.include import _parse_include
+        from workflow.parser import WorkflowParseError
+
+        with self.assertRaisesRegex(WorkflowParseError, "must be a mapping"):
+            _parse_include("just-a-string", source="<test>")
+
+    def test_missing_path_key_raises(self) -> None:
+        """Line 167: include entry dict has no 'path' key."""
+        from workflow.include import _parse_include
+        from workflow.parser import WorkflowParseError
+
+        with self.assertRaisesRegex(WorkflowParseError, "missing required key 'path'"):
+            _parse_include({"prefix": "x"}, source="<test>")
+
+    def test_valid_entry_returns_include_spec(self) -> None:
+        """Happy path: minimal valid include entry."""
+        from workflow.include import _parse_include
+        from workflow.models import IncludeSpec
+
+        result = _parse_include({"path": "shared/frag.yaml"}, source="<test>")
+        self.assertIsInstance(result, IncludeSpec)
+        self.assertEqual(result.path, "shared/frag.yaml")
+        self.assertEqual(result.prefix, "frag")  # stem of filename
+
+    def test_depends_on_not_a_list_raises(self) -> None:
+        """_require_list path via depends_on field."""
+        from workflow.include import _parse_include
+        from workflow.parser import WorkflowParseError
+
+        with self.assertRaisesRegex(WorkflowParseError, "must be a list"):
+            _parse_include({"path": "x.yaml", "depends_on": "not-a-list"}, source="<test>")
+
+    def test_params_not_a_dict_raises(self) -> None:
+        """_require_dict path via params field."""
+        from workflow.include import _parse_include
+        from workflow.parser import WorkflowParseError
+
+        with self.assertRaisesRegex(WorkflowParseError, "must be a mapping"):
+            _parse_include({"path": "x.yaml", "params": ["not", "a", "dict"]}, source="<test>")
+
+
+# ---------------------------------------------------------------------------
+# _load_frag_text: OSError path (lines 203-204)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadFragText(unittest.TestCase):
+    def test_oserror_raises_parse_error(self) -> None:
+        """Lines 203-204: OSError on read -> WorkflowParseError."""
+        from unittest.mock import patch
+
+        from workflow.include import _load_frag_text
+        from workflow.parser import WorkflowParseError
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            frag_path = Path(tmp_dir) / "frag.yaml"
+            frag_path.write_text("content")
+            with patch.object(Path, "read_text", side_effect=OSError("disk error")):
+                with self.assertRaisesRegex(WorkflowParseError, "cannot read fragment"):
+                    _load_frag_text(frag_path, source="<test>")
+
+    def test_missing_file_raises_parse_error(self) -> None:
+        """FileNotFoundError -> WorkflowParseError."""
+        from workflow.include import _load_frag_text
+        from workflow.parser import WorkflowParseError
+
+        missing = Path("/nonexistent/path/frag.yaml")
+        with self.assertRaisesRegex(WorkflowParseError, "missing fragment file"):
+            _load_frag_text(missing, source="<test>")
+
+
+# ---------------------------------------------------------------------------
+# _rewrite_fan_out: lines 256-259
+# ---------------------------------------------------------------------------
+
+
+class TestRewriteFanOut(unittest.TestCase):
+    def test_none_returns_none(self) -> None:
+        """Lines 254-255: None fan_out returns None."""
+        from workflow.include import _rewrite_fan_out
+
+        result = _rewrite_fan_out(None, {"old": "new"})
+        self.assertIsNone(result)
+
+    def test_source_not_in_rename_map_returns_original(self) -> None:
+        """Lines 256-258: source not in rename map — return original fan_out unchanged."""
+        from workflow.include import _rewrite_fan_out
+        from workflow.models import FanOutSpec
+
+        fan_out = FanOutSpec(source="external-stage", field="items", key="name")
+        result = _rewrite_fan_out(fan_out, {"old-stage": "prefix-old-stage"})
+        self.assertIs(result, fan_out)
+
+    def test_source_in_rename_map_returns_new_fan_out(self) -> None:
+        """Line 259: source IS in rename map — return new FanOutSpec with updated source."""
+        from workflow.include import _rewrite_fan_out
+        from workflow.models import FanOutSpec
+
+        fan_out = FanOutSpec(source="gather", field="items", key="name")
+        rename = {"gather": "prefix-gather"}
+        result = _rewrite_fan_out(fan_out, rename)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.source, "prefix-gather")
+        self.assertEqual(result.field, "items")
+        self.assertEqual(result.key, "name")
+
+
+# ---------------------------------------------------------------------------
+# _expand_includes: circular include detection (line 281)
+# ---------------------------------------------------------------------------
+
+
+class TestExpandIncludesCircularDetection(unittest.TestCase):
+    def test_circular_include_raises(self) -> None:
+        """Line 281: circular include detected when visited set contains fragment path."""
+        from workflow.include import FragmentContext, _expand_includes
+        from workflow.models import IncludeSpec
+        from workflow.parser import WorkflowParseError
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            frag_a = tmp_path / "frag_a.yaml"
+            frag_a.write_text(textwrap.dedent("""\
+                fragment: true
+                stages:
+                  - name: step-a
+                    kind: gather
+                    description: Step A
+                    agent:
+                      role: researcher
+            """))
+            inc = IncludeSpec(
+                path=str(frag_a), prefix="a", depends_on=(), reads_from=(), params={}
+            )
+            ctx = FragmentContext(source="<test>", source_path=tmp_path / "workflow.yaml")
+            # Pre-seed visited with frag_a's resolved key to trigger circular detection
+            already_visited = frozenset([str(frag_a.resolve())])
+
+            with self.assertRaisesRegex(WorkflowParseError, "circular include"):
+                _expand_includes((), (inc,), ctx, _visited=already_visited)
+
+
+# ---------------------------------------------------------------------------
+# _expand_includes: nested includes (line 291)
+# ---------------------------------------------------------------------------
+
+
+class TestExpandIncludesNested(unittest.TestCase):
+    def test_nested_include_expanded(self) -> None:
+        """Line 291: frag_raw_includes is non-empty -> recursive _expand_includes."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+
+            inner_frag = tmp_path / "inner.yaml"
+            inner_frag.write_text(textwrap.dedent("""\
+                fragment: true
+                stages:
+                  - name: inner-step
+                    kind: gather
+                    description: Inner step
+                    agent:
+                      role: researcher
+            """))
+
+            outer_frag = tmp_path / "outer.yaml"
+            outer_frag.write_text(textwrap.dedent(f"""\
+                fragment: true
+                include:
+                  - path: {inner_frag}
+                    prefix: inner
+                stages:
+                  - name: outer-step
+                    kind: gather
+                    description: Outer step
+                    agent:
+                      role: researcher
+            """))
+
+            workflow_yaml = textwrap.dedent(f"""\
+                name: test-nested
+                version: "1.0"
+                description: Test nested includes
+                trigger:
+                  source: manual
+                stages:
+                  - name: root-step
+                    kind: gather
+                    description: Root step
+                    agent:
+                      role: researcher
+                include:
+                  - path: {outer_frag}
+                    prefix: outer
+                    depends_on: [root-step]
+            """)
+            from workflow.parser import parse_workflow_str
+
+            wf = parse_workflow_str(workflow_yaml, source="<test>")
+            names = [s.name for s in wf.stages]
+            self.assertIn("root-step", names)
+            self.assertTrue(any("outer" in n for n in names))
+            self.assertTrue(any("inner" in n for n in names))
+
+
+# ---------------------------------------------------------------------------
+# _parse_nested_includes: error branches (lines 308-309, 312, 317-325)
+# ---------------------------------------------------------------------------
+
+
+class TestParseNestedIncludes(unittest.TestCase):
+    def test_invalid_yaml_returns_empty(self) -> None:
+        """Lines 308-309: YAML parse error -> return ()."""
+        from workflow.include import _parse_nested_includes
+
+        result = _parse_nested_includes(":\n  - [unclosed", source="test.yaml")
+        self.assertEqual(result, ())
+
+    def test_non_dict_top_level_returns_empty(self) -> None:
+        """Line 312: not a dict -> return ()."""
+        from workflow.include import _parse_nested_includes
+
+        result = _parse_nested_includes("- item1\n- item2\n", source="test.yaml")
+        self.assertEqual(result, ())
+
+    def test_no_include_key_returns_empty(self) -> None:
+        """Line 315-316: include key absent -> return ()."""
+        from workflow.include import _parse_nested_includes
+
+        result = _parse_nested_includes("fragment: true\nstages: []\n", source="test.yaml")
+        self.assertEqual(result, ())
+
+    def test_include_not_a_list_raises(self) -> None:
+        """Lines 317-320: include is not a list -> raise WorkflowParseError."""
+        from workflow.include import _parse_nested_includes
+        from workflow.parser import WorkflowParseError
+
+        content = "fragment: true\ninclude: not-a-list\nstages: []\n"
+        with self.assertRaisesRegex(WorkflowParseError, "'include' must be a list"):
+            _parse_nested_includes(content, source="test.yaml")
+
+    def test_empty_include_list_returns_empty(self) -> None:
+        """Lines 322-323: include is empty list -> return ()."""
+        from workflow.include import _parse_nested_includes
+
+        content = "fragment: true\ninclude: []\nstages: []\n"
+        result = _parse_nested_includes(content, source="test.yaml")
+        self.assertEqual(result, ())
+
+    def test_valid_include_list_returns_specs(self) -> None:
+        """Line 325: valid include entries -> tuple of IncludeSpec."""
+        from workflow.include import _parse_nested_includes
+        from workflow.models import IncludeSpec
+
+        content = textwrap.dedent("""\
+            fragment: true
+            include:
+              - path: shared/helper.yaml
+                prefix: h
+            stages: []
+        """)
+        result = _parse_nested_includes(content, source="test.yaml")
+        self.assertIsInstance(result, tuple)
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], IncludeSpec)
+        self.assertEqual(result[0].path, "shared/helper.yaml")
+
+
+# ---------------------------------------------------------------------------
+# extract_include_entries: YAML error and non-dict cases
+# ---------------------------------------------------------------------------
+
+
+class TestExtractIncludeEntries(unittest.TestCase):
+    def test_invalid_yaml_returns_empty(self) -> None:
+        from workflow.include import extract_include_entries
+
+        result = extract_include_entries(":\n  - [unclosed")
+        self.assertEqual(result, [])
+
+    def test_non_dict_returns_empty(self) -> None:
+        from workflow.include import extract_include_entries
+
+        result = extract_include_entries("- item1\n- item2\n")
+        self.assertEqual(result, [])
+
+    def test_include_not_a_list_returns_empty(self) -> None:
+        from workflow.include import extract_include_entries
+
+        result = extract_include_entries("include: not-a-list\n")
+        self.assertEqual(result, [])
+
+    def test_valid_include_list_returned(self) -> None:
+        from workflow.include import extract_include_entries
+
+        content = "include:\n  - path: shared/frag.yaml\n"
+        result = extract_include_entries(content)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["path"], "shared/frag.yaml")
+
+
 if __name__ == "__main__":
     unittest.main()
