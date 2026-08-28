@@ -496,6 +496,72 @@ class TestSectionRenderers(unittest.TestCase):
         result = renderer.render(Resume.from_dict(data))
         self.assertEqual(len(result), 2)
 
+    # -- label-keyed entries in the three simple-list sections --------------
+    #
+    # The schema resolves the "label" spelling onto `name`, but these three
+    # renderers used to pass name_keys that omitted "label", so _item_name
+    # found no matching spelling and returned "". The entry then rendered as
+    # nothing at all, under a section heading that still appeared.
+
+    def test_certifications_renderer_renders_label_keyed_entry(self):
+        """A certification spelled with 'label' renders its text."""
+        from resume.docx_sections_simple import CertificationsSectionRenderer
+        renderer, _ = make_fake_renderer(CertificationsSectionRenderer)
+        data = {"certifications": [{"label": "Alias-Keyed Certification"}]}
+        result = renderer.render(Resume.from_dict(data))
+        self.assertEqual(result, ["Alias-Keyed Certification"])
+
+    def test_coursework_renderer_renders_label_keyed_entry(self):
+        """A coursework item spelled with 'label' renders its text."""
+        from resume.docx_sections_simple import CourseworkSectionRenderer
+        renderer, _ = make_fake_renderer(CourseworkSectionRenderer)
+        data = {"coursework": [{"label": "Distributed Systems"}]}
+        result = renderer.render(Resume.from_dict(data))
+        self.assertEqual(result, ["Distributed Systems"])
+
+    def test_languages_renderer_renders_label_keyed_entry(self):
+        """A language spelled with 'label' renders its text."""
+        from resume.docx_sections_simple import LanguagesSectionRenderer
+        renderer, _ = make_fake_renderer(LanguagesSectionRenderer)
+        data = {"languages": [{"label": "Portuguese", "level": "Fluent"}]}
+        result = renderer.render(Resume.from_dict(data))
+        self.assertEqual(result, ["Portuguese — Fluent"])
+
+    def test_certifications_renderer_prefers_name_over_label(self):
+        """Precedence guard: 'label' was appended last, so 'name' still wins."""
+        from resume.docx_sections_simple import CertificationsSectionRenderer
+        renderer, _ = make_fake_renderer(CertificationsSectionRenderer)
+        data = {"certifications": [{"name": "Canonical Name", "label": "Losing Label"}]}
+        result = renderer.render(Resume.from_dict(data))
+        self.assertEqual(result, ["Canonical Name"])
+
+    def test_coursework_renderer_prefers_name_over_label(self):
+        """Precedence guard for coursework."""
+        from resume.docx_sections_simple import CourseworkSectionRenderer
+        renderer, _ = make_fake_renderer(CourseworkSectionRenderer)
+        data = {"coursework": [{"name": "Canonical Course", "label": "Losing Label"}]}
+        result = renderer.render(Resume.from_dict(data))
+        self.assertEqual(result, ["Canonical Course"])
+
+    def test_languages_renderer_prefers_name_over_label(self):
+        """Precedence guard for languages."""
+        from resume.docx_sections_simple import LanguagesSectionRenderer
+        renderer, _ = make_fake_renderer(LanguagesSectionRenderer)
+        data = {"languages": [{"name": "Canonical Lang", "label": "Losing Label"}]}
+        result = renderer.render(Resume.from_dict(data))
+        self.assertEqual(result, ["Canonical Lang"])
+
+    def test_certifications_renderer_canonical_spellings_unaffected(self):
+        """Regression guard: the spellings that already worked still render."""
+        from resume.docx_sections_simple import CertificationsSectionRenderer
+        renderer, _ = make_fake_renderer(CertificationsSectionRenderer)
+        data = {"certifications": [
+            {"name": "AWS Certified", "year": "2023"},
+            {"cert": "GCP Professional"},
+        ]}
+        result = renderer.render(Resume.from_dict(data))
+        self.assertEqual(result, ["AWS Certified — 2023", "GCP Professional"])
+
     def test_presentations_renderer(self):
         """Test PresentationsSectionRenderer."""
         from resume.docx_sections_simple import PresentationsSectionRenderer

@@ -15,7 +15,12 @@ from docx.enum.table import WD_TABLE_ALIGNMENT  # type: ignore
 
 from .docx_base import ResumeWriterBase
 from .schema import ExperienceEntry, PriorityItem, Presentation, Resume, _Item
-from .docx_styles import _parse_hex_color, _tight_paragraph, _apply_paragraph_shading
+from .docx_styles import (
+    TextFormatter,
+    _apply_paragraph_shading,
+    _parse_hex_color,
+    _tight_paragraph,
+)
 from .render_config import CenteredHeaderLineStyle, IndentedRunStyle
 from .docx_sidebar_cells import (
     _add_indented_run,
@@ -91,7 +96,12 @@ def _render_exp_entry(cell, exp: ExperienceEntry, page_cfg: dict[str, Any], bull
     company = exp.company
     start = exp.start
     end = exp.end
-    span = f"{start} – {end}" if end else f"{start} – presente"
+    # Open-ended roles read "Start – Present", matching the rest of the render
+    # path. This used to hardcode the Spanish "presente": the sidebar's Spanish
+    # section titles are overridable defaults, but that word was not, so an
+    # English resume rendered one untranslatable Spanish token. Reusing
+    # TextFormatter also normalizes end values like "now"/"current".
+    span = TextFormatter.format_date_span(start, end)
     bullets = exp.bullets
 
     p = cell.add_paragraph()

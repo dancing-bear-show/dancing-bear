@@ -356,14 +356,16 @@ class ListSectionRenderer:
         losing spellings ``extra`` retained -- reproduces the dict path exactly.
 
         A spelling the renderer does not list still yields ``""``. The schema's
-        alias tuples are a strict SUPERSET of what each renderer accepts:
-        ``CertificationItem`` resolves ``label`` onto ``name``, but
-        ``CertificationsSectionRenderer`` passes ``("name", "title", "cert")``
-        and has never rendered a ``label``-keyed certification. Accepting it
-        here would make such entries start appearing -- arguably a fix, but a
-        rendering change, and this migration is meant to change representation
-        only. Widening the renderer to accept ``label`` is a separate,
-        deliberate decision.
+        alias tuples remain a superset of what each renderer accepts, so a
+        section can still decline a spelling its item type resolves. That
+        gap is how ``label``-keyed entries in ``certifications``,
+        ``coursework`` and ``languages`` used to render as nothing: the schema
+        resolved ``label`` onto ``name``, but those renderers passed name_keys
+        that omitted ``label``, so every key missed and the entry silently
+        vanished under its own section heading. Those three now list ``label``
+        last, which makes such entries render while leaving precedence intact
+        -- an item carrying both ``name`` and ``label`` still displays
+        ``name``.
         """
         primary = type(it)._primary_field()
         if not primary:
