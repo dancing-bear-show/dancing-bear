@@ -12,9 +12,13 @@ sections:
     # whole bullets rather than trimming prose.
     #
     # No item_color here: SummarySectionRenderer passes this config only to
-    # get_bullet_config(), which reads plain_bullets and bullets.style/glyph,
-    # and the bullet writers take no colour argument — setting it would read
-    # as configuration that does nothing.
+    # resolve_glyph(), which reads bullets.glyph and nothing else, and the
+    # bullet writers take no colour argument — setting it would read as
+    # configuration that does nothing.
+    #
+    # plain_bullets below is likewise inert. It used to select between two
+    # bullet mechanisms; there is one now, so it is kept only because existing
+    # templates carry it.
     #
     # The glyph is the one visual lever this path does honour. The Profile
     # takes a distinct one: every section below it uses "•", and reusing that
@@ -57,7 +61,6 @@ sections:
     max_items: 5
     inline_dates: true
     role_style: Normal
-    bullet_style: List Bullet
     item_color: "#2E5090"
     location_color: "#5A5A5A"
     duration_color: "#5A5A5A"

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .docx_renderers import HeaderRenderer, ListSectionRenderer
-from .render_config import DEFAULT_BULLET_STYLE, HeaderLineConfig
+from .render_config import HeaderLineConfig
 from .schema import ExperienceEntry, PriorityItem, Resume
 
 
@@ -26,7 +26,6 @@ class _ExperienceRenderOpts:
     """Bundled rendering options for experience entries."""
 
     role_style: str = "Normal"
-    bullet_style: str = DEFAULT_BULLET_STYLE
     max_bullets: int = 999
     recent_roles_count: int = 0
     recent_max_bullets: int = 999
@@ -34,11 +33,17 @@ class _ExperienceRenderOpts:
 
     @classmethod
     def from_cfg(cls, cfg: dict[str, Any]) -> "_ExperienceRenderOpts":
-        """Build from a section config dict."""
+        """Build from a section config dict.
+
+        ``bullet_style`` is deliberately not read. It used to name a Word list
+        style for experience bullets, which is what let this section render at
+        a different left edge from the rest of the document; there is now one
+        bullet mechanism and no style to choose. The key is ignored rather than
+        rejected so existing templates keep loading.
+        """
         max_bullets = int(cfg.get("max_bullets", 999))
         return cls(
             role_style=str(cfg.get("role_style", "Normal")),
-            bullet_style=str(cfg.get("bullet_style", DEFAULT_BULLET_STYLE)),
             max_bullets=max_bullets,
             recent_roles_count=int(cfg.get("recent_roles_count", 0) or 0),
             recent_max_bullets=int(cfg.get("recent_max_bullets", max_bullets)),
@@ -130,10 +135,8 @@ class ExperienceSectionRenderer(ListSectionRenderer):
         # Render bullets
         bullets = self._normalize_bullets(raw_bullets, per_role_limit)
         if bullets:
-            plain, glyph = self.bullets.get_bullet_config(cfg)
             self.bullets.add_bullets(
-                bullets, keywords=keywords, plain=plain, glyph=glyph,
-                list_style=opts.bullet_style,
+                bullets, keywords=keywords, glyph=self.bullets.resolve_glyph(cfg)
             )
 
     def _format_date_span(self, e: ExperienceEntry) -> str:

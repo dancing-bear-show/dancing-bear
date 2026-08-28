@@ -95,7 +95,7 @@ class PresentationsSectionRenderer(ListSectionRenderer):
         url = normalize_link_url(link) if link else ""
         return line, url
 
-    def _render_presentation(self, pres: Presentation, glyph: str, plain: bool = True) -> str | None:
+    def _render_presentation(self, pres: Presentation, glyph: str) -> str | None:
         """Render a single presentation entry; return display text or None."""
         line, url = self._format_presentation(pres)
         cleaned = self.text.clean_inline(line) if line else ""
@@ -103,29 +103,26 @@ class PresentationsSectionRenderer(ListSectionRenderer):
             return None
         if cleaned:
             # Normal case: render the title/event/year line, append link if present.
-            p = self._make_bullet_paragraph(cleaned, glyph=glyph, plain=plain)
+            p = self.bullets.add_bullet_line(cleaned, glyph=glyph)
             if url:
                 p.add_run(" ")
                 add_hyperlink(p, url, display_url(url))
             return cleaned
         # Link-only: no title/event/year text — render a single hyperlink run
         # (cleaned display of URL) without duplicating the raw URL as plain text.
+        #
+        # This goes through ``new_bullet_paragraph`` rather than
+        # ``add_bullet_line("")`` because it is the minimal primitive that says
+        # what is wanted here: a glyph-prefixed paragraph and nothing else.
+        # ``add_bullet_line`` is that same primitive plus a text pass, and
+        # passing it an empty string asks that pass to do nothing -- which
+        # makes the output depend on how the text path treats "", a detail
+        # that has already changed once. ``new_bullet_paragraph`` does not
+        # depend on it at all.
         link_display = display_url(url)
-        p = self._make_bullet_paragraph("", glyph=glyph, plain=plain)
+        p = self.bullets.new_bullet_paragraph(glyph)
         add_hyperlink(p, url, link_display)
         return link_display
-
-    def _make_bullet_paragraph(self, text: str, *, glyph: str, plain: bool):
-        """Create and return a single bullet paragraph honoring the *plain* flag."""
-        if plain:
-            return self.bullets.add_bullet_line(text, glyph=glyph)
-        # Non-plain: use Word list style so the presentation respects section config.
-        p = self.bullets.doc.add_paragraph(style="List Bullet")
-        self.bullets.styles.tight_paragraph(p, after_pt=0)
-        self.bullets.styles.compact_bullet(p)
-        if text:
-            p.add_run(text)
-        return p
 
     def render(self, resume: Resume, sec: dict | None = None) -> list[str]:
         """Render every presentation entry.
@@ -135,12 +132,11 @@ class PresentationsSectionRenderer(ListSectionRenderer):
         ``Presentation`` carrying it as ``title``, and that entry formats to
         the same single-part line the string branch produced.
         """
-        plain, glyph = self.bullets.get_bullet_config(sec)
+        glyph = self.bullets.resolve_glyph(sec)
         lines: list[str] = []
 
         for pres in resume.presentations:
-            display = self._render_presentation(pres, glyph, plain=plain)
-            if display:
+            if display := self._render_presentation(pres, glyph):
                 lines.append(display)
 
         return lines

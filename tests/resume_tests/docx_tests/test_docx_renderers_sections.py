@@ -120,14 +120,21 @@ class TestSkillsSectionRenderer(unittest.TestCase):
         self.assertGreater(len(doc.paragraphs), 0)
 
     def test_normalize_group_items_strings(self):
-        """Test normalizing group items from strings."""
+        """A bare string becomes an item whose whole text is its name."""
         renderer, _ = self._get_renderer()
         items = ["Python", "JavaScript", "Go"]
         result = renderer._normalize_group_items(items, False, " — ")
-        self.assertEqual(result, ["Python", "JavaScript", "Go"])
+        self.assertEqual([it.text for it in result], ["Python", "JavaScript", "Go"])
+        self.assertEqual([it.name for it in result], ["Python", "JavaScript", "Go"])
+        self.assertEqual([it.desc for it in result], ["", "", ""])
 
     def test_normalize_group_items_dicts(self):
-        """The 'title' name alias and the 'description' desc alias both resolve."""
+        """The 'title' name alias and the 'description' desc alias both resolve.
+
+        Also pins that the name/desc boundary survives normalization: the
+        renderer bolds the name half, so a normalized item that kept only the
+        joined string would leave it nothing to bold.
+        """
         renderer, _ = self._get_renderer()
         items = Resume.from_dict(
             {
@@ -144,11 +151,20 @@ class TestSkillsSectionRenderer(unittest.TestCase):
         ).skills_groups[0].items
         result = renderer._normalize_group_items(items, True, " — ")
         self.assertEqual(len(result), 2)
-        self.assertIn("Python — Expert", result)
-        self.assertIn("Go — Intermediate", result)
+        self.assertEqual(
+            [it.text for it in result], ["Python — Expert", "Go — Intermediate"]
+        )
+        self.assertEqual([it.name for it in result], ["Python", "Go"])
+        self.assertEqual([it.desc for it in result], ["Expert", "Intermediate"])
 
     def test_render_skills_groups_respects_max_groups(self):
-        """sec={"max_groups": N} caps the number of groups rendered."""
+        """sec={"max_groups": N} caps the number of groups rendered.
+
+        Asserted on which groups appear rather than on a paragraph count. The
+        count was a proxy that only held while every group collapsed into a
+        single joined paragraph; now that each item gets its own paragraph the
+        count tracks items too, so it no longer isolates the cap.
+        """
         renderer, doc = self._get_renderer()
         data = {"skills_groups": [
             {"title": "Group 1", "items": ["A", "B"]},
@@ -156,7 +172,11 @@ class TestSkillsSectionRenderer(unittest.TestCase):
             {"title": "Group 3", "items": ["1", "2"]},
         ]}
         renderer.render(Resume.from_dict(data), sec={"max_groups": 2})
-        self.assertEqual(len(doc.paragraphs), 2)
+
+        rendered = "\n".join(p.text for p in doc.paragraphs)
+        self.assertIn("Group 1", rendered)
+        self.assertIn("Group 2", rendered)
+        self.assertNotIn("Group 3", rendered)
 
 
 @mock_docx_modules
@@ -324,7 +344,7 @@ class TestTechnologiesSectionRenderer(unittest.TestCase):
         renderer, _ = self._get_renderer()
         data = {"technologies": ["Docker", "K8s"]}
         result = renderer._collect_tech_items(Resume.from_dict(data), None)
-        self.assertEqual(result, ["Docker", "K8s"])
+        self.assertEqual([it.text for it in result], ["Docker", "K8s"])
 
     def test_collect_tech_items_dicts(self):
         """Test collecting tech items from dicts."""
@@ -346,7 +366,7 @@ class TestTechnologiesSectionRenderer(unittest.TestCase):
             ],
         }
         result = renderer._collect_tech_items(Resume.from_dict(data), None)
-        self.assertEqual(result, ["Docker", "K8s"])
+        self.assertEqual([it.text for it in result], ["Docker", "K8s"])
 
     def test_render_technologies_with_description(self):
         """sec={"show_desc": True} includes each item's desc in the rendered text.

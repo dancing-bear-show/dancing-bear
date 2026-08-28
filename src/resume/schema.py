@@ -276,10 +276,15 @@ class SkillGroupItem(_Item):
     on ``name|title|label`` and never on ``text``.
 
     ``desc`` accepts the long spelling ``description`` because
-    ``_labeled_item_text`` reads ``desc`` or ``description``
+    ``_labeled_item`` reads ``desc`` or ``description``
     (docx_sections_skills.py). Undeclared it would sit in ``extra`` and read
     back empty, dropping the description from every item that used the long
     form.
+
+    ``name`` and ``desc`` stay distinct all the way to the renderer rather
+    than being flattened into one display string: the skills renderer bolds
+    the name half and leaves the description plain, so it needs the boundary
+    these two fields draw.
     """
 
     name: str = ""

@@ -7,16 +7,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-DEFAULT_BULLET_STYLE = "List Bullet"
-
 
 @dataclass
 class BulletConfig:
-    """Configuration for bullet rendering."""
+    """Configuration for bullet rendering.
+
+    ``list_style``/``plain`` are gone: they selected between a Word
+    ``List Bullet`` paragraph and a literal-glyph paragraph, and the standard
+    layout now has exactly one bullet mechanism. See
+    ``BulletRenderer.new_bullet_paragraph``.
+    """
 
     glyph: str = "•"
-    list_style: str = DEFAULT_BULLET_STYLE
-    plain: bool = True
     sep: str = ": "  # Separator for named bullets
 
 
@@ -83,8 +85,11 @@ class ExperienceFilterConfig:
 
 @dataclass
 class ExperienceRenderConfig:
-    """Configuration for rendering experience entries."""
+    """Configuration for rendering experience entries.
+
+    ``bullet_style`` is gone for the same reason it is no longer read from
+    section config: experience bullets use the one shared bullet mechanism.
+    """
 
     role_style: str = "Normal"
-    bullet_style: str = DEFAULT_BULLET_STYLE
     max_bullets: int = -1  # -1 means no limit
