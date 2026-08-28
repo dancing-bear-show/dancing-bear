@@ -123,6 +123,20 @@ class TestLoadDeckFromMarkdown(unittest.TestCase):
         self.assertEqual(len(deck.slides), 1)
         self.assertEqual(len(deck.slides[0].bullets), 2)
 
+    def test_explicit_empty_title_falls_back_to_first_slide(self):
+        """An empty title falls back to the first slide title, unlike the CSV loader.
+
+        Deliberate asymmetry, and it predates DeckOptions: this loader has always
+        taken `title: str | None = None` with a truthiness check, while the CSV
+        loader took `title: str = DEFAULT_TITLE` and let "" through. Pinned here
+        so the difference is asserted rather than merely documented — see
+        test_explicit_empty_title_is_preserved in test_parsers_csv.py.
+        """
+        md = self._write("blank.md", "# First Heading\n- Bullet\n")
+
+        deck = load_deck_from_markdown(md, options=DeckOptions(title=""))
+        self.assertEqual(deck.metadata.title, "First Heading")
+
     def test_multiple_sections(self):
         """Sections separated by --- produce multiple slides."""
         md = self._write("multi.md", "# Slide A\n- A1\n---\n# Slide B\n- B1\n")

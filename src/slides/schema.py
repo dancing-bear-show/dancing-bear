@@ -103,6 +103,16 @@ class DeckOptions:
     # loader substitutes DEFAULT_TITLE, while the markdown/outline loaders fall
     # back to the first slide's title. A concrete default here would erase that
     # distinction.
+    #
+    # The loaders differ on what an explicitly EMPTY title means, and that
+    # predates this dataclass:
+    #   - CSV took `title: str = DEFAULT_TITLE`, so "" was a real title and
+    #     reached the deck unchanged. It still does (`is None`).
+    #   - markdown/outline took `title: str | None = None` and have always
+    #     used a truthiness check, so "" falls back to the first slide title.
+    # Both behaviours are preserved deliberately; changing either would alter
+    # rendered output for callers who pass "". Read the loader before assuming
+    # `is None` semantics.
     title: str | None = None
     author: str | None = None
     template_path: str | None = None
