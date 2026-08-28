@@ -38,7 +38,7 @@ class LanguagesSectionRenderer(ListSectionRenderer):
         return self.render_simple_list(
             resume.languages,
             sec,
-            name_keys=("name", "language", "title"),
+            name_keys=("name", "language", "title", "label"),
             desc_key="level",
             desc_sep=" — ",
         )
@@ -51,7 +51,7 @@ class CourseworkSectionRenderer(ListSectionRenderer):
         return self.render_simple_list(
             resume.coursework,
             sec,
-            name_keys=("name", "course", "title"),
+            name_keys=("name", "course", "title", "label"),
             desc_key="desc",
             desc_sep=" — ",
         )
@@ -66,7 +66,7 @@ class CertificationsSectionRenderer(ListSectionRenderer):
         return self.render_simple_list(
             resume.certifications,
             sec,
-            name_keys=("name", "title", "cert"),
+            name_keys=("name", "title", "cert", "label"),
             desc_key="year",
             desc_sep=" — ",
         )
