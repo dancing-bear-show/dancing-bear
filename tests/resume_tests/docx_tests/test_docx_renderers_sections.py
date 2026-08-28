@@ -148,7 +148,13 @@ class TestSkillsSectionRenderer(unittest.TestCase):
         self.assertIn("Go — Intermediate", result)
 
     def test_render_skills_groups_respects_max_groups(self):
-        """sec={"max_groups": N} caps the number of groups rendered."""
+        """sec={"max_groups": N} caps the number of groups rendered.
+
+        Asserted on which groups appear rather than on a paragraph count. The
+        count was a proxy that only held while every group collapsed into a
+        single joined paragraph; now that each item gets its own paragraph the
+        count tracks items too, so it no longer isolates the cap.
+        """
         renderer, doc = self._get_renderer()
         data = {"skills_groups": [
             {"title": "Group 1", "items": ["A", "B"]},
@@ -156,7 +162,11 @@ class TestSkillsSectionRenderer(unittest.TestCase):
             {"title": "Group 3", "items": ["1", "2"]},
         ]}
         renderer.render(Resume.from_dict(data), sec={"max_groups": 2})
-        self.assertEqual(len(doc.paragraphs), 2)
+
+        rendered = "\n".join(p.text for p in doc.paragraphs)
+        self.assertIn("Group 1", rendered)
+        self.assertIn("Group 2", rendered)
+        self.assertNotIn("Group 3", rendered)
 
 
 @mock_docx_modules

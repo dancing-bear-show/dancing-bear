@@ -235,14 +235,35 @@ class SkillsSectionRenderer(ListSectionRenderer):
     def _render_inline_items(
         self, title: str, items: list[str], cfg: dict, sep: str
     ) -> None:
-        """Render items inline with optional title."""
-        compact = bool(cfg.get("compact", True))
+        """Render a skills group as a title line plus one paragraph per item.
+
+        Despite the name this is the *non-bullet* branch -- the one taken when
+        a section config omits ``bullets``. It used to join every item of a
+        group into a single paragraph with ``sep`` (default " • ") between
+        them, which put the bullet glyph *inside* the text: a seven-group
+        resume produced seven paragraphs of ~530 characters each, five glyphs
+        buried in every one. Word has no line break to work with there, so it
+        wrapped the whole thing as prose and no item was visually separable.
+
+        Items now get one paragraph each, prefixed with a literal "• ", and
+        the group title keeps its own unprefixed line. That matches the
+        reference resume this output is styled after, which uses ``Normal``
+        paragraphs with a literal glyph and never nests a glyph inside a
+        paragraph.
+
+        ``sep`` is intentionally no longer used to join: it was only ever a
+        visual separator for the collapsed form. It stays in the signature
+        because the caller reads it from config and the surrounding branch
+        still passes it.
+        """
         if title:
-            text = f"{title}: {sep.join(items)}" if compact else (title + ":\n" + "\n".join(items))
-        else:
-            text = sep.join(items) if compact else "\n".join(items)
-        p = self.doc.add_paragraph(text)
-        self.bullets.styles.tight_paragraph(p, after_pt=0)
+            tp = self.doc.add_paragraph(title)
+            self.bullets.styles.tight_paragraph(tp, after_pt=0)
+
+        _, glyph = self.bullets.get_bullet_config(cfg)
+        for it in items:
+            p = self.doc.add_paragraph(f"{glyph} {it}")
+            self.bullets.styles.tight_paragraph(p, after_pt=0)
 
     def _render_bullets_or_joined(self, items: list[str], cfg: dict, sep: str) -> None:
         """Render items as bullets, or as a single sep-joined inline paragraph."""
