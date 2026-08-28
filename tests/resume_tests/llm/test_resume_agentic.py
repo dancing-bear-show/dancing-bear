@@ -19,11 +19,6 @@ class TestResumeAgenticParser(unittest.TestCase):
     """_get_parser() must return a real parser, not None."""
 
     def _get_parser(self):
-        import sys
-        from pathlib import Path
-        # Ensure correct source root is first on path
-        src = Path(__file__).parents[3] / "src"
-        sys.path.insert(0, str(src))
         from resume.agentic import _get_parser
         return _get_parser()
 
@@ -54,10 +49,6 @@ class TestResumeAgenticCliPathExists(unittest.TestCase):
     """_cli_path_exists must return True for the core workflow paths."""
 
     def _cli_path_exists(self, path):
-        import sys
-        from pathlib import Path
-        src = Path(__file__).parents[3] / "src"
-        sys.path.insert(0, str(src))
         from resume.agentic import _cli_path_exists
         return _cli_path_exists(path)
 
@@ -89,10 +80,6 @@ class TestResumeAgenticFlowMap(unittest.TestCase):
     """_flow_map() must render the extract/summarize/render workflow block."""
 
     def _flow_map(self):
-        import sys
-        from pathlib import Path
-        src = Path(__file__).parents[3] / "src"
-        sys.path.insert(0, str(src))
         from resume.agentic import _flow_map
         return _flow_map()
 
@@ -155,10 +142,6 @@ class TestResumeAgenticFlowMap(unittest.TestCase):
         # --seed must be KEY=VALUE form, not a file path.
         # parse_seed_criteria("seeds/general.yaml") -> {} (silently drops all criteria).
         # Extract the --seed value from the advertised summarize line and verify it parses.
-        import sys
-        from pathlib import Path
-        src = Path(__file__).parents[3] / "src"
-        sys.path.insert(0, str(src))
         from resume.templating import parse_seed_criteria
 
         flow = self._flow_map()
@@ -177,10 +160,6 @@ class TestResumeAgenticCliTree(unittest.TestCase):
     """_cli_tree() must return a non-empty string."""
 
     def _cli_tree(self):
-        import sys
-        from pathlib import Path
-        src = Path(__file__).parents[3] / "src"
-        sys.path.insert(0, str(src))
         from resume.agentic import _cli_tree
         return _cli_tree()
 
@@ -199,10 +178,6 @@ class TestResumeAgenticCapsule(unittest.TestCase):
     """build_agentic_capsule() must use the real entry point throughout."""
 
     def _capsule(self):
-        import sys
-        from pathlib import Path
-        src = Path(__file__).parents[3] / "src"
-        sys.path.insert(0, str(src))
         from resume.agentic import build_agentic_capsule
         return build_agentic_capsule()
 
