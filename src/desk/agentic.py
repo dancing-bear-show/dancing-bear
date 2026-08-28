@@ -31,22 +31,22 @@ def _cli_path_exists(path: list[str]) -> bool:
 def _flow_map() -> str:
     lines: list[str] = []
     if _cli_path_exists(["scan"]):
-        lines.append("- Scan clutter: python3 -m desk scan --paths ~/Downloads ~/Desktop --duplicates --out out/desk.scan.yaml")
+        lines.append("- Scan clutter: python3 -m desk scan --paths ~/Downloads ~/Desktop --duplicates --out desk.scan.yaml")
     if _cli_path_exists(["plan"]):
-        lines.append("- Plan cleanup: python3 -m desk plan --config config/rules.yaml --out out/desk.plan.yaml")
+        lines.append("- Plan cleanup: python3 -m desk plan --config rules.yaml --out desk.plan.yaml")
     if _cli_path_exists(["apply"]):
-        lines.append("- Apply plan (dry-run first): python3 -m desk apply --plan out/desk.plan.yaml --dry-run")
+        lines.append("- Apply plan (dry-run first): python3 -m desk apply --plan desk.plan.yaml --dry-run")
     if _cli_path_exists(["rules", "export"]):
-        lines.append("- Starter rules: python3 -m desk rules export --out config/rules.example.yaml")
+        lines.append("- Starter rules: python3 -m desk rules export --out rules.yaml")
     return "\n".join(lines)
 
 
 def build_agentic_capsule() -> str:
     commands = [
-        "scan: python3 -m desk scan --paths ~/Downloads ~/Desktop --duplicates --out out/desk.scan.yaml",
-        "plan: python3 -m desk plan --config config/desk_rules.yaml --out out/desk.plan.yaml",
-        "apply: python3 -m desk apply --plan out/desk.plan.yaml --dry-run",
-        "rules export: python3 -m desk rules export --out config/desk_rules.example.yaml",
+        "scan: python3 -m desk scan --paths ~/Downloads ~/Desktop --duplicates --out desk.scan.yaml",
+        "plan: python3 -m desk plan --config rules.yaml --out desk.plan.yaml",
+        "apply: python3 -m desk apply --plan desk.plan.yaml --dry-run",
+        "rules export: python3 -m desk rules export --out rules.yaml",
     ]
     return _build_capsule(
         "desk",
@@ -58,7 +58,7 @@ def build_agentic_capsule() -> str:
 
 def build_domain_map() -> str:
     return _core_build_domain_map(
-        "Top-Level\n- desk/scan.py — disk scan logic\n- desk/planner.py — rules → plan\n- desk/apply_ops.py — filesystem actions\n- config/desk_rules.yaml — example rules\n- out/desk.* — scan/plan artifacts",
+        "Top-Level\n- desk/scan.py — disk scan logic\n- desk/planner.py — rules → plan\n- desk/apply_ops.py — filesystem actions\n- `desk rules export` — writes a starter rules.yaml\n- scan/plan artifacts land outside the checkout (core/paths.py)",
         _cli_tree(),
         _flow_map(),
     )

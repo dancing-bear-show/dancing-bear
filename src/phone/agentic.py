@@ -42,22 +42,22 @@ def _flow_map() -> str:
         (
             "export-device",
             "Export layout (device)",
-            "./bin/phone export-device --out out/ios.IconState.yaml",
+            "./bin/phone export-device --out ios.IconState.yaml",
         ),
         (
             "iconmap",
             "Download icon map",
-            "./bin/phone iconmap --out out/ios.iconmap.json",
+            "./bin/phone iconmap --out ios.iconmap.json",
         ),
         (
             "plan",
             "Scaffold plan",
-            "./bin/phone plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml",
+            "./bin/phone plan --layout ios.IconState.yaml --out ios.plan.yaml",
         ),
         (
             "checklist",
             "Checklist",
-            "./bin/phone checklist --plan out/ios.plan.yaml --layout out/ios.IconState.yaml --out out/ios.checklist.txt",
+            "./bin/phone checklist --plan ios.plan.yaml --layout ios.IconState.yaml --out ios.checklist.txt",
         ),
     ]
     if all(_cli_path_exists([cmd]) for cmd, *_ in layout_cmds):
@@ -68,16 +68,16 @@ def _flow_map() -> str:
         lines.append("- Layout insights")
         if _cli_path_exists(["analyze"]):
             lines.append(
-                "  - Analyze balance: ./bin/phone analyze --layout out/ios.IconState.yaml --format text"
+                "  - Analyze balance: ./bin/phone analyze --layout ios.IconState.yaml --format text"
             )
         if _cli_path_exists(["auto-folders"]):
             lines.append(
-                "  - Auto folders: ./bin/phone auto-folders --layout out/ios.IconState.yaml --plan out/ios.plan.yaml"
+                "  - Auto folders: ./bin/phone auto-folders --layout ios.IconState.yaml --plan ios.plan.yaml"
             )
     if _cli_path_exists(["profile", "build"]):
         lines.append("- Profiles")
         lines.append(
-            "  - Build .mobileconfig: ./bin/phone profile build --plan out/ios.plan.yaml --out out/ios.mobileconfig"
+            "  - Build .mobileconfig: ./bin/phone profile build --plan ios.plan.yaml --out ios.mobileconfig"
         )
     if _cli_path_exists(["export-device"]):
         lines.append("- Device snapshot")
@@ -89,7 +89,7 @@ def _flow_map() -> str:
         )
         if _cli_path_exists(["manifest", "install"]):
             lines.append(
-                "  - Install profile: ./bin/phone manifest install --manifest out/ios.manifest.yaml --device-label ipad2025"
+                "  - Install profile: ./bin/phone manifest install --manifest ios.manifest.yaml --device-label ipad2025"
             )
     return "\n".join(lines)
 
@@ -98,10 +98,10 @@ def build_agentic_capsule() -> str:
     """Construct a compact capsule for LLM agents."""
     commands = [
         "help: ./bin/phone --help",
-        "export-device: ./bin/phone export-device --out out/ios.IconState.yaml",
-        "iconmap: ./bin/phone iconmap --out out/ios.iconmap.json",
-        "plan: ./bin/phone plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml",
-        "checklist: ./bin/phone checklist --plan out/ios.plan.yaml",
+        "export-device: ./bin/phone export-device --out ios.IconState.yaml",
+        "iconmap: ./bin/phone iconmap --out ios.iconmap.json",
+        "plan: ./bin/phone plan --layout ios.IconState.yaml --out ios.plan.yaml",
+        "checklist: ./bin/phone checklist --plan ios.plan.yaml",
     ]
     return _build_capsule(
         "phone",
