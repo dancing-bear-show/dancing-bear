@@ -27,7 +27,11 @@ from .docx_styles import (
     _format_link_display,
 )
 from .docx_base import get_contact_field
-from .docx_standard import SECTION_RENDERERS, SECTIONS_WITH_KEYWORDS
+from .docx_standard import (
+    SECTION_RENDERERS,
+    SECTIONS_WITH_KEYWORDS,
+    _section_has_data,
+)
 from .schema import Resume
 
 
@@ -238,22 +242,37 @@ def _render_sections(
     sections: list[dict[str, Any]],
     keywords: list[str] | None,
 ) -> None:
-    """Render all sections into the document.
+    """Render all sections into the document, skipping unrenderable or empty ones.
 
     Section renderers take the typed ``Resume`` and read candidate data as
     attributes; none of them lower it back to a mapping.
+
+    The heading is emitted only after both skip checks pass, so a section that
+    draws no body never leaves a bare heading behind. This mirrors
+    ``StandardResumeWriter._render_section`` exactly: the two entry points build
+    the same layout, so a guard on only one of them means the CLI
+    (``cmd_render`` -> ``write_resume_docx`` -> here) renders differently from
+    the factory path that the class-based API and most tests exercise.
     """
     page_cfg = template.get("page") or {}
     for sec in sections:
         key = sec.get("key")
         if not key:
             continue
+
+        # Skip sections with no registered renderer (e.g. "projects").
+        renderer_class = SECTION_RENDERERS.get(key)
+        if renderer_class is None:
+            continue
+
+        # Skip sections whose data is absent or empty.
+        if not _section_has_data(key, resume):
+            continue
+
         title = sec.get("title") or (key.title() if isinstance(key, str) else "")
         _render_section_heading(doc, title, template)
-        renderer_class = SECTION_RENDERERS.get(key)
-        if renderer_class:
-            renderer = renderer_class(doc, page_cfg)
-            if key in SECTIONS_WITH_KEYWORDS:
-                renderer.render(resume, sec, keywords)
-            else:
-                renderer.render(resume, sec)
+        renderer = renderer_class(doc, page_cfg)
+        if key in SECTIONS_WITH_KEYWORDS:
+            renderer.render(resume, sec, keywords)
+        else:
+            renderer.render(resume, sec)
