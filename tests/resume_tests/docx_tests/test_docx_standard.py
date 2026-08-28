@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 from tests.resume_tests.docx_tests.fixtures import make_mock_doc as _make_mock_doc
 from tests.resume_tests.fixtures import mock_docx_modules
 
+from resume.schema import Resume
+
 
 @mock_docx_modules
 class TestStandardResumeWriterInit(unittest.TestCase):
@@ -16,10 +18,9 @@ class TestStandardResumeWriterInit(unittest.TestCase):
     def test_creates_writer_with_data_and_template(self):
         """Writer lifts a dict to a typed Resume; there is no self.data mirror."""
         from resume.docx_standard import StandardResumeWriter
-        from resume.schema import Resume
         data = {"name": "John Doe"}
         template = {"sections": [], "page": {"compact": False}}
-        writer = StandardResumeWriter(data, template)
+        writer = StandardResumeWriter(Resume.from_dict(data), template)
         self.assertIsInstance(writer.resume, Resume)
         self.assertEqual(writer.resume.name, "John Doe")
         self.assertEqual(writer.template, template)
@@ -29,7 +30,7 @@ class TestStandardResumeWriterInit(unittest.TestCase):
         from resume.docx_standard import StandardResumeWriter
         data = {"name": "Jane"}
         template = {"sections": []}
-        writer = StandardResumeWriter(data, template)
+        writer = StandardResumeWriter(Resume.from_dict(data), template)
         self.assertEqual(writer.page_cfg, {})
 
 
@@ -62,7 +63,7 @@ class TestResolveSections(unittest.TestCase):
 
     def _make_writer(self, sections):
         from resume.docx_standard import StandardResumeWriter
-        return StandardResumeWriter({}, {"sections": sections})
+        return StandardResumeWriter(Resume(), {"sections": sections})
 
     def test_returns_sections_from_template(self):
         sections = [{"key": "summary"}, {"key": "experience"}]
@@ -77,7 +78,7 @@ class TestResolveSections(unittest.TestCase):
 
     def test_returns_empty_when_template_missing_sections(self):
         from resume.docx_standard import StandardResumeWriter
-        writer = StandardResumeWriter({}, {})
+        writer = StandardResumeWriter(Resume(), {})
         result = writer._resolve_sections()
         self.assertEqual(result, [])
 
@@ -88,7 +89,7 @@ class TestRenderDocumentHeader(unittest.TestCase):
 
     def _make_writer(self, data, template=None):
         from resume.docx_standard import StandardResumeWriter
-        writer = StandardResumeWriter(data, template or {})
+        writer = StandardResumeWriter(Resume.from_dict(data), template or {})
         writer.doc = _make_mock_doc()
         return writer
 
@@ -151,7 +152,7 @@ class TestRenderSectionHeading(unittest.TestCase):
 
     def _make_writer(self, page_cfg=None):
         from resume.docx_standard import StandardResumeWriter
-        writer = StandardResumeWriter({}, {"page": page_cfg or {}})
+        writer = StandardResumeWriter(Resume(), {"page": page_cfg or {}})
         writer.doc = _make_mock_doc()
         return writer
 
@@ -179,7 +180,7 @@ class TestRenderContent(unittest.TestCase):
     def _make_writer_with_doc(self, data, sections, page_cfg=None):
         from resume.docx_standard import StandardResumeWriter
         template = {"sections": sections, "page": page_cfg or {}}
-        writer = StandardResumeWriter(data, template)
+        writer = StandardResumeWriter(Resume.from_dict(data), template)
         writer.doc = _make_mock_doc()
         return writer
 

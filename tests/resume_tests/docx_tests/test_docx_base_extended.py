@@ -7,6 +7,8 @@ from unittest.mock import MagicMock
 
 from tests.resume_tests.fixtures import mock_docx_modules
 
+from resume.schema import Resume
+
 
 def _make_compact_doc():
     """Make a mock Document with styles dict for compact page style tests."""
@@ -33,7 +35,7 @@ class TestApplyPageStylesCompact(unittest.TestCase):
 
     def _get_writer(self, page_cfg):
         from resume.docx_base import create_resume_writer
-        writer = create_resume_writer({"name": "Test"}, {"page": page_cfg})
+        writer = create_resume_writer(Resume.from_dict({"name": "Test"}), {"page": page_cfg})
         writer.doc = _make_compact_doc()
         return writer
 
@@ -100,7 +102,7 @@ class TestSetDocumentMetadataExtended(unittest.TestCase):
 
     def _get_writer(self, data, page_cfg=None):
         from resume.docx_base import create_resume_writer
-        writer = create_resume_writer(data, {"page": page_cfg or {}})
+        writer = create_resume_writer(Resume.from_dict(data), {"page": page_cfg or {}})
         writer.doc = _make_compact_doc()
         return writer
 
@@ -159,7 +161,7 @@ class TestSetDocumentMetadataExtended(unittest.TestCase):
     def test_metadata_handles_exception(self):
         """Test that metadata setting handles exceptions gracefully."""
         from resume.docx_base import create_resume_writer
-        writer = create_resume_writer({"name": "Test"}, {})
+        writer = create_resume_writer(Resume.from_dict({"name": "Test"}), {})
         # doc with broken core_properties
         writer.doc = MagicMock()
         writer.doc.core_properties = None  # Will cause AttributeError
@@ -179,7 +181,7 @@ class TestAddColoredRun(unittest.TestCase):
 
     def _get_writer(self):
         from resume.docx_base import create_resume_writer
-        return create_resume_writer({"name": "Test"}, {})
+        return create_resume_writer(Resume.from_dict({"name": "Test"}), {})
 
     def test_adds_run_with_text(self):
         writer = self._get_writer()
@@ -240,7 +242,7 @@ class TestExtractExperienceLocationsBase(unittest.TestCase):
 
     def _get_writer(self, data):
         from resume.docx_base import create_resume_writer
-        return create_resume_writer(data, {})
+        return create_resume_writer(Resume.from_dict(data), {})
 
     def test_extracts_unique_ordered(self):
         data = {"experience": [

@@ -264,22 +264,26 @@ def set_document_metadata_on_doc(
 class ResumeWriterBase(ABC):
     """Base class for DOCX resume writers."""
 
-    def __init__(self, data: dict[str, Any] | Resume, template: dict[str, Any]):
+    def __init__(self, data: Resume, template: dict[str, Any]):
         """Initialize writer with resume data and template config.
 
-        Accepts either a typed ``Resume`` or a raw dict. Every render module on
-        this path now reads candidate data as attributes, so only the typed
-        object is kept -- there is no lowered ``self.data`` mirror to drift out
-        of sync with it. A dict argument is lifted through ``Resume.from_dict``,
-        which is safe because the conversion is idempotent on data that has
-        already been through the schema -- and everything reaching a writer has,
-        since the entry point normalizes on the way in.
+        Requires a typed ``Resume``. Every render module on this path reads
+        candidate data as attributes, so only the typed object is kept -- there
+        is no lowered ``self.data`` mirror to drift out of sync with it.
+
+        This used to also accept a raw dict and lift it via ``Resume.from_dict``.
+        That made the writers disagree with ``write_resume_docx``, the sibling
+        public entry point, which requires a typed ``Resume``: the same dict was
+        a type error on one path and silently normalized on the other. The lift
+        is not neutral -- it applies one-directional upgrades (scalar summary to
+        list, ``list[str]`` bullets to ``PriorityItem``) that rewrite the data --
+        so callers now perform it explicitly, where it is visible.
 
         Args:
-            data: Resume data, typed or as a dict.
+            data: Typed candidate data.
             template: Template configuration (sections, page styles, etc.)
         """
-        self.resume = data if isinstance(data, Resume) else Resume.from_dict(data)
+        self.resume = data
         self.template = template
         self.page_cfg = template.get("page") or {}
         self.layout_cfg = template.get("layout") or {}
@@ -380,13 +384,13 @@ class ResumeWriterBase(ABC):
 
 
 def create_resume_writer(
-    data: dict[str, Any] | Resume,
+    data: Resume,
     template: dict[str, Any],
 ) -> ResumeWriterBase:
     """Factory function to create the appropriate resume writer.
 
     Args:
-        data: Resume data (name, experience, education, etc.)
+        data: Typed candidate data (name, experience, education, etc.)
         template: Template configuration (sections, page styles, layout type)
 
     Returns:
@@ -394,7 +398,7 @@ def create_resume_writer(
 
     Examples:
         >>> # Standard single-column layout
-        >>> data = {"name": "John Doe", "experience": [...]}
+        >>> data = Resume.from_dict({"name": "John Doe", "experience": [...]})
         >>> template = {"sections": [...], "page": {"compact": True}}
         >>> writer = create_resume_writer(data, template)
         >>> writer.write("resume.docx")
