@@ -28,6 +28,7 @@ from slides.constants import (
     TABLE_ROW_ODD_BG,
     VERTICAL_ANCHOR_MIDDLE,
 )
+from slides._styling import TextStyle
 from slides.generator import (
     SlideGenerator,
     generate_from_yaml,
@@ -500,11 +501,13 @@ class TestSlideGeneratorAddTextToParagraph(unittest.TestCase):
 
         self.generator._add_text_to_paragraph(
             mock_para,
-            text="Simple text",
-            theme_color=MSO_THEME_COLOR.LIGHT_2,
-            font_size=Pt(15),
-            bold=False,
-            highlights=None,
+            "Simple text",
+            TextStyle(
+                theme_color=MSO_THEME_COLOR.LIGHT_2,
+                font_size=Pt(15),
+                bold=False,
+                highlights=None,
+            ),
         )
 
         self.assertEqual(len(runs), 1)
@@ -519,11 +522,13 @@ class TestSlideGeneratorAddTextToParagraph(unittest.TestCase):
 
         self.generator._add_text_to_paragraph(
             mock_para,
-            text="This has one highlight word here",
-            theme_color=MSO_THEME_COLOR.LIGHT_2,
-            font_size=Pt(15),
-            bold=False,
-            highlights=["highlight"],
+            "This has one highlight word here",
+            TextStyle(
+                theme_color=MSO_THEME_COLOR.LIGHT_2,
+                font_size=Pt(15),
+                bold=False,
+                highlights=["highlight"],
+            ),
         )
 
         # Should have 3 runs: "This has one " + "highlight" + " word here"
@@ -548,11 +553,13 @@ class TestSlideGeneratorAddTextToParagraph(unittest.TestCase):
 
         self.generator._add_text_to_paragraph(
             mock_para,
-            text="First word and second word",
-            theme_color=MSO_THEME_COLOR.LIGHT_2,
-            font_size=Pt(15),
-            bold=False,
-            highlights=["First", "second"],
+            "First word and second word",
+            TextStyle(
+                theme_color=MSO_THEME_COLOR.LIGHT_2,
+                font_size=Pt(15),
+                bold=False,
+                highlights=["First", "second"],
+            ),
         )
 
         # Should have runs for: "First" + " word and " + "second" + " word"
@@ -571,11 +578,13 @@ class TestSlideGeneratorAddTextToParagraph(unittest.TestCase):
 
         self.generator._add_text_to_paragraph(
             mock_para,
-            text="Header Text:",
-            theme_color=MSO_THEME_COLOR.LIGHT_2,
-            font_size=Pt(18),
-            bold=True,
-            highlights=None,
+            "Header Text:",
+            TextStyle(
+                theme_color=MSO_THEME_COLOR.LIGHT_2,
+                font_size=Pt(18),
+                bold=True,
+                highlights=None,
+            ),
         )
 
         self.assertEqual(len(runs), 1)
@@ -588,11 +597,13 @@ class TestSlideGeneratorAddTextToParagraph(unittest.TestCase):
 
         self.generator._add_text_to_paragraph(
             mock_para,
-            text="Check this important item",
-            theme_color=MSO_THEME_COLOR.LIGHT_2,
-            font_size=Pt(15),
-            bold=False,
-            highlights=["important"],
+            "Check this important item",
+            TextStyle(
+                theme_color=MSO_THEME_COLOR.LIGHT_2,
+                font_size=Pt(15),
+                bold=False,
+                highlights=["important"],
+            ),
         )
 
         # Find the highlighted run
@@ -607,11 +618,13 @@ class TestSlideGeneratorAddTextToParagraph(unittest.TestCase):
 
         self.generator._add_text_to_paragraph(
             mock_para,
-            text="Regular text",
-            theme_color=MSO_THEME_COLOR.LIGHT_2,
-            font_size=Pt(15),
-            bold=False,
-            highlights=[],
+            "Regular text",
+            TextStyle(
+                theme_color=MSO_THEME_COLOR.LIGHT_2,
+                font_size=Pt(15),
+                bold=False,
+                highlights=[],
+            ),
         )
 
         self.assertEqual(len(runs), 1)
@@ -624,12 +637,14 @@ class TestSlideGeneratorAddTextToParagraph(unittest.TestCase):
 
         self.generator._add_text_to_paragraph(
             mock_para,
-            text="Click here",
-            theme_color=MSO_THEME_COLOR.LIGHT_2,
-            font_size=Pt(15),
-            bold=False,
-            highlights=None,
-            url="https://example.com",
+            "Click here",
+            TextStyle(
+                theme_color=MSO_THEME_COLOR.LIGHT_2,
+                font_size=Pt(15),
+                bold=False,
+                highlights=None,
+                url="https://example.com",
+            ),
         )
 
         self.assertEqual(len(runs), 1)
@@ -645,12 +660,14 @@ class TestSlideGeneratorAddTextToParagraph(unittest.TestCase):
 
         self.generator._add_text_to_paragraph(
             mock_para,
-            text="Visit dashboard now",
-            theme_color=MSO_THEME_COLOR.LIGHT_2,
-            font_size=Pt(15),
-            bold=False,
-            highlights=["dashboard"],
-            url="https://grafana.example.com",
+            "Visit dashboard now",
+            TextStyle(
+                theme_color=MSO_THEME_COLOR.LIGHT_2,
+                font_size=Pt(15),
+                bold=False,
+                highlights=["dashboard"],
+                url="https://grafana.example.com",
+            ),
         )
 
         # 3 runs: "Visit " + "dashboard" + " now"
@@ -666,12 +683,14 @@ class TestSlideGeneratorAddTextToParagraph(unittest.TestCase):
 
         self.generator._add_text_to_paragraph(
             mock_para,
-            text="Plain text",
-            theme_color=MSO_THEME_COLOR.LIGHT_2,
-            font_size=Pt(15),
-            bold=False,
-            highlights=None,
-            url=None,
+            "Plain text",
+            TextStyle(
+                theme_color=MSO_THEME_COLOR.LIGHT_2,
+                font_size=Pt(15),
+                bold=False,
+                highlights=None,
+                url=None,
+            ),
         )
 
         self.assertEqual(len(runs), 1)

@@ -25,6 +25,7 @@ from slides.constants import (
     table_row_odd_bg,
     vertical_anchor_middle,
 )
+from slides._styling import TextStyle
 from slides.schema import ResolvedBullet, TableSlide
 
 if TYPE_CHECKING:
@@ -218,7 +219,15 @@ class TableMixin:
             )
 
             self._add_text_to_paragraph(
-                p, text, theme_color, font_size, is_header, bullet.highlight, url=bullet.url
+                p,
+                text,
+                TextStyle(
+                    theme_color=theme_color,
+                    font_size=font_size,
+                    bold=is_header,
+                    highlights=bullet.highlight,
+                    url=bullet.url,
+                ),
             )
             p.space_before = Pt(SPACING_BEFORE_BULLET)
             p.space_after = Pt(SPACING_AFTER_BULLET)

@@ -14,14 +14,11 @@ from slides._parse_text import (
     _chunk_slides,
     _extract_highlights,
 )
-from slides.constants import (
-    DEFAULT_TEMPLATE_SLIDE_INDEX,
-    DEFAULT_THEME_COLOR,
-    DEFAULT_TITLE,
-)
+from slides.constants import DEFAULT_TITLE
 from slides.schema import (
     BulletItem,
     DeckMetadata,
+    DeckOptions,
     SlideContent,
     SlideDeck,
     TableSlide,
@@ -31,11 +28,7 @@ from slides.schema import (
 def load_deck_from_csv(
     csv_path: str | Path,
     *,
-    title: str = DEFAULT_TITLE,
-    author: str | None = None,
-    template_path: str | None = None,
-    template_slide_index: int = DEFAULT_TEMPLATE_SLIDE_INDEX,
-    theme_color: str = DEFAULT_THEME_COLOR,
+    options: DeckOptions | None = None,
     title_column: str = "slide_title",
     text_column: str = "summary",
     bullet_limit: int = DEFAULT_BULLET_LIMIT,
@@ -48,11 +41,10 @@ def load_deck_from_csv(
 
     Args:
         csv_path: Path to CSV file
-        title: Deck title
-        author: Deck author
-        template_path: Path to template .pptx
-        template_slide_index: Template slide index
-        theme_color: Theme color name
+        options: Common deck-metadata options (title, author, template_path,
+            template_slide_index, theme_color); defaults applied when None.
+            title falls back to DEFAULT_TITLE only when None — an explicitly
+            empty title is kept, unlike the markdown and outline loaders.
         title_column: Column name for slide titles
         text_column: Column name for bullet text
         bullet_limit: Max bullets per slide before auto-pagination
@@ -60,6 +52,16 @@ def load_deck_from_csv(
     Returns:
         SlideDeck with parsed slides
     """
+    opts = options or DeckOptions()
+    # `is None`, not `or`: this loader's title default used to be a concrete
+    # DEFAULT_TITLE parameter, so an explicitly passed empty string reached the
+    # deck unchanged. `or` would silently rewrite it to "Untitled".
+    title = DEFAULT_TITLE if opts.title is None else opts.title
+    author = opts.author
+    template_path = opts.template_path
+    template_slide_index = opts.template_slide_index
+    theme_color = opts.theme_color
+
     path = Path(csv_path)
 
     with path.open(newline="", encoding="utf-8") as f:

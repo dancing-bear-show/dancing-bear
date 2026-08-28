@@ -51,7 +51,8 @@ def _scan_arguments(func):
         app.argument("--smells-only", action="store_true", help="Run only qlty smells"),
         app.argument("--check-only", action="store_true", help="Run only qlty check"),
         app.argument("--changed", action="store_true", help="Scan only changed files (default: all)"),
-        app.argument("--no-include-tests", action="store_true", help="Exclude test files from smells (default: included)"),
+        app.argument("--no-include-tests", action="store_true", help="Exclude test files from smells even when paths are named"),
+        app.argument("--include-tests", action="store_true", help="Include test files in smells when no paths are named"),
         app.argument("--rule", action="append", dest="rules", metavar="RULE",
                      help="Limit output to this rule (repeatable; unknown rule yields empty)"),
         app.argument("paths", nargs="*", help="Limit scan to these paths"),
@@ -108,12 +109,20 @@ def _run_scan(args) -> tuple[ScanResult, ScanResult]:
             "files repo-wide."
         )
 
+    if getattr(args, "include_tests", False) and getattr(args, "no_include_tests", False):
+        # Direct opposites of one setting. Resolving them by precedence would
+        # silently discard one of the two flags the caller explicitly passed.
+        raise UsageError(
+            "--include-tests and --no-include-tests are opposites; pass at most one."
+        )
+
     request = ScanRequest(
         # F1: default to --all. Diff-only is opt-in, because `qlty check`
         # defaulting to changed-files-only reports "No issues" on a clean
         # branch, which is indistinguishable from a genuinely clean repo.
         scan_all=not getattr(args, "changed", False),
         include_tests=not getattr(args, "no_include_tests", False),
+        force_include_tests=getattr(args, "include_tests", False),
         paths=tuple(getattr(args, "paths", ()) or ()),
         sources=_sources(args),
     )

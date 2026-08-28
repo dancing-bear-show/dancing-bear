@@ -15,6 +15,7 @@ from slides.constants import (
     SPACING_BEFORE_BULLET,
     SPACING_BEFORE_HEADER,
 )
+from slides._styling import TextStyle
 from slides.schema import BulletItem, ResolvedBullet
 
 if TYPE_CHECKING:
@@ -83,7 +84,9 @@ class ContentMixin:
             # Template-style: let placeholder formatting inherit.
             # Highlights render as bold-only (no accent color). Hyperlinks preserved.
             self._add_text_to_paragraph(
-                paragraph, text, None, None, bullet.bold, bullet.highlight, url=bullet.url
+                paragraph,
+                text,
+                TextStyle(bold=bullet.bold, highlights=bullet.highlight, url=bullet.url),
             )
             return
 
@@ -95,8 +98,15 @@ class ContentMixin:
             is_header, bullet.level, theme_color, use_template_style,
         )
         self._add_text_to_paragraph(
-            paragraph, text, effective_theme, font_size,
-            is_header or bullet.bold, bullet.highlight, url=bullet.url,
+            paragraph,
+            text,
+            TextStyle(
+                theme_color=effective_theme,
+                font_size=font_size,
+                bold=is_header or bullet.bold,
+                highlights=bullet.highlight,
+                url=bullet.url,
+            ),
         )
         paragraph.space_before = space_before
         paragraph.space_after = space_after

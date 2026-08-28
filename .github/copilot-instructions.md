@@ -2,7 +2,70 @@
 
 ## Project Context
 
-This is a Python 3.11 monorepo containing personal assistant CLIs (mail, calendar, schedule, phone, resume, whatsapp, wifi, desk, maker). The codebase follows a pipeline architecture with Consumer/Processor/Producer patterns.
+This is a Python 3.11 monorepo containing personal assistant CLIs. It ships **19
+packages** under `src/` — `apple_music`, `calendars`, `charts`, `core`, `desk`,
+`diagrams`, `mail`, `maker`, `phone`, `qlty`, `resume`, `schedule`, `sheets`,
+`slides`, `telemetry`, `whatsapp`, `wifi`, `worker`, `workflow` — of which **18
+are agentic-schema apps** (`core` is the shared library). The codebase follows a
+pipeline architecture with Consumer/Processor/Producer patterns.
+
+All 18 apps support `--agentic --agentic-format json` (added in #291). Agents are
+instructed to prefer capsules over `--help`, which makes a wrong command in a
+capsule a machine-readable instruction to run something broken — not a stale
+comment. `tests/core_tests/test_capsule_parser_drift.py` (#293) resolves every
+command a capsule advertises against that CLI's real parser schema.
+
+Do not assume the entry point is `./bin/<app>` — four differ: `apple-music` and
+`qlty` use `-assistant` wrappers, `resume` goes through `./bin/assistant resume`,
+and `desk` has no wrapper (`python3 -m desk`). `./bin/llm inventory --stdout` is
+the authoritative list.
+
+## Verification Must Actually Verify
+
+The most valuable findings in this repo's recent history are checks that **pass
+while verifying nothing**. A false green is indistinguishable from a real one, so
+flag any of these on sight:
+
+- **Bare `python3 -m unittest`** (#282). In a worktree an inherited `PYTHONPATH`
+  resolves imports to the *main checkout*, so tests run against unmodified source
+  and pass. Require `make test`, or `PYTHONPATH="$PWD/src"`.
+- **`qlty check` scanning zero files** (#282, #289). The exclusion was
+  `**/.claude/**`, which matched the `.claude/` dir inside every agent worktree;
+  a scan there reported `✔ No issues` against 0 files. Now narrowed to
+  `**/.claude/worktrees/**`. Treat a surprisingly clean scan as suspect and
+  confirm the file count.
+- **Bare `ruff check`** — there is no standalone `ruff` on PATH. CI lints through
+  `qlty check`. Use `make lint`.
+- **A workflow/guard that reports success without doing the work** (#287): a
+  dry run of the branch-hygiene workflow found a false-clean *inside the
+  workflow written to prevent false-cleans*.
+
+Reviewing code is not the same as running it. Three defects in #287 were
+invisible across five review rounds and immediate on the first execution.
+
+## qlty Findings Are Not All Real
+
+Before requesting a change to satisfy a qlty finding, confirm the finding is real
+(#275, #289). Known artifact classes:
+
+- **`function-parameters` over-reports by one** on keyword-only signatures — it
+  counts the bare `*` separator as a parameter. The threshold is 7 *reported*,
+  which is 6 real; the written standard is still max 5 real. Read the signature.
+- **`similar-code` on symlinks** — `bin/*` wrappers are symlinks to
+  `bin/_router.py`; qlty followed each one and reported 24 clones of a single
+  file.
+- **`similar-code` on data tables and parallel test suites** — structurally
+  identical entries in a literal dict, or per-command test classes that mirror
+  parallel production code, have no shared logic to extract.
+- Roughly 17 `similar-code` groups are an accepted baseline (#275), not a
+  regression.
+- Test fixtures/factories legitimately take wide keyword surfaces and are
+  excluded from smells via `test_patterns` in `.qlty/qlty.toml`.
+
+Prefer a genuine refactor; where a rule genuinely misfires, a suppression with a
+stated reason is correct. Suppression codes are linter-specific: `# noqa:` takes
+ruff codes, `# NOSONAR` takes SonarQube codes (S3776), `# nosec` takes bandit
+codes (B603). A SonarQube code in a `# noqa:` suppresses nothing.
 
 ## Review Priorities
 
@@ -38,10 +101,52 @@ This is a Python 3.11 monorepo containing personal assistant CLIs (mail, calenda
 
 ### Testing
 - Use shared fakes from `tests/fakes/` (`FakeGmailClient` in `tests/fakes/gmail.py`,
-  `FakeOutlookClient` in `tests/fakes/outlook.py`); other shared helpers live in
-  `tests/fixtures.py`
+  `FakeOutlookClient` in `tests/fakes/outlook.py`, DOCX fakes in
+  `tests/fakes/docx.py`); other shared helpers live in `tests/fixtures.py`
 - Prefer `assertGreater`/`assertLess` over `assertTrue(a > b)`
 - Skip tests requiring network/auth with `@unittest.skip` and reason
+- A test must assert behaviour. Do not add tests whose only purpose is to import
+  a module and raise its coverage number; `*/__main__.py` is omitted in
+  `.coveragerc` for exactly this reason. Conversely, do not exempt a module
+  because it reports 0% — check why first. `src/telemetry/tui/` reported 0%
+  only because `textual` was an undeclared optional dep, which is
+  indistinguishable from untested code.
+- Cover both the happy and the sad path. Several recent fixes (#292, #294, #297,
+  #298) were rendering defects that a happy-path-only test suite passed over.
+
+### Type Boundaries
+
+An active migration is closing `dict[str, Any]` boundaries onto typed schemas
+(#279, #290, #294, #295). Two rules follow from it:
+
+- Do not accept `Resume | dict` (or similar unions) at an entry point and lift
+  the dict internally. `Resume.from_dict` applies one-directional upgrades that
+  **rewrite** the data — a scalar `summary` becomes a single-item list, `list[str]`
+  bullets become `PriorityItem`s, contact values get promoted to top-level
+  scalars. The same dict was a type error on one path and silently normalized on
+  its sibling (#295). Require the typed object; convert at the outer edge.
+- Flag sibling entry points in one module that disagree on whether they accept a
+  typed value or a dict. That asymmetry is the bug.
+
+### Subprocess Calls
+
+`subprocess` invocations carry a pinned contract (#299). When reviewing one:
+
+- argv must be a `list` of `str`, and `shell=` must never be passed.
+- Assert the invocation element-by-element, not with `assertIn`. Paths
+  containing spaces, quotes, `;`, `$( )`, backticks, `&&` or `|` must reach argv
+  verbatim — a path with a space stays one element.
+- Pin `timeout` and `capture_output`.
+- Test the negative: assert the subprocess is **not** invoked when a pre-check
+  fails, and that argument validation raises before the process would run.
+
+### Workflow YAML
+
+- Workflows call tested CLI surfaces; do not embed Python in workflow YAML
+  (#270). Embedded code is untestable and unauditable.
+- `writes_to` gets no `{param}` substitution, and `kind: validate` stages
+  discard `description` — the contract must live in `validation.criteria`.
+  Neither is visible to `workflow lint`.
 
 ### Complexity
 
@@ -56,17 +161,71 @@ Enforced by qlty in CI; see `concerns/complexity.md` for the full guide.
 - Keep function bodies within 3 levels of nesting.
 - Prefer named helpers, dispatch tables over `if`/`elif` chains, and early
   returns to flatten nesting.
-- Signatures should stay within 5 parameters (excluding `self`/`cls`). Note
-  qlty's reported count is not real arity — it counts `self`/`cls` and the bare
-  `*` separator, so keyword-only signatures report one higher than they take.
-  Read the signature before filing a finding, and don't split a cohesive
-  signature just to lower a count.
+- Signatures should stay within 5 real parameters. qlty's reported count is not
+  real arity — it *excludes* `self`/`cls` but counts the bare `*` separator as a
+  parameter, so a keyword-only signature reports one higher than it takes. Read
+  the signature before filing a finding, and don't split a cohesive signature
+  just to lower a count. Full counting caveat, with verified fixtures, in
+  `concerns/complexity.md#too-many-parameters`.
 - Files over ~800 lines warrant a split by responsibility.
 
 ### CLI Conventions
 - Keep public flags/subcommands stable (additive changes only)
 - Support `--agentic` flag for token-efficient schema output
 - Use profiles from `~/.config/credentials.ini` over CLI credential args
+- Internal APIs are refactored freely — update all call sites atomically. Do
+  **not** add backwards-compatible wrappers or re-export facades for internal
+  moves. This applies to test patch targets too. Public `bin/*` entry points are
+  the opposite: those stay stable.
+- Note that some `llm_cli.py` modules look like removable facades but are live
+  `llm --app <name>` dispatch targets resolved by string literal in
+  `core/llm_handlers.py`'s `_APP_MODULES`. Deleting one breaks dispatch silently.
+
+### Generated Output and PII
+- Generated artifacts are written **outside the checkout**, resolved by
+  `src/core/paths.py` (`--out-dir` → `$DANCING_BEAR_DATA_HOME` →
+  `$XDG_DATA_HOME/dancing-bear` → `~/.local/share/dancing-bear`).
+- New output-producing code must call `core.paths.output_dir("<domain>")` rather
+  than defaulting to a relative path. A relative default resolves against the
+  working directory, which wrote resumes carrying PII into the checkout (#269).
+- Test fixtures must never be seeded from real profile data — goldens built from
+  them are committed permanently (#268).
+
+## Concern Library
+
+`concerns/` holds the detailed review guides this file summarises — 14 guides,
+each concern carrying a check, triggers, and a worked example. **Where this file
+and a concern guide disagree, the guide wins**; it is the maintained source and
+carries the reasoning. Load selectively by the file types in the diff rather
+than reading them all. (Per-guide concern counts live in `concerns/README.md`;
+they are not repeated here, as that table has already drifted from the actual
+`###` heading counts.)
+
+| Guide | Load when the diff touches |
+|-------|----------------------------|
+| `correctness.md` | any Python — type safety, logic errors |
+| `patterns.md` | CLI framework, lazy imports, plan/apply safety |
+| `workflow.md` | `FLOWS.yaml`, CLI references, plan/apply order |
+| `tests.md` | test files — quality, coverage, fixture patterns |
+| `workflow-fragments.md` | `.llm/` context files, agent definitions |
+| `docs.md` | docstrings, CLI help text, `.llm/` staleness |
+| `workflow-fanout.md` | fan-out, writes-to contracts, worker queue |
+| `slides-yaml.md` | slide deck YAML — bullet forms, silent drops |
+| `workflow-stages.md` | stage runtime, model tier, tool access |
+| `resume-copy.md` | resume/profile copy — voice, banned phrases |
+| `security.md` | credentials, input validation, `nosec` rationale |
+| `phone-layout.md` | iOS layout — icon map, folders, profile install |
+| `complexity.md` | complexity, nesting, file size, parameter count |
+| `reuse.md` | DRY, intra-domain duplication, shared extraction |
+
+Two concerns worth knowing before filing a finding, because both are commonly
+reported backwards:
+
+- `complexity.md#too-many-parameters` — qlty's count excludes `self`/`cls` but
+  counts the bare `*`, so keyword-only signatures over-report by one.
+- `security.md#nosec-rationale-accuracy` — a `nosec`/`NOSONAR` comment whose
+  stated reason does not match what the code actually does is itself a finding.
+  Check the rationale, not just the presence of a suppression.
 
 ## Files to Skip
 
@@ -79,4 +238,10 @@ Don't review these paths:
 
 Expect conventional commits: `type(scope): description`
 - Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`
-- Scopes: `mail`, `calendar`, `phone`, `resume`, `whatsapp`, `wifi`, `core`, `tests`
+- Scopes are the app or area, not a fixed enum. Domain scopes: `mail`,
+  `calendars`, `schedule`, `phone`, `resume`, `whatsapp`, `wifi`, `desk`,
+  `slides`, `sheets`, `charts`, `diagrams`, `workflow`, `telemetry`, `worker`,
+  `qlty`, `core`, `cli`, `bin`. Cross-cutting scopes also in active use:
+  `workflows` (the YAML DAGs under `workflows/`, distinct from the `workflow`
+  engine), `agents`, `tooling`, `lint`, `tests`, `coverage`, `security`,
+  `vulture`, `claude`.

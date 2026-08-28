@@ -219,10 +219,10 @@ class TestAddBulletsBelow(unittest.TestCase):
                 top_inches=2.5,
             )
             mock_add_text.assert_called_once()
-            call_args = mock_add_text.call_args
+            style = mock_add_text.call_args.args[2]
             # Check highlights were passed through
-            self.assertFalse(call_args[0][4])  # bold
-            self.assertEqual(call_args[0][5], ["Highlighted"])  # highlights
+            self.assertFalse(style.bold)
+            self.assertEqual(style.highlights, ["Highlighted"])
 
     def test_section_header_bullet_gets_header_font_size(self) -> None:
         """A bullet ending with ':' is treated as a section header."""
@@ -238,11 +238,11 @@ class TestAddBulletsBelow(unittest.TestCase):
                 top_inches=2.0,
             )
             mock_add_text.assert_called_once()
-            call_args = mock_add_text.call_args
+            style = mock_add_text.call_args.args[2]
             # Font size should be header size
-            self.assertEqual(call_args[0][3], Pt(FONT_SIZE_HEADER))
+            self.assertEqual(style.font_size, Pt(FONT_SIZE_HEADER))
             # bold should be True
-            self.assertTrue(call_args[0][4])
+            self.assertTrue(style.bold)
 
     def test_mixed_string_and_bullet_items(self) -> None:
         """Mix of strings and BulletItem objects processes correctly."""
@@ -624,10 +624,10 @@ class TestSetSlideContentTemplateStyle(unittest.TestCase):
 
         captured_calls = []
 
-        def capture_add_text(para, text, theme, font_size, bold, highlights, *, url=None):
+        def capture_add_text(para, text, style):
             captured_calls.append({
-                "theme": theme,
-                "font_size": font_size,
+                "theme": style.theme_color,
+                "font_size": style.font_size,
             })
 
         with patch.object(self.generator, "_add_text_to_paragraph", side_effect=capture_add_text), \
@@ -1502,12 +1502,12 @@ class TestFormatBodyParagraphInheritStyle(unittest.TestCase):
             )
 
             mock_add_text.assert_called_once()
-            args, kwargs = mock_add_text.call_args
+            style = mock_add_text.call_args.args[2]
             # theme_color and font_size are None (inherit from template)
-            self.assertIsNone(args[2])  # theme_color
-            self.assertIsNone(args[3])  # font_size
+            self.assertIsNone(style.theme_color)
+            self.assertIsNone(style.font_size)
             # URL is passed through
-            self.assertEqual(kwargs.get("url"), "https://example.com")
+            self.assertEqual(style.url, "https://example.com")
             # paragraph.level is set for indentation
             self.assertEqual(paragraph.level, 1)
 
@@ -1522,10 +1522,10 @@ class TestFormatBodyParagraphInheritStyle(unittest.TestCase):
             )
 
             mock_add_text.assert_called_once()
-            args, kwargs = mock_add_text.call_args
-            self.assertIsNone(args[2])  # theme_color
-            self.assertIsNone(args[3])  # font_size
-            self.assertIsNone(kwargs.get("url"))
+            style = mock_add_text.call_args.args[2]
+            self.assertIsNone(style.theme_color)
+            self.assertIsNone(style.font_size)
+            self.assertIsNone(style.url)
 
 
 class TestGenerateCallsRenameSlidesParts(unittest.TestCase):

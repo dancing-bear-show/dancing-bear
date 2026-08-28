@@ -6,7 +6,7 @@ import types
 from unittest.mock import MagicMock
 
 
-def make_fake_msal_module(flow_success=True, has_accounts=True, silent_success=True,
+def make_fake_msal_module(flow_success=True, has_accounts=True, silent_success=True,  # NOSONAR S1142 - returns counted across nested stub methods that mirror the msal API, not one linear function
                           device_success=True, acquire_success=True, user_code="ABC123"):
     """Factory for creating fake msal modules with configurable behavior."""
     msal = types.ModuleType("msal")

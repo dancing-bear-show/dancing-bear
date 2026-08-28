@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from slides.constants import DEFAULT_TEMPLATE_SLIDE_INDEX, DEFAULT_THEME_COLOR
+
 
 @dataclass
 class BulletItem:
@@ -86,3 +88,33 @@ class SlideDeck:
     metadata: DeckMetadata
     slides: list[SlideContent] = field(default_factory=list)
     template_path: str | None = None  # Path to template .pptx
+
+
+@dataclass(frozen=True)
+class DeckOptions:
+    """Common deck-metadata options shared by the CSV, Markdown, and Outline parsers.
+
+    Bundles the five metadata fields that every parser accepts so callers can
+    construct one object and pass it to whichever loader they use, reducing
+    per-function parameter counts.
+    """
+
+    # None means "unset" so each parser can apply its own fallback: the CSV
+    # loader substitutes DEFAULT_TITLE, while the markdown/outline loaders fall
+    # back to the first slide's title. A concrete default here would erase that
+    # distinction.
+    #
+    # The loaders differ on what an explicitly EMPTY title means, and that
+    # predates this dataclass:
+    #   - CSV took `title: str = DEFAULT_TITLE`, so "" was a real title and
+    #     reached the deck unchanged. It still does (`is None`).
+    #   - markdown/outline took `title: str | None = None` and have always
+    #     used a truthiness check, so "" falls back to the first slide title.
+    # Both behaviours are preserved deliberately; changing either would alter
+    # rendered output for callers who pass "". Read the loader before assuming
+    # `is None` semantics.
+    title: str | None = None
+    author: str | None = None
+    template_path: str | None = None
+    template_slide_index: int = DEFAULT_TEMPLATE_SLIDE_INDEX
+    theme_color: str = DEFAULT_THEME_COLOR

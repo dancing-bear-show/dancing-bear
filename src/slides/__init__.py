@@ -20,6 +20,7 @@ from slides.parsers_markdown import (
 from slides.schema import (
     BulletItem,
     DeckMetadata,
+    DeckOptions,
     SlideContent,
     SlideDeck,
     TableSlide,
@@ -33,6 +34,7 @@ __all__ = [
     # Schema dataclasses
     "BulletItem",
     "DeckMetadata",
+    "DeckOptions",
     "SlideContent",
     "SlideDeck",
     # Generator class and functions

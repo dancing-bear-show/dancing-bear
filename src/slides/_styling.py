@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from slides.constants import (
@@ -21,6 +22,26 @@ if TYPE_CHECKING:
 # DrawingML XML namespace — shared by _suppress_bullet and _apply_native_bullet
 _DRAWINGML_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 _DRAWINGML_NSMAP = {"a": _DRAWINGML_NS}
+
+
+@dataclass(frozen=True)
+class TextStyle:
+    """How one run of text should be rendered.
+
+    Bundles the five styling fields every _add_text_to_paragraph call site
+    already assembles together. Defaults reproduce the previous signature's
+    defaults exactly, so a call passing only theme_color and font_size behaves
+    as it did when those were positional parameters.
+    """
+
+    theme_color: MSO_THEME_COLOR | int | None = None
+    font_size: Pt | int | None = None
+    # True forces bold; the styling layer maps False to None so the template's
+    # own weight is inherited rather than explicitly unset.
+    bold: bool = False
+    highlights: list[str] | None = None
+    # When set, every run in the paragraph gets link styling.
+    url: str | None = None
 
 
 class StylingMixin:
@@ -182,23 +203,21 @@ class StylingMixin:
         self,
         paragraph,
         text: str,
-        theme_color: MSO_THEME_COLOR | int | None,
-        font_size: Pt | int | None,
-        bold: bool = False,
-        highlights: list[str] | None = None,
-        url: str | None = None,
+        style: TextStyle,
     ) -> None:
         """Add text to paragraph with optional highlighted segments and hyperlink.
 
         Args:
             paragraph: The paragraph to add text to
             text: The text content
-            theme_color: Theme color for regular text
-            font_size: Font size to use
-            bold: Whether to render text in bold (e.g., section headers, BulletItem.bold)
-            highlights: List of text segments to highlight with accent color
-            url: Hyperlink target URL; when set, all runs get link styling
+            style: How to render it — see TextStyle.
         """
+        theme_color = style.theme_color
+        font_size = style.font_size
+        bold = style.bold
+        highlights = style.highlights
+        url = style.url
+
         if not highlights:
             run = paragraph.add_run()
             run.text = text

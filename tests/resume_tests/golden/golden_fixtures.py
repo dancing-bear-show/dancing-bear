@@ -18,6 +18,8 @@ from typing import Any
 
 # --- templates -------------------------------------------------------------
 
+_STAFF_ENGINEER = "Staff Engineer"
+
 _SECTIONS = [
     {"key": "summary", "title": "Summary"},
     {"key": "skills", "title": "Skills"},
@@ -78,7 +80,7 @@ def candidate_dict_bullets() -> dict[str, Any]:
         ],
         "experience": [
             {
-                "title": "Staff Engineer",
+                "title": _STAFF_ENGINEER,
                 "company": "Nonexistent Systems",
                 "location": "Fictional City, ZZ",
                 "start": "2021",
@@ -301,7 +303,7 @@ def candidate_scalar_summary() -> dict[str, Any]:
     """
     return {
         "name": "Sam Placeholder",
-        "headline": "Staff Engineer",
+        "headline": _STAFF_ENGINEER,
         "email": "sam@example.com",
         "phone": "+1-555-0143",
         "location": "Scalar City, ZZ",
@@ -309,7 +311,7 @@ def candidate_scalar_summary() -> dict[str, Any]:
         "skills": ["Python", "Postgres", "Terraform"],
         "experience": [
             {
-                "title": "Staff Engineer",
+                "title": _STAFF_ENGINEER,
                 "company": "Scalar Systems",
                 "start": "2019",
                 "end": "Present",

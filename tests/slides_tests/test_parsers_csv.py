@@ -4,8 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from slides.constants import DEFAULT_TITLE
 from slides.parsers_csv import load_deck_from_csv
-from slides.schema import BulletItem, TableSlide
+from slides.schema import BulletItem, DeckOptions, TableSlide
 from tests.slides_tests.fixtures import assert_metadata_passthrough
 
 
@@ -38,7 +39,7 @@ class TestLoadDeckFromCsv(unittest.TestCase):
             "Details,Point A\n",
         )
 
-        deck = load_deck_from_csv(csv_file, title="CSV Deck")
+        deck = load_deck_from_csv(csv_file, options=DeckOptions(title="CSV Deck"))
         self.assertEqual(deck.metadata.title, "CSV Deck")
         self.assertEqual(len(deck.slides), 2)
         self.assertEqual(deck.slides[0].title, "Intro")
@@ -55,7 +56,7 @@ class TestLoadDeckFromCsv(unittest.TestCase):
             "SvcB,98.5%,WARN\n",
         )
 
-        deck = load_deck_from_csv(csv_file, title="Table Deck")
+        deck = load_deck_from_csv(csv_file, options=DeckOptions(title="Table Deck"))
         self.assertEqual(len(deck.slides), 1)
         slide = deck.slides[0]
         self.assertIsInstance(slide, TableSlide)
@@ -67,9 +68,28 @@ class TestLoadDeckFromCsv(unittest.TestCase):
         """Empty CSV produces deck with no slides."""
         csv_file = self._write("empty.csv", "slide_title,summary\n")
 
-        deck = load_deck_from_csv(csv_file, title="Empty")
+        deck = load_deck_from_csv(csv_file, options=DeckOptions(title="Empty"))
         self.assertEqual(len(deck.slides), 0)
         self.assertEqual(deck.metadata.title, "Empty")
+
+    def test_unset_title_falls_back_to_default(self):
+        """options=None (or title unset) yields DEFAULT_TITLE."""
+        csv_file = self._write("untitled.csv", "slide_title,summary\nA,B\n")
+
+        deck = load_deck_from_csv(csv_file)
+        self.assertEqual(deck.metadata.title, DEFAULT_TITLE)
+
+    def test_explicit_empty_title_is_preserved(self):
+        """An explicitly empty title stays empty and is NOT rewritten to the default.
+
+        Before DeckOptions this loader took `title: str = DEFAULT_TITLE`, so ""
+        reached the deck unchanged. Pinning that: a truthiness check here would
+        silently turn "" into "Untitled".
+        """
+        csv_file = self._write("blank_title.csv", "slide_title,summary\nA,B\n")
+
+        deck = load_deck_from_csv(csv_file, options=DeckOptions(title=""))
+        self.assertEqual(deck.metadata.title, "")
 
     def test_custom_column_names(self):
         """Custom title_column and text_column parameters work."""
@@ -104,10 +124,12 @@ class TestLoadDeckFromCsv(unittest.TestCase):
 
         deck = load_deck_from_csv(
             csv_file,
-            author="Charlie",
-            template_path="/tmp/t.pptx",  # nosec B108 - mock path arg, no file read
-            template_slide_index=7,
-            theme_color="ACCENT_3",
+            options=DeckOptions(
+                author="Charlie",
+                template_path="/tmp/t.pptx",  # nosec B108 - mock path arg, no file read
+                template_slide_index=7,
+                theme_color="ACCENT_3",
+            ),
         )
         assert_metadata_passthrough(
             self,
@@ -141,7 +163,7 @@ class TestLoadDeckFromCsv(unittest.TestCase):
             "web-3,12%,1GB\n",
         )
 
-        deck = load_deck_from_csv(csv_file, title="Table Test")
+        deck = load_deck_from_csv(csv_file, options=DeckOptions(title="Table Test"))
         self.assertEqual(len(deck.slides), 1)
         slide = deck.slides[0]
         self.assertIsInstance(slide, TableSlide)

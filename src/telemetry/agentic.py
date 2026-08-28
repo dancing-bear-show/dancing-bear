@@ -148,7 +148,9 @@ def _jsonable(value: Any) -> Any:
     return str(value)
 
 
-def emit_agentic_context(fmt: str = "text", compact: bool = False) -> int:
+def emit_agentic_context(  # NOSONAR S3516 - always returns 0 by design; callers chain return emit_agentic_context() as exit code
+    fmt: str = "text", compact: bool = False
+) -> int:
     """Print the agentic capsule in the requested format and return exit code."""
     if fmt == "json":
         print(json.dumps(build_agentic_json(compact=compact), indent=2, default=str))
