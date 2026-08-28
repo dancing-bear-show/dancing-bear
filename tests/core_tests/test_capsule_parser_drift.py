@@ -90,7 +90,12 @@ _INVOCATION = re.compile(
 # Capsule text is prose: a command can end in a backtick, a comma, or close a
 # parenthesis the command never opened. Strip that before matching a token
 # against the parser, or `--json` reads as `--json\`` and is reported missing.
-_TRAILING_PROSE = ")>,.;:`'\"]}"
+#
+# `>` is deliberately absent: stripping it turns the placeholder `<file>` into
+# `<file`, which no longer matches _NOT_A_SUBCOMMAND and leaks in as a real
+# subcommand name. Placeholders are discarded whole, so they need their closing
+# bracket intact.
+_TRAILING_PROSE = "),.;:`'\"]}"
 
 # argparse and Click both synthesise --help; it is never in the emitted schema.
 _UNIVERSAL_FLAGS = frozenset({"--help"})
@@ -150,23 +155,41 @@ def _capsule(invocation: list[str]) -> str:
     return proc.stdout
 
 
-def _index(schema: dict) -> dict[str, set[str]]:
-    """Map "sub path" -> long flags valid there. Root options live under "".
+def _is_boolean(opt: dict) -> bool:
+    """True when this option takes no value.
 
-    Handles both schema shapes: argparse nests under ``subcommands``, the Click
-    emitter (telemetry) uses a flat ``commands`` list.
+    argparse reports ``nargs: 0`` for store_true/store_false; Click sets
+    ``is_flag``. Getting this wrong in either direction corrupts parsing: treat
+    a boolean as value-taking and it swallows the following subcommand.
+    """
+    if opt.get("is_flag") is True:
+        return True
+    if opt.get("nargs") == 0:
+        return True
+    action = opt.get("action") or ""
+    return "StoreTrue" in action or "StoreFalse" in action
+
+
+def _index(schema: dict) -> tuple[dict[str, set[str]], set[str]]:
+    """Return (sub path -> long flags valid there, all boolean long flags).
+
+    Root options live under "". Handles both schema shapes: argparse nests
+    under ``subcommands``, the Click emitter (telemetry) uses a flat
+    ``commands`` list.
     """
     index: dict[str, set[str]] = {}
+    booleans: set[str] = set()
 
     def flags_of(node: dict) -> set[str]:
         found: set[str] = set()
         for opt in node.get("options") or []:
-            for flag in opt.get("flags") or []:
-                if flag.startswith("--"):
-                    found.add(flag)
+            names = [f for f in (opt.get("flags") or []) if f.startswith("--")]
             name = opt.get("name")
             if isinstance(name, str) and name.startswith("--"):
-                found.add(name)
+                names.append(name)
+            found.update(names)
+            if _is_boolean(opt):
+                booleans.update(names)
         return found
 
     def walk(node: dict, prefix: str) -> None:
@@ -178,11 +201,13 @@ def _index(schema: dict) -> dict[str, set[str]]:
             walk(child, f"{prefix} {name}".strip())
 
     walk(schema, "")
-    return index
+    return index, booleans
 
 
 def _invocations(
-    capsule: str, prefixes: list[list[str]]
+    capsule: str,
+    prefixes: list[list[str]],
+    booleans: frozenset[str] | set[str] = frozenset(),
 ) -> list[tuple[list[str], list[str], str]]:
     """Yield (subcommand tokens, long flags, raw text) per matching command.
 
@@ -203,17 +228,22 @@ def _invocations(
         else:
             continue
         subs, flags = [], []
-        # Only the token immediately after a flag is its value. Treating every
-        # later bare word as a value loses real subcommands, since global flags
-        # precede the subcommand here: `mail --profile p messages search`.
+        # Only the token immediately after a value-taking flag is its value.
+        # Two ways to get this wrong, both of which silently drop real tokens:
+        # treating every later bare word as a value loses subcommands (global
+        # flags precede the subcommand: `mail --profile p messages search`),
+        # and treating a boolean as value-taking swallows the next subcommand
+        # (`mail --dry-run labels plan` would parse as just `plan`). The
+        # parser's own schema says which flags take values.
         expect_value = False
         for token in tokens:
             token = token.rstrip(_TRAILING_PROSE)
             if not token:
                 continue
             if token.startswith("--"):
-                flags.append(token.split("=", 1)[0])
-                expect_value = "=" not in token
+                name = token.split("=", 1)[0]
+                flags.append(name)
+                expect_value = "=" not in token and name not in booleans
             elif expect_value:
                 expect_value = False
             elif not _NOT_A_SUBCOMMAND.match(token):
@@ -231,12 +261,12 @@ class CapsuleMatchesParser(unittest.TestCase):
         prefixes = APPS[app]
         primary = prefixes[0]
         shown = " ".join(primary)
-        index = _index(_schema(primary))
+        index, booleans = _index(_schema(primary))
         known = set(index)
         problems: list[str] = []
 
         capsule = _capsule(primary)
-        checked = _invocations(capsule, prefixes)
+        checked = _invocations(capsule, prefixes, booleans)
 
         # Guard against vacuous coverage: a capsule whose commands use a spelling
         # no prefix matches parses to zero invocations and passes without
@@ -283,6 +313,70 @@ class CapsuleMatchesParser(unittest.TestCase):
                 "fix the capsule to match --help (not the other way around).\n  - "
                 + "\n  - ".join(problems)
             )
+
+
+class InvocationParsing(unittest.TestCase):
+    """The parser inside this test file, checked on its own known-hard cases.
+
+    Every case here is a bug this checker actually shipped. A parsing slip does
+    not fail loudly — it drops tokens and reports "no drift", which looks
+    identical to a clean capsule.
+    """
+
+    def _parse(self, text: str, prefix: str, booleans=frozenset()):
+        got = _invocations(text, [[prefix]], booleans)
+        self.assertEqual(len(got), 1, f"expected one invocation in {text!r}")
+        subs, flags, _ = got[0]
+        return subs, flags
+
+    def test_boolean_flag_does_not_swallow_the_next_subcommand(self):
+        subs, flags = self._parse(
+            "./bin/mail --dry-run labels plan\n", "./bin/mail", {"--dry-run"}
+        )
+        self.assertEqual(subs, ["labels", "plan"])
+        self.assertEqual(flags, ["--dry-run"])
+
+    def test_value_flag_still_consumes_its_value(self):
+        subs, flags = self._parse(
+            "./bin/mail --profile p messages search\n", "./bin/mail"
+        )
+        self.assertEqual(subs, ["messages", "search"])
+        self.assertEqual(flags, ["--profile"])
+
+    def test_consecutive_boolean_flags_are_both_seen(self):
+        subs, flags = self._parse(
+            "./bin/wifi diagnose --no-trace --no-http\n",
+            "./bin/wifi",
+            {"--no-trace", "--no-http"},
+        )
+        self.assertEqual(subs, ["diagnose"])
+        self.assertEqual(flags, ["--no-trace", "--no-http"])
+
+    def test_flags_after_a_path_value_are_not_lost(self):
+        subs, flags = self._parse(
+            "./bin/desk apply --plan desk.plan.yaml --dry-run\n", "./bin/desk"
+        )
+        self.assertEqual(subs, ["apply"])
+        self.assertIn("--dry-run", flags)
+
+    def test_dotted_subcommands_are_not_mistaken_for_filenames(self):
+        subs, _ = self._parse(
+            "./bin/mail outlook rules.plan --config f.yaml\n", "./bin/mail"
+        )
+        self.assertEqual(subs, ["outlook", "rules.plan"])
+
+    def test_match_stops_at_end_of_line(self):
+        got = _invocations(
+            "./bin/mail labels plan\n./bin/mail filters sync\n", [["./bin/mail"]]
+        )
+        self.assertEqual([subs for subs, _, _ in got], [["labels", "plan"], ["filters", "sync"]])
+
+    def test_prose_after_a_command_is_not_parsed_as_flags(self):
+        subs, flags = self._parse(
+            "positional (./bin/workflow run <file>), not --input\n", "./bin/workflow"
+        )
+        self.assertEqual(subs, ["run"])
+        self.assertNotIn("--input", flags)
 
 
 def _attach(app: str) -> None:
