@@ -11,7 +11,7 @@ from tests.fixtures import capture_stdout
 
 
 class TestMailBuildAgenticCapsuleCompact(unittest.TestCase):
-    """build_agentic_capsule(compact=True) skips .llm context files and flows index."""
+    """mod.build_agentic_capsule(compact=True) skips .llm context files and flows index."""
 
     def test_compact_returns_string(self):
         import mail.agentic as mod
@@ -42,7 +42,7 @@ class TestMailBuildAgenticCapsuleCompact(unittest.TestCase):
 
 
 class TestMailEmitAgenticContext(unittest.TestCase):
-    """emit_agentic_context() compact and format variants."""
+    """mod.emit_agentic_context() compact and format variants."""
 
     def test_emit_default_returns_zero(self):
         import mail.agentic as mod
@@ -185,7 +185,7 @@ class TestMailListFolderModules(unittest.TestCase):
 
 
 class TestMailBuildDomainMap(unittest.TestCase):
-    """build_domain_map() generates full map including key modules and folder sections."""
+    """mod.build_domain_map() generates full map including key modules and folder sections."""
 
     def test_returns_string(self):
         import mail.agentic as mod
@@ -231,7 +231,7 @@ class TestMailBuildDomainMap(unittest.TestCase):
 
 
 class TestMailBuildFlows(unittest.TestCase):
-    """build_flows() phone-conditional behavior."""
+    """mod.build_flows() phone-conditional behavior."""
 
     def test_build_flows_returns_list(self):
         import mail.agentic as mod
