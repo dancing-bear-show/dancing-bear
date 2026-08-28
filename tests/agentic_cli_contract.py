@@ -16,9 +16,10 @@ Usage::
         APP_ID = "wifi"
 
 The invariants were derived by running all fourteen apps rather than assumed:
-every one returns 0, opens with ``agentic: <app_id>``, emits the same five
-top-level JSON keys, and produces strictly smaller output under
-``--agentic-compact``.
+every one returns 0, opens with ``agentic: <app_id>``, emits exactly the keys in
+:data:`EXPECTED_SCHEMA_KEYS`, and produces strictly smaller output under
+``--agentic-compact``. The key set is named rather than counted here so the
+prose cannot drift from the constant.
 
 The byte-count assertions matter more than they look. ``core.agentic`` swallows
 a failed parser import and returns ``None``, so a broken capsule degrades to a
