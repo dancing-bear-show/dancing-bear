@@ -195,10 +195,12 @@ class SummarySectionRenderer(ListSectionRenderer):
         else:
             p = self.doc.add_paragraph()
             self.bullets.styles.tight_paragraph(p, after_pt=2)
-            if keywords:
-                self.bullets._bold_keywords(p, text, keywords)
-            else:
-                p.add_run(text)
+            # Prose summaries are candidate content, so they honour inline
+            # markup exactly as the bulleted branch does. Routing through the
+            # shared helper is what keeps the two branches in step -- this one
+            # used to call _bold_keywords directly and would otherwise have
+            # been the one summary shape that printed "**" literally.
+            self.bullets._add_text_with_optional_keywords(p, text, keywords)
 
     def _render_bulleted_string(
         self,
@@ -412,8 +414,7 @@ class SkillsSectionRenderer(ListSectionRenderer):
             for it in items:
                 self.bullets.add_bullet_line(it, glyph=glyph)
         else:
-            p = self.doc.add_paragraph(sep.join(items))
-            self.bullets.styles.tight_paragraph(p, after_pt=2)
+            self.bullets.add_joined_paragraph(items, sep)
 
     def _render_flat_skills(self, skills: list[str], cfg: dict) -> None:
         """Render a flat list of skills."""
@@ -439,8 +440,7 @@ class TechnologiesSectionRenderer(SkillsSectionRenderer):
         if bool(cfg.get("bullets", True)):
             self._render_bullet_items(tech_items, cfg)
         else:
-            p = self.doc.add_paragraph(sep.join(it.text for it in tech_items))
-            self.bullets.styles.tight_paragraph(p, after_pt=2)
+            self.bullets.add_joined_paragraph([it.text for it in tech_items], sep)
 
     def _collect_tech_items(
         self, resume: Resume, sec: dict | None
