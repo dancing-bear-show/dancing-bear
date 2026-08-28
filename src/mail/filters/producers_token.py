@@ -1,25 +1,27 @@
 """Token-update producers for mail filters pipelines."""
 from __future__ import annotations
 
-from core.pipeline import Producer, ResultEnvelope
+from core.cli_output import OutputWriter
+from core.pipeline import BaseProducer
 
 from ..providers.base import BaseProvider
-from .processors_sweep import (
-    FiltersAddTokenResult,
-    FiltersRemoveTokenResult,
-    FilterTokenUpdate,
-)
+from .processors_sweep import FilterTokenUpdate
 
 
-def _produce_token_updates(client: BaseProvider, updates: list[FilterTokenUpdate], dry_run: bool) -> None:
+def _produce_token_updates(
+    client: BaseProvider,
+    updates: list[FilterTokenUpdate],
+    dry_run: bool,
+    writer: OutputWriter,
+) -> None:
     from ..utils.cli_helpers import preview_criteria as preview_crit
 
     changed = 0
     for update in updates:
         fid = update.filter_obj.get("id")
         if dry_run:
-            print(
-                f"Would update filter id={fid}: "
+            writer.print_dry_run(
+                f"update filter id={fid}: "
                 f"{preview_crit(update.criteria)} -> from: {update.new_from}"
             )
             changed += 1
@@ -28,36 +30,32 @@ def _produce_token_updates(client: BaseProvider, updates: list[FilterTokenUpdate
             client.create_filter(update.criteria, update.action)
             if fid:
                 client.delete_filter(fid)
-            print(f"Updated filter id={fid}: set from={update.new_from}")
+            writer.print(f"Updated filter id={fid}: set from={update.new_from}")
             changed += 1
         except Exception as exc:  # pragma: no cover - network
-            print(f"Failed to update filter id={fid}: {exc}")
-    print(f"Updated {changed} filters.")
+            writer.print_error(f"Failed to update filter id={fid}: {exc}")
+    writer.print(f"Updated {changed} filters.")
 
 
-class FiltersAddTokenProducer(Producer[ResultEnvelope[FiltersAddTokenResult]]):
+class _TokenUpdateProducer(BaseProducer):
+    """Shared wiring for the add/remove token producers."""
+
+    def __init__(self, client: BaseProvider, *, dry_run: bool = False, writer: OutputWriter | None = None):
+        super().__init__(writer)
+        self.client = client
+        self.dry_run = dry_run
+
+    def _produce_success(self, payload, diagnostics: dict | None) -> None:
+        _produce_token_updates(self.client, payload.updates, self.dry_run, self._writer)
+
+
+class FiltersAddTokenProducer(_TokenUpdateProducer):
     """Apply add-from-token updates."""
 
-    def __init__(self, client: BaseProvider, *, dry_run: bool = False):
-        self.client = client
-        self.dry_run = dry_run
-
-    def produce(self, result: ResultEnvelope[FiltersAddTokenResult]) -> None:
-        if not result.ok() or not result.payload:
-            print("Filters add-from-token failed.")
-            return
-        _produce_token_updates(self.client, result.payload.updates, self.dry_run)
+    failure_message = "Filters add-from-token failed."
 
 
-class FiltersRemoveTokenProducer(Producer[ResultEnvelope[FiltersRemoveTokenResult]]):
+class FiltersRemoveTokenProducer(_TokenUpdateProducer):
     """Apply rm-from-token updates."""
 
-    def __init__(self, client: BaseProvider, *, dry_run: bool = False):
-        self.client = client
-        self.dry_run = dry_run
-
-    def produce(self, result: ResultEnvelope[FiltersRemoveTokenResult]) -> None:
-        if not result.ok() or not result.payload:
-            print("Filters rm-from-token failed.")
-            return
-        _produce_token_updates(self.client, result.payload.updates, self.dry_run)
+    failure_message = "Filters rm-from-token failed."

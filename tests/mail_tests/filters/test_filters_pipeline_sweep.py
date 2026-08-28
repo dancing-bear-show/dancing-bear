@@ -182,7 +182,7 @@ class FiltersPruneProcessorTests(unittest.TestCase):
         with redirect_stdout(buf):
             producer.produce(envelope)
         out = buf.getvalue()
-        self.assertIn("Would delete filter id=EXTRA", out)
+        self.assertIn("[dry-run] delete filter id=EXTRA", out)
         self.assertIn("Prune complete. Examined:", out)
 
     def test_prune_executes_deletions(self):
@@ -270,7 +270,7 @@ class FiltersAddTokenProcessorTests(unittest.TestCase):
         buf = io.StringIO()
         with redirect_stdout(buf):
             producer.produce(envelope)
-        self.assertIn("Would update filter id=", buf.getvalue())
+        self.assertIn("[dry-run] update filter id=", buf.getvalue())
 
     def test_add_token_executes(self):
         ctx = self._make_context(dry_run=False, tokens=["new@example.com"])
@@ -316,7 +316,7 @@ class FiltersRemoveTokenProcessorTests(unittest.TestCase):
         buf = io.StringIO()
         with redirect_stdout(buf):
             producer.produce(envelope)
-        self.assertIn("Would update filter id=", buf.getvalue())
+        self.assertIn("[dry-run] update filter id=", buf.getvalue())
 
     def test_remove_token_executes(self):
         ctx = self._make_context(dry_run=False, tokens=["someone@example.com"])
@@ -327,6 +327,81 @@ class FiltersRemoveTokenProcessorTests(unittest.TestCase):
         with redirect_stdout(buf):
             producer.produce(envelope)
         self.assertIn("Updated filter id", buf.getvalue())
+
+
+class SweepAndTokenProducerSadPathTests(unittest.TestCase):
+    """Error-path coverage for the sweep/prune/token producers.
+
+    These five had no sad-path tests at all: the command-level tests mock the
+    producer out entirely and assert produce() is never called, so nothing
+    exercised what these emit on a failed envelope.
+    """
+
+    def _capture(self, producer, envelope) -> str:
+        buf = io.StringIO()
+        producer._writer = OutputWriter(OutputConfig(file=buf))
+        producer.produce(envelope)
+        return buf.getvalue()
+
+    def _client(self):
+        return make_pipeline_client()
+
+    def _sweep_config(self):
+        from mail.filters.producers_sweep import SweepProducerConfig
+
+        return SweepProducerConfig(pages=1, batch_size=10, max_msgs=None, dry_run=True)
+
+    def _cases(self):
+        cfg = self._sweep_config()
+        client = self._client()
+        return [
+            (FiltersSweepProducer(client, cfg), "filters sweep failed."),
+            (FiltersSweepRangeProducer(client, cfg), "filters sweep-range failed."),
+            (FiltersPruneProducer(client, dry_run=True), "filters prune failed."),
+            (FiltersAddTokenProducer(client, dry_run=True), "filters add-from-token failed."),
+            (FiltersRemoveTokenProducer(client, dry_run=True), "filters rm-from-token failed."),
+        ]
+
+    def test_fallback_message_on_error_without_diagnostics(self):
+        from core.pipeline import ResultEnvelope
+
+        for producer, expected in self._cases():
+            with self.subTest(producer=type(producer).__name__):
+                out = self._capture(producer, ResultEnvelope(status="error", diagnostics={}))
+                self.assertIn(expected, out.lower())
+
+    def test_fallback_message_when_ok_but_payload_missing(self):
+        from core.pipeline import ResultEnvelope
+
+        for producer, expected in self._cases():
+            with self.subTest(producer=type(producer).__name__):
+                out = self._capture(producer, ResultEnvelope(status="success", payload=None))
+                self.assertIn(expected, out.lower())
+
+    def test_diagnostics_message_wins_over_fallback(self):
+        from core.pipeline import ResultEnvelope
+
+        for producer, fallback in self._cases():
+            with self.subTest(producer=type(producer).__name__):
+                out = self._capture(
+                    producer,
+                    ResultEnvelope(status="error", diagnostics={"message": "quota exceeded"}),
+                )
+                self.assertIn("quota exceeded", out)
+                self.assertNotIn(fallback, out.lower())
+
+    def test_error_key_diagnostics_also_win(self):
+        """Several mail processors write "error" rather than "message"."""
+        from core.pipeline import ResultEnvelope
+
+        for producer, fallback in self._cases():
+            with self.subTest(producer=type(producer).__name__):
+                out = self._capture(
+                    producer,
+                    ResultEnvelope(status="error", diagnostics={"error": "token revoked"}),
+                )
+                self.assertIn("token revoked", out)
+                self.assertNotIn(fallback, out.lower())
 
 
 if __name__ == "__main__":
