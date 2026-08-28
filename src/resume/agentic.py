@@ -14,9 +14,14 @@ from core.agentic import (
 
 
 def _load_parser() -> argparse.ArgumentParser:
-    from .cli.main import build_parser
+    # Load from cli.main's CLIApp. There is no module-level build_parser() --
+    # this CLI is built with the CLIApp framework -- so importing that name
+    # raised ImportError, which _cached_parser_loader swallowed. _get_parser()
+    # then returned None and _cli_tree()/_flow_map() silently produced empty
+    # strings. Same failure and same fix as phone/agentic.py.
+    from .cli.main import app
 
-    return build_parser()
+    return app.build_parser()
 
 
 _get_parser = _cached_parser_loader(_load_parser)
@@ -32,7 +37,7 @@ def _cli_path_exists(path: list[str]) -> bool:
 
 def _flow_map() -> str:
     lines: list[str] = []
-    if all(_cli_path_exists([cmd]) for cmd in [["extract"], ["summarize"], ["render"]]):
+    if all(_cli_path_exists(cmd) for cmd in [["extract"], ["summarize"], ["render"]]):
         lines.append("- Resume workflow")
         lines.append("  - Extract: ./bin/assistant resume extract --linkedin data/linkedin.txt --resume data/resume.pdf --out out/profile.json")
         lines.append("  - Summarize: ./bin/assistant resume summarize --data out/profile.json --seed seeds/general.yaml")

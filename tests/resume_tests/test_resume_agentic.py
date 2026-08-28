@@ -1,12 +1,22 @@
 """Tests for resume/agentic.py -- covering _flow_map branches and emit_agentic_context.
 
-BUG NOTE (do not fix here -- report only):
-_flow_map() line 35 calls _cli_path_exists([cmd]) where cmd is already a list
-(e.g. ["extract"]), producing the nested path [["extract"]] instead of ["extract"].
-The real _core_cli_path_exists never finds a subcommand whose name is the list
-object ["extract"], so the main workflow block (lines 36-39) is unreachable via
-the real parser. The bug is covered by test_first_three_calls_pass_nested_list
-which asserts the observed (broken) call signature.
+Two stacked bugs, both now fixed, are pinned here:
+
+1. ``_load_parser`` imported a module-level ``build_parser`` that does not
+   exist (the CLI is built with the CLIApp framework). ``cached_parser_loader``
+   swallowed the ImportError, so ``_get_parser()`` returned None and the
+   capsule silently shipped with no CLI Tree and no Flow Map.
+2. ``_flow_map`` called ``_cli_path_exists([cmd])`` where ``cmd`` was already
+   ``["extract"]``, producing ``[["extract"]]``. That raises TypeError from
+   ``choices.get(name)`` -- a list is unhashable -- so fixing only the parser
+   would have turned a silent empty capsule into a crashing one.
+
+Bug 1 masked bug 2: with the parser None, ``cli_path_exists`` returned at its
+``parser is None`` guard and never reached the dict lookup.
+
+Repo-wide coverage for the first failure mode lives in
+``tests/core_tests/test_agentic_parser_wiring.py``, which asserts that every
+domain declaring a ``_get_parser`` actually resolves one.
 """
 
 from __future__ import annotations
@@ -104,27 +114,36 @@ class TestResumeFlowMapBranches(unittest.TestCase):
         self.assertNotIn("Align to job posting", result)
 
     # -------------------------------------------------------------------------
-    # Call-pattern: verifies the [cmd] wrapping produces nested-list arguments
+    # Call-pattern: every _cli_path_exists call passes a flat path
     # -------------------------------------------------------------------------
 
-    def test_first_call_passes_nested_list_path(self):
-        """_cli_path_exists is called with [["extract"]] as the first argument
-        (the [cmd] wrapping defect). all() short-circuits on False so only one
-        nested-list call is made before falling through to the flat-list checks.
+    def test_every_call_passes_a_flat_path(self):
+        """No call may pass a nested list.
 
-        BUG: line 35 uses [cmd] where cmd is already a list, so the first
-        call passes a nested list instead of a flat string path. This test
-        documents the observable defect so a fix surfaces here.
+        This test previously ASSERTED the defect: ``_flow_map`` used
+        ``_cli_path_exists([cmd])`` where ``cmd`` was already ``["extract"]``,
+        so the first call received ``[["extract"]]``. It was written to
+        document the bug so a fix would surface here -- and it did.
+
+        The nested form is not merely wrong-but-harmless: ``cli_path_exists``
+        does ``choices.get(name)``, and a list is unhashable, so it raises
+        TypeError. It only looked benign because the parser was ALSO None at
+        the time, short-circuiting before the lookup. Both bugs had to be fixed
+        together; fixing the parser alone would have crashed the capsule.
         """
         _, calls = self._patched_flow_map_collect(always=False)
-        # 1 nested-list call (all() short-circuits) + 3 flat-list calls = 4 total
+        # all() short-circuits on the first False, so only one of the three
+        # workflow probes runs, then the three standalone checks.
         self.assertEqual(len(calls), 4)
-        # The defect: first call is a nested list
-        self.assertEqual(calls[0], [["extract"]])
-        # Last three calls are correct flat lists
+        self.assertEqual(calls[0], ["extract"])
         self.assertEqual(calls[1], ["align"])
         self.assertEqual(calls[2], ["style"])
         self.assertEqual(calls[3], ["cleanup"])
+        for call in calls:
+            for element in call:
+                self.assertIsInstance(
+                    element, str, f"nested path leaked back in: {call!r}"
+                )
 
 
 class TestResumeEmitAgenticContext(unittest.TestCase):

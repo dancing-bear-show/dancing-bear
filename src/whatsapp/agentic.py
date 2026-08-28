@@ -13,9 +13,13 @@ from .meta import META
 
 
 def _load_parser():
-    from . import __main__ as main_mod
+    # Import the CLIApp from cli.main directly. __main__ exposes no
+    # build_parser(), so the old call raised AttributeError, which
+    # _cached_parser_loader swallowed -- leaving _get_parser() None and
+    # _cli_tree()/_flow_map() silently empty.
+    from .cli.main import app
 
-    return main_mod.build_parser()
+    return app.build_parser()
 
 
 _get_parser = _cached_parser_loader(_load_parser)

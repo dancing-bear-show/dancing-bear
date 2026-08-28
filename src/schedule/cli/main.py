@@ -237,7 +237,13 @@ assistant = BaseAssistant(
 
 
 def _emit_agentic(fmt: str, compact: bool) -> int:
-    from .agentic import emit_agentic_context
+    # `..agentic`, not `.agentic`: this module is schedule.cli.main, so a
+    # single dot resolves to schedule.cli.agentic, which does not exist. The
+    # resulting ModuleNotFoundError was swallowed by maybe_emit_agentic's
+    # except-Exception fallback, which printed the two-line banner instead --
+    # so `./bin/schedule --agentic` emitted 79 bytes while the real capsule
+    # (1602 bytes, with CLI Tree and Flow Map) was never reached.
+    from ..agentic import emit_agentic_context
 
     return emit_agentic_context(fmt, compact)
 
