@@ -375,16 +375,16 @@ class TestSectionSynonyms(unittest.TestCase):
         self.assertIn("academics", SECTION_SYNONYMS["education"])
 
 
-class TestUsePlainBullets(unittest.TestCase):
-    """Tests for BulletRenderer.get_bullet_config (successor to _use_plain_bullets)."""
+class TestResolveGlyph(unittest.TestCase):
+    """Tests for BulletRenderer.resolve_glyph."""
 
-    def test_returns_tuple(self):
+    def test_returns_the_default_glyph_without_config(self):
         from tests.resume_tests.fixtures import mock_docx_modules, make_fake_renderer
         with mock_docx_modules:
             from resume.docx_renderers import BulletRenderer
             renderer, _doc = make_fake_renderer(BulletRenderer)
-            result = renderer.get_bullet_config(None)
-        self.assertIsInstance(result, tuple)
+            result = renderer.resolve_glyph(None)
+        self.assertEqual(result, "•")
 
 
 class TestApplyPageStyles(unittest.TestCase):

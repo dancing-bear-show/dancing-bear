@@ -10,7 +10,6 @@ from __future__ import annotations
 from typing import Any
 
 from .docx_renderers import HeaderRenderer, ListSectionRenderer
-from .render_config import DEFAULT_BULLET_STYLE
 from .schema import PriorityItem, Resume, SkillGroup, SkillGroupItem
 
 
@@ -94,8 +93,9 @@ class SummarySectionRenderer(ListSectionRenderer):
         if not items:
             return
         norm_items = [self.text.normalize_bullet(it) for it in items]
-        plain, glyph = self.bullets.get_bullet_config(sec)
-        self.bullets.add_bullets(norm_items, keywords=keywords, plain=plain, glyph=glyph)
+        self.bullets.add_bullets(
+            norm_items, keywords=keywords, glyph=self.bullets.resolve_glyph(sec)
+        )
 
     def _normalize_list_items(self, summary: list[PriorityItem]) -> list[str]:
         """Extract the display text from each summary item, dropping empties.
@@ -152,9 +152,8 @@ class SummarySectionRenderer(ListSectionRenderer):
         if max_sent > 0:
             items = items[:max_sent]
         norm_items = [self.text.normalize_bullet(it) for it in items]
-        plain, glyph = self.bullets.get_bullet_config(cfg)
         self.bullets.add_bullets(
-            norm_items, keywords=keywords, plain=plain, glyph=glyph
+            norm_items, keywords=keywords, glyph=self.bullets.resolve_glyph(cfg)
         )
 
 
@@ -216,21 +215,21 @@ class SkillsSectionRenderer(ListSectionRenderer):
         ]
 
     def _render_bullet_items(self, items: list[str], cfg: dict) -> None:
-        """Render items as bullets."""
-        plain, glyph = self.bullets.get_bullet_config(cfg)
+        """Render items as bullets, bolding the name half when one is present.
+
+        Both branches emit the same kind of paragraph -- they differ only in
+        run formatting, not in bullet mechanism. ``add_named_bullet`` and
+        ``add_bullet_line`` both build on ``new_bullet_paragraph``.
+        """
+        glyph = self.bullets.resolve_glyph(cfg)
         desc_sep = str(cfg.get("desc_separator") or ": ")
 
         for it in items:
-            if plain and cfg.get("show_desc") and desc_sep in it:
+            if cfg.get("show_desc") and desc_sep in it:
                 left, right = it.split(desc_sep, 1)
                 self.bullets.add_named_bullet(left, right, sec=cfg, glyph=glyph, sep=desc_sep)
-            elif plain:
-                self.bullets.add_bullet_line(it, glyph=glyph)
             else:
-                p = self.doc.add_paragraph(style=DEFAULT_BULLET_STYLE)
-                self.bullets.styles.tight_paragraph(p, after_pt=0)
-                self.bullets.styles.compact_bullet(p)
-                p.add_run(it)
+                self.bullets.add_bullet_line(it, glyph=glyph)
 
     def _render_inline_items(
         self, title: str, items: list[str], cfg: dict, sep: str
@@ -251,6 +250,13 @@ class SkillsSectionRenderer(ListSectionRenderer):
         paragraphs with a literal glyph and never nests a glyph inside a
         paragraph.
 
+        Those per-item paragraphs used to be built here by hand, which is how
+        this section ended up at a different left edge from every other one:
+        the hand-rolled version set spacing but never reset the indent, so its
+        paragraphs carried ``left_indent=None`` while every other bulleted line
+        in the document carried ``left_indent=0``. They now go through
+        ``add_bullet_line`` like everything else.
+
         ``sep`` is intentionally no longer used to join: it was only ever a
         visual separator for the collapsed form. It stays in the signature
         because the caller reads it from config and the surrounding branch
@@ -260,10 +266,9 @@ class SkillsSectionRenderer(ListSectionRenderer):
             tp = self.doc.add_paragraph(title)
             self.bullets.styles.tight_paragraph(tp, after_pt=0)
 
-        _, glyph = self.bullets.get_bullet_config(cfg)
+        glyph = self.bullets.resolve_glyph(cfg)
         for it in items:
-            p = self.doc.add_paragraph(f"{glyph} {it}")
-            self.bullets.styles.tight_paragraph(p, after_pt=0)
+            self.bullets.add_bullet_line(it, glyph=glyph)
 
     def _render_bullets_or_joined(self, items: list[str], cfg: dict, sep: str) -> None:
         """Render items as bullets, or as a single sep-joined inline paragraph."""

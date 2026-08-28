@@ -38,7 +38,6 @@ sections:
     max_items: 12
     inline_dates: true
     role_style: Normal
-    bullet_style: List Bullet
     item_color: "#1F4E79"
     location_color: "#7F7F7F"
     duration_color: "#7F7F7F"

@@ -14,35 +14,36 @@ class TestBulletRenderer(unittest.TestCase):
         from resume.docx_renderers import BulletRenderer
         return make_fake_renderer(BulletRenderer)
 
-    def test_get_bullet_config_defaults(self):
-        """Test default bullet config."""
+    def test_resolve_glyph_defaults(self):
+        """Absent config resolves to the default glyph."""
         renderer, _ = self._get_renderer()
-        _plain, glyph = renderer.get_bullet_config(None)
-        self.assertEqual(glyph, "•")
+        self.assertEqual(renderer.resolve_glyph(None), "•")
 
-    def test_get_bullet_config_custom_glyph(self):
+    def test_resolve_glyph_custom_from_section(self):
         """Test custom glyph from section config."""
         renderer, _ = self._get_renderer()
-        sec = {"bullets": {"glyph": "→"}}
-        _plain, glyph = renderer.get_bullet_config(sec)
-        self.assertEqual(glyph, "→")
+        self.assertEqual(renderer.resolve_glyph({"bullets": {"glyph": "→"}}), "→")
 
-    def test_get_bullet_config_plain_style(self):
-        """Test plain bullet style."""
-        renderer, _ = self._get_renderer()
-        sec = {"bullets": {"style": "plain"}}
-        plain, _glyph = renderer.get_bullet_config(sec)
-        self.assertTrue(plain)
+    def test_resolve_glyph_ignores_the_obsolete_style_keys(self):
+        """``bullets.style`` and ``plain_bullets`` no longer select a mechanism.
 
-    def test_get_bullet_config_plain_bullets_flag(self):
-        """Test plain_bullets flag."""
+        They used to choose between a Word ``List Bullet`` paragraph and a
+        literal-glyph paragraph. There is one mechanism now, so both keys are
+        accepted (old templates still load) and ignored.
+        """
         renderer, _ = self._get_renderer()
-        sec = {"plain_bullets": True}
-        plain, _glyph = renderer.get_bullet_config(sec)
-        self.assertTrue(plain)
+        self.assertEqual(renderer.resolve_glyph({"bullets": {"style": "plain"}}), "•")
+        self.assertEqual(renderer.resolve_glyph({"plain_bullets": False}), "•")
+
+    def test_resolve_glyph_prefers_section_over_page(self):
+        """Section config wins over the constructor-level page config."""
+        from resume.docx_renderers import BulletRenderer
+        from tests.resume_tests.fixtures import FakeDocument
+        renderer = BulletRenderer(FakeDocument(), {"bullets": {"glyph": "★"}})
+        self.assertEqual(renderer.resolve_glyph({"bullets": {"glyph": "→"}}), "→")
 
     def test_add_bullet_line(self):
-        """Test adding a plain bullet line."""
+        """Test adding a bullet line."""
         renderer, doc = self._get_renderer()
         renderer.add_bullet_line("Test item", glyph="•")
         self.assertEqual(len(doc.paragraphs), 1)
@@ -62,29 +63,27 @@ class TestBulletRenderer(unittest.TestCase):
         self.assertEqual(runs[2].text, ": ")
         self.assertEqual(runs[3].text, "Programming language")
 
-    def test_add_bullets_plain(self):
-        """Test adding multiple plain bullets."""
+    def test_add_bullets_emits_one_paragraph_per_item(self):
+        """Test adding multiple bullets."""
         renderer, doc = self._get_renderer()
-        renderer.add_bullets(["Item 1", "Item 2", "Item 3"], plain=True, glyph="•")
+        renderer.add_bullets(["Item 1", "Item 2", "Item 3"], glyph="•")
         self.assertEqual(len(doc.paragraphs), 3)
 
-    def test_add_bullets_list_style_mode(self):
-        """Test add_bullets(plain=False) uses the configured list_style paragraphs."""
+    def test_add_bullets_never_emits_a_word_list_style(self):
+        """Every bullet is a ``Normal`` paragraph carrying a literal glyph."""
         renderer, doc = self._get_renderer()
-        renderer.add_bullets(["Item 1", "Item 2"], plain=False, list_style="List Bullet")
+        renderer.add_bullets(["Item 1", "Item 2"], glyph="•")
         self.assertEqual(len(doc.paragraphs), 2)
-        self.assertEqual(getattr(doc.paragraphs[0].style, "name", doc.paragraphs[0].style), "List Bullet")
+        for p in doc.paragraphs:
+            self.assertNotEqual(getattr(p.style, "name", p.style), "List Bullet")
+            self.assertTrue("".join(r.text for r in p.runs).startswith("• "))
 
-    def test_get_bullet_config_page_cfg_fallback(self):
-        """Constructor-level page_cfg supplies bullet config when sec is None."""
+    def test_resolve_glyph_page_cfg_fallback(self):
+        """Constructor-level page_cfg supplies the glyph when sec is None."""
         from resume.docx_renderers import BulletRenderer
         from tests.resume_tests.fixtures import FakeDocument
-        doc = FakeDocument()
-        page_cfg = {"bullets": {"glyph": "★", "style": "plain"}}
-        renderer = BulletRenderer(doc, page_cfg)
-        plain, glyph = renderer.get_bullet_config(None)
-        self.assertEqual(glyph, "★")
-        self.assertTrue(plain)
+        renderer = BulletRenderer(FakeDocument(), {"bullets": {"glyph": "★"}})
+        self.assertEqual(renderer.resolve_glyph(None), "★")
 
     def test_bold_keywords(self):
         """Test keyword bolding in text."""
@@ -620,8 +619,15 @@ class TestSectionRenderers(unittest.TestCase):
             for r in para.runs:
                 self.assertNotIn("file:", r.text)
 
-    def test_presentations_honors_plain_bullet_config(self):
-        """When sec configures plain_bullets=False, paragraphs use 'List Bullet' style."""
+    def test_presentations_use_the_shared_bullet_mechanism(self):
+        """The obsolete style keys no longer route presentations to 'List Bullet'.
+
+        ``plain_bullets: False`` plus ``bullets.style: list`` used to select a
+        Word list style here, which is what let this section render at a
+        different left edge from the rest of the document. Both keys are now
+        ignored and the section emits the same literal-glyph paragraph as every
+        other bulleted line.
+        """
         from resume.docx_sections_simple import PresentationsSectionRenderer
         renderer, doc = make_fake_renderer(PresentationsSectionRenderer)
         sec = {"plain_bullets": False, "bullets": {"style": "list"}}
@@ -629,9 +635,10 @@ class TestSectionRenderers(unittest.TestCase):
             {"title": "My Talk", "event": "PyCon", "year": "2024"},
         ]}
         renderer.render(Resume.from_dict(data), sec=sec)
-        # At least one paragraph should use 'List Bullet' style.
         styles = [getattr(p.style, "name", None) for p in doc.paragraphs]
-        self.assertIn("List Bullet", styles, "Expected 'List Bullet' style for non-plain config.")
+        self.assertNotIn("List Bullet", styles)
+        texts = ["".join(r.text for r in p.runs) for p in doc.paragraphs]
+        self.assertTrue(any(t.startswith("• ") for t in texts), texts)
 
 
 if __name__ == "__main__":
