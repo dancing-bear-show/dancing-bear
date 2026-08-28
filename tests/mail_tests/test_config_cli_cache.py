@@ -368,6 +368,55 @@ class CachePruneOSErrorTests(TestCase):
             self.assertEqual(result.payload.removed, 0)
 
 
+def _fake_google_modules(creds, service):
+    """Build fake google.* modules so Gmail-validation tests run without the real client libs.
+
+    Mirrors the injection in tests/mail_tests/test_auth_cli.py. Patching the real
+    google.* packages instead would make these tests silently unrunnable in a
+    minimal environment, where those optional dependencies are absent.
+
+    Returns a sys.modules mapping plus the fake Request class, which callers need
+    in order to assert what creds.refresh() was handed.
+    """
+    import types
+
+    google = types.ModuleType("google")
+    google_auth = types.ModuleType("google.auth")
+    google_auth_transport = types.ModuleType("google.auth.transport")
+    google_auth_transport_requests = types.ModuleType("google.auth.transport.requests")
+
+    class FakeRequest:
+        def __init__(self, *args, **kwargs):
+            pass  # stub - the fake carries no request state
+
+    google_auth_transport_requests.Request = FakeRequest
+
+    google_oauth2 = types.ModuleType("google.oauth2")
+    google_oauth2_credentials = types.ModuleType("google.oauth2.credentials")
+
+    class FakeCredentials:
+        @classmethod
+        def from_authorized_user_file(cls, path, scopes=None):
+            return creds
+
+    google_oauth2_credentials.Credentials = FakeCredentials
+
+    googleapiclient = types.ModuleType("googleapiclient")
+    googleapiclient_discovery = types.ModuleType("googleapiclient.discovery")
+    googleapiclient_discovery.build = lambda _name, _version, credentials=None: service
+
+    return {
+        "google": google,
+        "google.auth": google_auth,
+        "google.auth.transport": google_auth_transport,
+        "google.auth.transport.requests": google_auth_transport_requests,
+        "google.oauth2": google_oauth2,
+        "google.oauth2.credentials": google_oauth2_credentials,
+        "googleapiclient": googleapiclient,
+        "googleapiclient.discovery": googleapiclient_discovery,
+    }, FakeRequest
+
+
 class AuthTests(TempDirMixin, TestCase):
     """Tests for AuthProcessor — auth and validate paths."""
 
@@ -395,7 +444,14 @@ class AuthTests(TempDirMixin, TestCase):
 
     def test_auth_processor_validate_missing_token_fails(self):
         """_validate_gmail_token raises ValueError when token file does not exist."""
-        with patch("mail.config_resolver.resolve_paths_profile", return_value=(None, "/nonexistent/token.json")):
+        # Fakes are injected even though no Google call is reached: the source
+        # imports google.* before checking the token path, so without them a
+        # minimal environment fails on the import instead of the missing file.
+        import sys
+
+        fake_modules, _ = _fake_google_modules(MagicMock(), MagicMock())
+        with patch("mail.config_resolver.resolve_paths_profile", return_value=(None, "/nonexistent/token.json")), \
+             patch.dict(sys.modules, fake_modules, clear=False):
             request = AuthRequest(validate=True, token="/nonexistent/token.json")
             result = AuthProcessor().process(request)
 
@@ -404,7 +460,11 @@ class AuthTests(TempDirMixin, TestCase):
 
     def test_auth_processor_validate_none_token_fails(self):
         """_validate_gmail_token raises ValueError when token path is None."""
-        with patch("mail.config_resolver.resolve_paths_profile", return_value=(None, None)):
+        import sys
+
+        fake_modules, _ = _fake_google_modules(MagicMock(), MagicMock())
+        with patch("mail.config_resolver.resolve_paths_profile", return_value=(None, None)), \
+             patch.dict(sys.modules, fake_modules, clear=False):
             request = AuthRequest(validate=True)
             result = AuthProcessor().process(request)
 
@@ -432,12 +492,13 @@ class AuthTests(TempDirMixin, TestCase):
         mock_svc = MagicMock()
         mock_svc.users.return_value.getProfile.return_value.execute.side_effect = Exception("API error")
 
-        # Patch the google imports at their source package paths.
+        # Inject fake google.* modules rather than patching the real packages,
+        # so this runs without the optional Google client libraries installed.
+        import sys
+
+        fake_modules, _ = _fake_google_modules(mock_creds, mock_svc)
         with patch("mail.config_resolver.resolve_paths_profile", return_value=(None, token_path)), \
-             patch("google.oauth2.credentials.Credentials") as mock_creds_cls, \
-             patch("google.auth.transport.requests.Request"), \
-             patch("googleapiclient.discovery.build", return_value=mock_svc):
-            mock_creds_cls.from_authorized_user_file.return_value = mock_creds
+             patch.dict(sys.modules, fake_modules, clear=False):
             request = AuthRequest(validate=True, token=token_path)
             result = AuthProcessor().process(request)
 
@@ -471,17 +532,20 @@ class AuthTests(TempDirMixin, TestCase):
         mock_svc = MagicMock()
         mock_svc.users.return_value.getProfile.return_value.execute.return_value = {"emailAddress": "me@example.com"}
 
+        import sys
+
+        fake_modules, fake_request_cls = _fake_google_modules(mock_creds, mock_svc)
         with patch("mail.config_resolver.resolve_paths_profile", return_value=(None, token_path)), \
-             patch("google.oauth2.credentials.Credentials") as mock_creds_cls, \
-             patch("google.auth.transport.requests.Request") as mock_request, \
-             patch("googleapiclient.discovery.build", return_value=mock_svc):
-            mock_creds_cls.from_authorized_user_file.return_value = mock_creds
+             patch.dict(sys.modules, fake_modules, clear=False):
             request = AuthRequest(validate=True, token=token_path)
             result = AuthProcessor().process(request)
 
         self.assertTrue(result.ok())
         self.assertEqual(result.payload.message, "Gmail token valid.")
-        mock_creds.refresh.assert_called_once_with(mock_request())
+        mock_creds.refresh.assert_called_once()
+        # refresh() must receive a google.auth Request instance, not an arbitrary object.
+        refresh_arg = mock_creds.refresh.call_args.args[0]
+        self.assertIsInstance(refresh_arg, fake_request_cls)
 
 
 class BackupTests(TempDirMixin, TestCase):

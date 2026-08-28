@@ -65,8 +65,11 @@ class TestLoadGridConfigNonMapping(unittest.TestCase):
     """Root YAML value is not a dict — line 46 branch."""
 
     def test_list_root_raises_value_error(self):
-        # Write a YAML list (not a mapping) as the root
-        path = _write_raw_text("- item1\n- item2\n")
+        # A JSON array is a non-mapping root under BOTH parsers. A YAML-only
+        # spelling ("- item1") is invalid JSON, so without PyYAML installed
+        # load_grid_config would raise JSONDecodeError and never reach the
+        # non-mapping ValueError this test is here to exercise.
+        path = _write_raw_text('["item1", "item2"]\n')
         try:
             from charts.config import load_grid_config
             with self.assertRaises(ValueError) as ctx:
