@@ -194,7 +194,7 @@ Current State (Formatting + Features)
   - Jobs and Education use the same header line abstraction: `Title at Company — [Location] — (Start – End)` and `Degree at Institution — (Start – End)`.
   - Title/Company (Degree/Institution) are bold + colored; Location and Duration are visually distinct (brackets, smaller gray text).
 - Bullets
-  - Plain bullets (flush‑left, tight spacing) by default; configurable via `page.bullets` or per‑section `bullets`.
+  - Plain bullets (flush‑left, tight spacing) everywhere — one mechanism, so every bulleted line shares a left edge. The glyph is configurable via `page.bullets` or per‑section `bullets`; the mechanism is not.
   - Profile, Skills, Technologies, Experience bullets are aligned to section headings with zero indent.
 - Skills/Technologies
   - Rendered as `NAME: description` when `show_desc: true` (configurable `desc_separator`, default `": "`).
@@ -208,20 +208,28 @@ Current State (Formatting + Features)
   - Document metadata includes job locations and contact info for searchability; category lists unique locations.
 - Page Defaults
   - `page.header_level`: default section heading level.
-  - `page.bullets`: `{ style: plain|list, glyph: "•" }` with per‑section override.
+  - `page.bullets`: `{ glyph: "•" }` with per‑section override. Only `glyph` is honoured.
 
 Template Keys (high‑value)
 - Global (page)
   - `header_level`: 1 (default heading level)
-  - `bullets.style`: `plain` (flush‑left) or `list` (uses Word list style)
-  - `bullets.glyph`: e.g., `"•"`
+  - `bullets.glyph`: e.g., `"•"` — the only bullet key the renderer reads
+  - `bullets.style` / `plain_bullets`: **inert.** Still accepted so existing
+    templates keep loading, but they select nothing. Bullets are always
+    flush‑left paragraphs carrying a literal glyph; Word's `List Bullet`
+    style is no longer used anywhere. The layout previously mixed three
+    bullet mechanisms whose indents came from different systems and so
+    could not be aligned with each other; they were unified into one.
+    If you had `style: plain`, that is now the only behaviour — drop the
+    key. If you had `style: list`, the glyph is now literal; use `glyph`
+    to change it.
   - `margins_in`, `body_pt`, `h1_pt`, `title_pt`, `h1_color`, `h1_bg` (auto‑contrasts heading text if `h1_color` omitted)
 - Experience / Education
   - `item_color`, `location_color`, `duration_color`
   - `location_brackets`, `duration_brackets`, `meta_pt`
   - `recent_roles_count`, `recent_max_bullets`, `prior_max_bullets`
 - Skills / Technologies
-  - `bullets` (glyph only — `style` and `plain_bullets` are accepted but inert; the standard layout has one bullet mechanism), `columns`, `compact`
+  - `bullets` (glyph only — `style` and `plain_bullets` are accepted but inert; the standard layout has one bullet mechanism)
   - `show_desc`, `desc_separator`, `separator` (for inline lists), `group_title_color`
   - `group_title_bg`: shaded background behind group titles; when set, text color auto‑contrasts if `group_title_color` is omitted
   - `priority`/`usefulness` (float 0–1): optional; used with `--min-priority` to include only higher‑importance items
