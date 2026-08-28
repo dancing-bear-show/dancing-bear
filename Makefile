@@ -39,8 +39,12 @@ dev-venv:
 
 install: venv
 
+# No -v: with ~11.9k tests it prints a line per test, burying the `Ran N tests`
+# summary and the OK/FAILED verdict under tens of thousands of lines. Failures
+# are reported identically either way -- name, file, line, and assertion message
+# all still appear -- so -v costs scrollback without adding diagnostics.
 test: venv check-tests
-	$(RUNPY) -m unittest -v
+	$(RUNPY) -m unittest
 
 # Lint with the same ruff build CI uses (qlty's pinned tool cache) rather than
 # whatever `ruff` happens to be on PATH — there usually isn't one, and a bare
