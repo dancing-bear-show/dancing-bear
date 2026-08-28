@@ -40,7 +40,13 @@ def _extract_bundle_id(item: Any) -> str | None:
     return None
 
 
-def _is_folder(item: dict[str, Any]) -> bool:
+def _is_folder(item: Any) -> bool:
+    """Check whether a raw IconState entry is a folder.
+
+    Takes `Any` rather than `dict`: entries come from an external plist, where a
+    page slot may be a bare string, None, or a non-mapping. The isinstance guard
+    is load-bearing — annotating this as `dict` makes it read as dead code.
+    """
     return isinstance(item, dict) and ("iconLists" in item) and ("displayName" in item)
 
 
