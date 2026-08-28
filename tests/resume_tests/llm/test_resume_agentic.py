@@ -15,7 +15,7 @@ Defect 3: ["cleanup"] guard was always False (wrong name for "files tidy")
 import unittest
 
 
-class TestResumAgenticParser(unittest.TestCase):
+class TestResumeAgenticParser(unittest.TestCase):
     """_get_parser() must return a real parser, not None."""
 
     def _get_parser(self):
@@ -50,7 +50,7 @@ class TestResumAgenticParser(unittest.TestCase):
         self.assertIn("render", help_text)
 
 
-class TestResumAgenticCliPathExists(unittest.TestCase):
+class TestResumeAgenticCliPathExists(unittest.TestCase):
     """_cli_path_exists must return True for the core workflow paths."""
 
     def _cli_path_exists(self, path):
@@ -85,7 +85,7 @@ class TestResumAgenticCliPathExists(unittest.TestCase):
         self.assertTrue(self._cli_path_exists(["style", "build"]))
 
 
-class TestResumAgenticFlowMap(unittest.TestCase):
+class TestResumeAgenticFlowMap(unittest.TestCase):
     """_flow_map() must render the extract/summarize/render workflow block."""
 
     def _flow_map(self):
@@ -173,7 +173,7 @@ class TestResumAgenticFlowMap(unittest.TestCase):
         self.assertTrue(result, f"--seed '{seed_val}' parses to empty dict — file path or malformed?")
 
 
-class TestResumAgenticCliTree(unittest.TestCase):
+class TestResumeAgenticCliTree(unittest.TestCase):
     """_cli_tree() must return a non-empty string."""
 
     def _cli_tree(self):
@@ -195,7 +195,7 @@ class TestResumAgenticCliTree(unittest.TestCase):
         self.assertIn("render", self._cli_tree())
 
 
-class TestResumAgenticCapsule(unittest.TestCase):
+class TestResumeAgenticCapsule(unittest.TestCase):
     """build_agentic_capsule() must use the real entry point throughout."""
 
     def _capsule(self):
