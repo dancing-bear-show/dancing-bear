@@ -117,7 +117,22 @@ stages:
       Step 2 — Lint (qlty + ruff):
         qlty scans correctly from an agent worktree — the exclusion was narrowed
         to `**/.claude/worktrees/**`, which only takes effect when scanning from
-        the main checkout. Run it:
+        the main checkout.
+
+        Scope the scan to the files THIS BRANCH changes. When {source_root} is
+        empty a bare `qlty check` scans changed files relative to the working
+        tree, which on a committed branch is nothing — an empty scan that reads
+        as a pass. Derive the file list from the merge-base instead:
+          git diff --name-only main...HEAD
+        Use THREE dots. Two dots (`main..HEAD`) diffs against the current tip of
+        main, so every commit merged since you branched appears as yours — on a
+        day-old branch that turned 9 changed files into 46 and buried the real
+        findings. Three dots diffs against the merge-base: your changes only,
+        matching what CI evaluates.
+
+        Then run, passing those paths explicitly (skip if the list is empty):
+          ~/.qlty/bin/qlty check $(git diff --name-only main...HEAD)
+        Or, when {source_root} is set and you want the whole subtree:
           ~/.qlty/bin/qlty check {source_root}
         Note `--all` and an explicit path are mutually exclusive: `qlty check
         --all {source_root}` errors with "the argument '--all' cannot be used
@@ -136,6 +151,17 @@ stages:
           make lint
         A bare `ruff check` or `ruff format` fails as "command not found" —
         do not substitute one. Fix what it reports and re-run until clean.
+
+        A clean `make lint` does NOT imply a clean qlty run, so never skip the
+        qlty step above on the strength of it. CI gates on `qlty check`, which
+        runs bandit and radarlint in addition to ruff. Findings ruff never
+        reports: `bandit:B105`/`B106` (hardcoded-password heuristics, which fire
+        on any `token=`/`password=` kwarg and are usually false positives in
+        tests) and `radarlint-python:python:S1481` (unused local — ruff's F841
+        stays silent when an attribute assignment such as `args.profile = None`
+        counts as a use of the name). Suppress genuine false positives inline
+        with a reason, e.g. `# nosec B106 - test file path, not a secret`; see
+        tests/mail_tests/test_config_resolver.py for the house style.
 
       Step 3 — Test suite with coverage:
         Determine the test command:
