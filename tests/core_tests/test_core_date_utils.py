@@ -231,5 +231,49 @@ class TestIsoNow(unittest.TestCase):
         self.assertRegex(iso_now(), r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 
+class TestDayRangeToIso(unittest.TestCase):
+    """The window shape the Outlook list-events calls depend on."""
+
+    def test_widens_dates_to_full_day_window(self):
+        from core.date_utils import day_range_to_iso
+        start, end = day_range_to_iso("2026-01-01", "2026-01-31")
+        self.assertEqual(start, "2026-01-01T00:00:00")
+        # Inclusive of the final day -- a midnight end would silently drop it.
+        self.assertEqual(end, "2026-01-31T23:59:59")
+
+    def test_same_day_range_spans_that_whole_day(self):
+        from core.date_utils import day_range_to_iso
+        start, end = day_range_to_iso("2026-06-15", "2026-06-15")
+        self.assertEqual(start, "2026-06-15T00:00:00")
+        self.assertEqual(end, "2026-06-15T23:59:59")
+
+    def test_accepts_full_iso_datetimes_and_truncates_to_day_bounds(self):
+        from core.date_utils import day_range_to_iso
+        start, end = day_range_to_iso("2026-03-04T09:30:00", "2026-03-05T18:00:00")
+        self.assertEqual(start, "2026-03-04T00:00:00")
+        self.assertEqual(end, "2026-03-05T23:59:59")
+
+    def test_raises_value_error_on_unparseable_date(self):
+        # The three schedule call sites catch ValueError and re-raise as their
+        # own error type, so the primitive must stay ValueError.
+        from core.date_utils import day_range_to_iso
+        for bad in (("garbage", "2026-01-31"), ("2026-01-01", "nope"), ("", "")):
+            with self.assertRaises(ValueError):
+                day_range_to_iso(*bad)
+
+    def test_raises_value_error_on_none(self):
+        # None reached these sites as a TypeError before; callers caught
+        # (ValueError, TypeError) together, so it must still raise ValueError.
+        from core.date_utils import day_range_to_iso
+        with self.assertRaises(ValueError):
+            day_range_to_iso(None, None)  # type: ignore[arg-type]
+
+    def test_message_names_the_expected_format(self):
+        from core.date_utils import day_range_to_iso
+        with self.assertRaises(ValueError) as ctx:
+            day_range_to_iso("garbage", "2026-01-31")
+        self.assertIn("YYYY-MM-DD", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

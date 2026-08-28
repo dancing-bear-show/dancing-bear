@@ -1,7 +1,9 @@
 """TelemetryTranscriptsApp — interactive Textual dashboard and run_live entry point."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from pathlib import Path
+
+from core.date_utils import now_utc
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -295,7 +297,7 @@ class TelemetryTranscriptsApp(App):
     # ------------------------------------------------------------------
 
     def action_switch_session(self) -> None:
-        since = datetime.now(timezone.utc) - timedelta(days=30)
+        since = now_utc() - timedelta(days=30)
         sessions = self._transcript.get_sessions(since=since)
         if not sessions:
             self.notify("No sessions found", severity="warning")

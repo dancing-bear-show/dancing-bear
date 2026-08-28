@@ -1,11 +1,11 @@
 """Consumers for auto pipelines."""
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from core.fileutil import load_json_or_exit
 from core.pipeline import Consumer
 
 from ..context import MailContext
@@ -61,7 +61,7 @@ class AutoSummaryConsumer(Consumer[AutoSummaryPayload]):
         self._proposal_path = proposal_path
 
     def consume(self) -> AutoSummaryPayload:
-        proposal = json.loads(self._proposal_path.read_text(encoding="utf-8"))
+        proposal = load_json_or_exit(self._proposal_path)
         return AutoSummaryPayload(proposal=proposal)
 
 
@@ -74,5 +74,5 @@ class AutoApplyConsumer(Consumer[AutoApplyPayload]):
         self._kwargs = kwargs
 
     def consume(self) -> AutoApplyPayload:
-        proposal = json.loads(self._proposal_path.read_text(encoding="utf-8"))
+        proposal = load_json_or_exit(self._proposal_path)
         return AutoApplyPayload(context=self._context, proposal=proposal, **self._kwargs)

@@ -136,7 +136,8 @@ def _reply_execute(args, client, raw: bytes, thread_id: str | None, to_email: st
 
 def _extract_reply_headers(msg_full: dict) -> dict:
     """Extract relevant headers from message for reply."""
-    headers = {h.get("name", "").lower(): h.get("value", "") for h in ((msg_full.get("payload") or {}).get("headers") or [])}
+    from ..gmail_api import GmailClient
+    headers = GmailClient.headers_to_dict(msg_full)
     return {
         "subject": headers.get("subject", ""),
         "message_id": headers.get("message-id"),

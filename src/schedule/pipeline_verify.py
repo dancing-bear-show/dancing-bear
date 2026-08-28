@@ -1,7 +1,6 @@
 """Verify and sync logic for the schedule pipeline."""
 from __future__ import annotations
 
-import datetime as _dt
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -9,7 +8,7 @@ from typing import Any
 from core.pipeline import RequestConsumer, BaseProducer, SafeProcessor
 from core.auth import build_outlook_service, OutlookServiceConfig
 from core.yamlio import load_config as _load_yaml
-from core.constants import FMT_DAY_START, FMT_DAY_END
+from core.date_utils import day_range_to_iso
 
 from schedule.pipeline_expand import _norm_dt_minute, _expand_recurring_occurrences
 
@@ -177,11 +176,7 @@ class VerifyProcessor(SafeProcessor[VerifyRequest, VerifyResult]):
             raise ValueError("--calendar is required")
         if not (payload.from_date and payload.to_date):
             raise ValueError("--from and --to are required (YYYY-MM-DD)")
-        try:
-            start_iso = _dt.datetime.fromisoformat(payload.from_date).strftime(FMT_DAY_START)
-            end_iso = _dt.datetime.fromisoformat(payload.to_date).strftime(FMT_DAY_END)
-        except Exception:
-            raise ValueError("Invalid --from/--to date format; expected YYYY-MM-DD")
+        start_iso, end_iso = day_range_to_iso(payload.from_date, payload.to_date)
 
         # Fetch calendar events
         svc, err = _build_outlook_service(payload.auth)

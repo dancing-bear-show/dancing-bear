@@ -13,7 +13,7 @@ from pathlib import Path
 
 from core.cli_errors import CLIError, ExitCode
 from core.cli_output import OutputWriter, emit_one
-from core.date_utils import now_utc, parse_iso_utc, parse_window
+from core.date_utils import iso_now, now_utc, parse_iso_utc, parse_window
 from worker._helpers import (
     DATE_FORMAT_YMD,
     ISO_DATETIME_FORMAT,
@@ -52,7 +52,7 @@ class EnqueueCommand:
             not_before=str(getattr(args, "not_before", "") or ""),
             attempts=0,
             max_attempts=int(getattr(args, "max_attempts", 3) or 3),
-            enqueued_at=datetime.now(UTC).strftime(ISO_DATETIME_FORMAT),
+            enqueued_at=iso_now(),
         )
 
         path = q.enqueue(job, root=q.QUEUE_ROOT)

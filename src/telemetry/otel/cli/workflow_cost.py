@@ -6,13 +6,13 @@ import argparse
 import json
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from core.cli_output import emit_rows
 from core.date_utils import parse_iso_utc
 from telemetry.otel.cli._format_helpers import add_format_argument, get_work_dir
-from telemetry.timeutil import parse_window
+from telemetry.timeutil import now_utc, parse_window
 
 _NO_METADATA_MSG = (
     "No cost metadata found in stage results — workflow skill version"
@@ -179,7 +179,7 @@ def _run_since_mode(since_str: str, fmt: str) -> int:
         print(f"Error: invalid --since value {since_str!r}: {e}", file=sys.stderr, flush=True)
         return 1
 
-    cutoff = datetime.now(timezone.utc) - delta
+    cutoff = now_utc() - delta
     work_dir = get_work_dir()
 
     run_groups: dict[str, list[dict]] = {}

@@ -27,12 +27,11 @@ def apply_plan_file(
 
 
 def _load_data(path: str) -> dict:
-    import json
+    from core.fileutil import load_json_or_exit
 
     if path.lower().endswith((".yaml", ".yml")):
         return _load_yaml(path) or {}
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    return load_json_or_exit(path) or {}
 
 
 def _do_move(src: str, dest: str, dry_run: bool = False, writer: OutputWriter | None = None) -> None:

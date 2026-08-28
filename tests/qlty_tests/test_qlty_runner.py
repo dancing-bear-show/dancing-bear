@@ -417,8 +417,10 @@ class ExecuteSubprocessFailureTests(unittest.TestCase):
     """The two subprocess failure modes _execute itself maps.
 
     Every other runner test patches `_execute`, which mocks over the very
-    try/except being asserted here. These patch `subprocess.run` instead so the
-    real mapping code runs.
+    mapping being asserted here. These patch `core.process.subprocess.run`
+    instead -- the seam underneath `run_binary` -- so both the sentinel mapping
+    in `run_binary` and `_execute`'s translation of those sentinels into
+    QltyInvocationError run for real.
     """
 
     def _runner(self) -> QltyRunner:
@@ -438,7 +440,7 @@ class ExecuteSubprocessFailureTests(unittest.TestCase):
         # qlty hanging must surface as a loud failure, never an empty finding
         # set that reads as a clean repo.
         boom = subprocess.TimeoutExpired(cmd=["qlty", "smells"], timeout=7)
-        with patch("qlty.runner.subprocess.run", side_effect=boom):
+        with patch("core.process.subprocess.run", side_effect=boom):
             with self.assertRaises(QltyInvocationError) as ctx:
                 self._runner()._execute(["smells"])
 
@@ -451,7 +453,7 @@ class ExecuteSubprocessFailureTests(unittest.TestCase):
     def test_unexecutable_binary_becomes_invocation_error(self):
         # Binary missing or not +x: OSError from exec, not a scan result.
         boom = OSError(13, "Permission denied")
-        with patch("qlty.runner.subprocess.run", side_effect=boom):
+        with patch("core.process.subprocess.run", side_effect=boom):
             with self.assertRaises(QltyInvocationError) as ctx:
                 self._runner()._execute(["smells"])
 
@@ -468,7 +470,7 @@ class ExecuteSubprocessFailureTests(unittest.TestCase):
         proc = subprocess.CompletedProcess(
             args=["qlty", "smells"], returncode=1, stdout="[]", stderr="spinner"
         )
-        with patch("qlty.runner.subprocess.run", return_value=proc):
+        with patch("core.process.subprocess.run", return_value=proc):
             run = self._runner()._execute(["smells"])
 
         self.assertEqual(run.stdout, "[]")

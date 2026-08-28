@@ -1,7 +1,7 @@
 """Session summary computation — aggregates events into SessionSummary."""
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from core.date_utils import now_utc
 
 from telemetry.models import (
     AgentSummary,
@@ -86,7 +86,7 @@ def compute_summary(  # NOSONAR S3776 - flat aggregation; many generator express
         for e in tool_events if e.classification == "avoidable" and e.cost_usd
     )
 
-    start_time = events[0].timestamp if events else datetime.now(timezone.utc)
+    start_time = events[0].timestamp if events else now_utc()
     end_time = events[-1].timestamp if events else None
 
     return SessionSummary(

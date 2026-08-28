@@ -125,11 +125,19 @@ class TestCliTree(unittest.TestCase):
         result = _cli_tree()
         self.assertIsInstance(result, str)
 
-    def test_cli_tree_returns_empty_when_parser_none(self):
-        # _get_parser() returns None because desk.cli has no build_parser()
+    def test_cli_tree_renders_from_the_live_parser(self):
+        # Was: "returns empty because desk.cli has no build_parser()" -- an
+        # assertion that the capsule ships WITHOUT its CLI Tree. The empty
+        # string was the symptom of a swallowed AttributeError, not a contract.
         from desk.agentic import _cli_tree
-        result = _cli_tree()
-        self.assertEqual(result, "")
+        self.assertIn("scan", _cli_tree())
+
+    def test_cli_tree_is_empty_when_parser_is_none(self):
+        # The genuine None-handling contract, which the test above was
+        # accidentally standing in for.
+        from desk.agentic import _cli_tree
+        with patch("desk.agentic._get_parser", return_value=None):
+            self.assertEqual(_cli_tree(), "")
 
     def test_cli_tree_non_empty_when_parser_provided(self):
         import argparse
@@ -142,11 +150,19 @@ class TestCliTree(unittest.TestCase):
 
 
 class TestCliPathExists(unittest.TestCase):
-    def test_returns_false_when_parser_is_none(self):
-        # Default behavior since desk.cli has no build_parser()
+    def test_finds_real_subcommand_in_the_live_parser(self):
+        # Was: "returns False -- default behavior since desk.cli has no
+        # build_parser()". That encoded a BUG as expected behavior. The loader
+        # imported a name that does not exist, cached_parser_loader swallowed
+        # the AttributeError, and _get_parser() returned None -- so every path
+        # check failed and the capsule silently shipped without its CLI Tree
+        # and Flow Map. `scan` is a real desk subcommand and must be found.
         from desk.agentic import _cli_path_exists
-        result = _cli_path_exists(["scan"])
-        self.assertFalse(result)
+        self.assertTrue(_cli_path_exists(["scan"]))
+
+    def test_returns_false_for_unknown_subcommand(self):
+        from desk.agentic import _cli_path_exists
+        self.assertFalse(_cli_path_exists(["definitely-not-a-command"]))
 
     def test_returns_false_with_explicit_none_parser(self):
         from desk.agentic import _cli_path_exists

@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from core.cli_output import emit_one, emit_rows
-from core.date_utils import parse_iso_utc
+from core.date_utils import now_utc, parse_iso_utc
 from telemetry.otel.cli._format_helpers import add_data_dir_argument, add_format_argument, get_work_dir
 from telemetry.otel.menubar_provider import (
     OtelDisplayData,
@@ -299,7 +299,7 @@ def _get_workflow_runs_cost_24h() -> float | None:
         work_dir = get_work_dir()
         if not work_dir.exists():
             return None
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        cutoff = now_utc() - timedelta(hours=24)
         costs = [
             c
             for p in work_dir.glob("*/stages/*.json")

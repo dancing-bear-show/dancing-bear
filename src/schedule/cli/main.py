@@ -21,7 +21,7 @@ from typing import Any
 from core.assistant import BaseAssistant
 from core.cli_errors import CLIError, ExitCode
 from core.cli_output import OutputWriter
-from core.constants import FMT_DAY_START, FMT_DAY_END
+from core.date_utils import day_range_to_iso
 from core.auth import build_outlook_service_from_args
 from core.cli_framework import CLIApp
 from core.paths import output_dir
@@ -237,7 +237,13 @@ assistant = BaseAssistant(
 
 
 def _emit_agentic(fmt: str, compact: bool) -> int:
-    from .agentic import emit_agentic_context
+    # `..agentic`, not `.agentic`: this module is schedule.cli.main, so a
+    # single dot resolves to schedule.cli.agentic, which does not exist. The
+    # resulting ModuleNotFoundError was swallowed by maybe_emit_agentic's
+    # except-Exception fallback, which printed the two-line banner instead --
+    # so `./bin/schedule --agentic` emitted 79 bytes while the real capsule
+    # (1602 bytes, with CLI Tree and Flow Map) was never reached.
+    from ..agentic import emit_agentic_context
 
     return emit_agentic_context(fmt, compact)
 
@@ -349,7 +355,6 @@ def cmd_sync(args: argparse.Namespace) -> int:
 @app.argument("--token", help="Path to Outlook token cache")
 def cmd_export(args: argparse.Namespace) -> int:
     """Export Outlook calendar events to plan YAML."""
-    import datetime as _dt
 
     # Validate service
     svc = _build_outlook_service_from_args(args)
@@ -363,10 +368,9 @@ def cmd_export(args: argparse.Namespace) -> int:
 
     # Parse and validate date range
     try:
-        start_iso = _dt.datetime.fromisoformat(args.from_date).strftime(FMT_DAY_START)
-        end_iso = _dt.datetime.fromisoformat(args.to_date).strftime(FMT_DAY_END)
-    except (ValueError, TypeError):
-        raise CLIError("Invalid --from/--to date format; expected YYYY-MM-DD", ExitCode.USAGE)
+        start_iso, end_iso = day_range_to_iso(args.from_date, args.to_date)
+    except ValueError as exc:
+        raise CLIError(str(exc), ExitCode.USAGE)
 
     out_path = Path(getattr(args, "out"))
     request = ExportScheduleRequest(

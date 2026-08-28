@@ -99,8 +99,6 @@ class AutoProposeProcessor(SafeProcessor[AutoProposePayload, AutoProposeResult])
     """Create proposal for categorizing + archiving low-interest mail."""
 
     def _process_safe(self, payload: AutoProposePayload) -> AutoProposeResult:
-        import json
-
         from ..applog import AppLogger
         from ..gmail_api import GmailClient
         from ..utils.gmail_ops import MessageQueryParams, fetch_messages_with_metadata
@@ -143,8 +141,8 @@ class AutoProposeProcessor(SafeProcessor[AutoProposePayload, AutoProposeResult])
                 "messages": selected,
             }
 
-            payload.out_path.parent.mkdir(parents=True, exist_ok=True)
-            payload.out_path.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+            from core.fileutil import atomic_write_json
+            atomic_write_json(payload.out_path, doc)
 
             logger.end(sid, status="ok")
             return AutoProposeResult(

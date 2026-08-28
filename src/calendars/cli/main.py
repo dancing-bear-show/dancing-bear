@@ -70,8 +70,14 @@ app = CLIApp(
 
 
 def _lazy_agentic():
-    """Lazy loader for agentic capsule builder."""
-    from .agentic import build_agentic_capsule
+    """Lazy loader for agentic capsule builder.
+
+    `..agentic`, not `.agentic`: this module is calendars.cli.main, so a single
+    dot resolves to calendars.cli.agentic, which does not exist. The resulting
+    ModuleNotFoundError was swallowed by maybe_emit_agentic's except-Exception
+    fallback, which printed the two-line banner instead of the real capsule.
+    """
+    from ..agentic import build_agentic_capsule
     return build_agentic_capsule
 
 

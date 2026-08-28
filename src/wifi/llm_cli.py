@@ -1,68 +1,20 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from core import llm_cli
-from core.textio import read_text
 
-LLM_DIR = Path(".llm")
-
-
-def _agentic() -> str:
-    from .agentic import build_agentic_capsule
-
-    try:
-        return build_agentic_capsule()
-    except Exception:  # nosec B110 - fall back to inline stub when agentic capsule is unavailable
-        return "agentic: wifi\npurpose: Wi-Fi and LAN diagnostics"
-
-
-def _domain_map() -> str:
-    from .agentic import build_domain_map
-
-    try:
-        return build_domain_map()
-    except Exception:  # nosec B110 - fall back to inline stub when domain map is unavailable
-        return "Domain Map not available"
-
-
-def _inventory() -> str:
-    return read_text(LLM_DIR / "INVENTORY.md") or "# LLM Agent Inventory (Wi-Fi Assistant)\n\nSee repo .llm/INVENTORY.md.\n"
-
-
-def _familiar_compact() -> str:
-    return (
-        read_text(LLM_DIR / "familiarize.yaml")
-        or "meta:\n  name: wifi_familiarize\n  version: 2\nsteps:\n  - run: ./bin/wifi --help\n"
-    )
-
-
-def _familiar_extended() -> str:
-    return (
-        "meta:\n"
-        "  name: wifi_familiarize\n"
-        "  version: 2\n"
-        "steps:\n"
-        "  - run: ./bin/wifi --ping-count 8\n"
-        "  - run: ./bin/wifi --json --out out/wifi.diag.json\n"
-    )
-
-
-def _policies() -> str:
-    return read_text(LLM_DIR / "PR_POLICIES.yaml") or "policies:\n  style:\n    - Keep CLI flags stable; avoid new dependencies\n  tests:\n    - Add lightweight unittest for new probes and CLI output\n"
-
-
-CONFIG = llm_cli.LlmConfig(
-    prog="llm",
-    description="Wi-Fi LLM utilities (agentic/domain-map/familiar)",
-    agentic=_agentic,
-    domain_map=_domain_map,
-    inventory=_inventory,
-    familiar_compact=_familiar_compact,
-    familiar_extended=_familiar_extended,
-    policies=_policies,
-    agentic_filename="AGENTIC_WIFI.md",
-    domain_map_filename="DOMAIN_MAP_WIFI.md",
+CONFIG = llm_cli.make_domain_llm_module(
+    app_id="wifi",
+    app_title="Wi-Fi",
+    purpose="Wi-Fi and LAN diagnostics",
+    agentic_module="wifi.agentic",
+    familiar_compact_steps=[
+        "./bin/wifi --help",
+    ],
+    familiar_extended_steps=[
+        "./bin/wifi --ping-count 8",
+        "./bin/wifi --json --out out/wifi.diag.json",
+    ],
+    policies_fallback="policies:\n  style:\n    - Keep CLI flags stable; avoid new dependencies\n  tests:\n    - Add lightweight unittest for new probes and CLI output\n",
 )
 
 

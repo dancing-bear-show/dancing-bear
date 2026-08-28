@@ -10,6 +10,8 @@ from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from core.date_utils import now_utc
+
 from telemetry.models import AgentSummary, AgentTokenRow, SessionEvent, SessionSummary
 from telemetry.pricing import TokenMetrics, compute_cost
 from telemetry.providers.transcript_aggregate import (
@@ -177,7 +179,7 @@ class TranscriptProvider:
         merged into a single session-level summary.
         """
         all_events, all_agents, file_ts = self._merge_subagent_files(jsonl_files)
-        fallback_ts = file_ts or datetime.now(timezone.utc)
+        fallback_ts = file_ts or now_utc()
         # Replace per-file session_id values (agent-id stems) with the real session_id
         for event in all_events:
             event.session_id = session_id
@@ -303,7 +305,7 @@ class TranscriptProvider:
             cache_read_tokens (int), sessions (int), cost_is_estimated (bool),
             models (dict[str, float]), hourly_costs (list[float])
         """
-        now = datetime.now(timezone.utc)
+        now = now_utc()
         num_slots = 12
         bucket_start = now - timedelta(hours=num_slots)
         hourly: list[float] = [0.0] * num_slots

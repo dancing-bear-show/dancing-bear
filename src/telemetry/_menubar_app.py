@@ -3,7 +3,7 @@
 import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 try:
@@ -32,6 +32,7 @@ from telemetry._menubar_config import (
     _icon_template_vars,
     _load_config,
 )
+from core.date_utils import now_utc
 from telemetry._menubar_display import (
     _age_str,
     _model_short,
@@ -100,7 +101,7 @@ def _get_app_version() -> str:
 
 def _month_since() -> datetime:
     """Return UTC midnight on the 1st of the current calendar month."""
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
 
@@ -477,7 +478,7 @@ class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBa
         total_out = window_totals["output_tokens"]
         any_estimated = window_totals["cost_is_estimated"]
         window_secs = secs if secs is not None else int(
-            (datetime.now(timezone.utc) - _window_since(None)).total_seconds()
+            (now_utc() - _window_since(None)).total_seconds()
         )
         self._info_usage_cost.title = f"  Cost: {_format_cost(total_cost, any_estimated)}"
         self._info_usage_tokens.title = (

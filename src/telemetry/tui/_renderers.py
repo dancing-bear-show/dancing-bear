@@ -1,7 +1,7 @@
 """Rich renderers — used by both Textual widgets and static print_summary."""
 
 from collections.abc import Callable
-from datetime import datetime, timezone
+from core.date_utils import now_utc
 
 from rich.console import Console
 from rich.panel import Panel
@@ -36,7 +36,7 @@ def _render_header_text(summary: SessionSummary) -> str:
     if summary.end_time:
         delta = (summary.end_time - summary.start_time).total_seconds()
     else:
-        delta = (datetime.now(timezone.utc) - summary.start_time).total_seconds()
+        delta = (now_utc() - summary.start_time).total_seconds()
     mins, secs = divmod(int(delta), 60)
     hours, mins = divmod(mins, 60)
     dur = f"{hours:02d}:{mins:02d}:{secs:02d}"
@@ -309,7 +309,7 @@ def _stats_duration_str(summary: SessionSummary) -> str:
     if summary.end_time:
         delta = (summary.end_time - summary.start_time).total_seconds()
     else:
-        delta = (datetime.now(timezone.utc) - summary.start_time).total_seconds()
+        delta = (now_utc() - summary.start_time).total_seconds()
     mins, secs = divmod(int(delta), 60)
     hours, mins = divmod(mins, 60)
     return f"{hours:02d}:{mins:02d}:{secs:02d}"
