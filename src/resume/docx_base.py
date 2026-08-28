@@ -295,12 +295,11 @@ class ResumeWriterBase(ABC):
 
                 The message is split by input type on purpose. A dict is the
                 right data at the wrong altitude, so naming
-                ``Resume.from_dict`` is a real fix. Any other type is not,
-                and pointing it at ``from_dict`` would be actively harmful:
-                ``from_dict`` warns and returns an *empty* ``Resume`` for a
-                non-dict rather than raising, so a caller holding ``None``
-                who followed that advice would render a blank document and
-                see nothing fail. Keep the two branches distinct.
+                ``Resume.from_dict`` is a real fix. Any other type is not:
+                ``from_dict`` rejects a non-dict with its own ``TypeError``,
+                so routing ``None`` through it only moves the same failure one
+                frame away from the caller that produced it. Keep the two
+                branches distinct.
         """
         if not isinstance(data, Resume):
             if isinstance(data, dict):
@@ -312,10 +311,9 @@ class ResumeWriterBase(ABC):
             raise TypeError(
                 f"{type(self).__name__} requires a typed Resume, got "
                 f"{type(data).__name__}, which carries no candidate data to "
-                f"build one from. Fix the caller that produced it. Do not route "
-                f"it through Resume.from_dict -- that returns an empty Resume "
-                f"for a non-dict, which renders a blank document instead of "
-                f"failing."
+                f"build one from. Fix the caller that produced it. Routing it "
+                f"through Resume.from_dict will not help -- that rejects a "
+                f"non-dict too."
             )
         self.resume = data
         self.template = template

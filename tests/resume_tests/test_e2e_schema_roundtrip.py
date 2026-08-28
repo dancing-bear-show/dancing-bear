@@ -681,13 +681,20 @@ class InvalidShapeTests(E2EPipelineTestBase):
         self.assertProseIn(SUMMARY_TEXT.rstrip("."), paragraphs)
         self.assertProseIn(DEGREE, paragraphs)
 
-    def test_invalid_top_level_document_falls_back_to_defaults(self) -> None:
-        with self.assertLogs("resume.schema", level=logging.WARNING) as captured:
-            resume = Resume.from_dict(["not", "a", "mapping"])
+    def test_rejects_invalid_top_level_document(self) -> None:
+        """A non-dict *document* raises rather than falling back.
 
-        self.assertEqual("", resume.name)
-        self.assertEqual([], resume.experience)
-        self.assertIn("Resume", "\n".join(captured.output))
+        This is the one carve-out from the advisory policy the tests above
+        exercise. A wrong-typed argument is a programming error at an API
+        boundary, not malformed candidate data: there is no document to
+        salvage. It previously returned an empty ``Resume``, which rendered a
+        blank document with nothing reporting a failure.
+        """
+        with self.assertRaises(TypeError) as ctx:
+            Resume.from_dict(["not", "a", "dict"])
+
+        self.assertIn("list", str(ctx.exception))
+        self.assertIn("dict", str(ctx.exception))
 
     def test_invalid_list_item_shape_degrades_to_defaults(self) -> None:
         """A non-dict item inside a typed list becomes a default item."""

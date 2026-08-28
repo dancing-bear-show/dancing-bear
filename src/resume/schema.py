@@ -42,9 +42,18 @@ Two mechanisms make the canonical-shape case exact rather than approximate:
     the renderers stringify it at display time). Absent stays absent, and a
     present value is stored exactly as given.
 
-Validation is **advisory**: shape violations are reported through
-``logging.getLogger(__name__).warning`` and never raise. A malformed input
-still yields a usable object.
+Validation of *values* is **advisory**: shape violations inside a document are
+reported through ``logging.getLogger(__name__).warning`` and never raise. A
+malformed input still yields a usable object, because a resume that renders
+with a warning beats one that will not render at all.
+
+The sole exception is the *argument type* of :meth:`Resume.from_dict`, which
+raises ``TypeError`` on a non-dict. That is a programming error at an API
+boundary rather than candidate data -- there is no document to salvage and no
+section to default -- and returning an empty ``Resume`` instead let a truncated
+data file render a blank document with nothing reporting a failure. Item types
+are unaffected: ``_Item.from_dict`` still coerces a bare string onto the item's
+primary field, which is the legacy ``bullets: list[str]`` path.
 """
 
 from __future__ import annotations
@@ -523,11 +532,34 @@ class Resume(_Item):
         * ``contact`` values for name/email/phone/location are promoted to the
           matching top-level scalar when that scalar is not already set.
 
-        Validation is advisory throughout: nothing here raises.
+        Validation of candidate *values* is advisory: a section of the wrong
+        type, a null section, or a malformed item warns via :mod:`logging` and
+        falls back to a default rather than raising, because a resume that
+        renders with a warning beats one that will not render at all.
+
+        The *argument type* is the one exception, and it is not user data. A
+        non-dict ``data`` is a programming error at an API boundary -- there is
+        no document to salvage and no section to default -- so it raises. The
+        contract is ``dict`` specifically, not :class:`collections.abc.Mapping`:
+        the generic :meth:`from_dict` this delegates to gates on ``isinstance(
+        data, dict)`` too, and routes anything else to ``_from_scalar``. A
+        ``mappingproxy`` admitted here would clear that guard and then silently
+        default every section, which is the blank-document failure below. This
+        matches the guard in :meth:`resume.docx_base.ResumeWriterBase.__init__`
+        for the same reason: silently returning an empty ``Resume`` let a
+        truncated or malformed data file render a blank document with nothing
+        reporting a failure.
+
+        Raises:
+            TypeError: If ``data`` is not a dict.
         """
         if not isinstance(data, dict):
-            _warn("Resume: expected dict, got %s; using defaults", type(data).__name__)
-            return cls()
+            raise TypeError(
+                f"Resume.from_dict requires a dict of resume sections, got "
+                f"{type(data).__name__}. Candidate data must be a dict -- not "
+                f"merely a Mapping; fix the caller or the source document that "
+                f"produced it."
+            )
 
         resume: Resume = super().from_dict(data)
         resume._promote_contact()

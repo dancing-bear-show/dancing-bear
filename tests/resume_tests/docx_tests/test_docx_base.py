@@ -390,9 +390,10 @@ class TestWriterRejectsUntypedResume(unittest.TestCase):
     def _assert_non_dict_guidance(self, ctx, type_name: str) -> None:
         """A non-dict must be sent back to its caller, not to ``from_dict``.
 
-        ``Resume.from_dict`` does not raise on a non-dict -- it warns and
-        returns an empty ``Resume`` -- so a message that recommended it here
-        would trade a loud ``TypeError`` for a silently blank document. The
+        ``Resume.from_dict`` rejects a non-dict with its own ``TypeError``, so
+        recommending the lift here would only move the same failure one frame
+        away from the caller that produced the bad value -- and the useful
+        detail, which writer was misused, would be lost on the way. The
         assertions below pin that the message names the offending type, tells
         the reader to fix the caller, and warns against the lift rather than
         recommending it.
@@ -401,7 +402,7 @@ class TestWriterRejectsUntypedResume(unittest.TestCase):
         self.assertIn("typed Resume", msg)
         self.assertIn(f"got {type_name}", msg)
         self.assertIn("Fix the caller", msg)
-        self.assertIn("Do not route it through Resume.from_dict", msg)
+        self.assertIn("Resume.from_dict will not help", msg)
 
     def test_rejects_dict_from_factory(self):
         """A dict passed to the factory raises instead of being stored."""
@@ -450,11 +451,11 @@ class TestWriterRejectsUntypedResume(unittest.TestCase):
         """The non-dict message must not read as a recommendation to lift.
 
         Regression guard for the wording this replaced, which told every
-        rejected caller to "pass Resume.from_dict(data) instead". A caller
-        holding ``None`` who followed that got an empty ``Resume`` back --
-        ``from_dict`` warns and defaults rather than raising -- and rendered a
-        blank document with nothing failing. The message may mention
-        ``from_dict`` only to warn against it, never as the instruction.
+        rejected caller to "pass Resume.from_dict(data) instead". Lifting is
+        not a fix for a non-dict: ``from_dict`` rejects one itself, so the
+        advice only relocates the failure away from the caller that produced
+        the bad value. The message may mention ``from_dict`` only to warn
+        against it, never as the instruction.
         """
         from resume.docx_base import create_resume_writer
 
@@ -465,16 +466,19 @@ class TestWriterRejectsUntypedResume(unittest.TestCase):
         self.assertNotIn("Resume.from_dict(data) instead", msg)
         self.assertNotIn("Lift the raw candidate data", msg)
 
-    def test_from_dict_on_none_returns_empty_resume_not_an_error(self):
-        """Pin the ``from_dict`` behaviour that makes the split necessary.
+    def test_rejects_non_dict_from_dict_argument(self):
+        """Pin the ``from_dict`` behaviour that keeps the message split honest.
 
-        If ``Resume.from_dict`` ever started raising on a non-dict, the
-        non-dict branch's warning would become false and the two messages
-        could reasonably be merged again. This test fails in that case,
-        pointing the next reader at the guard.
+        The non-dict branch tells the caller that routing through
+        ``from_dict`` will not help because ``from_dict`` rejects a non-dict
+        too. If ``from_dict`` ever went back to warning and returning an empty
+        ``Resume``, that sentence would be false and a caller who ignored it
+        would render a blank document with nothing failing. This test fails in
+        that case, pointing the next reader at the guard.
         """
-        self.assertEqual(Resume.from_dict(None).to_dict(), {})
-        self.assertEqual(Resume.from_dict("Ada Example").to_dict(), {})
+        for bad in (None, "Ada Example"):
+            with self.subTest(bad=bad), self.assertRaises(TypeError):
+                Resume.from_dict(bad)
 
     def test_typed_resume_is_accepted_unchanged(self):
         """Regression guard: the typed happy path still builds and stores."""
