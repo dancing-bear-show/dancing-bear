@@ -21,6 +21,11 @@ from unittest.mock import MagicMock, patch
 from tests.phone_tests.cli.fixtures import make_profile_build_args
 from tests.phone_tests.fixtures import make_mock_manifest, make_mock_plan
 
+# Dummy p12 passphrase for signing tests. Never reaches a real keystore — the
+# subprocess layer is mocked, and cmd_profile passes it via the _IOS_P12_PASS
+# env var rather than argv.
+FAKE_P12_PASS = "pw-placeholder"  # nosec B105 - test fixture, not a credential
+
 
 class TestBuildAllAppsFolderConfig(unittest.TestCase):
     """Tests for _build_all_apps_folder_config helper."""
@@ -74,7 +79,7 @@ class TestExtractManifestProfileConfigLayoutError(unittest.TestCase):
         manifest = make_mock_manifest(layout_export_path="nonexistent/export.yaml")
 
         with patch("phone.cli.cmd_profile.read_yaml", side_effect=FileNotFoundError("no file")):
-            plan, layout_export, profile = _extract_manifest_profile_config(manifest)
+            plan, layout_export, _profile = _extract_manifest_profile_config(manifest)
 
         self.assertIsNone(layout_export)
         self.assertEqual(plan, manifest["plan"])
@@ -209,7 +214,7 @@ class TestCmdProfileBuildSigning(unittest.TestCase):
             plan="plan.yaml",
             out="out/test.mobileconfig",
             sign_p12="cert.p12",
-            sign_pass="secret",
+            sign_pass=FAKE_P12_PASS,
         )
 
         result = cmd_profile_build(args)
@@ -220,7 +225,7 @@ class TestCmdProfileBuildSigning(unittest.TestCase):
         # Third positional arg should be the p12 path
         self.assertEqual(call_args[2], Path("cert.p12"))
         # Fourth positional arg should be the password
-        self.assertEqual(call_args[3], "secret")
+        self.assertEqual(call_args[3], FAKE_P12_PASS)
 
     @patch("phone.cli.cmd_profile._write_mobileconfig")
     @patch("phone.cli.cmd_profile.build_mobileconfig", return_value={"payload": "data"})
@@ -262,7 +267,7 @@ class TestCmdProfileBuildSigning(unittest.TestCase):
         args = make_profile_build_args(
             plan="plan.yaml",
             sign_p12="cert.p12",
-            sign_pass="secret",
+            sign_pass=FAKE_P12_PASS,
         )
 
         with patch(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -468,6 +469,417 @@ class TestRunEnvSetup(unittest.TestCase):
 
         req_arg = mock_req_consumer.call_args[0][0]
         self.assertEqual(req_arg.venv_dir, ".venv")
+
+
+# ---------------------------------------------------------------------------
+# New tests for missing coverage
+# ---------------------------------------------------------------------------
+
+
+class TestRunWorkflowsGmailFromUnified(unittest.TestCase):
+    """Tests for run_workflows_gmail_from_unified."""
+
+    def _make_args(self, **kwargs):
+        defaults = dict(
+            config=None,
+            out_dir=None,
+            delete_missing=False,
+            apply=False,
+            profile=None,
+        )
+        defaults.update(kwargs)
+        return SimpleNamespace(**defaults)
+
+    @patch("mail.config_cli.commands.resolve_filters_config", return_value="/u.yaml")
+    @patch("mail.config_cli.commands.DeriveFiltersProducer")
+    @patch("mail.config_cli.commands.DeriveFiltersProcessor")
+    @patch("mail.config_cli.commands.RequestConsumer")
+    def test_returns_two_when_derive_fails(
+        self, mock_req_consumer, mock_processor_cls, mock_producer_cls, mock_resolve
+    ):
+        from mail.config_cli.commands import run_workflows_gmail_from_unified
+
+        envelope = _make_error_envelope()
+        mock_processor_cls.return_value.process.return_value = envelope
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            args = self._make_args(out_dir=tmpdir)
+            result = run_workflows_gmail_from_unified(args)
+        self.assertEqual(result, 2)
+
+    @patch("mail.config_cli.commands.resolve_filters_config", return_value="/u.yaml")
+    @patch("mail.config_cli.commands.DeriveFiltersProducer")
+    @patch("mail.config_cli.commands.DeriveFiltersProcessor")
+    @patch("mail.config_cli.commands.RequestConsumer")
+    def test_plan_only_returns_zero(
+        self, mock_req_consumer, mock_processor_cls, mock_producer_cls, mock_resolve
+    ):
+        from mail.config_cli.commands import run_workflows_gmail_from_unified
+
+        envelope = _make_ok_envelope()
+        mock_processor_cls.return_value.process.return_value = envelope
+
+        with patch("mail.filters.commands.run_filters_plan") as mock_plan:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                args = self._make_args(out_dir=tmpdir, apply=False)
+                result = run_workflows_gmail_from_unified(args)
+            mock_plan.assert_called_once()
+        self.assertEqual(result, 0)
+
+    @patch("mail.config_cli.commands.resolve_filters_config", return_value="/u.yaml")
+    @patch("mail.config_cli.commands.DeriveFiltersProducer")
+    @patch("mail.config_cli.commands.DeriveFiltersProcessor")
+    @patch("mail.config_cli.commands.RequestConsumer")
+    def test_apply_flag_calls_sync(
+        self, mock_req_consumer, mock_processor_cls, mock_producer_cls, mock_resolve
+    ):
+        from mail.config_cli.commands import run_workflows_gmail_from_unified
+
+        envelope = _make_ok_envelope()
+        mock_processor_cls.return_value.process.return_value = envelope
+
+        with patch("mail.filters.commands.run_filters_plan"), \
+                patch("mail.filters.commands.run_filters_sync") as mock_sync:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                args = self._make_args(out_dir=tmpdir, apply=True)
+                result = run_workflows_gmail_from_unified(args)
+            mock_sync.assert_called_once()
+        self.assertEqual(result, 0)
+
+
+class TestDetectGmailAvailable(unittest.TestCase):
+    """Tests for _detect_gmail_available."""
+
+    def test_returns_false_on_exception(self):
+        from mail.config_cli.commands import _detect_gmail_available
+
+        with patch(
+            "mail.config_resolver.resolve_paths_profile",
+            side_effect=RuntimeError("no config"),
+        ):
+            args = SimpleNamespace(profile=None)
+            result = _detect_gmail_available(args)
+        self.assertFalse(result)
+
+    def test_returns_false_when_neither_path_exists(self):
+        from mail.config_cli.commands import _detect_gmail_available
+
+        with patch(
+            "mail.config_resolver.resolve_paths_profile",
+            return_value=("/nonexistent/creds.json", "/nonexistent/token.json"),
+        ):
+            args = SimpleNamespace(profile=None)
+            result = _detect_gmail_available(args)
+        self.assertFalse(result)
+
+    def test_returns_true_when_cred_path_exists(self):
+        import os
+        from mail.config_cli.commands import _detect_gmail_available
+
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            tmp = f.name
+        try:
+            with patch(
+                "mail.config_resolver.resolve_paths_profile",
+                return_value=(tmp, "/nonexistent/token.json"),
+            ):
+                args = SimpleNamespace(profile=None)
+                result = _detect_gmail_available(args)
+            self.assertTrue(result)
+        finally:
+            os.unlink(tmp)
+
+
+class TestDetectOutlookAvailable(unittest.TestCase):
+    """Tests for _detect_outlook_available."""
+
+    def test_returns_true_when_client_id_resolved(self):
+        from mail.config_cli.commands import _detect_outlook_available
+
+        with patch(
+            "mail.outlook.helpers.resolve_outlook_args",
+            return_value=("client-id-123", None, None, None),
+        ):
+            args = SimpleNamespace(profile=None, accounts_config=None, account=None)
+            result = _detect_outlook_available(args)
+        self.assertTrue(result)
+
+    def test_returns_false_when_no_client_id(self):
+        from mail.config_cli.commands import _detect_outlook_available
+
+        with patch(
+            "mail.outlook.helpers.resolve_outlook_args",
+            return_value=(None, None, None, None),
+        ):
+            args = SimpleNamespace(profile=None, accounts_config=None, account=None)
+            result = _detect_outlook_available(args)
+        self.assertFalse(result)
+
+    def test_returns_false_on_exception(self):
+        from mail.config_cli.commands import _detect_outlook_available
+
+        with patch(
+            "mail.outlook.helpers.resolve_outlook_args",
+            side_effect=RuntimeError("no config"),
+        ):
+            args = SimpleNamespace(profile=None, accounts_config=None, account=None)
+            result = _detect_outlook_available(args)
+        self.assertFalse(result)
+
+
+class TestRunGmailSteps(unittest.TestCase):
+    """Tests for _run_gmail_steps."""
+
+    def _make_args(self, **kwargs):
+        defaults = dict(delete_missing=False, apply=False, profile=None)
+        defaults.update(kwargs)
+        return SimpleNamespace(**defaults)
+
+    def test_plan_only_calls_plan_not_sync(self):
+        from mail.config_cli.commands import _run_gmail_steps
+
+        with patch("mail.filters.commands.run_filters_plan") as mock_plan, \
+                patch("mail.filters.commands.run_filters_sync") as mock_sync:
+            _run_gmail_steps(self._make_args(apply=False), "/gmail.yaml")
+        mock_plan.assert_called_once()
+        mock_sync.assert_not_called()
+
+    def test_apply_calls_both_plan_and_sync(self):
+        from mail.config_cli.commands import _run_gmail_steps
+
+        with patch("mail.filters.commands.run_filters_plan") as mock_plan, \
+                patch("mail.filters.commands.run_filters_sync") as mock_sync:
+            _run_gmail_steps(self._make_args(apply=True), "/gmail.yaml")
+        mock_plan.assert_called_once()
+        mock_sync.assert_called_once()
+
+
+class TestRunOutlookSteps(unittest.TestCase):
+    """Tests for _run_outlook_steps."""
+
+    def _make_args(self, **kwargs):
+        defaults = dict(
+            apply=False, delete_missing=False, profile=None,
+            accounts_config=None, account=None, outlook_move_to_folders=True,
+        )
+        defaults.update(kwargs)
+        return SimpleNamespace(**defaults)
+
+    def test_plan_only_calls_plan_not_sync(self):
+        from mail.config_cli.commands import _run_outlook_steps
+
+        with patch("mail.outlook.commands.run_outlook_rules_plan") as mock_plan, \
+                patch("mail.outlook.commands.run_outlook_rules_sync") as mock_sync:
+            _run_outlook_steps(self._make_args(apply=False), "/outlook.yaml")
+        mock_plan.assert_called_once()
+        mock_sync.assert_not_called()
+
+    def test_apply_calls_both_plan_and_sync(self):
+        from mail.config_cli.commands import _run_outlook_steps
+
+        with patch("mail.outlook.commands.run_outlook_rules_plan") as mock_plan, \
+                patch("mail.outlook.commands.run_outlook_rules_sync") as mock_sync:
+            _run_outlook_steps(self._make_args(apply=True), "/outlook.yaml")
+        mock_plan.assert_called_once()
+        mock_sync.assert_called_once()
+
+
+class TestResolveProviders(unittest.TestCase):
+    """Tests for _resolve_providers."""
+
+    def _make_args(self, providers=None, **kwargs):
+        defaults = dict(profile=None, accounts_config=None, account=None)
+        defaults.update(kwargs)
+        ns = SimpleNamespace(**defaults)
+        if providers is not None:
+            ns.providers = providers
+        return ns
+
+    def test_no_providers_attr_uses_detection_gmail_only(self):
+        from mail.config_cli.commands import _resolve_providers
+
+        with patch("mail.config_cli.commands._detect_gmail_available", return_value=True), \
+                patch("mail.config_cli.commands._detect_outlook_available", return_value=False):
+            requested, run_gmail, run_outlook = _resolve_providers(self._make_args())
+        self.assertIsNone(requested)
+        self.assertTrue(run_gmail)
+        self.assertFalse(run_outlook)
+
+    def test_no_providers_attr_uses_detection_neither(self):
+        from mail.config_cli.commands import _resolve_providers
+
+        with patch("mail.config_cli.commands._detect_gmail_available", return_value=False), \
+                patch("mail.config_cli.commands._detect_outlook_available", return_value=False):
+            requested, run_gmail, run_outlook = _resolve_providers(self._make_args())
+        self.assertIsNone(requested)
+        self.assertFalse(run_gmail)
+        self.assertFalse(run_outlook)
+
+    def test_explicit_gmail_provider_forces_gmail_true_regardless_of_detection(self):
+        from mail.config_cli.commands import _resolve_providers
+
+        # Detection returns False but explicit provider overrides it
+        with patch("mail.config_cli.commands._detect_gmail_available", return_value=False), \
+                patch("mail.config_cli.commands._detect_outlook_available", return_value=False):
+            requested, run_gmail, run_outlook = _resolve_providers(self._make_args(providers="gmail"))
+        self.assertIn("gmail", requested)
+        self.assertTrue(run_gmail)
+        self.assertFalse(run_outlook)
+
+    def test_explicit_outlook_provider_forces_outlook_true_regardless_of_detection(self):
+        from mail.config_cli.commands import _resolve_providers
+
+        with patch("mail.config_cli.commands._detect_gmail_available", return_value=False), \
+                patch("mail.config_cli.commands._detect_outlook_available", return_value=False):
+            requested, run_gmail, run_outlook = _resolve_providers(self._make_args(providers="outlook"))
+        self.assertIn("outlook", requested)
+        self.assertFalse(run_gmail)
+        self.assertTrue(run_outlook)
+
+    def test_both_providers_explicit_both_forced_true(self):
+        from mail.config_cli.commands import _resolve_providers
+
+        with patch("mail.config_cli.commands._detect_gmail_available", return_value=False), \
+                patch("mail.config_cli.commands._detect_outlook_available", return_value=False):
+            requested, run_gmail, run_outlook = _resolve_providers(self._make_args(providers="gmail,outlook"))
+        self.assertTrue(run_gmail)
+        self.assertTrue(run_outlook)
+
+
+class TestRunProviderSteps(unittest.TestCase):
+    """Tests for _run_provider_steps."""
+
+    def _make_args(self, providers=None, **kwargs):
+        defaults = dict(
+            apply=False, delete_missing=False, profile=None,
+            accounts_config=None, account=None, outlook_move_to_folders=True,
+        )
+        defaults.update(kwargs)
+        ns = SimpleNamespace(**defaults)
+        if providers is not None:
+            ns.providers = providers
+        return ns
+
+    def test_returns_true_when_gmail_runs(self):
+        from mail.config_cli.commands import _run_provider_steps
+
+        with patch("mail.config_cli.commands._resolve_providers", return_value=(None, True, False)), \
+                patch("mail.config_cli.commands._run_gmail_steps") as mock_gmail, \
+                patch("mail.config_cli.commands._run_outlook_steps") as mock_outlook:
+            result = _run_provider_steps(self._make_args(), "/g.yaml", "/o.yaml")
+        self.assertTrue(result)
+        mock_gmail.assert_called_once()
+        mock_outlook.assert_not_called()
+
+    def test_returns_true_when_outlook_runs(self):
+        from mail.config_cli.commands import _run_provider_steps
+
+        with patch("mail.config_cli.commands._resolve_providers", return_value=(None, False, True)), \
+                patch("mail.config_cli.commands._run_gmail_steps") as mock_gmail, \
+                patch("mail.config_cli.commands._run_outlook_steps") as mock_outlook:
+            result = _run_provider_steps(self._make_args(), "/g.yaml", "/o.yaml")
+        self.assertTrue(result)
+        mock_gmail.assert_not_called()
+        mock_outlook.assert_called_once()
+
+    def test_returns_false_when_neither_runs_and_prints_skip_messages(self):
+        from mail.config_cli.commands import _run_provider_steps
+
+        with patch("mail.config_cli.commands._resolve_providers", return_value=(None, False, False)), \
+                patch("mail.config_cli.commands._run_gmail_steps") as mock_gmail, \
+                patch("mail.config_cli.commands._run_outlook_steps") as mock_outlook, \
+                patch("builtins.print") as mock_print:
+            result = _run_provider_steps(self._make_args(), "/g.yaml", "/o.yaml")
+        self.assertFalse(result)
+        mock_gmail.assert_not_called()
+        mock_outlook.assert_not_called()
+        # Both skip messages should be printed when requested is None
+        printed_args = [str(c[0][0]) for c in mock_print.call_args_list if c[0]]
+        skip_messages = [m for m in printed_args if "Skipping" in m]
+        self.assertEqual(len(skip_messages), 2)
+
+    def test_skip_message_suppressed_when_provider_not_in_requested(self):
+        """When providers='gmail' is requested, the Outlook skip message is not printed."""
+        from mail.config_cli.commands import _run_provider_steps
+
+        # requested={'gmail'}, run_gmail=True (gmail step runs), run_outlook=False
+        # 'outlook' not in requested so its elif also will not fire
+        with patch("mail.config_cli.commands._resolve_providers", return_value=({"gmail"}, True, False)), \
+                patch("mail.config_cli.commands._run_gmail_steps"), \
+                patch("mail.config_cli.commands._run_outlook_steps") as mock_outlook, \
+                patch("builtins.print") as mock_print:
+            result = _run_provider_steps(self._make_args(providers="gmail"), "/g.yaml", "/o.yaml")
+        self.assertTrue(result)
+        mock_outlook.assert_not_called()
+        printed_args = [str(c[0][0]) for c in mock_print.call_args_list if c[0]]
+        outlook_skips = [m for m in printed_args if "Outlook" in m and "Skipping" in m]
+        self.assertEqual(len(outlook_skips), 0)
+
+
+class TestRunWorkflowsFromUnified(unittest.TestCase):
+    """Tests for run_workflows_from_unified."""
+
+    def _make_args(self, **kwargs):
+        defaults = dict(
+            config=None, out_dir=None, outlook_move_to_folders=True,
+            apply=False, delete_missing=False, profile=None,
+            accounts_config=None, account=None,
+        )
+        defaults.update(kwargs)
+        return SimpleNamespace(**defaults)
+
+    @patch("mail.config_cli.commands.resolve_filters_config", return_value="/u.yaml")
+    @patch("mail.config_cli.commands.DeriveFiltersProducer")
+    @patch("mail.config_cli.commands.DeriveFiltersProcessor")
+    @patch("mail.config_cli.commands.RequestConsumer")
+    def test_returns_two_when_derive_fails(
+        self, mock_req_consumer, mock_processor_cls, mock_producer_cls, mock_resolve
+    ):
+        from mail.config_cli.commands import run_workflows_from_unified
+
+        envelope = _make_error_envelope()
+        mock_processor_cls.return_value.process.return_value = envelope
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            args = self._make_args(out_dir=tmpdir)
+            result = run_workflows_from_unified(args)
+        self.assertEqual(result, 2)
+
+    @patch("mail.config_cli.commands.resolve_filters_config", return_value="/u.yaml")
+    @patch("mail.config_cli.commands.DeriveFiltersProducer")
+    @patch("mail.config_cli.commands.DeriveFiltersProcessor")
+    @patch("mail.config_cli.commands.RequestConsumer")
+    def test_returns_two_when_no_providers_detected(
+        self, mock_req_consumer, mock_processor_cls, mock_producer_cls, mock_resolve
+    ):
+        from mail.config_cli.commands import run_workflows_from_unified
+
+        envelope = _make_ok_envelope()
+        mock_processor_cls.return_value.process.return_value = envelope
+
+        with patch("mail.config_cli.commands._run_provider_steps", return_value=False):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                args = self._make_args(out_dir=tmpdir)
+                result = run_workflows_from_unified(args)
+        self.assertEqual(result, 2)
+
+    @patch("mail.config_cli.commands.resolve_filters_config", return_value="/u.yaml")
+    @patch("mail.config_cli.commands.DeriveFiltersProducer")
+    @patch("mail.config_cli.commands.DeriveFiltersProcessor")
+    @patch("mail.config_cli.commands.RequestConsumer")
+    def test_returns_zero_when_providers_run(
+        self, mock_req_consumer, mock_processor_cls, mock_producer_cls, mock_resolve
+    ):
+        from mail.config_cli.commands import run_workflows_from_unified
+
+        envelope = _make_ok_envelope()
+        mock_processor_cls.return_value.process.return_value = envelope
+
+        with patch("mail.config_cli.commands._run_provider_steps", return_value=True):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                args = self._make_args(out_dir=tmpdir)
+                result = run_workflows_from_unified(args)
+        self.assertEqual(result, 0)
 
 
 if __name__ == "__main__":

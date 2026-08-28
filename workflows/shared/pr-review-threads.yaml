@@ -72,7 +72,7 @@ stages:
                   comments(first:50){
                     totalCount
                     pageInfo{ hasNextPage endCursor }
-                    nodes{ databaseId author { login } body createdAt url }
+                    nodes{ databaseId author { login __typename } body createdAt url }
                   }
                 }
               }
@@ -116,9 +116,21 @@ stages:
       comparing, or bot threads will be misclassified as human on one surface.
 
       Classify each thread's author_kind as:
-        "bot"   — login (suffix-stripped) is copilot-pull-request-reviewer,
-                  github-actions, or any login ending in "[bot]"
+        "bot"   — the GraphQL author.__typename is "Bot", OR the login
+                  (suffix-stripped) is copilot-pull-request-reviewer or
+                  github-actions, OR the login ends in "[bot]"
         "human" — everything else
+
+      Prefer __typename. It is GitHub's own answer and it covers accounts no
+      login allowlist anticipates. A real case: github-code-quality posts
+      review threads under a bare login with no "[bot]" suffix and matches
+      none of the named logins, so a login-only rule classifies it human —
+      on one PR that was 10 of 14 threads. GraphQL reports it as
+      __typename: Bot.
+
+      REST (Steps 2 and 3) has no __typename; it exposes "type": "Bot" on the
+      user object instead. Use that there, and fall back to the login rules
+      only when neither field is present.
 
       Write {workspace}/outputs/threads.json:
         {

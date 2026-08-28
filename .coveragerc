@@ -19,6 +19,25 @@ exclude_lines =
     pragma: no cover
     def __repr__
     raise NotImplementedError
+    # Any line whose entire content is `...`, at any indent. In this repo that
+    # is only type-only stub bodies — `@abstractmethod` bodies and `Protocol`
+    # method signatures — which never execute: a concrete subclass replaces the
+    # body, and a Protocol is never instantiated. Hitting them would mean
+    # calling `super()` into an abstract method purely to move the number,
+    # which the project rules prohibit. Same concept as the
+    # `raise NotImplementedError` line above, the other spelling of a stub.
+    #
+    # The pattern is deliberately broad rather than indent-anchored, so it is
+    # worth stating what it does NOT affect. Measured by running coverage with
+    # and without this rule: it changes 7 statements repo-wide, in
+    # core/pipeline.py, mail/utils/gmail_ops.py, and mail/outlook/producers.py
+    # — all Protocol declarations. A bare `...` inside a docstring (e.g. the
+    # layout example in phone/validate.py) is not a statement, so coverage
+    # never counted it and the rule cannot inflate anything there.
+    #
+    # Audit every new bare `...` before assuming this still holds: the rule is
+    # only correct while the codebase uses `...` exclusively for stubs.
+    ^\s*\.\.\.$
     if __name__ == .__main__.:
     if TYPE_CHECKING:
 show_missing = True
