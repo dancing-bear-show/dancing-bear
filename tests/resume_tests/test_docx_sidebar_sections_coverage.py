@@ -293,6 +293,83 @@ class TestRenderPresEntry(unittest.TestCase):
 
 
 # ===========================================================================
+# _item_text
+# ===========================================================================
+
+class TestItemText(unittest.TestCase):
+    """Tests for the _item_text helper.
+
+    Alias-keyed entries render the prose behind the alias rather than the
+    concatenated key names the pre-migration replay produced. Canonical
+    spellings and genuinely empty items must be unaffected by that widening.
+    """
+
+    def setUp(self):
+        from resume.docx_sidebar_sections import _item_text
+        self._fn = _item_text
+
+    def test_alias_keyed_summary_entry_renders_prose(self):
+        """``{"line": ...}`` renders its prose, not the keys ("linepriority")."""
+        item = PriorityItem.from_dict({"line": "Real prose here", "priority": 2})
+        self.assertEqual(self._fn(item), "Real prose here")
+
+    def test_alias_keyed_bullet_renders_prose(self):
+        """An experience bullet keyed by ``line`` renders its prose."""
+        item = PriorityItem.from_dict({"line": "Alias bullet without priority."})
+        self.assertEqual(self._fn(item), "Alias bullet without priority.")
+
+    def test_label_keyed_skill_item_renders_prose(self):
+        """``{"label": ...}`` on a skill item renders its prose, not "labeldesc"."""
+        from resume.schema import SkillGroupItem
+
+        item = SkillGroupItem.from_dict({"label": "Cloud", "desc": "detail"})
+        self.assertEqual(self._fn(item), "Cloud")
+
+    def test_title_keyed_skill_item_renders_prose(self):
+        """``title`` is the skill item's other alias and resolves the same way."""
+        from resume.schema import SkillGroupItem
+
+        item = SkillGroupItem.from_dict({"title": "Platform"})
+        self.assertEqual(self._fn(item), "Platform")
+
+    def test_canonical_text_key_unchanged(self):
+        """Regression guard: canonical ``text`` renders exactly as it always did."""
+        item = PriorityItem.from_dict({"text": "Canonical"})
+        self.assertEqual(self._fn(item), "Canonical")
+
+    def test_canonical_name_key_unchanged(self):
+        """Regression guard: canonical ``name`` on a skill item is unaffected."""
+        from resume.schema import SkillGroupItem
+
+        item = SkillGroupItem.from_dict({"name": "Canonical Skill"})
+        self.assertEqual(self._fn(item), "Canonical Skill")
+
+    def test_empty_item_yields_empty_string(self):
+        """Regression guard: an item with no text yields "", never a repr."""
+        self.assertEqual(self._fn(PriorityItem.from_dict({})), "")
+
+    def test_blank_text_yields_empty_string(self):
+        """An explicitly blank ``text`` also yields "" rather than falling back."""
+        self.assertEqual(self._fn(PriorityItem.from_dict({"text": ""})), "")
+
+    def test_canonical_key_preferred_over_alias(self):
+        """An item carrying both spellings resolves to the canonical one.
+
+        The schema consumes ``text`` first and files the losing ``line`` in
+        ``extra``, so widening the read must not start preferring the alias.
+        """
+        item = PriorityItem.from_dict({"text": "Canon", "line": "Alias"})
+        self.assertEqual(self._fn(item), "Canon")
+
+    def test_canonical_name_preferred_over_label_alias(self):
+        """Same precedence guard on the skill item's ``name``/``label`` pair."""
+        from resume.schema import SkillGroupItem
+
+        item = SkillGroupItem.from_dict({"name": "Canon", "label": "Alias"})
+        self.assertEqual(self._fn(item), "Canon")
+
+
+# ===========================================================================
 # SidebarResumeWriter._normalize_summary_items
 # ===========================================================================
 
@@ -312,15 +389,17 @@ class TestNormalizeSummaryItems(unittest.TestCase):
         items = [PriorityItem.from_dict({"text": "hello"}), PriorityItem.from_dict({"text": "world"})]
         self.assertEqual(self._fn(items), ["hello", "world"])
 
-    def test_alias_keyed_item_returns_alias_key_name(self):
-        """An item whose text arrived under an alias key ('line', 'bullet') renders
-        the alias key name, not the prose -- replicating pre-migration _replayed_text
-        behaviour where only the literal 'text' key was honoured."""
+    def test_alias_keyed_item_returns_its_prose(self):
+        """An item whose text arrived under the ``line`` alias returns the prose.
+
+        This used to assert ``["line"]`` -- the alias KEY, not its value --
+        because the renderer replayed the pre-migration ``x.get("text", x)``
+        fallback and python-docx stringified the leftover mapping by iterating
+        it. The schema resolves ``line`` onto ``text`` correctly; reading the
+        resolved field is the deliberate rendering fix.
+        """
         item = PriorityItem.from_dict({"line": "my prose"})
-        result = self._fn([item])
-        # _replayed_text returns the key name ("line"), not the prose value,
-        # for alias-keyed entries.  This is deliberate: golden pins this.
-        self.assertEqual(result, ["line"])
+        self.assertEqual(self._fn([item]), ["my prose"])
 
     def test_multiple_text_keyed_items_all_returned(self):
         """All items in the list are returned, not just the first."""

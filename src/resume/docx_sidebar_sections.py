@@ -40,35 +40,32 @@ def _add_colored_bullet_run(p, bullet_color: str) -> None:
         bullet_run.font.color.rgb = RGBColor(*bullet_rgb)
 
 
-def _replayed_text(item: _Item) -> str:
-    """Return the string these sidebar renderers used to produce for an item.
+def _item_text(item: _Item) -> str:
+    """Return a sidebar item's display text: its own primary field.
 
-    The pre-migration code was ``x.get(<key>, x)``: it honoured ONE literal key
-    -- ``text`` for summary entries and bullets, ``name`` for skill items --
-    and fell back to the whole mapping for anything else. python-docx then
-    stringified that mapping by iterating it, so an alias-keyed entry rendered
-    as its KEYS concatenated ("label", or "linepriorityextra" when the entry
-    carried extra keys), never as the prose behind them.
+    These renderers do not share one primary field -- summary entries and
+    experience bullets are ``PriorityItem`` and carry their prose in ``text``,
+    while skill items are ``SkillGroupItem`` and carry it in ``name`` -- so the
+    field is read off the item's own type rather than hardcoded.
 
-    The schema resolves more spellings than those renderers ever honoured
-    (``line``/``bullet`` onto ``PriorityItem.text``, ``title``/``label`` onto
-    ``SkillGroupItem.name``), so reading the attribute unconditionally would
-    make alias-keyed entries start rendering their real text. That is arguably
-    a fix -- the old output was garbage -- but it is a rendering change, and
-    this migration is meant to change representation only. The original shape
-    is therefore replayed here and the behaviour left exactly as it was, the
-    same call ``_item_name`` in docx_renderers makes for ``label``-keyed
-    certifications. Widening these renderers is a separate, deliberate
-    decision.
+    Reading the resolved field is what makes alias-keyed entries render. The
+    pre-migration code was ``x.get(<key>, x)``: it honoured ONE literal key and
+    fell back to the whole mapping, which python-docx stringified by iterating,
+    so ``{"line": "Real prose"}`` rendered as its KEYS ("linepriority") and a
+    ``label``-keyed skill group rendered as "label". The schema already
+    resolves those spellings correctly (``line``/``name`` onto
+    ``PriorityItem.text``, ``title``/``label`` onto ``SkillGroupItem.name``);
+    the old replay threw that resolution away. Honouring it is a deliberate
+    rendering change, the pair to the same call ``_item_name`` in
+    docx_renderers makes for ``label``-keyed certifications.
+
+    Canonical spellings are unaffected -- they already took the direct read --
+    and an item with no resolved text still yields ``""`` rather than a repr.
     """
     primary = type(item)._primary_field()
     if not primary:
         return ""
-    if item._replayed_key(primary) == primary:
-        return str(getattr(item, primary, "") or "")
-    # Rebuild the mapping the renderer used to receive and reproduce what
-    # python-docx did with it: iterate it, which yields its keys.
-    return "".join(item.to_dict())
+    return str(getattr(item, primary, "") or "")
 
 
 def _render_main_education(cell, resume: Resume, page_cfg: dict[str, Any], sec: dict[str, Any] | None = None) -> None:  # nosec - sec kept for API compatibility
@@ -129,7 +126,7 @@ def _render_exp_entry(cell, exp: ExperienceEntry, page_cfg: dict[str, Any], bull
         _tight_paragraph(p2, after_pt=2)
 
     for b in bullets[:max_bullets]:
-        text = _replayed_text(b)
+        text = _item_text(b)
         p3 = cell.add_paragraph()
         p3.paragraph_format.left_indent = Inches(0.25)
         run = p3.add_run(text)
@@ -412,8 +409,8 @@ class SidebarResumeWriter(ResumeWriterBase):
 
         Load-time normalization already collapsed the scalar-vs-list and
         str-vs-dict shapes into ``list[PriorityItem]``, so this mostly has to
-        read the text off each item -- via ``_replayed_text``, which keeps
-        alias-keyed entries rendering exactly as they did before the migration.
+        read the text off each item -- via ``_item_text``, which resolves
+        alias-keyed entries to the prose behind them.
 
         The one shape normalization cannot speak for is an empty *scalar*
         summary. It arrives as ``[PriorityItem(text='')]``, so the naive read
@@ -429,7 +426,7 @@ class SidebarResumeWriter(ResumeWriterBase):
         """
         if is_scalar and not (summary and summary[0].text):
             return []
-        return [_replayed_text(summary_item) for summary_item in summary]
+        return [_item_text(summary_item) for summary_item in summary]
 
     def _render_sidebar_summary(self, cell) -> None:
         """Render summary section in sidebar."""
@@ -453,7 +450,7 @@ class SidebarResumeWriter(ResumeWriterBase):
         for sec in (self.template.get("sections") or []):
             if sec.get("key") == "skills":
                 skill_items = [
-                    _replayed_text(item)
+                    _item_text(item)
                     for group in self.resume.skills_groups
                     for item in group.items
                 ]
