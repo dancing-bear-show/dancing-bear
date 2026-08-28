@@ -152,7 +152,7 @@ class TestCliTree(unittest.TestCase):
 class TestCliPathExists(unittest.TestCase):
     def test_finds_real_subcommand_in_the_live_parser(self):
         # Was: "returns False -- default behavior since desk.cli has no
-        # build_parser()". That encoded a BUG as expected behavior. The loader
+        # build_parser()". That encoded a defect as expected behavior. The loader
         # imported a name that does not exist, cached_parser_loader swallowed
         # the AttributeError, and _get_parser() returned None -- so every path
         # check failed and the capsule silently shipped without its CLI Tree

@@ -50,7 +50,7 @@
 # wrapped around an approximate matcher is still an approximate guard, and conflating the
 # two is how this file came to be described as something it is not.
 #
-# DESIGN NOTE: OPERANDS, NOT COMMAND WORDS
+# DESIGN: OPERANDS, NOT COMMAND WORDS
 # ----------------------------------------
 # An earlier version paired a fixed READERS list against a protected filename in one
 # regex: `(cat|less|grep|...)[^|;&]*credentials\.ini`. That shape has two holes that
@@ -268,7 +268,7 @@ SECRET_TARGET="($DOTENV|$DB_SECRET_FILES|$UNIVERSAL_SECRETS|$REPO_INTERNALS|$GUA
 PROTECTED_DIR_SEGMENTS_HARD='(^|/)(\.ssh|\.gnupg|\.aws)(/|$)'
 PROTECTED_DIR_SEGMENTS_SOFT='(^|/)\.config(/|$)'
 
-# NOTE: there is deliberately no READERS or WRITERS list here any more.
+# There is deliberately no READERS or WRITERS list here any more.
 #
 # Two lists used to gate the credential checks: readers (cat, less, grep, jq, ...) and
 # writers (tee, cp, mv, install, dd, truncate, ln). Both are gone rather than extended,
@@ -870,7 +870,7 @@ if grep -qE "${CMD_START}${RM_NAME}([[:space:]]|$)" <<< "$CMD"; then
           ;;
       esac
 
-      # NOTE: the "anything under the current repo checkout is the agent's own
+      # The "anything under the current repo checkout is the agent's own
       # workspace" carve-out now lives in the .claude block above, merged with the
       # sibling-worktree exception it has to be ordered against. Keeping them apart
       # meant two `git rev-parse --show-toplevel` calls deciding the same question, and
@@ -1170,7 +1170,7 @@ while IFS= read -r raw; do
     # Unresolvable expansions. A token with no glob character and no `$` in it is
     # fully resolved and was already judged by the checks above.
     #
-    # NOTE the `$HOME`-expanded case: _normalize_target has already turned `$HOME/.ssh`
+    # Consider the `$HOME`-expanded case: _normalize_target has already turned `$HOME/.ssh`
     # into a literal path, so a token that WAS an expansion may arrive here fully
     # resolved. It was judged by PROTECTED_DIR_SEGMENTS above, which is why that check
     # runs on $NORM rather than on the raw token.
