@@ -121,18 +121,22 @@ _NOISE_EXT = re.compile(
 _NOISE_NUMBER = re.compile(r"^\d+[a-z]?$")    # bare numbers and durations: 7, 7d
 _NOISE_QUOTED = re.compile(r"'")               # quoted fragments: any token containing a single-quote
 
+# Every pattern is either anchored or intentionally unanchored, so a single
+# `search` over all of them is equivalent to checking each individually.
+_NOISE_PATTERNS = (
+    _NOISE_ANGLE,
+    _NOISE_BRACKET,
+    _NOISE_BRACE,
+    _NOISE_PATH,
+    _NOISE_EXT,
+    _NOISE_NUMBER,
+    _NOISE_QUOTED,
+)
+
 
 def _is_noise(token: str) -> bool:
     """Return True when ``token`` is a placeholder or shell noise, not a subcommand."""
-    return bool(
-        _NOISE_ANGLE.search(token)
-        or _NOISE_BRACKET.search(token)
-        or _NOISE_BRACE.search(token)
-        or _NOISE_PATH.search(token)
-        or _NOISE_EXT.search(token)
-        or _NOISE_NUMBER.match(token)
-        or _NOISE_QUOTED.search(token)
-    )
+    return any(pattern.search(token) for pattern in _NOISE_PATTERNS)
 
 
 def _run(args: list[str]) -> subprocess.CompletedProcess:
