@@ -376,11 +376,32 @@ class TestWriterRejectsUntypedResume(unittest.TestCase):
     surfaced later as an ``AttributeError`` inside rendering.
     """
 
-    def _assert_names_the_fix(self, ctx) -> None:
-        """Assert the error names the required type and how to satisfy it."""
+    def _assert_dict_guidance(self, ctx) -> None:
+        """A dict is liftable, so the message must point at ``from_dict``.
+
+        This is the only input type for which ``Resume.from_dict`` is a real
+        fix, so it is the only one whose message may recommend it.
+        """
         msg = str(ctx.exception)
-        self.assertIn("Resume.from_dict", msg)
         self.assertIn("typed Resume", msg)
+        self.assertIn("got dict", msg)
+        self.assertIn("Resume.from_dict(data)", msg)
+
+    def _assert_non_dict_guidance(self, ctx, type_name: str) -> None:
+        """A non-dict must be sent back to its caller, not to ``from_dict``.
+
+        ``Resume.from_dict`` does not raise on a non-dict -- it warns and
+        returns an empty ``Resume`` -- so a message that recommended it here
+        would trade a loud ``TypeError`` for a silently blank document. The
+        assertions below pin that the message names the offending type, tells
+        the reader to fix the caller, and warns against the lift rather than
+        recommending it.
+        """
+        msg = str(ctx.exception)
+        self.assertIn("typed Resume", msg)
+        self.assertIn(f"got {type_name}", msg)
+        self.assertIn("Fix the caller", msg)
+        self.assertIn("Do not route it through Resume.from_dict", msg)
 
     def test_rejects_dict_from_factory(self):
         """A dict passed to the factory raises instead of being stored."""
@@ -388,8 +409,7 @@ class TestWriterRejectsUntypedResume(unittest.TestCase):
 
         with self.assertRaises(TypeError) as ctx:
             create_resume_writer({"name": "Ada Example"}, {"sections": []})
-        self._assert_names_the_fix(ctx)
-        self.assertIn("got dict", str(ctx.exception))
+        self._assert_dict_guidance(ctx)
 
     def test_rejects_dict_from_sidebar_factory_branch(self):
         """The sidebar branch of the factory is guarded too."""
@@ -400,7 +420,7 @@ class TestWriterRejectsUntypedResume(unittest.TestCase):
                 {"name": "Ada Example"},
                 {"sections": [], "layout": {"type": "sidebar"}},
             )
-        self._assert_names_the_fix(ctx)
+        self._assert_dict_guidance(ctx)
 
     def test_rejects_dict_from_direct_construction(self):
         """Constructing a writer directly with a dict raises at the boundary."""
@@ -408,25 +428,53 @@ class TestWriterRejectsUntypedResume(unittest.TestCase):
 
         with self.assertRaises(TypeError) as ctx:
             StandardResumeWriter({"name": "Ada Example"}, {"sections": []})
-        self._assert_names_the_fix(ctx)
+        self._assert_dict_guidance(ctx)
 
     def test_rejects_none(self):
-        """``None`` is reported by name rather than failing later."""
+        """``None`` is reported by name and sent back to its caller."""
         from resume.docx_base import create_resume_writer
 
         with self.assertRaises(TypeError) as ctx:
             create_resume_writer(None, {"sections": []})
-        self._assert_names_the_fix(ctx)
-        self.assertIn("got NoneType", str(ctx.exception))
+        self._assert_non_dict_guidance(ctx, "NoneType")
 
     def test_rejects_unrelated_type(self):
-        """An unrelated type is reported by name."""
+        """An unrelated type is reported by name and sent back to its caller."""
         from resume.docx_base import create_resume_writer
 
         with self.assertRaises(TypeError) as ctx:
             create_resume_writer("Ada Example", {"sections": []})
-        self._assert_names_the_fix(ctx)
-        self.assertIn("got str", str(ctx.exception))
+        self._assert_non_dict_guidance(ctx, "str")
+
+    def test_non_dict_message_does_not_recommend_the_lift(self):
+        """The non-dict message must not read as a recommendation to lift.
+
+        Regression guard for the wording this replaced, which told every
+        rejected caller to "pass Resume.from_dict(data) instead". A caller
+        holding ``None`` who followed that got an empty ``Resume`` back --
+        ``from_dict`` warns and defaults rather than raising -- and rendered a
+        blank document with nothing failing. The message may mention
+        ``from_dict`` only to warn against it, never as the instruction.
+        """
+        from resume.docx_base import create_resume_writer
+
+        with self.assertRaises(TypeError) as ctx:
+            create_resume_writer(None, {"sections": []})
+        msg = str(ctx.exception)
+        self.assertNotIn("pass Resume.from_dict", msg)
+        self.assertNotIn("Resume.from_dict(data) instead", msg)
+        self.assertNotIn("Lift the raw candidate data", msg)
+
+    def test_from_dict_on_none_returns_empty_resume_not_an_error(self):
+        """Pin the ``from_dict`` behaviour that makes the split necessary.
+
+        If ``Resume.from_dict`` ever started raising on a non-dict, the
+        non-dict branch's warning would become false and the two messages
+        could reasonably be merged again. This test fails in that case,
+        pointing the next reader at the guard.
+        """
+        self.assertEqual(Resume.from_dict(None).to_dict(), {})
+        self.assertEqual(Resume.from_dict("Ada Example").to_dict(), {})
 
     def test_typed_resume_is_accepted_unchanged(self):
         """Regression guard: the typed happy path still builds and stores."""

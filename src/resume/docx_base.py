@@ -292,12 +292,30 @@ class ResumeWriterBase(ABC):
                 and the writer is built in a broken state, so the failure
                 surfaces later as an ``AttributeError`` naming a render
                 internal instead of the boundary that was misused.
+
+                The message is split by input type on purpose. A dict is the
+                right data at the wrong altitude, so naming
+                ``Resume.from_dict`` is a real fix. Any other type is not,
+                and pointing it at ``from_dict`` would be actively harmful:
+                ``from_dict`` warns and returns an *empty* ``Resume`` for a
+                non-dict rather than raising, so a caller holding ``None``
+                who followed that advice would render a blank document and
+                see nothing fail. Keep the two branches distinct.
         """
         if not isinstance(data, Resume):
+            if isinstance(data, dict):
+                raise TypeError(
+                    f"{type(self).__name__} requires a typed Resume, got dict. "
+                    f"Lift the raw candidate data at the call site with "
+                    f"Resume.from_dict(data) and pass the result."
+                )
             raise TypeError(
                 f"{type(self).__name__} requires a typed Resume, got "
-                f"{type(data).__name__}. The caller is responsible for lifting "
-                f"raw candidate data: pass Resume.from_dict(data) instead."
+                f"{type(data).__name__}, which carries no candidate data to "
+                f"build one from. Fix the caller that produced it. Do not route "
+                f"it through Resume.from_dict -- that returns an empty Resume "
+                f"for a non-dict, which renders a blank document instead of "
+                f"failing."
             )
         self.resume = data
         self.template = template
