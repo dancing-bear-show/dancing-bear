@@ -298,8 +298,9 @@ change is fine and the environment is wrong.
 ## Check for an Existing Workflow First
 
 **Before starting any multi-step task, check whether a workflow already does it.**
-This repo has ~30 workflows. Reinventing one wastes the work already invested in
-it and produces a second, diverging implementation of the same process.
+This repo has 52 workflows (count as of 2026-08-28 — `./bin/workflow list` is
+authoritative). Reinventing one wastes the work already invested in it and
+produces a second, diverging implementation of the same process.
 
 ```bash
 ./bin/workflow list                      # live catalog — authoritative
