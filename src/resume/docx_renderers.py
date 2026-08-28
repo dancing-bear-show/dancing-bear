@@ -109,7 +109,15 @@ class BulletRenderer:
         glyph: str = "•",
         sep: str = ": ",
     ):
-        """Add a bullet with bold name and description."""
+        """Add a bullet with bold name and plain description.
+
+        A name with no description emits the bold name alone. The separator
+        and description runs are skipped rather than added empty, so such an
+        item carries no dangling separator and no zero-length runs -- an empty
+        run is invisible on the page but real in the XML, and would otherwise
+        make a name-only bullet indistinguishable from one whose description
+        was silently dropped.
+        """
         p = self.new_bullet_paragraph(glyph)
 
         cfg = sec or {}
@@ -119,8 +127,10 @@ class BulletRenderer:
         r_name.bold = True
         self.styles.apply_run_color(r_name, name_color)
 
-        p.add_run(sep)
-        p.add_run(desc)
+        if desc:
+            if sep:
+                p.add_run(sep)
+            p.add_run(desc)
         return p
 
     def add_bullets(
