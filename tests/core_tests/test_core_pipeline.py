@@ -259,6 +259,8 @@ class TestBaseProducerFailureMessage(unittest.TestCase):
     def test_subclass_without_fallback_stays_silent(self):
         class Quiet(BaseProducer):
             def _produce_success(self, payload, diagnostics):
+                # Intentionally empty: this test asserts the failure branch
+                # prints nothing, so the success branch must not emit either.
                 pass
 
         buf = StringIO()

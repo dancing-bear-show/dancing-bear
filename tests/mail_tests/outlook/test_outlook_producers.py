@@ -500,7 +500,7 @@ class TestOutlookCategoriesExportProducer(unittest.TestCase):
         producer = OutlookCategoriesExportProducer(writer=_writer(buf))
         producer.produce(ResultEnvelope(
             status="success",
-            payload=OutlookCategoriesExportResult(count=0, out_path="/tmp/out.yaml"),  # noqa: S108 - test fixture path
+            payload=OutlookCategoriesExportResult(count=0, out_path="/tmp/out.yaml"),  # nosec B108 - test fixture path, never written
         ))
         self.assertNotIn("Failed to export categories", buf.getvalue())
 
