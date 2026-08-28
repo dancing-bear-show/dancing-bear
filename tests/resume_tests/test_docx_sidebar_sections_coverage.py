@@ -309,7 +309,7 @@ class TestItemText(unittest.TestCase):
         self._fn = _item_text
 
     def test_alias_keyed_summary_entry_renders_prose(self):
-        """``{"line": ...}`` renders its prose, not the keys ("linepriority")."""
+        """``{"line", "priority"}`` renders its prose, not the joined keys ("linepriority")."""
         item = PriorityItem.from_dict({"line": "Real prose here", "priority": 2})
         self.assertEqual(self._fn(item), "Real prose here")
 
@@ -319,7 +319,7 @@ class TestItemText(unittest.TestCase):
         self.assertEqual(self._fn(item), "Alias bullet without priority.")
 
     def test_label_keyed_skill_item_renders_prose(self):
-        """``{"label": ...}`` on a skill item renders its prose, not "labeldesc"."""
+        """``{"label", "desc"}`` on a skill item renders its prose, not the joined keys ("labeldesc")."""
         from resume.schema import SkillGroupItem
 
         item = SkillGroupItem.from_dict({"label": "Cloud", "desc": "detail"})

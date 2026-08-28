@@ -49,18 +49,24 @@ def _item_text(item: _Item) -> str:
     field is read off the item's own type rather than hardcoded.
 
     Reading the resolved field is what makes alias-keyed entries render. The
-    pre-migration code was ``x.get(<key>, x)``: it honoured ONE literal key and
-    fell back to the whole mapping, which python-docx stringified by iterating,
-    so ``{"line": "Real prose"}`` rendered as its KEYS ("linepriority") and a
-    ``label``-keyed skill group rendered as "label". The schema already
-    resolves those spellings correctly (``line``/``name`` onto
-    ``PriorityItem.text``, ``title``/``label`` onto ``SkillGroupItem.name``);
-    the old replay threw that resolution away. Honouring it is a deliberate
-    rendering change, the pair to the same call ``_item_name`` in
-    docx_renderers makes for ``label``-keyed certifications.
+    pre-migration code was ``x.get("text", x)``: it honoured ONE literal key and
+    otherwise fell back to the whole mapping, which python-docx stringified by
+    iterating -- yielding the concatenation of exactly the keys that entry
+    carried, in input order. So the garbage string identifies the whole input
+    shape, not just the alias::
 
-    Canonical spellings are unaffected -- they already took the direct read --
-    and an item with no resolved text still yields ``""`` rather than a repr.
+        {"line": "prose", "priority": 2}     -> "linepriority"
+        {"line": "prose"}                    -> "line"
+        {"label": "Cloud", "desc": "x"}      -> "labeldesc"
+        {"label": "Cloud"}                   -> "label"
+
+    Canonical spellings broke identically once the keyed read missed --
+    ``{"name": "Cloud", "desc": "x"}`` on a skill item rendered "namedesc" --
+    so this was never alias-specific. What the aliases add is that the schema
+    already resolves them (``line``/``name`` onto ``PriorityItem.text``,
+    ``title``/``label`` onto ``SkillGroupItem.name``) and the old replay threw
+    that resolution away. An item with no resolved text yields ``""`` rather
+    than a repr.
     """
     primary = type(item)._primary_field()
     if not primary:
