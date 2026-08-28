@@ -151,6 +151,27 @@ class TestResumAgenticFlowMap(unittest.TestCase):
         self.assertNotIn("./bin/resume-assistant", flow)
         self.assertIn("./bin/assistant resume", flow)
 
+    def test_flow_map_seed_parses_to_non_empty_dict(self):
+        # --seed must be KEY=VALUE form, not a file path.
+        # parse_seed_criteria("seeds/general.yaml") -> {} (silently drops all criteria).
+        # Extract the --seed value from the advertised summarize line and verify it parses.
+        import sys
+        from pathlib import Path
+        src = Path(__file__).parents[3] / "src"
+        sys.path.insert(0, str(src))
+        from resume.templating import parse_seed_criteria
+
+        flow = self._flow_map()
+        seed_line = next(
+            (line for line in flow.splitlines() if "Summarize:" in line and "--seed" in line),
+            None,
+        )
+        self.assertIsNotNone(seed_line, "No Summarize line with --seed found in flow map")
+        # Extract the value after --seed
+        seed_val = seed_line.split("--seed", 1)[1].strip().split()[0]
+        result = parse_seed_criteria(seed_val)
+        self.assertTrue(result, f"--seed '{seed_val}' parses to empty dict — file path or malformed?")
+
 
 class TestResumAgenticCliTree(unittest.TestCase):
     """_cli_tree() must return a non-empty string."""
