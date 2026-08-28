@@ -1,5 +1,5 @@
 {
-  "digest": "32536f09f1cbf55d91db36ae39d8172b0b6c8ab16085e33d95f93b0459ba7bb4",
+  "digest": "b775c8b018eba00195a4ad4d8b0ad283b1c0bdb9f6f4e89289960a9805296694",
   "members": {
     "[Content_Types].xml": "66c84fb7a6aa3c4ead49f895e4a7044df1fb57de1ed76d09b2686e91f5bed5b4",
     "_rels/.rels": "a9ae57efe9186f07d48303bcac5d54c7e359bf3f503939c03ad2954e5c59a5c4",
@@ -10,7 +10,7 @@
     "docProps/core.xml": "a730ca7c5e69f94b47db2fd9f73631867afcfb6acde6cad29028dcef4197c32a",
     "docProps/thumbnail.jpeg": "96367138dc44ce09bf2c8f0f8e49348a1478d2c5c0af69bbc2bbc38b63cdcead",
     "word/_rels/document.xml.rels": "bf9804d0e39fdead3c99e0941df84f5b74a13b57ece0af58a8c6e9d099f50bf8",
-    "word/document.xml": "ba712008e89d9075aa544be5346a3b9163861f7ef9259940b41874f173a477fd",
+    "word/document.xml": "a7f00410edf331d594b0d14dbf91c4b7ef309f831b31a341378b21625e72703c",
     "word/fontTable.xml": "79385fb7f60247507ecaffc292e9ebd52ea0657b8634f629ba6fccc54011d6bb",
     "word/numbering.xml": "70976f19cbcd896e51890859fe6ecb3467a5a7ad0c040160fedc5a1993cb09ce",
     "word/settings.xml": "51a0d348fe85965c66e4748a03c3c0d055d78455514f03cb121c334af7d73689",

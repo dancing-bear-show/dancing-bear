@@ -332,16 +332,17 @@ class SkillsGroupEmptyItemTests(unittest.TestCase):
             SkillGroupItem.from_dict({"name": "K8s"}),
         ]
 
+        normalized = renderer._normalize_group_items(raw, True, " - ")
         self.assertEqual(
-            renderer._normalize_group_items(raw, True, " - "), ["AWS", "K8s"],
+            [it.text for it in normalized], ["AWS", "K8s"],
             "the empty item must be dropped before either render branch",
         )
 
     def test_description_only_item_still_renders(self):
         """An item carrying only ``desc`` has real content and must render.
 
-        ``_labeled_item_text`` joins the empty name to the desc with the
-        separator, so this normalizes to non-empty text rather than "".
+        ``_labeled_item`` keeps the desc as real content even with no name, so
+        this normalizes to non-empty text rather than "".
         """
         data = _group_with_items(
             [{"name": "AWS"}, {"desc": "a real description"}, {"name": "K8s"}]

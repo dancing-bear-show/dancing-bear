@@ -63,6 +63,20 @@ class TestBulletRenderer(unittest.TestCase):
         self.assertEqual(runs[2].text, ": ")
         self.assertEqual(runs[3].text, "Programming language")
 
+    def test_add_named_bullet_without_desc_emits_no_separator_run(self):
+        """A name with no description stops after the bold name.
+
+        The separator exists to divide two halves; with only one half it would
+        render as trailing punctuation. Asserted on the run list rather than on
+        the paragraph text because an empty run is invisible in the text but
+        still present in the XML.
+        """
+        renderer, doc = self._get_renderer()
+        renderer.add_named_bullet("Python", "", glyph="•")
+        runs = doc.paragraphs[0].runs
+        self.assertEqual([r.text for r in runs], ["• ", "Python"])
+        self.assertTrue(runs[1].bold)
+
     def test_add_bullets_emits_one_paragraph_per_item(self):
         """Test adding multiple bullets."""
         renderer, doc = self._get_renderer()
