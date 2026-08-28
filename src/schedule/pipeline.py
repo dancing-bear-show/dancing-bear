@@ -1,7 +1,6 @@
 """Schedule assistant pipeline components."""
 from __future__ import annotations
 
-import datetime as _dt
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -9,7 +8,7 @@ from typing import Any, Callable
 from core.pipeline import RequestConsumer, SafeProcessor, BaseProducer
 from core.cli_errors import CLIError, ExitCode
 from core.yamlio import dump_config as _dump_yaml
-from core.constants import FMT_DAY_START, FMT_DAY_END
+from core.date_utils import day_range_to_iso
 
 from core.date_utils import to_iso_str as _to_iso_str  # noqa: F401
 
@@ -355,10 +354,9 @@ class SyncProcessor(SafeProcessor[SyncRequest, SyncResult]):
         cal_id = svc.ensure_calendar(payload.calendar)
 
         try:
-            start_iso = _dt.datetime.fromisoformat(payload.from_date).strftime(FMT_DAY_START)
-            end_iso = _dt.datetime.fromisoformat(payload.to_date).strftime(FMT_DAY_END)
-        except (ValueError, TypeError):
-            raise CLIError("Invalid --from/--to date format; expected YYYY-MM-DD", ExitCode.USAGE)
+            start_iso, end_iso = day_range_to_iso(payload.from_date, payload.to_date)
+        except ValueError as exc:
+            raise CLIError(str(exc), ExitCode.USAGE)
 
         from calendars.outlook_service import ListEventsRequest
         occ = svc.list_events_in_range(ListEventsRequest(

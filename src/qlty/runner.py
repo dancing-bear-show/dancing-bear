@@ -30,13 +30,13 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess  # nosec B404 - qlty is a local dev binary invoked with a fixed arg vector, never shell=True
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Sequence
 
 from core.cli_errors import CLIError, ExitCode
+from core.process import run_binary
 
 from .models import Finding, Location, Source, WireFormat
 
@@ -166,42 +166,39 @@ class QltyRunner:
 
         qlty writes progress spinners to stderr, so only stdout is parsed.
         """
+        # The binary path is not a hardcoded constant: resolve_binary() honours
+        # an explicit argument and $QLTY_BIN. What is guaranteed is that the
+        # argument vector is built here (never from user input) and that
+        # shell=True is never used, so no shell metacharacter in any resolved
+        # path or argument can be interpreted.
         command = (self._resolved_binary(), *args)
-        try:
-            # The binary path is not a hardcoded constant: resolve_binary()
-            # honours an explicit argument and $QLTY_BIN. What is guaranteed is
-            # that the argument vector is built here (never from user input) and
-            # that shell=True is never used, so no shell metacharacter in any
-            # resolved path or argument can be interpreted.
-            proc = subprocess.run(  # nosec B603 - fixed arg vector built in-module, never shell=True
-                command,
-                capture_output=True,
-                text=True,
-                cwd=str(self._cwd) if self._cwd else None,
-                timeout=self._timeout,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
+        res = run_binary(command, cwd=self._cwd, timeout=self._timeout)
+
+        # run_binary returns sentinels rather than raising; qlty translates them
+        # into QltyInvocationError so callers get a remediation hint. Note rc 1
+        # is NOT a failure here -- it means "issues found" -- so only the two
+        # sentinel codes are promoted to exceptions.
+        if res.timed_out:
             raise QltyInvocationError(
                 f"qlty timed out after {self._timeout}s: {' '.join(command)}",
                 hint=(
                     "Narrow the scan with explicit paths or --changed, or raise "
                     "QltyRunner(timeout=...)."
                 ),
-            ) from exc
-        except OSError as exc:
+            )
+        if res.not_found:
             raise QltyInvocationError(
-                f"could not execute qlty ({command[0]}): {exc}",
+                f"could not execute qlty ({command[0]}): {res.stderr}",
                 hint=(
                     "Check the binary exists and is executable "
                     f"(chmod +x {command[0]}), or set $QLTY_BIN."
                 ),
-            ) from exc
+            )
 
         return CompletedRun(
-            stdout=proc.stdout or "",
-            stderr=proc.stderr or "",
-            returncode=proc.returncode,
+            stdout=res.stdout,
+            stderr=res.stderr,
+            returncode=res.returncode,
             command=command,
         )
 

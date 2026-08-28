@@ -10,13 +10,14 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from .constants import FMT_DATETIME_SEC, FMT_DAY_START
+from .constants import FMT_DATETIME_SEC, FMT_DAY_END, FMT_DAY_START
 
 __all__ = [
     "DAY_MAP",
     "DAY_NAMES",
     "MONTH_MAP",
     "RRULE_CODE_TO_DAY_NAME",
+    "day_range_to_iso",
     "iso_now",
     "normalize_day",
     "normalize_days",
@@ -146,6 +147,27 @@ def to_iso_str(v: Any) -> str | None:
     except Exception:  # nosec B110 - fallback to str(v)
         pass
     return str(v)
+
+
+def day_range_to_iso(from_date: str, to_date: str) -> tuple[str, str]:
+    """Widen two ``YYYY-MM-DD`` dates into an inclusive ISO datetime range.
+
+    Returns ``(start_iso, end_iso)`` spanning midnight on ``from_date`` through
+    23:59:59 on ``to_date`` -- the window shape the Outlook list-events calls
+    expect.
+
+    Raises ``ValueError`` on either date being unparseable or not a string.
+    Callers that need a different error type should catch it and re-raise;
+    the three schedule call sites deliberately differ (two raise ``CLIError``
+    with ``ExitCode.USAGE``, one raises ``ValueError``), so this helper raises
+    the primitive and leaves that translation to them.
+    """
+    try:
+        start_iso = _dt.datetime.fromisoformat(from_date).strftime(FMT_DAY_START)
+        end_iso = _dt.datetime.fromisoformat(to_date).strftime(FMT_DAY_END)
+    except (ValueError, TypeError) as exc:
+        raise ValueError("Invalid --from/--to date format; expected YYYY-MM-DD") from exc
+    return start_iso, end_iso
 
 
 def now_utc() -> datetime:
