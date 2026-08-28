@@ -141,24 +141,50 @@ class TestRenderExpEntry(unittest.TestCase):
         self._fn(cell, exp, {"body_pt": 10, "meta_pt": 9}, "#4A90A4", 5)
         self.assertEqual(len(paras), 4)
 
-    def test_entry_without_end_uses_presente_suffix(self):
-        """When end is absent, span includes 'presente'."""
+    @staticmethod
+    def _span_text(para) -> str:
+        """Return the span run's text (the one carrying the en dash)."""
+        return next((r.text for r in para.runs if "–" in (r.text or "")), "")
+
+    def test_entry_without_end_uses_present_suffix(self):
+        """An open-ended role reads 'Present', not the hardcoded Spanish 'presente'."""
         cell, paras = _make_cell()
         exp = ExperienceEntry.from_dict({"title": "Dev", "start": "2021", "bullets": []})
         self._fn(cell, exp, {"body_pt": 10}, "#4A90A4", 3)
         self.assertEqual(len(paras), 1)
-        title_para = paras[0]
-        span_texts = [r.text for r in title_para.runs if "presente" in (r.text or "")]
-        self.assertTrue(span_texts, "Expected 'presente' in span run text")
+        span = self._span_text(paras[0])
+        self.assertEqual(span.strip(), "2021 – Present")
+        self.assertNotIn("presente", span)
 
     def test_entry_with_end_uses_dash_separator(self):
-        """When end is present, span uses ' – ' separator."""
+        """When end is present, span uses ' – ' separator and keeps the end date."""
         cell, paras = _make_cell()
         exp = ExperienceEntry.from_dict({"title": "Dev", "start": "2020", "end": "2023", "bullets": []})
         self._fn(cell, exp, {"body_pt": 10}, "#4A90A4", 3)
-        title_para = paras[0]
-        span_texts = [r.text for r in title_para.runs if "–" in (r.text or "")]
-        self.assertTrue(span_texts, "Expected dash in span run text")
+        span = self._span_text(paras[0])
+        self.assertTrue(span, "Expected dash in span run text")
+        # Regression guard: normalizing the open-ended case must not rewrite a
+        # role that actually ended.
+        self.assertEqual(span.strip(), "2020 – 2023")
+        self.assertNotIn("Present", span)
+
+    def test_entry_with_present_end_is_not_doubled(self):
+        """An end already spelled 'Present' stays a single 'Present'."""
+        cell, paras = _make_cell()
+        exp = ExperienceEntry.from_dict(
+            {"title": "Dev", "start": "2019", "end": "Present", "bullets": []}
+        )
+        self._fn(cell, exp, {"body_pt": 10}, "#4A90A4", 3)
+        self.assertEqual(self._span_text(paras[0]).strip(), "2019 – Present")
+
+    def test_entry_with_now_end_normalizes_to_present(self):
+        """Open-ended synonyms normalize, matching the rest of the render path."""
+        cell, paras = _make_cell()
+        exp = ExperienceEntry.from_dict(
+            {"title": "Dev", "start": "2018", "end": "now", "bullets": []}
+        )
+        self._fn(cell, exp, {"body_pt": 10}, "#4A90A4", 3)
+        self.assertEqual(self._span_text(paras[0]).strip(), "2018 – Present")
 
     def test_no_company_skips_company_paragraph(self):
         """When company is absent, no company paragraph is added."""
