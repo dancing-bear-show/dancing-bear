@@ -22,6 +22,7 @@ import os
 import tempfile
 import unittest
 
+from resume.docx_sections_skills import DEFAULT_DESC_SEPARATOR
 from resume.docx_writer import write_resume_docx
 from resume.schema import Resume
 
@@ -52,8 +53,12 @@ _BULLETED_DEFAULT_SEP = {
     "show_desc": True,
 }
 
-# The separator the renderer falls back to when config supplies none.
-DEFAULT_DESC_SEP = " — "
+# The separator the renderer falls back to when config supplies none. There is
+# exactly one such fallback (``docx_sections_skills.DEFAULT_DESC_SEPARATOR``),
+# shared by the skills and technologies paths, and it matches the value every
+# shipped template sets explicitly. Imported rather than restated so this file
+# cannot drift from the renderer the way the two former defaults drifted apart.
+DEFAULT_DESC_SEP = DEFAULT_DESC_SEPARATOR
 
 
 def _template(skills_section: dict) -> dict:

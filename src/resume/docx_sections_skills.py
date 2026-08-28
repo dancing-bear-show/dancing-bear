@@ -14,6 +14,28 @@ from .docx_renderers import HeaderRenderer, ListSectionRenderer
 from .schema import PriorityItem, Resume, SkillGroup, SkillGroupItem
 
 
+#: Fallback separator printed between a skills/technologies item's name and its
+#: description when a template enables ``show_desc`` without setting
+#: ``desc_separator``. There is exactly one such fallback, deliberately: the
+#: skills bullet path and the technologies path each used to carry their own
+#: (" -- " and ": " respectively), so the same config shape rendered differently
+#: depending on which renderer and which branch happened to handle it. Every
+#: shipped template sets ``desc_separator: ": "`` explicitly, so this value
+#: matches what they already produce.
+DEFAULT_DESC_SEPARATOR = ": "
+
+
+def _resolve_desc_separator(cfg: dict) -> str:
+    """Read ``desc_separator`` from a section config, or fall back.
+
+    THE ONLY READER of ``desc_separator``. Every renderer resolves the
+    separator through here so no caller can introduce a second, disagreeing
+    default -- which is exactly how the skills path once ended up joining on
+    " -- " and re-splitting on ": ".
+    """
+    return str(cfg.get("desc_separator") or DEFAULT_DESC_SEPARATOR)
+
+
 def _safe_int_limit(cfg: dict, key: str) -> int:
     """Read an int limit from config, falling back to 0 (no limit) on bad values."""
     try:
@@ -41,17 +63,25 @@ class LabeledItem:
         Worse, splitting is ambiguous whenever a description itself contains
         the separator.
 
-        Carrying the parts through instead makes the boundary exact and the
-        two defaults unable to disagree.
+        Carrying the parts through instead makes the boundary exact. The
+        separator travels with them (see ``sep``) and every reader of
+        ``desc_separator`` now goes through ``_resolve_desc_separator``, so
+        two defaults can no longer disagree in the first place.
 
     ``text`` is the flattened form, preserved verbatim so callers that only
     want a string (the technologies collector, the non-bullet joined form)
     read the same value they always did.
+
+    ``sep`` is the separator this item was normalized with, carried alongside
+    the halves so the renderer prints the same one that went into ``text``
+    instead of re-deriving it from config. Re-deriving is what allowed the
+    bulleted and joined forms of the same config to disagree.
     """
 
     name: str
     desc: str
     text: str
+    sep: str = DEFAULT_DESC_SEPARATOR
 
     @property
     def has_desc(self) -> bool:
@@ -72,12 +102,12 @@ def _labeled_item(item: Any, show_desc: bool, desc_sep: str) -> LabeledItem:
     """
     if not isinstance(item, SkillGroupItem):
         text = str(item)
-        return LabeledItem(name=text, desc="", text=text)
+        return LabeledItem(name=text, desc="", text=text, sep=desc_sep)
 
     name = item.name.strip()
     desc = item.desc.strip() if (item.desc and show_desc) else ""
     text = f"{name}{desc_sep}{desc}" if desc else name
-    return LabeledItem(name=name, desc=desc, text=text)
+    return LabeledItem(name=name, desc=desc, text=text, sep=desc_sep)
 
 
 class SummarySectionRenderer(ListSectionRenderer):
@@ -226,7 +256,7 @@ class SkillsSectionRenderer(ListSectionRenderer):
         max_groups = int(cfg.get("max_groups", 999))
         max_items_per_group = int(cfg.get("max_items_per_group", 999))
         show_desc = bool(cfg.get("show_desc", True))
-        desc_sep = str(cfg.get("desc_separator") or " — ")
+        desc_sep = _resolve_desc_separator(cfg)
 
         for g in groups[:max_groups]:
             # `title` only -- SkillGroup declares no aliases, so a group keyed
@@ -277,7 +307,7 @@ class SkillsSectionRenderer(ListSectionRenderer):
             if not name and not desc:
                 continue
             text = f"{name}{desc_sep}{desc}" if desc else name
-            normalized.append(LabeledItem(name=name, desc=desc, text=text))
+            normalized.append(LabeledItem(name=name, desc=desc, text=text, sep=desc_sep))
         return normalized
 
     def _render_bullet_items(self, items: list[LabeledItem], cfg: dict) -> None:
@@ -289,12 +319,17 @@ class SkillsSectionRenderer(ListSectionRenderer):
 
         An item with a name but no description takes the plain branch, which
         emits the bold name via ``add_named_bullet`` with nothing after it --
-        no dangling separator. The separator is supplied by the item that was
-        normalized with it, so the two halves can no longer disagree about
-        which separator is in play.
+        no dangling separator.
+
+        The separator comes off ``it.sep`` -- the one the item was actually
+        normalized with -- rather than being re-read from ``cfg`` here. Reading
+        it again would reintroduce the very split this carries: this method
+        serves both the skills path and the technologies path, which resolved
+        ``desc_separator`` against different defaults, so a config that set
+        ``show_desc`` without ``desc_separator`` rendered a bulleted item with
+        one separator and the joined ``text`` of the same item with another.
         """
         glyph = self.bullets.resolve_glyph(cfg)
-        desc_sep = str(cfg.get("desc_separator") or " — ")
 
         for it in items:
             if not it.name:
@@ -304,7 +339,7 @@ class SkillsSectionRenderer(ListSectionRenderer):
                 self.bullets.add_bullet_line(it.desc, glyph=glyph)
             elif it.has_desc:
                 self.bullets.add_named_bullet(
-                    it.name, it.desc, sec=cfg, glyph=glyph, sep=desc_sep
+                    it.name, it.desc, sec=cfg, glyph=glyph, sep=it.sep
                 )
             else:
                 self.bullets.add_named_bullet(it.name, "", sec=cfg, glyph=glyph, sep="")
@@ -412,7 +447,7 @@ class TechnologiesSectionRenderer(SkillsSectionRenderer):
     ) -> list[LabeledItem]:
         """Collect technology items from data sources."""
         cfg = sec or {}
-        desc_sep = str(cfg.get("desc_separator") or ": ")
+        desc_sep = _resolve_desc_separator(cfg)
         show_desc = bool(cfg.get("show_desc", False))
         tech_items: list[LabeledItem] = []
 
@@ -447,7 +482,7 @@ class TechnologiesSectionRenderer(SkillsSectionRenderer):
         name = self.text.clean_inline(item.name)
         desc = self.text.clean_inline(item.desc)
         text = f"{name}{desc_sep}{desc}" if desc else name
-        return LabeledItem(name=name, desc=desc, text=text)
+        return LabeledItem(name=name, desc=desc, text=text, sep=desc_sep)
 
     def _normalize_group_tech_items(
         self, raw_items: list[SkillGroupItem], show_desc: bool, desc_sep: str
