@@ -71,8 +71,8 @@ class TestHttpClientGet(unittest.TestCase):
         requests = _make_requests_stub([resp_obj])
         session = requests.Session()
         with patch.dict("sys.modules", {"requests": requests}, clear=False):
-            from core.http import HttpClient
-            client = HttpClient("https://example.com", session=session)
+            import core.http as http_mod
+            client = http_mod.HttpClient("https://example.com", session=session)
             resp = client.get("/path")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(session.calls), 1)
@@ -601,8 +601,7 @@ class TestStreamedResponse(unittest.TestCase):
 
             with patch.object(client.logger, "isEnabledFor", return_value=True):
                 with patch.object(client.logger, "debug", side_effect=capture_debug):
-                    from core.http import HttpRequestBody
-                    client.request("GET", "/stream", body=HttpRequestBody(stream=True))
+                    client.request("GET", "/stream", body=http_mod.HttpRequestBody(stream=True))
         streamed_logs = [m for m in debug_calls if "<streamed>" in m]
         self.assertGreater(len(streamed_logs), 0)
 
@@ -610,8 +609,11 @@ class TestStreamedResponse(unittest.TestCase):
 class TestAdditionalBranchCoverage(unittest.TestCase):
     """Covers remaining branches: _log_response debug, _log_transient non-debug, headers merge.
 
-    These tests avoid importlib.reload so coverage instruments the same code object
-    the client executes. Reload creates a new code object that coverage does not track.
+    These reload core.http under a stubbed `requests`, which is what makes the
+    module importable at all here. The cost is that coverage keeps instrumenting
+    the pre-reload code object while the tests execute the reloaded one, so a
+    line exercised only through this path still reports as uncovered — that is
+    why core/http.py:133 shows missing despite being asserted below via mock.
     """
 
     def test_log_response_debug_line_executed(self):
