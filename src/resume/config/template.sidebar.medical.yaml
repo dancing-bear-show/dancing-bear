@@ -1,0 +1,66 @@
+# Two-column sidebar CV template (medical / academic)
+#
+# Guidance
+# - Variant of template.sidebar.yaml with CV vocabulary and a Teaching section.
+# - Summary and Key Competencies render in the shaded left column; training,
+#   appointments, teaching and publications fill the main column.
+# - The sidebar caps what it shows: 6 summary bullets, 8 competency items. Order
+#   your data by priority, because the overflow is dropped silently.
+#
+# IMPORTANT — the sidebar layout supports exactly six section keys:
+#   left column  (SidebarResumeWriter._render_sidebar_content):
+#     summary, skills
+#   main column  (SidebarResumeWriter._MAIN_SECTION_RENDERERS):
+#     education, experience, teaching, presentations
+# Any other key (interests, certifications, languages, technologies, projects,
+# coursework, ...) is SILENTLY SKIPPED — it renders nothing and reports
+# nothing. Do not add one here expecting it to appear; extend
+# src/resume/docx_sidebar_sections.py first. Certifications and licensure in
+# particular have no sidebar renderer, so fold them into skills or education
+# rather than declaring a key for them.
+#
+# Contact details are NOT a section. Name, headline, phone, email, location and
+# link extras are read straight off the candidate data by _render_page_header
+# and printed in the repeating page header, so a `contact` section key would be
+# one of the silently-skipped keys above.
+#
+# Teaching entries render as "TITLE" with the institution beneath it, parsed
+# from a trailing parenthetical: "Clinical Skills Preceptor (Mount Sinai)".
+# Without the parentheses the whole string becomes the title.
+
+layout:
+  type: sidebar          # selects SidebarResumeWriter (docx_writer.py)
+  sidebar_width: 2.5     # inches, NOT percent
+  main_width: 5.0        # inches; sidebar_width + main_width must fit the
+                         # usable page width (8.5" - 2 x margins_in = 7.5")
+  sidebar_bg: "#F7F9FC"  # left-column cell shading
+
+sections:
+  - key: summary
+    title: Professional Profile
+  - key: skills
+    title: Key Competencies
+  - key: education
+    title: Education & Training
+  - key: experience
+    title: Professional Experience
+    recent_max_bullets: 3
+  - key: teaching
+    title: Teaching & Instruction
+  - key: presentations
+    title: Publications & Presentations
+
+page:
+  compact: true                     # required for margins_in to be applied
+  margins_in: 0.5
+  body_pt: 10
+  h1_pt: 13                         # section headings, both columns
+  meta_pt: 9                        # dates, institutions, employers
+  h1_color: "#C9A227"               # section headings, both columns
+  sidebar_name_pt: 28               # candidate name in the page header
+  sidebar_name_color: "#1A365D"
+  sidebar_headline_pt: 11
+  sidebar_text_color: "#2D3748"     # sidebar body text
+  sidebar_bullet_color: "#3182CE"   # sidebar bullet glyphs
+  main_bullet_color: "#3182CE"      # main-column bullet glyphs
+  header_bg: "#F7F9FC"              # page-header shading; match sidebar_bg
