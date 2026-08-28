@@ -70,7 +70,22 @@ def _missing_tool() -> str | None:
 
 
 class TestGuardHookSuites(unittest.TestCase):
-    """Each .claude/hooks shell suite must exit 0."""
+    """Each .claude/hooks shell suite must exit 0.
+
+    SUITES is the single source of truth, and BOTH halves of the invariant are
+    driven from it:
+
+    * ``test_suites_on_disk_match_the_tuple`` compares the tuple against the
+      directory, so a suite present on disk but missing from the tuple fails.
+    * ``_attach`` generates one ``test_*`` method per tuple entry, so a suite
+      listed in the tuple always runs.
+
+    Neither half alone is sufficient, and the second is the one that is easy to
+    lose: an earlier version of this file hand-wrote the per-suite methods, which
+    let a name sit in SUITES with no method to execute it -- listed, checked
+    against disk, and silently never run. Any future edit here must keep the
+    method list derived from SUITES rather than typed out.
+    """
 
     def _run_suite(self, name: str) -> None:
         missing = _missing_tool()
@@ -150,21 +165,13 @@ class TestGuardHookSuites(unittest.TestCase):
             msg=f"{name} reported {failed} failure(s) of {total}:\n{stdout}",
         )
 
-    def test_each_suite_on_disk_is_listed_and_passes(self) -> None:
-        """Every *.test.sh is in SUITES, and every entry in SUITES runs and passes.
+    def test_suites_on_disk_match_the_tuple(self) -> None:
+        """Every *.test.sh on disk is in SUITES, and vice versa.
 
-        CONSOLIDATED from three hand-written per-suite methods plus a separate
-        directory-match test. That arrangement checked the SUITES tuple against disk
-        but never ITERATED it: execution came from the three methods, so a suite added
-        to the tuple with no matching ``test_*`` method satisfied the equality check
-        and was never run. The tuple looked like the source of truth while the method
-        list actually was one, and the two could drift silently in the direction that
-        loses coverage.
-
-        Driving both the membership check and the execution from SUITES means a name
-        can only be in one of three states: absent from the tuple (the directory check
-        fails), present and passing, or present and failing. There is no fourth state
-        where it is listed and quietly skipped.
+        This is only half the invariant. The other half -- that every entry in
+        SUITES actually RUNS -- is enforced by ``_attach`` below, which generates
+        one test method per entry. See this class's docstring for why the two
+        halves must both be driven from SUITES.
         """
         on_disk = {p.name for p in TESTS_DIR.glob("*.test.sh")}
         self.assertEqual(
@@ -176,9 +183,47 @@ class TestGuardHookSuites(unittest.TestCase):
         # against an emptied directory and run nothing at all.
         self.assertTrue(SUITES, msg="SUITES is empty -- no hook suite would run")
 
-        for name in SUITES:
-            with self.subTest(suite=name):
-                self._run_suite(name)
+
+def _attach(name: str) -> None:
+    """Generate one test method per SUITES entry, so each is schedulable alone.
+
+    The generation is what keeps the split safe. Hand-writing one method per
+    suite is what this file did BEFORE the methods were consolidated, and it had
+    a real gap: the tuple was checked against disk but never iterated, so a name
+    added to SUITES with no matching ``test_*`` method satisfied the equality
+    check and silently never ran. The tuple looked like the source of truth while
+    the hand-maintained method list actually was one.
+
+    Deriving the methods FROM SUITES at import time restores the three-state
+    invariant the consolidated method provided -- absent from the tuple (the
+    directory check fails), present and passing, or present and failing -- with
+    no fourth state where a suite is listed and quietly skipped. A name cannot be
+    in SUITES without getting a method here, because the method list IS SUITES.
+
+    Why methods rather than the previous ``subTest`` loop: subTest reports each
+    case separately but still runs them inside ONE test method, which is a unit
+    of scheduling. Test-level parallel runners distribute methods, so the loop
+    was a hard serial floor -- ~77s of a ~93s suite. Separate methods let the
+    suites run concurrently without changing what any of them assert.
+
+    This mirrors ``tests/core_tests/test_capsule_parser_drift.py``, which
+    generates its per-app methods the same way. Plain ``setattr`` over a
+    module-level loop needs no metaclass and no new dependency; the repo runs
+    stdlib unittest.
+    """
+
+    def test(self, _name: str = name) -> None:
+        self._run_suite(_name)
+
+    # "block-destructive-bash.test.sh" -> "test_block_destructive_bash_suite_passes"
+    stem = name.removesuffix(".test.sh").replace("-", "_")
+    test.__name__ = f"test_{stem}_suite_passes"
+    test.__doc__ = f"{name} exits 0 with every case passing."
+    setattr(TestGuardHookSuites, test.__name__, test)
+
+
+for _suite in SUITES:
+    _attach(_suite)
 
 
 if __name__ == "__main__":
