@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import unittest
+from unittest.mock import patch
 
 from core.cli_errors import NotFoundError
 from whatsapp import search
@@ -71,17 +72,28 @@ class TestSearchMessagesNotFound(unittest.TestCase):
             search_messages(db_path="/nonexistent/path/ChatStorage.sqlite")
 
     def test_raises_not_found_with_default_path_absent(self):
-        """NotFoundError if the system default path doesn't exist (no real WhatsApp)."""
-        default = search.default_db_path()
-        if os.path.exists(default):
-            self.skipTest("Real WhatsApp db present — skip this guard test")
-        with self.assertRaises(NotFoundError):
-            search_messages()
+        """NotFoundError when the default path is absent.
+
+        default_db_path is patched to a guaranteed-missing path rather than
+        skipping when a real WhatsApp database exists: a self-skipping test
+        silently contributes nothing on any machine that has WhatsApp installed.
+        """
+        missing = "/nonexistent-whatsapp-default/ChatStorage.sqlite"
+        with patch.object(search, "default_db_path", return_value=missing):
+            with self.assertRaises(NotFoundError) as ctx:
+                search_messages()
+        self.assertIn(missing, str(ctx.exception))
 
     def test_tilde_path_expanded_before_checking(self):
-        """A ~/... path that doesn't exist should still raise NotFoundError, not OSError."""
-        with self.assertRaises(NotFoundError):
+        """A ~/... path is expanded before the existence check."""
+        with self.assertRaises(NotFoundError) as ctx:
             search_messages(db_path="~/nonexistent-whatsapp-test/ChatStorage.sqlite")
+        # Asserting only NotFoundError would pass even if expansion never
+        # happened, since the literal "~/..." path is equally nonexistent.
+        # The message carries the resolved path, so check the tilde is gone.
+        message = str(ctx.exception)
+        self.assertNotIn("~", message)
+        self.assertIn(os.path.expanduser("~"), message)
 
 
 class TestSearchMessagesReturnsRows(TempDirMixin, unittest.TestCase):

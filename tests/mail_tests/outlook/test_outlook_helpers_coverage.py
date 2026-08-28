@@ -115,7 +115,7 @@ class TestGetOutlookClient(unittest.TestCase):
                     return real_import(name, *args, **kwargs)
 
                 with patch("builtins.__import__", side_effect=failing_import):
-                    client, code = get_outlook_client(MagicMock())
+                    client, code = get_outlook_client(args)
 
         self.assertIsNone(client)
         self.assertEqual(code, 1)
