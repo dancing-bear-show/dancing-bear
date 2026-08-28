@@ -627,23 +627,40 @@ class TestRejectsDeeplyNestedWrongShapes(RoundTripMixin, unittest.TestCase):
 
 
 class TestRejectsNonDictInput(unittest.TestCase):
-    """A non-dict document, and an empty or wholly unknown one."""
+    """A non-dict *argument* raises; an empty or wholly unknown dict does not.
+
+    This is the one place the schema's advisory-validation policy does not
+    apply. A wrong-typed argument is a programming error at an API boundary,
+    not candidate data: there is no document to salvage and no section to
+    default to. Malformed *values* inside a real dict stay advisory --
+    :class:`TestAdvisoryValueValidationStillWarns` is the guard for that.
+    """
 
     def test_rejects_string_document(self):
-        with self.assertLogs(WARN_LOGGER, level="WARNING") as ctx:
-            resume = Resume.from_dict("not a resume")
-        self.assertEqual(resume.to_dict(), {})
-        self.assertIn("Resume: expected dict", "".join(ctx.output))
+        with self.assertRaises(TypeError) as ctx:
+            Resume.from_dict("not a resume")
+        self.assertIn("str", str(ctx.exception))
+        self.assertIn("mapping", str(ctx.exception))
 
     def test_rejects_none_document(self):
-        with self.assertLogs(WARN_LOGGER, level="WARNING"):
-            resume = Resume.from_dict(None)
-        self.assertEqual(resume.to_dict(), {})
+        with self.assertRaises(TypeError) as ctx:
+            Resume.from_dict(None)
+        self.assertIn("NoneType", str(ctx.exception))
+
+    def test_rejects_int_document(self):
+        with self.assertRaises(TypeError) as ctx:
+            Resume.from_dict(42)
+        self.assertIn("int", str(ctx.exception))
 
     def test_rejects_list_document(self):
-        with self.assertLogs(WARN_LOGGER, level="WARNING"):
-            resume = Resume.from_dict([{"name": "N"}])
-        self.assertEqual(resume.name, "")
+        with self.assertRaises(TypeError) as ctx:
+            Resume.from_dict([{"name": "N"}])
+        self.assertIn("list", str(ctx.exception))
+
+    def test_rejects_empty_list_document(self):
+        with self.assertRaises(TypeError) as ctx:
+            Resume.from_dict([])
+        self.assertIn("list", str(ctx.exception))
 
     def test_invalid_empty_document_round_trips_as_empty(self):
         resume = Resume.from_dict({})
@@ -654,6 +671,61 @@ class TestRejectsNonDictInput(unittest.TestCase):
         resume = Resume.from_dict(data)
         self.assertEqual(resume.to_dict(), data)
         self.assertEqual(resume.extra, data)
+
+
+class TestAdvisoryValueValidationStillWarns(unittest.TestCase):
+    """The advisory policy for malformed *values* survives the argument guard.
+
+    ``Resume.from_dict`` now raises on a wrong-typed argument, which narrows
+    the schema's "validation is advisory" policy in exactly one place. This
+    class is the guard that it was narrowed and not abandoned: every case here
+    is malformed candidate data inside a genuine dict, and every one must still
+    warn via ``logging``, still return a usable ``Resume``, and never raise.
+
+    A resume that renders with a warning beats one that will not render at all
+    -- that was the original human gate decision, and it still holds for
+    values. Only the argument type is exempt.
+    """
+
+    def _assert_warns_without_raising(self, data: dict) -> Resume:
+        """Build from malformed data, asserting it warns and does not raise."""
+        with self.assertLogs(WARN_LOGGER, level="WARNING"):
+            return Resume.from_dict(data)
+
+    def test_wrong_typed_section_warns_and_defaults(self):
+        resume = self._assert_warns_without_raising({"experience": "not a list"})
+        self.assertEqual(resume.experience, [])
+
+    def test_null_section_does_not_raise(self):
+        # A null typed section is normalized to [] without a warning; the
+        # point here is only that it does not raise.
+        resume = Resume.from_dict({"experience": None})
+        self.assertEqual(resume.experience, [])
+
+    def test_malformed_item_warns_and_defaults(self):
+        resume = self._assert_warns_without_raising({"experience": [42]})
+        self.assertEqual(resume.experience[0].title, "")
+
+    def test_wrong_typed_nested_field_warns_and_defaults(self):
+        resume = self._assert_warns_without_raising(
+            {"experience": [{"title": "Dev", "bullets": 7}]}
+        )
+        self.assertEqual(resume.experience[0].bullets, [])
+        self.assertEqual(resume.experience[0].title, "Dev")
+
+    def test_wrong_typed_contact_warns_and_is_preserved(self):
+        resume = self._assert_warns_without_raising({"contact": "not a dict"})
+        self.assertEqual(resume.contact, "not a dict")
+
+    def test_bare_string_item_is_still_accepted_by_from_scalar(self):
+        """``_Item.from_dict``'s non-dict path is deliberate and unchanged.
+
+        Only ``Resume.from_dict`` -- the top-level document entry -- rejects a
+        non-dict. An item type still coerces a bare string onto its primary
+        field, which is the legacy ``bullets: list[str]`` path.
+        """
+        resume = Resume.from_dict({"summary": ["just text"]})
+        self.assertEqual(resume.summary[0].text, "just text")
 
 
 class TestRejectsBadContact(unittest.TestCase):

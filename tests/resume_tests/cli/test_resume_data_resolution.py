@@ -268,5 +268,62 @@ class TestEveryDataCommandUsesTheResolver(unittest.TestCase):
         self.assertGreater(checked, 0, "no --data arguments found to check")
 
 
+class TestRejectsNonMappingDataFile(unittest.TestCase):
+    """A data file whose top level is not a mapping is a usage error.
+
+    ``Resume.from_dict`` raises ``TypeError`` on a non-dict argument, which is
+    the right outcome for a truncated or malformed ``data.yaml`` -- but a
+    traceback is not. ``_load_candidate_data`` converts it to a ``CLIError``
+    naming the file, so someone who truncated their YAML learns that from the
+    message. Before the guard these inputs produced an empty ``Resume`` and
+    rendered a blank document with nothing reporting a failure.
+    """
+
+    def _load(self, text: str, suffix: str = ".yaml"):
+        """Write ``text`` to a temp data file and run it through the loader."""
+        from resume.cli.main import _load_candidate_data
+
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / f"data{suffix}"
+            path.write_text(text, encoding="utf-8")
+            return _load_candidate_data(_args(data=str(path))), str(path)
+
+    def _assert_usage_error(self, text: str, expected_type: str) -> None:
+        from core.cli_errors import ExitCode
+
+        with self.assertRaises(CLIError) as ctx:
+            self._load(text)
+        self.assertEqual(ctx.exception.code, ExitCode.USAGE)
+        msg = str(ctx.exception)
+        self.assertIn("mapping of resume sections", msg)
+        self.assertIn(expected_type, msg)
+        self.assertIn("data.yaml", msg)
+
+    def test_rejects_bare_list_data_file(self):
+        self._assert_usage_error("- one\n- two\n", "list")
+
+    def test_rejects_bare_string_data_file(self):
+        self._assert_usage_error("just a string\n", "str")
+
+    def test_rejects_non_mapping_without_raising_type_error(self):
+        """The TypeError must not escape as a traceback to the user."""
+        try:
+            self._load("- one\n- two\n")
+        except CLIError:
+            pass
+        except TypeError as exc:  # pragma: no cover - guard for a regression
+            self.fail(f"TypeError escaped instead of CLIError: {exc}")
+
+    def test_mapping_data_file_loads(self):
+        """Happy path: a genuine mapping still loads and normalizes."""
+        loaded, _ = self._load(json.dumps({"name": "Ada Example"}), suffix=".json")
+        self.assertEqual(loaded["name"], "Ada Example")
+
+    def test_empty_data_file_loads_as_empty_mapping(self):
+        """An empty file parses to ``{}``, which is a mapping and must pass."""
+        loaded, _ = self._load("{}\n")
+        self.assertEqual(loaded, {})
+
+
 if __name__ == "__main__":
     unittest.main()

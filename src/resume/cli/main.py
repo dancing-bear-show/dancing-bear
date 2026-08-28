@@ -135,8 +135,26 @@ def _load_candidate_data(args: argparse.Namespace) -> CandidateData:
 
     Only candidate data goes through here. Style profiles and alignment reports
     are different documents with different shapes and are loaded directly.
+
+    A data file that does not parse to a mapping -- a truncated YAML that reads
+    as a bare list or string -- makes ``Resume.from_dict`` raise. That is a user
+    error, not a programming error, so it is reported as a ``CLIError`` naming
+    the file rather than escaping as a traceback. Previously ``from_dict``
+    returned an empty ``Resume`` for these inputs and the run rendered a blank
+    document with nothing reporting a failure.
+
+    Raises:
+        CLIError: If the data file's top level is not a mapping.
     """
-    return Resume.from_dict(read_yaml_or_json(_resolve_data(args))).to_dict()
+    path = _resolve_data(args)
+    raw = read_yaml_or_json(path)
+    if not isinstance(raw, dict):
+        raise CLIError(
+            f"{path}: candidate data must be a mapping of resume sections, got "
+            f"{type(raw).__name__}. Check the file is complete and not truncated.",
+            ExitCode.USAGE,
+        )
+    return Resume.from_dict(raw).to_dict()
 
 
 def _apply_filter_pipeline(
