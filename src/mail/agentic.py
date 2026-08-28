@@ -241,7 +241,7 @@ def _mail_flows() -> list[dict[str, Any]]:
             'tags': ['gmail', 'labels', 'plan', 'apply', 'verify', 'safe'],
             'requires': [["labels", "plan"], ["labels", "sync"], ["labels", "export"]],
             'commands': [
-                "./bin/mail-assistant labels plan --config config/labels_current.yaml --delete-missing",
+                "./bin/mail-assistant labels plan --config config/labels_current.yaml",
                 "./bin/mail-assistant labels sync --config config/labels_current.yaml --delete-missing",
                 "./bin/mail-assistant labels export --out ./labels.export.after.yaml",
             ],

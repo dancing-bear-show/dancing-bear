@@ -10,9 +10,9 @@ def build_agentic_capsule() -> str:
     lines.append("agentic: wifi")
     lines.append("purpose: Wi-Fi and LAN diagnostics (gateway vs upstream vs DNS)")
     lines.append("commands:")
-    lines.append("  - quick diag: ./bin/wifi --ping-count 12")
-    lines.append("  - trim trace/http: ./bin/wifi --no-trace --no-http")
-    lines.append("  - JSON output: ./bin/wifi --json --out out/wifi.diag.json")
+    lines.append("  - quick diag: ./bin/wifi diagnose --ping-count 12")
+    lines.append("  - trim trace/http: ./bin/wifi diagnose --no-trace --no-http")
+    lines.append("  - JSON output: ./bin/wifi diagnose --json --out wifi.diag.json")
     lines.append(
         _section(
             "Probes",
