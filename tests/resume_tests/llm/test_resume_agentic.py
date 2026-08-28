@@ -69,6 +69,17 @@ class TestResumAgenticCliPathExists(unittest.TestCase):
     def test_align_path_exists(self):
         self.assertTrue(self._cli_path_exists(["align"]))
 
+    def test_files_tidy_path_exists(self):
+        self.assertTrue(self._cli_path_exists(["files", "tidy"]))
+
+    def test_cleanup_path_does_not_exist(self):
+        # "cleanup" is the internal module name, not a CLI command.
+        # The guard was previously wrong; verify the false path stays False.
+        self.assertFalse(self._cli_path_exists(["cleanup"]))
+
+    def test_style_build_path_exists(self):
+        self.assertTrue(self._cli_path_exists(["style", "build"]))
+
 
 class TestResumAgenticFlowMap(unittest.TestCase):
     """_flow_map() must render the extract/summarize/render workflow block."""
@@ -84,6 +95,23 @@ class TestResumAgenticFlowMap(unittest.TestCase):
     def test_flow_map_contains_resume_workflow(self):
         flow = self._flow_map()
         self.assertIn("Resume workflow", flow)
+
+    def test_flow_map_contains_files_tidy(self):
+        flow = self._flow_map()
+        self.assertIn("files tidy", flow)
+
+    def test_flow_map_files_tidy_uses_correct_flags(self):
+        # Must use real flags (--dir, --keep), not the old wrong --plan/--apply
+        flow = self._flow_map()
+        self.assertIn("--dir", flow)
+        self.assertNotIn("--plan", flow)
+        self.assertNotIn("--apply", flow)
+
+    def test_flow_map_style_uses_corpus_dir(self):
+        # style build takes --corpus-dir, not --templates
+        flow = self._flow_map()
+        self.assertIn("--corpus-dir", flow)
+        self.assertNotIn("--templates", flow)
 
     def test_flow_map_contains_extract(self):
         flow = self._flow_map()
