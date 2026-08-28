@@ -40,21 +40,26 @@ def _flow_map() -> str:
     if all(_cli_path_exists(cmd) for cmd in [["extract"], ["summarize"], ["render"]]):
         lines.append("- Resume workflow")
         lines.append("  - Extract: ./bin/assistant resume extract --linkedin data/linkedin.txt --resume data/resume.pdf --out out/profile.json")
-        lines.append("  - Summarize: ./bin/assistant resume summarize --data out/profile.json --seed seeds/general.yaml")
+        lines.append("  - Summarize: ./bin/assistant resume summarize --data out/profile.json --seed role=SRE,keywords=python;aws")
         lines.append("  - Render DOCX: ./bin/assistant resume render --data out/profile.json --template templates/modern.yaml --profile default")
     if _cli_path_exists(["align"]):
         lines.append("- Align to job posting: ./bin/assistant resume align --data out/profile.json --job jobs/default.yaml --out out/alignment.yaml")
     if _cli_path_exists(["style"]):
         lines.append("- Style profile: ./bin/assistant resume style build --corpus-dir corpus/ --out out/style_profile.json")
-    if _cli_path_exists(["cleanup"]):
-        lines.append("- Cleanup workspace: ./bin/assistant resume cleanup tidy --plan out/cleanup.plan.yaml --apply")
+    # `files`, not `cleanup`: cleanup is the internal module name, and the CLI
+    # surface is `files tidy`. The old guard never matched, so this line was
+    # never emitted -- which is also why the capsule-drift test could not catch
+    # it. A guard that is silently False emits no line, and a line never
+    # emitted is never checked.
+    if _cli_path_exists(["files", "tidy"]):
+        lines.append("- Tidy workspace: ./bin/assistant resume files tidy --dir _data --keep 2")
     return "\n".join(lines)
 
 
 def build_agentic_capsule() -> str:
     commands = [
         "extract: ./bin/assistant resume extract --linkedin data/linkedin.txt --resume data/resume.pdf --out out/profile.json",
-        "summarize: ./bin/assistant resume summarize --data out/profile.json --seed seeds/general.yaml",
+        "summarize: ./bin/assistant resume summarize --data out/profile.json --seed role=SRE,keywords=python;aws",
         "render: ./bin/assistant resume render --data out/profile.json --template templates/modern.yaml --profile default",
         "align: ./bin/assistant resume align --data out/profile.json --job jobs/default.yaml",
     ]

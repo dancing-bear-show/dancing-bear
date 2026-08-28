@@ -53,7 +53,7 @@ class TestResumeFlowMapBranches(unittest.TestCase):
         self.assertIn("Resume workflow", result)
         self.assertIn("Align to job posting", result)
         self.assertIn("Style profile", result)
-        self.assertIn("Cleanup workspace", result)
+        self.assertIn("Tidy workspace", result)
 
     def test_all_true_main_workflow_contains_three_commands(self):
         result, _ = self._patched_flow_map_collect(always=True)
@@ -103,15 +103,27 @@ class TestResumeFlowMapBranches(unittest.TestCase):
         self.assertIn("Style profile", result)
         self.assertNotIn("Align to job posting", result)
 
-    def test_cleanup_entry_only_when_cleanup_path_true(self):
-        def only_cleanup(path: list) -> bool:
-            return path == ["cleanup"]
+    def test_tidy_entry_only_when_files_tidy_path_true(self):
+        # Guards on ["files", "tidy"], not ["cleanup"]: cleanup is the internal
+        # module name and was never a CLI subcommand, so the old guard silently
+        # never fired and the entry was never emitted.
+        def only_files_tidy(path: list) -> bool:
+            return path == ["files", "tidy"]
 
-        with patch("resume.agentic._cli_path_exists", side_effect=only_cleanup):
+        with patch("resume.agentic._cli_path_exists", side_effect=only_files_tidy):
             import resume.agentic as mod
             result = mod._flow_map()
-        self.assertIn("Cleanup workspace", result)
+        self.assertIn("Tidy workspace", result)
+        self.assertIn("files tidy", result)
         self.assertNotIn("Align to job posting", result)
+
+    def test_stale_cleanup_guard_does_not_resurface(self):
+        # If someone restores the old guard, _flow_map would go back to
+        # silently dropping this entry. Pin the real CLI path.
+        import resume.agentic as mod
+
+        self.assertTrue(mod._cli_path_exists(["files", "tidy"]))
+        self.assertFalse(mod._cli_path_exists(["cleanup"]))
 
     # -------------------------------------------------------------------------
     # Call-pattern: every _cli_path_exists call passes a flat path
@@ -138,7 +150,7 @@ class TestResumeFlowMapBranches(unittest.TestCase):
         self.assertEqual(calls[0], ["extract"])
         self.assertEqual(calls[1], ["align"])
         self.assertEqual(calls[2], ["style"])
-        self.assertEqual(calls[3], ["cleanup"])
+        self.assertEqual(calls[3], ["files", "tidy"])
         for call in calls:
             for element in call:
                 self.assertIsInstance(

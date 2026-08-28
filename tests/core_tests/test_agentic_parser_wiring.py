@@ -24,9 +24,11 @@ free to restructure as long as its capsule still describes a real CLI.
 """
 from __future__ import annotations
 
+import ast
 import contextlib
 import importlib
 import io
+import pathlib
 import unittest
 
 from core.agentic import list_subcommands
@@ -217,6 +219,68 @@ class CapsuleEmitterTests(unittest.TestCase):
                     "import depth in the CLI's agentic emitter -- from inside "
                     f"{module_path} the builder is `..agentic`, not `.agentic`.",
                 )
+
+
+class GuardsResolveTests(unittest.TestCase):
+    """Every `_cli_path_exists` guard must name a path the CLI really exposes.
+
+    A guard naming something the parser does not have is **silently False**:
+    its line is never appended, so the capsule is quietly missing an entry.
+    Nothing raises, and no output-based test can catch it -- asserting on what
+    the capsule contains cannot detect a line that was never emitted. The
+    capsule-drift test (#293) is blind to it for the same reason: it validates
+    the commands a capsule advertises, and this one advertises nothing.
+
+    resume guarded on `["cleanup"]`, which is the internal module name; the CLI
+    surface is `files tidy`. The entry never rendered, and the command it would
+    have printed was wrong on the subcommand and both flags.
+
+    This walks the AST for literal guard arguments and evaluates each against
+    the domain's real parser, which is the only way this class of defect
+    surfaces.
+    """
+
+    def _literal_guards(self, source: str):
+        guards = []
+        for node in ast.walk(ast.parse(source)):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "_cli_path_exists"
+                and node.args
+                and isinstance(node.args[0], ast.List)
+            ):
+                try:
+                    guards.append(ast.literal_eval(node.args[0]))
+                except ValueError:
+                    continue  # non-literal (loop variable) -- covered elsewhere
+        return guards
+
+    def test_every_literal_guard_resolves_against_its_parser(self):
+        root = pathlib.Path(__file__).resolve().parents[2] / "src"
+        checked = 0
+        for path in sorted(root.glob("*/agentic.py")):
+            domain = path.parent.name
+            guards = self._literal_guards(path.read_text())
+            if not guards:
+                continue
+            mod = importlib.import_module(f"{domain}.agentic")
+            checker = getattr(mod, "_cli_path_exists", None)
+            if checker is None:
+                continue
+            for guard in guards:
+                if not all(isinstance(e, str) for e in guard):
+                    continue  # nested list: a different defect, pinned below
+                with self.subTest(domain=domain, guard=guard):
+                    self.assertTrue(
+                        checker(guard),
+                        f"{domain}.agentic guards on {guard!r}, which its parser "
+                        "does not expose. The guard is silently False, so the "
+                        "capsule drops that entry with no error and no failing "
+                        "output assertion. Use the real CLI path.",
+                    )
+                    checked += 1
+        self.assertGreater(checked, 0, "no guards were checked -- audit is vacuous")
 
 
 class CliPathExistsContractTests(unittest.TestCase):
