@@ -1,17 +1,17 @@
 import unittest
 
-from tests.fixtures import capture_stdout
+from tests.agentic_cli_contract import AgenticCLIContractMixin
 
 
-class TestCalendarAgentic(unittest.TestCase):
-    def test_agentic_flag_outputs_capsule(self):
-        import calendars.__main__ as mod
+class TestCalendarAgenticCLI(AgenticCLIContractMixin, unittest.TestCase):
+    """The shared --agentic CLI contract.
 
-        with capture_stdout() as buf:
-            rc = mod.main(["--agentic"])
-        out = buf.getvalue()
-        self.assertEqual(rc, 0)
-        self.assertIn("agentic: calendar", out)
+    APP_ID is "calendar" (singular) -- the capsule does not echo the package
+    name.
+    """
+
+    MODULE_PATH = "calendars.__main__"
+    APP_ID = "calendar"
 
 
 if __name__ == "__main__":
