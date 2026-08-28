@@ -8,6 +8,9 @@ suite's environment.
 """
 from __future__ import annotations
 
+import os
+import stat
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -67,6 +70,28 @@ class RunBinaryFailureTests(unittest.TestCase):
         self.assertTrue(res.not_found)
         self.assertFalse(res.ok)
         self.assertIn("/nonexistent/definitely-not-a-binary", res.stderr)
+        self.assertIn("not found", res.stderr)
+
+    def test_non_executable_binary_is_not_reported_as_missing(self):
+        # rc 127 covers every exec failure, not just ENOENT. A file that exists
+        # but lacks +x must NOT say "not found" -- that sends someone debugging
+        # a permissions problem looking for a missing install instead.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "not-executable")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write("#!/bin/sh\necho hi\n")
+            os.chmod(path, stat.S_IRUSR)  # readable, deliberately not +x
+
+            res = run_binary([path])
+
+        self.assertEqual(res.returncode, RC_NOT_FOUND)
+        self.assertNotIn(
+            "not found",
+            res.stderr,
+            "a permission error was mislabelled as a missing binary",
+        )
+        self.assertIn("Permission denied", res.stderr)
+        self.assertIn(path, res.stderr)
 
     def test_timeout_maps_to_rc_timeout(self):
         res = run_binary(["sleep", "5"], timeout=0.25)

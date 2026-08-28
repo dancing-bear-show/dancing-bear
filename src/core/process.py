@@ -109,7 +109,20 @@ def run_binary(
             returncode=RC_TIMEOUT,
             command=command,
         )
+    except FileNotFoundError:
+        # ENOENT specifically: the binary is absent. Callers key terser
+        # messaging off this, so it must not absorb other OSErrors.
+        return CompletedRun(
+            stdout="",
+            stderr=f"{command[0]}: not found",
+            returncode=RC_NOT_FOUND,
+            command=command,
+        )
     except OSError as exc:
+        # Everything else that prevents exec -- permission denied, exec format
+        # error, ETXTBSY. Still unrunnable, so the return code is the same, but
+        # the errno text is preserved: reporting a non-executable binary as
+        # "not found" sends a diagnostics user looking for the wrong problem.
         return CompletedRun(
             stdout="",
             stderr=f"{command[0]}: {exc}",

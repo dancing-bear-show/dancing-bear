@@ -39,6 +39,19 @@ class TestSubprocessRunner(unittest.TestCase):
         self.assertEqual(result.returncode, 127)
         self.assertIn("not found", result.stderr)
 
+    def test_permission_error_is_not_reported_as_not_found(self):
+        # rc 127 covers every exec failure. An earlier version rewrote stderr to
+        # "<binary>: not found" for ANY 127, so a present-but-not-executable
+        # binary looked missing -- misleading in a diagnostics tool, where the
+        # remedy for "not installed" and "not executable" differ.
+        runner = SubprocessRunner()
+        boom = PermissionError(13, "Permission denied")
+        with patch("subprocess.run", side_effect=boom):
+            result = runner.run(["/usr/local/bin/airport"], timeout=5)
+        self.assertEqual(result.returncode, 127)
+        self.assertNotIn("not found", result.stderr)
+        self.assertIn("Permission denied", result.stderr)
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
