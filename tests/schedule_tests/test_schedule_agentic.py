@@ -7,7 +7,15 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 
 
+from tests.agentic_builder_contract import AgenticBuilderContractMixin
 from tests.fixtures import make_path_mock as _make_path_mock  # noqa: E402
+
+
+class TestScheduleAgenticContract(AgenticBuilderContractMixin, unittest.TestCase):
+    """The shared agentic builder contract."""
+
+    MODULE_PATH = "schedule.agentic"
+    APP_ID = "schedule"
 
 
 class TestScheduleFlowMap(unittest.TestCase):
@@ -72,12 +80,8 @@ class TestScheduleFlowMap(unittest.TestCase):
         self.assertEqual(result, "")
 
 
-class TestScheduleBuildAgenticCapsule(unittest.TestCase):
-    def test_capsule_non_empty(self):
-        from schedule.agentic import build_agentic_capsule
-        cap = build_agentic_capsule()
-        self.assertIsInstance(cap, str)
-        self.assertGreater(len(cap), 0)
+class TestScheduleCapsuleContent(unittest.TestCase):
+    """schedule-specific curated content."""
 
     def test_capsule_with_tree_and_flows(self):
         from schedule import agentic as mod
@@ -101,17 +105,8 @@ class TestScheduleBuildAgenticCapsule(unittest.TestCase):
         self.assertIn("schedule", cap.lower())
 
 
-class TestScheduleBuildDomainMap(unittest.TestCase):
-    def test_domain_map_non_empty(self):
-        from schedule.agentic import build_domain_map
-        dm = build_domain_map()
-        self.assertIsInstance(dm, str)
-        self.assertGreater(len(dm), 0)
-
-    def test_domain_map_has_top_level(self):
-        from schedule.agentic import build_domain_map
-        dm = build_domain_map()
-        self.assertIn("Top-Level", dm)
+class TestScheduleDomainMapContent(unittest.TestCase):
+    """schedule-specific domain map content."""
 
     def test_domain_map_with_tree_and_flows(self):
         from schedule import agentic as mod
@@ -130,14 +125,6 @@ class TestScheduleBuildDomainMap(unittest.TestCase):
 
 
 class TestScheduleEmitAgenticContext(unittest.TestCase):
-    def test_emit_returns_zero(self):
-        from schedule.agentic import emit_agentic_context
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            rc = emit_agentic_context()
-        self.assertEqual(rc, 0)
-        self.assertGreater(len(buf.getvalue()), 0)
-
     def test_emit_accepts_fmt_compact(self):
         from schedule.agentic import emit_agentic_context
         buf = io.StringIO()

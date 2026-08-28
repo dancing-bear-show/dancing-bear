@@ -3,16 +3,18 @@
 import unittest
 from unittest.mock import patch
 
+from tests.agentic_builder_contract import AgenticBuilderContractMixin
 from tests.fixtures import capture_stdout
 
 
-class TestEmitAgenticContext(unittest.TestCase):
-    def test_returns_0(self):
-        from desk.agentic import emit_agentic_context
-        with capture_stdout():
-            rc = emit_agentic_context()
-        self.assertEqual(rc, 0)
+class TestDeskAgenticContract(AgenticBuilderContractMixin, unittest.TestCase):
+    """The shared agentic builder contract."""
 
+    MODULE_PATH = "desk.agentic"
+    APP_ID = "desk"
+
+
+class TestEmitAgenticContext(unittest.TestCase):
     def test_compact_returns_0(self):
         from desk.agentic import emit_agentic_context
         with capture_stdout():
@@ -30,19 +32,9 @@ class TestEmitAgenticContext(unittest.TestCase):
             with capture_stdout():
                 self.assertEqual(emit_agentic_context(fmt, False), 0)
 
-    def test_prints_agentic_content(self):
-        from desk.agentic import emit_agentic_context
-        with capture_stdout() as buf:
-            emit_agentic_context()
-        output = buf.getvalue()
-        self.assertIn("agentic: desk", output)
 
-
-class TestBuildAgenticCapsule(unittest.TestCase):
-    def test_contains_app_id(self):
-        from desk.agentic import build_agentic_capsule
-        result = build_agentic_capsule()
-        self.assertIn("agentic: desk", result)
+class TestDeskCapsuleContent(unittest.TestCase):
+    """desk-specific curated content."""
 
     def test_contains_commands(self):
         from desk.agentic import build_agentic_capsule
@@ -56,32 +48,22 @@ class TestBuildAgenticCapsule(unittest.TestCase):
         result = build_agentic_capsule()
         self.assertIn("macOS", result)
 
-    def test_includes_commands_in_output(self):
+    def test_includes_python3_invocation(self):
         from desk.agentic import build_agentic_capsule
         result = build_agentic_capsule()
-        # Commands are always included regardless of CLI parser availability.
         # desk ships no bin/ wrapper — `./bin/desk-assistant` never existed, so
         # the capsule advertises the form that actually runs.
         self.assertIn("python3 -m desk", result)
 
 
-class TestBuildDomainMap(unittest.TestCase):
-    def test_returns_string(self):
-        from desk.agentic import build_domain_map
-        result = build_domain_map()
-        self.assertIsInstance(result, str)
+class TestDeskDomainMapContent(unittest.TestCase):
+    """desk-specific domain map content."""
 
     def test_contains_top_level_files(self):
         from desk.agentic import build_domain_map
         result = build_domain_map()
         self.assertIn("desk/scan.py", result)
         self.assertIn("desk/planner.py", result)
-
-    def test_contains_expected_top_level_entries(self):
-        from desk.agentic import build_domain_map
-        result = build_domain_map()
-        # Top-level section is always present
-        self.assertIn("Top-Level", result)
 
 
 class TestFlowMap(unittest.TestCase):

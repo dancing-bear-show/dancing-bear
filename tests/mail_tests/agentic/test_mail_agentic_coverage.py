@@ -7,19 +7,19 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from tests.agentic_builder_contract import AgenticBuilderContractMixin
 from tests.fixtures import capture_stdout
+
+
+class TestMailAgenticContract(AgenticBuilderContractMixin, unittest.TestCase):
+    """The shared agentic builder contract."""
+
+    MODULE_PATH = "mail.agentic"
+    APP_ID = "mail"
 
 
 class TestMailBuildAgenticCapsuleCompact(unittest.TestCase):
     """mod.build_agentic_capsule(compact=True) skips .llm context files and flows index."""
-
-    def test_compact_returns_string(self):
-        import mail.agentic as mod
-        self.assertIsInstance(mod.build_agentic_capsule(compact=True), str)
-
-    def test_compact_contains_app_id(self):
-        import mail.agentic as mod
-        self.assertIn("agentic: mail", mod.build_agentic_capsule(compact=True))
 
     def test_compact_contains_core_commands(self):
         import mail.agentic as mod
@@ -44,12 +44,6 @@ class TestMailBuildAgenticCapsuleCompact(unittest.TestCase):
 class TestMailEmitAgenticContext(unittest.TestCase):
     """mod.emit_agentic_context() compact and format variants."""
 
-    def test_emit_default_returns_zero(self):
-        import mail.agentic as mod
-        with capture_stdout():
-            rc = mod.emit_agentic_context()
-        self.assertEqual(rc, 0)
-
     def test_emit_compact_returns_zero(self):
         import mail.agentic as mod
         with capture_stdout():
@@ -61,12 +55,6 @@ class TestMailEmitAgenticContext(unittest.TestCase):
         with capture_stdout():
             rc = mod.emit_agentic_context(_fmt="yaml")
         self.assertEqual(rc, 0)
-
-    def test_emit_output_contains_header(self):
-        import mail.agentic as mod
-        with capture_stdout() as buf:
-            mod.emit_agentic_context()
-        self.assertIn("agentic: mail", buf.getvalue())
 
     def test_emit_compact_output_contains_header(self):
         import mail.agentic as mod
@@ -186,14 +174,6 @@ class TestMailListFolderModules(unittest.TestCase):
 
 class TestMailBuildDomainMap(unittest.TestCase):
     """mod.build_domain_map() generates full map including key modules and folder sections."""
-
-    def test_returns_string(self):
-        import mail.agentic as mod
-        self.assertIsInstance(mod.build_domain_map(), str)
-
-    def test_contains_top_level_entry(self):
-        import mail.agentic as mod
-        self.assertIn("Top-Level", mod.build_domain_map())
 
     def test_key_modules_section_when_files_exist(self):
         """build_domain_map includes Key Modules when a key file is found in cwd."""

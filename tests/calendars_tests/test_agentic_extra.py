@@ -2,31 +2,14 @@
 import unittest
 from unittest.mock import patch
 
+from tests.agentic_builder_contract import AgenticBuilderContractMixin
 
-class TestAgenticEmitContext(unittest.TestCase):
-    def test_emit_agentic_context_prints_capsule(self):
-        import io
-        from contextlib import redirect_stdout
-        from calendars.agentic import emit_agentic_context
 
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            rc = emit_agentic_context()
-        self.assertEqual(rc, 0)
-        out = buf.getvalue()
-        self.assertGreater(len(out), 0)
-        self.assertIn("calendar", out.lower())
+class TestCalendarsAgenticContract(AgenticBuilderContractMixin, unittest.TestCase):
+    """The shared agentic builder contract."""
 
-    def test_emit_agentic_context_accepts_fmt_compact(self):
-        """fmt and compact params are accepted (reserved) without errors."""
-        import io
-        from contextlib import redirect_stdout
-        from calendars.agentic import emit_agentic_context
-
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            rc = emit_agentic_context(_fmt="yaml", _compact=True)
-        self.assertEqual(rc, 0)
+    MODULE_PATH = "calendars.agentic"
+    APP_ID = "calendar"
 
 
 class TestFlowMap(unittest.TestCase):
@@ -67,13 +50,7 @@ class TestCliTree(unittest.TestCase):
         # If tree is empty (parser unavailable), test passes vacuously
 
 
-class TestBuildAgenticCapsule(unittest.TestCase):
-    def test_capsule_non_empty(self):
-        from calendars.agentic import build_agentic_capsule
-        cap = build_agentic_capsule()
-        self.assertIsInstance(cap, str)
-        self.assertGreater(len(cap), 0)
-
+class TestBuildAgenticCapsuleContent(unittest.TestCase):
     def test_capsule_mentions_gmail(self):
         from calendars.agentic import build_agentic_capsule
         cap = build_agentic_capsule()
@@ -83,19 +60,6 @@ class TestBuildAgenticCapsule(unittest.TestCase):
         from calendars.agentic import build_agentic_capsule
         cap = build_agentic_capsule()
         self.assertIn("scan", cap.lower())
-
-
-class TestBuildDomainMap(unittest.TestCase):
-    def test_domain_map_non_empty(self):
-        from calendars.agentic import build_domain_map
-        dm = build_domain_map()
-        self.assertIsInstance(dm, str)
-        self.assertGreater(len(dm), 0)
-
-    def test_domain_map_has_top_level(self):
-        from calendars.agentic import build_domain_map
-        dm = build_domain_map()
-        self.assertIn("Top-Level", dm)
 
 
 class TestCliPathExists(unittest.TestCase):
