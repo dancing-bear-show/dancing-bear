@@ -7,7 +7,7 @@ from lxml import etree
 from pptx.enum.dml import MSO_THEME_COLOR
 from pptx.util import Pt
 
-from slides._styling import StylingMixin
+from slides._styling import StylingMixin, TextStyle
 from slides.constants import HIGHLIGHT_THEME_COLOR, LINK_BLUE
 
 
@@ -259,21 +259,21 @@ class TestAddTextToParagraph(unittest.TestCase):
 
     def test_simple_text_no_highlights(self):
         para = _make_paragraph()
-        self.mixin._add_text_to_paragraph(para, "simple text", None, None)
+        self.mixin._add_text_to_paragraph(para, "simple text", TextStyle())
         para.add_run.assert_called_once()
 
     def test_sets_run_text(self):
         para = _make_paragraph()
         run = _make_run()
         para.add_run.return_value = run
-        self.mixin._add_text_to_paragraph(para, "hello", None, None)
+        self.mixin._add_text_to_paragraph(para, "hello", TextStyle())
         self.assertEqual(run.text, "hello")
 
     def test_applies_hyperlink_when_url_provided(self):
         para = _make_paragraph()
         run = _make_run()
         para.add_run.return_value = run
-        self.mixin._add_text_to_paragraph(para, "link text", None, None, url="https://x.com")
+        self.mixin._add_text_to_paragraph(para, "link text", TextStyle(url="https://x.com"))
         self.assertEqual(run.hyperlink.address, "https://x.com")
 
     def test_highlighted_text_uses_multiple_runs(self):
@@ -283,7 +283,7 @@ class TestAddTextToParagraph(unittest.TestCase):
         para.add_run.side_effect = runs
 
         self.mixin._add_text_to_paragraph(
-            para, "foo bar baz", None, None, highlights=["bar"]
+            para, "foo bar baz", TextStyle(highlights=["bar"])
         )
         self.assertGreater(para.add_run.call_count, 1)
 
@@ -291,7 +291,7 @@ class TestAddTextToParagraph(unittest.TestCase):
         para = _make_paragraph()
         run = _make_run()
         para.add_run.return_value = run
-        self.mixin._add_text_to_paragraph(para, "bold text", None, None, bold=True)
+        self.mixin._add_text_to_paragraph(para, "bold text", TextStyle(bold=True))
         self.assertTrue(run.font.bold)
 
 

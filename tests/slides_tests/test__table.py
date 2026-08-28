@@ -105,7 +105,7 @@ class _Concrete(TableMixin):
     def _format_bullet_text(self, text, level):
         return text.strip().lstrip("•◦▪‣-* ").strip() if text else text
 
-    def _add_text_to_paragraph(self, paragraph, text, theme_color, font_size, bold=False, highlights=None, url=None):
+    def _add_text_to_paragraph(self, paragraph, text, style):
         run = paragraph.add_run()
         run.text = text
 
