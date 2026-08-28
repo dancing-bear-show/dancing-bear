@@ -43,6 +43,8 @@ def load_deck_from_csv(
         csv_path: Path to CSV file
         options: Common deck-metadata options (title, author, template_path,
             template_slide_index, theme_color); defaults applied when None.
+            title falls back to DEFAULT_TITLE only when None — an explicitly
+            empty title is kept, unlike the markdown and outline loaders.
         title_column: Column name for slide titles
         text_column: Column name for bullet text
         bullet_limit: Max bullets per slide before auto-pagination
