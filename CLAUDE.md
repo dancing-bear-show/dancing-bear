@@ -180,6 +180,58 @@ one, and only turns red once a newly added module is imported by name.
 - This applies to subagents too: an agent verifying with bare `python3` in an
   isolated worktree is not verifying anything
 
+**CRITICAL — exit code 0 is not evidence the suite ran.** `test:` depends on
+`venv:`. When several agent worktrees run `make test` concurrently they race on
+shared pip/build state, and `make venv` can die in a way that still reports
+`EXIT=0` with **no `Ran N tests` line anywhere in the output**. A green exit from
+a run that executed zero tests is indistinguishable from a real pass.
+
+Always confirm the summary line, never the exit code alone:
+
+```bash
+make test > /tmp/t.log 2>&1; echo "EXIT=$?"; grep -E "^Ran [0-9]+ tests" /tmp/t.log
+```
+
+- The `2>&1` is required: unittest writes `Ran N tests`, `OK`, and `FAILED` to
+  **stderr**. Redirecting only stdout, or piping to `tail` without merging
+  stderr, hides the verdict along with every failure
+- No `Ran N tests` line means the suite did not run — re-run it, do not report a
+  baseline
+
+**CRITICAL — a CLI can print pre-change behaviour from a source tree you are not
+editing.** The symptom is a command that shows the old output while your edit is
+plainly in the file, which looks exactly like "the fix didn't work."
+
+The `bin/*` wrappers are **not** at fault. Each is a symlink to `bin/_router.py`,
+which resolves `_REPO_ROOT` through the symlink (`bin/_router.py:35`), inserts
+that repo's `src/` on `sys.path` (`bin/_router.py:53-55`), and re-execs under
+`_REPO_ROOT/.venv/bin/python3` when one exists (`bin/_router.py:36-51`). Run
+`./bin/<tool>` from a worktree and the router does point at that worktree.
+
+What actually redirects the import:
+
+- **An inherited `PYTHONPATH`** — the same root cause as the `unittest` trap
+  above, and the common one. `PYTHONPATH` entries land ahead of both the
+  editable install's `.pth` and the router's own insert (which is guarded by an
+  `if not in sys.path` check), so another checkout's `src/` wins on `sys.path`
+  and the wrapper loads that tree's code
+- **Invoking a wrapper by absolute path** from another checkout — that runs
+  *that* checkout's source, correctly and by design
+- **A `.venv` whose editable install points elsewhere** — each worktree's
+  `.venv/…/__editable__*.pth` holds the absolute `src/` of whichever checkout
+  ran `make venv` in it
+
+**The general rule, which covers this case, the `unittest` case, and the
+`make venv` race above: before concluding a change did not take effect, print
+where the module actually loaded from.**
+
+```bash
+python3 -c "import resume; print(resume.__file__)"   # must be YOUR src/
+```
+
+If that path is not under the tree you are editing, the code never ran — the
+change is fine and the environment is wrong.
+
 **Coverage exemptions** (`.coveragerc`):
 - `*/__main__.py` is omitted. These are `python -m <pkg>` entry shims: a
   docstring, `from .cli import main`, and a `__main__` guard. The only
