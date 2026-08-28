@@ -66,6 +66,23 @@ class TestOutputWriterPrint(unittest.TestCase):
             writer.print_error("something went wrong")
         self.assertIn("Error: something went wrong", buf.getvalue())
 
+    def test_print_error_honours_configured_file(self):
+        """An explicit file captures diagnostics, not just normal output.
+
+        Without this, a caller that injects OutputConfig(file=buf) to capture
+        output silently misses everything print_error writes.
+        """
+        buf = StringIO()
+        writer = OutputWriter(OutputConfig(file=buf))
+        writer.print_error("boom")
+        self.assertIn("Error: boom", buf.getvalue())
+
+    def test_print_warning_honours_configured_file(self):
+        buf = StringIO()
+        writer = OutputWriter(OutputConfig(file=buf))
+        writer.print_warning("careful")
+        self.assertIn("Warning: careful", buf.getvalue())
+
     def test_print_warning_to_stderr(self):
         buf = StringIO()
         writer = OutputWriter()

@@ -15,6 +15,19 @@ T = TypeVar("T")
 R = TypeVar("R")
 
 
+def diagnostic_message(diagnostics: dict[str, Any] | None) -> str | None:
+    """Return the human-readable message from a diagnostics dict, if any.
+
+    Two conventions exist in this repo: SafeProcessor writes "message", while
+    most hand-written processors (mail signatures, forwarding, outlook) write
+    "error". Reading only one silently discards the other's text, so accept
+    both rather than rewriting 27 call sites.
+    """
+    if not diagnostics:
+        return None
+    return diagnostics.get("message") or diagnostics.get("error")
+
+
 @dataclass
 class ResultEnvelope(Generic[ResultT]):
     status: str
@@ -91,7 +104,7 @@ class BaseProducer:
     def produce(self, result: ResultEnvelope) -> None:
         """Template method: handle errors, delegate success to subclass."""
         if not result.ok() or result.payload is None:
-            msg = (result.diagnostics or {}).get("message") or self.failure_message
+            msg = diagnostic_message(result.diagnostics) or self.failure_message
             if msg:
                 self._writer.print_error(msg)
             return
@@ -105,7 +118,7 @@ class BaseProducer:
         """Print error message if result failed. Returns True if error was printed."""
         if result.ok():
             return False
-        msg = (result.diagnostics or {}).get("message")
+        msg = diagnostic_message(result.diagnostics) or self.failure_message
         if msg:
             self._writer.print_error(msg)
         return True

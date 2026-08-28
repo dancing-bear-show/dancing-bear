@@ -10,6 +10,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import List
 
+from core.cli_output import OutputConfig, OutputWriter
+
 from mail.context import MailContext
 from mail.filters.consumers import (
     FiltersSweepConsumer,
@@ -217,12 +219,13 @@ class FiltersAddForwardProcessorTests(unittest.TestCase):
         payload = consumer.consume()
         processor = FiltersAddForwardProcessor()
         envelope = processor.process(payload)
-        producer = FiltersAddForwardProducer(payload.client, dry_run=True)
         buf = io.StringIO()
-        with redirect_stdout(buf):
-            producer.produce(envelope)
+        producer = FiltersAddForwardProducer(
+            payload.client, dry_run=True, writer=OutputWriter(OutputConfig(file=buf))
+        )
+        producer.produce(envelope)
         out = buf.getvalue()
-        self.assertIn("Would update filter id=", out)
+        self.assertIn("[dry-run] update filter id=", out)
 
     def test_add_forward_requires_verified(self):
         ctx = self._make_context(dry_run=False, require_verified=True)

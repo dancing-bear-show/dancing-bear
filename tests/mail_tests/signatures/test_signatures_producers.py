@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from core.pipeline import ResultEnvelope
-from tests.fixtures import capture_stdout
+from tests.fixtures import capture_stderr, capture_stdout
 
 from mail.signatures.producers import (
     SignaturesExportProducer,
@@ -32,14 +32,14 @@ class TestSignaturesExportProducer(unittest.TestCase):
             payload=None,
             diagnostics={"error": "Gmail auth failed"},
         )
-        with capture_stdout() as buf:
+        with capture_stderr() as buf:
             producer.produce(result)
         self.assertIn("Gmail auth failed", buf.getvalue())
 
     def test_prints_default_error_when_no_diagnostics(self):
         producer = SignaturesExportProducer()
         result = ResultEnvelope(status="error", payload=None)
-        with capture_stdout() as buf:
+        with capture_stderr() as buf:
             producer.produce(result)
         self.assertIn("Signatures export failed", buf.getvalue())
 
@@ -106,14 +106,14 @@ class TestSignaturesSyncProducer(unittest.TestCase):
             payload=None,
             diagnostics={"error": "Sync failed"},
         )
-        with capture_stdout() as buf:
+        with capture_stderr() as buf:
             producer.produce(result)
         self.assertIn("Sync failed", buf.getvalue())
 
     def test_prints_default_error_when_no_diagnostics(self):
         producer = SignaturesSyncProducer()
         result = ResultEnvelope(status="error", payload=None)
-        with capture_stdout() as buf:
+        with capture_stderr() as buf:
             producer.produce(result)
         self.assertIn("Signatures sync failed", buf.getvalue())
 
@@ -193,14 +193,14 @@ class TestSignaturesNormalizeProducer(unittest.TestCase):
             payload=None,
             diagnostics={"error": "No signature HTML found"},
         )
-        with capture_stdout() as buf:
+        with capture_stderr() as buf:
             producer.produce(result)
         self.assertIn("No signature HTML found", buf.getvalue())
 
     def test_prints_default_error_when_no_diagnostics(self):
         producer = SignaturesNormalizeProducer()
         result = ResultEnvelope(status="error", payload=None)
-        with capture_stdout() as buf:
+        with capture_stderr() as buf:
             producer.produce(result)
         self.assertIn("Signatures normalize failed", buf.getvalue())
 

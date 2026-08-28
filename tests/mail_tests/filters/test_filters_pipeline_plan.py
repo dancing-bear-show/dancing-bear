@@ -93,8 +93,40 @@ class FiltersPlanProcessorSadPathTests(unittest.TestCase):
         error_envelope = ResultEnvelope(status="error", diagnostics={"message": "boom"})
         producer.produce(error_envelope)
 
+        # A processor-supplied message wins over the class fallback.
         output = buf.getvalue()
-        self.assertIn("failed", output.lower())
+        self.assertIn("boom", output.lower())
+
+    def test_producer_uses_fallback_when_no_diagnostics_message(self):
+        """With no diagnostics message, the class fallback is emitted."""
+        from core.pipeline import ResultEnvelope
+        from core.cli_output import OutputWriter, OutputConfig
+
+        buf = io.StringIO()
+        producer = FiltersPlanProducer(writer=OutputWriter(OutputConfig(file=buf)))
+        producer.produce(ResultEnvelope(status="error", diagnostics={}))
+        self.assertIn("filters plan failed.", buf.getvalue().lower())
+
+    def test_producer_emits_nothing_extra_on_success(self):
+        """Happy path renders the plan summary, not a failure message."""
+        from core.pipeline import ResultEnvelope
+        from core.cli_output import OutputWriter, OutputConfig
+
+        from collections import Counter
+
+        from mail.filters.processors_plan import FiltersPlanResult
+
+        buf = io.StringIO()
+        producer = FiltersPlanProducer(writer=OutputWriter(OutputConfig(file=buf)))
+        producer.produce(
+            ResultEnvelope(
+                status="success",
+                payload=FiltersPlanResult(
+                    to_create=[], to_delete=[], add_counts=Counter(), id_to_name={}
+                ),
+            )
+        )
+        self.assertNotIn("failed", buf.getvalue().lower())
 
 
 class FiltersPlanProcessorTests(unittest.TestCase):
@@ -299,7 +331,18 @@ class FiltersImpactProcessorSadPathTests(unittest.TestCase):
         error_envelope = ResultEnvelope(status="error", diagnostics={"message": "impact boom"})
         producer.produce(error_envelope)
 
-        self.assertIn("failed", buf.getvalue().lower())
+        # A processor-supplied message wins over the class fallback.
+        self.assertIn("impact boom", buf.getvalue().lower())
+
+    def test_producer_impact_uses_fallback_without_message(self):
+        """With no diagnostics message, the class fallback is emitted."""
+        from core.pipeline import ResultEnvelope
+        from core.cli_output import OutputWriter, OutputConfig
+
+        buf = io.StringIO()
+        producer = FiltersImpactProducer(writer=OutputWriter(OutputConfig(file=buf)))
+        producer.produce(ResultEnvelope(status="error", diagnostics={}))
+        self.assertIn("filters impact failed.", buf.getvalue().lower())
 
 
 class FiltersExportProcessorSadPathTests(unittest.TestCase):
@@ -326,16 +369,26 @@ class FiltersExportProcessorSadPathTests(unittest.TestCase):
         self.assertIsNone(envelope.payload)
 
     def test_producer_handles_export_error_envelope(self):
-        """FiltersExportProducer.produce() on error envelope emits fallback message."""
+        """A processor-supplied message wins over the class fallback."""
         from core.pipeline import ResultEnvelope
+        from core.cli_output import OutputWriter, OutputConfig
 
         buf = io.StringIO()
-        producer = FiltersExportProducer()
+        producer = FiltersExportProducer(writer=OutputWriter(OutputConfig(file=buf)))
         error_envelope = ResultEnvelope(status="error", diagnostics={"message": "export boom"})
-        with redirect_stdout(buf):
-            producer.produce(error_envelope)
+        producer.produce(error_envelope)
 
-        self.assertIn("failed", buf.getvalue().lower())
+        self.assertIn("export boom", buf.getvalue().lower())
+
+    def test_producer_export_uses_fallback_without_message(self):
+        """With no diagnostics message, the class fallback is emitted."""
+        from core.pipeline import ResultEnvelope
+        from core.cli_output import OutputWriter, OutputConfig
+
+        buf = io.StringIO()
+        producer = FiltersExportProducer(writer=OutputWriter(OutputConfig(file=buf)))
+        producer.produce(ResultEnvelope(status="error", diagnostics={}))
+        self.assertIn("filters export failed.", buf.getvalue().lower())
 
 
 if __name__ == "__main__":

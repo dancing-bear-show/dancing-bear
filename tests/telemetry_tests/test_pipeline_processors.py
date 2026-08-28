@@ -127,16 +127,16 @@ class TestCostScanProcessorHappyPath(unittest.TestCase):
         """When envelope has error status, BaseProducer.produce prints the error to stderr."""
         from telemetry.otel.cli.cost import CostScanProducer
 
-        writer, _ = _make_output_writer()
+        writer, buf = _make_output_writer()
         producer = CostScanProducer(writer=writer)
         bad_envelope: ResultEnvelope = ResultEnvelope(
             status="error",
             diagnostics={"message": "something went wrong"},
         )
-        err_buf = io.StringIO()
-        with patch("sys.stderr", err_buf):
-            producer.produce(bad_envelope)
-        self.assertIn("something went wrong", err_buf.getvalue())
+        producer.produce(bad_envelope)
+        # An explicitly configured file captures diagnostics too, so the
+        # injected buffer holds the error rather than the real stderr.
+        self.assertIn("something went wrong", buf.getvalue())
 
 
 # ---------------------------------------------------------------------------
@@ -292,16 +292,16 @@ class TestTranscriptParseProcessorHappyPath(unittest.TestCase):
         """TranscriptParseProducer.produce writes error message for a failed envelope to stderr."""
         from telemetry.parse_transcripts import TranscriptParseProducer
 
-        writer, _ = _make_output_writer()
+        writer, buf = _make_output_writer()
         producer = TranscriptParseProducer(writer=writer)
         bad_envelope: ResultEnvelope = ResultEnvelope(
             status="error",
             diagnostics={"message": "parse error occurred"},
         )
-        err_buf = io.StringIO()
-        with patch("sys.stderr", err_buf):
-            producer.produce(bad_envelope)
-        self.assertIn("parse error occurred", err_buf.getvalue())
+        producer.produce(bad_envelope)
+        # An explicitly configured file captures diagnostics too, so the
+        # injected buffer holds the error rather than the real stderr.
+        self.assertIn("parse error occurred", buf.getvalue())
 
 
 if __name__ == "__main__":
