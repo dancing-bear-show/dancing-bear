@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 
 from tests.resume_tests.fixtures import make_candidate, mock_docx_modules
 
+from resume.schema import Resume
+
 
 def _make_fake_cell():
     """Create a fake cell with paragraph tracking. Shared by TestSidebarSectionRenderers and TestMainColumnRenderers."""
@@ -121,7 +123,6 @@ class TestMainColumnRenderers(unittest.TestCase):
     def test_render_main_education(self):
         """Test rendering education in main column."""
         from resume.docx_sidebar import _render_main_education
-        from resume.schema import Resume
         cell = _make_fake_cell()
         page_cfg = {"body_pt": 10, "meta_pt": 9}
         data = {
@@ -140,7 +141,6 @@ class TestMainColumnRenderers(unittest.TestCase):
     def test_render_main_experience(self):
         """Test rendering experience in main column."""
         from resume.docx_sidebar import _render_main_experience
-        from resume.schema import Resume
         cell = _make_fake_cell()
         page_cfg = {"body_pt": 10, "meta_pt": 9}
         data = {
@@ -164,7 +164,6 @@ class TestMainColumnRenderers(unittest.TestCase):
     def test_render_main_teaching(self):
         """Test rendering teaching in main column."""
         from resume.docx_sidebar import _render_main_teaching
-        from resume.schema import Resume
         cell = _make_fake_cell()
         page_cfg = {"body_pt": 10, "meta_pt": 9}
         data = {
@@ -183,7 +182,6 @@ class TestMainColumnRenderers(unittest.TestCase):
     def test_render_main_presentations(self):
         """Test rendering presentations in main column."""
         from resume.docx_sidebar import _render_main_presentations
-        from resume.schema import Resume
         cell = _make_fake_cell()
         page_cfg = {"body_pt": 10, "meta_pt": 9}
         data = {
@@ -211,15 +209,15 @@ class TestSidebarResumeWriter(unittest.TestCase):
     def test_writer_initialization(self):
         """Test SidebarResumeWriter initialization.
 
-        After the schema migration, input dicts are lifted to a typed Resume;
-        there is no lowered self.data mirror.  Assert on writer.resume instead.
+        The writer requires a typed Resume -- the caller lifts the dict, as
+        this test does.  Only the typed object is kept; there is no lowered
+        self.data mirror, so assert on writer.resume instead.
         """
         from resume.docx_sidebar import SidebarResumeWriter
-        from resume.schema import Resume
         data = make_candidate()
         template = {"page": {"compact": True}, "layout": {"type": "sidebar"}}
 
-        writer = SidebarResumeWriter(data, template)
+        writer = SidebarResumeWriter(Resume.from_dict(data), template)
 
         self.assertIsInstance(writer.resume, Resume)
         self.assertEqual(writer.template, template)
@@ -230,7 +228,7 @@ class TestSidebarResumeWriter(unittest.TestCase):
         data = {"name": "John Doe", "email": "john@example.com"}
         template = {}
 
-        writer = SidebarResumeWriter(data, template)
+        writer = SidebarResumeWriter(Resume.from_dict(data), template)
         result = writer._get_contact_field("email")
 
         self.assertEqual(result, "john@example.com")
@@ -241,7 +239,7 @@ class TestSidebarResumeWriter(unittest.TestCase):
         data = {"name": "John Doe", "contact": {"email": "nested@example.com"}}
         template = {}
 
-        writer = SidebarResumeWriter(data, template)
+        writer = SidebarResumeWriter(Resume.from_dict(data), template)
         result = writer._get_contact_field("email")
 
         self.assertEqual(result, "nested@example.com")
@@ -262,7 +260,6 @@ class TestBackwardCompatibility(unittest.TestCase):
         crept back in.
         """
         from resume.docx_sidebar import write_resume_docx_sidebar
-        from resume.schema import Resume
 
         mock_writer = MagicMock()
         mock_writer_class.return_value = mock_writer

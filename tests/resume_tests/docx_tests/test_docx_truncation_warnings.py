@@ -229,7 +229,7 @@ class TestStandardResumeWriterSectionSuppression(unittest.TestCase):
     def _make_writer(self, data: dict, sections: list[dict]):
         from resume.docx_standard import StandardResumeWriter
         template = {"sections": sections}
-        writer = StandardResumeWriter(data, template)
+        writer = StandardResumeWriter(Resume.from_dict(data), template)
         writer.doc = _make_mock_doc()
         return writer
 

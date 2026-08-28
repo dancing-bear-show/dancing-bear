@@ -18,6 +18,8 @@ import unittest
 import zipfile
 from unittest.mock import MagicMock, patch
 
+from resume.schema import Resume
+
 
 # ---------------------------------------------------------------------------
 # Unit tests for display_url — no docx dependency
@@ -308,7 +310,7 @@ class TestHyperlinkEndToEnd(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as f:
             path = f.name
         try:
-            writer = create_resume_writer(data, template)
+            writer = create_resume_writer(Resume.from_dict(data), template)
             writer.write(path)
             with open(path, "rb") as f:
                 return f.read()

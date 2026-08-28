@@ -264,22 +264,60 @@ def set_document_metadata_on_doc(
 class ResumeWriterBase(ABC):
     """Base class for DOCX resume writers."""
 
-    def __init__(self, data: dict[str, Any] | Resume, template: dict[str, Any]):
+    def __init__(self, data: Resume, template: dict[str, Any]):
         """Initialize writer with resume data and template config.
 
-        Accepts either a typed ``Resume`` or a raw dict. Every render module on
-        this path now reads candidate data as attributes, so only the typed
-        object is kept -- there is no lowered ``self.data`` mirror to drift out
-        of sync with it. A dict argument is lifted through ``Resume.from_dict``,
-        which is safe because the conversion is idempotent on data that has
-        already been through the schema -- and everything reaching a writer has,
-        since the entry point normalizes on the way in.
+        Requires a typed ``Resume``. Every render module on this path reads
+        candidate data as attributes, so only the typed object is kept -- there
+        is no lowered ``self.data`` mirror to drift out of sync with it.
+
+        This used to also accept a raw dict and lift it via ``Resume.from_dict``.
+        That made the writers disagree with ``write_resume_docx``, the sibling
+        public entry point, which requires a typed ``Resume``: the same dict was
+        a type error on one path and silently normalized on the other. The lift
+        is not neutral -- it applies one-directional upgrades (scalar summary to
+        list, ``list[str]`` bullets to ``PriorityItem``) that rewrite the data --
+        so callers now perform it explicitly, where it is visible.
 
         Args:
-            data: Resume data, typed or as a dict.
+            data: Typed candidate data.
             template: Template configuration (sections, page styles, etc.)
+
+        Raises:
+            TypeError: If ``data`` is not a ``Resume``. This is a programming
+                error at an API boundary, not malformed candidate data, so it
+                raises rather than following the advisory-warning policy that
+                :mod:`resume.schema` applies to bad *values*. Without the check
+                a dict is not merely accepted -- it is stored as ``self.resume``
+                and the writer is built in a broken state, so the failure
+                surfaces later as an ``AttributeError`` naming a render
+                internal instead of the boundary that was misused.
+
+                The message is split by input type on purpose. A dict is the
+                right data at the wrong altitude, so naming
+                ``Resume.from_dict`` is a real fix. Any other type is not,
+                and pointing it at ``from_dict`` would be actively harmful:
+                ``from_dict`` warns and returns an *empty* ``Resume`` for a
+                non-dict rather than raising, so a caller holding ``None``
+                who followed that advice would render a blank document and
+                see nothing fail. Keep the two branches distinct.
         """
-        self.resume = data if isinstance(data, Resume) else Resume.from_dict(data)
+        if not isinstance(data, Resume):
+            if isinstance(data, dict):
+                raise TypeError(
+                    f"{type(self).__name__} requires a typed Resume, got dict. "
+                    f"Lift the raw candidate data at the call site with "
+                    f"Resume.from_dict(data) and pass the result."
+                )
+            raise TypeError(
+                f"{type(self).__name__} requires a typed Resume, got "
+                f"{type(data).__name__}, which carries no candidate data to "
+                f"build one from. Fix the caller that produced it. Do not route "
+                f"it through Resume.from_dict -- that returns an empty Resume "
+                f"for a non-dict, which renders a blank document instead of "
+                f"failing."
+            )
+        self.resume = data
         self.template = template
         self.page_cfg = template.get("page") or {}
         self.layout_cfg = template.get("layout") or {}
@@ -380,21 +418,26 @@ class ResumeWriterBase(ABC):
 
 
 def create_resume_writer(
-    data: dict[str, Any] | Resume,
+    data: Resume,
     template: dict[str, Any],
 ) -> ResumeWriterBase:
     """Factory function to create the appropriate resume writer.
 
     Args:
-        data: Resume data (name, experience, education, etc.)
+        data: Typed candidate data (name, experience, education, etc.)
         template: Template configuration (sections, page styles, layout type)
 
     Returns:
         ResumeWriterBase subclass instance (StandardResumeWriter or SidebarResumeWriter)
 
+    Raises:
+        TypeError: If ``data`` is not a ``Resume``. Neither writer subclass
+            overrides ``__init__``, so this is enforced once by
+            :meth:`ResumeWriterBase.__init__` on both branches below.
+
     Examples:
         >>> # Standard single-column layout
-        >>> data = {"name": "John Doe", "experience": [...]}
+        >>> data = Resume.from_dict({"name": "John Doe", "experience": [...]})
         >>> template = {"sections": [...], "page": {"compact": True}}
         >>> writer = create_resume_writer(data, template)
         >>> writer.write("resume.docx")

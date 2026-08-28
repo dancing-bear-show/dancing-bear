@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 
 from tests.resume_tests.fixtures import make_docx_paragraph_side_effect, mock_docx_modules
 
+from resume.schema import Resume
+
 @mock_docx_modules
 class TestCreateResumeWriter(unittest.TestCase):
     """Tests for create_resume_writer factory function."""
@@ -15,7 +17,7 @@ class TestCreateResumeWriter(unittest.TestCase):
     def test_returns_standard_writer_by_default(self):
         """Test factory returns StandardResumeWriter for no layout specified."""
         from resume.docx_base import create_resume_writer
-        data = {"name": "John Doe"}
+        data = Resume.from_dict({"name": "John Doe"})
         template = {"sections": []}
         writer = create_resume_writer(data, template)
         self.assertEqual(writer.__class__.__name__, "StandardResumeWriter")
@@ -23,7 +25,7 @@ class TestCreateResumeWriter(unittest.TestCase):
     def test_returns_standard_writer_for_standard_layout(self):
         """Test factory returns StandardResumeWriter for 'standard' layout."""
         from resume.docx_base import create_resume_writer
-        data = {"name": "John Doe"}
+        data = Resume.from_dict({"name": "John Doe"})
         template = {"sections": [], "layout": {"type": "standard"}}
         writer = create_resume_writer(data, template)
         self.assertEqual(writer.__class__.__name__, "StandardResumeWriter")
@@ -31,7 +33,7 @@ class TestCreateResumeWriter(unittest.TestCase):
     def test_returns_sidebar_writer_for_sidebar_layout(self):
         """Test factory returns SidebarResumeWriter for 'sidebar' layout."""
         from resume.docx_base import create_resume_writer
-        data = {"name": "John Doe"}
+        data = Resume.from_dict({"name": "John Doe"})
         template = {"sections": [], "layout": {"type": "sidebar"}}
         writer = create_resume_writer(data, template)
         self.assertEqual(writer.__class__.__name__, "SidebarResumeWriter")
@@ -39,13 +41,13 @@ class TestCreateResumeWriter(unittest.TestCase):
     def test_stores_data_and_template(self):
         """Test writer stores resume and template.
 
-        After the schema migration, input dicts are lifted to a typed Resume
-        object; there is no lowered self.data mirror.  The test checks that the
-        writer keeps a Resume and the original template.
+        create_resume_writer requires a typed Resume -- the caller lifts, as
+        this test does.  Only the typed object is kept; there is no lowered
+        self.data mirror.  The test checks that the writer keeps the Resume
+        it was given and the original template.
         """
         from resume.docx_base import create_resume_writer
-        from resume.schema import Resume
-        data = {"name": "John Doe"}
+        data = Resume.from_dict({"name": "John Doe"})
         template = {"sections": [], "page": {"compact": True}}
         writer = create_resume_writer(data, template)
         self.assertIsInstance(writer.resume, Resume)
@@ -55,7 +57,7 @@ class TestCreateResumeWriter(unittest.TestCase):
     def test_extracts_page_config(self):
         """Test writer extracts page config from template."""
         from resume.docx_base import create_resume_writer
-        data = {"name": "John Doe"}
+        data = Resume.from_dict({"name": "John Doe"})
         template = {"page": {"compact": True, "margins_in": 0.4}}
         writer = create_resume_writer(data, template)
         self.assertEqual(writer.page_cfg, {"compact": True, "margins_in": 0.4})
@@ -63,7 +65,7 @@ class TestCreateResumeWriter(unittest.TestCase):
     def test_extracts_layout_config(self):
         """Test writer extracts layout config from template."""
         from resume.docx_base import create_resume_writer
-        data = {"name": "John Doe"}
+        data = Resume.from_dict({"name": "John Doe"})
         template = {"layout": {"type": "standard", "columns": 1}}
         writer = create_resume_writer(data, template)
         self.assertEqual(writer.layout_cfg, {"type": "standard", "columns": 1})
@@ -76,7 +78,7 @@ class TestResumeWriterBase(unittest.TestCase):
     def _get_writer(self):
         """Create a StandardResumeWriter for testing base methods."""
         from resume.docx_base import create_resume_writer
-        data = {
+        data = Resume.from_dict({
             "name": "John Doe",
             "email": "john@example.com",
             "experience": [
@@ -84,7 +86,7 @@ class TestResumeWriterBase(unittest.TestCase):
                 {"title": "Mgr", "location": "Portland, OR"},
                 {"title": "Dir", "location": "Seattle, WA"},  # Duplicate
             ],
-        }
+        })
         template = {"page": {}}
         return create_resume_writer(data, template)
 
@@ -97,7 +99,7 @@ class TestResumeWriterBase(unittest.TestCase):
     def test_extract_experience_locations_empty(self):
         """Test extracting locations with no experience."""
         from resume.docx_base import create_resume_writer
-        data = {"name": "John"}
+        data = Resume.from_dict({"name": "John"})
         template = {"page": {}}
         writer = create_resume_writer(data, template)
         result = writer._extract_experience_locations()
@@ -112,7 +114,7 @@ class TestResumeWriterBase(unittest.TestCase):
     def test_get_contact_field_nested(self):
         """Test getting contact field from nested contact dict."""
         from resume.docx_base import create_resume_writer
-        data = {"name": "John", "contact": {"phone": "555-1234"}}
+        data = Resume.from_dict({"name": "John", "contact": {"phone": "555-1234"}})
         template = {"page": {}}
         writer = create_resume_writer(data, template)
         result = writer._get_contact_field("phone")
@@ -121,11 +123,11 @@ class TestResumeWriterBase(unittest.TestCase):
     def test_get_contact_field_prefers_top_level(self):
         """Test top level field is preferred over nested."""
         from resume.docx_base import create_resume_writer
-        data = {
+        data = Resume.from_dict({
             "name": "John",
             "email": "top@example.com",
             "contact": {"email": "nested@example.com"},
-        }
+        })
         template = {"page": {}}
         writer = create_resume_writer(data, template)
         result = writer._get_contact_field("email")
@@ -140,12 +142,12 @@ class TestResumeWriterBase(unittest.TestCase):
     def test_collect_link_extras_single_links(self):
         """Test collecting individual link fields."""
         from resume.docx_base import create_resume_writer
-        data = {
+        data = Resume.from_dict({
             "name": "John",
             "website": "https://example.com",
             "linkedin": "https://linkedin.com/in/john",
             "github": "https://github.com/john",
-        }
+        })
         template = {"page": {}}
         writer = create_resume_writer(data, template)
         result = writer._collect_link_extras()
@@ -154,10 +156,10 @@ class TestResumeWriterBase(unittest.TestCase):
     def test_collect_link_extras_links_list(self):
         """Test collecting from links list."""
         from resume.docx_base import create_resume_writer
-        data = {
+        data = Resume.from_dict({
             "name": "John",
             "links": ["https://blog.example.com", "https://portfolio.example.com"],
-        }
+        })
         template = {"page": {}}
         writer = create_resume_writer(data, template)
         result = writer._collect_link_extras()
@@ -166,7 +168,7 @@ class TestResumeWriterBase(unittest.TestCase):
     def test_collect_link_extras_empty(self):
         """Test collecting links with no links."""
         from resume.docx_base import create_resume_writer
-        data = {"name": "John"}
+        data = Resume.from_dict({"name": "John"})
         template = {"page": {}}
         writer = create_resume_writer(data, template)
         result = writer._collect_link_extras()
@@ -240,7 +242,7 @@ class TestResumeWriterBaseWrite(unittest.TestCase):
         """Test write raises when python-docx is not installed."""
         mock_safe_import.return_value = None
         from resume.docx_base import create_resume_writer
-        data = {"name": "John"}
+        data = Resume.from_dict({"name": "John"})
         template = {"page": {}}
         writer = create_resume_writer(data, template)
         with self.assertRaises(RuntimeError) as ctx:
@@ -270,7 +272,7 @@ class TestResumeWriterBaseWrite(unittest.TestCase):
 
         with patch.dict("sys.modules", {"docx": mock_docx}):
             from resume.docx_base import create_resume_writer
-            data = {"name": "John Doe"}
+            data = Resume.from_dict({"name": "John Doe"})
             template = {"sections": [], "page": {"compact": False}}
             writer = create_resume_writer(data, template)
             writer.write(test_path("test.docx"))  # nosec B108 - test fixture path
@@ -357,6 +359,142 @@ class TestNonDictContact(unittest.TestCase):
         from resume.schema import Resume
 
         self.assertEqual(get_contact_field(Resume(), "email"), "")
+
+
+@mock_docx_modules
+class TestWriterRejectsUntypedResume(unittest.TestCase):
+    """The DOCX writer boundary requires a typed Resume and fails fast.
+
+    Both public entry points -- ``create_resume_writer`` and constructing a
+    writer directly -- funnel through ``ResumeWriterBase.__init__``, because
+    neither ``StandardResumeWriter`` nor ``SidebarResumeWriter`` overrides
+    ``__init__``. The single guard there covers both, so these tests exercise
+    each entry point to prove the delegation actually holds.
+
+    Before the guard, a dict was not rejected -- it was stored as
+    ``writer.resume``, leaving the writer in a broken state whose failure
+    surfaced later as an ``AttributeError`` inside rendering.
+    """
+
+    def _assert_dict_guidance(self, ctx) -> None:
+        """A dict is liftable, so the message must point at ``from_dict``.
+
+        This is the only input type for which ``Resume.from_dict`` is a real
+        fix, so it is the only one whose message may recommend it.
+        """
+        msg = str(ctx.exception)
+        self.assertIn("typed Resume", msg)
+        self.assertIn("got dict", msg)
+        self.assertIn("Resume.from_dict(data)", msg)
+
+    def _assert_non_dict_guidance(self, ctx, type_name: str) -> None:
+        """A non-dict must be sent back to its caller, not to ``from_dict``.
+
+        ``Resume.from_dict`` does not raise on a non-dict -- it warns and
+        returns an empty ``Resume`` -- so a message that recommended it here
+        would trade a loud ``TypeError`` for a silently blank document. The
+        assertions below pin that the message names the offending type, tells
+        the reader to fix the caller, and warns against the lift rather than
+        recommending it.
+        """
+        msg = str(ctx.exception)
+        self.assertIn("typed Resume", msg)
+        self.assertIn(f"got {type_name}", msg)
+        self.assertIn("Fix the caller", msg)
+        self.assertIn("Do not route it through Resume.from_dict", msg)
+
+    def test_rejects_dict_from_factory(self):
+        """A dict passed to the factory raises instead of being stored."""
+        from resume.docx_base import create_resume_writer
+
+        with self.assertRaises(TypeError) as ctx:
+            create_resume_writer({"name": "Ada Example"}, {"sections": []})
+        self._assert_dict_guidance(ctx)
+
+    def test_rejects_dict_from_sidebar_factory_branch(self):
+        """The sidebar branch of the factory is guarded too."""
+        from resume.docx_base import create_resume_writer
+
+        with self.assertRaises(TypeError) as ctx:
+            create_resume_writer(
+                {"name": "Ada Example"},
+                {"sections": [], "layout": {"type": "sidebar"}},
+            )
+        self._assert_dict_guidance(ctx)
+
+    def test_rejects_dict_from_direct_construction(self):
+        """Constructing a writer directly with a dict raises at the boundary."""
+        from resume.docx_standard import StandardResumeWriter
+
+        with self.assertRaises(TypeError) as ctx:
+            StandardResumeWriter({"name": "Ada Example"}, {"sections": []})
+        self._assert_dict_guidance(ctx)
+
+    def test_rejects_none(self):
+        """``None`` is reported by name and sent back to its caller."""
+        from resume.docx_base import create_resume_writer
+
+        with self.assertRaises(TypeError) as ctx:
+            create_resume_writer(None, {"sections": []})
+        self._assert_non_dict_guidance(ctx, "NoneType")
+
+    def test_rejects_unrelated_type(self):
+        """An unrelated type is reported by name and sent back to its caller."""
+        from resume.docx_base import create_resume_writer
+
+        with self.assertRaises(TypeError) as ctx:
+            create_resume_writer("Ada Example", {"sections": []})
+        self._assert_non_dict_guidance(ctx, "str")
+
+    def test_non_dict_message_does_not_recommend_the_lift(self):
+        """The non-dict message must not read as a recommendation to lift.
+
+        Regression guard for the wording this replaced, which told every
+        rejected caller to "pass Resume.from_dict(data) instead". A caller
+        holding ``None`` who followed that got an empty ``Resume`` back --
+        ``from_dict`` warns and defaults rather than raising -- and rendered a
+        blank document with nothing failing. The message may mention
+        ``from_dict`` only to warn against it, never as the instruction.
+        """
+        from resume.docx_base import create_resume_writer
+
+        with self.assertRaises(TypeError) as ctx:
+            create_resume_writer(None, {"sections": []})
+        msg = str(ctx.exception)
+        self.assertNotIn("pass Resume.from_dict", msg)
+        self.assertNotIn("Resume.from_dict(data) instead", msg)
+        self.assertNotIn("Lift the raw candidate data", msg)
+
+    def test_from_dict_on_none_returns_empty_resume_not_an_error(self):
+        """Pin the ``from_dict`` behaviour that makes the split necessary.
+
+        If ``Resume.from_dict`` ever started raising on a non-dict, the
+        non-dict branch's warning would become false and the two messages
+        could reasonably be merged again. This test fails in that case,
+        pointing the next reader at the guard.
+        """
+        self.assertEqual(Resume.from_dict(None).to_dict(), {})
+        self.assertEqual(Resume.from_dict("Ada Example").to_dict(), {})
+
+    def test_typed_resume_is_accepted_unchanged(self):
+        """Regression guard: the typed happy path still builds and stores."""
+        from resume.docx_base import create_resume_writer
+
+        data = Resume.from_dict({"name": "Ada Example"})
+        writer = create_resume_writer(data, {"sections": []})
+        self.assertIs(writer.resume, data)
+        self.assertEqual(writer.resume.name, "Ada Example")
+
+    def test_typed_resume_is_accepted_by_sidebar_branch(self):
+        """Regression guard: the sidebar branch still builds from a Resume."""
+        from resume.docx_base import create_resume_writer
+
+        data = Resume.from_dict({"name": "Ada Example"})
+        writer = create_resume_writer(
+            data, {"sections": [], "layout": {"type": "sidebar"}}
+        )
+        self.assertEqual(writer.__class__.__name__, "SidebarResumeWriter")
+        self.assertIs(writer.resume, data)
 
 
 if __name__ == "__main__":

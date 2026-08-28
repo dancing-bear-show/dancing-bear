@@ -71,7 +71,7 @@ def _make_writer(data=None, template=None):
         data = {"name": "Jane Doe", "email": "jane@example.com"}
     if template is None:
         template = {"page": {}, "layout": {}, "sections": []}
-    writer = SidebarResumeWriter(data, template)
+    writer = SidebarResumeWriter(Resume.from_dict(data), template)
     writer.doc = MagicMock()
     return writer
 
