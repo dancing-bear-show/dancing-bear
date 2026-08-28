@@ -1,8 +1,8 @@
+import argparse
 import io
 import tempfile
 import unittest
 from contextlib import redirect_stdout
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from tests.fixtures import has_pyyaml, write_yaml
@@ -34,7 +34,7 @@ class WorkflowTests(unittest.TestCase):
                 }
             ],
         )
-        args = SimpleNamespace(config=cfg_path, out_dir=out_dir, delete_missing=False, apply=False, credentials=None, token=None, cache=None)
+        args = argparse.Namespace(config=cfg_path, out_dir=out_dir, delete_missing=False, apply=False, credentials=None, token=None, cache=None)
         with patch("mail.utils.cli_helpers.gmail_provider_from_args", new=lambda _args: fake):
             from mail.config_cli.commands import run_workflows_gmail_from_unified
             buf = io.StringIO()

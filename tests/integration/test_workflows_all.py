@@ -1,9 +1,9 @@
+import argparse
 import io
 import os
 import tempfile
 import unittest
 from contextlib import redirect_stdout
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from tests.fixtures import has_pyyaml, write_yaml
@@ -42,7 +42,7 @@ class WorkflowAllProvidersTests(unittest.TestCase):
             with patch.object(cr, "resolve_paths_profile", new=lambda **kwargs: (cred, tok)), \
                  patch.object(outlook_helpers, "resolve_outlook_args", new=lambda _args: (None, None, None, None)):
                 buf = io.StringIO()
-                args = SimpleNamespace(config=cfg_path, out_dir=out_dir, delete_missing=False, apply=False, providers=None, profile=None, accounts_config=None, account=None)
+                args = argparse.Namespace(config=cfg_path, out_dir=out_dir, delete_missing=False, apply=False, providers=None, profile=None, accounts_config=None, account=None)
                 with redirect_stdout(buf):
                     rc = run_workflows_from_unified(args)
                 out = buf.getvalue()
