@@ -40,7 +40,7 @@ def _flow_map() -> str:
     if all(_cli_path_exists(cmd) for cmd in [["extract"], ["summarize"], ["render"]]):
         lines.append("- Resume workflow")
         lines.append("  - Extract: ./bin/assistant resume extract --linkedin data/linkedin.txt --resume data/resume.pdf --out out/profile.json")
-        lines.append("  - Summarize: ./bin/assistant resume summarize --data out/profile.json --seed role=SRE,keywords=python;aws")
+        lines.append("  - Summarize: ./bin/assistant resume summarize --data out/profile.json --seed 'role=SRE,keywords=python;aws'")
         lines.append("  - Render DOCX: ./bin/assistant resume render --data out/profile.json --template templates/modern.yaml --profile default")
     if _cli_path_exists(["align"]):
         lines.append("- Align to job posting: ./bin/assistant resume align --data out/profile.json --job jobs/default.yaml --out out/alignment.yaml")
@@ -59,7 +59,7 @@ def _flow_map() -> str:
 def build_agentic_capsule() -> str:
     commands = [
         "extract: ./bin/assistant resume extract --linkedin data/linkedin.txt --resume data/resume.pdf --out out/profile.json",
-        "summarize: ./bin/assistant resume summarize --data out/profile.json --seed role=SRE,keywords=python;aws",
+        "summarize: ./bin/assistant resume summarize --data out/profile.json --seed 'role=SRE,keywords=python;aws'",
         "render: ./bin/assistant resume render --data out/profile.json --template templates/modern.yaml --profile default",
         "align: ./bin/assistant resume align --data out/profile.json --job jobs/default.yaml",
     ]

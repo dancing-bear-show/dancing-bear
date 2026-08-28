@@ -29,6 +29,7 @@ import contextlib
 import importlib
 import io
 import pathlib
+import shlex
 import unittest
 
 from core.agentic import list_subcommands
@@ -281,6 +282,124 @@ class GuardsResolveTests(unittest.TestCase):
                     )
                     checked += 1
         self.assertGreater(checked, 0, "no guards were checked -- audit is vacuous")
+
+
+class CapsuleCommandsAreShellSafeTests(unittest.TestCase):
+    """A capsule command must survive being pasted into a shell.
+
+    These capsules exist to be copied and run by an agent, so an example
+    carrying an unquoted shell metacharacter is broken in the same way a wrong
+    flag is: the command that runs is not the command advertised.
+
+    The concrete case: `--seed role=SRE,keywords=python;aws`. In a POSIX shell
+    `;` terminates the command, so the argument arrives truncated to
+    `keywords=python` and `aws` runs as a separate command -- silently, with no
+    error and a summarize that never received its keywords. Quoting the value
+    fixes it, and `shlex` round-trips it back to the intended single argument.
+
+    The capsule-drift test cannot catch this: it validates tokens against the
+    argparse schema, which never sees the shell's word splitting.
+    """
+
+    def _command_lines(self, capsule: str):
+        """Yield the runnable command from each capsule line, if any."""
+        for raw in capsule.splitlines():
+            line = raw.strip().lstrip("-").strip()
+            if ": " in line and ("./bin/" in line or "python3 -m" in line):
+                line = line.split(": ", 1)[1]
+            if not (line.startswith("./bin/") or line.startswith("python3 -m")):
+                continue
+            # Multi-step setup lines joined with && are two commands by intent,
+            # and a trailing backslash is a wrapped line, not a real argv.
+            if "&&" in line or line.endswith("\\"):
+                continue
+            yield line
+
+    # Command separators that end a command when they appear outside quotes.
+    _SEPARATORS = (";", "|", "&")
+
+    @classmethod
+    def _has_unquoted_separator(cls, line: str) -> str | None:
+        """Return the first command separator sitting outside quotes, if any.
+
+        This has to work on the RAW text. `shlex` cannot help: it is a lexer,
+        not a shell, so it neither splits on `;` nor keeps the quotes that
+        distinguish the two forms -- `--seed a;b` and `--seed 'a;b'` lex to
+        byte-identical tokens. Scanning the source with a quote-state toggle is
+        the only thing that tells them apart.
+        """
+        in_single = in_double = False
+        for ch in line:
+            if ch == "'" and not in_double:
+                in_single = not in_single
+            elif ch == '"' and not in_single:
+                in_double = not in_double
+            elif ch in cls._SEPARATORS and not (in_single or in_double):
+                return ch
+        return None
+
+    def test_no_command_ends_early_at_an_unquoted_separator(self):
+        """No capsule command may carry a shell separator outside quotes.
+
+        `--seed role=SRE,keywords=python;aws` looks fine and lexes fine, but a
+        shell ends the command at the `;`: summarize receives
+        `keywords=python`, `aws` runs as a separate command, and nothing
+        errors. Quoting the value fixes it.
+
+        Scoped to separators on purpose. Broader checks were tried and rejected
+        as noise -- diffing a real shell's argv flags `~` (legitimate tilde
+        expansion) and `<job-id>` (a documentation placeholder, not a
+        redirect), and a no-argument command trips any count comparison. Those
+        are all correct capsule content; an unquoted separator never is.
+        """
+        root = pathlib.Path(__file__).resolve().parents[2] / "src"
+        checked = 0
+        for path in sorted(root.glob("*/agentic.py")):
+            domain = path.parent.name
+            mod = importlib.import_module(f"{domain}.agentic")
+            build = getattr(mod, "build_agentic_capsule", None)
+            if build is None:
+                continue
+            for line in self._command_lines(build()):
+                with self.subTest(domain=domain, line=line):
+                    found = self._has_unquoted_separator(line)
+                    self.assertIsNone(
+                        found,
+                        f"{domain} advertises {line!r} with an unquoted "
+                        f"{found!r}. A shell ends the command there, so every "
+                        "later word becomes a separate command instead of an "
+                        "argument. Quote the value.",
+                    )
+                    checked += 1
+        self.assertGreater(checked, 0, "no command lines were checked -- audit is vacuous")
+
+    def test_the_detector_itself_distinguishes_the_two_forms(self):
+        # Without this, a detector that always returns None would make the
+        # audit above silently vacuous -- which is exactly how the first two
+        # attempts at this test passed against the live bug.
+        unsafe = "./bin/x --seed role=SRE,keywords=python;aws"
+        safe = "./bin/x --seed 'role=SRE,keywords=python;aws'"
+        self.assertEqual(self._has_unquoted_separator(unsafe), ";")
+        self.assertIsNone(self._has_unquoted_separator(safe))
+
+    def test_resume_seed_example_round_trips_to_real_criteria(self):
+        # End-to-end on the line that prompted this: shell-split it the way a
+        # paste would, then feed the result to the real parser.
+        from resume.templating import parse_seed_criteria
+
+        import resume.agentic as mod
+
+        lines = [ln for ln in self._command_lines(mod.build_agentic_capsule()) if "--seed" in ln]
+        self.assertTrue(lines, "capsule advertises no --seed example to check")
+        for line in lines:
+            with self.subTest(line=line):
+                tokens = shlex.split(line)
+                seed = tokens[tokens.index("--seed") + 1]
+                self.assertEqual(
+                    parse_seed_criteria(seed),
+                    {"role": "SRE", "keywords": ["python", "aws"]},
+                    "the advertised --seed value does not survive a shell paste",
+                )
 
 
 class CliPathExistsContractTests(unittest.TestCase):
