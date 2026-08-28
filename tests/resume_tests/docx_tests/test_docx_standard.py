@@ -16,7 +16,7 @@ class TestStandardResumeWriterInit(unittest.TestCase):
     """Tests for StandardResumeWriter initialization."""
 
     def test_creates_writer_with_data_and_template(self):
-        """Writer lifts a dict to a typed Resume; there is no self.data mirror."""
+        """Writer requires a typed Resume; the caller lifts. No self.data mirror."""
         from resume.docx_standard import StandardResumeWriter
         data = {"name": "John Doe"}
         template = {"sections": [], "page": {"compact": False}}

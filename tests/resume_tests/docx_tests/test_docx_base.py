@@ -41,9 +41,10 @@ class TestCreateResumeWriter(unittest.TestCase):
     def test_stores_data_and_template(self):
         """Test writer stores resume and template.
 
-        After the schema migration, input dicts are lifted to a typed Resume
-        object; there is no lowered self.data mirror.  The test checks that the
-        writer keeps a Resume and the original template.
+        create_resume_writer requires a typed Resume -- the caller lifts, as
+        this test does.  Only the typed object is kept; there is no lowered
+        self.data mirror.  The test checks that the writer keeps the Resume
+        it was given and the original template.
         """
         from resume.docx_base import create_resume_writer
         data = Resume.from_dict({"name": "John Doe"})

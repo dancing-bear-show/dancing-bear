@@ -209,8 +209,9 @@ class TestSidebarResumeWriter(unittest.TestCase):
     def test_writer_initialization(self):
         """Test SidebarResumeWriter initialization.
 
-        After the schema migration, input dicts are lifted to a typed Resume;
-        there is no lowered self.data mirror.  Assert on writer.resume instead.
+        The writer requires a typed Resume -- the caller lifts the dict, as
+        this test does.  Only the typed object is kept; there is no lowered
+        self.data mirror, so assert on writer.resume instead.
         """
         from resume.docx_sidebar import SidebarResumeWriter
         data = make_candidate()
