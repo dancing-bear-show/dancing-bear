@@ -85,7 +85,7 @@ class LabelsSyncProducer(Producer[ResultEnvelope[LabelsSyncResult]]):
                 continue
             body = _label_body_from_spec(spec)
             if self.dry_run:
-                self._writer.print(f"Would create label: {name}")
+                self._writer.print_dry_run(f"create label: {name}")
             else:
                 self.client.create_label(**body)
                 self._writer.print(f"Created label: {name}")
@@ -99,7 +99,7 @@ class LabelsSyncProducer(Producer[ResultEnvelope[LabelsSyncResult]]):
             for key, diff in change.changes.items():
                 body[key] = diff["to"]
             if self.dry_run:
-                self._writer.print(f"Would update label: {change.name}")
+                self._writer.print_dry_run(f"update label: {change.name}")
             else:
                 label_id = self.client.get_label_id_map().get(change.name)
                 if not label_id:
@@ -113,7 +113,7 @@ class LabelsSyncProducer(Producer[ResultEnvelope[LabelsSyncResult]]):
         count = 0
         for name in names:
             if self.dry_run:
-                self._writer.print(f"Would delete label: {name}")
+                self._writer.print_dry_run(f"delete label: {name}")
             else:
                 label_id = self.client.get_label_id_map().get(name)
                 if label_id:
@@ -155,7 +155,7 @@ class LabelsSyncProducer(Producer[ResultEnvelope[LabelsSyncResult]]):
             return None
         ids = self.client.list_message_ids(label_ids=[old_id], max_pages=50, page_size=500)
         if self.dry_run:
-            self._writer.print(f"Would merge '{old}' into '{new}' ({len(ids)} messages).")
+            self._writer.print_dry_run(f"merge '{old}' into '{new}' ({len(ids)} messages).")
             return None
         self._merge_redirect_messages(old_id, new_id, ids)
         self._delete_redirect_source_label(old, new, old_id)
