@@ -83,15 +83,19 @@ class BaseProducer:
         """Initialise with an optional OutputWriter (defaults to a plain OutputWriter)."""
         self._writer: OutputWriter = writer or OutputWriter()
 
+    #: Fallback text printed when a result fails without a diagnostics message.
+    #: Subclasses paired with a plain Processor (rather than SafeProcessor, which
+    #: always sets "message") should set this so a failure is never silent.
+    failure_message: str | None = None
+
     def produce(self, result: ResultEnvelope) -> None:
         """Template method: handle errors, delegate success to subclass."""
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
+        if not result.ok() or result.payload is None:
+            msg = (result.diagnostics or {}).get("message") or self.failure_message
             if msg:
                 self._writer.print_error(msg)
             return
-        if result.payload is not None:
-            self._produce_success(result.payload, result.diagnostics)
+        self._produce_success(result.payload, result.diagnostics)
 
     def _produce_success(self, payload: Any, diagnostics: dict[str, Any] | None) -> None:
         """Override in subclass to handle successful result output."""
