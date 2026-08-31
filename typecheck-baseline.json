@@ -9,12 +9,12 @@
     "tests",
     "bin"
   ],
-  "total": 677,
+  "total": 638,
   "packages": {
     "apple_music": 10,
     "bin": 2,
     "calendars": 16,
-    "charts": 43,
+    "charts": 5,
     "core": 69,
     "desk": 2,
     "diagrams": 3,
@@ -23,7 +23,7 @@
     "resume": 28,
     "slides": 40,
     "telemetry": 147,
-    "tests": 232,
+    "tests": 231,
     "wifi": 2,
     "worker": 17,
     "workflow": 12
@@ -43,9 +43,6 @@
     "src/calendars/outlook_pipelines/dedup.py",
     "src/calendars/outlook_pipelines/settings.py",
     "src/calendars/outlook_service.py",
-    "src/charts/cli.py",
-    "src/charts/renderer.py",
-    "src/charts/renderer_bar.py",
     "src/charts/renderer_line_area.py",
     "src/core/agentic.py",
     "src/core/cli_framework.py",
@@ -152,13 +149,10 @@
     "src/workflow/linter.py",
     "src/workflow/persistence.py",
     "tests/agentic_cli_contract.py",
-    "tests/apple_music_tests/cli/test_apple_music_cli.py",
     "tests/apple_music_tests/test_cli_helpers.py",
     "tests/apple_music_tests/test_client.py",
-    "tests/apple_music_tests/test_user_token_cli.py",
     "tests/calendars_tests/importer/test_rh_vendor_bs4_paths.py",
     "tests/core_tests/test_core_parallel.py",
-    "tests/infra/test_assistant_cli.py",
     "tests/mail_tests/fixtures.py",
     "tests/mail_tests/messages/test_outlook_search_candidates.py",
     "tests/mail_tests/outlook/fixtures.py",
@@ -186,7 +180,6 @@
     "tests/telemetry_tests/test_pipeline_processors.py",
     "tests/telemetry_tests/test_tui_stats.py",
     "tests/telemetry_tests/test_tui_widgets.py",
-    "tests/whatsapp_tests/cli/test_whatsapp_llm_cli.py",
     "tests/worker_tests/helpers.py",
     "tests/worker_tests/test_commands_gaps.py",
     "tests/worker_tests/test_handlers.py",
@@ -203,6 +196,5 @@
     "tests/workflow_tests/test_persistence.py",
     "tests/workflow_tests/test_persistence_gaps.py",
     "tests/workflow_tests/test_sad_paths.py"
-  ],
-  "_platform": "Counts are from ubuntu-latest, the platform CI enforces on. mypy resolves some dependency stubs differently per OS: macOS reports mail=47/tests=237 (total 684) against Linux mail=48/tests=232 (total 680); the other 13 packages are identical. The ratchet therefore allows a small per-package overshoot (see PLATFORM_SLACK in bin/mypy_ratchet.py) so a local run on a different OS does not report a phantom regression. Regenerate on Linux, or let CI's failure output tell you the native numbers."
+  ]
 }
