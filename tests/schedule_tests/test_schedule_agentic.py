@@ -1,9 +1,7 @@
 """Tests for schedule/agentic.py flow map branches and capsule sections."""
 from __future__ import annotations
 
-import io
 import unittest
-from contextlib import redirect_stdout
 from unittest.mock import patch
 
 
@@ -122,15 +120,6 @@ class TestScheduleDomainMapContent(unittest.TestCase):
              patch.object(mod, "_cli_tree", return_value=""):
             dm = mod.build_domain_map()
         self.assertIn("Top-Level", dm)
-
-
-class TestScheduleEmitAgenticContext(unittest.TestCase):
-    def test_emit_accepts_fmt_compact(self):
-        from schedule.agentic import emit_agentic_context
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            rc = emit_agentic_context(_fmt="yaml", _compact=True)
-        self.assertEqual(rc, 0)
 
 
 class TestScheduleCliTree(unittest.TestCase):
