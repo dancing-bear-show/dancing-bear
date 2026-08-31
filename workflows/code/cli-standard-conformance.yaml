@@ -142,6 +142,38 @@ stages:
             "violations": [{{"rule": "A2", "detail": "<measured, e.g. capsule is N bytes>"}}]
           }}
 
+        Emit ONE JSON DOCUMENT, not JSON Lines. Write a single top-level
+        object: {{"apps": [<one record per app>], "duplication": [...],
+        "summary": {{...}}}}. The first run of this workflow emitted one object
+        per line, so json.load() raised "Extra data: line 2 column 1" and every
+        downstream consumer had to special-case it. Also make sure nothing else
+        writes to stdout — two apps print a usage banner when imported, which
+        corrupts the stream; capture and discard it.
+
+        EVERY tier0/tier2/tier3 field MUST be measured live. Do NOT build a
+        static table of which apps have which files and read from it. The first
+        run hardcoded `meta_module: None` for the apps lacking a meta.py at
+        authoring time, so after those apps were fixed the audit still reported
+        appmeta=false — a false negative that would fail verify-conformance's
+        improvement gate against work that had actually landed. Derive each
+        field by importing or globbing at run time:
+          appmeta        -> importlib.import_module(f"{{pkg}}.meta").META exists
+                            and produces a non-empty agentic_fallback
+          cliapp         -> a CLIApp instance is reachable; CHECK BOTH
+                            <pkg>.cli AND <pkg>.cli.main (apple_music, desk,
+                            sheets, slides and wifi define it in <pkg>/cli.py
+                            and have no cli/main.py at all)
+          has_llm_cli    -> the module imports and exposes CONFIG
+          has_domain_map -> hasattr(<pkg>.agentic, "build_domain_map")
+        A rule the audit cannot measure live is a rule it must report as
+        UNKNOWN, never as passing or failing. Encode that as the JSON STRING
+        "UNKNOWN" in the field's place — not null, not an omitted key, not
+        false. Downstream stages test `value == "UNKNOWN"`, so the sentinel has
+        to be distinguishable from a measured negative: null and a missing key
+        are both indistinguishable from "the audit did not look", and false is
+        indistinguishable from "measured, and it failed". Those are three
+        different states and only an explicit sentinel separates them.
+
         Critical measurement rules:
           - capsule_bytes is len(output.encode("utf-8")), NOT len(str). Several
             capsules carry non-ASCII (calendars uses em dashes and arrows).
@@ -220,8 +252,9 @@ stages:
       - name: conformance
         mode: generate
         description: >
-          conformance.json with one scored record per app, plus the audit
-          script that produced it.
+          conformance.json as a SINGLE JSON object with top-level keys
+          apps / duplication / summary (not JSON Lines, not a bare list),
+          plus the audit script that produced it.
     required: true
     writes_to:
       - validation/audit_cli_standard.py
@@ -237,6 +270,11 @@ stages:
     depends_on: [audit-conformance]
     reads_from: [audit-conformance]
     description: >
+      conformance.json is a single JSON document with top-level keys
+      apps / duplication / summary. Read it with
+      `json.load(open(path, encoding="utf-8"))` — json.load takes a file
+      object, not a path; json.loads takes the string.
+
       Turn conformance.json into an ordered remediation plan, partitioned so
       parallel agents never touch the same file.
 
@@ -813,6 +851,19 @@ stages:
           > {workspace}/validation/conformance-after.json
           Do NOT reimplement or edit the script — re-running a DIFFERENT script
           would not be a verification.
+        - >-
+          Before comparing anything, confirm the audit could actually MEASURE
+          each rule. Test for the sentinel exactly: a field equal to the
+          string "UNKNOWN". Do not treat null, a missing key, or false as
+          equivalent — false means measured-and-failed, which is a real
+          violation and must still be counted. If any app reports a
+          tier0/tier2/tier3 field as UNKNOWN, or
+          the audit derived a field from a hardcoded table rather than live
+          import, that rule is UNMEASURED and must not be counted as passing.
+          Report it as a gap in the audit and FAIL rather than scoring it. A
+          false negative here fails the improvement gate against work that
+          actually landed, which is worse than no gate — it teaches the next
+          run to distrust a correct result.
         - >-
           COMPLIANCE MUST HAVE IMPROVED, measured numerically. Compute from the
           two JSON files: total violations before, total violations after, and
