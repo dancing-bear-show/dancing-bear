@@ -15,6 +15,7 @@ from typing import BinaryIO
 
 from core.cli_errors import CLIError
 from core.fileutil import atomic_write_json, safe_load_json
+from telemetry._menubar_budget import _to_int
 from telemetry.timeutil import now_utc, parse_window
 from telemetry.parse_transcripts_emit import ParseResult
 from telemetry._transcript_record_parser import _process_one_record
@@ -116,13 +117,18 @@ def _load_or_init_session_index(index_dir: Path, session_id: str) -> dict[str, o
                 idx[key] = []
         # Coerce scalar counts — a corrupted JSON value (e.g. str) would break arithmetic.
         for key, list_key in (("prompt_count", "prompts"), ("bash_count", "bash_commands")):
-            try:
-                _list_val = idx[list_key]
-                _list_len = len(_list_val) if isinstance(_list_val, (list, tuple)) else 0
-                idx[key] = int(str(idx.get(key) or _list_len))
-            except (TypeError, ValueError):
-                _lv = idx[list_key]
-                idx[key] = len(_lv) if isinstance(_lv, (list, tuple)) else 0
+            _list_val = idx[list_key]
+            _list_len = len(_list_val) if isinstance(_list_val, (list, tuple)) else 0
+            raw = idx.get(key)
+            if raw is None or raw == 0:
+                idx[key] = _list_len
+            elif isinstance(raw, (int, float)) and not isinstance(raw, bool):
+                idx[key] = _to_int(raw)  # exact for ints, tolerant for floats
+            else:
+                try:
+                    idx[key] = int(float(str(raw)))  # numeric strings; raises on junk
+                except (TypeError, ValueError):
+                    idx[key] = _list_len  # corrupted entry — fall back to list length
         return idx
     return {
         "session_id": session_id,
@@ -233,7 +239,7 @@ def _process_one_file(
     abs_path = str(jsonl_path.resolve())
     session_id = _session_id_from_path(jsonl_path)
     try:
-        start_offset = 0 if force else int(str(state.get(abs_path, 0) or 0))
+        start_offset = 0 if force else _to_int(state.get(abs_path, 0) or 0)
     except (TypeError, ValueError):
         start_offset = 0  # corrupted state entry — reprocess from beginning
     project_path = str(jsonl_path.parent)

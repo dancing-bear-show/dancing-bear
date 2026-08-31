@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 
 from core.fileutil import find_rotated_files, iter_jsonl_file
-from telemetry._menubar_budget import _safe_float, _safe_int
+from telemetry._menubar_budget import _safe_float, _safe_int, _to_int
 from telemetry.otel._constants import METRIC_COST_USAGE
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -75,10 +75,7 @@ def _parse_attrs(attr_list: list[dict[str, object]]) -> dict[str, object]:
 
 def _parse_nano_ts(value: object) -> int:
     """Parse a timeUnixNano field to int, returning 0 on malformed input."""
-    try:
-        return int(str(value or 0))
-    except (ValueError, TypeError):
-        return 0
+    return _to_int(value or 0)
 
 
 def _trunc(s: object, n: int = _MAX_ATTR_LEN) -> str:
