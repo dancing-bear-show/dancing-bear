@@ -381,6 +381,37 @@ def cmd_ratchet(args: argparse.Namespace) -> int:
         print("\ntypecheck-ratchet: FAIL — these packages regressed:", file=sys.stderr)
         for pkg, (now, was) in sorted(regressed.items()):
             print(f"  {pkg}: {was} -> {now}  (+{now - was})", file=sys.stderr)
+
+        # Name the files, not just the package. A bare "+1" gives no way to tell
+        # a real regression from an environment difference (a dependency whose
+        # stubs resolve differently on another OS), and sends the reader hunting
+        # through the whole package.
+        per_file = _errors_by_file(output)
+        legacy = baseline.get("legacy_files", [])
+        legacy_counts = {path: 0 for path in legacy}
+        suspects = {
+            path: count
+            for path, count in per_file.items()
+            if _package_of(path) in regressed and path not in legacy_counts
+        }
+        if suspects:
+            print("\n  Files with errors that were clean at baseline:", file=sys.stderr)
+            for path, count in sorted(suspects.items()):
+                print(f"    {path}: {count}", file=sys.stderr)
+            for line in output.splitlines():
+                match = _ERROR_RE.match(line)
+                if match and match.group("path") in suspects:
+                    print(f"      {line}", file=sys.stderr)
+        else:
+            print(
+                "\n  No newly-failing file: every error is in a file that was "
+                "already in the baseline, so a file's own count grew. Run "
+                "`make typecheck-ratchet` locally to compare, and note that the "
+                "baseline is platform-sensitive — some dependency stubs resolve "
+                "differently across operating systems.",
+                file=sys.stderr,
+            )
+
         print(
             "\nNew type errors were introduced. Fix them; do not raise the "
             "baseline to accommodate them.",
