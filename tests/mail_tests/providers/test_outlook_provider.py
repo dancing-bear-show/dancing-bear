@@ -178,6 +178,26 @@ class TestOutlookProviderCreateLabel(unittest.TestCase):
         with self.assertRaises(ValueError, msg="expected ValueError when name missing"):
             provider.create_label(color="red")
 
+    def test_non_string_name_raises_value_error(self):
+        # A dict or int passed as name (e.g. from a mistyped call) must be
+        # rejected rather than stringified into a garbage category name.
+        provider, _mock_client = _make_provider()
+        with self.assertRaises(ValueError):
+            provider.create_label(name={"key": "val"})
+
+    def test_whitespace_only_name_raises_value_error(self):
+        # A whitespace-only name would produce an empty category on Graph.
+        provider, _mock_client = _make_provider()
+        with self.assertRaises(ValueError):
+            provider.create_label(name="   ")
+
+    def test_name_is_stripped_before_passing_to_client(self):
+        provider, mock_client = _make_provider()
+        mock_client.create_label.return_value = {}
+        provider.create_label(name="  Work  ")
+        call_kwargs = mock_client.create_label.call_args.kwargs
+        self.assertEqual(call_kwargs["name"], "Work")
+
     def test_propagates_client_http_error(self):
         import requests
         provider, mock_client = _make_provider()

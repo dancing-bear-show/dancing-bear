@@ -9,7 +9,7 @@
     "tests",
     "bin"
   ],
-  "total": 515,
+  "total": 514,
   "packages": {
     "apple_music": 8,
     "bin": 2,
@@ -25,7 +25,7 @@
     "telemetry": 147,
     "tests": 201,
     "wifi": 2,
-    "worker": 16,
+    "worker": 15,
     "workflow": 12
   },
   "legacy_files": [

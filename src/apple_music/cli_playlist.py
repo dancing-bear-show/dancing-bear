@@ -537,7 +537,7 @@ def _delete_duplicate_playlists(
     deleted = []
     for p in remove:
         pid = p.get("id")
-        if pid is None:
+        if not isinstance(pid, str) or not pid:
             continue
         client.delete_playlist(pid)
         deleted.append(pid)

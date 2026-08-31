@@ -89,14 +89,20 @@ class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
             start_time = ctx.nev.get("start_time")
             end_time = ctx.nev.get("end_time")
             repeat = ctx.nev.get("repeat")
-            if not (start_time and end_time and repeat):
-                ctx.logs.append(f"[{ctx.idx}] Skipping recurring event '{ctx.subj}': missing start_time, end_time, or repeat")
+            if not (isinstance(start_time, str) and start_time
+                    and isinstance(end_time, str) and end_time
+                    and isinstance(repeat, str) and repeat):
+                ctx.logs.append(
+                    f"[{ctx.idx}] Skipping recurring event '{ctx.subj}': "
+                    f"start_time, end_time, and repeat must be non-empty strings "
+                    f"(got {start_time!r}, {end_time!r}, {repeat!r})"
+                )
                 return 0
             params = RecurringEventCreationParams(
                 subject=ctx.subj,
-                start_time=str(start_time),
-                end_time=str(end_time),
-                repeat=str(repeat),
+                start_time=start_time,
+                end_time=end_time,
+                repeat=repeat,
                 calendar_id=None,
                 calendar_name=cal_name,
                 tz=ctx.nev.get("tz"),
