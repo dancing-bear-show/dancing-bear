@@ -14,6 +14,7 @@ import os
 import re
 import sys
 from collections import defaultdict
+from collections.abc import Iterator
 
 SRC = "src"
 SKIP_PARTS = {"maker", "__pycache__", "personal_assistants.egg-info"}
@@ -25,7 +26,7 @@ INCLUDE_INIT = os.environ.get("INCLUDE_INIT", "false").lower() == "true"
 DOMAINS = os.environ.get("DOMAINS", "*")
 
 
-def iter_py() -> list[str]:
+def iter_py() -> Iterator[str]:
     for dirpath, dirnames, filenames in os.walk(SRC):
         dirnames[:] = [d for d in dirnames if d not in SKIP_PARTS]
         for fn in sorted(filenames):
@@ -258,6 +259,8 @@ def _record_import_from_node(
     if n.level:
         tgt = _resolve_relative_import(n.level, n.module, pkg)
     else:
+        # See _resolve_import_from: module is None only when level > 0.
+        assert n.module is not None  # nosec B101 - ast invariant, not a check
         tgt = n.module
 
     if tgt in facades:
@@ -461,6 +464,10 @@ def _resolve_import_from(
     if node.level:
         src_mod = _resolve_relative_import(node.level, node.module, pkg)
     else:
+        # `node.module` is None only for a relative `from . import x`, which
+        # always carries level > 0 and is handled above, so this branch always
+        # has a real dotted module name.
+        assert node.module is not None  # nosec B101 - ast invariant, not a check
         src_mod = node.module
 
     if defines(src_mod, target):
