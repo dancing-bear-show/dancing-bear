@@ -319,6 +319,13 @@ stages:
 
       Touch ONLY src/ files. Another agent is editing tests/ concurrently.
 
+      EXCLUDE telemetry from P1 whenever migrate_click is "true". The
+      migration stream creates src/telemetry/meta.py itself, and both stages
+      run in separate worktrees — two agents creating the same new file means
+      the later copy-back silently wins and one agent's work vanishes without
+      a conflict. If migrate_click is "false", telemetry is a normal P1
+      candidate like any other app.
+
       For each app in P1:
         1. Create src/<app>/meta.py declaring an AppMeta. Model it on
            src/wifi/meta.py. Read src/core/meta_base.py for the field set and
@@ -479,16 +486,32 @@ stages:
       Capture stdout and stderr to separate files, and record the exit code
       for each invocation in a manifest.
 
-      Step 3 - capture the exit-code contract. These are MEASURED values the
-      migration must reproduce exactly; several are non-obvious:
-        []                 -> rc=2, help printed to STDOUT (1228 bytes), stderr empty
-        ["--help"]         -> rc=0, same 1228 bytes on stdout
-        ["--agentic"]      -> rc=0, 1041 bytes
-        ["nope"]           -> rc=2, stdout EMPTY, error on STDERR (98 bytes)
-        ["cost","--help"]  -> rc=0, 436 bytes
-      Re-measure all of them rather than copying these numbers - they are a
-      snapshot for orientation, and the byte counts in particular shift if
-      help text is reflowed.
+      Step 3 - capture the exit-code contract. For EVERY case record three
+      things: the exit code, WHICH STREAM carried the output (stdout vs
+      stderr), and the byte count. The stream matters more than the count: an
+      agent reaching for parser.error() gets rc=2 on the WRONG stream and the
+      byte-count check alone will not catch it.
+
+      Cases to capture, at minimum:
+        []                        bare invocation
+        ["--help"]
+        ["--agentic"]
+        ["nope"]                  unknown subcommand
+        ["cost","--help"]         a normal subcommand's help
+        ["otel","--help"]         nested-CLI help (must NOT be telemetry's)
+        ["otel","--agentic"]      nested-CLI usage (must NOT be the capsule)
+        ["otel","query","--format","json"]   mixed args + flags passthrough
+
+      Shape of the answer at the time of writing, for ORIENTATION ONLY:
+        []                -> rc=2, help on STDOUT, stderr empty
+        ["--help"]        -> rc=0, same bytes on stdout
+        ["nope"]          -> rc=2, stdout EMPTY, error on STDERR
+        ["otel","--help"] -> rc=0, ~216 bytes (OTEL's own help)
+
+      DO NOT hardcode byte counts from this file. They have already drifted
+      once (a bare invocation measured 1228 and then 1232 with no code change),
+      so an exact-match assertion against a number written here will produce a
+      false failure. Measure, record, and compare against YOUR OWN capture.
 
       Note the bare-invocation case especially: rc=2 WITH help on stdout is
       unusual (argparse defaults to help+rc=0, or usage+rc=2 on stderr), so it
@@ -537,13 +560,35 @@ stages:
         click.echo            -> print
         click.pass_context    -> thread the argparse Namespace through
         UNPROCESSED + allow_extra_args + allow_interspersed_args=False
-                              -> parse_known_args, passing the remainder to
-                                 the nested otel CLI unchanged
+                              -> see the otel passthrough note below; it is
+                                 NOT a one-line parse_known_args swap
 
-      The `otel` subcommand is a PASSTHROUGH to telemetry.otel.cli.main. It
-      must keep forwarding its argv verbatim, including flags argparse would
-      otherwise try to claim. Get this one right first - it is the only
-      genuinely tricky mapping.
+      The `otel` subcommand is a PASSTHROUGH to telemetry.otel.cli.main and is
+      the ONLY genuinely tricky mapping. Get it right first. Two argparse
+      candidates were built and MEASURED; both fail if applied naively:
+
+        nargs=argparse.REMAINDER
+          The parent intercepts leading flags. `telemetry otel --help` and
+          `telemetry otel --agentic` both raise SystemExit(2)
+          "unrecognized arguments". Do NOT use this.
+
+        parse_known_args + nargs="*"
+          Flags survive, but argv arrives SPLIT ACROSS TWO VARIABLES:
+            ["otel","query","--format","json"]
+              -> args=["query"], rest=["--format","json"]
+            ["otel","--help"]
+              -> args=[],        rest=["--help"]
+          Forwarding only `args` OR only `rest` silently breaks every mixed
+          invocation. You MUST forward `args + rest` concatenated IN ORIGINAL
+          ORDER.
+
+      The dangerous case: `--help` and `--agentic` are flags the PARENT also
+      defines. A partially-correct port makes `telemetry otel --help` print
+      the TELEMETRY help and still exit 0 — a silent behaviour swap that no
+      exit-code check detects. Measured Click behaviour to preserve:
+        otel --help              rc=0, 216 bytes  (the OTEL help, not telemetry's)
+        otel --agentic           rc=0, 1091 bytes (otel usage, NOT the capsule)
+        otel query --format json rc=0
 
       Adopt the shared framework rather than reimplementing it:
         - build on CLIApp (core.cli_framework)
@@ -607,16 +652,34 @@ stages:
           STDOUT (not stderr), and an unknown subcommand returns rc=2 with
           empty stdout and the error on STDERR. Report each as before -> after.
         - >-
-          EXACTLY TWO behaviour changes are permitted, and both must be present
-          and reported: (1) the agentic JSON key set changes from the Click
-          5-key shape to the argparse 6-key shape; (2) `telemetry -- --agentic`
-          goes from rc=2 with 0 bytes to rc=0 with output identical to the
-          no-separator form. Any THIRD behavioural difference is a FAIL.
+          EXACTLY TWO SEMANTIC behaviour changes are permitted, and both must
+          be present and reported: (1) the agentic JSON key set changes from
+          the Click 5-key shape to the argparse 6-key shape; (2)
+          `telemetry -- --agentic` goes from rc=2 with 0 bytes to rc=0 with
+          output identical to the no-separator form.
+          A third SEMANTIC difference is a FAIL. Help-text reflow, wording, and
+          byte-count deltas are NOT semantic differences — argparse and Click
+          format help differently and the baseline byte counts drift on their
+          own. Judge on exit code, stream, flag sets, and subcommand sets.
         - >-
-          The text capsule must still clear MIN_CAPSULE_BYTES (200) and
-          announce `agentic: telemetry`. Baseline was 1041 bytes; a large drop
-          means the capsule regressed to a fallback banner while still exiting
-          0 - the exact silent failure this standard exists to catch.
+          The key set changing is NOT sufficient — check the VALUES. A schema
+          with a perfect 6-key shape whose `subcommands` value is empty passes
+          every other criterion here. Assert that post-migration `subcommands`
+          contains ALL 11 baseline subcommand names (agents, cost,
+          cost-breakdown, history, live, otel, parse-transcripts, rules,
+          sessions, stats, summary — re-derive from the baseline, do not trust
+          this list). A missing subcommand in the schema is a FAIL even when
+          the CLI still accepts it.
+        - >-
+          The text capsule must still announce `agentic: telemetry` and must
+          not have COLLAPSED. Use a PROPORTIONAL floor, not the 200-byte
+          MIN_CAPSULE_BYTES: the baseline is ~1041 bytes, so a 200-byte floor
+          would pass a capsule that lost 80% of its content. FAIL if the
+          post-migration capsule is below ~60% of the captured baseline size.
+          This matters here specifically because the migration DELETES the
+          hand-written builder, which is the change most likely to shrink it,
+          and because rc=0 plus a correct first line both survive total
+          capsule failure.
         - >-
           `import click` must be ABSENT from src/telemetry/ entirely. Grep and
           report the count; a non-zero count means the migration is partial.
@@ -664,11 +727,10 @@ stages:
           could not satisfy under Click. Confirm the test file exists and the
           adopter count for that contract went from 17 to 18.
         - >-
-          Update .llm/CLI_STANDARD.md to REMOVE the Click exemption section and
-          the A3/A6 telemetry carve-outs, since they no longer describe
-          reality. A standard documenting an exemption the code no longer needs
-          is worse than one that never had it - a later reader will
-          reintroduce Click on its authority.
+          Report whether the Click exemption in .llm/CLI_STANDARD.md is now
+          stale (it will be, if the migration succeeded). Do NOT edit the
+          document here — that is retire-click-exemption's job. This stage
+          verifies; it does not mutate.
         - Lint the changed files with qlty, passing paths explicitly; report how many files were scanned
     agent:
       role: reviewer
@@ -678,13 +740,52 @@ stages:
     writes_to:
       - validation/click-migration-tests.md
 
+
+  - name: retire-click-exemption
+    kind: execute
+    when: '"{migrate_click}" contains "true"'
+    depends_on: [test-click-migration]
+    reads_from: [test-click-migration, validate-click-equivalence]
+    description: >
+      Remove the Click exemption from .llm/CLI_STANDARD.md now that telemetry
+      is argparse-based. Its own stage rather than a criterion on a validate
+      stage: validate agents get a PASS/FAIL scaffold and should not mutate
+      source, and this edit needs to be a declared output rather than a
+      side-effect.
+
+      Only run the edits if test-click-migration PASSED. If it failed or was
+      skipped, change nothing and say so — a standard that drops an exemption
+      the code still needs is worse than one that keeps it.
+
+      Edits:
+        - Delete the "The Click exemption (telemetry)" section entirely.
+        - Remove the telemetry carve-out from rule A3 (it can now emit the
+          argparse six keys).
+        - Remove the telemetry carve-out from rule A6 and its measured
+          "rc=2 with 0 bytes" note (normalize_argv now applies).
+        - Move telemetry from the Tier 1 exemption list into the normal
+          adopter set, and update the minimal-tier counts in Tier 2, which
+          currently say "8 by shape, 7 adopting" BECAUSE telemetry was Click.
+        - Re-run the counts rather than editing them by hand:
+          `ls src/*/meta.py | wc -l` and the per-contract adopter counts.
+
+      Leave the rc=0-trap section and the apple_music narrative untouched —
+      they are about a different failure mode and remain true.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Bash, Read, Write, Edit]
+    required: false
+    writes_to:
+      - outputs/click-exemption-retired.md
+
   # ===========================================================================
   # G3: Verify — re-run the identical audit, then the suite
   # ===========================================================================
 
   - name: verify-conformance
     kind: validate
-    depends_on: [fix-meta, fix-contracts, fix-llm, test-click-migration]
+    depends_on: [fix-meta, fix-contracts, fix-llm, retire-click-exemption]
     reads_from: [audit-conformance, plan-remediation]
     # `description` is REQUIRED by the parser but DISCARDED at dispatch for
     # kind:validate — the prompt is built from validation.criteria ONLY. So
@@ -822,16 +923,17 @@ stages:
           lint those. Never report a lint pass without stating how many files
           were actually scanned.
         - >-
-          Report BOTH numbers separately: (a) lines DELETED from per-app test
-          files, and (b) lines ADDED, split into shared-contract files vs
-          per-app adoption. Do not report only a net figure.
-          A growing total is EXPECTED here and is not a failure: the bulk
-          deletion already happened in PR #320, so the remaining work is
-          adding contracts and adopting them. What must hold is that per-app
-          hand-rolled assertions covered by a contract were DELETED rather
-          than left alongside it — if any app both adopts a mixin and keeps
-          its own copies of those same assertions, that is a FAIL, because
-          nothing was actually consolidated.
+          Measure DUPLICATION, not net line count. A growing total is the
+          expected and correct outcome here — the bulk deletion already
+          happened in PR #320, so the remaining work is adding contracts and
+          adopting them, and the current branch is +144 tests. A net-negative
+          target would be unmeetable and would only force a justification
+          paragraph.
+          The real check: for every file that adopts a contract mixin, confirm
+          it does NOT also define its own copies of the assertions that mixin
+          covers. Report, per adopting file, the count of hand-rolled
+          assertions removed. Any file that both adopts a mixin AND retains
+          duplicate assertions is a FAIL — that file consolidated nothing.
         - PASS requires all of the above; report per-criterion, not as a single verdict
     agent:
       role: reviewer

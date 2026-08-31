@@ -210,16 +210,41 @@ capsule construction as suspect.
 `telemetry` is Click-based and fails **A3** (5 keys vs 6). Converting it to
 argparse is **explicitly out of scope** and not recommended:
 
-- ~770 lines, 36 `@click` decorators, with Click also imported by
-  `parse_transcripts.py` / `parse_transcripts_io.py` — beyond the CLI layer
-- 79 test files, the largest suite in the repo, many asserting Click behaviour
-- CLAUDE.md forbids breaking public CLI compatibility; rewriting the largest CLI
-  to satisfy a contract table is a poor trade
+Measured scope, for whoever runs the migration:
 
-**Preferred remedy:** split the contract. Extract the parser-agnostic subset
-(A1, A2, A5 — announces itself, is substantial, compacts) into a base mixin that
-telemetry adopts; keep the argparse key-set assertion (A3/A4) in a subclass.
-Consistency belongs at the **capsule** level, not the parser level.
+- 43 `@click` decorators (36 in `cli_sessions.py`, 7 in `parse_transcripts.py`)
+- 38 `click.option`, 8 `click.Choice`, 2 groups, 11 subcommands
+- `click` imported in 5 files, including `parse_transcripts.py` /
+  `parse_transcripts_io.py` — beyond the CLI layer
+- **only 4 of 79** telemetry test files use `CliRunner`
+
+That last number corrects an earlier claim in this document that "many" of the
+79 files assert Click behaviour. They do not, and the mistake mattered: it was
+the main argument for leaving telemetry alone.
+
+Neither feature expected to block a port actually does — `pass_context` maps to
+threading the argparse `Namespace`, and `UNPROCESSED` + `allow_extra_args` maps
+to `parse_known_args` (with the `otel` passthrough caveat below).
+
+**Decision: migrate.** `workflows/code/cli-standard-conformance.yaml` carries a
+`migrate_click` work stream that ports telemetry onto `CLIApp`. Converting also
+*deletes* code: `agentic.py`'s `_describe_click_group` /
+`_describe_click_options` exist only to walk a `click.Group`, and
+`core.agentic_schema.build_schema_json` already builds the capsule generically
+for the other 17 apps.
+
+**The one genuinely tricky mapping** is the `otel` passthrough.
+`nargs=REMAINDER` makes the parent intercept `--help` / `--agentic`
+(`SystemExit(2)`); `parse_known_args` splits argv across two variables
+(`["otel","query","--format","json"]` → `args=["query"]`,
+`rest=["--format","json"]`). Forward `args + rest` concatenated in original
+order, and verify `telemetry otel --help` still prints *OTEL's* help rather
+than telemetry's — a partial port swaps them silently while still exiting 0.
+
+**Until that migration lands**, the exemptions in A3 and A6 above hold and this
+section stays. When it lands, this section and both carve-outs must be deleted:
+a standard documenting an exemption the code no longer needs will lead a later
+reader to reintroduce Click on its authority.
 
 ---
 
