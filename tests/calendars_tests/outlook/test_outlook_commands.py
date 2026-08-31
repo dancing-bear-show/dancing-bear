@@ -114,6 +114,53 @@ class TestRunOutlookRemindersSet(unittest.TestCase):
         result = run_outlook_reminders_set(args)
         self.assertEqual(result, 0)
 
+    def _captured_request(self, mock_pipeline):
+        """The OutlookRemindersRequest handed to run_pipeline."""
+        return mock_pipeline.call_args[0][0]
+
+    @patch("calendars.outlook.commands._build_outlook_service")
+    @patch("calendars.outlook.commands.run_pipeline")
+    def test_minutes_is_converted_to_int(self, mock_pipeline, mock_build_svc):
+        """argparse may hand through a string; the request must carry an int."""
+        from calendars.outlook.commands import run_outlook_reminders_set
+        mock_build_svc.return_value = MagicMock()
+        mock_pipeline.return_value = 0
+        result = run_outlook_reminders_set(self._make_args(off=False, minutes="15"))
+        self.assertEqual(result, 0)
+        request = self._captured_request(mock_pipeline)
+        self.assertEqual(request.minutes, 15)
+        self.assertIsInstance(request.minutes, int)
+        self.assertFalse(request.set_off)
+
+    @patch("calendars.outlook.commands._build_outlook_service")
+    @patch("calendars.outlook.commands.run_pipeline")
+    def test_zero_minutes_is_valid_not_missing(self, mock_pipeline, mock_build_svc):
+        """0 is falsy but a legitimate value — it must not trip the guard."""
+        from calendars.outlook.commands import run_outlook_reminders_set
+        mock_build_svc.return_value = MagicMock()
+        mock_pipeline.return_value = 0
+        result = run_outlook_reminders_set(self._make_args(off=False, minutes=0))
+        self.assertEqual(result, 0)
+        self.assertEqual(self._captured_request(mock_pipeline).minutes, 0)
+
+    @patch("calendars.outlook.commands._build_outlook_service")
+    @patch("calendars.outlook.commands.run_pipeline")
+    def test_off_wins_over_supplied_minutes(self, mock_pipeline, mock_build_svc):
+        """With --off set, minutes is cleared regardless of what was passed.
+
+        This pairs the two conditions that used to be tested separately: the
+        guard and the minutes expression once read `off` independently, so
+        int(None) was unreachable only because they happened to agree.
+        """
+        from calendars.outlook.commands import run_outlook_reminders_set
+        mock_build_svc.return_value = MagicMock()
+        mock_pipeline.return_value = 0
+        result = run_outlook_reminders_set(self._make_args(off=True, minutes="15"))
+        self.assertEqual(result, 0)
+        request = self._captured_request(mock_pipeline)
+        self.assertIsNone(request.minutes)
+        self.assertTrue(request.set_off)
+
 
 class TestBuildOutlookService(unittest.TestCase):
     """Tests for _build_outlook_service helper."""
