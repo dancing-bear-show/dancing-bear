@@ -111,15 +111,16 @@ class _TmpRepo:
 # Fixtures
 # ---------------------------------------------------------------------------
 
-# The mixin method calls: build_agentic_capsule, emit_agentic_context,
-# getvalue, assertEqual, strip -- reproducing the slides calibration shape.
+# The mixin method uses StringIO + redirect_stdout + .strip() -- the standard
+# plumbing in the shared contract.
 _SLIDES_MIXIN = """
 class FakeContractMixin:
-    def test_emit_output_matches_build_agentic_capsule(self):
+    def test_emit_output_matches_the_builder(self):
+        module = self._module()
         buf = StringIO()
         with redirect_stdout(buf):
-            emit_agentic_context()
-        self.assertEqual(buf.getvalue().strip(), build_agentic_capsule().strip())
+            module.emit_agentic_context()
+        self.assertEqual(buf.getvalue().strip(), module.build_agentic_capsule().strip())
 """
 
 _ADOPTER = """
@@ -137,27 +138,32 @@ class TestFakeContract(FakeContractMixin, unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestSlidesShapeIsFlagged(unittest.TestCase):
-    """The calibration case (slides, fixed pre-branch) must still be detected.
+    """The real slides calibration body must be detected.
 
-    The slides duplicate's local method had:
-      shared = {build_agentic_capsule, emit_agentic_context, getvalue, assertEqual}
-      similarity >= 0.45
+    The actual slides duplicate used capture_stdout() + buf.getvalue() + "\n"
+    while the mixin uses StringIO + redirect_stdout + .strip().  The divergent
+    plumbing inflates the union to 9 names while the shared set stays at 4,
+    yielding Jaccard = 4/9 = 0.444.  A threshold of 0.45 misses it by 0.006.
+    The fixture reproduces the REAL divergent body, not a near-identical copy,
+    so this test would have caught the off-by-one before shipping.
 
-    This fixture reproduces that shape with a separate class in the same file,
-    ensuring the threshold (sim >= 0.45 AND shared >= 3) catches it.
+    Margin note: slides scores 0.444 against a threshold of 0.40, a margin of
+    0.044.  Phone/schedule score 0.667.  Do not tighten the threshold above
+    0.43 without re-verifying this fixture passes.
     """
 
     def test_flagged(self):
-        # The local method calls the same domain API functions as the mixin:
-        # emit_agentic_context, build_agentic_capsule, getvalue, assertEqual.
-        # sim = |shared| / |union|.  We keep it above SIMILARITY_THRESHOLD.
+        # This is the REAL body of the slides duplicate -- capture_stdout() as
+        # a context manager and + "\n" instead of .strip().  The mixin uses
+        # StringIO + redirect_stdout + .strip().  Same domain API calls, same
+        # assertion kind, but different plumbing: shared = 4, union = 9,
+        # Jaccard = 0.444.
         local = """
         class TestFakeDomain(unittest.TestCase):
-            def test_emit_output_matches_builder(self):
-                buf = StringIO()
-                with redirect_stdout(buf):
+            def test_emit_output_matches_build_agentic_capsule(self):
+                with capture_stdout() as buf:
                     emit_agentic_context()
-                self.assertEqual(buf.getvalue().strip(), build_agentic_capsule().strip())
+                self.assertEqual(buf.getvalue(), build_agentic_capsule() + "\\n")
         """
         test_src = _ADOPTER + "\n" + textwrap.dedent(local)
         with _TmpRepo(_SLIDES_MIXIN, test_src):
@@ -165,14 +171,25 @@ class TestSlidesShapeIsFlagged(unittest.TestCase):
 
         match = [
             f for f in findings
-            if f["local_method"] == "test_emit_output_matches_builder"
+            if f["local_method"] == "test_emit_output_matches_build_agentic_capsule"
         ]
         self.assertGreater(
             len(match),
             0,
-            msg=f"Expected finding for slides shape but got none. findings={findings}",
+            msg=(
+                f"Expected finding for real slides body (Jaccard ~0.444) but got none. "
+                f"findings={findings}. "
+                f"Check SIMILARITY_THRESHOLD -- do not raise it above 0.43."
+            ),
         )
-        self.assertGreaterEqual(match[0]["similarity"], SIMILARITY_THRESHOLD)
+        # Pin the margin: the slides shape scores >= 0.40.  Any tightening
+        # of SIMILARITY_THRESHOLD that makes this fail means the real slides
+        # duplicate (and others like it) will go undetected.
+        self.assertGreaterEqual(
+            match[0]["similarity"],
+            SIMILARITY_THRESHOLD,
+            msg=f"similarity {match[0]['similarity']} below threshold {SIMILARITY_THRESHOLD}",
+        )
         self.assertGreaterEqual(match[0]["shared_call_count"], MIN_SHARED_CALLS)
 
 

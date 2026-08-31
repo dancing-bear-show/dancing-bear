@@ -21,7 +21,7 @@ not themselves inherit the mixin).  For each method in those other classes, it:
 4. Keeps only the BEST mixin match (highest similarity) for each local method.
 5. Flags the pair when:
 
-       similarity >= 0.45  AND  |shared_calls| >= 3
+       similarity >= 0.40  AND  |shared_calls| >= 3
 
    Jaccard similarity is over called function/method names.  The two conditions
    together rule out false-positive patterns:
@@ -50,17 +50,22 @@ avoids noise.
 
 Threshold derivation
 --------------------
-Calibrated against three data points:
+Calibrated against four data points:
 
 - Confirmed true positives (phone line 218, schedule line 128):
   {StringIO, assertEqual, emit_agentic_context, redirect_stdout} -- 4 shared
   calls, Jaccard 0.667.
 - Confirmed false positive (charts ``test_contains_render_command``):
   {assertIn, build_agentic_capsule} -- 2 shared calls; does not reach 3.
-- Calibration case (slides, shape fixed before this branch):
-  {build_agentic_capsule, emit_agentic_context, getvalue} -- 3 shared calls,
-  Jaccard 0.375.  The fixture in tests/test_detect_contract_duplication.py
-  reproduces this shape and confirms it is still flagged.
+- Calibration case (slides ``test_emit_output_matches_build_agentic_capsule``):
+  uses ``capture_stdout()`` and ``+ "\n"`` instead of the mixin's ``StringIO``
+  + ``redirect_stdout`` + ``.strip()``.  Shared calls:
+  {assertEqual, build_agentic_capsule, emit_agentic_context, getvalue} = 4,
+  but Jaccard = 4/9 = 0.444 because the divergent plumbing inflates the union.
+  A threshold of 0.45 misses it by 0.006.  0.40 catches it with margin 0.044.
+
+The fixture in ``tests/test_detect_contract_duplication.py`` reproduces the
+real divergent body (capture_stdout, ``+ "\n"``) and asserts it is flagged.
 
 Scope
 -----
@@ -101,7 +106,15 @@ MIXINS: dict[str, str] = {
 }
 
 # Similarity gate: Jaccard over called function/method names.
-SIMILARITY_THRESHOLD = 0.45
+#
+# Calibration: the slides duplicate that survived two consolidation passes
+# scored Jaccard 0.444 because it used capture_stdout() + "\n" while the
+# mixin used StringIO + redirect_stdout + .strip().  The two different
+# plumbing choices inflate the union (9 names) while the 4 shared calls
+# stay fixed.  A threshold of 0.45 misses it by 0.006.  0.40 catches it
+# with a margin of 0.044, and MIN_SHARED_CALLS (>= 3) still blocks the
+# app-specific content tests (charts, diagrams, etc.) that share only 2.
+SIMILARITY_THRESHOLD = 0.40
 # Minimum shared calls: single-helper tests (1-2 shared calls) are
 # app-specific content assertions, not duplicates.
 MIN_SHARED_CALLS = 3
