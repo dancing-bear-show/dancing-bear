@@ -172,14 +172,31 @@ class TestOutlookProviderCreateLabel(unittest.TestCase):
         self.assertIsNone(call_kwargs["color"])
 
     def test_name_none_when_no_name_or_displayName(self):
-        # No real validation exists at this layer: with neither `name` nor
-        # `displayName` supplied, name=None is forwarded to the client, which
-        # is the real failure mode (client rejects the None name, not this method).
+        # When neither `name` nor `displayName` is supplied, the provider now
+        # raises ValueError rather than forwarding None to the underlying client.
+        provider, _mock_client = _make_provider()
+        with self.assertRaises(ValueError, msg="expected ValueError when name missing"):
+            provider.create_label(color="red")
+
+    def test_non_string_name_raises_value_error(self):
+        # A dict or int passed as name (e.g. from a mistyped call) must be
+        # rejected rather than stringified into a garbage category name.
+        provider, _mock_client = _make_provider()
+        with self.assertRaises(ValueError):
+            provider.create_label(name={"key": "val"})
+
+    def test_whitespace_only_name_raises_value_error(self):
+        # A whitespace-only name would produce an empty category on Graph.
+        provider, _mock_client = _make_provider()
+        with self.assertRaises(ValueError):
+            provider.create_label(name="   ")
+
+    def test_name_is_stripped_before_passing_to_client(self):
         provider, mock_client = _make_provider()
         mock_client.create_label.return_value = {}
-        provider.create_label(color="red")
+        provider.create_label(name="  Work  ")
         call_kwargs = mock_client.create_label.call_args.kwargs
-        self.assertIsNone(call_kwargs["name"])
+        self.assertEqual(call_kwargs["name"], "Work")
 
     def test_propagates_client_http_error(self):
         import requests

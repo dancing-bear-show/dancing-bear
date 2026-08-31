@@ -63,6 +63,8 @@ class TestValidateRunCliPayload(unittest.TestCase):
         from worker.handlers import _validate_run_cli_payload
 
         error, prog, cmd_list = _validate_run_cli_payload({"cmd": []})
+        if not isinstance(error, str):
+            self.fail(f"expected str error, got {error!r}")
         self.assertIn("missing", error)
         self.assertIsNone(prog)
         self.assertIsNone(cmd_list)
@@ -71,6 +73,8 @@ class TestValidateRunCliPayload(unittest.TestCase):
         from worker.handlers import _validate_run_cli_payload
 
         error, prog, cmd_list = _validate_run_cli_payload({})
+        if not isinstance(error, str):
+            self.fail(f"expected str error, got {error!r}")
         self.assertIn("missing", error)
         self.assertIsNone(prog)
         self.assertIsNone(cmd_list)
@@ -79,6 +83,8 @@ class TestValidateRunCliPayload(unittest.TestCase):
         from worker.handlers import _validate_run_cli_payload
 
         error, prog, cmd_list = _validate_run_cli_payload({"cmd": ["evil-script", "--flag"]})
+        if not isinstance(error, str):
+            self.fail(f"expected str error, got {error!r}")
         self.assertIn("disallowed", error)
         self.assertIsNone(prog)
         self.assertIsNone(cmd_list)

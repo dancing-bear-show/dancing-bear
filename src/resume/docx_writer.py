@@ -54,10 +54,14 @@ def _match_section_key(title: str) -> str | None:
 
 def _get_header_level(sec: dict[str, Any] | None, page_cfg: dict[str, Any] | None) -> int:
     try:
-        if sec and isinstance(sec.get("header_level"), int):
-            return int(sec.get("header_level"))
-        if page_cfg and isinstance(page_cfg.get("header_level"), int):
-            return int(page_cfg.get("header_level"))
+        if sec:
+            sec_level = sec.get("header_level")
+            if isinstance(sec_level, int):
+                return int(sec_level)
+        if page_cfg:
+            page_level = page_cfg.get("header_level")
+            if isinstance(page_level, int):
+                return int(page_level)
     except Exception:  # nosec B110 - invalid header_level
         pass
     return 1

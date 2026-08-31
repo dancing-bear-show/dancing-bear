@@ -45,7 +45,9 @@ def _collect_all_app_ids(layout: NormalizedLayout) -> list[str]:
     for page in layout.pages:
         for it in page:
             if _is_app_item(it):
-                all_ids.append(_get_app_id(it))
+                bid = _get_app_id(it)
+                if bid is not None:
+                    all_ids.append(bid)
             elif _is_folder_item(it):
                 all_ids.extend(_get_folder_apps(it))
     return all_ids

@@ -382,7 +382,8 @@ class TestExportPdfSadPaths(unittest.TestCase):
         self.assertEqual(err.code, ExitCode.ERROR)
         self.assertIn("LibreOffice", err.message)
         self.assertIn("conversion failed", err.message.lower())
-        self.assertIsNotNone(err.hint)
+        if not isinstance(err.hint, str):
+            self.fail(f"err.hint should be str, got {err.hint!r}")
         self.assertIn("install", err.hint.lower())
         self.assertIn("soffice", err.hint)
 
@@ -630,7 +631,8 @@ class TestExportPdfFailsLoudlyWhenNoPdfIsWritten(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             err, _requested, _out = self._run_with_silent_success(td)
 
-            self.assertIsNotNone(err.hint)
+            if not isinstance(err.hint, str):
+                self.fail(f"err.hint should be str, got {err.hint!r}")
             self.assertIn("writable", err.hint)
             self.assertNotIn("brew install", err.hint)
 
@@ -651,6 +653,8 @@ class TestExportPdfFailsLoudlyWhenNoPdfIsWritten(unittest.TestCase):
         self.assertEqual(err.code, ExitCode.ERROR)
         self.assertIn("LibreOffice", err.message)
         self.assertIn("not found", err.message)
+        if not isinstance(err.hint, str):
+            self.fail(f"err.hint should be str, got {err.hint!r}")
         self.assertIn("soffice", err.hint)
         self.assertIn("install", err.hint.lower())
 
