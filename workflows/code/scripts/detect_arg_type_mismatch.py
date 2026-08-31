@@ -16,27 +16,29 @@ KNOWN LIMITATIONS
 - Only *literal* constants are inspected (``None``, string/int/float literals).
   Variables and expressions are not resolved.
 - Only calls whose callee name was explicitly imported via ``from X import Y``
-  are resolved.  Attribute calls (``obj.method()``) are not checked.
-- Only positional arguments are inspected.  Keyword arguments are not.
-- A function defined in module ``foo`` and one in module ``bar`` with the same
-  name can collide: if both are imported and one call is made, the detector may
-  map it to the wrong signature.
+  are resolved.  Attribute calls (``obj.method()``) are genuinely skipped: the
+  receiver carries the type, and matching on the bare attribute name made
+  ``a.foo()``, ``b.foo()`` and ``self.foo()`` indistinguishable.
+- Only positional arguments are inspected.  Keyword arguments, ``*args`` /
+  ``**kwargs``, and default values are not, and a signature rewritten by a
+  decorator is read as written.  ``@overload`` resolves to whichever ``def``
+  is parsed last.
+- The signature table is keyed by ``(module_stem, funcname)``, which cannot
+  distinguish sibling classes in one file -- ``consumers.consume`` is defined
+  37 times in a single module.  Ambiguous keys are DROPPED, not guessed (122 on
+  this repo); ``stats.signatures_ambiguous_dropped`` reports how many, so the
+  blind spot is visible rather than silent.
+- Nested and inner functions are not collected: only module-level ``def`` and
+  class bodies are walked.
 - The resolver is heuristic, not a type-checker.  Verify each finding before
   acting on it.
-- Annotations are matched as STRINGS, not resolved types, and the None check is
-  a substring test against {"None", "Optional", "Any", "object"}.  Measured
-  consequences, both directions:
-    * False NEGATIVES (real mismatch, not reported): ``NoneType``, ``Anything``,
-      ``Optionalish``, ``Callable[..., None]`` and ``Literal["None"]`` all
-      contain a permitted token as a substring, so a None passed to them is
-      silently accepted.
-    * False POSITIVES (reported, but fine): a type alias or ``TypeVar`` that
-      resolves to something None-accepting -- ``JsonValue``, a bare ``T`` --
-      looks hostile because the name carries no such token.
-  Generic bases are only compared before the first ``[``, so ``Sequence[str]``
-  is not recognised as string-hostile while ``list[int]`` is.
-- ``*args``/``**kwargs``, keyword arguments, and default values are not
-  considered, and a signature rewritten by a decorator is read as written.
+- Annotations are compared as PARSED syntax, not resolved types.  The None
+  check inspects top-level union members, so ``dict[str, Any]`` is correctly
+  None-hostile (a substring test accepted it -- 270 parameters on this repo,
+  the single most common annotation).  What remains unresolved is anything
+  requiring name resolution: a bare ``TypeVar`` (``T``) or an alias such as
+  ``JsonValue`` is reported even when it permits None, because the name alone
+  does not say so.
 
 CONFIDENCE
 ----------
@@ -78,6 +80,14 @@ SKIP_WALK_DIRS = {
 #: ``(module_stem, funcname) -> (src_path, lineno, [(param_name, annotation)])``
 Sigs = dict[tuple[str, str], tuple[str, int, list[tuple[str, str | None]]]]
 
+#: Keys claimed by more than one definition. The table is keyed by
+#: (module_stem, funcname), which cannot distinguish sibling classes in one
+#: file -- `consumers.consume` is defined 37 times in a single module. Whichever
+#: definition wins is arbitrary, so an ambiguous key is DROPPED rather than
+#: guessed: a wrong signature yields confidently wrong findings, whereas a
+#: missing one yields silence that `stats` reports.
+_AMBIGUOUS: set[tuple[str, str]] = set()
+
 
 def _iter_py(root: str):
     for dirpath, dirnames, filenames in os.walk(root):
@@ -95,13 +105,30 @@ def _parse_py(path: str) -> ast.Module | None:
         return None  # nosec B112 - skip unreadable/bad-encoding files silently
 
 
-def _has_classmethod_decorator(func: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+def _has_decorator(func: ast.FunctionDef | ast.AsyncFunctionDef, name: str) -> bool:
+    """True if ``func`` carries a decorator spelled ``name``, bare or dotted."""
     for dec in func.decorator_list:
-        if isinstance(dec, ast.Name) and dec.id == "classmethod":
+        if isinstance(dec, ast.Name) and dec.id == name:
             return True
-        if isinstance(dec, ast.Attribute) and dec.attr == "classmethod":
+        if isinstance(dec, ast.Attribute) and dec.attr == name:
             return True
     return False
+
+
+def _has_classmethod_decorator(func: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    return _has_decorator(func, "classmethod")
+
+
+def _has_staticmethod_decorator(func: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """True for @staticmethod, which takes NO receiver.
+
+    Distinguishing this matters: a staticmethod's first parameter is a real
+    one. Treating it as an instance method deletes that parameter and shifts
+    every index after it -- the same index-shift bug the `cls` fix addressed,
+    just reached by a different route. A single-parameter staticmethod
+    collapses to zero parameters and becomes permanently invisible.
+    """
+    return _has_decorator(func, "staticmethod")
 
 
 def _collect_params(
@@ -143,8 +170,25 @@ def _collect_class_sigs(
         if not isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         is_cm = _has_classmethod_decorator(member)
-        params = _collect_params(member, is_method=not is_cm, is_classmethod=is_cm)
-        sigs[(mod, member.name)] = (path, member.lineno, params)
+        is_sm = _has_staticmethod_decorator(member)
+        # A staticmethod has no receiver at all, so it is neither.
+        params = _collect_params(
+            member,
+            is_method=not is_cm and not is_sm,
+            is_classmethod=is_cm,
+        )
+        key = (mod, member.name)
+        if key in sigs:
+            # Same (module, name) already claimed -- typically sibling classes
+            # in one file (`consumers.consume` collides 37 ways). Keeping the
+            # first is no more correct than keeping the last, so record the
+            # ambiguity and drop the key entirely: a wrong signature produces
+            # confidently wrong findings, while a missing one only produces
+            # silence that `stats` now makes visible.
+            _AMBIGUOUS.add(key)
+            sigs.pop(key, None)
+            continue
+        sigs[key] = (path, member.lineno, params)
 
 
 #: Files walked and files that failed to parse, per root. A detector that
@@ -158,6 +202,7 @@ _STATS: dict[str, int] = {
     "test_files_scanned": 0,
     "test_files_unparsed": 0,
     "signatures_collected": 0,
+    "signatures_ambiguous_dropped": 0,
 }
 
 
@@ -165,6 +210,7 @@ def _reset_stats() -> None:
     """Zero the scan counters so repeated in-process runs do not accumulate."""
     for key in _STATS:
         _STATS[key] = 0
+    _AMBIGUOUS.clear()
 
 
 def collect_signatures(src_root: str) -> Sigs:
@@ -181,10 +227,20 @@ def collect_signatures(src_root: str) -> Sigs:
         for node in tree.body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 params = _collect_params(node, is_method=False, is_classmethod=False)
-                sigs[(mod, node.name)] = (path, node.lineno, params)
+                key = (mod, node.name)
+                if key in sigs:
+                    _AMBIGUOUS.add(key)
+                    sigs.pop(key, None)
+                    continue
+                sigs[key] = (path, node.lineno, params)
             elif isinstance(node, ast.ClassDef):
                 _collect_class_sigs(node, path, mod, sigs)
+    # Drop every key an ambiguity was recorded for, including ones first seen
+    # after the collision was noted.
+    for key in _AMBIGUOUS:
+        sigs.pop(key, None)
     _STATS["signatures_collected"] = len(sigs)
+    _STATS["signatures_ambiguous_dropped"] = len(_AMBIGUOUS)
     return sigs
 
 
@@ -200,10 +256,74 @@ _STR_HOSTILE_BASES = {"dict", "list", "int", "float", "bool"}
 _INT_HOSTILE_BASES = {"str", "dict", "list"}
 
 
+def _top_level_union_members(ann: str) -> list[str]:
+    """Split an annotation into its TOP-LEVEL union members.
+
+    Parsed rather than substring-matched. `dict[str, Any]` contains "Any" as a
+    substring, so a substring test accepted None for the single most common
+    annotation in this repo -- 270 parameters, and the reason
+    `_normalize_range(None)` against `ev: dict[str, Any]` went unreported while
+    the string literal on the adjacent line was caught.
+
+    Falls back to the whole string when the annotation will not parse, e.g. a
+    forward reference already carrying quotes.
+    """
+    try:
+        expr = ast.parse(ann, mode="eval").body
+    except SyntaxError:
+        return [ann]
+
+    members: list[str] = []
+    _walk_union(expr, members)
+    return members
+
+
+def _union_subscript_elements(node: ast.Subscript) -> list[ast.expr] | None:
+    """Return the member expressions of ``Optional[X]``/``Union[A, B]``.
+
+    None when the subscript is an ordinary generic such as ``dict[str, Any]``,
+    whose parameters are NOT union members -- the distinction the substring
+    test could not make.
+    """
+    base = ast.unparse(node.value).split(".")[-1]
+    if base not in {"Optional", "Union"}:
+        return None
+    sl = node.slice
+    elts = list(sl.elts) if isinstance(sl, ast.Tuple) else [sl]
+    if base == "Optional":
+        elts.append(ast.Constant(value=None))
+    return elts
+
+
+def _walk_union(node: ast.expr, members: list[str]) -> None:
+    """Append the top-level union members of ``node`` to ``members``."""
+    # `A | B` is a BinOp; `Optional[X]`/`Union[A, B]` are Subscripts.
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        _walk_union(node.left, members)
+        _walk_union(node.right, members)
+        return
+    if isinstance(node, ast.Subscript):
+        elts = _union_subscript_elements(node)
+        if elts is not None:
+            for elt in elts:
+                _walk_union(elt, members)
+            return
+    members.append(ast.unparse(node))
+
+
+def _permits_none(ann: str) -> bool:
+    """True if ``ann`` accepts None at the TOP level of the annotation."""
+    for member in _top_level_union_members(ann):
+        stripped = member.strip().strip("'\"")
+        if stripped in _NONE_OK or stripped == "NoneType":
+            return True
+    return False
+
+
 def _is_mismatch(value: object, ann: str) -> bool:
     """Return True if the Python literal ``value`` is incompatible with ``ann``."""
     if value is None:
-        return not any(tok in ann for tok in _NONE_OK)
+        return not _permits_none(ann)
     if isinstance(value, str):
         return ann.split("[")[0].strip() in _STR_HOSTILE_BASES
     if isinstance(value, (int, float)) and not isinstance(value, bool):
@@ -232,8 +352,12 @@ def _callee_name(node: ast.Call) -> str | None:
     func_node = node.func
     if isinstance(func_node, ast.Name):
         return func_node.id
-    if isinstance(func_node, ast.Attribute):
-        return func_node.attr
+    # Attribute calls are deliberately NOT resolved. Returning `.attr` discards
+    # the receiver, so `a.foo()`, `b.foo()` and `self.foo()` become
+    # indistinguishable and match any imported `foo`. Measured over tests/:
+    # 38,141 attribute calls, 93 of which resolved against an unrelated
+    # function -- e.g. `self._parse_agent({...})` matched to a module-level
+    # import. The docstring always claimed these were skipped; now they are.
     return None
 
 

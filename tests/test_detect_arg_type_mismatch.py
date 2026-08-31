@@ -333,6 +333,140 @@ class TestMockedCallee(unittest.TestCase):
         self.assertEqual(findings, [])
 
 
+class TestStaticmethodKeepsFirstParam(unittest.TestCase):
+    """@staticmethod takes no receiver, so its first parameter is real.
+
+    Treating it as an instance method deleted index 0 and shifted the rest --
+    the same index-shift bug the cls fix addressed, reached another way. A
+    one-parameter staticmethod collapsed to zero and went permanently
+    invisible (94 staticmethods in src/).
+    """
+
+    def _parse_method(self, src: str):
+        tree = ast.parse(textwrap.dedent(src))
+        cls_node = next(n for n in ast.walk(tree) if isinstance(n, ast.ClassDef))
+        return next(
+            m for m in cls_node.body
+            if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
+        )
+
+    def test_staticmethod_detected(self):
+        method = self._parse_method(
+            """\
+            class Tool:
+                @staticmethod
+                def render(label: str, count: int) -> str:
+                    return label
+            """
+        )
+        self.assertTrue(_dm._has_staticmethod_decorator(method))
+
+    def test_first_param_survives_collection(self):
+        src = """\
+            class Tool:
+                @staticmethod
+                def render(label: str, count: int) -> str:
+                    return label
+        """
+        cls_node = next(
+            n for n in ast.walk(ast.parse(textwrap.dedent(src)))
+            if isinstance(n, ast.ClassDef)
+        )
+        sigs = {}
+        _dm._collect_class_sigs(cls_node, "p.py", "mod", sigs)
+        names = [p[0] for p in sigs[("mod", "render")][2]]
+        self.assertEqual(names, ["label", "count"])
+
+    def test_single_param_staticmethod_not_erased(self):
+        src = """\
+            class Tool:
+                @staticmethod
+                def normalize(argv: str) -> str:
+                    return argv
+        """
+        cls_node = next(
+            n for n in ast.walk(ast.parse(textwrap.dedent(src)))
+            if isinstance(n, ast.ClassDef)
+        )
+        sigs = {}
+        _dm._collect_class_sigs(cls_node, "p.py", "mod", sigs)
+        self.assertEqual([p[0] for p in sigs[("mod", "normalize")][2]], ["argv"])
+
+
+class TestAttributeCallsNotResolved(unittest.TestCase):
+    """`self.foo(...)` must not match an imported module-level `foo`.
+
+    _callee_name returned `.attr`, discarding the receiver, so a.foo(), b.foo()
+    and self.foo() were indistinguishable. 93 such calls in tests/ resolved
+    against an unrelated function.
+    """
+
+    SRC = """\
+        def _parse_agent(spec: str) -> str:
+            return spec
+    """
+    TEST = """\
+        from mymod.helpers import _parse_agent
+
+        class T:
+            def test_it(self):
+                self._parse_agent(None)
+    """
+
+    def test_attribute_call_is_skipped(self):
+        with _TempRepo(self.SRC, self.TEST) as repo:
+            sigs = collect_signatures(repo.src_root)
+            findings = scan_test_files(repo.test_root, sigs)
+        self.assertEqual(findings, [])
+
+
+class TestAmbiguousKeysDropped(unittest.TestCase):
+    """Two same-named defs in one module must not resolve to an arbitrary one."""
+
+    SRC = """\
+        class A:
+            def consume(self, payload: str) -> None:
+                pass
+
+        class B:
+            def consume(self, payload: dict) -> None:
+                pass
+    """
+    TEST = """\
+        from mymod.helpers import consume
+
+        def test_it():
+            consume(None)
+    """
+
+    def test_collision_drops_the_key(self):
+        with _TempRepo(self.SRC, self.TEST) as repo:
+            sigs = collect_signatures(repo.src_root)
+            findings = scan_test_files(repo.test_root, sigs)
+        self.assertNotIn(("helpers", "consume"), sigs)
+        self.assertEqual(findings, [])
+
+
+class TestNoneUnionParsing(unittest.TestCase):
+    """The None check parses the annotation instead of substring-matching."""
+
+    def test_any_nested_in_generic_is_still_hostile(self):
+        # `dict[str, Any]` contains "Any" as a substring but does not accept
+        # None. 270 parameters in this repo carry it.
+        self.assertTrue(_is_mismatch(None, "dict[str, Any]"))
+
+    def test_callable_returning_none_is_hostile(self):
+        self.assertTrue(_is_mismatch(None, "Callable[..., None]"))
+
+    def test_bare_any_still_permits_none(self):
+        self.assertFalse(_is_mismatch(None, "Any"))
+
+    def test_union_spellings_permit_none(self):
+        for ann in ("str | None", "Optional[str]", "Union[str, None]", "NoneType"):
+            with self.subTest(ann=ann):
+                self.assertFalse(_is_mismatch(None, ann))
+
+
 class TestEmptyScanFailsLoudly(unittest.TestCase):
     """An empty scan must exit non-zero, not report a reassuring zero.
 
