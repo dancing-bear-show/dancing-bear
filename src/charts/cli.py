@@ -50,7 +50,7 @@ def _apply_cli_overrides(cfg, output_path: str | None, theme: str | None, svg: b
     from charts.config import GridConfig
 
     effective_output: str = output_path or cfg.output
-    effective_theme: str | None = theme or cfg.theme
+    effective_theme: str = theme or cfg.theme
     if svg and not effective_output.endswith(".svg"):
         effective_output = str(Path(effective_output).with_suffix(".svg"))
 
@@ -88,7 +88,7 @@ def _parse_rows(raw_text: str) -> list[object]:
     if not isinstance(rows, list):
         print("error: input must be a JSON array of row objects", file=sys.stderr)
         raise SystemExit(1)
-    return rows  # type: ignore[return-value]
+    return rows
 
 
 def _validate_row(row: object, x_field: str, y_field: str) -> dict[str, object]:
@@ -101,7 +101,7 @@ def _validate_row(row: object, x_field: str, y_field: str) -> dict[str, object]:
     if y_field not in row:
         print(f"error: row missing --y field {y_field!r}", file=sys.stderr)
         raise SystemExit(1)
-    return row  # type: ignore[return-value]
+    return row
 
 
 def _build_series_map(

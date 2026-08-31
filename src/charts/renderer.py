@@ -18,9 +18,13 @@ importable in headless/CI environments even if matplotlib is not installed.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from charts.config import GridConfig
+
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
 from charts.theme import ChartTheme, get_theme
 from charts.types.area import AreaChartSpec
 from charts.types.bar import BarChartSpec
@@ -80,7 +84,7 @@ def _require_matplotlib() -> None:
         )
 
 
-def _normalize_axes_grid(axes: Any, rows: int, cols: int) -> list[list[object]]:
+def _normalize_axes_grid(axes: Any, rows: int, cols: int) -> list[list[Axes]]:
     """Normalise matplotlib axes output to a 2-D list regardless of grid shape."""
     if rows == 1 and cols == 1:
         return [[axes]]
@@ -92,7 +96,7 @@ def _normalize_axes_grid(axes: Any, rows: int, cols: int) -> list[list[object]]:
 
 
 def _hide_unused_axes(
-    axes_grid: list[list[object]],
+    axes_grid: list[list[Axes]],
     rows: int,
     cols: int,
     used_cells: set[tuple[int, int]],
@@ -100,7 +104,7 @@ def _hide_unused_axes(
     for r in range(rows):
         for c in range(cols):
             if (r, c) not in used_cells:
-                axes_grid[r][c].set_visible(False)  # type: ignore[union-attr]
+                axes_grid[r][c].set_visible(False)
 
 
 def _base_kwargs(spec: ChartSpec) -> dict[str, object]:
@@ -121,7 +125,7 @@ def _base_kwargs(spec: ChartSpec) -> dict[str, object]:
     }
 
 
-def _dispatch(fig: object, ax: object, spec: ChartSpec, theme: ChartTheme) -> None:
+def _dispatch(fig: Figure, ax: Axes, spec: ChartSpec, theme: ChartTheme) -> None:
     if spec.kind == ChartKind.line:
         line_spec = spec if isinstance(spec, LineChartSpec) else LineChartSpec(**_base_kwargs(spec))  # type: ignore[arg-type]
         _render_line(ax, line_spec, theme)
@@ -225,9 +229,9 @@ def render_grid(
 
     for panel, spec in zip(grid_cfg.panels, specs):
         ax = axes_grid[panel.row][panel.col]
-        _apply_theme(fig, ax, chart_theme)  # type: ignore[arg-type]
-        _dispatch(fig, ax, spec, chart_theme)  # type: ignore[arg-type]
-        _apply_labels(ax, spec, chart_theme)  # type: ignore[arg-type]
+        _apply_theme(fig, ax, chart_theme)
+        _dispatch(fig, ax, spec, chart_theme)
+        _apply_labels(ax, spec, chart_theme)
 
     used_cells = {(panel.row, panel.col) for panel in grid_cfg.panels}
     _hide_unused_axes(axes_grid, grid_cfg.rows, grid_cfg.cols, used_cells)

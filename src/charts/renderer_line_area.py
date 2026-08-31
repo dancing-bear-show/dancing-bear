@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import datetime
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from charts.theme import ChartTheme
 from charts.types.area import AreaChartSpec
@@ -15,7 +16,14 @@ from charts.types.base import ChartSpec, SeriesSpec
 from charts.types.dual import DualAxisChartSpec
 from charts.types.line import LineChartSpec
 
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
+
 _RIGHT_AXIS = "right"
+
+# Alias for the x-axis value type returned by _parse_x_values and used throughout.
+_XValue = datetime.datetime | float | str
 
 
 @dataclass(frozen=True)
@@ -31,7 +39,7 @@ class LineSeriesStyle:
 class DualSeriesContext:
     """Shared x-axis context for dual-axis series rendering."""
 
-    x_values: list[object]
+    x_values: list[_XValue]
     x_field: str
     is_dates: bool
     palette_offset: int = 0
@@ -42,38 +50,38 @@ class DualSeriesContext:
 # Theme / label helpers (shared by all chart kinds)
 # ---------------------------------------------------------------------------
 
-def _apply_theme(fig: object, ax: object, theme: ChartTheme) -> None:
-    fig.patch.set_facecolor(theme.background)  # type: ignore[union-attr]
-    ax.set_facecolor(theme.axes_bg)  # type: ignore[union-attr]
+def _apply_theme(fig: Figure, ax: Axes, theme: ChartTheme) -> None:
+    fig.patch.set_facecolor(theme.background)
+    ax.set_facecolor(theme.axes_bg)
 
-    for spine in ax.spines.values():  # type: ignore[union-attr]
+    for spine in ax.spines.values():
         spine.set_edgecolor(theme.grid_color)
 
-    ax.tick_params(colors=theme.text_color, which="both")  # type: ignore[union-attr]
-    ax.xaxis.label.set_color(theme.text_color)  # type: ignore[union-attr]
-    ax.yaxis.label.set_color(theme.text_color)  # type: ignore[union-attr]
-    ax.title.set_color(theme.text_color)  # type: ignore[union-attr]
+    ax.tick_params(colors=theme.text_color, which="both")
+    ax.xaxis.label.set_color(theme.text_color)
+    ax.yaxis.label.set_color(theme.text_color)
+    ax.title.set_color(theme.text_color)
 
-    ax.grid(True, color=theme.grid_color, linewidth=0.5, linestyle="--", alpha=0.7)  # type: ignore[union-attr]
-    ax.set_axisbelow(True)  # type: ignore[union-attr]
+    ax.grid(True, color=theme.grid_color, linewidth=0.5, linestyle="--", alpha=0.7)
+    ax.set_axisbelow(True)
 
 
-def _apply_labels(ax: object, spec: ChartSpec, theme: ChartTheme) -> None:
-    ax.set_title(spec.title)  # type: ignore[union-attr]
+def _apply_labels(ax: Axes, spec: ChartSpec, theme: ChartTheme) -> None:
+    ax.set_title(spec.title)
     if spec.x_label:
-        ax.set_xlabel(spec.x_label)  # type: ignore[union-attr]
+        ax.set_xlabel(spec.x_label)
     if spec.y_label:
-        ax.set_ylabel(spec.y_label)  # type: ignore[union-attr]
+        ax.set_ylabel(spec.y_label)
 
     if spec.show_legend:
         _apply_legend(ax, theme)
 
 
-def _apply_legend(ax: object, theme: ChartTheme) -> None:
-    handles, labels = ax.get_legend_handles_labels()  # type: ignore[union-attr]
+def _apply_legend(ax: Axes, theme: ChartTheme) -> None:
+    handles, labels = ax.get_legend_handles_labels()
     if not handles:
         return
-    legend = ax.legend(  # type: ignore[union-attr]
+    legend = ax.legend(
         handles, labels,
         loc="best",
         facecolor=theme.legend_color,
@@ -99,7 +107,7 @@ def _parse_iso_to_datetime(value: str) -> datetime.datetime:
     return datetime.datetime.combine(datetime.date.fromisoformat(value), datetime.time.min)
 
 
-def _parse_x_values(series: list[SeriesSpec], x_field: str) -> tuple[list[object], bool]:
+def _parse_x_values(series: list[SeriesSpec], x_field: str) -> tuple[list[_XValue], bool]:
     unique_raw = list(dict.fromkeys(
         str(row[x_field]) for s in series for row in s.data
     ))
@@ -128,45 +136,45 @@ def _series_color(series: SeriesSpec, idx: int, theme: ChartTheme) -> str:
     return theme.palette[idx % len(theme.palette)]
 
 
-def _row_key(raw_key: object, is_dates: bool) -> object:
+def _row_key(raw_key: Any, is_dates: bool) -> _XValue:
     if is_dates:
         return _parse_iso_to_datetime(str(raw_key))
     try:
         return float(str(raw_key))
     except (ValueError, TypeError):
-        return raw_key
+        return str(raw_key)
 
 
 def _build_row_map(
     series: SeriesSpec, x_field: str, is_dates: bool
-) -> dict[object, float]:
-    m: dict[object, float] = {}
+) -> dict[_XValue, float]:
+    m: dict[_XValue, float] = {}
     for row in series.data:
         m[_row_key(row[x_field], is_dates)] = float(row["value"])  # type: ignore[arg-type]
     return m
 
 
-def _configure_date_axis(ax: object, spec: ChartSpec) -> None:
+def _configure_date_axis(ax: Axes, spec: ChartSpec) -> None:
     import matplotlib.dates as mdates
     import matplotlib.pyplot as plt
     locator = mdates.AutoDateLocator(minticks=15, maxticks=30)
-    ax.xaxis.set_major_locator(locator)  # type: ignore[union-attr]
+    ax.xaxis.set_major_locator(locator)
     if spec.date_format:
-        formatter: object = mdates.DateFormatter(spec.date_format)
+        formatter: mdates.DateFormatter | mdates.AutoDateFormatter = mdates.DateFormatter(spec.date_format)
     else:
         formatter = mdates.AutoDateFormatter(locator)
-    ax.xaxis.set_major_formatter(formatter)  # type: ignore[union-attr]
-    plt.setp(ax.get_xticklabels(), rotation=30, ha="right")  # type: ignore[union-attr]
+    ax.xaxis.set_major_formatter(formatter)
+    plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
 
 
 def _maybe_shade_weekends(
-    ax: object, x_values: list[object], is_dates: bool, spec: ChartSpec, theme: ChartTheme
+    ax: Axes, x_values: list[_XValue], is_dates: bool, spec: ChartSpec, theme: ChartTheme
 ) -> None:
     if is_dates and spec.shade_weekends:
         _shade_weekends(ax, x_values, theme)
 
 
-def _maybe_configure_date_axis(ax: object, is_dates: bool, spec: ChartSpec) -> None:
+def _maybe_configure_date_axis(ax: Axes, is_dates: bool, spec: ChartSpec) -> None:
     if is_dates:
         _configure_date_axis(ax, spec)
 
@@ -175,7 +183,7 @@ def _maybe_configure_date_axis(ax: object, is_dates: bool, spec: ChartSpec) -> N
 # Line / area / dual rendering
 # ---------------------------------------------------------------------------
 
-def _shade_weekends(ax: object, x_values: list[object], theme: ChartTheme) -> None:
+def _shade_weekends(ax: Axes, x_values: list[_XValue], theme: ChartTheme) -> None:
     import matplotlib.dates as mdates
     seen: set[datetime.date] = set()
     for val in x_values:
@@ -186,7 +194,7 @@ def _shade_weekends(ax: object, x_values: list[object], theme: ChartTheme) -> No
             continue
         seen.add(day)
         if day.weekday() >= 5:
-            ax.axvspan(  # type: ignore[union-attr]
+            ax.axvspan(
                 mdates.date2num(day) - 0.5,
                 mdates.date2num(day) + 0.5,
                 color=theme.grid_color,
@@ -194,7 +202,7 @@ def _shade_weekends(ax: object, x_values: list[object], theme: ChartTheme) -> No
                 zorder=0,
             )
         elif day.weekday() == 0:
-            ax.axvline(  # type: ignore[union-attr]
+            ax.axvline(
                 mdates.date2num(day) - 0.5,
                 color=theme.grid_color,
                 linewidth=0.8,
@@ -205,8 +213,8 @@ def _shade_weekends(ax: object, x_values: list[object], theme: ChartTheme) -> No
 
 
 def _plot_series_smooth(
-    ax: object,
-    x_values: list[object],
+    ax: Axes,
+    x_values: list[_XValue],
     y_values: list[float],
     is_dates: bool,
     style: LineSeriesStyle,
@@ -223,11 +231,11 @@ def _plot_series_smooth(
     plot_x = x_dense if not is_dates else [
         x_values[int(round(min(xi, len(x_values) - 1)))] for xi in x_dense
     ]
-    ax.plot(plot_x, y_smooth, color=style.color, linewidth=style.linewidth, label=style.label)  # type: ignore[union-attr]
+    ax.plot(plot_x, y_smooth, color=style.color, linewidth=style.linewidth, label=style.label)
     return True
 
 
-def _render_line(ax: object, spec: LineChartSpec, theme: ChartTheme) -> None:
+def _render_line(ax: Axes, spec: LineChartSpec, theme: ChartTheme) -> None:
     x_values, is_dates = _parse_x_values(spec.series, spec.x_field)
 
     _maybe_shade_weekends(ax, x_values, is_dates, spec, theme)
@@ -242,7 +250,7 @@ def _render_line(ax: object, spec: LineChartSpec, theme: ChartTheme) -> None:
             if _plot_series_smooth(ax, x_values, y_values, is_dates, LineSeriesStyle(color, spec.line_width, label)):
                 continue
 
-        ax.plot(  # type: ignore[union-attr]
+        ax.plot(
             x_values, y_values,
             color=color,
             linewidth=spec.line_width,
@@ -253,7 +261,7 @@ def _render_line(ax: object, spec: LineChartSpec, theme: ChartTheme) -> None:
     _maybe_configure_date_axis(ax, is_dates, spec)
 
 
-def _render_area(ax: object, spec: AreaChartSpec, theme: ChartTheme) -> None:
+def _render_area(ax: Axes, spec: AreaChartSpec, theme: ChartTheme) -> None:
     import numpy as np
     x_values, is_dates = _parse_x_values(spec.series, spec.x_field)
 
@@ -268,8 +276,8 @@ def _render_area(ax: object, spec: AreaChartSpec, theme: ChartTheme) -> None:
         y_top = baseline + y_raw if spec.stacked else y_raw
         fill_bottom = baseline if spec.stacked else np.zeros(len(x_values))
 
-        ax.fill_between(x_values, fill_bottom, y_top, color=color, alpha=spec.alpha)  # type: ignore[union-attr]
-        ax.plot(x_values, y_top, color=color, linewidth=1.5, label=series.label or series.name)  # type: ignore[union-attr]
+        ax.fill_between(x_values, fill_bottom, y_top, color=color, alpha=spec.alpha)
+        ax.plot(x_values, y_top, color=color, linewidth=1.5, label=series.label or series.name)
 
         if spec.stacked:
             baseline = y_top
@@ -305,37 +313,37 @@ def _split_dual_series(
 
 
 def _plot_dual_series(
-    ax: object,
+    ax: Axes,
     series_list: list[SeriesSpec],
     ctx: DualSeriesContext,
     theme: ChartTheme,
-) -> tuple[list[object], list[str]]:
-    handles: list[object] = []
+) -> tuple[list[Any], list[str]]:
+    handles: list[Any] = []
     labels: list[str] = []
     for idx, series in enumerate(series_list):
         color = _series_color(series, ctx.palette_offset + idx, theme)
         row_map = _build_row_map(series, ctx.x_field, ctx.is_dates)
         y = [row_map.get(x, float("nan")) for x in ctx.x_values]
         label = series.label or series.name
-        (line,) = ax.plot(ctx.x_values, y, color=color, linewidth=2.0, linestyle=ctx.linestyle, label=label)  # type: ignore[union-attr]
+        (line,) = ax.plot(ctx.x_values, y, color=color, linewidth=2.0, linestyle=ctx.linestyle, label=label)
         handles.append(line)
         labels.append(label)
     return handles, labels
 
 
 def _apply_secondary_axis_style(
-    ax2: object, spec: DualAxisChartSpec, theme: ChartTheme
+    ax2: Axes, spec: DualAxisChartSpec, theme: ChartTheme
 ) -> None:
     if spec.y_right_label:
-        ax2.set_ylabel(spec.y_right_label)  # type: ignore[union-attr]
-        ax2.yaxis.label.set_color(theme.text_color)  # type: ignore[union-attr]
-    ax2.tick_params(colors=theme.text_color, which="both")  # type: ignore[union-attr]
-    for spine in ax2.spines.values():  # type: ignore[union-attr]
+        ax2.set_ylabel(spec.y_right_label)
+        ax2.yaxis.label.set_color(theme.text_color)
+    ax2.tick_params(colors=theme.text_color, which="both")
+    for spine in ax2.spines.values():
         spine.set_edgecolor(theme.grid_color)
 
 
-def _render_dual(fig: object, ax: object, spec: DualAxisChartSpec, theme: ChartTheme) -> None:
-    ax2 = ax.twinx()  # type: ignore[union-attr]
+def _render_dual(fig: Figure, ax: Axes, spec: DualAxisChartSpec, theme: ChartTheme) -> None:
+    ax2 = ax.twinx()
     _apply_theme(fig, ax2, theme)
     ax2.grid(False)
 
@@ -365,4 +373,4 @@ def _render_dual(fig: object, ax: object, spec: DualAxisChartSpec, theme: ChartT
     all_handles = left_handles + right_handles
     all_labels = left_labels + right_labels
     if spec.show_legend and all_handles:
-        ax.legend(all_handles, all_labels, loc="best", facecolor=theme.legend_color, framealpha=0.8)  # type: ignore[union-attr]
+        ax.legend(all_handles, all_labels, loc="best", facecolor=theme.legend_color, framealpha=0.8)
