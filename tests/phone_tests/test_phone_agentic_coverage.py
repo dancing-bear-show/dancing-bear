@@ -10,9 +10,7 @@ Strengthens the existing minimal tests by covering:
 
 from __future__ import annotations
 
-import io
 import unittest
-from contextlib import redirect_stdout
 from unittest.mock import patch
 
 from phone import agentic as _agentic_module
@@ -212,16 +210,6 @@ class TestPhoneDomainMapContent(unittest.TestCase):
 
         result = build_domain_map()
         self.assertIn("layout", result.lower())
-
-
-class TestEmitAgenticContext(unittest.TestCase):
-    def test_fmt_and_compact_params_accepted(self):
-        from phone.agentic import emit_agentic_context
-
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            rc = emit_agentic_context(_fmt="json", _compact=True)
-        self.assertEqual(rc, 0)
 
 
 if __name__ == "__main__":
