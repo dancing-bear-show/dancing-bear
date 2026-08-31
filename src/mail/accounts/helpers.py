@@ -25,11 +25,18 @@ def load_accounts(path: str) -> list[dict]:
     return [a for a in accts if isinstance(a, dict)]
 
 
-def iter_accounts(accts: list[dict], names: str | None) -> Iterable[dict]:
-    """Iterate over accounts, optionally filtering by comma-separated names."""
+def iter_accounts(accts: list[dict], names: str | list[str] | None) -> Iterable[dict]:
+    """Iterate over accounts, optionally filtering by name.
+
+    ``names`` may be a comma-separated string, a list of strings, or None to
+    yield all accounts.
+    """
     allow = None
     if names:
-        allow = {n.strip() for n in names.split(',') if n.strip()}
+        if isinstance(names, list):
+            allow = {n.strip() for n in names if n.strip()}
+        else:
+            allow = {n.strip() for n in names.split(',') if n.strip()}
     for a in accts:
         if allow and a.get("name") not in allow:
             continue

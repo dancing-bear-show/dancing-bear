@@ -383,6 +383,7 @@ class TestExportPdfSadPaths(unittest.TestCase):
         self.assertIn("LibreOffice", err.message)
         self.assertIn("conversion failed", err.message.lower())
         self.assertIsNotNone(err.hint)
+        assert err.hint is not None  # nosec B101 - type narrowing for mypy
         self.assertIn("install", err.hint.lower())
         self.assertIn("soffice", err.hint)
 
@@ -631,6 +632,7 @@ class TestExportPdfFailsLoudlyWhenNoPdfIsWritten(unittest.TestCase):
             err, _requested, _out = self._run_with_silent_success(td)
 
             self.assertIsNotNone(err.hint)
+            assert err.hint is not None  # nosec B101 - type narrowing for mypy
             self.assertIn("writable", err.hint)
             self.assertNotIn("brew install", err.hint)
 
@@ -651,6 +653,7 @@ class TestExportPdfFailsLoudlyWhenNoPdfIsWritten(unittest.TestCase):
         self.assertEqual(err.code, ExitCode.ERROR)
         self.assertIn("LibreOffice", err.message)
         self.assertIn("not found", err.message)
+        assert err.hint is not None  # nosec B101 - type narrowing for mypy
         self.assertIn("soffice", err.hint)
         self.assertIn("install", err.hint.lower())
 

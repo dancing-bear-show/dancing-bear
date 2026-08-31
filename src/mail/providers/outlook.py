@@ -31,8 +31,10 @@ class OutlookProvider(BaseProvider):
 
     def create_label(self, **body: Any) -> dict[str, Any]:
         name = body.get("name") or body.get("displayName")
+        if not name:
+            raise ValueError("create_label requires a 'name' or 'displayName' in body")
         color = body.get("color")
-        return self._client.create_label(name=name, color=color)
+        return self._client.create_label(name=str(name), color=color)
 
     def update_label(self, label_id: str, body: dict[str, Any]) -> dict[str, Any]:
         return self._client.update_label(label_id, body)

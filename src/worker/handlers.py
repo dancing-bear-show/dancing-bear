@@ -180,6 +180,8 @@ def handle_run_cli(job: dict[str, object]) -> tuple[bool, object]:  # pragma: no
     error, prog, cmd_list = _validate_run_cli_payload(payload)
     if error:
         return (False, error)
+    if prog is None:  # unreachable: _validate_run_cli_payload guarantees prog is str when error is None
+        return (False, "internal error: prog is None after validation")
 
     cmd = _build_command(prog, cmd_list)
     env_overlay = dict(payload.get("env") or {})

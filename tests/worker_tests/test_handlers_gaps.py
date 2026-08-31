@@ -63,6 +63,7 @@ class TestValidateRunCliPayload(unittest.TestCase):
         from worker.handlers import _validate_run_cli_payload
 
         error, prog, cmd_list = _validate_run_cli_payload({"cmd": []})
+        assert error is not None  # nosec B101 - type narrowing for mypy
         self.assertIn("missing", error)
         self.assertIsNone(prog)
         self.assertIsNone(cmd_list)
@@ -71,6 +72,7 @@ class TestValidateRunCliPayload(unittest.TestCase):
         from worker.handlers import _validate_run_cli_payload
 
         error, prog, cmd_list = _validate_run_cli_payload({})
+        assert error is not None  # nosec B101 - type narrowing for mypy
         self.assertIn("missing", error)
         self.assertIsNone(prog)
         self.assertIsNone(cmd_list)
@@ -79,6 +81,7 @@ class TestValidateRunCliPayload(unittest.TestCase):
         from worker.handlers import _validate_run_cli_payload
 
         error, prog, cmd_list = _validate_run_cli_payload({"cmd": ["evil-script", "--flag"]})
+        assert error is not None  # nosec B101 - type narrowing for mypy
         self.assertIn("disallowed", error)
         self.assertIsNone(prog)
         self.assertIsNone(cmd_list)

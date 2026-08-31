@@ -86,11 +86,17 @@ class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
             )
             return 1
         try:
+            start_time = ctx.nev.get("start_time")
+            end_time = ctx.nev.get("end_time")
+            repeat = ctx.nev.get("repeat")
+            if not (start_time and end_time and repeat):
+                ctx.logs.append(f"[{ctx.idx}] Skipping recurring event '{ctx.subj}': missing start_time, end_time, or repeat")
+                return 0
             params = RecurringEventCreationParams(
                 subject=ctx.subj,
-                start_time=ctx.nev.get("start_time"),
-                end_time=ctx.nev.get("end_time"),
-                repeat=ctx.nev.get("repeat"),
+                start_time=str(start_time),
+                end_time=str(end_time),
+                repeat=str(repeat),
                 calendar_id=None,
                 calendar_name=cal_name,
                 tz=ctx.nev.get("tz"),
@@ -126,10 +132,15 @@ class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
             )
             return 1
         try:
+            start_iso_str = to_iso_str(start_iso)
+            end_iso_str = to_iso_str(end_iso)
+            if start_iso_str is None or end_iso_str is None:  # unreachable: guarded above
+                ctx.logs.append(f"[{ctx.idx}] Skipping one-time event '{ctx.subj}': unparseable start/end")
+                return 0
             params = EventCreationParams(
                 subject=ctx.subj,
-                start_iso=to_iso_str(start_iso),
-                end_iso=to_iso_str(end_iso),
+                start_iso=start_iso_str,
+                end_iso=end_iso_str,
                 calendar_id=None,
                 calendar_name=cal_name,
                 tz=ctx.nev.get("tz"),

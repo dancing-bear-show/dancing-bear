@@ -172,14 +172,11 @@ class TestOutlookProviderCreateLabel(unittest.TestCase):
         self.assertIsNone(call_kwargs["color"])
 
     def test_name_none_when_no_name_or_displayName(self):
-        # No real validation exists at this layer: with neither `name` nor
-        # `displayName` supplied, name=None is forwarded to the client, which
-        # is the real failure mode (client rejects the None name, not this method).
-        provider, mock_client = _make_provider()
-        mock_client.create_label.return_value = {}
-        provider.create_label(color="red")
-        call_kwargs = mock_client.create_label.call_args.kwargs
-        self.assertIsNone(call_kwargs["name"])
+        # When neither `name` nor `displayName` is supplied, the provider now
+        # raises ValueError rather than forwarding None to the underlying client.
+        provider, _mock_client = _make_provider()
+        with self.assertRaises(ValueError, msg="expected ValueError when name missing"):
+            provider.create_label(color="red")
 
     def test_propagates_client_http_error(self):
         import requests
