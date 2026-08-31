@@ -203,6 +203,38 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
   `S602`), `# NOSONAR` takes SonarQube codes (`S3776`, `S3516`). A SonarQube code
   in a `# noqa:` suppresses nothing and makes ruff warn on every run
 
+**Type checking (mypy):**
+- `make typecheck` is unchanged and still **report-only** — it prints findings
+  and exits 0. Two targets alongside it *do* block:
+  - `make typecheck-changed` — mypy over only the files this branch changed,
+    failing on any error in a file that was clean at baseline
+  - `make typecheck-ratchet` — repo-wide, failing only if a package's error
+    count grew
+- CI runs both in a dedicated `typecheck` job. It needs `fetch-depth: 0`; a
+  shallow clone has no merge-base, and the changed-files diff would come back
+  empty — a pass that checked nothing. The script hard-fails on an unresolvable
+  base ref rather than degrading quietly.
+- Baseline lives in `typecheck-baseline.json`: **680 errors** across `src/`,
+  `tests/` and `bin/`, measured on **Linux**, the platform CI enforces on. It is
+  per-package, so a regression in a small package is visible instead of lost in
+  the total.
+- **The count is platform-dependent, and that is expected.** macOS reports 684
+  (`mail` 47 vs 48, `tests` 237 vs 232); the other 13 packages are identical.
+  `rumps` is pinned `sys_platform == 'darwin'`, so mypy analyses the menubar
+  tests on macOS and not on Linux. Run `make typecheck-ratchet` on macOS and it
+  reports the difference and exits 0 rather than failing on something you did
+  not cause — CI is the enforcing run. Regenerate the baseline on Linux.
+- **When the gate fails on code you did not write:** files that already had
+  errors are grandfathered in the baseline's `legacy_files` and are reported but
+  never blocking. If you are blocked, the error is in a file that was clean —
+  it is new. Fix it rather than suppressing it.
+- **Never add `# type: ignore`** to get past the gate. That trades a real
+  signal for suppression noise.
+- Fixed some errors? Lower the ceiling: `make typecheck-baseline`, then commit
+  `typecheck-baseline.json`. Nothing updates it automatically — a silent rewrite
+  would let a regression raise its own ceiling. Generate it on Linux; from macOS,
+  take the numbers from the CI job's failure output, which prints them.
+
 **Testing:**
 - Run tests: `make test` (pins `PYTHONPATH` to this checkout — always prefer it)
 - With coverage: `make cov`

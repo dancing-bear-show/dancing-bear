@@ -12,6 +12,52 @@ jobs:
       - name: Run qlty check
         run: qlty check --no-progress
 
+  # Separate from `tests` on purpose. This job needs the full history
+  # (fetch-depth: 0) for a correct merge-base, which the test job does not, and
+  # keeping them apart means a type regression and a coverage drop report as
+  # distinct failures instead of masking each other. It also runs in parallel
+  # with the other two rather than lengthening the critical path.
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # REQUIRED. The changed-files gate diffs `origin/main...HEAD`, and a
+          # shallow clone has no merge-base — the diff comes back empty or wrong
+          # and the gate passes having checked nothing. bin/mypy_ratchet.py hard
+          # fails when the base ref will not resolve, so a regression here is
+          # loud rather than silent, but the fix is this setting.
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install
+        run: |
+          python -m pip install -U pip
+          python -m pip install -e ".[dev]"
+      - name: Fetch main for the merge-base
+        # On a PR the default checkout leaves no local `main`; the gate diffs
+        # against origin/main, so make sure the ref is present.
+        run: git fetch --no-tags --depth=0 origin main:refs/remotes/origin/main || true
+      - name: Type-check changed files (blocking)
+        # Fails on any NEW type error in a file this branch touched. Files that
+        # already had errors are grandfathered via typecheck-baseline.json.
+        run: python bin/mypy_ratchet.py changed --base origin/main
+      - name: Type-check ratchet (blocking)
+        # Fails only if a package's error count grew against the baseline.
+        run: python bin/mypy_ratchet.py ratchet
+      - name: Print runner-native counts on failure
+        # The baseline is committed from a Linux run, but if the counts ever
+        # drift (a dependency bump changing what mypy can resolve), this prints
+        # what THIS runner actually sees, so the new numbers can be read
+        # straight from the log instead of reproduced by hand.
+        if: failure()
+        run: |
+          python bin/mypy_ratchet.py update-baseline
+          cat typecheck-baseline.json
+          echo "NOTE: printed for diagnosis only — nothing was committed."
+
   tests:
     runs-on: ubuntu-latest
     steps:
