@@ -430,9 +430,16 @@ def _post_build(parser: argparse.ArgumentParser) -> None:
 
 
 def _on_no_command() -> int:
+    """Print help and exit 0 on a bare invocation (rule A7).
+
+    Click exited 2 here. That was incidental to the parser, not a chosen
+    interface, so the argparse port aligns it with run_with_assistant's default
+    and the other 15 apps. worker and workflow keep their non-zero codes: those
+    are documented, print a one-line usage to stderr, and are load-bearing.
+    """
     if _parser_ref:
         _parser_ref[0].print_help()
-    return 2
+    return 0
 
 
 # ---------------------------------------------------------------------------

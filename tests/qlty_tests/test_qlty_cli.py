@@ -10,6 +10,7 @@ from typing import Protocol
 from unittest.mock import patch
 
 from tests.cli_separator_contract import SeparatorContractMixin
+from tests.cli_no_subcommand_contract import NoSubcommandContractMixin
 
 from qlty import cli
 from qlty.models import Source
@@ -519,6 +520,14 @@ class TestQltySeparatorCLI(SeparatorContractMixin, unittest.TestCase):
     MODULE_PATH = "qlty.cli"
     APP_ID = "qlty"
 
+
+
+class TestQltyNoSubcommand(NoSubcommandContractMixin, unittest.TestCase):
+    """Rule A7 — the no-subcommand exit code is deliberate."""
+
+    MODULE_PATH = "qlty.cli"
+    EXPECTED_RC = 0
+    EXPECTED_STREAM = "stdout"
 
 if __name__ == "__main__":
     unittest.main()

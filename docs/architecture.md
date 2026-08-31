@@ -234,6 +234,26 @@ unmapped code.
 Bare `except Exception: pass/continue` requires a `# nosec B110/B112` comment
 naming the intentional failure mode. qlty and bandit enforce this.
 
+### No-subcommand exit codes (rule A7)
+
+A bare invocation is not an error, so it is not covered by the table above.
+16 of the 18 apps print full help to **stdout** and exit **0**, which is
+`run_with_assistant`'s default.
+
+Two differ deliberately, and both say so in the source: `worker` (1) and
+`workflow` (2) print a one-line usage to **stderr** via `_no_command_usage()`,
+preserving a legacy public interface. That written rationale is what separates a
+deliberate code from drift — `charts` and `telemetry` also had non-zero codes
+until neither could point to a reason, and were normalised.
+
+`tests/cli_no_subcommand_contract.py` pins each app's code **and stream**; the
+stream matters because help-on-stdout and usage-on-stderr are different
+interfaces that an exit-code check alone cannot tell apart.
+
+One inconsistency to know about: `CLIApp.run()` returns `ExitCode.USAGE` (2) for
+a missing subcommand while `run_with_assistant()` returns 0. Every app uses the
+latter, so the contract pins observed behaviour rather than reconciling the two.
+
 ## 6. Provider abstraction
 
 Where a domain has interchangeable backends (Gmail/Outlook today), the CLI and

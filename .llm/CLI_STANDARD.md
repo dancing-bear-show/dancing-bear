@@ -50,12 +50,14 @@ emits the *failure* output unconditionally, by construction.
 
 Applies to **every app** for A1–A7.
 
-Proven by two contracts, not one:
+Proven by three contracts:
 - `tests/agentic_cli_contract.py` → `AgenticCLIContractMixin` — **A1–A5**
 - `tests/cli_separator_contract.py` → `SeparatorContractMixin` — **A6**
   (18 CLIApp apps; `telemetry` now adopts this contract)
+- `tests/cli_no_subcommand_contract.py` → `NoSubcommandContractMixin` — **A7**
+  (18 adopters; each declares its own expected exit code and stream)
 
-A7 is currently unguarded by any contract; it is a SHOULD for that reason.
+Every rule in this tier is now guarded by a contract.
 
 **A1. MUST exit 0 on `--agentic`** and announce `agentic: <app_id>` on line 1.
 
@@ -83,10 +85,35 @@ Only the *first* bare `--` is stripped; a later or trailing `--` is preserved
 `tests/core_tests/test_cli_framework.py::TestNormalizeArgv` and deliberately
 not repeated per app.
 
-**A7. SHOULD make no-subcommand behaviour deliberate** — either help + 0, or an
-explicit `on_no_command` preserving a legacy exit code. charts (1), diagrams (0),
-worker (1) and workflow (2) intentionally differ; the point is that the value is
-chosen, not accidental.
+**A7. MUST make no-subcommand behaviour deliberate** — help + 0 by default, or
+an explicit `on_no_command` whose non-zero code is *documented in the source*.
+Proven by `tests/cli_no_subcommand_contract.py` → `NoSubcommandContractMixin`
+(18 adopters), which pins each app's exit code **and which stream carries the
+output**.
+
+*Conformant (16):* help to stdout, exit 0 — every app except the two below.
+
+*Documented exceptions (2):* `worker` (1) and `workflow` (2) print a one-line
+usage to **stderr**. Both carry a docstring on `_no_command_usage()` saying they
+preserve legacy behaviour "since this is a public CLI surface". That written
+rationale is what makes them exceptions rather than drift.
+
+`charts` (was 1) and `telemetry` (was 2) were normalised to help + 0. Neither
+had any stated rationale: charts was a bare `return 1` predating the `src/` move
+(#147), and telemetry's 2 was incidental to Click, preserved by the argparse
+port without anyone choosing it. A7 asks that the value be *chosen*; an
+undocumented non-zero is the drift the rule exists to catch, so the fix was to
+align them rather than enshrine them.
+
+The **stream is part of the contract**, not just the code. help-on-stdout and
+usage-on-stderr are different interfaces, and an exit-code-only assertion cannot
+tell them apart — verified by probe: moving `worker`'s usage to stdout fails the
+contract with `'stdout' != 'stderr'` while its exit code stays 1.
+
+One framework inconsistency this surfaced, left as-is: `CLIApp.run()` returns
+`ExitCode.USAGE` (2) for a missing subcommand while `run_with_assistant()`
+returns 0. Every app here uses the latter, so the contract pins observed
+behaviour; reconciling the two is a separate change.
 
 ---
 
