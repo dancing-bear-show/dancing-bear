@@ -65,6 +65,9 @@ class NoSubcommandContractMixin:
     #: instead of silently inheriting someone else's.
     EXPECTED_RC: int
     #: Which stream carries the output: ``"stdout"`` or ``"stderr"``.
+    #: An app writing to BOTH resolves to ``"both"`` and fails against
+    #: either single-stream expectation — stray stderr is a real finding,
+    #: not a detail to round away.
     EXPECTED_STREAM: str
 
     def _run_bare(self) -> tuple[object, str, str]:
@@ -97,7 +100,13 @@ class NoSubcommandContractMixin:
         could move a message between streams without any test noticing.
         """
         _rc, out, err = self._run_bare()
-        if out:
+        # "both" is its own answer, not a tie broken in stdout's favour. An
+        # `if out: "stdout"` check passes an app that ALSO leaked a warning or
+        # a log line to stderr, which is precisely the accidental output this
+        # assertion exists to catch.
+        if out and err:
+            written = "both"
+        elif out:
             written = "stdout"
         elif err:
             written = "stderr"
@@ -106,7 +115,8 @@ class NoSubcommandContractMixin:
         self.assertEqual(
             written,
             self.EXPECTED_STREAM,
-            f"{self.MODULE_PATH} wrote to {written}, expected {self.EXPECTED_STREAM}",
+            f"{self.MODULE_PATH} wrote to {written}, expected {self.EXPECTED_STREAM}"
+            + (f"\n  stray stderr: {err.strip()[:200]!r}" if written == "both" else ""),
         )
 
     def test_bare_invocation_is_not_silent(self):

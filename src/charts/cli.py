@@ -283,7 +283,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(_argv)
 
     # Handled before the no-subcommand branch so `--agentic` alone exits 0
-    # while a bare invocation keeps its legacy exit code of 1.
+    # without falling through to the help path below.
     rc = assistant.maybe_emit_agentic(args, _lazy_agentic(), parser=parser)
     if rc is not None:
         return rc
