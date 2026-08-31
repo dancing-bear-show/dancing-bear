@@ -16,7 +16,7 @@ def expand_paths(paths: Iterable[str]) -> list[str]:
 _SIZE_RE = re.compile(r"^(?P<num>\d+(?:\.\d+)?)(?P<unit>[KkMmGgTt][Bb]?)?$")
 
 
-def parse_size(s: str) -> int:
+def parse_size(s: str | int | float) -> int:
     if isinstance(s, (int, float)):
         return int(s)
     s = s.strip()

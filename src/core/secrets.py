@@ -116,7 +116,7 @@ def is_sensitive_key(key: object) -> bool:
     return any(normalized.endswith(suffix) for suffix in _SENSITIVE_KEY_SUFFIXES)
 
 
-def _mask_value(value: str) -> str:
+def _mask_value(value: str | None) -> str | None:
     if not value:
         return value
     s = value.strip().lower()
@@ -203,7 +203,7 @@ def _mask_query_pairs_in_tail(tail: str) -> str:
     return rebuilt + (f"#{fragment}" if hashmark else "")
 
 
-def mask_url(url: str) -> str:
+def mask_url(url: str | None) -> str:
     try:
         parts = urlsplit(url or "")
         qs = parse_qsl(parts.query, keep_blank_values=True)
@@ -257,7 +257,7 @@ _MAPPING_FIELD_RE = re.compile(
 )
 
 
-def mask_text(text: str) -> str:
+def mask_text(text: str | None) -> str:
     s = text or ""
     # Authorization: Scheme token
     s = re.sub(r"(?i)(Authorization\s*:\s*)(Bearer|Basic|Token)\s+[^\s]+", r"\1\2 ***REDACTED***", s)

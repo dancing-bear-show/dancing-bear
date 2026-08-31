@@ -98,7 +98,7 @@ def _infer_date_range(text: str, cfg: "MetaParserConfig") -> dict[str, str] | No
 
 
 def infer_meta_from_text(
-    text: str,
+    text: str | None,
     config: "MetaParserConfig | None" = None,
 ) -> dict[str, Any]:
     """Extract metadata from class schedule text.

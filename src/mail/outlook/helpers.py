@@ -7,7 +7,7 @@ import sys
 from core.auth import resolve_outlook_credentials
 
 
-def norm_label_name_outlook(name: str, mode: str = "join-dash") -> str:
+def norm_label_name_outlook(name: str | None, mode: str = "join-dash") -> str:
     """Normalize a Gmail-style nested label to an Outlook-compatible name."""
     parts = (name or "").split("/")
     if not parts:

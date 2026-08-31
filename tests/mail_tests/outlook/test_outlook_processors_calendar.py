@@ -7,6 +7,8 @@ Targets the missing lines/branches identified from ``make cov``:
 """
 from __future__ import annotations
 
+from typing import Any, cast
+
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -326,7 +328,7 @@ class TestCalendarAddFromConfigBranches(unittest.TestCase):
     def test_create_one_event_non_dict_returns_false(self):
         """Non-dict event entry returns False (line 351 branch)."""
         proc = OutlookCalendarAddFromConfigProcessor()
-        result = proc._create_one_event_from_config("not a dict", MagicMock(), False)
+        result = proc._create_one_event_from_config(cast(Any, "not a dict"), MagicMock(), False)  # cast: exercises non-dict isinstance guard
 
         self.assertFalse(result)
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 from tests.fixtures import test_path
 import unittest
 from unittest.mock import MagicMock, patch
@@ -436,7 +438,7 @@ class TestWriterRejectsUntypedResume(unittest.TestCase):
         from resume.docx_base import create_resume_writer
 
         with self.assertRaises(TypeError) as ctx:
-            create_resume_writer(None, {"sections": []})
+            create_resume_writer(cast(Any, None), {"sections": []})  # cast: exercises TypeError guard for non-Resume data
         self._assert_non_dict_guidance(ctx, "NoneType")
 
     def test_rejects_unrelated_type(self):
@@ -460,7 +462,7 @@ class TestWriterRejectsUntypedResume(unittest.TestCase):
         from resume.docx_base import create_resume_writer
 
         with self.assertRaises(TypeError) as ctx:
-            create_resume_writer(None, {"sections": []})
+            create_resume_writer(cast(Any, None), {"sections": []})  # cast: exercises TypeError guard for non-Resume data
         msg = str(ctx.exception)
         self.assertNotIn("pass Resume.from_dict", msg)
         self.assertNotIn("Resume.from_dict(data) instead", msg)
