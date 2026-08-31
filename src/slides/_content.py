@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from slides.constants import (
     CONTENT_LEFT,
@@ -20,6 +20,94 @@ from slides.schema import BulletItem, ResolvedBullet
 
 if TYPE_CHECKING:
     from pptx.enum.dml import MSO_THEME_COLOR
+    from pptx.util import Pt
+
+
+class _ContentHost(Protocol):
+    """Complete self-type for ContentMixin methods that call cross-mixin attrs.
+
+    Declares everything self must provide to the Protocol-annotated methods:
+    - StylingMixin methods (cross-mixin requirements)
+    - ShapeUtilsMixin methods (cross-mixin requirements)
+    - ContentMixin's own methods (called internally between annotated methods)
+    """
+
+    # --- From StylingMixin ---
+    def _format_bullet_text(self, text: str, level: int) -> str: ...
+    def _add_text_to_paragraph(
+        self, paragraph: object, text: str, style: TextStyle,
+    ) -> None: ...
+    def _apply_native_bullet(self, paragraph: object, level: int) -> None: ...
+    def _style_run(
+        self,
+        run: object,
+        *,
+        font_size: Pt | None = ...,
+        theme_color: MSO_THEME_COLOR | None = ...,
+        bold: bool | None = ...,
+    ) -> None: ...
+    def _suppress_bullet(self, paragraph: object) -> None: ...
+
+    # --- From ShapeUtilsMixin ---
+    def _set_slide_title(
+        self,
+        slide: object,
+        title_text: str,
+        theme_color: MSO_THEME_COLOR,
+        subtitle: str | None = ...,
+        *,
+        inherit_style: bool = ...,
+    ) -> None: ...
+    def _find_shape(
+        self,
+        slide: object,
+        *,
+        placeholder: bool | None = ...,
+        shape_type: int | None = ...,
+        has_text_frame: bool = ...,
+    ) -> Any: ...
+    @staticmethod
+    def _find_body_placeholder(slide: object) -> Any: ...
+    def _remove_unused_placeholders(
+        self, slide: object, *, keep_body: bool = ...,
+    ) -> None: ...
+    def _has_body_placeholder(self, slide: object) -> bool: ...
+    def _reposition_textbox(
+        self, slide: object, left: float, width: float,
+    ) -> None: ...
+    @staticmethod
+    def _slide_width(slide: object) -> int: ...
+
+    # --- ContentMixin's own methods (called between annotated methods) ---
+    def _is_section_header(self, text: str | None) -> bool: ...
+    @staticmethod
+    def _resolve_font_and_spacing(
+        is_header: bool,
+        level: int,
+        theme_color: Any,
+        use_template_style: bool,
+    ) -> tuple[Any, Any, Any, Any]: ...
+    def _format_body_paragraph(
+        self,
+        paragraph: object,
+        item: object,
+        theme_color: MSO_THEME_COLOR,
+        *,
+        use_template_style: bool = ...,
+        inherit_style: bool = ...,
+    ) -> None: ...
+    def _set_slide_content(
+        self,
+        slide: object,
+        title_text: str,
+        body_lines: list,
+        theme_color: MSO_THEME_COLOR,
+        subtitle: str | None = ...,
+        *,
+        inherit_style: bool = ...,
+    ) -> None: ...
+    def _populate_title_slide(self, slide: object, content: Any, theme_color: Any) -> None: ...
+    def _populate_title_subtitle(self, slide: object, content: Any, theme_color: Any) -> None: ...
 
 
 class ContentMixin:
@@ -58,7 +146,7 @@ class ContentMixin:
         return font_size, effective_theme, Pt(SPACING_BEFORE_BULLET), Pt(SPACING_AFTER_BULLET)
 
     def _format_body_paragraph(
-        self,
+        self: "_ContentHost",
         paragraph,
         item,
         theme_color: MSO_THEME_COLOR,
@@ -112,7 +200,7 @@ class ContentMixin:
         paragraph.space_after = space_after
 
     def _set_slide_content(
-        self,
+        self: "_ContentHost",
         slide,
         title_text: str,
         body_lines: list,
@@ -153,7 +241,7 @@ class ContentMixin:
             self._format_body_paragraph(p, item, theme_color, use_template_style=use_template_style, inherit_style=inherit_style)
 
     def _populate_bullet_slide(
-        self, slide, content, theme_color, *, is_title_slide: bool = False, inherit_style: bool = False,
+        self: "_ContentHost", slide, content, theme_color, *, is_title_slide: bool = False, inherit_style: bool = False,
     ) -> None:
         """Populate a slide with bullet content."""
         has_body_content = bool(content.bullets) and not is_title_slide
@@ -172,7 +260,7 @@ class ContentMixin:
             self._set_slide_content(slide, content.title, content.bullets, theme_color, subtitle=content.subtitle)
 
     def _populate_title_slide(
-        self, slide, content, theme_color,
+        self: "_ContentHost", slide, content, theme_color,
     ) -> None:
         """Populate a centered title slide."""
         from pptx.enum.text import PP_ALIGN
@@ -203,7 +291,7 @@ class ContentMixin:
 
         self._populate_title_subtitle(slide, content, theme_color)
 
-    def _populate_title_subtitle(self, slide, content, theme_color) -> None:
+    def _populate_title_subtitle(self: "_ContentHost", slide, content, theme_color) -> None:
         """Render a title slide's bullets as centered, bullet-free subtitle lines."""
         from pptx.enum.shapes import MSO_SHAPE_TYPE
         from pptx.enum.text import PP_ALIGN

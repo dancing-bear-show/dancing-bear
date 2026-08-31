@@ -39,7 +39,25 @@ def _make_host(window_idx: int = 0) -> OtelSectionsMixin:
     """Return a minimal host wired with all row/header attributes."""
 
     class _Host(OtelSectionsMixin):
-        pass
+        # Attributes the menubar app wires up at startup; declared here so
+        # mypy can verify test setup without touching the mixin source.
+        _otel_window_idx: int
+        _hdr_otel_usage: NS
+        _hdr_otel_models: NS
+        _hdr_otel_meta: NS
+        _hdr_hooks: NS
+        _hdr_tools: NS
+        _hdr_code: NS
+        _hdr_skills: NS
+        _hdr_session_patterns: NS
+        _otel_usage_rows: list
+        _otel_model_rows: list
+        _otel_meta_rows: list
+        _hook_rows: list
+        _tool_rows: list
+        _code_rows: list
+        _skill_rows: list
+        _session_pattern_rows: list
 
     host = _Host()
     host._otel_window_idx = window_idx

@@ -2,12 +2,35 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Protocol
 
 from slides.constants import CONTENT_BOTTOM_MARGIN, IMAGE_CONTENT_TOP, SLIDE_HEIGHT
 
 if TYPE_CHECKING:
     from pptx.enum.dml import MSO_THEME_COLOR
+
+
+class _ImageHost(Protocol):
+    """Complete self-type for ImageMixin._add_image_to_slide.
+
+    Declares what the method needs from ShapeUtilsMixin (cross-mixin calls).
+    """
+
+    def _set_slide_title(
+        self,
+        slide: object,
+        title_text: str,
+        theme_color: MSO_THEME_COLOR,
+        subtitle: str | None = ...,
+        *,
+        inherit_style: bool = ...,
+    ) -> None: ...
+
+    @staticmethod
+    def _find_body_placeholder(slide: object) -> Any: ...
+
+    @staticmethod
+    def _slide_width(slide: object) -> int: ...
 
 
 class ImageMixin:
@@ -18,7 +41,7 @@ class ImageMixin:
     """
 
     def _add_image_to_slide(
-        self, slide, image_path: str, content, theme_color: MSO_THEME_COLOR,
+        self: "_ImageHost", slide, image_path: str, content, theme_color: MSO_THEME_COLOR,
     ) -> None:
         """Add an image to a slide, centered below the title.
 
