@@ -64,6 +64,25 @@ class TestTelemetryArgvNormalizedOnce(unittest.TestCase):
 
         otel_main.assert_called_once_with(["query", "--format", "json"])
 
+    def test_non_leading_separator_is_forwarded_to_otel(self):
+        """A ``--`` that is not leading belongs to otel and must survive.
+
+        Only a LEADING bare ``--`` is stripped, and only to reveal ``otel`` in
+        position 0. Using ``normalize_argv`` for the probe was wrong here: it
+        removes the first bare ``--`` ANYWHERE, swallowing an end-of-options
+        guard that otel needs. Measured before the fix::
+
+            ["otel", "query", "--", "--raw"]
+              normalize_argv -> forwards ["query", "--raw"]       # guard lost
+              leading-only   -> forwards ["query", "--", "--raw"] # correct
+        """
+        import telemetry.cli_sessions as cs
+
+        with patch("telemetry.otel.cli.main", return_value=0) as otel_main:
+            cs.main(["otel", "query", "--", "--raw"])
+
+        otel_main.assert_called_once_with(["query", "--", "--raw"])
+
 
 if __name__ == "__main__":
     unittest.main()

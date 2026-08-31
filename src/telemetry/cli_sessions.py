@@ -446,9 +446,16 @@ def main(argv: list[str] | None = None) -> int:
 
     # Special-case otel: intercept before CLIApp parses, so all remaining args
     # (including --help, --format, etc.) are forwarded verbatim to otel's own
-    # parser. Normalizing here is only to find the subcommand -- a leading bare
-    # "--" must be stripped before `otel` is visible in position 0.
-    probe = CLIApp.normalize_argv(raw_argv)
+    # parser.
+    #
+    # Strip only a LEADING bare "--", and only to reveal `otel` in position 0.
+    # normalize_argv is the wrong tool here: it removes the first bare "--"
+    # ANYWHERE in argv, which would swallow a later end-of-options guard that
+    # belongs to otel. Measured:
+    #   ["otel", "query", "--", "--raw"]
+    #     normalize_argv -> forwards ["query", "--raw"]      (guard lost)
+    #     leading-only   -> forwards ["query", "--", "--raw"] (correct)
+    probe = raw_argv[1:] if raw_argv and raw_argv[0] == "--" else raw_argv
     if probe and probe[0] == "otel":
         from telemetry.otel.cli import main as otel_main
         return otel_main(probe[1:])
