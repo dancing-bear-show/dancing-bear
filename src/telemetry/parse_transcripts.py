@@ -15,12 +15,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import click
-
+from core.cli_errors import CLIError
 from core.cli_output import OutputWriter
 from core.pipeline import BaseProducer, RequestConsumer, SafeProcessor
 from telemetry.parse_transcripts_emit import ParseResult, _emit_rows
-from telemetry.parse_transcripts_io import DEFAULT_INDEX_DIR, run_parse_transcripts
+from telemetry.parse_transcripts_io import run_parse_transcripts
 
 
 @dataclass(frozen=True)
@@ -109,36 +108,4 @@ def _run_parse_transcripts(request: TranscriptParseRequest, fmt: str) -> None:
         )
     else:
         msg = (envelope.diagnostics or {}).get("message", "parse-transcripts failed")
-        raise click.ClickException(msg)
-
-
-@click.command("parse-transcripts")
-@click.option("--since", default="all", show_default=True,
-              help="Time window to process (e.g. 7d, 30d, all).")
-@click.option("--projects-dir", default=None, type=click.Path(),
-              help="Override ~/.claude/projects.")
-@click.option("--index-dir", default=None, type=click.Path(),
-              help="Override default index dir (~/.config/dancing-bear/work/prompt-index/).")
-@click.option("--force", is_flag=True, default=False,
-              help="Reprocess all files, ignoring high-water marks.")
-@click.option("--format", "fmt", default="table",
-              type=click.Choice(["json", "table"]), show_default=True)
-@click.option("--limit", default=0, show_default=True,
-              help="Process at most N sessions (0 = all).")
-def parse_transcripts(
-    since: str,
-    projects_dir: str | None,
-    index_dir: str | None,
-    force: bool,
-    fmt: str,
-    limit: int,
-) -> None:
-    """Pre-parse JSONL transcripts into a structured JSON index."""
-    request = TranscriptParseRequest(
-        since=since,
-        projects_dir=Path(projects_dir).expanduser() if projects_dir else None,
-        index_dir=Path(index_dir).expanduser() if index_dir else DEFAULT_INDEX_DIR,
-        force=force,
-        limit=limit,
-    )
-    _run_parse_transcripts(request, fmt)
+        raise CLIError(msg)

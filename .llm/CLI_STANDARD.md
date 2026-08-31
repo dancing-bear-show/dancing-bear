@@ -18,16 +18,16 @@ exemption below applies. **MAY** = permitted variation.
 **S1. MUST build on `CLIApp`** (`core.cli_framework`), not a hand-rolled argparse
 tree. Supplies subcommand dispatch, the common flag set, `normalize_argv`, and
 uniform exception→exit-code mapping.
-*Exempt:* `telemetry` (Click). See "Click exemption" below.
+*Conformant (18):* all 18 apps now build on CLIApp.
 
 **S2. MUST declare app identity in `<app>/meta.py` as an `AppMeta`.**
 `AppMeta` derives every fallback string (agentic, domain-map, inventory,
 familiarize) from one `app_id` + `purpose`. Hand-written fallback literals
 duplicate that derivation and drift from it.
-*Conformant (10):* apple_music, charts, diagrams, qlty, sheets, slides,
-whatsapp, wifi, worker, workflow.
-*Non-conformant (8):* calendars, desk, mail, maker, phone, resume, schedule,
-telemetry — each hand-writes the string. Five are byte-identical to what
+*Conformant (11):* apple_music, charts, diagrams, qlty, sheets, slides,
+telemetry, whatsapp, wifi, worker, workflow.
+*Non-conformant (7):* calendars, desk, mail, maker, phone, resume, schedule
+— each hand-writes the string. Five are byte-identical to what
 `AppMeta.agentic_fallback` generates, so the substitution is mechanical;
 `maker` hides it behind a constant (`FALLBACK_AGENTIC_HEADER`) imported at two
 call sites; `mail`'s is a bullet list that does not follow the format at all,
@@ -48,15 +48,12 @@ emits the *failure* output unconditionally, by construction.
 
 ## Tier 1 — Agentic CLI surface
 
-Applies to **every app** for A1–A5 and A7. **A6 excludes `telemetry`** (Click;
-see the exemption at the end of this document) — so "every app" is not a
-uniform claim across this tier, and the two contracts below have deliberately
-different adopter sets.
+Applies to **every app** for A1–A7.
 
 Proven by two contracts, not one:
 - `tests/agentic_cli_contract.py` → `AgenticCLIContractMixin` — **A1–A5**
 - `tests/cli_separator_contract.py` → `SeparatorContractMixin` — **A6**
-  (17 CLIApp apps; `telemetry` correctly absent from its adopters)
+  (18 CLIApp apps; `telemetry` now adopts this contract)
 
 A7 is currently unguarded by any contract; it is a SHOULD for that reason.
 
@@ -67,7 +64,7 @@ This is the single most important rule in this document. See "The rc=0 trap".
 
 **A3. MUST parse under `--agentic-format json`** and expose exactly:
 `{prog, description, usage, options, subcommands, epilog}`.
-*Exempt:* `telemetry` emits `{app_id, commands, notes, prog, purpose}`.
+*Conformant (18):* all 18 apps now emit this key set via `core.agentic_schema`.
 
 **A4. MUST declare subcommands or options** — a schema with neither is a parser
 that failed to introspect.
@@ -79,11 +76,8 @@ still naming `prog`. The flag exists to save tokens; it must actually do so.
 `app --flag`, via `CLIApp.normalize_argv`. Proven by
 `tests/cli_separator_contract.py` → `SeparatorContractMixin` (rc 0 both ways,
 byte-identical stdout).
-*Applies to the 17 CLIApp apps only — **`telemetry` is exempt**.* Measured:
-`telemetry.main(["--","--agentic"])` returns **rc=2 with 0 bytes** (vs rc=0,
-1041 bytes without). Click never routes through `normalize_argv`, so this is a
-parser fact, not a defect to fix. All 17 CLIApp apps honoured this before the
-contract existed, so it is a **regression guard**, not a migration.
+*Applies to all 18 CLIApp apps.* All apps route through `normalize_argv` in
+`run_with_assistant`, which strips the first bare `--` before parsing.
 Only the *first* bare `--` is stripped; a later or trailing `--` is preserved
 (POSIX end-of-options). Those two cases are covered at the unit level in
 `tests/core_tests/test_cli_framework.py::TestNormalizeArgv` and deliberately
@@ -106,9 +100,9 @@ domains appear "unadopted" when they are merely a different shape.
 
 Two counts that are easy to conflate, and are both correct:
 **8 domains are minimal by shape** (charts, diagrams, sheets, slides,
-telemetry, worker, workflow, apple_music) but only **7 adopt the builder
-contract** — `telemetry` is Click and covered separately. `apple_music` joined
-this tier when its capsule was fixed.
+telemetry, worker, workflow, apple_music) and **all 8 now adopt the builder
+contract**. `apple_music` joined this tier when its capsule was fixed;
+`telemetry` joined when it migrated from Click to CLIApp.
 
 ### 2a — Full tier (10 domains)
 calendars, desk, mail, maker, phone, qlty, resume, schedule, whatsapp, wifi
@@ -125,9 +119,8 @@ stdout, output byte-identical to the builder, accepts both params
 swallowed by `cached_parser_loader`. *Opt out:* `maker`, `qlty` build no tree
 deliberately (`EXPECT_CLI_TREE = False`).
 
-### 2b — Minimal tier (8 by shape, 7 adopting)
-charts, diagrams, sheets, slides, worker, workflow, apple_music
-(+ `telemetry`, minimal by shape but Click — see the exemption below)
+### 2b — Minimal tier (8 by shape, 8 adopting)
+charts, diagrams, sheets, slides, telemetry, worker, workflow, apple_music
 
 **B1** and **B2** apply unchanged. **B3/B4 do not** — these domains define no
 `build_domain_map` and embed no CLI tree, by design.
@@ -205,47 +198,23 @@ capsule construction as suspect.
 
 ---
 
-## The Click exemption (`telemetry`)
+## The `telemetry` Click migration (completed)
 
-`telemetry` is Click-based and fails **A3** (5 keys vs 6).
+`telemetry` was previously Click-based and failed **A3** (5 keys vs 6) and
+**A6** (separator not stripped). It has been ported to CLIApp in this branch.
 
-Converting it to argparse was previously ruled out here as "out of scope." That
-call was wrong, and it was wrong for a specific reason worth recording: it
-rested on a claim about this codebase that nobody had measured. Measured scope:
+The one genuinely tricky mapping was the `otel` passthrough: the Click UNPROCESSED
+approach was replaced by intercepting `"otel"` in `main()` before `parse_args` runs,
+then forwarding `_argv[1:]` directly to `telemetry.otel.cli.main`. This ensures
+`telemetry otel --help` emits OTEL's help, not telemetry's.
 
-- 43 `@click` decorators (36 in `cli_sessions.py`, 7 in `parse_transcripts.py`)
-- 38 `click.option`, 8 `click.Choice`, 2 groups, 11 subcommands
-- `click` imported in 5 files, including `parse_transcripts.py` /
-  `parse_transcripts_io.py` — beyond the CLI layer
-- **only 4 of 79** telemetry test files use `CliRunner`
+A stub `cmd_otel_stub` is registered with the CLIApp so the subcommand appears
+in help text and agentic schema introspection, but the actual dispatch bypasses it.
 
-That last number corrects an earlier claim in this document that "many" of the
-79 files assert Click behaviour. They do not, and the mistake mattered: it was
-the main argument for leaving telemetry alone.
-
-Neither feature expected to block a port actually does — `pass_context` maps to
-threading the argparse `Namespace`, and `UNPROCESSED` + `allow_extra_args` maps
-to `parse_known_args` (with the `otel` passthrough caveat below).
-
-**Decision: migrate.** `workflows/code/cli-standard-conformance.yaml` carries a
-`migrate_click` work stream that ports telemetry onto `CLIApp`. Converting also
-*deletes* code: `agentic.py`'s `_describe_click_group` /
-`_describe_click_options` exist only to walk a `click.Group`, and
-`core.agentic_schema.build_schema_json` already builds the capsule generically
-for the other 17 apps.
-
-**The one genuinely tricky mapping** is the `otel` passthrough.
-`nargs=REMAINDER` makes the parent intercept `--help` / `--agentic`
-(`SystemExit(2)`); `parse_known_args` splits argv across two variables
-(`["otel","query","--format","json"]` → `args=["query"]`,
-`rest=["--format","json"]`). Forward `args + rest` concatenated in original
-order, and verify `telemetry otel --help` still prints *OTEL's* help rather
-than telemetry's — a partial port swaps them silently while still exiting 0.
-
-**Until that migration lands**, the exemptions in A3 and A6 above hold and this
-section stays. When it lands, this section and both carve-outs must be deleted:
-a standard documenting an exemption the code no longer needs will lead a later
-reader to reintroduce Click on its authority.
+All Click-walking code (`_describe_click_group`, `_describe_click_options`,
+`_choices`, `_jsonable`, `build_agentic_json`) has been deleted from `agentic.py`.
+The JSON schema is now generated by `core.agentic_schema.build_schema_json` via
+`BaseAssistant.maybe_emit_agentic`, matching all other 17 apps.
 
 ---
 

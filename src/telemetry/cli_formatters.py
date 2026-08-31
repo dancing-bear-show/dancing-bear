@@ -4,9 +4,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-import click
 from rich.table import Table
 
+from core.cli_errors import CLIError
 from core.cli_output import emit_one
 from core.format_utils import format_tokens as _fmt_tokens
 from core.text_utils import truncate_text
@@ -30,18 +30,17 @@ def _truncate_id(s: str) -> str:
 
 
 def _parse_since_cli(since: str) -> datetime:
-    """Parse --since window string, raising click.BadParameter on bad input."""
+    """Parse --since window string, raising CLIError on bad input."""
     from telemetry.timeutil import now_utc, parse_window
 
     if since.strip().isdigit():
-        raise click.BadParameter(
-            f"bare integer {since!r} is ambiguous — use a unit suffix (e.g. {since}h, {since}d)",
-            param_hint="--since",
+        raise CLIError(
+            f"bare integer {since!r} is ambiguous — use a unit suffix (e.g. {since}h, {since}d)"
         )
     try:
         return now_utc() - parse_window(since)
     except ValueError as e:
-        raise click.BadParameter(str(e), param_hint="--since") from e
+        raise CLIError(str(e)) from e
 
 
 def _fmt_duration(s: object) -> str:

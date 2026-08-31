@@ -1,19 +1,23 @@
-"""Click command group and all subcommands for the telemetry CLI.
+"""Argparse command group and all subcommands for the telemetry CLI.
 
-Extracted from telemetry/cli.py as part of the decompose-sweep refactor.
-telemetry/cli.py is now a thin shim that re-exports everything from here
-and from telemetry/cli_formatters.py.
+Ported from Click to CLIApp. All business logic is unchanged; only the CLI
+wiring is replaced.
 """
 from __future__ import annotations
 
+import argparse
+import sys
 from dataclasses import dataclass
 from datetime import timedelta
+from functools import lru_cache
 from pathlib import Path
 
-import click
 from rich.console import Console
 from rich.table import Table
 
+from core.assistant import BaseAssistant
+from core.cli_errors import CLIError
+from core.cli_framework import CLIApp
 from core.cli_output import emit_one
 from core.date_utils import now_utc
 from telemetry.cli_formatters import (
@@ -30,107 +34,79 @@ from telemetry.cli_formatters import (
     _sessions_json_payload,
     _truncate_id,
 )
+from telemetry.meta import META
 
 console = Console()
 
-
-@click.group(invoke_without_command=True)
-@click.option(
-    "--agentic",
-    "agentic",
-    is_flag=True,
-    default=False,
-    help="Emit compact repo context for LLM agents and exit.",
+app = CLIApp(
+    "telemetry",
+    "telemetry — Claude Code session analysis TUI",
+    add_common_args=False,
 )
-@click.option(
-    "--agentic-format",
-    "agentic_format",
-    type=click.Choice(["text", "yaml", "json"]),
-    default="text",
-    show_default=True,
-    help="Output format for --agentic capsule.",
-)
-@click.option(
-    "--agentic-compact",
-    "agentic_compact",
-    is_flag=True,
-    default=False,
-    help="Emit a more compact agentic capsule.",
-)
-@click.pass_context
-def main(
-    ctx: click.Context,
-    agentic: bool,
-    agentic_format: str,
-    agentic_compact: bool,
-) -> None:
-    """telemetry — Claude Code session analysis TUI."""
-    if agentic:
-        from telemetry.agentic import emit_agentic_context
 
-        raise SystemExit(emit_agentic_context(agentic_format, agentic_compact))
-    if ctx.invoked_subcommand is None:
-        # Preserve legacy Click behavior: `telemetry` with no subcommand prints
-        # help and exits 2 (matches upstream `@click.group()` without
-        # `invoke_without_command=True`).
-        click.echo(ctx.get_help())
-        ctx.exit(2)
+assistant = BaseAssistant(META.app_id, META.agentic_fallback)
 
 
-@main.command()
-@click.option("--session", default=None, help="Session ID to monitor (auto-detects if omitted).")
-@click.option("--refresh", default=2.0, show_default=True, help="Refresh interval in seconds.")
-@click.option("--rules", "rules_path", default=None, help="Path to custom rules YAML.")
-def live(session: str | None, refresh: float, rules_path: str | None) -> None:
-    """Live TUI dashboard that refreshes continuously."""
+@lru_cache(maxsize=1)
+def _lazy_agentic():
+    from telemetry import agentic as _agentic
+    return _agentic.emit_agentic_context
+
+
+# ---------------------------------------------------------------------------
+# Subcommands
+# ---------------------------------------------------------------------------
+
+
+@app.command("live", help="Live TUI dashboard that refreshes continuously.")
+@app.argument("--session", default=None, help="Session ID to monitor (auto-detects if omitted).")
+@app.argument("--refresh", type=float, default=2.0, help="Refresh interval in seconds.")
+@app.argument("--rules", dest="rules_path", default=None, help="Path to custom rules YAML.")
+def cmd_live(args: argparse.Namespace) -> int:
     try:
         from telemetry.tui import run_live
     except ImportError as exc:
-        raise click.ClickException(
+        raise CLIError(
             "textual is required for `telemetry live`: pip install 'personal-assistants[tui]'"
         ) from exc
-    run_live(session_id=session, refresh=refresh, rules_path=rules_path)
+    run_live(session_id=args.session, refresh=args.refresh, rules_path=args.rules_path)
+    return 0
 
 
-@main.command()
-@click.option("--session", default=None, help="Session ID (auto-detects if omitted).")
-@click.option("--refresh", default=2.0, show_default=True, help="Refresh interval in seconds.")
-@click.option("--compact", is_flag=True, help="Single-line compact format.")
-@click.option("--rules", "rules_path", default=None, help="Path to custom rules YAML.")
-def stats(session: str | None, refresh: float, compact: bool, rules_path: str | None) -> None:
-    """Live stats panel — compact real-time session metrics."""
-    # Rich-only renderer (telemetry.tui._stats); no Textual required.
+@app.command("stats", help="Live stats panel — compact real-time session metrics.")
+@app.argument("--session", default=None, help="Session ID (auto-detects if omitted).")
+@app.argument("--refresh", type=float, default=2.0, help="Refresh interval in seconds.")
+@app.argument("--compact", action="store_true", help="Single-line compact format.")
+@app.argument("--rules", dest="rules_path", default=None, help="Path to custom rules YAML.")
+def cmd_stats(args: argparse.Namespace) -> int:
     from telemetry.tui import run_stats
+    run_stats(session_id=args.session, refresh=args.refresh, compact=args.compact, rules_path=args.rules_path)
+    return 0
 
-    run_stats(session_id=session, refresh=refresh, compact=compact, rules_path=rules_path)
 
-
-@main.command()
-@click.option("--session", default=None, help="Session ID to summarise (auto-detects if omitted).")
-@click.option("--rules", "rules_path", default=None, help="Path to custom rules YAML.")
-def summary(session: str | None, rules_path: str | None) -> None:
-    """Print a one-shot session summary."""
-    # Rich-only renderer (telemetry.tui._stats); no Textual required.
+@app.command("summary", help="Print a one-shot session summary.")
+@app.argument("--session", default=None, help="Session ID to summarise (auto-detects if omitted).")
+@app.argument("--rules", dest="rules_path", default=None, help="Path to custom rules YAML.")
+def cmd_summary(args: argparse.Namespace) -> int:
     from telemetry.tui import print_summary
+    print_summary(session_id=args.session, rules_path=args.rules_path)
+    return 0
 
-    print_summary(session_id=session, rules_path=rules_path)
 
-
-@main.command()
-@click.option("-d", "--days", default=7, show_default=True, help="Number of past days to include.")
-def history(days: int) -> None:
-    """List recent sessions in a Rich table."""
+@app.command("history", help="List recent sessions in a Rich table.")
+@app.argument("-d", "--days", type=int, default=7, help="Number of past days to include.")
+def cmd_history(args: argparse.Namespace) -> int:  # NOSONAR S3516
     from telemetry.providers.transcript import TranscriptProvider
 
-    since = now_utc() - timedelta(days=days)
+    since = now_utc() - timedelta(days=args.days)
     transcript = TranscriptProvider()
     sessions = transcript.get_sessions(since=since)
 
     if not sessions:
-        console.print(f"[dim]No sessions found in the last {days} day(s).[/]")
-        return
+        console.print(f"[dim]No sessions found in the last {args.days} day(s).[/]")
+        return 0
 
-    table = Table(show_header=True, header_style="bold", title=f"Sessions (last {days}d)")
+    table = Table(show_header=True, header_style="bold", title=f"Sessions (last {args.days}d)")
     table.add_column("Session ID", style="cyan", no_wrap=True)
     table.add_column("Project", no_wrap=True)
     table.add_column("Model")
@@ -149,38 +125,40 @@ def history(days: int) -> None:
         )
 
     console.print(table)
+    return 0
 
 
-@main.command("sessions")
-@click.option("--since", default="7d", show_default=True, help="Time window (e.g. 2d, 7d, 24h).")
-@click.option("--format", "fmt", default="table", type=click.Choice(["table", "json"]), show_default=True)
-@click.option("--limit", default=0, help="Show only top N sessions by cost (0 = all).")
-@click.option("--errors-only", is_flag=True, help="Show only sessions that spawned at least one subagent.")
-@click.option("--projects-dir", default=None, help="Override ~/.claude/projects directory.")
-def sessions(since: str, fmt: str, limit: int, errors_only: bool, projects_dir: str | None) -> None:
-    """List sessions with cost and token breakdown, parsed from JSONL transcripts."""
+@app.command("sessions", help="List sessions with cost and token breakdown, parsed from JSONL transcripts.")
+@app.argument("--since", default="7d", help="Time window (e.g. 2d, 7d, 24h).")
+@app.argument("--format", dest="fmt", default="table", choices=["table", "json"], help="Output format.")
+@app.argument("--limit", type=int, default=0, help="Show only top N sessions by cost (0 = all).")
+@app.argument("--errors-only", action="store_true", help="Show only sessions that spawned at least one subagent.")
+@app.argument("--projects-dir", default=None, help="Override ~/.claude/projects directory.")
+def cmd_sessions(args: argparse.Namespace) -> int:  # NOSONAR S3516
     from telemetry.providers.transcript import TranscriptProvider
 
-    since_dt = _parse_since_cli(since)
-
-    provider = TranscriptProvider(projects_dir=Path(projects_dir).expanduser() if projects_dir else None)
+    since_dt = _parse_since_cli(args.since)
+    provider = TranscriptProvider(
+        projects_dir=Path(args.projects_dir).expanduser() if args.projects_dir else None,
+    )
     all_sessions = provider.get_sessions(since=since_dt)
     all_sessions = [s for s in all_sessions if s.total_events > 0 or s.total_cost > 0]
-    if errors_only:
+    if args.errors_only:
         all_sessions = [s for s in all_sessions if s.agents]
     all_sessions.sort(key=lambda s: s.total_cost, reverse=True)
-    if limit > 0:
-        all_sessions = all_sessions[:limit]
+    if args.limit > 0:
+        all_sessions = all_sessions[:args.limit]
 
-    if fmt == "json":
+    if args.fmt == "json":
         emit_one(_sessions_json_payload(all_sessions), fmt="json")
-        return
+        return 0
 
     if not all_sessions:
         console.print("[dim]No sessions found.[/]")
-        return
+        return 0
 
-    console.print(_build_sessions_table(all_sessions, since))
+    console.print(_build_sessions_table(all_sessions, args.since))
+    return 0
 
 
 @dataclass(frozen=True)
@@ -225,22 +203,27 @@ def _run_agents(request: AgentQueryRequest, fmt: str) -> None:
     console.print(_build_agents_table(all_rows, rows, request.since))
 
 
-@main.command("agents")
-@click.option("--since", default="7d", show_default=True, help="Time window (e.g. 2d, 7d, 24h).")
-@click.option(
-    "--format", "fmt", default="table",
-    type=click.Choice(["table", "json", "csv"]), show_default=True,
+@app.command("agents", help="Per-agent token and cost breakdown.")
+@app.argument("--since", default="7d", help="Time window (e.g. 2d, 7d, 24h).")
+@app.argument("--format", dest="fmt", default="table", choices=["table", "json", "csv"], help="Output format.")
+@app.argument("--limit", type=int, default=0, help="Show only top N agents (0 = all).")
+@app.argument("--model", default=None, help="Filter to agents that used this model (substring match).")
+@app.argument(
+    "--sort", default="cost", choices=list(_AGENT_SORT_KEYS), help="Sort column.",
 )
-@click.option("--limit", default=0, show_default=True, help="Show only top N agents (0 = all).")
-@click.option("--model", default=None, help="Filter to agents that used this model (substring match).")
-@click.option(
-    "--sort", default="cost", show_default=True,
-    type=click.Choice(list(_AGENT_SORT_KEYS)), help="Sort column.",
-)
-@click.option("--projects-dir", default=None, help="Override ~/.claude/projects directory.")
-def agents(since: str, fmt: str, limit: int, model: str | None, sort: str, projects_dir: str | None) -> None:
-    """Per-agent token and cost breakdown."""
-    _run_agents(AgentQueryRequest(since=since, limit=limit, model=model, sort=sort, projects_dir=projects_dir), fmt)
+@app.argument("--projects-dir", default=None, help="Override ~/.claude/projects directory.")
+def cmd_agents(args: argparse.Namespace) -> int:
+    _run_agents(
+        AgentQueryRequest(
+            since=args.since,
+            limit=args.limit,
+            model=args.model,
+            sort=args.sort,
+            projects_dir=args.projects_dir,
+        ),
+        args.fmt,
+    )
+    return 0
 
 
 def _rules_init(config_path: Path) -> None:
@@ -342,92 +325,139 @@ def _rules_list() -> None:
     console.print(table)
 
 
-@main.command()
-@click.option("--init", "do_init", is_flag=True, help="Scaffold ~/.telemetry-transcripts/rules.yaml.")
-@click.option("--validate", "do_validate", is_flag=True, help="Validate rules and report errors.")
-@click.option("--explain", default=None, metavar="NAME", help="Show config + fix hint for a rule.")
-def rules(do_init: bool, do_validate: bool, explain: str | None) -> None:
-    """Manage telemetry classification rules."""
+@app.command("rules", help="Manage telemetry classification rules.")
+@app.argument("--init", dest="do_init", action="store_true", help="Scaffold ~/.telemetry-transcripts/rules.yaml.")
+@app.argument("--validate", dest="do_validate", action="store_true", help="Validate rules and report errors.")
+@app.argument("--explain", default=None, metavar="NAME", help="Show config + fix hint for a rule.")
+def cmd_rules(args: argparse.Namespace) -> int:
     config_path = Path.home() / ".telemetry-transcripts" / "rules.yaml"
 
-    if do_init:
+    if args.do_init:
         _rules_init(config_path)
-    elif do_validate:
+    elif args.do_validate:
         _rules_validate()
-    elif explain:
-        _rules_explain(explain)
+    elif args.explain:
+        _rules_explain(args.explain)
     else:
         _rules_list()
+    return 0
 
 
-@main.command("cost-breakdown")
-@click.option("--since", default="7d", show_default=True, help="Time window (e.g. 2d, 7d, 24h).")
-@click.option(
-    "--format", "fmt", default="table",
-    type=click.Choice(["table", "json", "csv"]), show_default=True,
-)
-@click.option(
-    "--group-by", "group_by", default="agent",
-    type=click.Choice(["agent", "day"]), show_default=True,
-)
-@click.option("--limit", default=0, show_default=True, help="Top N entries (0 = all).")
-@click.option("--projects-dir", default=None, help="Override ~/.claude/projects directory.")
-def cost_breakdown(since: str, fmt: str, group_by: str, limit: int, projects_dir: str | None) -> None:
-    """Per-agent or per-day cost breakdown."""
+@app.command("cost-breakdown", help="Per-agent or per-day cost breakdown.", aliases=["cost"])
+@app.argument("--since", default="7d", help="Time window (e.g. 2d, 7d, 24h).")
+@app.argument("--format", dest="fmt", default="table", choices=["table", "json", "csv"], help="Output format.")
+@app.argument("--group-by", dest="group_by", default="agent", choices=["agent", "day"], help="Group by agent or day.")
+@app.argument("--limit", type=int, default=0, help="Top N entries (0 = all).")
+@app.argument("--projects-dir", default=None, help="Override ~/.claude/projects directory.")
+def cmd_cost_breakdown(args: argparse.Namespace) -> int:  # NOSONAR S3516
     from telemetry.providers.transcript import TranscriptProvider
 
-    since_dt = _parse_since_cli(since)
-    provider = TranscriptProvider(projects_dir=Path(projects_dir).expanduser() if projects_dir else None)
+    since_dt = _parse_since_cli(args.since)
+    provider = TranscriptProvider(
+        projects_dir=Path(args.projects_dir).expanduser() if args.projects_dir else None,
+    )
 
-    if group_by == "agent":
+    if args.group_by == "agent":
         rows = _breakdown_by_agent(provider.aggregate_agents(since=since_dt))
     else:
         rows = _breakdown_by_day(provider.get_sessions(since=since_dt))
 
-    if limit > 0:
-        rows = rows[:limit]
+    if args.limit > 0:
+        rows = rows[:args.limit]
 
-    if fmt == "json":
-        emit_one({"group_by": group_by, "since": since, "rows": rows}, fmt="json")
-        return
+    if args.fmt == "json":
+        emit_one({"group_by": args.group_by, "since": args.since, "rows": rows}, fmt="json")
+        return 0
 
-    if fmt == "csv":
-        _print_cost_csv(rows, group_by)
-        return
+    if args.fmt == "csv":
+        _print_cost_csv(rows, args.group_by)
+        return 0
 
     if not rows:
         console.print("[dim]No cost data found.[/]")
-        return
+        return 0
 
-    console.print(_build_breakdown_table(rows, group_by, since))
-
-
-from telemetry.parse_transcripts import parse_transcripts  # noqa: E402
-
-main.add_command(parse_transcripts)
-
-# Backwards-compatible alias: `telemetry cost` → `telemetry cost-breakdown`
-main.add_command(cost_breakdown, name="cost")
+    console.print(_build_breakdown_table(rows, args.group_by, args.since))
+    return 0
 
 
-@main.command(
+@app.command("parse-transcripts", help="Pre-parse JSONL transcripts into a structured JSON index.")
+@app.argument("--since", default="all", help="Time window to process (e.g. 7d, 30d, all).")
+@app.argument("--projects-dir", default=None, help="Override ~/.claude/projects.")
+@app.argument("--index-dir", default=None, help="Override default index dir (~/.config/dancing-bear/work/prompt-index/).")
+@app.argument("--force", action="store_true", default=False, help="Reprocess all files, ignoring high-water marks.")
+@app.argument("--format", dest="fmt", default="table", choices=["json", "table"], help="Output format.")
+@app.argument("--limit", type=int, default=0, help="Process at most N sessions (0 = all).")
+def cmd_parse_transcripts(args: argparse.Namespace) -> int:
+    from telemetry.parse_transcripts import (
+        TranscriptParseRequest,
+        _run_parse_transcripts,
+    )
+    from telemetry.parse_transcripts_io import DEFAULT_INDEX_DIR
+
+    request = TranscriptParseRequest(
+        since=args.since,
+        projects_dir=Path(args.projects_dir).expanduser() if args.projects_dir else None,
+        index_dir=Path(args.index_dir).expanduser() if args.index_dir else DEFAULT_INDEX_DIR,
+        force=args.force,
+        limit=args.limit,
+    )
+    _run_parse_transcripts(request, args.fmt)
+    return 0
+
+
+# otel stub — the actual dispatch happens in main() via early intercept
+@app.command(
     "otel",
-    context_settings={
-        "ignore_unknown_options": True,
-        "allow_extra_args": True,
-        "allow_interspersed_args": False,
-    },
+    help="Query and manage local OTEL telemetry data (~/.config/otel/). Run 'telemetry otel <subcommand> --help' for subcommand options.",
 )
-@click.argument("args", nargs=-1, type=click.UNPROCESSED)
-def otel_cmd(args: tuple[str, ...]) -> None:
-    """Query and manage local OTEL telemetry data (~/.config/otel/).
-
-    Run 'telemetry otel <subcommand> --help' for subcommand options.
-    """
+def cmd_otel_stub(args: argparse.Namespace) -> int:  # pragma: no cover
+    # Never reached — otel is intercepted in main() before parse_args
     from telemetry.otel.cli import main as otel_main
+    return otel_main([])
 
-    raise SystemExit(otel_main(list(args)))
+
+# ---------------------------------------------------------------------------
+# on_no_command helper
+# ---------------------------------------------------------------------------
+
+_parser_ref: list[argparse.ArgumentParser] = []
+
+
+def _post_build(parser: argparse.ArgumentParser) -> None:
+    _parser_ref.clear()
+    _parser_ref.append(parser)
+
+
+def _on_no_command() -> int:
+    if _parser_ref:
+        _parser_ref[0].print_help()
+    return 2
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Main entry point for the telemetry CLI."""
+    _argv = CLIApp.normalize_argv(argv if argv is not None else sys.argv[1:])
+
+    # Special-case otel: intercept before CLIApp parses, so all remaining args
+    # (including --help, --format, etc.) are forwarded verbatim to otel's own parser.
+    if _argv and _argv[0] == "otel":
+        from telemetry.otel.cli import main as otel_main
+        return otel_main(_argv[1:])
+
+    return app.run_with_assistant(
+        assistant,
+        emit_func=lambda fmt, compact: _lazy_agentic()(fmt, compact),
+        argv=_argv,
+        post_build_hook=_post_build,
+        on_no_command=_on_no_command,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover
-    main()
+    raise SystemExit(main())

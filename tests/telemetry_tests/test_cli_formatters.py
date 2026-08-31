@@ -4,8 +4,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timezone
 
-import click
-
+from core.cli_errors import CLIError
 from telemetry.cli import (
     _fmt_duration,
     _fmt_tokens,
@@ -113,12 +112,12 @@ class TestParseSinceCli(unittest.TestCase):
         diff = now - result
         self.assertAlmostEqual(diff.days, 7, delta=1)
 
-    def test_bare_integer_raises_bad_parameter(self):
-        with self.assertRaises(click.BadParameter):
+    def test_bare_integer_raises_cli_error(self):
+        with self.assertRaises(CLIError):
             _parse_since_cli("7")
 
-    def test_invalid_window_string_raises_bad_parameter(self):
-        with self.assertRaises(click.BadParameter):
+    def test_invalid_window_string_raises_cli_error(self):
+        with self.assertRaises(CLIError):
             _parse_since_cli("notawindow")
 
 

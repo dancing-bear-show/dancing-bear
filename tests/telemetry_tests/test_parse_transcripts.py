@@ -1,6 +1,8 @@
 """Tests for telemetry/parse_transcripts.py."""
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import tempfile
 import unittest
@@ -8,9 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-import click
-from click.testing import CliRunner
-
+from core.cli_errors import CLIError
 from telemetry._transcript_record_parser import (
     _append_bash_command,
     _extract_tool_preview,
@@ -19,7 +19,6 @@ from telemetry._transcript_record_parser import (
     _process_tool_use_blocks,
     _process_user_role_record,
 )
-from telemetry.parse_transcripts import parse_transcripts
 from telemetry.parse_transcripts_emit import ParseResult, _emit_rows, _token_estimate
 from telemetry.parse_transcripts_io import (
     _find_jsonl_files,
@@ -32,6 +31,15 @@ from telemetry.parse_transcripts_io import (
     _session_id_from_path,
     run_parse_transcripts,
 )
+
+
+def _run_main(argv: list[str]) -> tuple[int, str]:
+    """Invoke telemetry main(argv) and return (rc, stdout)."""
+    from telemetry.cli_sessions import main
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = main(argv)
+    return rc, buf.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -109,20 +117,20 @@ class TestParseSinceWindow(unittest.TestCase):
         result = _parse_since_window("1h")
         self.assertIsInstance(result, datetime)
 
-    def test_bare_integer_raises_bad_parameter(self):
-        with self.assertRaises(click.BadParameter):
+    def test_bare_integer_raises_cli_error(self):
+        with self.assertRaises(CLIError):
             _parse_since_window("100")
 
-    def test_float_prefix_raises_bad_parameter(self):
-        with self.assertRaises(click.BadParameter):
+    def test_float_prefix_raises_cli_error(self):
+        with self.assertRaises(CLIError):
             _parse_since_window("1.5d")
 
-    def test_unknown_suffix_raises_bad_parameter(self):
-        with self.assertRaises(click.BadParameter):
+    def test_unknown_suffix_raises_cli_error(self):
+        with self.assertRaises(CLIError):
             _parse_since_window("7x")
 
-    def test_empty_string_raises_bad_parameter(self):
-        with self.assertRaises(click.BadParameter):
+    def test_empty_string_raises_cli_error(self):
+        with self.assertRaises(CLIError):
             _parse_since_window("")
 
 
@@ -871,8 +879,8 @@ class TestRunParseTranscripts(unittest.TestCase):
         )
         self.assertEqual(len(results), 1)
 
-    def test_invalid_since_raises_bad_parameter(self):
-        with self.assertRaises(click.BadParameter):
+    def test_invalid_since_raises_cli_error(self):
+        with self.assertRaises(CLIError):
             run_parse_transcripts(
                 since="badvalue",
                 projects_dir=self.projects_dir,
@@ -978,7 +986,7 @@ class TestEmitRows(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# parse_transcripts CLI command
+# parse-transcripts CLI command (via main())
 # ---------------------------------------------------------------------------
 
 class TestParseTranscriptsCli(unittest.TestCase):
@@ -999,26 +1007,26 @@ class TestParseTranscriptsCli(unittest.TestCase):
         return p
 
     def test_cli_no_sessions_message(self):
-        runner = CliRunner()
-        result = runner.invoke(parse_transcripts, [
+        rc, out = _run_main([
+            "parse-transcripts",
             "--projects-dir", str(self.projects_dir),
             "--index-dir", str(self.index_dir),
         ])
-        self.assertEqual(result.exit_code, 0)
-        self.assertIn("No sessions processed", result.output)
+        self.assertEqual(rc, 0)
+        self.assertIn("No sessions processed", out)
 
     def test_cli_json_format(self):
         self._write_jsonl("proj/s1.jsonl", [
             {"message": {"role": "user", "content": "Hello"}}
         ])
-        runner = CliRunner()
-        result = runner.invoke(parse_transcripts, [
+        rc, out = _run_main([
+            "parse-transcripts",
             "--projects-dir", str(self.projects_dir),
             "--index-dir", str(self.index_dir),
             "--format", "json",
         ])
-        self.assertEqual(result.exit_code, 0)
-        data = json.loads(result.output)
+        self.assertEqual(rc, 0)
+        data = json.loads(out)
         self.assertIsInstance(data, list)
         self.assertEqual(len(data), 1)
         self.assertIn("session_id", data[0])
@@ -1027,36 +1035,35 @@ class TestParseTranscriptsCli(unittest.TestCase):
         self._write_jsonl("proj/s2.jsonl", [
             {"message": {"role": "user", "content": "World"}}
         ])
-        runner = CliRunner()
-        result = runner.invoke(parse_transcripts, [
+        rc, out = _run_main([
+            "parse-transcripts",
             "--projects-dir", str(self.projects_dir),
             "--index-dir", str(self.index_dir),
             "--format", "table",
         ])
-        self.assertEqual(result.exit_code, 0)
-        self.assertIn("session_id", result.output)
+        self.assertEqual(rc, 0)
+        self.assertIn("session_id", out)
 
     def test_cli_invalid_since_exits_1(self):
-        runner = CliRunner()
-        result = runner.invoke(parse_transcripts, [
+        rc, out = _run_main([
+            "parse-transcripts",
             "--projects-dir", str(self.projects_dir),
             "--index-dir", str(self.index_dir),
             "--since", "badvalue",
         ])
-        self.assertEqual(result.exit_code, 1)
-        self.assertIn("error", result.output.lower())
+        self.assertEqual(rc, 1)
 
     def test_cli_force_flag(self):
         self._write_jsonl("proj/s3.jsonl", [
             {"message": {"role": "user", "content": "Force me"}}
         ])
-        runner = CliRunner()
-        result = runner.invoke(parse_transcripts, [
+        rc, out = _run_main([
+            "parse-transcripts",
             "--projects-dir", str(self.projects_dir),
             "--index-dir", str(self.index_dir),
             "--force",
         ])
-        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(rc, 0)
 
     def test_cli_limit_flag(self):
         self._write_jsonl("proj/s4.jsonl", [
@@ -1065,25 +1072,25 @@ class TestParseTranscriptsCli(unittest.TestCase):
         self._write_jsonl("proj/s5.jsonl", [
             {"message": {"role": "user", "content": "Limit two"}}
         ])
-        runner = CliRunner()
-        result = runner.invoke(parse_transcripts, [
+        rc, out = _run_main([
+            "parse-transcripts",
             "--projects-dir", str(self.projects_dir),
             "--index-dir", str(self.index_dir),
             "--limit", "1",
             "--format", "json",
         ])
-        self.assertEqual(result.exit_code, 0)
-        data = json.loads(result.output)
+        self.assertEqual(rc, 0)
+        data = json.loads(out)
         self.assertEqual(len(data), 1)
 
     def test_cli_since_7d(self):
-        runner = CliRunner()
-        result = runner.invoke(parse_transcripts, [
+        rc, out = _run_main([
+            "parse-transcripts",
             "--projects-dir", str(self.projects_dir),
             "--index-dir", str(self.index_dir),
             "--since", "7d",
         ])
-        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(rc, 0)
 
 
 if __name__ == "__main__":

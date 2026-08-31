@@ -13,8 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
 
-import click
-
+from core.cli_errors import CLIError
 from core.fileutil import atomic_write_json, safe_load_json
 from telemetry.timeutil import now_utc, parse_window
 from telemetry.parse_transcripts_emit import ParseResult
@@ -59,17 +58,17 @@ def _parse_since_window(since: str) -> datetime | None:
             try:
                 int(prefix)
             except ValueError:
-                raise click.BadParameter(
+                raise CLIError(
                     f"Cannot parse time window: {since!r}. Use e.g. 7d, 30d, all."
                 )
             break
     else:
         # No recognized suffix — includes bare integers and unknown suffixes
-        raise click.BadParameter(f"Cannot parse time window: {since!r}. Use e.g. 7d, 30d, all.")
+        raise CLIError(f"Cannot parse time window: {since!r}. Use e.g. 7d, 30d, all.")
     try:
         return now_utc() - parse_window(since)
     except ValueError:
-        raise click.BadParameter(f"Cannot parse time window: {since!r}. Use e.g. 7d, 30d, all.")
+        raise CLIError(f"Cannot parse time window: {since!r}. Use e.g. 7d, 30d, all.")
 
 
 def _passes_since_filter(p: Path, since_dt: datetime | None) -> bool:
@@ -293,7 +292,7 @@ def run_parse_transcripts(
         for jsonl_path in files:
             results.append(_process_one_file(jsonl_path, index_dir, state, state_path, force))
 
-    except click.BadParameter:
+    except CLIError:
         raise  # propagate bad --since values to the CLI layer for user-facing error
     except Exception as exc:  # noqa: BLE001
         print(f"[parse-transcripts] unexpected error: {exc}", file=sys.stderr)
