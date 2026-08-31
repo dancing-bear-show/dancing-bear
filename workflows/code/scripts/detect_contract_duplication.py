@@ -81,6 +81,16 @@ JSON on stdout, exit 0 regardless of finding count.  Findings are RANKED
 SUSPICIONS, not defects; verify each pair by reading both methods before
 deleting.  Low yield is expected: the value is regression prevention, not
 clearing a backlog.
+
+Usage
+-----
+Must be run from the **repo root**::
+
+    python3 workflows/code/scripts/detect_contract_duplication.py
+
+The script uses relative paths (``TESTS = "tests"``, MIXINS paths starting
+with ``tests/``).  Running it from any other directory will silently find
+zero test files and emit ``"finding_count": 0``.
 """
 
 from __future__ import annotations

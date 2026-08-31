@@ -1,7 +1,7 @@
 """Unit tests for workflows/code/scripts/detect_contract_duplication.py.
 
 Covers:
-- Fixture reproducing the slides shape (3 shared calls): must be flagged.
+- Fixture reproducing the slides shape (4 shared calls, Jaccard 0.444): must be flagged.
 - Fixture of an app-unique test sharing one helper: must NOT be flagged.
 - A method overriding a contract method by the same name: must NOT be flagged.
 - A method using patch.object (conditional-branch testing): must NOT be flagged.
