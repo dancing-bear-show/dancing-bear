@@ -120,8 +120,8 @@ class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
 
     def _create_single(self, ctx: EventProcessingContext, payload: OutlookAddRequest) -> int:
         cal_name = ctx.nev.get("calendar")
-        start_iso = ctx.nev.get("start")
-        end_iso = ctx.nev.get("end")
+        start_iso = to_iso_str(ctx.nev.get("start"))
+        end_iso = to_iso_str(ctx.nev.get("end"))
         if not (start_iso and end_iso):
             ctx.logs.append(f"[{ctx.idx}] Skipping one-time event '{ctx.subj}': missing start/end")
             return 0
@@ -132,15 +132,10 @@ class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
             )
             return 1
         try:
-            start_iso_str = to_iso_str(start_iso)
-            end_iso_str = to_iso_str(end_iso)
-            if start_iso_str is None or end_iso_str is None:  # unreachable: guarded above
-                ctx.logs.append(f"[{ctx.idx}] Skipping one-time event '{ctx.subj}': unparseable start/end")
-                return 0
             params = EventCreationParams(
                 subject=ctx.subj,
-                start_iso=start_iso_str,
-                end_iso=end_iso_str,
+                start_iso=start_iso,
+                end_iso=end_iso,
                 calendar_id=None,
                 calendar_name=cal_name,
                 tz=ctx.nev.get("tz"),
