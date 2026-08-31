@@ -1,0 +1,1005 @@
+name: cli-standard-conformance
+version: "1.0"
+description: >
+  Bring every CLI in src/ to the standard defined in .llm/CLI_STANDARD.md, then
+  prove conformance with a machine-checkable audit rather than a reviewer's
+  opinion.
+
+  The standard has four tiers: structure (CLIApp + AppMeta + real emit_func),
+  agentic CLI surface (--agentic / --agentic-format / --agentic-compact / the
+  optional -- separator), domain capsule builders (two legitimate shapes: full
+  and minimal), and LLM dispatch modules. Each rule is proven by a shared
+  contract mixin in tests/, never by per-app copy-paste.
+
+  Why this workflow exists: the same behaviour was being asserted by hand in
+  16 test files for one function and 9 for another, which meant coverage was
+  whatever the last person copied. Contract mixins state each rule once; this
+  workflow finds who has not adopted them and fixes it.
+
+  The audit is a real script, not an LLM judgement. It EXECUTES each app
+  (importing main() and capturing stdout) rather than reading source, because
+  every interesting failure mode in this codebase is invisible to a reader:
+
+    - core/assistant.py::maybe_emit_agentic wraps emit_func in a bare
+      `except Exception`, prints a ~78-byte fallback banner, and returns 0. A
+      totally broken capsule builder is indistinguishable from success by exit
+      code, AND passes an `agentic: <app_id>` first-line assertion. Only a
+      byte-count floor detects it. This has produced three separate defects.
+    - core.agentic.cached_parser_loader swallows a failed parser import and
+      returns None, degrading the capsule to a stub that still exits 0.
+
+  Consequently every conformance check in this workflow asserts on CONTENT
+  (byte counts, key sets, tree presence), never on exit codes alone.
+
+  Two shapes that look like gaps but are not, and must NOT be "fixed":
+    - telemetry is Click-based. It emits {app_id, commands, notes, prog,
+      purpose} instead of the argparse six, so it cannot satisfy rule A3 AS
+      LONG AS IT IS CLICK. Measured scope: 43 @click decorators, 38 options,
+      2 groups, 11 subcommands, click imported in 5 files, and only 4 of 79
+      telemetry test files using CliRunner.
+      When migrate_click is "false" (the default) telemetry keeps its A3/A6
+      exemptions and the conformance stages must NOT flag them as defects.
+      When migrate_click is "true" the G2b stream ports it to argparse and
+      retire-click-exemption then removes both carve-outs from the standard.
+    - charts, diagrams, sheets, slides, worker, workflow and apple_music
+      define no build_domain_map by design (minimal tier); telemetry is
+      minimal by shape too but is covered by the Click exemption. They are not
+      unadopted — the opt-out (EXPECT_DOMAIN_MAP=False) asserts GENUINE
+      ABSENCE in both directions, so it cannot mask a deleted function.
+
+  Note on prior remediation: apple_music's capsule was a 72-byte fallback
+  banner when this workflow was written and has since been FIXED (1239 bytes,
+  with meta.py and agentic.py added). Treat that as history, not as a defect to
+  rediscover — the audit measures the live tree, and Step 5 below deliberately
+  checks SHAPE rather than fixed expected values for exactly this reason.
+
+  Stage dependency graph:
+
+    audit-conformance
+          |
+    plan-remediation  [human gate]
+          |
+    +-----+-----+-----+
+    |     |     |     |          (parallel fan-out, disjoint file sets)
+    fix-  fix-  fix-  split-
+    meta  con-  llm   click-
+          tracts      contract
+    +-----+-----+-----+
+          |
+    verify-conformance
+          |
+    verify-tests
+          |
+    human-gate
+
+  Fan-out groups are partitioned by FILE, not by app, because the contract
+  mixins in tests/ are shared files that two agents would otherwise both edit.
+
+metadata:
+  author: dancing-bear
+  created: "2026-08-31"
+
+trigger:
+  source: manual
+  params:
+    apps: "*"                  # comma-list of apps to include, or "*" for all
+    tiers: "0,1,2,3"           # which standard tiers to enforce
+    fix_source: "true"         # "false" = audit + test adoption only, no src/ edits
+    migrate_click: "false"     # "true" = also run the telemetry Click->argparse stream
+    pr_title: "refactor(cli): bring all CLIs to the shared standard"
+    # Declared here (not under include.params) because include.params is parsed
+    # but NOT wired to substitution — see src/workflow/models.py IncludeSpec.params
+    # ("reserved for future use"). Fragments share the parent's param namespace.
+    plan_file: "design/plan.md"
+    critic_focus: >
+      Focus on whether the audit's conformance verdicts are trustworthy: does
+      each check actually execute the app rather than read it, and would it
+      survive the rc=0 fallback trap? Challenge any rule that asserts only an
+      exit code or only a first line. Also challenge the two claimed
+      exemptions (telemetry/Click, minimal-tier domains) — are they genuine
+      design variation, or unadopted abstractions being excused?
+
+workspace_dir: "{work_dir}/cli-standard-conformance"
+
+stages:
+
+  # ===========================================================================
+  # G0: Audit — execute every app, score it against the standard
+  # ===========================================================================
+
+  - name: audit-conformance
+    kind: gather
+    depends_on: []
+    description: >
+      Score every app in src/ against .llm/CLI_STANDARD.md by RUNNING it.
+      Do not modify any file in this stage.
+
+      Step 1 — read the standard.
+        Read .llm/CLI_STANDARD.md in full. It is the authority for every rule
+        ID referenced below (S1-S4, A1-A7, B1-B4, L1-L3).
+
+      Step 2 — write the audit script.
+        Write {workspace}/validation/audit_cli_standard.py. It MUST import each
+        app's main() and capture stdout — NOT parse source text. Reading source
+        cannot detect a swallowed import or a fallback banner.
+
+        For each app emit one JSON record:
+          {{
+            "app": "wifi",
+            "app_id": "wifi",              # as ANNOUNCED, not the package name
+            "parser": "argparse|click",
+            "tier0": {{"cliapp": bool, "appmeta": bool, "real_emit_func": bool,
+                       "main_returns_int": bool}},
+            "tier1": {{"rc": 0, "capsule_bytes": 525, "json_keys": [...],
+                       "compact_smaller": bool, "separator_equivalent": bool,
+                       "no_subcommand_rc": 0}},
+            "tier2": {{"has_agentic_module": bool, "shape": "full|minimal|none",
+                       "has_domain_map": bool, "has_cli_tree": bool,
+                       "emit_matches_builder": bool}},
+            "tier3": {{"has_llm_cli": bool, "prog": "llm-wifi",
+                       "doc_suffix": "WIFI"}},
+            "contracts_adopted": ["AgenticCLIContractMixin", ...],
+            "violations": [{{"rule": "A2", "detail": "<measured, e.g. capsule is N bytes>"}}]
+          }}
+
+        Critical measurement rules:
+          - capsule_bytes is len(output.encode("utf-8")), NOT len(str). Several
+            capsules carry non-ASCII (calendars uses em dashes and arrows).
+          - app_id must be READ FROM THE OUTPUT, never assumed from the package
+            name. calendars announces "calendar" (singular); apple_music
+            announces "apple-music-assistant".
+          - separator_equivalent compares main(["--agentic"]) output to
+            main(["--","--agentic"]) output for BYTE equality.
+          - Record telemetry's json_keys as-is. Do NOT mark its 5-key schema a
+            violation of A3 — record it as parser:"click" and let the plan
+            stage decide. Flagging it as a defect is a false positive.
+
+      Step 3 — determine contract adoption, PER FILE not per directory.
+        Record, for each app, the exact LIST OF FILES that adopt each of
+        AgenticCLIContractMixin, AgenticBuilderContractMixin,
+        SeparatorContractMixin and llm_cli_contract — not merely whether the
+        directory contains a match.
+
+        A directory-level grep marks an app "adopted" as soon as ONE file
+        matches, which hides a sibling file still carrying hand-rolled
+        duplicates. Several apps have more than one agentic test file
+        (sheets and slides each have a builder file AND a CLI file), so the
+        plan needs the file list, not a boolean.
+
+        Also record any file that BOTH adopts a mixin AND still defines its
+        own copies of assertions that mixin covers — that is unconsolidated
+        duplication and is the specific thing this work exists to remove.
+
+        Test directory names do not always match package names (calendars ->
+        tests/calendars_tests). Resolve each by looking, not by assuming.
+
+      Step 4 — run it and write results.
+        PYTHONPATH="$PWD/src" python3 {workspace}/validation/audit_cli_standard.py \
+          > {workspace}/validation/conformance.json
+
+        Copy the script to {workspace}/validation/ so verify-conformance re-runs
+        the BYTE-IDENTICAL script rather than a reimplementation.
+
+      Step 5 — sanity-check the result.
+        An audit reporting zero violations across 18 apps is far more likely to
+        be a broken audit than a conformant repo.
+
+        These are SHAPE checks, not fixed expected values. Do NOT "correct" the
+        audit until it reproduces any specific number below — the tree changes,
+        and an audit tuned to match a stale snapshot is worse than no audit.
+        Earlier remediation may ALREADY have fixed some of these. Verify the
+        audit's MACHINERY works, then trust its output:
+
+          - Capsule sizes must SPAN a wide range (hundreds of bytes to tens of
+            KB). If every app reports a near-identical small size, the audit is
+            measuring the fallback banner for all of them and is broken.
+          - No app may report 0 bytes or a missing capsule while also
+            reporting rc=0 — that combination means the measurement failed,
+            not that the app is broken.
+          - At least one app must report a capsule > 10KB (mail is by far the
+            largest). If none does, the audit is truncating.
+          - Exactly one app should report parser:"click" (telemetry) with a
+            5-key schema; every other app should report 6 keys. If two or more
+            apps report a non-6 key set, investigate before proceeding.
+          - The AppMeta count must equal `ls src/*/meta.py | wc -l`. Run that
+            command and compare — do not hardcode the number.
+          - Every CLIApp app (i.e. every app EXCEPT telemetry) must pass
+            separator_equivalent. telemetry is expected to FAIL it: Click never
+            routes through normalize_argv, so it returns rc=2 with 0 bytes.
+            Record that as an exemption, NOT a violation.
+
+        If a shape check fails, fix the AUDIT. If the shape checks pass but the
+        violation list is shorter than you expected, that is a valid result —
+        report it rather than manufacturing violations to match a prior belief.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    outputs:
+      - name: conformance
+        mode: generate
+        description: >
+          conformance.json with one scored record per app, plus the audit
+          script that produced it.
+    required: true
+    writes_to:
+      - validation/audit_cli_standard.py
+      - validation/conformance.json
+
+  # ===========================================================================
+  # G1: Plan — group violations into disjoint work packages
+  # ===========================================================================
+
+  - name: plan-remediation
+    kind: propose
+    human_gate: true
+    depends_on: [audit-conformance]
+    reads_from: [audit-conformance]
+    description: >
+      Turn conformance.json into an ordered remediation plan, partitioned so
+      parallel agents never touch the same file.
+
+      Write {workspace}/{plan_file} (markdown) and
+      {workspace}/design/work-packages.json.
+
+      Partition into exactly these four packages. The partition is by FILE, not
+      by app, because the contract mixins are shared files:
+
+        P1 "fix-meta"      — src/<app>/meta.py + the BaseAssistant construction
+                             in each non-conformant app's cli.py. Rule S2.
+                             Touches src/ ONLY. Skip entirely if
+                             fix_source == "false".
+        P2 "fix-contracts" — tests/ only: adopt AgenticCLIContractMixin and
+                             AgenticBuilderContractMixin where missing, and
+                             DELETE the hand-rolled assertions they replace.
+        P3 "fix-llm"       — tests/ only: adopt LLMCLIContractMixin where
+                             missing (mail is the one gap).
+        P4 "split-click"   — tests/agentic_cli_contract.py only: extract the
+                             parser-agnostic subset (A1, A2, A5) into a base
+                             mixin telemetry can adopt; keep the argparse
+                             key-set assertion (A3/A4) in a subclass.
+
+      P2 and P4 both touch tests/agentic_cli_contract.py. Therefore P4 MUST run
+      before P2, or they must be assigned to the same agent. State which you
+      chose and why. Do not let two agents edit that file concurrently.
+
+      For each package record: rule IDs addressed, exact file list, apps
+      affected, and expected test-count delta.
+
+      Deferral is a legitimate outcome. Explicitly mark as DEFERRED, with
+      reasons, anything where the fix is riskier than the inconsistency:
+        - Converting telemetry from Click to argparse — DEFER ONLY when
+          migrate_click is "false". That work belongs to the G2b stream in
+          this same workflow, not to P1/P2/P3, and must never be attempted
+          inside a conformance fix package.
+        - Changing any app's ANNOUNCED app_id — that is a public identifier.
+          apple_music announces "apple-music-assistant"; check
+          `./bin/llm inventory --stdout` and the llm dispatch registry before
+          proposing any change, and default to leaving it alone.
+        - Any change to a public CLI flag, subcommand, or exit code. CLAUDE.md
+          forbids breaking public CLI compatibility. Rule A7 documents the
+          differing no-subcommand exit codes (charts 1, diagrams 0, worker 1,
+          workflow 2) as DELIBERATE — do not normalise them.
+
+      Present to the human: violation counts by rule and tier, the four
+      packages with file lists, the ordering constraint on P2/P4, everything
+      deferred with reasons, and the expected net line delta (this work should
+      DELETE more test code than it adds).
+    agent:
+      role: Plan
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    outputs:
+      - name: plan
+        mode: generate
+        description: plan.md and work-packages.json with four disjoint packages.
+    required: true
+    writes_to:
+      - design/plan.md
+      - design/work-packages.json
+
+  # ===========================================================================
+  # G1.5: Adversarial critique of the plan (Opus critic, Sonnet fact-check)
+  # ===========================================================================
+  # Injects: pc-validate -> pc-critic -> pc-validate-critique -> pc-consolidate
+  #          -> pc-human-gate -> pc-revise
+  # Reads {plan_file} and {critic_focus} from THIS workflow's trigger.params.
+
+  # ===========================================================================
+  # G2: Remediation — parallel fan-out over disjoint file sets
+  # ===========================================================================
+
+  - name: fix-meta
+    kind: execute
+    # Real guard, not prose: without this the engine dispatches the stage
+    # regardless of fix_source and the agent has to decide to no-op.
+    # _eval_when supports only "contains" / "does not contain".
+    when: '"{fix_source}" contains "true"'
+    depends_on: [pc-revise]
+    reads_from: [plan-remediation, audit-conformance]
+    description: >
+      Package P1. Adopt AppMeta (rule S2) in each app the plan lists.
+      SKIP THIS STAGE ENTIRELY if fix_source == "false".
+
+      Touch ONLY src/ files. Another agent is editing tests/ concurrently.
+
+      EXCLUDE telemetry from P1 whenever migrate_click is "true". The
+      migration stream creates src/telemetry/meta.py itself, and both stages
+      run in separate worktrees — two agents creating the same new file means
+      the later copy-back silently wins and one agent's work vanishes without
+      a conflict. If migrate_click is "false", telemetry is a normal P1
+      candidate like any other app.
+
+      For each app in P1:
+        1. Create src/<app>/meta.py declaring an AppMeta. Model it on
+           src/wifi/meta.py. Read src/core/meta_base.py for the field set and
+           the derived fallback properties.
+        2. Replace the hand-written BaseAssistant fallback literal with
+           META.agentic_fallback.
+
+        Six of these literals are byte-identical to what AppMeta generates, so
+        the substitution is mechanical. Two are not, and need judgement:
+          - maker hides the literal behind FALLBACK_AGENTIC_HEADER in
+            maker/agentic.py, imported by maker/cli/main.py and printed
+            directly at one other call site. Update ALL call sites atomically.
+          - mail's fallback is a bullet list that does NOT match the
+            "agentic: <id>\\npurpose: <p>" format. Adopting AppMeta CHANGES the
+            emitted fallback text. Verify nothing asserts on the old string
+            before changing it; if something does, report it and defer mail.
+
+      Per project rules: update all call sites directly. Do NOT leave a
+      backwards-compatible re-export, alias, or shim behind.
+
+      Verify per app that the capsule is unchanged where it should be:
+        python3 -c "import <app>.__main__ as m; m.main(['--agentic'])"
+      The fallback only fires on failure, so a correct refactor leaves normal
+      output byte-identical. If output CHANGES, you have broken something.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Bash, Read, Write, Edit]
+      isolation: worktree
+    required: false
+    writes_to:
+      - outputs/fix-meta-summary.md
+
+  - name: fix-contracts
+    kind: execute
+    depends_on: [pc-revise]
+    reads_from: [plan-remediation, audit-conformance]
+    description: >
+      Packages P4 then P2, in that order, in ONE agent — they share
+      tests/agentic_cli_contract.py and must not be edited concurrently.
+
+      Touch ONLY tests/ files.
+
+      P4 first — split the CLI contract so telemetry can adopt part of it.
+        SKIP P4 ENTIRELY when migrate_click is "true": the migration makes
+        telemetry a normal argparse adopter of the whole contract, so a
+        parser-agnostic base mixin would be built in this group and rendered
+        pointless by groups 9-12. Say in your report that you skipped it and
+        why. Run P4 only when migrate_click is "false".
+        Extract A1/A2/A5 (announces itself, clears MIN_CAPSULE_BYTES, compacts
+        smaller) into a parser-agnostic base mixin. Keep A3/A4 (the exact
+        six-key argparse schema) in a subclass that today's adopters use
+        unchanged. Existing adopters MUST keep their current assertions —
+        this is a refactor of the contract, not a relaxation of it.
+        Then adopt the base mixin in telemetry's test file.
+
+      P2 second — adopt the contracts where missing.
+        Read every contract file in tests/ first; match their docstring and
+        comment style exactly.
+
+        There are now FOUR shared contracts, not two. Adopt whichever apply:
+          - tests/agentic_cli_contract.py      AgenticCLIContractMixin
+          - tests/agentic_builder_contract.py  AgenticBuilderContractMixin
+          - tests/cli_separator_contract.py    SeparatorContractMixin
+          - tests/llm_cli_contract.py          LLMCLIContractMixin  (P3)
+        Re-read tests/ and confirm this list before starting — a contract the
+        plan does not name is a contract the fix will not adopt.
+
+        For each app the plan lists:
+          1. Add the mixin to the test class bases.
+          2. DELETE the hand-rolled assertions the mixin now covers. This is
+             the entire point — if both remain, nothing was consolidated.
+          3. Keep genuinely app-unique assertions.
+
+        Minimal-tier domains (no build_domain_map, no CLI tree) set both
+        EXPECT_CLI_TREE = False and EXPECT_DOMAIN_MAP = False.
+
+      Before writing any test, run a throwaway probe that imports each target
+      module and prints its ACTUAL values. Assumptions have been wrong here
+      before: calendars announces "calendar", and the second parameter of
+      emit_agentic_context is named _compact in nine domains but compact in
+      mail.
+    agent:
+      role: tester
+      model: sonnet
+      tools: [Bash, Read, Write, Edit]
+      isolation: worktree
+    required: true
+    writes_to:
+      - outputs/fix-contracts-summary.md
+
+  - name: fix-llm
+    kind: execute
+    depends_on: [pc-revise]
+    reads_from: [plan-remediation, audit-conformance]
+    description: >
+      Package P3. Adopt LLMCLIContractMixin where missing (rules L1-L3).
+      Touch ONLY tests/ files, and ONLY the llm_cli test files — not the
+      agentic test files another agent is editing.
+
+      Read tests/llm_cli_contract.py first for the required class attributes
+      (MODULE_PATH, APP_ID, DOC_SUFFIX, EXPECTED_PROG).
+
+      mail is DOCUMENTED AS EXEMPT, not as a gap — default to leaving it
+      alone. `src/mail/llm_cli.py` is a re-export shim of `core.llm_cli` that
+      never calls make_domain_llm_module, so it has NO CONFIG — and neither
+      does core.llm_cli behind it. Eleven of the mixin's tests read
+      `mod.CONFIG.*`, and its derive-all produces no AGENTIC_MAIL.md /
+      DOMAIN_MAP_MAIL.md. Adoption would mean INVENTING a domain CONFIG that
+      does not exist, which is not a refactor.
+
+      Verify rather than assume: run
+        python3 -c "import mail.llm_cli as m; print(hasattr(m,'CONFIG'))"
+      If that prints False, the exemption holds — record it and move on.
+      Only if it prints True should you reconsider adoption.
+
+      Separately: mail.llm_cli is a LIVE `llm --app mail` dispatch target
+      referenced by a string literal. It is not a removable facade despite
+      looking like one to an AST scan. Do not delete or restructure it.
+
+      If any OTHER app with an llm_cli.py lacks the contract, adopt it there.
+    agent:
+      role: tester
+      model: sonnet
+      tools: [Bash, Read, Write, Edit]
+      isolation: worktree
+    required: false
+    writes_to:
+      - outputs/fix-llm-summary.md
+
+
+  # ===========================================================================
+  # G2b: Click -> argparse migration (parallel work stream, telemetry only)
+  # ===========================================================================
+  # Runs alongside the P1/P2/P3 fan-out. Touches ONLY src/telemetry/ and
+  # tests/telemetry_tests/, which no other package in this workflow edits, so
+  # it is file-disjoint from every other G2 stage.
+  #
+  # Gated on migrate_click so the conformance work can run without it.
+
+  - name: capture-click-baseline
+    kind: gather
+    when: '"{migrate_click}" contains "true"'
+    depends_on: [pc-revise]
+    reads_from: [plan-remediation]
+    description: >
+      Record telemetry's EXACT observable CLI behaviour before anything is
+      touched. This baseline is the migration's only proof of equivalence, so
+      capture it first and never regenerate it after the port.
+
+      Do not modify any file in this stage.
+
+      Step 1 - enumerate the real surface. Do not hardcode this list:
+        ./bin/telemetry --help
+      parse the "Commands:" block. At the time of writing there are 11:
+      agents, cost, cost-breakdown, history, live, otel, parse-transcripts,
+      rules, sessions, stats, summary. Verify against the live output.
+
+      Step 2 - capture help text for the group and EVERY subcommand into
+      {workspace}/validation/click-baseline/:
+        telemetry --help              -> _root.txt
+        telemetry <cmd> --help        -> <cmd>.txt   (for each subcommand)
+      Capture stdout and stderr to separate files, and record the exit code
+      for each invocation in a manifest.
+
+      Step 3 - capture the exit-code contract. For EVERY case record three
+      things: the exit code, WHICH STREAM carried the output (stdout vs
+      stderr), and the byte count. The stream matters more than the count: an
+      agent reaching for parser.error() gets rc=2 on the WRONG stream and the
+      byte-count check alone will not catch it.
+
+      Cases to capture, at minimum:
+        []                        bare invocation
+        ["--help"]
+        ["--agentic"]
+        ["nope"]                  unknown subcommand
+        ["cost","--help"]         a normal subcommand's help
+        ["otel","--help"]         nested-CLI help (must NOT be telemetry's)
+        ["otel","--agentic"]      nested-CLI usage (must NOT be the capsule)
+        ["otel","query","--format","json"]   mixed args + flags passthrough
+
+      Shape of the answer at the time of writing, for ORIENTATION ONLY:
+        []                -> rc=2, help on STDOUT, stderr empty
+        ["--help"]        -> rc=0, same bytes on stdout
+        ["nope"]          -> rc=2, stdout EMPTY, error on STDERR
+        ["otel","--help"] -> rc=0, ~216 bytes (OTEL's own help)
+
+      DO NOT hardcode byte counts from this file. They have already drifted
+      once (a bare invocation measured 1228 and then 1232 with no code change),
+      so an exact-match assertion against a number written here will produce a
+      false failure. Measure, record, and compare against YOUR OWN capture.
+
+      Note the bare-invocation case especially: rc=2 WITH help on stdout is
+      unusual (argparse defaults to help+rc=0, or usage+rc=2 on stderr), so it
+      must be preserved deliberately via on_no_command.
+
+      Step 4 - capture the agentic schema:
+        telemetry --agentic --agentic-format json
+      Record its key set. It is currently the Click-specific
+      {{app_id, commands, notes, prog, purpose}}; after migration it becomes
+      the argparse six. That change is EXPECTED and is the point of the
+      migration - record both, do not treat the change as a regression.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    required: false
+    writes_to:
+      - validation/click-baseline-manifest.json
+      - validation/click-agentic-before.json
+
+  - name: migrate-click-to-argparse
+    kind: execute
+    when: '"{migrate_click}" contains "true"'
+    depends_on: [capture-click-baseline]
+    reads_from: [capture-click-baseline, plan-remediation]
+    description: >
+      Port telemetry from Click to argparse on CLIApp, preserving the public
+      CLI byte-for-byte where the baseline says it must be preserved.
+
+      Touch ONLY src/telemetry/ and tests/telemetry_tests/.
+
+      Measured scope (verify before starting):
+        - 43 @click decorators: 36 in cli_sessions.py, 7 in parse_transcripts.py
+        - 38 click.option, 8 click.Choice, 2 groups, 11 subcommands
+        - click imported in 5 files: cli_sessions, cli_formatters, agentic,
+          parse_transcripts, parse_transcripts_io
+        - only 4 of 79 telemetry test files use CliRunner
+
+      Mapping guide - all of these were checked and none blocks the port:
+        click.option          -> parser.add_argument
+        click.Choice          -> choices=[...]
+        click.Path            -> plain str plus explicit validation
+        click.BadParameter    -> CLIError (core.cli_errors)
+        click.ClickException  -> CLIError
+        click.echo            -> print
+        click.pass_context    -> thread the argparse Namespace through
+        UNPROCESSED + allow_extra_args + allow_interspersed_args=False
+                              -> see the otel passthrough note below; it is
+                                 NOT a one-line parse_known_args swap
+
+      The `otel` subcommand is a PASSTHROUGH to telemetry.otel.cli.main and is
+      the ONLY genuinely tricky mapping. Get it right first. Two argparse
+      candidates were built and MEASURED; both fail if applied naively:
+
+        nargs=argparse.REMAINDER
+          The parent intercepts leading flags. `telemetry otel --help` and
+          `telemetry otel --agentic` both raise SystemExit(2)
+          "unrecognized arguments". Do NOT use this.
+
+        parse_known_args + nargs="*"
+          Flags survive, but argv arrives SPLIT ACROSS TWO VARIABLES:
+            ["otel","query","--format","json"]
+              -> args=["query"], rest=["--format","json"]
+            ["otel","--help"]
+              -> args=[],        rest=["--help"]
+          Forwarding only `args` OR only `rest` silently breaks every mixed
+          invocation. You MUST forward `args + rest` concatenated IN ORIGINAL
+          ORDER.
+
+      The dangerous case: `--help` and `--agentic` are flags the PARENT also
+      defines. A partially-correct port makes `telemetry otel --help` print
+      the TELEMETRY help and still exit 0 — a silent behaviour swap that no
+      exit-code check detects. Measured Click behaviour to preserve:
+        otel --help              rc=0, 216 bytes  (the OTEL help, not telemetry's)
+        otel --agentic           rc=0, 1091 bytes (otel usage, NOT the capsule)
+        otel query --format json rc=0
+
+      Adopt the shared framework rather than reimplementing it:
+        - build on CLIApp (core.cli_framework)
+        - declare src/telemetry/meta.py with an AppMeta (rule S2)
+        - dispatch via run_with_assistant, passing on_no_command to preserve
+          the measured bare-invocation exit code
+        - DELETE the Click-walking code in src/telemetry/agentic.py
+          (_describe_click_group / _describe_click_options). Once the parser is
+          argparse, core.agentic_schema.build_schema_json produces the capsule
+          generically, exactly as it does for the other 17 apps. Per project
+          rules, remove it - do not leave a compatibility shim.
+
+      Update the 4 CliRunner test files to invoke main(argv) directly.
+
+      Two behaviour changes are EXPECTED and must be reported explicitly, not
+      hidden:
+        1. The agentic JSON schema changes from the Click 5-key shape to the
+           argparse 6-key shape. This is the migration's purpose.
+        2. `telemetry -- --agentic` currently returns rc=2 with 0 bytes; after
+           the port it returns rc=0 like every other app, because normalize_argv
+           now applies. This brings telemetry into rule A6.
+
+      Everything else in the baseline must be unchanged.
+    agent:
+      role: code-writer-opus
+      tools: [Bash, Read, Write, Edit]
+      isolation: worktree
+    required: false
+    writes_to:
+      - outputs/click-migration-summary.md
+
+  - name: validate-click-equivalence
+    kind: validate
+    when: '"{migrate_click}" contains "true"'
+    depends_on: [migrate-click-to-argparse]
+    reads_from: [capture-click-baseline, migrate-click-to-argparse]
+    description: >
+      Diff the migrated CLI against the captured baseline.
+      (Contract is in validation.criteria, not here.)
+    validation:
+      strategy: deliverable
+      criteria:
+        - >-
+          Re-capture help text for the group and EVERY subcommand exactly as
+          capture-click-baseline did, into
+          {workspace}/validation/argparse-after/, and diff against the captured
+          click baseline.
+        - >-
+          Every subcommand present in the baseline must still exist. A missing
+          subcommand is a BREAKING CHANGE and a hard FAIL, regardless of
+          whether any test covers it.
+        - >-
+          Every flag present in a baseline subcommand's help must still be
+          accepted, with the same name and the same choices. Compare parsed
+          flag SETS, not rendered help prose - argparse and Click format help
+          differently, so a pure formatting difference is acceptable while a
+          missing flag is not.
+        - >-
+          The measured exit-code contract must be reproduced exactly, including
+          the non-obvious cases: bare invocation returns rc=2 with help on
+          STDOUT (not stderr), and an unknown subcommand returns rc=2 with
+          empty stdout and the error on STDERR. Report each as before -> after.
+        - >-
+          EXACTLY TWO SEMANTIC behaviour changes are permitted, and both must
+          be present and reported: (1) the agentic JSON key set changes from
+          the Click 5-key shape to the argparse 6-key shape; (2)
+          `telemetry -- --agentic` goes from rc=2 with 0 bytes to rc=0 with
+          output identical to the no-separator form.
+          A third SEMANTIC difference is a FAIL. Help-text reflow, wording, and
+          byte-count deltas are NOT semantic differences — argparse and Click
+          format help differently and the baseline byte counts drift on their
+          own. Judge on exit code, stream, flag sets, and subcommand sets.
+        - >-
+          The key set changing is NOT sufficient — check the VALUES. A schema
+          with a perfect 6-key shape whose `subcommands` value is empty passes
+          every other criterion here. Assert that post-migration `subcommands`
+          contains ALL 11 baseline subcommand names (agents, cost,
+          cost-breakdown, history, live, otel, parse-transcripts, rules,
+          sessions, stats, summary — re-derive from the baseline, do not trust
+          this list). A missing subcommand in the schema is a FAIL even when
+          the CLI still accepts it.
+        - >-
+          The text capsule must still announce `agentic: telemetry` and must
+          not have COLLAPSED. Use a PROPORTIONAL floor, not the 200-byte
+          MIN_CAPSULE_BYTES: the baseline is ~1041 bytes, so a 200-byte floor
+          would pass a capsule that lost 80% of its content. FAIL if the
+          post-migration capsule is below ~60% of the captured baseline size.
+          This matters here specifically because the migration DELETES the
+          hand-written builder, which is the change most likely to shrink it,
+          and because rc=0 plus a correct first line both survive total
+          capsule failure.
+        - >-
+          `import click` must be ABSENT from src/telemetry/ entirely. Grep and
+          report the count; a non-zero count means the migration is partial.
+          Confirm the Click-walking helpers in agentic.py were DELETED, not
+          left unreferenced.
+        - FAIL with specific per-subcommand detail; never summarise a partial result as a pass
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    required: false
+    writes_to:
+      - validation/click-equivalence.md
+
+  - name: test-click-migration
+    kind: validate
+    when: '"{migrate_click}" contains "true"'
+    depends_on: [validate-click-equivalence]
+    reads_from: [validate-click-equivalence, migrate-click-to-argparse]
+    description: >
+      Run the telemetry suite and the shared contracts against the migrated CLI.
+      (Contract is in validation.criteria, not here.)
+    validation:
+      strategy: unit
+      criteria:
+        - >-
+          Run the full suite: make test > /tmp/click-mig.log 2>&1;
+          echo "EXIT=$?"; grep -E "^Ran [0-9]+ tests" /tmp/click-mig.log
+          Exit code 0 is NOT evidence the suite ran - you MUST see the
+          "Ran N tests" line, and the 2>&1 is required because unittest writes
+          its summary to stderr. NEVER run bare `python3 -m unittest`.
+        - >-
+          All 79 telemetry test files must pass, including the 4 converted off
+          CliRunner. A converted test that now passes trivially (asserts
+          nothing, or asserts only rc==0) is a FAIL - verify each converted
+          test still asserts on OUTPUT, not just the exit code.
+        - >-
+          telemetry MUST now adopt AgenticCLIContractMixin with the full
+          argparse key set - it was exempt from rule A3 ONLY because it was
+          Click. If the migration succeeded that exemption no longer applies
+          and the contract must be adopted, not left opted out.
+        - >-
+          telemetry MUST now adopt SeparatorContractMixin (rule A6), which it
+          could not satisfy under Click. Confirm the test file exists and the
+          adopter count for that contract went from 17 to 18.
+        - >-
+          Report whether the Click exemption in .llm/CLI_STANDARD.md is now
+          stale (it will be, if the migration succeeded). Do NOT edit the
+          document here — that is retire-click-exemption's job. This stage
+          verifies; it does not mutate.
+        - Lint the changed files with qlty, passing paths explicitly; report how many files were scanned
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Bash, Read, Write, Edit]
+    required: false
+    writes_to:
+      - validation/click-migration-tests.md
+
+
+  - name: retire-click-exemption
+    kind: execute
+    when: '"{migrate_click}" contains "true"'
+    depends_on: [test-click-migration]
+    reads_from: [test-click-migration, validate-click-equivalence]
+    description: >
+      Remove the Click exemption from .llm/CLI_STANDARD.md now that telemetry
+      is argparse-based. Its own stage rather than a criterion on a validate
+      stage: validate agents get a PASS/FAIL scaffold and should not mutate
+      source, and this edit needs to be a declared output rather than a
+      side-effect.
+
+      Only run the edits if test-click-migration PASSED. If it failed or was
+      skipped, change nothing and say so — a standard that drops an exemption
+      the code still needs is worse than one that keeps it.
+
+      Edits:
+        - Delete the "The Click exemption (telemetry)" section entirely.
+        - Remove the telemetry carve-out from rule A3 (it can now emit the
+          argparse six keys).
+        - Remove the telemetry carve-out from rule A6 and its measured
+          "rc=2 with 0 bytes" note (normalize_argv now applies).
+        - Move telemetry from the Tier 1 exemption list into the normal
+          adopter set, and update the minimal-tier counts in Tier 2, which
+          currently say "8 by shape, 7 adopting" BECAUSE telemetry was Click.
+        - Re-run the counts rather than editing them by hand:
+          `ls src/*/meta.py | wc -l` and the per-contract adopter counts.
+
+      Leave the rc=0-trap section and the apple_music narrative untouched —
+      they are about a different failure mode and remain true.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Bash, Read, Write, Edit]
+    required: false
+    writes_to:
+      - outputs/click-exemption-retired.md
+
+  # ===========================================================================
+  # G3: Verify — re-run the identical audit, then the suite
+  # ===========================================================================
+
+  - name: verify-conformance
+    kind: validate
+    depends_on: [fix-meta, fix-contracts, fix-llm, retire-click-exemption]
+    reads_from: [audit-conformance, plan-remediation]
+    # `description` is REQUIRED by the parser but DISCARDED at dispatch for
+    # kind:validate — the prompt is built from validation.criteria ONLY. So
+    # this text is for human readers; every instruction lives in criteria.
+    description: >
+      Re-run the byte-identical audit script and prove conformance improved
+      with no regressions. (Contract is in validation.criteria, not here.)
+    validation:
+      strategy: unit
+      criteria:
+        - >-
+          Re-run the byte-identical audit script:
+          PYTHONPATH="$PWD/src" python3 {workspace}/validation/audit_cli_standard.py
+          > {workspace}/validation/conformance-after.json
+          Do NOT reimplement or edit the script — re-running a DIFFERENT script
+          would not be a verification.
+        - >-
+          COMPLIANCE MUST HAVE IMPROVED, measured numerically. Compute from the
+          two JSON files: total violations before, total violations after, and
+          the count of fully-conformant apps before and after. Record all four
+          numbers explicitly in conformance-diff.md.
+          FAIL if total violations after >= total violations before.
+          FAIL if fully-conformant apps after <= fully-conformant apps before.
+          A run that regressed nothing but fixed nothing is a FAILED run, not a
+          passing one — "no regressions" is necessary but NOT sufficient.
+        - >-
+          The improvement must be REAL, not an artifact of the audit changing.
+          The audit script must be byte-identical to the one that produced the
+          original conformance.json (diff them and confirm). A violation that
+          disappeared because the check was weakened, deleted, or made
+          conditional is a FAIL, not an improvement — verify each resolved
+          violation corresponds to an actual code or test change in the diff.
+        - >-
+          The BASELINE must have been non-trivial, or the improvement gates are
+          meaningless. A weak audit that only ever checks one rule yields a tiny
+          baseline that one edit can "improve". Assert that conformance.json
+          actually evaluated the full rule set: every rule ID in
+          .llm/CLI_STANDARD.md (S1-S4, A1-A7, B1-B4, L1-L3) must appear as a
+          key that was EVALUATED for every applicable app — recorded as passing,
+          failing, or explicitly exempt with a reason. A rule that is silently
+          absent from the audit for an app counts as NOT evaluated and is a FAIL.
+          Report the per-rule evaluation count so a shrunken rule set is visible
+          rather than inferred.
+        - >-
+          Cross-check that the audit was not authored to be trivially
+          satisfiable: the same agent wrote both the audit script and the plan,
+          and plan-critic reviewed only the PLAN, never the script. Read
+          {workspace}/validation/audit_cli_standard.py yourself and confirm each
+          rule's check actually executes the app (imports main(), captures
+          stdout) rather than returning a constant, reading source text, or
+          checking only that a file exists.
+        - >-
+          Every app that the plan claimed it would bring to full conformance
+          must actually BE fully conformant in conformance-after.json. Partial
+          progress on a claimed app is a FAIL for that app; list each one.
+        - Every violation the plan said it would fix is gone from conformance-after.json
+        - No new violation appears for any app that was not present in the original conformance.json
+        - >-
+          No app's capsule_bytes DECREASED. A drop means a capsule regressed to
+          a ~78-byte fallback banner while still returning rc=0 — the exact
+          silent failure this standard exists to catch. Treat any decrease as a
+          hard FAIL, never as a rounding difference.
+        - Every app still returns rc=0 on --agentic
+        - >-
+          Every app's ANNOUNCED app_id is unchanged from the original audit.
+          These are public identifiers (calendars announces "calendar",
+          apple_music announces "apple-music-assistant"); a change is a
+          breaking change, not an improvement.
+        - Every item the plan marked DEFERRED is still deferred and was not silently fixed
+        - >-
+          Write {workspace}/validation/conformance-diff.md with a per-app table
+          of before/after capsule_bytes, violations, and contracts adopted.
+        - >-
+          FAIL with specific per-app detail if any criterion fails. Do not
+          summarise a partial result as a pass.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    required: true
+    writes_to:
+      - validation/conformance-after.json
+      - validation/conformance-diff.md
+
+  - name: verify-tests
+    kind: validate
+    depends_on: [verify-conformance]
+    reads_from: [verify-conformance, plan-remediation]
+    # `description` is REQUIRED by the parser but DISCARDED at dispatch for
+    # kind:validate — the prompt is built from validation.criteria ONLY.
+    description: >
+      Run the full suite and lint, and confirm test code shrank.
+      (Contract is in validation.criteria, not here.)
+    validation:
+      strategy: deliverable
+      criteria:
+        - >-
+          Run exactly: make test > /tmp/cli-std.log 2>&1; echo "EXIT=$?";
+          grep -E "^Ran [0-9]+ tests" /tmp/cli-std.log
+        - >-
+          Exit code 0 is NOT evidence the suite ran. You MUST see the
+          "Ran N tests" line. The 2>&1 is required because unittest writes its
+          summary to STDERR — redirecting only stdout hides the verdict and
+          every failure. No "Ran N tests" line means the suite did not run:
+          re-run it, do not report a result.
+        - >-
+          NEVER run bare `python3 -m unittest`. An inherited PYTHONPATH resolves
+          imports to a DIFFERENT checkout and yields a false green that is
+          indistinguishable from a real one. If anything looks off, print where
+          the module actually loaded from — python3 -c "import wifi;
+          print(wifi.__file__)" — and confirm the path is under THIS worktree.
+        - >-
+          Known pre-existing failure, NOT caused by this work: the guard-hook
+          suite (tests.infra.test_guard_hooks.TestGuardHookSuites.test_block_destructive_bash_suite_passes)
+          times out under parallel-agent load — block-destructive-bash.test.sh
+          needs ~196s against a 180s cap. Measured baseline on main: "Ran 12730
+          tests", FAILED (errors=1, skipped=19). Treat exactly that one error as
+          expected; ANY other failure is caused by this work and must be fixed.
+        - >-
+          Lint the changed files. `make lint` runs ruff ONLY and is NOT
+          sufficient — CI also runs bandit and radarlint through qlty. Get the
+          file list with `git diff --name-only main...HEAD` (THREE dots — two
+          dots diffs against the current tip of main and pulls in every commit
+          merged since branching). Write that list to a file, then pass the
+          paths explicitly to `~/.qlty/bin/qlty check`; a command substitution
+          is rejected by the guard hook in a worktree-isolated session.
+        - >-
+          CRITICAL — an EMPTY file list is not a clean lint. If the work is
+          uncommitted, `main...HEAD` returns NOTHING (the branch may have zero
+          commits), qlty is handed no paths, and it exits 0 having scanned
+          nothing. That false clean is indistinguishable from a real pass.
+          Count the paths first and print the count. If it is 0, fall back to
+          `git status --porcelain` to collect modified AND untracked files, and
+          lint those. Never report a lint pass without stating how many files
+          were actually scanned.
+        - >-
+          Measure DUPLICATION, not net line count. A growing total is the
+          expected and correct outcome here — the bulk deletion already
+          happened in PR #320, so the remaining work is adding contracts and
+          adopting them, and the current branch is +144 tests. A net-negative
+          target would be unmeetable and would only force a justification
+          paragraph.
+          The real check: for every file that adopts a contract mixin, confirm
+          it does NOT also define its own copies of the assertions that mixin
+          covers. Report, per adopting file, the count of hand-rolled
+          assertions removed. Any file that both adopts a mixin AND retains
+          duplicate assertions is a FAIL — that file consolidated nothing.
+        - PASS requires all of the above; report per-criterion, not as a single verdict
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    required: true
+    writes_to:
+      - validation/test-results.md
+
+  # ===========================================================================
+  # G4: Human gate
+  # ===========================================================================
+
+  - name: human-gate
+    kind: propose
+    human_gate: true
+    depends_on: [verify-tests]
+    reads_from: [verify-conformance, verify-tests, plan-remediation, audit-conformance]
+    description: >
+      Present the result and ask how to proceed.
+
+      Read and display:
+        {workspace}/{plan_file}                          — approved plan
+        {workspace}/validation/conformance.json            — before
+        {workspace}/validation/conformance-after.json    — after
+        {workspace}/validation/conformance-diff.md       — per-app delta
+
+      Surface:
+        - Conformance by rule and tier, before vs after
+        - Apps brought to full conformance, and what remains
+        - Net test-line delta (negative is the goal)
+        - Capsule byte counts before/after, flagging ANY decrease
+        - Everything deferred, with reasons — especially telemetry/Click and
+          any app_id left alone
+        - Test and lint status, naming the known guard-hook timeout explicitly
+          so it is not mistaken for a regression
+
+      Ask the user:
+        A) Commit and open PR — stage the modified files BY NAME (never
+           git add -A) and run /open-pr with title "{pr_title}"
+        B) Revise — describe what to change
+        C) Stop and leave the working tree as-is
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Bash, Read, Write]
+    required: true
+
+include:
+  # plan-critic references {plan_file} and {critic_focus} as plain trigger-param
+  # placeholders. Fragments share the parent's param namespace — include.params
+  # is parsed but NOT wired to substitution (src/workflow/models.py IncludeSpec:
+  # "reserved for future use"), so both are declared in trigger.params above.
+  - path: workflows/shared/plan-critic.yaml
+    prefix: pc
+    depends_on: [plan-remediation]
+    reads_from: [plan-remediation]

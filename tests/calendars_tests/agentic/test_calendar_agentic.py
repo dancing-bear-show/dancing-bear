@@ -1,6 +1,7 @@
 import unittest
 
 from tests.agentic_cli_contract import AgenticCLIContractMixin
+from tests.cli_separator_contract import SeparatorContractMixin
 
 
 class TestCalendarAgenticCLI(AgenticCLIContractMixin, unittest.TestCase):
@@ -11,6 +12,16 @@ class TestCalendarAgenticCLI(AgenticCLIContractMixin, unittest.TestCase):
     """
 
     MODULE_PATH = "calendars.__main__"
+    APP_ID = "calendar"
+
+
+class TestCalendarSeparatorCLI(SeparatorContractMixin, unittest.TestCase):
+    """The shared ``--`` separator contract.
+
+    APP_ID is "calendar" (singular) -- same asymmetry as the agentic contract.
+    """
+
+    MODULE_PATH = "calendars.cli.main"
     APP_ID = "calendar"
 
 

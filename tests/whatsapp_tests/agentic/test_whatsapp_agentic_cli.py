@@ -8,12 +8,20 @@ documents them as supported on every app.
 import unittest
 
 from tests.agentic_cli_contract import AgenticCLIContractMixin
+from tests.cli_separator_contract import SeparatorContractMixin
 
 
 class TestWhatsappAgenticCLI(AgenticCLIContractMixin, unittest.TestCase):
     """The shared --agentic CLI contract."""
 
     MODULE_PATH = "whatsapp.__main__"
+    APP_ID = "whatsapp"
+
+
+class TestWhatsappSeparatorCLI(SeparatorContractMixin, unittest.TestCase):
+    """The shared ``--`` separator contract."""
+
+    MODULE_PATH = "whatsapp.cli.main"
     APP_ID = "whatsapp"
 
 

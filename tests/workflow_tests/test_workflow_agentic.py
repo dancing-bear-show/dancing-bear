@@ -1,93 +1,69 @@
-"""Tests for workflow agentic capsule and --agentic flag support."""
+"""Tests for workflow agentic capsule and --agentic flag support.
+
+Adopts both shared contracts:
+- AgenticBuilderContractMixin: covers build_agentic_capsule / emit_agentic_context
+- AgenticCLIContractMixin: covers main(["--agentic"]) / --agentic-format / --agentic-compact
+
+workflow hand-writes its capsule (no build_domain_map, no CLI tree), so both
+EXPECT_DOMAIN_MAP and EXPECT_CLI_TREE are set False. The mixin asserts that
+build_domain_map is genuinely absent.
+
+workflow wires agentic manually via on_no_command= (to preserve its legacy
+no-subcommand exit code of ExitCode.USAGE == 2), so AgenticCLIContractMixin
+targets workflow.cli directly.
+"""
 
 from __future__ import annotations
 
 import io
-import json
 import unittest
-from contextlib import redirect_stdout
 from unittest.mock import patch
 
+from tests.agentic_builder_contract import AgenticBuilderContractMixin
+from tests.agentic_cli_contract import AgenticCLIContractMixin
+from tests.cli_separator_contract import SeparatorContractMixin
 
-class TestWorkflowAgenticModule(unittest.TestCase):
-    """Tests for workflow/agentic.py."""
 
-    def test_emit_agentic_context_returns_zero(self):
-        from workflow.agentic import emit_agentic_context
+class TestWorkflowAgenticBuilder(AgenticBuilderContractMixin, unittest.TestCase):
+    """The shared agentic builder contract."""
 
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            rc = emit_agentic_context()
-        self.assertEqual(rc, 0)
+    MODULE_PATH = "workflow.agentic"
+    APP_ID = "workflow"
+    EXPECT_CLI_TREE = False
+    EXPECT_DOMAIN_MAP = False
 
-    def test_emit_agentic_context_prints_app_name(self):
-        from workflow.agentic import emit_agentic_context
 
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            emit_agentic_context()
-        self.assertIn("workflow", buf.getvalue())
+class TestWorkflowAgenticCLIContract(AgenticCLIContractMixin, unittest.TestCase):
+    """The shared --agentic CLI contract.
 
-    def test_emit_agentic_context_accepts_fmt_and_compact(self):
-        from workflow.agentic import emit_agentic_context
+    workflow wires agentic manually via on_no_command= to preserve its legacy
+    no-subcommand exit code (ExitCode.USAGE == 2), so the contract targets
+    workflow.cli directly.
+    """
 
-        for fmt in ("text", "yaml", "json"):
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = emit_agentic_context(fmt, False)
-            self.assertEqual(rc, 0)
+    MODULE_PATH = "workflow.cli"
+    APP_ID = "workflow"
+
+
+class TestWorkflowCapsuleContent(unittest.TestCase):
+    """workflow-specific capsule content not covered by the shared contract."""
 
     def test_build_agentic_capsule_contains_subcommands(self):
         from workflow.agentic import build_agentic_capsule
 
         capsule = build_agentic_capsule()
         for cmd in ("run", "list", "lint", "parse", "compile", "status", "resume"):
-            self.assertIn(cmd, capsule, f"Expected '{cmd}' in capsule")
+            with self.subTest(cmd=cmd):
+                self.assertIn(cmd, capsule)
 
     def test_build_agentic_capsule_contains_params_form(self):
         from workflow.agentic import build_agentic_capsule
 
-        capsule = build_agentic_capsule()
-        self.assertIn("--params", capsule)
-
-    def test_build_agentic_capsule_returns_string(self):
-        from workflow.agentic import build_agentic_capsule
-
-        result = build_agentic_capsule()
-        self.assertIsInstance(result, str)
-        self.assertGreater(len(result), 0)
+        self.assertIn("--params", build_agentic_capsule())
 
 
-class TestWorkflowMainAgentic(unittest.TestCase):
-    """Tests for --agentic flag wired through workflow main()."""
-
-    def test_agentic_flag_exits_zero(self):
-        from workflow.cli import main
-
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            rc = main(["--agentic"])
-        self.assertEqual(rc, 0)
-
-    def test_agentic_flag_prints_capsule_with_app_name(self):
-        from workflow.cli import main
-
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            main(["--agentic"])
-        self.assertIn("workflow", buf.getvalue())
-
-    def test_agentic_format_json_produces_valid_json(self):
-        from workflow.cli import main
-
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            rc = main(["--agentic", "--agentic-format", "json"])
-        self.assertEqual(rc, 0)
-        output = buf.getvalue().strip()
-        self.assertGreater(len(output), 0)
-        parsed = json.loads(output)
-        self.assertIsInstance(parsed, dict)
+class TestWorkflowMainAgenticExtra(unittest.TestCase):
+    """workflow-specific CLI behaviour not covered by the shared contract."""
 
     def test_no_subcommand_preserves_legacy_exit_code(self):
         """The legacy no-subcommand exit code (ExitCode.USAGE == 2) must be unchanged."""
@@ -108,6 +84,13 @@ class TestWorkflowMainAgentic(unittest.TestCase):
             main([])
         self.assertIn("Usage: workflow", stderr_buf.getvalue())
 
+
+
+class TestWorkflowSeparatorCLI(SeparatorContractMixin, unittest.TestCase):
+    """The shared ``--`` separator contract."""
+
+    MODULE_PATH = "workflow.cli"
+    APP_ID = "workflow"
 
 if __name__ == "__main__":
     unittest.main()

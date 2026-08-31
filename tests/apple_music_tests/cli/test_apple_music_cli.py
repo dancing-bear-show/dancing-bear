@@ -6,6 +6,8 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
+from tests.cli_separator_contract import SeparatorContractMixin
+
 from apple_music import __main__ as cli
 from apple_music import cli as am_cli
 from apple_music.client import AppleMusicClient
@@ -219,3 +221,10 @@ class TestVerifyTokensLive(unittest.TestCase):
             result = am_cli._verify_tokens_live("dev", "user")
         self.assertFalse(result["verified"])
         self.assertIn("apple-music-user-token", result["remedy"])
+
+
+class TestAppleMusicSeparatorCLI(SeparatorContractMixin, unittest.TestCase):
+    """The shared ``--`` separator contract for apple_music."""
+
+    MODULE_PATH = "apple_music.__main__"
+    APP_ID = "apple-music-assistant"

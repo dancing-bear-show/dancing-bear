@@ -1,24 +1,51 @@
-"""Tests for diagrams agentic capsule and --agentic flag integration."""
+"""Tests for diagrams agentic capsule and --agentic flag integration.
 
-import json
+Adopts both shared contracts:
+- AgenticBuilderContractMixin: covers build_agentic_capsule / emit_agentic_context
+- AgenticCLIContractMixin: covers main(["--agentic"]) / --agentic-format / --agentic-compact
+
+diagrams hand-writes its capsule (no build_domain_map, no CLI tree), so both
+EXPECT_DOMAIN_MAP and EXPECT_CLI_TREE are set False. The mixin asserts that
+build_domain_map is genuinely absent, so the flags cannot silently mask a
+regression.
+
+diagrams wires agentic manually (to preserve its legacy no-subcommand exit code
+of 0), so AgenticCLIContractMixin targets diagrams.cli rather than a __main__
+shim.
+"""
+
 import unittest
 from io import StringIO
 from unittest.mock import patch
 
+from tests.agentic_builder_contract import AgenticBuilderContractMixin
+from tests.agentic_cli_contract import AgenticCLIContractMixin
+from tests.cli_separator_contract import SeparatorContractMixin
 from tests.fixtures import capture_stdout
 
 
-class TestDiagramsAgenticCapsule(unittest.TestCase):
-    """Tests for diagrams/agentic.py."""
+class TestDiagramsAgenticBuilder(AgenticBuilderContractMixin, unittest.TestCase):
+    """The shared agentic builder contract."""
 
-    def test_build_returns_string(self):
-        from diagrams.agentic import build_agentic_capsule
-        result = build_agentic_capsule()
-        self.assertIsInstance(result, str)
+    MODULE_PATH = "diagrams.agentic"
+    APP_ID = "diagrams"
+    EXPECT_CLI_TREE = False
+    EXPECT_DOMAIN_MAP = False
 
-    def test_contains_agentic_header(self):
-        from diagrams.agentic import build_agentic_capsule
-        self.assertIn("agentic: diagrams", build_agentic_capsule())
+
+class TestDiagramsAgenticCLIContract(AgenticCLIContractMixin, unittest.TestCase):
+    """The shared --agentic CLI contract.
+
+    diagrams wires agentic manually to preserve its legacy no-subcommand exit
+    code (0), so the contract targets diagrams.cli directly.
+    """
+
+    MODULE_PATH = "diagrams.cli"
+    APP_ID = "diagrams"
+
+
+class TestDiagramsCapsuleContent(unittest.TestCase):
+    """diagrams-specific capsule content not covered by the shared contract."""
 
     def test_contains_from_yaml_command(self):
         from diagrams.agentic import build_agentic_capsule
@@ -44,50 +71,17 @@ class TestDiagramsAgenticCapsule(unittest.TestCase):
         from diagrams.agentic import build_agentic_capsule
         self.assertEqual(build_agentic_capsule(), build_agentic_capsule())
 
-    def test_emit_returns_zero(self):
-        from diagrams.agentic import emit_agentic_context
-        with capture_stdout():
-            rc = emit_agentic_context()
-        self.assertEqual(rc, 0)
 
-    def test_emit_accepts_fmt_and_compact(self):
-        from diagrams.agentic import emit_agentic_context
-        for fmt in ("text", "yaml", "json"):
-            with capture_stdout():
-                rc = emit_agentic_context(fmt, False)
-            self.assertEqual(rc, 0)
-
-    def test_emit_prints_capsule(self):
-        from diagrams.agentic import build_agentic_capsule, emit_agentic_context
-        with capture_stdout() as buf:
-            emit_agentic_context()
-        self.assertEqual(buf.getvalue(), build_agentic_capsule() + "\n")
-
-
-class TestDiagramsAgenticFlag(unittest.TestCase):
-    """Tests for --agentic flag in diagrams/cli.py main()."""
-
-    def test_agentic_flag_exits_zero(self):
-        from diagrams.cli import main
-        with capture_stdout() as buf:
-            rc = main(["--agentic"])
-        self.assertEqual(rc, 0)
-        self.assertIn("diagrams", buf.getvalue())
+class TestDiagramsAgenticFlagExtra(unittest.TestCase):
+    """diagrams-specific flag behaviour not covered by the shared contract."""
 
     def test_agentic_flag_yaml_format(self):
+        """YAML format output still announces the app."""
         from diagrams.cli import main
         with capture_stdout() as buf:
             rc = main(["--agentic", "--agentic-format", "yaml", "--agentic-compact"])
         self.assertEqual(rc, 0)
         self.assertIn("agentic: diagrams", buf.getvalue())
-
-    def test_agentic_flag_json_format_valid_json(self):
-        from diagrams.cli import main
-        with capture_stdout() as buf:
-            rc = main(["--agentic", "--agentic-format", "json"])
-        self.assertEqual(rc, 0)
-        parsed = json.loads(buf.getvalue())
-        self.assertIsInstance(parsed, dict)
 
     def test_no_subcommand_exits_zero(self):
         """Legacy exit code must remain 0 when no subcommand given."""
@@ -96,6 +90,13 @@ class TestDiagramsAgenticFlag(unittest.TestCase):
             rc = main([])
         self.assertEqual(rc, 0)
 
+
+
+class TestDiagramsSeparatorCLI(SeparatorContractMixin, unittest.TestCase):
+    """The shared ``--`` separator contract."""
+
+    MODULE_PATH = "diagrams.cli"
+    APP_ID = "diagrams"
 
 if __name__ == "__main__":
     unittest.main()
