@@ -81,6 +81,7 @@ trigger:
     apps: "*"                  # comma-list of apps to include, or "*" for all
     tiers: "0,1,2,3"           # which standard tiers to enforce
     fix_source: "true"         # "false" = audit + test adoption only, no src/ edits
+    migrate_click: "false"     # "true" = also run the telemetry Click->argparse stream
     pr_title: "refactor(cli): bring all CLIs to the shared standard"
     # Declared here (not under include.params) because include.params is parsed
     # but NOT wired to substitution — see src/workflow/models.py IncludeSpec.params
@@ -416,13 +417,24 @@ stages:
       Read tests/llm_cli_contract.py first for the required class attributes
       (MODULE_PATH, APP_ID, DOC_SUFFIX, EXPECTED_PROG).
 
-      mail is the known gap. Before adopting, RUN mail.llm_cli and print its
-      CONFIG.prog and DOC_SUFFIX rather than assuming them. Note that
-      mail.llm_cli is a LIVE `llm --app mail` dispatch target referenced by a
-      string literal — it is not a removable facade, and must keep working.
+      mail is DOCUMENTED AS EXEMPT, not as a gap — default to leaving it
+      alone. `src/mail/llm_cli.py` is a re-export shim of `core.llm_cli` that
+      never calls make_domain_llm_module, so it has NO CONFIG — and neither
+      does core.llm_cli behind it. Eleven of the mixin's tests read
+      `mod.CONFIG.*`, and its derive-all produces no AGENTIC_MAIL.md /
+      DOMAIN_MAP_MAIL.md. Adoption would mean INVENTING a domain CONFIG that
+      does not exist, which is not a refactor.
 
-      If mail's llm_cli genuinely diverges from the contract in a way that
-      makes adoption wrong, say so and skip it. Do not force a bad fit.
+      Verify rather than assume: run
+        python3 -c "import mail.llm_cli as m; print(hasattr(m,'CONFIG'))"
+      If that prints False, the exemption holds — record it and move on.
+      Only if it prints True should you reconsider adoption.
+
+      Separately: mail.llm_cli is a LIVE `llm --app mail` dispatch target
+      referenced by a string literal. It is not a removable facade despite
+      looking like one to an AST scan. Do not delete or restructure it.
+
+      If any OTHER app with an llm_cli.py lacks the contract, adopt it there.
     agent:
       role: tester
       model: sonnet
@@ -432,13 +444,247 @@ stages:
     writes_to:
       - outputs/fix-llm-summary.md
 
+
+  # ===========================================================================
+  # G2b: Click -> argparse migration (parallel work stream, telemetry only)
+  # ===========================================================================
+  # Runs alongside the P1/P2/P3 fan-out. Touches ONLY src/telemetry/ and
+  # tests/telemetry_tests/, which no other package in this workflow edits, so
+  # it is file-disjoint from every other G2 stage.
+  #
+  # Gated on migrate_click so the conformance work can run without it.
+
+  - name: capture-click-baseline
+    kind: gather
+    when: '"{migrate_click}" contains "true"'
+    depends_on: [pc-revise]
+    reads_from: [plan-remediation]
+    description: >
+      Record telemetry's EXACT observable CLI behaviour before anything is
+      touched. This baseline is the migration's only proof of equivalence, so
+      capture it first and never regenerate it after the port.
+
+      Do not modify any file in this stage.
+
+      Step 1 - enumerate the real surface. Do not hardcode this list:
+        ./bin/telemetry --help
+      parse the "Commands:" block. At the time of writing there are 11:
+      agents, cost, cost-breakdown, history, live, otel, parse-transcripts,
+      rules, sessions, stats, summary. Verify against the live output.
+
+      Step 2 - capture help text for the group and EVERY subcommand into
+      {workspace}/validation/click-baseline/:
+        telemetry --help              -> _root.txt
+        telemetry <cmd> --help        -> <cmd>.txt   (for each subcommand)
+      Capture stdout and stderr to separate files, and record the exit code
+      for each invocation in a manifest.
+
+      Step 3 - capture the exit-code contract. These are MEASURED values the
+      migration must reproduce exactly; several are non-obvious:
+        []                 -> rc=2, help printed to STDOUT (1228 bytes), stderr empty
+        ["--help"]         -> rc=0, same 1228 bytes on stdout
+        ["--agentic"]      -> rc=0, 1041 bytes
+        ["nope"]           -> rc=2, stdout EMPTY, error on STDERR (98 bytes)
+        ["cost","--help"]  -> rc=0, 436 bytes
+      Re-measure all of them rather than copying these numbers - they are a
+      snapshot for orientation, and the byte counts in particular shift if
+      help text is reflowed.
+
+      Note the bare-invocation case especially: rc=2 WITH help on stdout is
+      unusual (argparse defaults to help+rc=0, or usage+rc=2 on stderr), so it
+      must be preserved deliberately via on_no_command.
+
+      Step 4 - capture the agentic schema:
+        telemetry --agentic --agentic-format json
+      Record its key set. It is currently the Click-specific
+      {{app_id, commands, notes, prog, purpose}}; after migration it becomes
+      the argparse six. That change is EXPECTED and is the point of the
+      migration - record both, do not treat the change as a regression.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    required: false
+    writes_to:
+      - validation/click-baseline-manifest.json
+      - validation/click-agentic-before.json
+
+  - name: migrate-click-to-argparse
+    kind: execute
+    when: '"{migrate_click}" contains "true"'
+    depends_on: [capture-click-baseline]
+    reads_from: [capture-click-baseline, plan-remediation]
+    description: >
+      Port telemetry from Click to argparse on CLIApp, preserving the public
+      CLI byte-for-byte where the baseline says it must be preserved.
+
+      Touch ONLY src/telemetry/ and tests/telemetry_tests/.
+
+      Measured scope (verify before starting):
+        - 43 @click decorators: 36 in cli_sessions.py, 7 in parse_transcripts.py
+        - 38 click.option, 8 click.Choice, 2 groups, 11 subcommands
+        - click imported in 5 files: cli_sessions, cli_formatters, agentic,
+          parse_transcripts, parse_transcripts_io
+        - only 4 of 79 telemetry test files use CliRunner
+
+      Mapping guide - all of these were checked and none blocks the port:
+        click.option          -> parser.add_argument
+        click.Choice          -> choices=[...]
+        click.Path            -> plain str plus explicit validation
+        click.BadParameter    -> CLIError (core.cli_errors)
+        click.ClickException  -> CLIError
+        click.echo            -> print
+        click.pass_context    -> thread the argparse Namespace through
+        UNPROCESSED + allow_extra_args + allow_interspersed_args=False
+                              -> parse_known_args, passing the remainder to
+                                 the nested otel CLI unchanged
+
+      The `otel` subcommand is a PASSTHROUGH to telemetry.otel.cli.main. It
+      must keep forwarding its argv verbatim, including flags argparse would
+      otherwise try to claim. Get this one right first - it is the only
+      genuinely tricky mapping.
+
+      Adopt the shared framework rather than reimplementing it:
+        - build on CLIApp (core.cli_framework)
+        - declare src/telemetry/meta.py with an AppMeta (rule S2)
+        - dispatch via run_with_assistant, passing on_no_command to preserve
+          the measured bare-invocation exit code
+        - DELETE the Click-walking code in src/telemetry/agentic.py
+          (_describe_click_group / _describe_click_options). Once the parser is
+          argparse, core.agentic_schema.build_schema_json produces the capsule
+          generically, exactly as it does for the other 17 apps. Per project
+          rules, remove it - do not leave a compatibility shim.
+
+      Update the 4 CliRunner test files to invoke main(argv) directly.
+
+      Two behaviour changes are EXPECTED and must be reported explicitly, not
+      hidden:
+        1. The agentic JSON schema changes from the Click 5-key shape to the
+           argparse 6-key shape. This is the migration's purpose.
+        2. `telemetry -- --agentic` currently returns rc=2 with 0 bytes; after
+           the port it returns rc=0 like every other app, because normalize_argv
+           now applies. This brings telemetry into rule A6.
+
+      Everything else in the baseline must be unchanged.
+    agent:
+      role: code-writer-opus
+      tools: [Bash, Read, Write, Edit]
+      isolation: worktree
+    required: false
+    writes_to:
+      - outputs/click-migration-summary.md
+
+  - name: validate-click-equivalence
+    kind: validate
+    when: '"{migrate_click}" contains "true"'
+    depends_on: [migrate-click-to-argparse]
+    reads_from: [capture-click-baseline, migrate-click-to-argparse]
+    description: >
+      Diff the migrated CLI against the captured baseline.
+      (Contract is in validation.criteria, not here.)
+    validation:
+      strategy: deliverable
+      criteria:
+        - >-
+          Re-capture help text for the group and EVERY subcommand exactly as
+          capture-click-baseline did, into
+          {workspace}/validation/argparse-after/, and diff against the captured
+          click baseline.
+        - >-
+          Every subcommand present in the baseline must still exist. A missing
+          subcommand is a BREAKING CHANGE and a hard FAIL, regardless of
+          whether any test covers it.
+        - >-
+          Every flag present in a baseline subcommand's help must still be
+          accepted, with the same name and the same choices. Compare parsed
+          flag SETS, not rendered help prose - argparse and Click format help
+          differently, so a pure formatting difference is acceptable while a
+          missing flag is not.
+        - >-
+          The measured exit-code contract must be reproduced exactly, including
+          the non-obvious cases: bare invocation returns rc=2 with help on
+          STDOUT (not stderr), and an unknown subcommand returns rc=2 with
+          empty stdout and the error on STDERR. Report each as before -> after.
+        - >-
+          EXACTLY TWO behaviour changes are permitted, and both must be present
+          and reported: (1) the agentic JSON key set changes from the Click
+          5-key shape to the argparse 6-key shape; (2) `telemetry -- --agentic`
+          goes from rc=2 with 0 bytes to rc=0 with output identical to the
+          no-separator form. Any THIRD behavioural difference is a FAIL.
+        - >-
+          The text capsule must still clear MIN_CAPSULE_BYTES (200) and
+          announce `agentic: telemetry`. Baseline was 1041 bytes; a large drop
+          means the capsule regressed to a fallback banner while still exiting
+          0 - the exact silent failure this standard exists to catch.
+        - >-
+          `import click` must be ABSENT from src/telemetry/ entirely. Grep and
+          report the count; a non-zero count means the migration is partial.
+          Confirm the Click-walking helpers in agentic.py were DELETED, not
+          left unreferenced.
+        - FAIL with specific per-subcommand detail; never summarise a partial result as a pass
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    required: false
+    writes_to:
+      - validation/click-equivalence.md
+
+  - name: test-click-migration
+    kind: validate
+    when: '"{migrate_click}" contains "true"'
+    depends_on: [validate-click-equivalence]
+    reads_from: [validate-click-equivalence, migrate-click-to-argparse]
+    description: >
+      Run the telemetry suite and the shared contracts against the migrated CLI.
+      (Contract is in validation.criteria, not here.)
+    validation:
+      strategy: unit
+      criteria:
+        - >-
+          Run the full suite: make test > /tmp/click-mig.log 2>&1;
+          echo "EXIT=$?"; grep -E "^Ran [0-9]+ tests" /tmp/click-mig.log
+          Exit code 0 is NOT evidence the suite ran - you MUST see the
+          "Ran N tests" line, and the 2>&1 is required because unittest writes
+          its summary to stderr. NEVER run bare `python3 -m unittest`.
+        - >-
+          All 79 telemetry test files must pass, including the 4 converted off
+          CliRunner. A converted test that now passes trivially (asserts
+          nothing, or asserts only rc==0) is a FAIL - verify each converted
+          test still asserts on OUTPUT, not just the exit code.
+        - >-
+          telemetry MUST now adopt AgenticCLIContractMixin with the full
+          argparse key set - it was exempt from rule A3 ONLY because it was
+          Click. If the migration succeeded that exemption no longer applies
+          and the contract must be adopted, not left opted out.
+        - >-
+          telemetry MUST now adopt SeparatorContractMixin (rule A6), which it
+          could not satisfy under Click. Confirm the test file exists and the
+          adopter count for that contract went from 17 to 18.
+        - >-
+          Update .llm/CLI_STANDARD.md to REMOVE the Click exemption section and
+          the A3/A6 telemetry carve-outs, since they no longer describe
+          reality. A standard documenting an exemption the code no longer needs
+          is worse than one that never had it - a later reader will
+          reintroduce Click on its authority.
+        - Lint the changed files with qlty, passing paths explicitly; report how many files were scanned
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Bash, Read, Write, Edit]
+    required: false
+    writes_to:
+      - validation/click-migration-tests.md
+
   # ===========================================================================
   # G3: Verify — re-run the identical audit, then the suite
   # ===========================================================================
 
   - name: verify-conformance
     kind: validate
-    depends_on: [fix-meta, fix-contracts, fix-llm]
+    depends_on: [fix-meta, fix-contracts, fix-llm, test-click-migration]
     reads_from: [audit-conformance, plan-remediation]
     # `description` is REQUIRED by the parser but DISCARDED at dispatch for
     # kind:validate — the prompt is built from validation.criteria ONLY. So
