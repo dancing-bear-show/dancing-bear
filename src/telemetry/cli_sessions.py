@@ -442,18 +442,27 @@ def _on_no_command() -> int:
 
 def main(argv: list[str] | None = None) -> int:
     """Main entry point for the telemetry CLI."""
-    _argv = CLIApp.normalize_argv(argv if argv is not None else sys.argv[1:])
+    raw_argv = list(argv) if argv is not None else sys.argv[1:]
 
     # Special-case otel: intercept before CLIApp parses, so all remaining args
-    # (including --help, --format, etc.) are forwarded verbatim to otel's own parser.
-    if _argv and _argv[0] == "otel":
+    # (including --help, --format, etc.) are forwarded verbatim to otel's own
+    # parser. Normalizing here is only to find the subcommand -- a leading bare
+    # "--" must be stripped before `otel` is visible in position 0.
+    probe = CLIApp.normalize_argv(raw_argv)
+    if probe and probe[0] == "otel":
         from telemetry.otel.cli import main as otel_main
-        return otel_main(_argv[1:])
+        return otel_main(probe[1:])
 
+    # Pass RAW argv, not `probe`. run_with_assistant normalizes internally, and
+    # normalize_argv is not idempotent by design: it strips the first bare "--"
+    # on every call, so normalizing twice also eats a LATER "--" that the POSIX
+    # end-of-options contract requires be preserved. Measured:
+    #   ["sessions", "--", "--", "x"] -> once ["sessions", "--", "x"]
+    #                                 -> twice ["sessions", "x"]   (wrong)
     return app.run_with_assistant(
         assistant,
         emit_func=lambda fmt, compact: _lazy_agentic()(fmt, compact),
-        argv=_argv,
+        argv=raw_argv,
         post_build_hook=_post_build,
         on_no_command=_on_no_command,
     )

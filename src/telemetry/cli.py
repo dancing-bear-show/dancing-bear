@@ -10,11 +10,6 @@ the form ``from telemetry.cli import <symbol>`` continue to work unchanged.
 """
 from __future__ import annotations
 
-# Keep Path in this module's namespace so tests can patch 'telemetry.cli.Path.home'
-# (the rules command in cli_sessions uses Path.home() — the test patches it here
-# because the original code lived here; re-importing keeps the patch target valid).
-from pathlib import Path  # noqa: F401
-
 # Re-export main and internal helpers for backwards compat
 from telemetry.cli_sessions import (  # noqa: F401
     _rules_explain,
