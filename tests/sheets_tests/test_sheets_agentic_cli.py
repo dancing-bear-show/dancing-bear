@@ -9,6 +9,7 @@ import unittest
 
 from tests.agentic_cli_contract import AgenticCLIContractMixin
 from tests.cli_separator_contract import SeparatorContractMixin
+from tests.cli_no_subcommand_contract import NoSubcommandContractMixin
 
 
 class TestSheetsAgenticCLI(AgenticCLIContractMixin, unittest.TestCase):
@@ -24,6 +25,14 @@ class TestSheetsSeparatorCLI(SeparatorContractMixin, unittest.TestCase):
     MODULE_PATH = "sheets.cli"
     APP_ID = "sheets"
 
+
+
+class TestSheetsNoSubcommand(NoSubcommandContractMixin, unittest.TestCase):
+    """Rule A7 — the no-subcommand exit code is deliberate."""
+
+    MODULE_PATH = "sheets.cli"
+    EXPECTED_RC = 0
+    EXPECTED_STREAM = "stdout"
 
 if __name__ == "__main__":
     unittest.main()

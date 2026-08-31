@@ -21,6 +21,7 @@ from unittest.mock import patch
 from tests.agentic_builder_contract import AgenticBuilderContractMixin
 from tests.agentic_cli_contract import AgenticCLIContractMixin
 from tests.cli_separator_contract import SeparatorContractMixin
+from tests.cli_no_subcommand_contract import NoSubcommandContractMixin
 from tests.fixtures import capture_stdout
 
 
@@ -97,6 +98,14 @@ class TestDiagramsSeparatorCLI(SeparatorContractMixin, unittest.TestCase):
 
     MODULE_PATH = "diagrams.cli"
     APP_ID = "diagrams"
+
+
+class TestDiagramsNoSubcommand(NoSubcommandContractMixin, unittest.TestCase):
+    """Rule A7 — the no-subcommand exit code is deliberate."""
+
+    MODULE_PATH = "diagrams.cli"
+    EXPECTED_RC = 0
+    EXPECTED_STREAM = "stdout"
 
 if __name__ == "__main__":
     unittest.main()

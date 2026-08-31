@@ -290,8 +290,10 @@ def main(argv: list[str] | None = None) -> int:
 
     cmd_func = getattr(args, "_cmd_func", None)
     if cmd_func is None:
+        # Rule A7: help + 0, matching run_with_assistant's default and the
+        # other 15 apps. Previously returned 1 with no stated rationale.
         parser.print_help()
-        return 1
+        return 0
 
     try:
         return cmd_func(args)

@@ -91,9 +91,17 @@ class HelpAndDispatchTests(unittest.TestCase):
         self.assertIn("sessions", out)
         self.assertIn("cost", out)
 
-    def test_bare_invocation_preserves_legacy_exit_two(self):
+    def test_bare_invocation_prints_help_and_exits_zero(self):
+        """Rule A7: help + 0, matching the framework default.
+
+        Click exited 2 here and the argparse port initially preserved that,
+        but it was incidental to the parser rather than a chosen interface --
+        nothing documented it, unlike worker and workflow, which print a
+        one-line usage to stderr and keep their non-zero codes.
+        """
         rc, out = _run([])
-        self.assertEqual(rc, 2)
+        self.assertEqual(rc, 0)
+        self.assertTrue(out.strip(), "bare invocation must still print help")
 
     def test_cost_alias_dispatches(self):
         # cost is an alias for cost-breakdown; --help proves it is wired

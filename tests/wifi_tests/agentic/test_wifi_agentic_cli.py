@@ -9,6 +9,7 @@ import unittest
 
 from tests.agentic_cli_contract import AgenticCLIContractMixin
 from tests.cli_separator_contract import SeparatorContractMixin
+from tests.cli_no_subcommand_contract import NoSubcommandContractMixin
 
 
 class TestWifiAgenticCLI(AgenticCLIContractMixin, unittest.TestCase):
@@ -24,6 +25,14 @@ class TestWifiSeparatorCLI(SeparatorContractMixin, unittest.TestCase):
     MODULE_PATH = "wifi.cli"
     APP_ID = "wifi"
 
+
+
+class TestWifiNoSubcommand(NoSubcommandContractMixin, unittest.TestCase):
+    """Rule A7 — the no-subcommand exit code is deliberate."""
+
+    MODULE_PATH = "wifi.cli"
+    EXPECTED_RC = 0
+    EXPECTED_STREAM = "stdout"
 
 if __name__ == "__main__":
     unittest.main()
