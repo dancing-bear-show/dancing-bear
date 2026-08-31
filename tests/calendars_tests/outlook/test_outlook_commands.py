@@ -121,7 +121,14 @@ class TestRunOutlookRemindersSet(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     @patch("calendars.outlook.commands.run_pipeline")
     def test_minutes_is_converted_to_int(self, mock_pipeline, mock_build_svc):
-        """argparse may hand through a string; the request must carry an int."""
+        """A string `minutes` is coerced, so the request always carries an int.
+
+        Not reachable through the CLI: `--minutes` is declared `type=int` in
+        src/calendars/cli/main.py, so argparse coerces before this function is
+        called. The int() call is defensive against direct invocation with a
+        hand-built Namespace, which is what this test does — so this asserts the
+        conversion holds for that path, not that the CLI passes strings.
+        """
         from calendars.outlook.commands import run_outlook_reminders_set
         mock_build_svc.return_value = MagicMock()
         mock_pipeline.return_value = 0
