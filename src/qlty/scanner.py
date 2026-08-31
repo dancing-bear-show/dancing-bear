@@ -233,6 +233,17 @@ class Scanner:
         before stability is declared. Raise it for thorough sweeps; lower to 1
         to restore the old (faster but less reliable) behaviour.
         """
+        if rescan_until_stable:
+            # Fail fast rather than silently weakening the guarantee. dry_streak
+            # <= 0 satisfies `consecutive >= dry_streak` on the first comparison,
+            # which reinstates the exact false-stable bug the streak exists to
+            # prevent -- and does so invisibly, reporting stable=True.
+            if dry_streak < 1:
+                raise ValueError(f"dry_streak must be >= 1, got {dry_streak}")
+            if max_iterations < 1:
+                raise ValueError(
+                    f"max_iterations must be >= 1, got {max_iterations}"
+                )
         req = request or ScanRequest()
         result = self._scan_once(req)
         if not rescan_until_stable:
@@ -252,7 +263,7 @@ class Scanner:
         max_iterations: int,
         dry_streak: int,
     ) -> ScanResult:
-        """Re-run until the finding identity set repeats ``dry_streak`` times, or the cap is hit.
+        """Re-run until the identity set repeats ``dry_streak`` times, or iterations run out.
 
         Findings are accumulated across iterations rather than replaced: the
         point of re-scanning is that any single run may omit findings the cap
@@ -264,8 +275,12 @@ class Scanner:
         consecutive matching iterations are required before ``stable=True`` is
         returned. The default of 2 means at least 3 iterations must agree.
 
-        ``stable=False`` is always reported when the cap is hit so callers know
-        the result may be incomplete.
+        Stability here is a statement about REPEATED IDENTITY SETS, not about
+        the cap: nothing in qlty's output says a run was capped, so this code
+        cannot detect that. ``stable=True`` means the identity set repeated
+        ``dry_streak`` times; findings may still be missing. ``stable=False``
+        means only that ``max_iterations`` was exhausted before that happened.
+        Neither value proves the result is complete.
         """
         accumulated = _Accumulator()
         accumulated.absorb(first)
