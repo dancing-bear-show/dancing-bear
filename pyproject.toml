@@ -9,7 +9,7 @@ description = "Reconstituted personal assistants (mail, resume, schedule)"
 requires-python = ">=3.11"
 readme = "README.md"
 dependencies = [
-  "click==8.4.2",
+  "click==8.5.0",
   "cryptography==50.0.0",
   "rich==15.0.0",
   "PyYAML==6.0.3",
