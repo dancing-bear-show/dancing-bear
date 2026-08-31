@@ -66,7 +66,12 @@ def parse_py(path: str) -> ast.Module | None:
     try:
         with open(path, encoding="utf-8") as fh:
             return ast.parse(fh.read(), filename=path)
-    except (OSError, SyntaxError):
+    # A file that is not valid UTF-8, or carries a bad encoding declaration,
+    # would otherwise abort the whole scan -- neither raises OSError.
+    # ValueError covers UnicodeDecodeError (its subclass) and the null-byte
+    # ValueError that ast.parse raises. detect_facades.py treats decode
+    # failures as non-fatal the same way.
+    except (OSError, SyntaxError, ValueError):
         return None
 
 
@@ -122,7 +127,9 @@ def _read_cached(path: str) -> str:
         try:
             with open(path, encoding="utf-8") as fh:
                 _FILE_CACHE[path] = fh.read()
-        except OSError:
+        except (OSError, UnicodeDecodeError):
+            # An unreadable or non-UTF-8 file contributes no usages rather than
+            # aborting the scan; cached as "" so it is not retried per symbol.
             _FILE_CACHE[path] = ""
     return _FILE_CACHE[path]
 
@@ -138,7 +145,7 @@ def count_usages(name: str, files: list[str], defining_file: str) -> int:
     """
     bare = name.split(".")[-1]
     pattern = re.compile(rf"\b{re.escape(bare)}\b")
-    skip = os.path.abspath(defining_file) if defining_file else None
+    skip = _abspath(defining_file) if defining_file else None
     total = 0
     for path in files:
         if skip is not None and _abspath(path) == skip:
@@ -173,7 +180,12 @@ def scan_python() -> list[dict]:
             # that merely happens to be public -- adopted, not dead. Reporting
             # only the external count made four such helpers look unused.
             internal = count_usages(name, [core_file], defining_file="")
-            defs = 2 if kind == "class" else 1  # class: def line + any __all__
+            # The definition itself is one occurrence. Do NOT also discount an
+            # __all__ entry: a class with one intra-module use and no __all__
+            # then scored internal == defs and was misreported as dead. Counting
+            # an __all__ mention as a real internal usage errs toward
+            # "internal-only", which is the safe direction for a heuristic.
+            defs = 1
             findings.append(
                 {
                     "kind": "unadopted-symbol",
@@ -207,7 +219,12 @@ def iter_yaml(root: str):
 
 
 def scan_workflows() -> list[dict]:
-    """Shared workflow fragments that few or no workflows include.
+    """Shared workflow fragments that NO workflow includes.
+
+    Zero includers only, unlike the Python scan's LOW_ADOPTION threshold. A
+    fragment with even one includer is doing its job -- fragments are composed
+    deliberately per workflow shape, so "used twice instead of five times" is
+    not evidence of anything, whereas "never used" is.
 
     The engine supports `include:` (src/workflow/include.py), and
     workflows/shared/ holds the fragments. A fragment nobody includes is the
@@ -236,13 +253,9 @@ def scan_workflows() -> list[dict]:
                     if fn.endswith((".md", ".yaml", ".yml"))
                 ]
 
-    texts: dict[str, str] = {}
-    for path in consumers:
-        try:
-            with open(path, encoding="utf-8") as fh:
-                texts[path] = fh.read()
-        except OSError:
-            continue
+    # _read_cached rather than a second open(): it already handles unreadable
+    # and non-UTF-8 files, and shares the cache with the python scan.
+    texts = {path: _read_cached(path) for path in consumers}
 
     findings: list[dict] = []
     for frag in iter_yaml(SHARED):
