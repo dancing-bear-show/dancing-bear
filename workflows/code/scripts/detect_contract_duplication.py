@@ -293,7 +293,7 @@ def _best_match_for_method(
                 "local_line": local_line,
                 "mixin": mixin_class,
                 "mixin_method": mixin_name,
-                "similarity": round(sim, 3),
+                "similarity": sim,
                 "shared_calls": sorted(shared),
                 "shared_call_count": len(shared),
             }
@@ -365,6 +365,9 @@ def scan() -> list[dict]:
             f["local_method"],
         )
     )
+    # Round similarity for output after sorting so the sort uses raw values.
+    for f in findings:
+        f["similarity"] = round(f["similarity"], 3)
     return findings
 
 

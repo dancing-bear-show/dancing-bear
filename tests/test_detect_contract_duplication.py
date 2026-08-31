@@ -27,9 +27,12 @@ from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Load the module under test via importlib.
-# We chdir to a temp dir during loading so the module-level os.walk does not
-# scan a real tests/ tree -- the scan completes with an empty set, and we
-# then call only the pure-function helpers or monkey-patch MIXINS.
+# We chdir to a temp dir during loading so that if any top-level code in the
+# module triggers a filesystem scan it resolves against an empty directory.
+# The os.walk in detect_contract_duplication.py only runs when scan() is
+# called (not at import time), so the chdir matters for scan() integration
+# tests rather than for loading; it is a belt-and-suspenders guard for future
+# changes.  Integration tests monkey-patch MIXINS for their own tree.
 # ---------------------------------------------------------------------------
 
 _SCRIPT = (
