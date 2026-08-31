@@ -9,7 +9,7 @@ not for the other 17 apps.
 from __future__ import annotations
 
 import unittest
-from unittest import mock
+from unittest.mock import patch
 
 from tests.cli_separator_contract import SeparatorContractMixin
 
@@ -40,7 +40,7 @@ class TestTelemetryArgvNormalizedOnce(unittest.TestCase):
     def test_second_separator_survives_to_run_with_assistant(self):
         import telemetry.cli_sessions as cs
 
-        with mock.patch.object(cs.app, "run_with_assistant", return_value=0) as spy:
+        with patch.object(cs.app, "run_with_assistant", return_value=0) as spy:
             cs.main(["sessions", "--", "--", "x"])
 
         passed = list(spy.call_args.kwargs["argv"])
@@ -59,7 +59,7 @@ class TestTelemetryArgvNormalizedOnce(unittest.TestCase):
         """
         import telemetry.cli_sessions as cs
 
-        with mock.patch("telemetry.otel.cli.main", return_value=0) as otel_main:
+        with patch("telemetry.otel.cli.main", return_value=0) as otel_main:
             cs.main(["--", "otel", "query", "--format", "json"])
 
         otel_main.assert_called_once_with(["query", "--format", "json"])
