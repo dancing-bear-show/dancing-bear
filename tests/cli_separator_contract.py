@@ -108,9 +108,15 @@ class SeparatorContractMixin:
         """
         _, out_plain = self._run(["--agentic"])
         _, out_sep = self._run(["--", "--agentic"])
+        # Compared as UTF-8 bytes, matching the wording of this contract and
+        # the byte-count assertions in tests/agentic_cli_contract.py. Several
+        # capsules carry non-ASCII (calendars uses em dashes and arrows), so
+        # len(str) and the byte length genuinely differ.
+        plain_bytes = out_plain.encode("utf-8")
+        sep_bytes = out_sep.encode("utf-8")
         self.assertEqual(
-            out_plain,
-            out_sep,
-            f"separator form differs: plain={len(out_plain)} chars, "
-            f"sep={len(out_sep)} chars",
+            plain_bytes,
+            sep_bytes,
+            f"separator form differs: plain={len(plain_bytes)} bytes, "
+            f"sep={len(sep_bytes)} bytes",
         )
