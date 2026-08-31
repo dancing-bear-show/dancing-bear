@@ -43,6 +43,8 @@ _SCRIPT = (
 
 def _load_detector():
     spec = importlib.util.spec_from_file_location("detect_contract_duplication", _SCRIPT)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"importlib could not locate or create a loader for {_SCRIPT}")
     mod = importlib.util.module_from_spec(spec)
     old_cwd = os.getcwd()
     with tempfile.TemporaryDirectory() as tmp:
@@ -56,11 +58,8 @@ def _load_detector():
 
 _det = _load_detector()
 
-_parse = _det._parse
 _calls = _det._calls
-_all_names = _det._all_names
 _uses_mocking = _det._uses_mocking
-_load_mixin_methods = _det._load_mixin_methods
 _jaccard = _det._jaccard
 scan = _det.scan
 SIMILARITY_THRESHOLD = _det.SIMILARITY_THRESHOLD
@@ -289,7 +288,7 @@ class TestOverrideNotFlagged(unittest.TestCase):
 # Unit tests: _calls, _uses_mocking, _jaccard
 # ---------------------------------------------------------------------------
 
-def _parse_method(src: str) -> ast.FunctionDef:
+def _parse_method(src: str) -> ast.FunctionDef | ast.AsyncFunctionDef:
     tree = ast.parse(textwrap.dedent(src))
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):

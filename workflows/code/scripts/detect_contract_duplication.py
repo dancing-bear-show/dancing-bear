@@ -90,6 +90,7 @@ import datetime
 import json
 import os
 import sys
+from collections.abc import Iterator
 
 TESTS = "tests"
 SKIP_WALK_DIRS = {
@@ -241,7 +242,7 @@ def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
 # Scanner
 # ---------------------------------------------------------------------------
 
-def _iter_test_files() -> list[str]:
+def _iter_test_files() -> Iterator[str]:
     for dirpath, dirnames, filenames in os.walk(TESTS):
         dirnames[:] = [d for d in dirnames if d not in SKIP_WALK_DIRS]
         for fn in sorted(filenames):
