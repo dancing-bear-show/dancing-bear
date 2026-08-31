@@ -202,7 +202,7 @@ class TextFormatter:
         return " · ".join(parts)
 
     @staticmethod
-    def format_phone(phone: str) -> str:
+    def format_phone(phone: str | None) -> str:
         """Format phone number for display."""
         p = (phone or "").strip()
         digits = re.sub(r"\D+", "", p)
@@ -213,7 +213,7 @@ class TextFormatter:
         return p
 
     @staticmethod
-    def format_link(url: str) -> str:
+    def format_link(url: str | None) -> str:
         """Format URL for compact display (strip scheme, www)."""
         u = (url or "").strip()
         if not u:

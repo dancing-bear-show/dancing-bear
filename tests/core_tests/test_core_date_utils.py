@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import unittest
+from typing import Any, cast
 
 from core.date_utils import (
     RRULE_CODE_TO_WEEKDAY,
@@ -264,9 +265,10 @@ class TestDayRangeToIso(unittest.TestCase):
     def test_raises_value_error_on_none(self):
         # None reached these sites as a TypeError before; callers caught
         # (ValueError, TypeError) together, so it must still raise ValueError.
+        # cast exercises the TypeError->ValueError conversion guard.
         from core.date_utils import day_range_to_iso
         with self.assertRaises(ValueError):
-            day_range_to_iso(None, None)  # type: ignore[arg-type]
+            day_range_to_iso(cast(Any, None), cast(Any, None))
 
     def test_message_names_the_expected_format(self):
         from core.date_utils import day_range_to_iso

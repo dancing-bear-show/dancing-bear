@@ -26,6 +26,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 from core.pipeline import ResultEnvelope
@@ -517,7 +518,8 @@ class TestLocationSyncResolveEventLocationNone(unittest.TestCase):
     def test_returns_none_for_non_dict(self):
         from calendars.location_sync import LocationSync
         sync = LocationSync(svc=MagicMock())
-        result = sync._resolve_event_location("not a dict", calendar=None)
+        # cast exercises the isinstance(ev, dict) guard — intentional wrong type.
+        result = sync._resolve_event_location(cast(Any, "not a dict"), calendar=None)
         self.assertIsNone(result)
 
     def test_returns_none_when_no_location(self):
