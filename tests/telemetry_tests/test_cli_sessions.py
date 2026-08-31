@@ -1,13 +1,12 @@
 """Tests for CLI session/agent/cost data-shaping helpers."""
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
-
-from click.testing import CliRunner
 
 from telemetry.cli import (
     _agent_row_to_dict,
@@ -27,6 +26,14 @@ from tests.telemetry_tests.shared_fixtures import (
     _make_agent_token_row,
     _make_session_summary,
 )
+
+
+def _run_main(argv: list[str]) -> tuple[int, str]:
+    """Invoke main(argv) and return (rc, stdout)."""
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = main(argv)
+    return rc, buf.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -128,24 +135,21 @@ class TestAgentRowToDict(unittest.TestCase):
 class TestPrintAgentsJson(unittest.TestCase):
     def test_outputs_valid_json(self):
         rows = [_make_agent_token_row()]
-        runner = CliRunner()
-        with runner.isolated_filesystem():
-            with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
-                MockProvider.return_value.aggregate_agents.return_value = rows
-                result = runner.invoke(main, ["agents", "--since", "7d", "--format", "json"])
-        self.assertEqual(result.exit_code, 0)
-        data = json.loads(result.output)
+        with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
+            MockProvider.return_value.aggregate_agents.return_value = rows
+            rc, out = _run_main(["agents", "--since", "7d", "--format", "json"])
+        self.assertEqual(rc, 0)
+        data = json.loads(out)
         self.assertIn("agent_count", data)
         self.assertEqual(data["agent_count"], 1)
         self.assertIn("agents", data)
 
     def test_direct_call_structure(self):
         rows = [_make_agent_token_row(agent="tester", est_cost=0.02)]
-        runner = CliRunner()
         with patch("telemetry.providers.transcript.TranscriptProvider.aggregate_agents", return_value=rows):
-            result = runner.invoke(main, ["agents", "--format", "json", "--since", "7d"])
-        self.assertEqual(result.exit_code, 0)
-        payload = json.loads(result.output)
+            rc, out = _run_main(["agents", "--format", "json", "--since", "7d"])
+        self.assertEqual(rc, 0)
+        payload = json.loads(out)
         self.assertEqual(payload["returned_count"], 1)
 
 
@@ -155,24 +159,22 @@ class TestPrintAgentsJson(unittest.TestCase):
 
 class TestPrintAgentsCsv(unittest.TestCase):
     def test_csv_output_has_header_and_row(self):
-        runner = CliRunner()
         rows = [_make_agent_token_row(agent="researcher")]
         with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
             MockProvider.return_value.aggregate_agents.return_value = rows
-            result = runner.invoke(main, ["agents", "--since", "7d", "--format", "csv"])
-        self.assertEqual(result.exit_code, 0)
-        self.assertIn("agent", result.output)
-        self.assertIn("researcher", result.output)
+            rc, out = _run_main(["agents", "--since", "7d", "--format", "csv"])
+        self.assertEqual(rc, 0)
+        self.assertIn("agent", out)
+        self.assertIn("researcher", out)
 
     def test_direct_print_agents_csv(self):
         rows = [_make_agent_token_row(agent="reviewer", calls=2, models=["m1", "m2"])]
-        runner = CliRunner()
         with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
             MockProvider.return_value.aggregate_agents.return_value = rows
-            result = runner.invoke(main, ["agents", "--format", "csv", "--since", "7d"])
-        self.assertEqual(result.exit_code, 0)
-        self.assertIn("reviewer", result.output)
-        self.assertIn("m1;m2", result.output)
+            rc, out = _run_main(["agents", "--format", "csv", "--since", "7d"])
+        self.assertEqual(rc, 0)
+        self.assertIn("reviewer", out)
+        self.assertIn("m1;m2", out)
 
 
 # ---------------------------------------------------------------------------

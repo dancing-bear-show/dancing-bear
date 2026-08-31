@@ -2,7 +2,7 @@
 
 All implementations live in:
   - telemetry/cli_formatters.py  — pure formatting/data helpers
-  - telemetry/cli_sessions.py    — click command group and subcommands
+  - telemetry/cli_sessions.py    — CLIApp command group and subcommands
 
 This shim re-exports the full public surface so that existing imports of
 the form ``from telemetry.cli import <symbol>`` continue to work unchanged.
@@ -10,27 +10,13 @@ the form ``from telemetry.cli import <symbol>`` continue to work unchanged.
 """
 from __future__ import annotations
 
-# Keep Path in this module's namespace so tests can patch 'telemetry.cli.Path.home'
-# (the rules command in cli_sessions uses Path.home() — the test patches it here
-# because the original code lived here; re-importing keeps the patch target valid).
-from pathlib import Path  # noqa: F401
-
-# Re-export click group and all subcommands
+# Re-export main and internal helpers for backwards compat
 from telemetry.cli_sessions import (  # noqa: F401
     _rules_explain,
     _rules_init,
     _rules_list,
     _rules_validate,
-    agents,
-    cost_breakdown,
-    history,
-    live,
     main,
-    otel_cmd,
-    rules,
-    sessions,
-    stats,
-    summary,
 )
 
 # Re-export all formatting/data helpers
