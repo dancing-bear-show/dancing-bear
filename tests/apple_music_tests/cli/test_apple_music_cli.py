@@ -3,10 +3,10 @@ import json
 import tempfile
 import unittest
 from contextlib import redirect_stdout
-
-from tests.cli_separator_contract import SeparatorContractMixin
 from pathlib import Path
 from unittest import mock
+
+from tests.cli_separator_contract import SeparatorContractMixin
 
 from apple_music import __main__ as cli
 from apple_music import cli as am_cli

@@ -21,7 +21,7 @@ def build_agentic_capsule() -> str:
     lines.append("notes:")
     lines.append("  - credentials stored in ~/.config/credentials.ini under [apple_music.<profile>]")
     lines.append("  - developer token requires a MusicKit .p8 key (key_path, team_id, key_id)")
-    lines.append("  - user token obtained via: bin/apple-music-user-token --serve --save")
+    lines.append("  - user token obtained via: ./bin/apple-music-user-token --serve --save")
     lines.append("  - most commands accept --out <file> to write JSON and --pretty for indented output")
     lines.append("  - token mint --save writes the developer token back to credentials.ini")
     lines.append("  - dedupe without --delete runs in plan-only mode (safe by default)")

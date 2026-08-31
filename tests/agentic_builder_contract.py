@@ -65,9 +65,10 @@ class AgenticBuilderContractMixin:
     #: by ``core.agentic.cached_parser_loader``, which is a real defect that
     #: leaves the capsule silently less useful.
     EXPECT_CLI_TREE: bool = True
-    #: Whether the module defines ``build_domain_map()``. Six domains
-    #: (``charts``, ``diagrams``, ``sheets``, ``slides``, ``worker``,
-    #: ``workflow``) hand-write their capsule and define no domain map. When
+    #: Whether the module defines ``build_domain_map()``. Seven domains
+    #: (``apple_music``, ``charts``, ``diagrams``, ``sheets``, ``slides``,
+    #: ``worker``, ``workflow``) hand-write their capsule and define no domain
+    #: map -- the same roster as the module docstring above. When
     #: False the three domain-map tests are skipped and the mixin instead
     #: asserts that ``build_domain_map`` does not exist on the module -- so
     #: the flag cannot silently hide a deletion from a map-defining module.
