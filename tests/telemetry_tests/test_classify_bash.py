@@ -446,9 +446,6 @@ class TestDefaultClassification(unittest.TestCase):
         self.assertEqual(evt.classification, "productive")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 # ===========================================================================
 # Null-valued tool_input keys
@@ -503,3 +500,6 @@ class TestNullCommandIsNotTheStringNone(unittest.TestCase):
             (missing.classification, missing.waste_reason),
             (null_valued.classification, null_valued.waste_reason),
         )
+
+if __name__ == "__main__":
+    unittest.main()

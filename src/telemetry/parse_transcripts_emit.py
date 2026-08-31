@@ -24,6 +24,16 @@ def _token_estimate(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+def _cell(value: object) -> str:
+    """Render one table cell, mapping only null to "".
+
+    Not `str(value or "")`: that blanks legitimate falsy values, so a count of
+    0 or a flag of False would print as an empty cell while the JSON path above
+    still renders them as 0 and false. Only None is absent.
+    """
+    return str(value) if value is not None else ""
+
+
 def _emit_rows(rows: list[dict[str, object]], fmt: str = "table", headers: list[str] | None = None) -> None:
     """Emit rows as JSON or a plain text table."""
     if fmt == "json":
@@ -35,10 +45,10 @@ def _emit_rows(rows: list[dict[str, object]], fmt: str = "table", headers: list[
     widths = {c: len(c) for c in cols}
     for row in rows:
         for c in cols:
-            widths[c] = max(widths[c], len(str(row.get(c) or "")))
+            widths[c] = max(widths[c], len(_cell(row.get(c))))
     header = "  ".join(c.ljust(widths[c]) for c in cols)
     sep = "  ".join("-" * widths[c] for c in cols)
     print(header, file=sys.stdout)
     print(sep, file=sys.stdout)
     for row in rows:
-        print("  ".join(str(row.get(c) or "").ljust(widths[c]) for c in cols), file=sys.stdout)
+        print("  ".join(_cell(row.get(c)).ljust(widths[c]) for c in cols), file=sys.stdout)
