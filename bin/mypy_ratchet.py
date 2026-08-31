@@ -50,9 +50,15 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BASELINE_PATH = REPO_ROOT / "typecheck-baseline.json"
 
-# Roots the gate is willing to check. Kept in sync with what the baseline
-# measures; a path outside these is ignored rather than silently unchecked.
-CHECKED_ROOTS = ("src", "tests")
+# Roots the gate is willing to check, and the same set the baseline measures.
+# A path outside these is ignored rather than silently unchecked.
+#
+# bin/ is included despite holding mostly extensionless wrappers: those are
+# symlinks to _router.py, so mypy sees only the handful of real .py files
+# there — and they are real logic (this script among them). Excluding bin/
+# would leave new CLI-adjacent code ungated, which is the hole this gate exists
+# to close.
+CHECKED_ROOTS = ("src", "tests", "bin")
 
 # Matches mypy's own summary line, the only trustworthy error count in its
 # output. `Found 1 error in 1 file` is singular, hence the optional plurals.

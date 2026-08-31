@@ -6,11 +6,13 @@
   ],
   "roots": [
     "src",
-    "tests"
+    "tests",
+    "bin"
   ],
-  "total": 682,
+  "total": 684,
   "packages": {
     "apple_music": 10,
+    "bin": 2,
     "calendars": 19,
     "charts": 43,
     "core": 69,
@@ -27,6 +29,7 @@
     "workflow": 12
   },
   "legacy_files": [
+    "bin/code-review-backfill-log.py",
     "src/apple_music/cli.py",
     "src/apple_music/cli_playlist.py",
     "src/apple_music/client.py",
