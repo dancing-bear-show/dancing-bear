@@ -59,7 +59,20 @@ class TestLlmCliUniformity(unittest.TestCase):
 
     def test_no_module_hand_rolls_the_shared_builders(self):
         # The factory supplies these; a module defining its own has forked it.
-        forbidden = ("_agentic", "_domain_map", "_inventory", "_policies")
+        # The familiar pair matters as much as the rest: calendars and phone
+        # both hand-rolled _familiar_compact/_familiar_extended, and those
+        # were what shadowed their per-app steps with the repo-wide capsule.
+        forbidden = (
+            "_agentic",
+            "_agentic_capsule",
+            "_domain_map",
+            "_inventory",
+            "_inventory_md",
+            "_familiar_compact",
+            "_familiar_extended",
+            "_policies",
+            "_policies_md",
+        )
         for pkg in _domain_llm_packages():
             with self.subTest(package=pkg):
                 mod = importlib.import_module(f"{pkg}.llm_cli")

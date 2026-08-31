@@ -2,8 +2,10 @@
 
 Includes:
 1. The shared LLM CLI contract via LLMCLIContractMixin.
-2. Domain-specific tests for CONFIG builder callables that are unique
-   to the whatsapp implementation and are not part of the shared contract.
+2. Assertions on the values whatsapp feeds into the shared builders. The
+   builder implementations come from core.llm_builders and are common to
+   every domain; only the configuration they are constructed with is
+   whatsapp-specific.
 """
 
 from __future__ import annotations
@@ -76,7 +78,10 @@ class TestFamiliarCompactBuilder(unittest.TestCase):
     def test_contains_yaml_structure(self):
         result = llm_cli.CONFIG.familiar_compact()
         self.assertGreater(len(result), 0)
-        self.assertTrue("meta:" in result or "steps:" in result)
+        # Both keys are required: a capsule with steps but no meta block, or
+        # vice versa, is not a valid familiarization capsule.
+        self.assertIn("meta:", result)
+        self.assertIn("steps:", result)
 
 
 class TestFamiliarExtendedBuilder(unittest.TestCase):
