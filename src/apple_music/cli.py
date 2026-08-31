@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any
+from typing import Any, Callable
 
 from core.assistant import BaseAssistant
 from core.cli_errors import AuthError, ConfigError
@@ -278,7 +278,13 @@ _assistant = BaseAssistant(META.app_id, META.agentic_fallback)
 
 
 @lru_cache(maxsize=1)
-def _lazy_agentic():
+def _lazy_agentic() -> Callable[[str, bool], int]:
+    """Return the capsule emitter, importing it on first use.
+
+    Deferred so the agentic module is not imported on every CLI invocation.
+    The signature matches emit_agentic_context(fmt, compact) -> int, which the
+    CLI wiring calls positionally.
+    """
     from . import agentic as _agentic
 
     return _agentic.emit_agentic_context
