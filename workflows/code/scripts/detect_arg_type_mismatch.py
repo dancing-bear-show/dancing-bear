@@ -23,6 +23,20 @@ KNOWN LIMITATIONS
   map it to the wrong signature.
 - The resolver is heuristic, not a type-checker.  Verify each finding before
   acting on it.
+- Annotations are matched as STRINGS, not resolved types, and the None check is
+  a substring test against {"None", "Optional", "Any", "object"}.  Measured
+  consequences, both directions:
+    * False NEGATIVES (real mismatch, not reported): ``NoneType``, ``Anything``,
+      ``Optionalish``, ``Callable[..., None]`` and ``Literal["None"]`` all
+      contain a permitted token as a substring, so a None passed to them is
+      silently accepted.
+    * False POSITIVES (reported, but fine): a type alias or ``TypeVar`` that
+      resolves to something None-accepting -- ``JsonValue``, a bare ``T`` --
+      looks hostile because the name carries no such token.
+  Generic bases are only compared before the first ``[``, so ``Sequence[str]``
+  is not recognised as string-hostile while ``list[int]`` is.
+- ``*args``/``**kwargs``, keyword arguments, and default values are not
+  considered, and a signature rewritten by a decorator is read as written.
 
 CONFIDENCE
 ----------
@@ -133,12 +147,35 @@ def _collect_class_sigs(
         sigs[(mod, member.name)] = (path, member.lineno, params)
 
 
+#: Files walked and files that failed to parse, per root. A detector that
+#: reports zero because it scanned nothing is indistinguishable from one that
+#: reports zero because the code is clean -- the exact false-clean this repo
+#: has been bitten by before (see CLAUDE.md on qlty scanning zero files in a
+#: worktree, and src/qlty/README.md F1). Counted so the caller can tell.
+_STATS: dict[str, int] = {
+    "src_files_scanned": 0,
+    "src_files_unparsed": 0,
+    "test_files_scanned": 0,
+    "test_files_unparsed": 0,
+    "signatures_collected": 0,
+}
+
+
+def _reset_stats() -> None:
+    """Zero the scan counters so repeated in-process runs do not accumulate."""
+    for key in _STATS:
+        _STATS[key] = 0
+
+
 def collect_signatures(src_root: str) -> Sigs:
     """Walk ``src_root`` and collect annotated function/method signatures."""
+    _reset_stats()
     sigs: Sigs = {}
     for path in _iter_py(src_root):
+        _STATS["src_files_scanned"] += 1
         tree = _parse_py(path)
         if tree is None:
+            _STATS["src_files_unparsed"] += 1
             continue
         mod = os.path.splitext(os.path.basename(path))[0]
         for node in tree.body:
@@ -147,6 +184,7 @@ def collect_signatures(src_root: str) -> Sigs:
                 sigs[(mod, node.name)] = (path, node.lineno, params)
             elif isinstance(node, ast.ClassDef):
                 _collect_class_sigs(node, path, mod, sigs)
+    _STATS["signatures_collected"] = len(sigs)
     return sigs
 
 
@@ -237,6 +275,7 @@ def _scan_file(path: str, sigs: Sigs) -> list[dict]:
     """Return all mismatch findings from one test file."""
     tree = _parse_py(path)
     if tree is None:
+        _STATS["test_files_unparsed"] += 1
         return []
     imported = _collect_imports(tree)
     findings: list[dict] = []
@@ -258,6 +297,7 @@ def scan_test_files(test_root: str, sigs: Sigs) -> list[dict]:
     """Scan call sites in ``test_root`` for literal-type mismatches."""
     findings: list[dict] = []
     for path in _iter_py(test_root):
+        _STATS["test_files_scanned"] += 1
         findings.extend(_scan_file(path, sigs))
     findings.sort(key=lambda f: (f["call_site"], f["callee"], f["param"]))
     return findings
@@ -274,16 +314,30 @@ def main(argv: list[str]) -> int:
     sigs = collect_signatures(src_root)
     findings = scan_test_files(test_root, sigs)
 
+    # An empty scan is a tooling failure, not a clean result, so it exits
+    # non-zero rather than printing a reassuring "0 findings". A wrong root, a
+    # rename, or a tree that failed to parse would otherwise be byte-identical
+    # to a genuinely clean run -- which is the false-clean class this detector
+    # exists to work around, and would be embarrassing to reproduce in it.
+    scanned_nothing = (
+        _STATS["src_files_scanned"] == 0
+        or _STATS["test_files_scanned"] == 0
+        or _STATS["signatures_collected"] == 0
+    )
+
     json.dump(
         {
             "src_root": src_root,
             "test_root": test_root,
             "total_findings": len(findings),
+            "stats": dict(_STATS),
+            "scanned_nothing": scanned_nothing,
             "note": (
                 "Candidates only — not proven defects.  The resolver is heuristic: "
                 "import-based, positional, literal-only.  A same-named function in "
                 "an unrelated module can produce a false positive.  Read each finding "
-                "before acting."
+                "before acting.  Check `stats` before trusting a zero: 0 findings with "
+                "0 files scanned is a broken run, not a clean tree."
             ),
             "findings": findings,
         },
@@ -291,6 +345,14 @@ def main(argv: list[str]) -> int:
         indent=2,
     )
     print()
+
+    if scanned_nothing:
+        print(
+            f"ERROR: scanned nothing (src={src_root!r} test={test_root!r}); "
+            "0 findings here means the run is broken, not that the tree is clean",
+            file=sys.stderr,
+        )
+        return 2
     return 0
 
 

@@ -20,7 +20,10 @@ the same way tests/test_detect_facades.py does.
 from __future__ import annotations
 
 import ast
+import contextlib
 import importlib.util
+import io
+import json
 import os
 import tempfile
 import textwrap
@@ -328,6 +331,43 @@ class TestMockedCallee(unittest.TestCase):
             sigs = collect_signatures(repo.src_root)
             findings = scan_test_files(repo.test_root, sigs)
         self.assertEqual(findings, [])
+
+
+class TestEmptyScanFailsLoudly(unittest.TestCase):
+    """An empty scan must exit non-zero, not report a reassuring zero.
+
+    0 findings from 0 scanned files is byte-identical to 0 findings from a
+    clean tree. That false clean is the exact hazard this detector works
+    around, so reproducing it here would be self-defeating. main() returns 2
+    and stderr says so.
+    """
+
+    def _run_main(self, argv):
+        buf, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+            code = _dm.main(argv)
+        return code, json.loads(buf.getvalue()), err.getvalue()
+
+    def test_missing_roots_exit_two(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = str(Path(tmp) / "nope")
+            code, payload, err = self._run_main(["prog", missing, missing])
+        self.assertEqual(code, 2)
+        self.assertTrue(payload["scanned_nothing"])
+        self.assertEqual(payload["stats"]["src_files_scanned"], 0)
+        self.assertIn("scanned nothing", err)
+
+    def test_real_scan_exits_zero_and_reports_counts(self):
+        src = "def greet(name: str) -> str:\n    return name\n"
+        test = "from mymod.helpers import greet\n\ndef test_ok():\n    greet('x')\n"
+        with _TempRepo(src, test) as repo:
+            code, payload, _ = self._run_main(
+                ["prog", repo.src_root, repo.test_root]
+            )
+        self.assertEqual(code, 0)
+        self.assertFalse(payload["scanned_nothing"])
+        self.assertGreater(payload["stats"]["src_files_scanned"], 0)
+        self.assertGreater(payload["stats"]["signatures_collected"], 0)
 
 
 if __name__ == "__main__":
