@@ -1,6 +1,7 @@
 """Tests for core/secrets.py secret masking utilities."""
 
 import unittest
+import unittest.mock
 
 from core.secrets import (
     mask_headers,
@@ -77,6 +78,20 @@ class MaskUrlTests(unittest.TestCase):
     def test_empty_url(self):
         self.assertEqual(mask_url(""), "")
         self.assertEqual(mask_url(None), "")  # NOSONAR - intentional None test for defensive handling
+
+    def test_none_on_the_urlsplit_failure_path(self):
+        """None must survive the except branch, not just the happy path.
+
+        mask_url normalized with `url or ""` inside the try, but handed the raw
+        argument to _strip_userinfo(url: str) in the except. A None that reached
+        the fallback raised AttributeError from the one path whose whole purpose
+        is to never emit a live credential.
+        """
+        with unittest.mock.patch(
+            "core.secrets.urlsplit", side_effect=ValueError("bad IPv6 literal")
+        ):
+            self.assertEqual(mask_url(None), "")  # NOSONAR - intentional None test
+            self.assertEqual(mask_url(""), "")
 
     def test_url_without_query(self):
         url = "https://api.example.com/v1/users"
