@@ -55,7 +55,7 @@ def _parse_attrs(attr_list: list[dict[str, object]]) -> dict[str, object]:
     """Flatten an OTLP attribute list into {key: value}."""
     out: dict[str, object] = {}
     for attr in attr_list:
-        key = str(attr.get("key", ""))
+        key = _str_or_empty(attr.get("key"))
         val = attr.get("value", {})
         if not isinstance(val, dict):
             out[key] = None
@@ -134,7 +134,7 @@ def _accumulate_loc_delta(
     value: float, attrs: dict[str, object], counters: dict[str, object]
 ) -> None:
     """Add a lines_of_code datapoint into lines_added/lines_removed by its type attr."""
-    loc_type = str(attrs.get("type", ""))
+    loc_type = _str_or_empty(attrs.get("type"))
     v = _safe_int(value, 0)
     if loc_type == "added":
         counters["lines_added"] = _safe_int(counters["lines_added"], 0) + v
@@ -234,6 +234,16 @@ def _accumulate_cost_metric(
     model_cost[model] += _safe_float(value, 0.0)
 
 
+def _str_or_empty(value: object) -> str:
+    """Stringify, mapping a null to "" rather than the literal "None".
+
+    `d.get(k, "")` returns the default only when the key is ABSENT; a key
+    present with a null value returns None, and `str(None)` is "None" — a real
+    four-character string that then matches patterns and creates buckets.
+    """
+    return str(value) if value is not None else ""
+
+
 def _iter_metric_datapoints(
     raw: dict[str, object],
 ) -> Iterator[tuple[str, dict[str, object]]]:
@@ -256,7 +266,7 @@ def _iter_metric_datapoints(
             for metric in metrics:
                 if not isinstance(metric, dict):
                     continue
-                name = str(metric.get("name", ""))
+                name = _str_or_empty(metric.get("name"))
                 gauge = metric.get("gauge", {})
                 sum_data = metric.get("sum", {})
                 gauge_dict = gauge if isinstance(gauge, dict) else {}

@@ -175,7 +175,7 @@ class OtelMenubarProvider:
 
         for name, value, attrs in metrics_24h:
             if name == _METRIC_TOKEN_USAGE:
-                _accumulate_token_metric(str(attrs.get("type", "")), _safe_int(value, 0), token_counters)
+                _accumulate_token_metric(str(attrs.get("type") or ""), _safe_int(value, 0), token_counters)
             elif name == _METRIC_COST:
                 _accumulate_cost_metric(value, attrs, cost_holder, model_cost)
             elif name == "claude_code.active_time.total":
@@ -285,7 +285,7 @@ class OtelMenubarProvider:
             if event_type == "claude_code.tool_decision":
                 tool_decision_count += 1
                 tool_counts[_trunc(attrs.get("tool_name", "unknown"))] += 1
-                if str(attrs.get("decision", "")).lower() == "accept":
+                if str(attrs.get("decision") or "").lower() == "accept":
                     accepted += 1
             elif event_type == "claude_code.tool_result":
                 tool_result_count += 1
@@ -361,7 +361,7 @@ class OtelMenubarProvider:
             elif event_type == "claude_code.api_request":
                 api_calls += 1
                 model_counts[_trunc(attrs.get("model", "unknown"))] += 1
-                if str(attrs.get("query_source", "")).startswith("agent:"):
+                if str(attrs.get("query_source") or "").startswith("agent:"):
                     agent_calls += 1
                 effort_counts[_trunc(attrs.get("effort", "")) or "unknown"] += 1
 

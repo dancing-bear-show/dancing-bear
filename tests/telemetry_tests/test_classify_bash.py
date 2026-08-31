@@ -448,3 +448,58 @@ class TestDefaultClassification(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ===========================================================================
+# Null-valued tool_input keys
+# ===========================================================================
+
+class TestNullCommandIsNotTheStringNone(unittest.TestCase):
+    """A present-but-null `command` must read as empty, not the literal "None".
+
+    `.get("command", "")` returns the default only when the key is ABSENT. A key
+    present with a null value returns None, and `str(None)` is "None" — a
+    four-character string that matches rules and reads as a real command
+    everywhere downstream.
+    """
+
+    def setUp(self):
+        reset_seq()
+
+    def test_null_command_does_not_match_a_rule_on_the_word_none(self):
+        """The literal string "None" must never be what a rule matches against.
+
+        This is the failure the fix prevents: `.get("command", "")` returns None
+        for a key present with a null value, and `str(None)` is "None" — which a
+        pattern containing "none" then matches, classifying a command that was
+        never issued.
+        """
+        rules = {
+            "avoidable": {
+                "bash-as-none": {"enabled": True, "patterns": ["None"]},
+            }
+        }
+        evt = _evt(tool_name="Bash", tool_input={"command": None})
+        events = [evt]
+        ClassifyEngine(rules).classify(events)
+        self.assertNotEqual(
+            evt.waste_reason,
+            "bash-as-none",
+            "null command leaked to the matcher as the literal string 'None'",
+        )
+
+    def test_null_command_matches_a_missing_command(self):
+        """A null command and an absent key must classify identically."""
+        rules = {
+            "avoidable": {
+                "bash-as-none": {"enabled": True, "patterns": ["None"]},
+            }
+        }
+        missing = _evt(tool_name="Bash", tool_input={})
+        null_valued = _evt(tool_name="Bash", tool_input={"command": None})
+        events = [missing, null_valued]
+        ClassifyEngine(rules).classify(events)
+        self.assertEqual(
+            (missing.classification, missing.waste_reason),
+            (null_valued.classification, null_valued.waste_reason),
+        )

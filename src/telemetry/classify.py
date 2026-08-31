@@ -125,7 +125,7 @@ class ClassifyEngine:
 
     def _classify_bash(self, evt: SessionEvent) -> tuple[str, str] | None:
         """Check bash-as-X rules. Returns (classification, reason) or None."""
-        command = str((evt.tool_input or {}).get("command", ""))
+        command = str((evt.tool_input or {}).get("command") or "")
         first_segment = command.split("|")[0].strip()
 
         avoidable_rules = self.rules.get("avoidable", {})
@@ -187,7 +187,7 @@ class ClassifyEngine:
                 continue
             pattern = rule.get("pattern")
             if pattern:
-                command = str((evt.tool_input or {}).get("command", ""))
+                command = str((evt.tool_input or {}).get("command") or "")
                 if not re.search(pattern, command):
                     continue
             classification = rule.get("classification", "review")

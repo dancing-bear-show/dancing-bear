@@ -35,10 +35,10 @@ def _emit_rows(rows: list[dict[str, object]], fmt: str = "table", headers: list[
     widths = {c: len(c) for c in cols}
     for row in rows:
         for c in cols:
-            widths[c] = max(widths[c], len(str(row.get(c, ""))))
+            widths[c] = max(widths[c], len(str(row.get(c) or "")))
     header = "  ".join(c.ljust(widths[c]) for c in cols)
     sep = "  ".join("-" * widths[c] for c in cols)
     print(header, file=sys.stdout)
     print(sep, file=sys.stdout)
     for row in rows:
-        print("  ".join(str(row.get(c, "")).ljust(widths[c]) for c in cols), file=sys.stdout)
+        print("  ".join(str(row.get(c) or "").ljust(widths[c]) for c in cols), file=sys.stdout)
