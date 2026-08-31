@@ -3,10 +3,33 @@
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, Protocol
 
 from .client import OutlookClientBase, _requests
 from core.constants import GRAPH_API_URL
+
+
+class _LabelsHost(Protocol):
+    """Complete self-type for LabelsFiltersMixin methods that call sibling methods.
+
+    Declares what those methods need from OutlookClientBase/ConfigCacheMixin
+    (cross-class requirements) plus LabelsFiltersMixin's own sibling methods
+    that are called internally.
+    """
+
+    # --- From OutlookClientBase / ConfigCacheMixin ---
+    def _headers(self) -> dict[str, str]: ...
+    def cfg_get_json(self, name: str, ttl: int = ...) -> Any | None: ...
+    def cfg_put_json(self, name: str, data: Any) -> None: ...
+
+    # --- LabelsFiltersMixin's own sibling methods ---
+    def list_labels(self, use_cache: bool = ..., ttl: int = ...) -> list[dict[str, Any]]: ...
+    def create_label(self, name: str, color: dict[str, Any] | None = ..., **_kwargs: Any) -> dict[str, Any]: ...
+    def get_label_id_map(self) -> dict[str, str]: ...
+    def _fetch_inbox_rules_raw(self) -> list[dict[str, Any]]: ...
+    def _map_rule(self, ru: dict[str, Any]) -> dict[str, Any]: ...
+    def _build_rule_conditions(self, criteria: dict[str, Any]) -> dict[str, Any]: ...
+    def _build_rule_actions(self, action: dict[str, Any]) -> dict[str, Any]: ...
 
 
 class LabelsFiltersMixin:
@@ -86,10 +109,10 @@ class LabelsFiltersMixin:
         )
         r.raise_for_status()
 
-    def get_label_id_map(self: OutlookClientBase) -> dict[str, str]:
+    def get_label_id_map(self: "_LabelsHost") -> dict[str, str]:
         return {lbl.get("name", ""): lbl.get("id", "") for lbl in self.list_labels()}
 
-    def ensure_label(self: OutlookClientBase, name: str, **kwargs: Any) -> str:
+    def ensure_label(self: "_LabelsHost", name: str, **kwargs: Any) -> str:
         m = self.get_label_id_map()
         if name in m:
             return m[name]
@@ -129,7 +152,7 @@ class LabelsFiltersMixin:
         return {"id": ru.get("id"), "criteria": crit, "action": action}
 
     def list_filters(
-        self: OutlookClientBase,
+        self: "_LabelsHost",
         use_cache: bool = False,
         ttl: int = 300,
     ) -> list[dict[str, Any]]:
@@ -166,7 +189,7 @@ class LabelsFiltersMixin:
         return act
 
     def create_filter(
-        self: OutlookClientBase,
+        self: "_LabelsHost",
         criteria: dict[str, Any],
         action: dict[str, Any],
     ) -> dict[str, Any]:

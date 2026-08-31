@@ -6,7 +6,7 @@ folders are in _mail_folders.py.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol
 
 from .client import OutlookClientBase, _requests
 from .models import MessageSearchQuery, SearchParams
@@ -78,6 +78,30 @@ def _map_search_result(m: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+class _OutlookMailHost(Protocol):
+    """Complete self-type for OutlookMailMixin methods that call cross-class attrs.
+
+    Covers two distinct cases:
+    - _fetch_search_ids/_fetch_search_dicts: need _headers_search from OutlookClientBase
+    - search_inbox_message_dicts/search_inbox_messages: need _fetch_search_* siblings
+      plus cache_dir/cfg_get_json/cfg_put_json from ConfigCacheMixin
+    """
+
+    # --- From OutlookClientBase ---
+    def _headers_search(self) -> dict[str, str]: ...
+
+    # --- From ConfigCacheMixin (via OutlookClientBase) ---
+    cache_dir: str | None
+    def cfg_get_json(self, name: str, ttl: int = ...) -> Any | None: ...
+    def cfg_put_json(self, name: str, data: Any) -> None: ...
+
+    # --- OutlookMailMixin's own sibling methods ---
+    def _build_search_url(self, params: SearchParams) -> str: ...
+    def _build_dict_search_url(self, params: SearchParams) -> str: ...
+    def _fetch_search_ids(self, params: SearchParams) -> list[str]: ...
+    def _fetch_search_dicts(self, params: SearchParams) -> list[dict[str, Any]]: ...
+
+
 class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
     """Mixin providing all mail operations (categories, rules, messages, folders).
 
@@ -107,7 +131,7 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
         ]
         return base + "?" + "&".join(query_params)
 
-    def _fetch_search_ids(self, params: "SearchParams") -> list[str]:
+    def _fetch_search_ids(self: "_OutlookMailHost", params: "SearchParams") -> list[str]:
         """Paginate through search results and collect message IDs.
 
         Applies the ``params.days`` window client-side, since Graph forbids
@@ -147,7 +171,7 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
         ]
         return base + "?" + "&".join(query_params)
 
-    def _fetch_search_dicts(self, params: "SearchParams") -> list[dict[str, Any]]:
+    def _fetch_search_dicts(self: "_OutlookMailHost", params: "SearchParams") -> list[dict[str, Any]]:
         """Paginate through search results and collect full message dicts."""
         cutoff = _days_cutoff_iso(params.days)
         msgs: list[dict[str, Any]] = []
@@ -165,7 +189,7 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
         return msgs
 
     def search_inbox_message_dicts(
-        self: OutlookClientBase,
+        self: "_OutlookMailHost",
         params: SearchParams,
     ) -> list[dict[str, Any]]:
         """Return full message dicts in Inbox matching the ``$search`` query.
@@ -200,7 +224,7 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
         return msgs
 
     def search_inbox_messages(
-        self: OutlookClientBase,
+        self: "_OutlookMailHost",
         params: SearchParams,
     ) -> list[str]:
         """Return message IDs in Inbox matching $search query, optional days filter."""

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Protocol
 
 from slides.constants import (
     CONTENT_BOTTOM_MARGIN,
@@ -12,6 +12,39 @@ from slides.constants import (
 
 if TYPE_CHECKING:
     from pptx.enum.dml import MSO_THEME_COLOR
+    from pptx.util import Pt
+
+
+class _ShapeUtilsHost(Protocol):
+    """Complete self-type for ShapeUtilsMixin methods that call cross-mixin attrs.
+
+    Declares what _set_slide_title needs: the StylingMixin-provided _style_run
+    plus ShapeUtilsMixin's own methods that it calls internally.
+    """
+
+    # --- From StylingMixin (cross-mixin requirement) ---
+    def _style_run(
+        self,
+        run: object,
+        *,
+        font_size: Pt | None = ...,
+        theme_color: MSO_THEME_COLOR | None = ...,
+        bold: bool | None = ...,
+    ) -> None: ...
+
+    # --- ShapeUtilsMixin's own methods (called internally) ---
+    def _find_shape(
+        self,
+        slide: object,
+        *,
+        placeholder: bool | None = ...,
+        shape_type: int | None = ...,
+        has_text_frame: bool = ...,
+    ) -> Any: ...
+    def _has_body_placeholder(self, slide: object) -> bool: ...
+    def _position_title_shape(
+        self, slide: object, shape: object, *, subtitle: bool = ...,
+    ) -> None: ...
 
 
 class ShapeUtilsMixin:
@@ -108,7 +141,7 @@ class ShapeUtilsMixin:
             shape.height = Inches(0.9)
 
     def _set_slide_title(
-        self,
+        self: "_ShapeUtilsHost",
         slide,
         title_text: str,
         theme_color: MSO_THEME_COLOR,

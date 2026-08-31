@@ -2,12 +2,33 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol
 
 from .client import OutlookClientBase, _requests
 from core.constants import GRAPH_API_URL
 
 _NEXT_LINK = "@odata.nextLink"
+
+
+class _FoldersHost(Protocol):
+    """Complete self-type for FoldersMixin methods that call sibling methods.
+
+    Declares what those methods need from OutlookClientBase/ConfigCacheMixin
+    (cross-class requirements) plus FoldersMixin's own sibling methods.
+    """
+
+    # --- From OutlookClientBase / ConfigCacheMixin ---
+    def _headers(self) -> dict[str, str]: ...
+    def cfg_get_json(self, name: str, ttl: int = ...) -> Any | None: ...
+    def cfg_put_json(self, name: str, data: Any) -> None: ...
+    def cfg_clear(self) -> None: ...
+
+    # --- FoldersMixin's own sibling methods ---
+    def list_folders(self) -> list[dict[str, Any]]: ...
+    def get_folder_id_map(self) -> dict[str, str]: ...
+    def ensure_folder(self, name: str) -> str: ...
+    def list_all_folders(self, ttl: int = ..., clear_cache: bool = ...) -> list[dict[str, Any]]: ...
+    def _ensure_child_folder(self, parent_id: str, seg: str) -> str: ...
 
 
 class FoldersMixin:
@@ -27,10 +48,10 @@ class FoldersMixin:
             url = data.get(_NEXT_LINK)
         return out
 
-    def get_folder_id_map(self: OutlookClientBase) -> dict[str, str]:
+    def get_folder_id_map(self: "_FoldersHost") -> dict[str, str]:
         return {f.get("displayName", ""): f.get("id", "") for f in self.list_folders()}
 
-    def ensure_folder(self: OutlookClientBase, name: str) -> str:
+    def ensure_folder(self: "_FoldersHost", name: str) -> str:
         m = self.get_folder_id_map()
         if name in m and m[name]:
             return m[name]
@@ -52,7 +73,7 @@ class FoldersMixin:
         return f.get("id", "")
 
     def list_all_folders(
-        self: OutlookClientBase,
+        self: "_FoldersHost",
         ttl: int = 600,
         clear_cache: bool = False,
     ) -> list[dict[str, Any]]:
@@ -85,7 +106,7 @@ class FoldersMixin:
         return vals
 
     def get_folder_path_map(
-        self: OutlookClientBase,
+        self: "_FoldersHost",
         ttl: int = 600,
         clear_cache: bool = False,
     ) -> dict[str, str]:
@@ -149,7 +170,7 @@ class FoldersMixin:
         r2.raise_for_status()
         return r2.json().get("id") or ""
 
-    def ensure_folder_path(self: OutlookClientBase, path: str) -> str:
+    def ensure_folder_path(self: "_FoldersHost", path: str) -> str:
         """Ensure a nested folder path exists and return the leaf folder id."""
         parts = [p for p in (path or "").split("/") if p]
         if not parts:

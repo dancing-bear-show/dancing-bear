@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from typing import Any, Type
-    from ..providers.base import BaseMailProvider
+    from ..providers.base import BaseProvider as BaseMailProvider
 
 
 class OutlookCommandExecutor:

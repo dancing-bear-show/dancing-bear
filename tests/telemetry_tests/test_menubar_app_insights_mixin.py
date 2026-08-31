@@ -17,6 +17,13 @@ _NUM_TIPS = _MAX_TIPS_LIMIT
 
 def _make_host() -> InsightsMixin:
     class _Host(InsightsMixin):
+        # Attributes the menubar app wires up at startup; declared here so
+        # mypy can verify test setup without touching the mixin source.
+        _hdr_insights: NS
+        _info_insights_summary: NS
+        _insights_tip_rows: list
+        _insights_tip_hints: list
+
         def _copy_to_clipboard(self, text: str) -> None:  # noqa: ARG002
             pass
 
