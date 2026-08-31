@@ -17,7 +17,15 @@ from unittest.mock import patch
 
 from phone import agentic as _agentic_module
 
+from tests.agentic_builder_contract import AgenticBuilderContractMixin
 from tests.fixtures import make_path_mock
+
+
+class TestPhoneAgenticContract(AgenticBuilderContractMixin, unittest.TestCase):
+    """The shared agentic builder contract."""
+
+    MODULE_PATH = "phone.agentic"
+    APP_ID = "phone"
 
 
 class TestRealParserLoads(unittest.TestCase):
@@ -168,20 +176,10 @@ class TestCliTree(unittest.TestCase):
         self.assertIsInstance(result, str)
 
 
-class TestBuildAgenticCapsule(unittest.TestCase):
-    def test_returns_string(self):
-        from phone.agentic import build_agentic_capsule
+class TestPhoneCapsuleContent(unittest.TestCase):
+    """phone-specific curated content checks."""
 
-        result = build_agentic_capsule()
-        self.assertIsInstance(result, str)
-
-    def test_contains_domain_name(self):
-        from phone.agentic import build_agentic_capsule
-
-        result = build_agentic_capsule()
-        self.assertIn("phone", result)
-
-    def test_contains_purpose_text(self):
+    def test_contains_layout_purpose(self):
         from phone.agentic import build_agentic_capsule
 
         result = build_agentic_capsule()
@@ -200,13 +198,8 @@ class TestBuildAgenticCapsule(unittest.TestCase):
         self.assertIn("plan", result)
 
 
-class TestBuildDomainMap(unittest.TestCase):
-    def test_returns_non_empty_string(self):
-        from phone.agentic import build_domain_map
-
-        result = build_domain_map()
-        self.assertIsInstance(result, str)
-        self.assertGreater(len(result), 0)
+class TestPhoneDomainMapContent(unittest.TestCase):
+    """phone-specific domain map content checks."""
 
     def test_contains_phone_module_references(self):
         from phone.agentic import build_domain_map
@@ -222,22 +215,6 @@ class TestBuildDomainMap(unittest.TestCase):
 
 
 class TestEmitAgenticContext(unittest.TestCase):
-    def test_returns_zero(self):
-        from phone.agentic import emit_agentic_context
-
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            rc = emit_agentic_context()
-        self.assertEqual(rc, 0)
-
-    def test_prints_phone_capsule(self):
-        from phone.agentic import emit_agentic_context
-
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            emit_agentic_context()
-        self.assertIn("phone", buf.getvalue())
-
     def test_fmt_and_compact_params_accepted(self):
         from phone.agentic import emit_agentic_context
 

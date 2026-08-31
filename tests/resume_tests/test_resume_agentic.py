@@ -24,7 +24,15 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+from tests.agentic_builder_contract import AgenticBuilderContractMixin
 from tests.fixtures import capture_stdout
+
+
+class TestResumeAgenticContract(AgenticBuilderContractMixin, unittest.TestCase):
+    """The shared agentic builder contract."""
+
+    MODULE_PATH = "resume.agentic"
+    APP_ID = "resume"
 
 
 class TestResumeFlowMapBranches(unittest.TestCase):
@@ -161,12 +169,6 @@ class TestResumeFlowMapBranches(unittest.TestCase):
 class TestResumeEmitAgenticContext(unittest.TestCase):
     """emit_agentic_context() with different _fmt and _compact arguments."""
 
-    def test_emit_default_returns_zero(self):
-        import resume.agentic as mod
-        with capture_stdout():
-            rc = mod.emit_agentic_context()
-        self.assertEqual(rc, 0)
-
     def test_emit_fmt_yaml_returns_zero(self):
         import resume.agentic as mod
         with capture_stdout():
@@ -179,12 +181,6 @@ class TestResumeEmitAgenticContext(unittest.TestCase):
             rc = mod.emit_agentic_context(_compact=True)
         self.assertEqual(rc, 0)
 
-    def test_emit_output_contains_capsule_header(self):
-        import resume.agentic as mod
-        with capture_stdout() as buf:
-            mod.emit_agentic_context()
-        self.assertIn("agentic: resume", buf.getvalue())
-
     def test_emit_compact_output_contains_capsule_header(self):
         import resume.agentic as mod
         with capture_stdout() as buf:
@@ -192,13 +188,8 @@ class TestResumeEmitAgenticContext(unittest.TestCase):
         self.assertIn("agentic: resume", buf.getvalue())
 
 
-class TestResumeBuildAgenticCapsule(unittest.TestCase):
-    """build_agentic_capsule() returns a well-formed capsule string."""
-
-    def test_capsule_contains_app_id(self):
-        import resume.agentic as mod
-        result = mod.build_agentic_capsule()
-        self.assertIn("agentic: resume", result)
+class TestResumeCapsuleContent(unittest.TestCase):
+    """resume-specific curated content in the capsule."""
 
     def test_capsule_contains_key_commands(self):
         import resume.agentic as mod
@@ -207,22 +198,6 @@ class TestResumeBuildAgenticCapsule(unittest.TestCase):
         self.assertIn("summarize", result)
         self.assertIn("render", result)
         self.assertIn("align", result)
-
-    def test_capsule_is_string(self):
-        import resume.agentic as mod
-        self.assertIsInstance(mod.build_agentic_capsule(), str)
-
-
-class TestResumeBuildDomainMap(unittest.TestCase):
-    """build_domain_map() returns a non-empty domain map string."""
-
-    def test_domain_map_is_string(self):
-        import resume.agentic as mod
-        self.assertIsInstance(mod.build_domain_map(), str)
-
-    def test_domain_map_contains_top_level_heading(self):
-        import resume.agentic as mod
-        self.assertIn("Top-Level", mod.build_domain_map())
 
 
 if __name__ == "__main__":

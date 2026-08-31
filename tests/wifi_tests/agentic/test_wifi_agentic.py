@@ -2,13 +2,16 @@
 
 import unittest
 
-from tests.fixtures import capture_stdout
+from tests.agentic_builder_contract import AgenticBuilderContractMixin
 
-from wifi.agentic import (
-    build_agentic_capsule,
-    build_domain_map,
-    emit_agentic_context,
-)
+from wifi.agentic import build_agentic_capsule, build_domain_map
+
+
+class TestWifiAgenticContract(AgenticBuilderContractMixin, unittest.TestCase):
+    """The shared agentic builder contract."""
+
+    MODULE_PATH = "wifi.agentic"
+    APP_ID = "wifi"
 
 
 class TestCoreAgenticSection(unittest.TestCase):
@@ -27,21 +30,11 @@ class TestCoreAgenticSection(unittest.TestCase):
         self.assertIn("== CLI Tree ==", result)
 
 
-class TestBuildAgenticCapsule(unittest.TestCase):
-    """Test build_agentic_capsule function."""
+class TestWifiCapsuleContent(unittest.TestCase):
+    """wifi-specific curated content, not part of the shared contract."""
 
-    def test_returns_string(self):
-        result = build_agentic_capsule()
-        self.assertIsInstance(result, str)
-
-    def test_contains_agentic_header(self):
-        result = build_agentic_capsule()
-        self.assertIn("agentic: wifi", result)
-
-    def test_contains_purpose(self):
-        result = build_agentic_capsule()
-        self.assertIn("purpose:", result)
-        self.assertIn("Wi-Fi", result)
+    def test_purpose_names_wifi(self):
+        self.assertIn("Wi-Fi", build_agentic_capsule())
 
     def test_contains_commands(self):
         result = build_agentic_capsule()
@@ -56,24 +49,14 @@ class TestBuildAgenticCapsule(unittest.TestCase):
         self.assertIn("DNS timing", result)
 
     def test_contains_json_output_command(self):
-        result = build_agentic_capsule()
-        self.assertIn("--json", result)
+        self.assertIn("--json", build_agentic_capsule())
 
 
-class TestBuildDomainMap(unittest.TestCase):
-    """Test build_domain_map function."""
-
-    def test_returns_string(self):
-        result = build_domain_map()
-        self.assertIsInstance(result, str)
-
-    def test_contains_top_level_header(self):
-        result = build_domain_map()
-        self.assertIn("Top-Level", result)
+class TestWifiDomainMapContent(unittest.TestCase):
+    """wifi-specific domain map entries."""
 
     def test_contains_bin_wrapper(self):
-        result = build_domain_map()
-        self.assertIn("bin/wifi", result)
+        self.assertIn("bin/wifi", build_domain_map())
 
     def test_contains_core_modules(self):
         result = build_domain_map()
@@ -84,30 +67,5 @@ class TestBuildDomainMap(unittest.TestCase):
         self.assertIn("wifi/llm_cli.py", result)
 
 
-class TestEmitAgenticContext(unittest.TestCase):
-    """Test emit_agentic_context function."""
-
-    def test_returns_zero(self):
-        with capture_stdout():
-            rc = emit_agentic_context()
-        self.assertEqual(rc, 0)
-
-    def test_prints_capsule_to_stdout(self):
-        with capture_stdout() as buf:
-            emit_agentic_context()
-        output = buf.getvalue()
-        self.assertIn("agentic: wifi", output)
-
-    def test_accepts_fmt_parameter(self):
-        with capture_stdout():
-            rc = emit_agentic_context(_fmt="yaml")
-        self.assertEqual(rc, 0)
-
-    def test_accepts_compact_parameter(self):
-        with capture_stdout():
-            rc = emit_agentic_context(_compact=True)
-        self.assertEqual(rc, 0)
-
-
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    unittest.main()

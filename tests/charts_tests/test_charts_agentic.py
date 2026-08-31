@@ -1,9 +1,9 @@
 """Tests for charts agentic capsule and --agentic flag integration."""
 
-import json
 import unittest
 from unittest.mock import patch
 
+from tests.agentic_cli_contract import AgenticCLIContractMixin
 from tests.fixtures import capture_stdout
 
 
@@ -55,15 +55,19 @@ class TestChartsAgenticCapsule(unittest.TestCase):
         self.assertEqual(buf.getvalue(), build_agentic_capsule() + "\n")
 
 
-class TestChartsAgenticFlag(unittest.TestCase):
-    """Tests for --agentic flag in charts/cli.py main()."""
+class TestChartsAgenticCLIContract(AgenticCLIContractMixin, unittest.TestCase):
+    """The shared --agentic CLI contract.
 
-    def test_agentic_flag_exits_zero(self):
-        from charts.cli import main
-        with capture_stdout() as buf:
-            rc = main(["--agentic"])
-        self.assertEqual(rc, 0)
-        self.assertIn("charts", buf.getvalue())
+    charts wires agentic manually to preserve its legacy no-subcommand exit
+    code, so it goes through charts.cli rather than a __main__ shim.
+    """
+
+    MODULE_PATH = "charts.cli"
+    APP_ID = "charts"
+
+
+class TestChartsAgenticFlag(unittest.TestCase):
+    """charts-specific flag behaviour not covered by the shared contract."""
 
     def test_agentic_flag_yaml_format(self):
         from charts.cli import main
@@ -71,14 +75,6 @@ class TestChartsAgenticFlag(unittest.TestCase):
             rc = main(["--agentic", "--agentic-format", "yaml", "--agentic-compact"])
         self.assertEqual(rc, 0)
         self.assertIn("agentic: charts", buf.getvalue())
-
-    def test_agentic_flag_json_format_valid_json(self):
-        from charts.cli import main
-        with capture_stdout() as buf:
-            rc = main(["--agentic", "--agentic-format", "json"])
-        self.assertEqual(rc, 0)
-        parsed = json.loads(buf.getvalue())
-        self.assertIsInstance(parsed, dict)
 
     def test_no_subcommand_exits_one(self):
         """Legacy exit code must remain 1 when no subcommand given."""

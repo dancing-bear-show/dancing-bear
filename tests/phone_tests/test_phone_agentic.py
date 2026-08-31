@@ -1,59 +1,13 @@
-"""Tests for phone/agentic.py — capsule builders."""
+"""Tests for phone/agentic.py — capsule builders.
+
+Generic contract assertions (capsule shape, emit return code, domain map
+top-level) are covered by TestPhoneAgenticContract in
+test_phone_agentic_coverage.py. This file retains the helper-function tests
+that are not part of that contract.
+"""
 from __future__ import annotations
 
 import unittest
-
-
-class TestBuildAgenticCapsule(unittest.TestCase):
-    def test_returns_string(self):
-        from phone.agentic import build_agentic_capsule
-
-        result = build_agentic_capsule()
-        self.assertIsInstance(result, str)
-        self.assertIn("phone", result)
-
-    def test_contains_purpose(self):
-        from phone.agentic import build_agentic_capsule
-
-        result = build_agentic_capsule()
-        self.assertIn("layout", result.lower())
-
-
-class TestBuildDomainMap(unittest.TestCase):
-    def test_returns_string(self):
-        from phone.agentic import build_domain_map
-
-        result = build_domain_map()
-        self.assertIsInstance(result, str)
-        self.assertGreater(len(result), 0)
-
-    def test_contains_module_references(self):
-        from phone.agentic import build_domain_map
-
-        result = build_domain_map()
-        self.assertIn("phone", result.lower())
-
-
-class TestEmitAgenticContext(unittest.TestCase):
-    def test_returns_zero(self):
-        from phone.agentic import emit_agentic_context
-        import io
-        from contextlib import redirect_stdout
-
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            rc = emit_agentic_context()
-        self.assertEqual(rc, 0)
-
-    def test_prints_capsule(self):
-        from phone.agentic import emit_agentic_context
-        import io
-        from contextlib import redirect_stdout
-
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            emit_agentic_context()
-        self.assertIn("phone", buf.getvalue())
 
 
 class TestCliPathExists(unittest.TestCase):

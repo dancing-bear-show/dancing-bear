@@ -2,16 +2,19 @@
 
 import unittest
 
+from tests.agentic_builder_contract import AgenticBuilderContractMixin
 from tests.fixtures import capture_stdout
 
 
-class TestEmitAgenticContext(unittest.TestCase):
-    def test_returns_0(self):
-        from maker.agentic import emit_agentic_context
-        with capture_stdout():
-            rc = emit_agentic_context()
-        self.assertEqual(rc, 0)
+class TestMakerAgenticContract(AgenticBuilderContractMixin, unittest.TestCase):
+    """The shared agentic builder contract."""
 
+    MODULE_PATH = "maker.agentic"
+    APP_ID = "maker"
+    EXPECT_CLI_TREE = False
+
+
+class TestEmitAgenticContext(unittest.TestCase):
     def test_accepts_fmt_and_compact_positionally(self):
         """Signature must match the (fmt, compact) contract CLIApp calls with.
 
@@ -22,12 +25,6 @@ class TestEmitAgenticContext(unittest.TestCase):
         for fmt in ("text", "yaml", "json"):
             with capture_stdout():
                 self.assertEqual(emit_agentic_context(fmt, False), 0)
-
-    def test_prints_agentic_content(self):
-        from maker.agentic import emit_agentic_context
-        with capture_stdout() as buf:
-            emit_agentic_context("text", False)
-        self.assertIn("agentic: maker", buf.getvalue())
 
 
 if __name__ == "__main__":

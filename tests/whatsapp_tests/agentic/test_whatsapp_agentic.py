@@ -1,11 +1,18 @@
 """Tests for whatsapp agentic module."""
 from __future__ import annotations
 
-import io
 import unittest
-from unittest.mock import patch
+
+from tests.agentic_builder_contract import AgenticBuilderContractMixin
 
 from whatsapp import agentic
+
+
+class TestWhatsappAgenticContract(AgenticBuilderContractMixin, unittest.TestCase):
+    """The shared agentic builder contract."""
+
+    MODULE_PATH = "whatsapp.agentic"
+    APP_ID = "whatsapp"
 
 
 class TestGetParser(unittest.TestCase):
@@ -52,71 +59,13 @@ class TestFlowMap(unittest.TestCase):
             self.assertIn("search", result.lower())
 
 
-class TestBuildAgenticCapsule(unittest.TestCase):
-    """Tests for build_agentic_capsule function."""
-
-    def test_returns_string(self):
-        """Test returns a string."""
-        result = agentic.build_agentic_capsule()
-        self.assertIsInstance(result, str)
-
-    def test_contains_app_id(self):
-        """Test contains app ID."""
-        result = agentic.build_agentic_capsule()
-        self.assertIn("whatsapp", result.lower())
-
-    def test_contains_purpose(self):
-        """Test contains purpose."""
-        result = agentic.build_agentic_capsule()
-        # Should contain some indication of purpose
-        self.assertGreater(len(result), 0)
-
-
-class TestBuildDomainMap(unittest.TestCase):
-    """Tests for build_domain_map function."""
-
-    def test_returns_string(self):
-        """Test returns a string."""
-        result = agentic.build_domain_map()
-        self.assertIsInstance(result, str)
+class TestWhatsappDomainMapContent(unittest.TestCase):
+    """whatsapp-specific domain map content."""
 
     def test_contains_search_module(self):
         """Test mentions search module."""
         result = agentic.build_domain_map()
         self.assertIn("search", result.lower())
-
-
-class TestEmitAgenticContext(unittest.TestCase):
-    """Tests for emit_agentic_context function."""
-
-    def test_returns_zero(self):
-        """Test returns 0 on success."""
-        captured = io.StringIO()
-        with patch("sys.stdout", captured):
-            result = agentic.emit_agentic_context()
-        self.assertEqual(result, 0)
-
-    def test_prints_capsule(self):
-        """Test prints the agentic capsule."""
-        captured = io.StringIO()
-        with patch("sys.stdout", captured):
-            agentic.emit_agentic_context()
-        output = captured.getvalue()
-        self.assertIn("whatsapp", output.lower())
-
-    def test_accepts_format_param(self):
-        """Test accepts format parameter (best-effort)."""
-        captured = io.StringIO()
-        with patch("sys.stdout", captured):
-            result = agentic.emit_agentic_context(_fmt="yaml")
-        self.assertEqual(result, 0)
-
-    def test_accepts_compact_param(self):
-        """Test accepts compact parameter (best-effort)."""
-        captured = io.StringIO()
-        with patch("sys.stdout", captured):
-            result = agentic.emit_agentic_context(_compact=True)
-        self.assertEqual(result, 0)
 
 
 if __name__ == "__main__":
