@@ -135,7 +135,10 @@ def run_outlook_calendar_share(args: argparse.Namespace) -> int:
     request = OutlookCalendarShareRequest(
         service=svc,
         calendar=args.calendar,
-        recipient=getattr(args, "recipient", None),
+        # `--with` is required=True in the parser (src/calendars/cli/main.py),
+        # so argparse guarantees this attribute; a None default would be dead
+        # code that implies an optionality the CLI does not offer.
+        recipient=args.recipient,
         role=getattr(args, "role", "write"),
     )
     return run_pipeline(request, OutlookCalendarShareProcessor, OutlookCalendarShareProducer)
@@ -283,9 +286,23 @@ def run_outlook_reminders_set(args: argparse.Namespace) -> int:
     if not svc:
         return 1
     minutes = getattr(args, "minutes", None)
-    if not getattr(args, "off", False) and minutes is None:
+    set_off = bool(getattr(args, "off", False))
+
+    # Resolve `minutes` in one branch rather than re-testing `off` at the use
+    # site. Previously the guard and the `int(...)` call each read `off`
+    # independently, so nothing tied them together: int(None) was unreachable
+    # only by coincidence of the two conditions agreeing, and an edit to either
+    # would have made it a live TypeError. Deriving both from one branch makes
+    # that impossible, and lets the None check narrow the type.
+    resolved_minutes: int | None
+    if set_off:
+        resolved_minutes = None
+    elif minutes is None:
         print("--minutes is required unless --off is set.")
         return 2
+    else:
+        resolved_minutes = int(minutes)
+
     request = OutlookRemindersRequest(
         service=svc,
         calendar=getattr(args, "calendar", None),
@@ -293,8 +310,8 @@ def run_outlook_reminders_set(args: argparse.Namespace) -> int:
         to_date=getattr(args, "to_date", None),
         dry_run=bool(getattr(args, "dry_run", False)),
         all_occurrences=False,
-        set_off=bool(getattr(args, "off", False)),
-        minutes=None if getattr(args, "off", False) else int(minutes),
+        set_off=set_off,
+        minutes=resolved_minutes,
     )
     return run_pipeline(request, OutlookRemindersProcessor, OutlookRemindersProducer)
 
@@ -353,7 +370,7 @@ def _scan_infer_meta(subj: str, text: str, recvd: str) -> dict:
     return infer_meta_from_text(f"{subj or ''}\n{text}", config=config)
 
 
-def _scan_extract_from_message(msg: dict, calendar: str) -> list:
+def _scan_extract_from_message(msg: dict, calendar: str | None) -> list:
     """Extract schedule candidates from a single Outlook message."""
     subj = msg.get("subject") or ""
     recvd = msg.get("receivedDateTime") or ""
