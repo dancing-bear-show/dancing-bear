@@ -52,13 +52,18 @@ test: venv check-tests
 # version. bin/ruff-resolve.sh handles the lookup and explains the fix if the
 # cache is cold. Note `qlty check` from a worktree under .claude/ scans zero
 # files and reports "No issues", so it is not a substitute for this target.
+# `workflows` is in the path list because CI's `qlty check` lints it but this
+# target did not, so a defect in workflows/code/scripts/ passed `make lint`
+# locally and only failed at CI. Verified by probe: an injected `import os` +
+# `eval()` under workflows/code/scripts/ produced no output here and four qlty
+# findings.
 .PHONY: lint
 lint:
-	@bin/ruff-resolve.sh check $(SRC) tests bin
+	@bin/ruff-resolve.sh check $(SRC) tests bin workflows
 
 .PHONY: lint-fix
 lint-fix:
-	@bin/ruff-resolve.sh check --fix $(SRC) tests bin
+	@bin/ruff-resolve.sh check --fix $(SRC) tests bin workflows
 
 # A test directory without __init__.py is skipped silently by `unittest discover`,
 # so its tests never run and the module it covers reports 0% as if untested. Same
