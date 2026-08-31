@@ -11,7 +11,7 @@ except Exception:  # pragma: no cover
     ArgumentParser = object  # type: ignore
 
 
-def section(title: str, body: str) -> str:
+def section(title: str, body: str | None) -> str:
     """Render a simple '== title ==' section if body has non-whitespace content."""
     text = (body or "").strip()
     if not text:

@@ -70,7 +70,7 @@ def pop_due(now_ts: int | None = None, *, profile: str | None = None, limit: int
     return due
 
 
-def parse_send_at(s: str) -> int | None:
+def parse_send_at(s: str | None) -> int | None:
     """Parse absolute time like 'YYYY-MM-DD HH:MM' or ISO8601 'YYYY-MM-DDTHH:MM'.
 
     Returns epoch seconds in local time.
@@ -99,7 +99,7 @@ _SEND_IN_UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 _SEND_IN_RE = re.compile(r"(?:\d+[smhd])+")
 
 
-def parse_send_in(s: str) -> int | None:
+def parse_send_in(s: str | None) -> int | None:
     """Parse relative duration like '90m', '2h', '1h30m', '2d4h'. Returns seconds.
 
     The entire string must be well-formed. A previous implementation scanned

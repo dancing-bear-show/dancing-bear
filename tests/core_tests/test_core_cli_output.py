@@ -8,6 +8,7 @@ import unittest.mock
 from dataclasses import dataclass
 from enum import Enum
 from io import StringIO
+from typing import Any, cast
 
 from core.cli_output import (
     OutputFormat,
@@ -447,9 +448,8 @@ class TestOutputWriterListSadPath(unittest.TestCase):
         config = OutputConfig(file=buf)
         writer = OutputWriter(config)
         with self.assertRaises(TypeError):
-            # Passing the wrong type IS the assertion here; the suppression is
-            # the inline comment on the call below.
-            writer.print_list(None)  # type: ignore[arg-type]
+            # cast exercises the Sequence contract on list() — intentional wrong type.
+            writer.print_list(cast(Any, None))
 
 
 class TestOutputWriterDictSadPath(unittest.TestCase):
@@ -458,18 +458,16 @@ class TestOutputWriterDictSadPath(unittest.TestCase):
         config = OutputConfig(file=buf)
         writer = OutputWriter(config)
         with self.assertRaises(AttributeError):
-            # Passing the wrong type IS the assertion here; the suppression is
-            # the inline comment on the call below.
-            writer.print_dict("not a dict")  # type: ignore[arg-type]
+            # cast exercises the dict.items() contract — intentional wrong type.
+            writer.print_dict(cast(Any, "not a dict"))
 
     def test_print_dict_raises_on_none_data(self):
         buf = StringIO()
         config = OutputConfig(file=buf)
         writer = OutputWriter(config)
         with self.assertRaises(AttributeError):
-            # Passing the wrong type IS the assertion here; the suppression is
-            # the inline comment on the call below.
-            writer.print_dict(None)  # type: ignore[arg-type]
+            # cast exercises the dict.items() contract — intentional wrong type.
+            writer.print_dict(cast(Any, None))
 
 
 class TestToRowsSadPath(unittest.TestCase):

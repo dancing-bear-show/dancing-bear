@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import re
 import sys
-from typing import Any
+from typing import Any, overload
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 
@@ -116,7 +116,30 @@ def is_sensitive_key(key: object) -> bool:
     return any(normalized.endswith(suffix) for suffix in _SENSITIVE_KEY_SUFFIXES)
 
 
+@overload
 def _mask_value(value: str) -> str:
+    # Overload declaration: typing-only, never executed.
+    pass
+
+
+@overload
+def _mask_value(value: None) -> None:
+    # Overload declaration: typing-only, never executed.
+    pass
+
+
+def _mask_value(value: str | None) -> str | None:
+    """Mask a header value, passing a falsy input straight back.
+
+    Overloaded rather than widened to `str | None` unconditionally: the falsy
+    branch returns its own argument, so `str` in really does mean `str` out.
+    A single `str | None` return made `mask_headers`' `dict[str, str]`
+    unprovable even though it only ever passes `str`. Coercing None to "" would
+    have satisfied the checker by changing behaviour -- a masking helper that
+    silently turns a missing value into an empty string hides the distinction
+    between "absent" and "blank", so the overload states the real contract
+    instead.
+    """
     if not value:
         return value
     s = value.strip().lower()
@@ -203,9 +226,15 @@ def _mask_query_pairs_in_tail(tail: str) -> str:
     return rebuilt + (f"#{fragment}" if hashmark else "")
 
 
-def mask_url(url: str) -> str:
+def mask_url(url: str | None) -> str:
+    # Normalized once here rather than at each use. The happy path already did
+    # `url or ""`, but the except path passed the raw argument to
+    # _strip_userinfo(url: str) -- so a None reaching the fallback was both a
+    # type error and, on the one path whose entire job is "never emit a live
+    # credential", an AttributeError instead of a masked string.
+    url = url or ""
     try:
-        parts = urlsplit(url or "")
+        parts = urlsplit(url)
         qs = parse_qsl(parts.query, keep_blank_values=True)
         items = []
         for k, v in qs:
@@ -257,7 +286,7 @@ _MAPPING_FIELD_RE = re.compile(
 )
 
 
-def mask_text(text: str) -> str:
+def mask_text(text: str | None) -> str:
     s = text or ""
     # Authorization: Scheme token
     s = re.sub(r"(?i)(Authorization\s*:\s*)(Bearer|Basic|Token)\s+[^\s]+", r"\1\2 ***REDACTED***", s)

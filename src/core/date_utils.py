@@ -82,7 +82,7 @@ def normalize_day(day_name: str) -> str:
     return DAY_MAP.get(day_name.lower().strip(), '')
 
 
-def normalize_days(spec: str) -> list[str]:
+def normalize_days(spec: str | None) -> list[str]:
     """Parse day specification to list of two-letter RRULE codes.
 
     Handles ranges like 'Mon to Fri' and lists like 'Mon & Wed'.
@@ -114,7 +114,7 @@ def normalize_days(spec: str) -> list[str]:
     return out
 
 
-def parse_month(month_str: str) -> int | None:
+def parse_month(month_str: str | None) -> int | None:
     """Parse month name (full or abbreviated) to number (1-12).
 
     Examples:

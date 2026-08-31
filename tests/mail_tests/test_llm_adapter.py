@@ -18,7 +18,7 @@ class TestSummarizeTextEmpty(unittest.TestCase):
 
     def test_none_returns_no_content(self):
         # The implementation does `(text or "").strip()`, so None is handled.
-        self.assertEqual(summarize_text(None), "(no content)")  # type: ignore[arg-type]
+        self.assertEqual(summarize_text(None), "(no content)")
 
 
 class TestSummarizeTextBasic(unittest.TestCase):

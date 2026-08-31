@@ -1,3 +1,4 @@
+import argparse
 import io
 import os
 import tempfile
@@ -84,7 +85,7 @@ class AuthCLITests(unittest.TestCase):
         with patch.dict("sys.modules", fake_modules, clear=False):
             from mail.config_cli.commands import run_auth
 
-            args = SimpleNamespace(validate=True, token=tok_path, credentials=None, profile=None)
+            args = argparse.Namespace(validate=True, token=tok_path, credentials=None, profile=None)
             buf = io.StringIO()
             with redirect_stdout(buf):
                 rc = run_auth(args)

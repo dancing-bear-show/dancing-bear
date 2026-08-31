@@ -270,5 +270,48 @@ drivers = [
   "fs-vuln",
 ]
 
+# trufflehog false-positive suppression — NO code changes needed; documented here
+# for auditability.
+#
+# There are 5 confirmed false positives (all verified=False) that appear when
+# trufflehog is run directly with --results=unverified:
+#
+#   credentials.example.json:2    GCP     — placeholder template file; literal
+#                                           "YOUR_CLIENT_ID.apps.googleusercontent.com"
+#                                           and "your-project-id". Not a credential.
+#
+#   src/core/secrets.py:1         Postgres — docstring example inside the module
+#   src/core/secrets.py:271       Postgres   whose job is masking/redacting secrets.
+#                                            "postgres://user:pw@host:5432" is the
+#                                            canonical illustration of a connection
+#                                            string that the masker must handle.
+#
+#   tests/core_tests/test_secrets.py:1  Postgres — test fixture for the redaction
+#                                                   suite ("postgres://u:p@ssw0rd@host")
+#
+#   tests/mail_tests/test_shield.py:95  JWT      — synthetic JWT fixture for the
+#                                                  secret-shielding test.
+#
+# Why no suppression is needed in qlty.toml:
+#
+#   qlty's trufflehog driver invokes the binary with --only-verified, as confirmed
+#   by inspection of ~/.qlty/cache/repos/*/out/invoke-*.yaml. Every one of the 5
+#   findings has verified=False (trufflehog could not reach an API that confirmed
+#   these as live credentials). --only-verified filters them out before qlty ever
+#   sees the output. `qlty check --filter=trufflehog` returns "No issues".
+#
+# Why exclude_patterns is NOT used here:
+#
+#   exclude_patterns is a TOP-LEVEL exclusion that drops files from ALL plugins.
+#   Applying it to src/core/secrets.py would silence ruff and bandit on real
+#   production code — an unacceptable trade-off for suppressing a finding that
+#   qlty already suppresses via --only-verified. The test files are less critical
+#   but the same reasoning applies: bandit still runs B105/B106 checks on them.
+#
+# If qlty ever changes the trufflehog invocation to include unverified results,
+# the correct remediation is a trufflehog exclude-paths file (--exclude-paths)
+# passed via a [[plugin]] config block, not an exclude_patterns entry. The
+# per-plugin `[[exclude]]` TOML block is parsed without complaint but suppresses
+# nothing (verified empirically — see comment on detect_facades.py above).
 [[plugin]]
 name = "trufflehog"

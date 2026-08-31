@@ -29,7 +29,7 @@ def _take_sentences_within_budget(parts: list[str], max_words: int) -> list[str]
 
 
 def summarize_text(
-    text: str,
+    text: str | None,
     *,
     instructions: str | None = None,
     max_words: int = 120,

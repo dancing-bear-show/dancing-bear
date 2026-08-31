@@ -11,7 +11,7 @@ import os
 import tempfile
 from contextlib import redirect_stdout
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
@@ -48,7 +48,7 @@ class DestAndTokensForFilterTests(TestCase):
     """Tests for _dest_and_tokens_for_filter."""
 
     def test_non_dict_returns_none(self):
-        self.assertIsNone(_dest_and_tokens_for_filter("not a dict"))
+        self.assertIsNone(_dest_and_tokens_for_filter(cast(Any, "not a dict")))  # cast: exercises non-dict isinstance guard
 
     def test_empty_dict_returns_none(self):
         self.assertIsNone(_dest_and_tokens_for_filter({}))
@@ -238,7 +238,7 @@ class ScoreOneFilterTests(TestCase):
     _DTM = {"L1": {"a@b.com", "c@d.com"}, "L2": {"x@y.com"}}
 
     def test_non_dict_returns_none(self):
-        self.assertIsNone(_score_one_filter("not a dict", self._DTM))
+        self.assertIsNone(_score_one_filter(cast(Any, "not a dict"), self._DTM))  # cast: exercises non-dict isinstance guard
 
     def test_no_from_addr_returns_none(self):
         self.assertIsNone(_score_one_filter({"criteria": {}}, self._DTM))

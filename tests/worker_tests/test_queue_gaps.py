@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import json
 import os
 import tempfile
@@ -820,7 +822,7 @@ class TestApplyMaxAttempts(unittest.TestCase):
         from worker.queue_ops import _apply_max_attempts
         data = {}
         # Should not raise — logs debug instead
-        _apply_max_attempts(data, "not-a-number")
+        _apply_max_attempts(data, cast(Any, "not-a-number"))  # cast: exercises int() coercion guard
 
 
 class TestStripErrorField(unittest.TestCase):

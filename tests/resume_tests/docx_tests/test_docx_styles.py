@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import unittest
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 from tests.resume_tests.fixtures import mock_docx_modules
@@ -342,7 +343,8 @@ class TestTextFormatter(unittest.TestCase):
         """Test clean_inline raises AttributeError when text is None (no guard)."""
         from resume.docx_styles import TextFormatter
         with self.assertRaises(AttributeError):
-            TextFormatter.clean_inline(None)
+            # cast exercises the str.replace() call — intentional wrong type.
+            TextFormatter.clean_inline(cast(Any, None))
 
     def test_normalize_bullet_strips_period(self):
         """Test normalize_bullet strips terminal period."""
@@ -360,7 +362,8 @@ class TestTextFormatter(unittest.TestCase):
         """Test normalize_bullet propagates AttributeError from clean_inline when text is None."""
         from resume.docx_styles import TextFormatter
         with self.assertRaises(AttributeError):
-            TextFormatter.normalize_bullet(None)
+            # cast exercises the clean_inline guard propagation — intentional wrong type.
+            TextFormatter.normalize_bullet(cast(Any, None))
 
 
 @mock_docx_modules

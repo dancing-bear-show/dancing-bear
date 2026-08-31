@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -557,7 +558,7 @@ class TestDetectGmailAvailable(unittest.TestCase):
             "mail.config_resolver.resolve_paths_profile",
             side_effect=RuntimeError("no config"),
         ):
-            args = SimpleNamespace(profile=None)
+            args = argparse.Namespace(profile=None)
             result = _detect_gmail_available(args)
         self.assertFalse(result)
 
@@ -568,7 +569,7 @@ class TestDetectGmailAvailable(unittest.TestCase):
             "mail.config_resolver.resolve_paths_profile",
             return_value=("/nonexistent/creds.json", "/nonexistent/token.json"),
         ):
-            args = SimpleNamespace(profile=None)
+            args = argparse.Namespace(profile=None)
             result = _detect_gmail_available(args)
         self.assertFalse(result)
 
@@ -583,7 +584,7 @@ class TestDetectGmailAvailable(unittest.TestCase):
                 "mail.config_resolver.resolve_paths_profile",
                 return_value=(tmp, "/nonexistent/token.json"),
             ):
-                args = SimpleNamespace(profile=None)
+                args = argparse.Namespace(profile=None)
                 result = _detect_gmail_available(args)
             self.assertTrue(result)
         finally:
@@ -600,7 +601,7 @@ class TestDetectOutlookAvailable(unittest.TestCase):
             "mail.outlook.helpers.resolve_outlook_args",
             return_value=("client-id-123", None, None, None),
         ):
-            args = SimpleNamespace(profile=None, accounts_config=None, account=None)
+            args = argparse.Namespace(profile=None, accounts_config=None, account=None)
             result = _detect_outlook_available(args)
         self.assertTrue(result)
 
@@ -611,7 +612,7 @@ class TestDetectOutlookAvailable(unittest.TestCase):
             "mail.outlook.helpers.resolve_outlook_args",
             return_value=(None, None, None, None),
         ):
-            args = SimpleNamespace(profile=None, accounts_config=None, account=None)
+            args = argparse.Namespace(profile=None, accounts_config=None, account=None)
             result = _detect_outlook_available(args)
         self.assertFalse(result)
 
@@ -622,7 +623,7 @@ class TestDetectOutlookAvailable(unittest.TestCase):
             "mail.outlook.helpers.resolve_outlook_args",
             side_effect=RuntimeError("no config"),
         ):
-            args = SimpleNamespace(profile=None, accounts_config=None, account=None)
+            args = argparse.Namespace(profile=None, accounts_config=None, account=None)
             result = _detect_outlook_available(args)
         self.assertFalse(result)
 

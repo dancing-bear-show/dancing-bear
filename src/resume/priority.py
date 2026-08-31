@@ -16,7 +16,7 @@ def _item_priority(it: Any) -> float:
     return _score(pr) if pr is not None else 1.0
 
 
-def _filter_items(items: list[Any], cutoff: float) -> list[Any]:
+def _filter_items(items: list[Any] | None, cutoff: float) -> list[Any]:
     out = []
     for it in (items or []):
         if isinstance(it, dict):
@@ -28,7 +28,7 @@ def _filter_items(items: list[Any], cutoff: float) -> list[Any]:
     return out
 
 
-def _filter_skills_groups(groups: list[Any], cutoff: float) -> list[Any]:
+def _filter_skills_groups(groups: list[Any] | None, cutoff: float) -> list[Any]:
     """Filter skills_groups items by priority cutoff."""
     new_groups = []
     for g in groups or []:
@@ -42,7 +42,7 @@ def _filter_skills_groups(groups: list[Any], cutoff: float) -> list[Any]:
     return new_groups
 
 
-def _filter_experience(exp: list[Any], cutoff: float) -> list[Any]:
+def _filter_experience(exp: list[Any] | None, cutoff: float) -> list[Any]:
     """Filter experience roles and bullets by priority cutoff."""
     new_exp = []
     for e in exp or []:

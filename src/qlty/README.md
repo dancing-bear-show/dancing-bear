@@ -32,6 +32,7 @@ Raw `qlty` has five sharp edges, each hit in practice:
 | F3 | `smells` emits ANSI even when piped | every renderer strips ANSI |
 | F4 | `--json` works but is undocumented (only `--sarif` is advertised) | `runner.py` prefers JSON, falls back to SARIF, **normalizes both** |
 | F5 | findings are capped per run, so a big cluster hides findings elsewhere | `--rescan-until-stable`; counts are never presented as complete |
+| F6 | the cap is **nondeterministic**: two consecutive runs can return the same (possibly empty) capped subset while hiding real findings, making the old "two matching runs = stable" criterion a false clean | `--rescan-until-stable` now requires a dry streak of 2 consecutive identical runs before declaring stable; `--filter` is unreliable for the same reason — omit it for verification |
 
 ## Architecture
 
@@ -114,6 +115,27 @@ Two calibrations are baked in, both from triaging this repo:
   fix would have merged a day→RRULE dict with a subcommand→help-text dict. Findings are
   surfaced with every location for a human to read. Genuine duplication found that way
   is still worth fixing.
+
+## Scan reliability
+
+The cap (F5/F6) means a single run is never a clean bill of health. Key findings from
+empirical investigation:
+
+- **One clean run proves nothing.** 16 repeated `qlty check --no-fix --no-cache --all`
+  runs on an unchanged tree produced 0 to 4 findings per run — unioning all 16 yielded
+  22 distinct S5655 findings plus 1 S1172. A single clean run would have suppressed all
+  of them.
+- **`--filter` is unreliable for verification.** `--filter=radarlint-python` frequently
+  returns "✔ No issues" in the same minute that an unfiltered run reports radarlint
+  findings. Never use `--filter` to confirm a finding was fixed.
+- **The old stop condition was a false clean.** The previous `--rescan-until-stable`
+  implementation stopped after two consecutive identical runs. Two identical runs can
+  both be the same nondeterministic capped subset — empirically this was verified when
+  the scanner reported "stable in 2 iterations" while finding 0 of 22 real findings.
+- **Current stop condition:** `--rescan-until-stable` now requires a dry streak of 2
+  consecutive identical runs (3 total matching iterations). Raise `dry_streak` on the
+  API for thorough sweeps. `_MAX_RESCAN_ITERATIONS` is 8, so the worst case is 8 full
+  scans. On this repo, one full `--all` scan takes a few seconds; 8 is ~30s.
 
 ## Worktree caveat
 
