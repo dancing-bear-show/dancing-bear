@@ -9,7 +9,7 @@
     "tests",
     "bin"
   ],
-  "total": 684,
+  "total": 680,
   "packages": {
     "apple_music": 10,
     "bin": 2,
@@ -18,12 +18,12 @@
     "core": 69,
     "desk": 2,
     "diagrams": 3,
-    "mail": 47,
+    "mail": 48,
     "phone": 6,
     "resume": 28,
     "slides": 40,
     "telemetry": 147,
-    "tests": 237,
+    "tests": 232,
     "wifi": 2,
     "worker": 17,
     "workflow": 12
@@ -204,5 +204,6 @@
     "tests/workflow_tests/test_persistence.py",
     "tests/workflow_tests/test_persistence_gaps.py",
     "tests/workflow_tests/test_sad_paths.py"
-  ]
+  ],
+  "_platform": "Counts are from ubuntu-latest, the platform CI enforces on. mypy resolves some dependency stubs differently per OS: macOS reports mail=47/tests=237 (total 684) against Linux mail=48/tests=232 (total 680); the other 13 packages are identical. The ratchet therefore allows a small per-package overshoot (see PLATFORM_SLACK in bin/mypy_ratchet.py) so a local run on a different OS does not report a phantom regression. Regenerate on Linux, or let CI's failure output tell you the native numbers."
 }

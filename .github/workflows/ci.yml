@@ -47,12 +47,16 @@ jobs:
       - name: Type-check ratchet (blocking)
         # Fails only if a package's error count grew against the baseline.
         run: python bin/mypy_ratchet.py ratchet
-      - name: Report the platform-native counts on failure
-        # The baseline is generated on one OS and enforced on another; some
-        # dependency stubs resolve differently. This prints what THIS runner
-        # sees so a mismatch is diagnosable from the log alone.
+      - name: Print runner-native counts on failure
+        # The baseline is committed from a Linux run, but if the counts ever
+        # drift (a dependency bump changing what mypy can resolve), this prints
+        # what THIS runner actually sees, so the new numbers can be read
+        # straight from the log instead of reproduced by hand.
         if: failure()
-        run: python bin/mypy_ratchet.py update-baseline && cat typecheck-baseline.json
+        run: |
+          python bin/mypy_ratchet.py update-baseline
+          cat typecheck-baseline.json
+          echo "NOTE: printed for diagnosis only — nothing was committed."
 
   tests:
     runs-on: ubuntu-latest

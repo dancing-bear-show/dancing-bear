@@ -71,9 +71,11 @@ dev = [
   # What DOES block, both in CI and via make:
   #   typecheck-changed  — any new type error in a file the branch touched
   #   typecheck-ratchet  — any growth in a package's error count
-  # See bin/mypy_ratchet.py and typecheck-baseline.json. The baseline is 684
-  # across src/, tests/ and bin/ (445 of them in src/ alone, which is what the
-  # report-only target still measures).
+  # See bin/mypy_ratchet.py and typecheck-baseline.json. The baseline is 680
+  # across src/, tests/ and bin/, measured on Linux (the platform CI enforces
+  # on); macOS reports 684 because rumps is darwin-only, so the menubar tests
+  # are analysed there and not in CI. src/ alone is 445 on both, which is what
+  # the report-only target still measures.
   #
   # Also declared because the open-pr workflow probes `.venv/bin/python -m mypy`
   # and, finding nothing, recorded the type gate as UNAVAILABLE on every run — a

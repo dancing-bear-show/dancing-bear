@@ -60,6 +60,22 @@ BASELINE_PATH = REPO_ROOT / "typecheck-baseline.json"
 # to close.
 CHECKED_ROOTS = ("src", "tests", "bin")
 
+# The baseline is generated on Linux (the platform CI enforces on), but people
+# develop on macOS, and the same tree genuinely yields different counts:
+#
+#   macOS  mail=47  tests=237  total=684
+#   Linux  mail=48  tests=232  total=680
+#
+# The cause is platform-gated optional dependencies, not flakiness. `rumps` is
+# pinned `sys_platform == 'darwin'`, so on macOS mypy analyses the menubar tests
+# (test_otel_menubar_parsers.py alone contributes 34 errors) that are simply
+# absent from the analysis on Linux.
+#
+# Rather than paper over that with a fudge factor — which would silently become
+# a budget for real regressions — the ratchet compares strictly on the baseline
+# platform and, elsewhere, reports the difference without failing the build.
+BASELINE_PLATFORM = "linux"
+
 # Matches mypy's own summary line, the only trustworthy error count in its
 # output. `Found 1 error in 1 file` is singular, hence the optional plurals.
 _SUMMARY_RE = re.compile(r"^Found (\d+) errors? in (\d+) files?", re.MULTILINE)
@@ -358,6 +374,58 @@ def cmd_changed(args: argparse.Namespace) -> int:
     return 1
 
 
+def _report_platform_mismatch(regressed: dict[str, tuple[int, int]]) -> None:
+    """Explain why counts differ off the baseline platform, without failing."""
+    print(
+        f"\ntypecheck-ratchet: SKIPPED — this is {sys.platform!r}, but the "
+        f"baseline was measured on {BASELINE_PLATFORM!r}."
+    )
+    print(
+        "  Platform-gated optional dependencies (rumps is darwin-only) change "
+        "which files mypy analyses, so the counts are not comparable here."
+    )
+    if regressed:
+        print("  Packages reading higher locally:")
+        for pkg, (now, was) in sorted(regressed.items()):
+            print(f"    {pkg}: {was} (baseline) vs {now} (local)")
+    print(
+        "  CI enforces this strictly on Linux. To check before pushing, read "
+        "the typecheck job's output on your PR."
+    )
+
+
+def _report_regression_detail(
+    output: str, regressed: dict[str, tuple[int, int]], legacy: list[str]
+) -> None:
+    """Name the files behind a regression, not just the package.
+
+    A bare "+1" gives no way to tell a real regression from an environment
+    difference, and sends the reader hunting through the whole package.
+    """
+    legacy_set = set(legacy)
+    suspects = {
+        path: count
+        for path, count in _errors_by_file(output).items()
+        if _package_of(path) in regressed and path not in legacy_set
+    }
+    if not suspects:
+        print(
+            "\n  No newly-failing file: every error is in a file that was already "
+            "in the baseline, so a file's own count grew. Check whether this is a "
+            "platform difference before treating it as a regression.",
+            file=sys.stderr,
+        )
+        return
+
+    print("\n  Files with errors that were clean at baseline:", file=sys.stderr)
+    for path, count in sorted(suspects.items()):
+        print(f"    {path}: {count}", file=sys.stderr)
+    for line in output.splitlines():
+        match = _ERROR_RE.match(line)
+        if match and match.group("path") in suspects:
+            print(f"      {line}", file=sys.stderr)
+
+
 def cmd_ratchet(args: argparse.Namespace) -> int:
     """Fail if the repo-wide error count grew against the committed baseline."""
     baseline = _load_baseline()
@@ -376,41 +444,23 @@ def cmd_ratchet(args: argparse.Namespace) -> int:
         if count > base_packages.get(pkg, 0)
     }
 
+    # Off the baseline platform, differences are not attributable: an optional
+    # dependency pinned to one OS changes which files mypy even analyses. Report
+    # honestly and exit 0 rather than failing a build on a difference that is
+    # not the contributor's doing. CI runs on the baseline platform, so the
+    # enforcing path is always the strict one.
+    on_baseline_platform = sys.platform.startswith(BASELINE_PLATFORM)
+    if not on_baseline_platform and (regressed or total != base_total):
+        _report_platform_mismatch(regressed)
+        return 0
+
     if regressed:
         sys.stdout.flush()  # Keep the stderr block below ordered after the summary.
         print("\ntypecheck-ratchet: FAIL — these packages regressed:", file=sys.stderr)
         for pkg, (now, was) in sorted(regressed.items()):
             print(f"  {pkg}: {was} -> {now}  (+{now - was})", file=sys.stderr)
 
-        # Name the files, not just the package. A bare "+1" gives no way to tell
-        # a real regression from an environment difference (a dependency whose
-        # stubs resolve differently on another OS), and sends the reader hunting
-        # through the whole package.
-        per_file = _errors_by_file(output)
-        legacy = baseline.get("legacy_files", [])
-        legacy_counts = {path: 0 for path in legacy}
-        suspects = {
-            path: count
-            for path, count in per_file.items()
-            if _package_of(path) in regressed and path not in legacy_counts
-        }
-        if suspects:
-            print("\n  Files with errors that were clean at baseline:", file=sys.stderr)
-            for path, count in sorted(suspects.items()):
-                print(f"    {path}: {count}", file=sys.stderr)
-            for line in output.splitlines():
-                match = _ERROR_RE.match(line)
-                if match and match.group("path") in suspects:
-                    print(f"      {line}", file=sys.stderr)
-        else:
-            print(
-                "\n  No newly-failing file: every error is in a file that was "
-                "already in the baseline, so a file's own count grew. Run "
-                "`make typecheck-ratchet` locally to compare, and note that the "
-                "baseline is platform-sensitive — some dependency stubs resolve "
-                "differently across operating systems.",
-                file=sys.stderr,
-            )
+        _report_regression_detail(output, regressed, baseline.get("legacy_files", []))
 
         print(
             "\nNew type errors were introduced. Fix them; do not raise the "

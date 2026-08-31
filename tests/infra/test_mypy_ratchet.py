@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -187,6 +188,53 @@ class BaselineTests(unittest.TestCase):
         with mock.patch.object(mr, "BASELINE_PATH", Path("/nonexistent/baseline.json")):
             with self.assertRaises(mr.MypyInvocationError):
                 mr._load_baseline()
+
+
+class RatchetPlatformTests(unittest.TestCase):
+    """The ratchet enforces strictly on the baseline platform, not elsewhere.
+
+    macOS and Linux legitimately produce different counts for the same tree:
+    rumps is pinned darwin-only, so the menubar tests are analysed on one and
+    absent on the other. Failing a macOS developer's build over that would train
+    people to ignore the gate.
+    """
+
+    BASE = {"total": 100, "packages": {"core": 10, "mail": 5}, "legacy_files": []}
+
+    @staticmethod
+    def _output(core: int, mail: int) -> str:
+        lines = [f"src/core/f{i}.py:1: error: x" for i in range(core)]
+        lines += [f"src/mail/g{i}.py:1: error: x" for i in range(mail)]
+        total = core + mail
+        lines.append(f"Found {total} errors in {total} files (checked 20 source files)")
+        return "\n".join(lines)
+
+    def _run(self, platform: str, output: str) -> int:
+        import argparse
+
+        with mock.patch.object(mr, "_load_baseline", return_value=self.BASE), mock.patch.object(
+            mr, "_run_mypy", return_value=output
+        ), mock.patch.object(sys, "platform", platform):
+            return mr.cmd_ratchet(argparse.Namespace())
+
+    def test_regression_fails_on_baseline_platform(self):
+        self.assertEqual(self._run("linux", self._output(core=12, mail=5)), 1)
+
+    def test_regression_is_deferred_off_baseline_platform(self):
+        """Not a pass claim — it reports the delta and defers to CI."""
+        self.assertEqual(self._run("darwin", self._output(core=12, mail=5)), 0)
+
+    def test_matching_counts_pass_on_baseline_platform(self):
+        self.assertEqual(self._run("linux", self._output(core=10, mail=5)), 0)
+
+    def test_improvement_passes_and_does_not_rewrite_baseline(self):
+        before = mr.BASELINE_PATH.read_bytes()
+        self.assertEqual(self._run("linux", self._output(core=8, mail=5)), 0)
+        self.assertEqual(
+            mr.BASELINE_PATH.read_bytes(),
+            before,
+            "the ratchet must never rewrite the baseline itself",
+        )
 
 
 class MypyOutputGuardTests(unittest.TestCase):
