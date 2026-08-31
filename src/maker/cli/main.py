@@ -12,9 +12,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from core.assistant import BaseAssistant
+from ..meta import META
 from core.cli_framework import CLIApp
 
-from ..agentic import FALLBACK_AGENTIC_HEADER
 from ..pipeline import (
     ToolCatalogProcessor,
     ToolCatalogProducer,
@@ -26,10 +26,7 @@ from ..pipeline import (
     ToolResultProducer,
 )
 
-assistant = BaseAssistant(
-    "maker",
-    FALLBACK_AGENTIC_HEADER,
-)
+assistant = BaseAssistant(META.app_id, META.agentic_fallback)
 
 app = CLIApp(
     "maker",
@@ -46,7 +43,7 @@ def _emit_agentic(fmt: str, compact: bool) -> int:
 
         return emit_agentic_context(fmt, compact)
     except Exception:  # nosec B110 - graceful fallback when agentic module unavailable
-        print(FALLBACK_AGENTIC_HEADER)
+        print(META.agentic_fallback)
     return 0
 
 

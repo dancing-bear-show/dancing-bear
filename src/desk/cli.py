@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 
 from core.assistant import BaseAssistant
+from .meta import META
 from core.cli_framework import CLIApp
 from core.cli_output import OutputWriter
 
@@ -27,10 +28,7 @@ def _paths_default() -> list[str]:
     return [os.path.expanduser("~/Downloads"), os.path.expanduser("~/Desktop")]
 
 
-assistant = BaseAssistant(
-    "desk",
-    "agentic: desk\npurpose: Scan, plan, and tidy macOS folders",
-)
+assistant = BaseAssistant(META.app_id, META.agentic_fallback)
 
 app = CLIApp(
     "desk-assistant",

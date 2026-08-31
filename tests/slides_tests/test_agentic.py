@@ -12,9 +12,8 @@ AgenticCLIContractMixin.
 import unittest
 
 from tests.agentic_builder_contract import AgenticBuilderContractMixin
-from tests.fixtures import capture_stdout
 
-from slides.agentic import build_agentic_capsule, emit_agentic_context
+from slides.agentic import build_agentic_capsule
 
 
 class TestSlidesAgenticBuilder(AgenticBuilderContractMixin, unittest.TestCase):
@@ -40,12 +39,6 @@ class TestSlidesCapsuleContent(unittest.TestCase):
 
     def test_multiple_calls_idempotent(self):
         self.assertEqual(build_agentic_capsule(), build_agentic_capsule())
-
-    def test_emit_output_matches_build_agentic_capsule(self):
-        """Printed output equals build_agentic_capsule() plus a newline."""
-        with capture_stdout() as buf:
-            emit_agentic_context()
-        self.assertEqual(buf.getvalue(), build_agentic_capsule() + "\n")
 
 
 if __name__ == "__main__":

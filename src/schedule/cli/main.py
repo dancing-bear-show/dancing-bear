@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from core.assistant import BaseAssistant
+from ..meta import META
 from core.cli_errors import CLIError, ExitCode
 from core.cli_output import OutputWriter
 from core.date_utils import day_range_to_iso
@@ -230,10 +231,7 @@ app = CLIApp(
 )
 
 # Create assistant for agentic support
-assistant = BaseAssistant(
-    "schedule",
-    "agentic: schedule\npurpose: Generate/verify/apply calendar plans (dry-run first)",
-)
+assistant = BaseAssistant(META.app_id, META.agentic_fallback)
 
 
 def _emit_agentic(fmt: str, compact: bool) -> int:

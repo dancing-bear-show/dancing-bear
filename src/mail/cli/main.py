@@ -13,6 +13,7 @@ from __future__ import annotations
 
 
 from core.assistant import BaseAssistant
+from ..meta import META
 from core.cli_framework import CLIApp
 
 from ..config_resolver import (
@@ -34,10 +35,7 @@ from .cmd_accounts import register_accounts_commands
 from .cmd_outlook import register_outlook_commands
 
 
-assistant = BaseAssistant(
-    "mail",
-    "agentic: mail\n- Use .llm/UNIFIED.llm and CONTEXT.md if present\n- Key commands: ./bin/mail-assistant --help, make test",
-)
+assistant = BaseAssistant(META.app_id, META.agentic_fallback)
 
 app = CLIApp(
     "mail-assistant",
