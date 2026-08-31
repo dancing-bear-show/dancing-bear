@@ -116,16 +116,19 @@ def is_sensitive_key(key: object) -> bool:
     return any(normalized.endswith(suffix) for suffix in _SENSITIVE_KEY_SUFFIXES)
 
 
+# Bodies are `...` on the def line, not `pass` on its own. A CodeQL rule
+# suggested `pass` ("statement has no effect"); that trades one finding for
+# three -- radarlint S1186 (empty body) plus two uncovered lines, because an
+# overload declaration is unreachable at runtime by construction. `...` keeps
+# the body on the def line, where it is neither a separate statement nor a
+# separately measured one. Measured in PR #328: the `pass` form dropped the
+# coverage diff from 100% to 95.1% on exactly these two lines.
 @overload
-def _mask_value(value: str) -> str:
-    # Overload declaration: typing-only, never executed.
-    pass
+def _mask_value(value: str) -> str: ...
 
 
 @overload
-def _mask_value(value: None) -> None:
-    # Overload declaration: typing-only, never executed.
-    pass
+def _mask_value(value: None) -> None: ...
 
 
 def _mask_value(value: str | None) -> str | None:
