@@ -11,7 +11,7 @@ PIP := $(VENV)/bin/pip
 SRC := $(CURDIR)/src
 RUNPY := PYTHONPATH=$(SRC) $(PY)
 
-.PHONY: venv dev-venv install test clean distclean agentic agentic-md cov cov-html bin-wrappers bin-wrappers-check deadcode typecheck
+.PHONY: venv dev-venv install test clean distclean agentic agentic-md cov cov-html bin-wrappers bin-wrappers-check deadcode typecheck typecheck-changed typecheck-ratchet typecheck-baseline
 
 venv:
 	$(PYTHON) -m venv $(VENV)
@@ -171,3 +171,32 @@ TYPECHECK_PATHS ?= src
 typecheck: venv
 	@$(PIP) install -q -e ".[dev]"
 	@$(PY) -m mypy $(TYPECHECK_PATHS) --ignore-missing-imports || true
+
+# The two gates that DO fail, alongside the report-only target above.
+#
+# typecheck-changed gates new work: mypy over only the files this branch
+# changed, blocking on any error in a file that was clean at baseline. Files
+# already carrying errors are grandfathered via typecheck-baseline.json, so
+# nobody is blocked by debt they did not write.
+#
+# typecheck-ratchet gates the whole repo: it fails only if a package's error
+# count grew. Together they mean the number can go down but never up.
+#
+# TYPECHECK_BASE selects what "changed" is measured against. Three dots, always:
+#   make typecheck-changed TYPECHECK_BASE=origin/main
+TYPECHECK_BASE ?= main
+.PHONY: typecheck-changed typecheck-ratchet typecheck-baseline
+typecheck-changed: venv
+	@$(PIP) install -q -e ".[dev]"
+	@$(PY) bin/mypy_ratchet.py changed --base $(TYPECHECK_BASE)
+
+typecheck-ratchet: venv
+	@$(PIP) install -q -e ".[dev]"
+	@$(PY) bin/mypy_ratchet.py ratchet
+
+# Regenerates typecheck-baseline.json. Run this after fixing type errors, then
+# commit the file. Deliberately manual: auto-updating would let a regression
+# rewrite its own ceiling.
+typecheck-baseline: venv
+	@$(PIP) install -q -e ".[dev]"
+	@$(PY) bin/mypy_ratchet.py update-baseline
