@@ -320,14 +320,39 @@ def _permits_none(ann: str) -> bool:
     return False
 
 
+def _all_members_hostile(ann: str, hostile_bases: set[str]) -> bool:
+    """True when EVERY top-level union member rejects the literal.
+
+    A union is hostile only if none of its members accepts the value: `"x"`
+    passed to `int | None` is a mismatch, but passed to `int | str` it is not.
+    Comparing `ann.split("[")[0]` instead read only the first member, so
+    `int | None` looked like base `int |` and matched nothing -- a false
+    negative -- while member order silently decided the answer.
+    """
+    members = _top_level_union_members(ann)
+    if not members:
+        return False
+    for member in members:
+        base = member.split("[")[0].strip().strip("'\"")
+        # A None member does not rescue a str/int literal -- `int | None`
+        # rejects "x" just as `int` does -- so it does not make the union
+        # permissive here. (It is the whole question for a None literal, which
+        # _permits_none answers separately.)
+        if base in {"None", "NoneType"}:
+            continue
+        if base not in hostile_bases:
+            return False
+    return True
+
+
 def _is_mismatch(value: object, ann: str) -> bool:
     """Return True if the Python literal ``value`` is incompatible with ``ann``."""
     if value is None:
         return not _permits_none(ann)
     if isinstance(value, str):
-        return ann.split("[")[0].strip() in _STR_HOSTILE_BASES
+        return _all_members_hostile(ann, _STR_HOSTILE_BASES)
     if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return ann.split("[")[0].strip() in _INT_HOSTILE_BASES
+        return _all_members_hostile(ann, _INT_HOSTILE_BASES)
     return False
 
 

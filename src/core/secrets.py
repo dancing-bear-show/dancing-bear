@@ -117,11 +117,15 @@ def is_sensitive_key(key: object) -> bool:
 
 
 @overload
-def _mask_value(value: str) -> str: ...
+def _mask_value(value: str) -> str:
+    # Overload declaration: typing-only, never executed.
+    pass
 
 
 @overload
-def _mask_value(value: None) -> None: ...
+def _mask_value(value: None) -> None:
+    # Overload declaration: typing-only, never executed.
+    pass
 
 
 def _mask_value(value: str | None) -> str | None:

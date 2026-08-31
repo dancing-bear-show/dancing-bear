@@ -64,7 +64,6 @@ collect_signatures = _dm.collect_signatures
 scan_test_files = _dm.scan_test_files
 _collect_params = _dm._collect_params
 _is_mismatch = _dm._is_mismatch
-_has_classmethod_decorator = _dm._has_classmethod_decorator
 
 
 # ---------------------------------------------------------------------------
@@ -467,6 +466,36 @@ class TestNoneUnionParsing(unittest.TestCase):
                 self.assertFalse(_is_mismatch(None, ann))
 
 
+class TestStrIntUnions(unittest.TestCase):
+    """str/int literals must consider EVERY top-level union member.
+
+    The None check was converted to parsed unions but the str/int paths were
+    left on ``ann.split("[")[0]``, which reads only the first member: `int |
+    None` looked like base ``int |``, matched no hostile base, and silently
+    accepted a string. Member order decided the answer.
+    """
+
+    def test_str_into_optional_int_is_a_mismatch(self):
+        for ann in ("int | None", "Optional[int]", "Union[int, None]"):
+            with self.subTest(ann=ann):
+                self.assertTrue(_is_mismatch("x", ann))
+
+    def test_int_into_optional_str_is_a_mismatch(self):
+        for ann in ("str | None", "Optional[str]"):
+            with self.subTest(ann=ann):
+                self.assertTrue(_is_mismatch(1, ann))
+
+    def test_union_that_accepts_the_literal_is_not_flagged(self):
+        # One accepting member is enough; order must not matter.
+        self.assertFalse(_is_mismatch("x", "int | str"))
+        self.assertFalse(_is_mismatch("x", "str | int"))
+        self.assertFalse(_is_mismatch(1, "int | str"))
+        self.assertFalse(_is_mismatch(1, "str | int"))
+
+    def test_all_hostile_members_still_flag(self):
+        self.assertTrue(_is_mismatch("x", "dict | list"))
+
+
 class TestEmptyScanFailsLoudly(unittest.TestCase):
     """An empty scan must exit non-zero, not report a reassuring zero.
 
@@ -505,5 +534,4 @@ class TestEmptyScanFailsLoudly(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    import unittest
     unittest.main()
