@@ -139,7 +139,6 @@ class TestResumeCLIMain(unittest.TestCase):
         """Test that main function can be imported."""
         from resume.cli.main import main
 
-        self.assertIsNotNone(main)
         self.assertTrue(callable(main))
 
     def test_main_returns_zero_with_help(self):
