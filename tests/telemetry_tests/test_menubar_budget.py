@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-from telemetry._menubar_budget import _budget_score, _safe_float, _safe_int
+from telemetry._menubar_budget import _budget_score, _safe_float, _safe_int, _to_int
 
 
 class TestBudgetScore(unittest.TestCase):
@@ -89,6 +89,53 @@ class TestSafeInt(unittest.TestCase):
 
     def test_zero_int(self) -> None:
         self.assertEqual(_safe_int(0, 99), 0)
+
+
+class TestToInt(unittest.TestCase):
+    """_to_int must handle both precision requirements.
+
+    Requirement 1: 19-digit nanosecond timestamps must be exact.
+      int(float(1705320000123456789)) loses 21ns; only int passthrough is correct.
+    Requirement 2: float values like 123.0 must round-trip.
+      int("123.0") raises ValueError; only the float path handles it.
+    Neither int(str(v)) nor int(float(v)) alone satisfies both — hence the
+    three-branch form in _to_int.
+    """
+
+    _NS_EXACT = 1705320000123456789  # 19-digit ns timestamp
+
+    def test_int_ns_timestamp_exact(self) -> None:
+        """int passthrough preserves 19-digit precision; float would lose 21ns."""
+        result = _to_int(self._NS_EXACT)
+        self.assertEqual(result, self._NS_EXACT)
+
+    def test_float_rounds_to_int(self) -> None:
+        """float 123.0 must convert without ValueError."""
+        self.assertEqual(_to_int(123.0), 123)
+
+    def test_float_string_converts(self) -> None:
+        """String '123.0' must convert; int('123.0') would raise ValueError."""
+        self.assertEqual(_to_int("123.0"), 123)
+
+    def test_int_string_converts(self) -> None:
+        self.assertEqual(_to_int("456"), 456)
+
+    def test_plain_int_passthrough(self) -> None:
+        self.assertEqual(_to_int(42), 42)
+
+    def test_zero_int(self) -> None:
+        self.assertEqual(_to_int(0), 0)
+
+    def test_bool_returns_zero(self) -> None:
+        # bool is a subclass of int but must not be treated as a plain int
+        self.assertEqual(_to_int(True), 0)
+        self.assertEqual(_to_int(False), 0)
+
+    def test_invalid_string_returns_zero(self) -> None:
+        self.assertEqual(_to_int("not-a-number"), 0)
+
+    def test_none_returns_zero(self) -> None:
+        self.assertEqual(_to_int(None), 0)
 
 
 if __name__ == "__main__":

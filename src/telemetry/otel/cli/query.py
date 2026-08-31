@@ -5,11 +5,15 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from core.cli_output import emit_rows
 from telemetry.otel.cli._format_helpers import add_format_argument, format_validation_error
 from telemetry.otel.reader import OTLPDataDir, OTLPReader
 from telemetry.otel.utils import parse_time_window
+
+if TYPE_CHECKING:
+    from telemetry.otel.models import OTLPMetric, OTLPMetricsRecord
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -57,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _filter_metrics(
-    records: list, metric_pattern: str | None, cutoff_time: datetime | None
+    records: list[OTLPMetricsRecord], metric_pattern: str | None, cutoff_time: datetime | None
 ) -> list:
     """Filter metrics by pattern and time window."""
     filtered = []
@@ -70,11 +74,11 @@ def _filter_metrics(
     return filtered
 
 
-def _select_metrics_by_pattern(record: object, metric_pattern: str | None) -> list:
+def _select_metrics_by_pattern(record: OTLPMetricsRecord, metric_pattern: str | None) -> list:
     """Select metrics by pattern from a record."""
     if metric_pattern:
-        return record.metrics_by_name(metric_pattern)  # type: ignore[union-attr]
-    return record.metrics  # type: ignore[union-attr]
+        return record.metrics_by_name(metric_pattern)
+    return record.metrics
 
 
 def _filter_data_points(
@@ -86,11 +90,11 @@ def _filter_data_points(
     return data_points
 
 
-def _build_metric_result(metric: object, data_points: list) -> dict:
+def _build_metric_result(metric: OTLPMetric, data_points: list) -> dict:
     """Build a metric result dict from metric and data points."""
     return {
-        "name": metric.name,  # type: ignore[union-attr]
-        "unit": metric.unit,  # type: ignore[union-attr]
+        "name": metric.name,
+        "unit": metric.unit,
         "points": len(data_points),
         "latest": data_points[-1].value if data_points else None,
     }

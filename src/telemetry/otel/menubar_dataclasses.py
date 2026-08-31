@@ -63,7 +63,7 @@ class ToolActivity:
 
     tool_calls_today: int
     accept_rate_pct: float
-    top_tools: list[tuple[str, int]]  # top 4
+    top_tools: list[tuple[str, int | float]]  # top 4
     tool_error_count: int
     bash_error_rate_pct: float
     avg_input_bytes: float
@@ -76,7 +76,7 @@ class CodeImpact:
 
     lines_added_today: int
     lines_removed_today: int
-    top_languages: list[tuple[str, int]]  # top 3 by code_edit_tool.decision count
+    top_languages: list[tuple[str, int | float]]  # top 3 by code_edit_tool.decision count
     commits_today: int
     compaction_count: int
     tokens_saved_by_compaction: int
@@ -86,7 +86,7 @@ class CodeImpact:
 class Skills:
     """Skill invocation stats for the selected window (default: 24h)."""
 
-    top_skills: list[tuple[str, int]]  # top 4
+    top_skills: list[tuple[str, int | float]]  # top 4
     skills_invoked_today: int
 
 
@@ -95,7 +95,7 @@ class SessionPatterns:
     """Session-level usage patterns for the selected window (default: 24h)."""
 
     prompts_today: int
-    model_mix: list[tuple[str, int]]  # top 3
+    model_mix: list[tuple[str, int | float]]  # top 3
     agent_call_pct: float
     effort_mix: dict[str, int]
 

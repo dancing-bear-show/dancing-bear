@@ -9,12 +9,16 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from telemetry.otel.analytics.cost import get_model_pricing
 from telemetry.otel.analytics.perf import get_session_id
 from telemetry.otel.cost_models import PromptMetrics
 from telemetry.otel.reader import OTLPDataDir, OTLPReader
 from telemetry.timeutil import now_utc, parse_window
+
+if TYPE_CHECKING:
+    from telemetry.otel.models import OTLPEvent, OTLPEventsRecord
 
 
 def get_prompt_metrics(
@@ -72,12 +76,12 @@ class _PromptAccumulator:
 
 
 def _matches_prompt_filters(
-    event: object,
+    event: OTLPEvent,
     since_dt: datetime | None,
     session_id: str | None,
 ) -> bool:
     """Return True when event passes the since/session_id filters."""
-    if since_dt and event.timestamp < since_dt:  # type: ignore[union-attr]
+    if since_dt and event.timestamp < since_dt:
         return False
     if session_id and get_session_id(event) != session_id:
         return False
@@ -85,13 +89,13 @@ def _matches_prompt_filters(
 
 
 def _accumulate_record_events(
-    record: object,
+    record: OTLPEventsRecord,
     prompts: dict[str, _PromptAccumulator],
     since_dt: datetime | None,
     session_id: str | None,
 ) -> None:
     """Accumulate all log_records of a single record into prompts."""
-    for event in record.log_records:  # type: ignore[attr-defined]
+    for event in record.log_records:
         if not _matches_prompt_filters(event, since_dt, session_id):
             continue
 
@@ -118,9 +122,9 @@ def _accumulate_prompt_events(
     return prompts
 
 
-def _dispatch_prompt_event(event: object, acc: _PromptAccumulator) -> None:
+def _dispatch_prompt_event(event: OTLPEvent, acc: _PromptAccumulator) -> None:
     """Route an event to the appropriate processor."""
-    body = event.body  # type: ignore[union-attr]
+    body = event.body
     if "user_prompt" in body:
         _process_user_prompt(event, acc)
     elif "api_request" in body:
@@ -155,10 +159,10 @@ def _build_prompt_metrics(prompts: dict[str, _PromptAccumulator]) -> list[Prompt
     return result
 
 
-def _process_user_prompt(event: object, acc: _PromptAccumulator) -> None:
+def _process_user_prompt(event: OTLPEvent, acc: _PromptAccumulator) -> None:
     """Extract prompt metadata from a user_prompt event."""
-    _update_time_range(event.timestamp, acc)  # type: ignore[union-attr]
-    length_str = event.get_attr("prompt_length")  # type: ignore[union-attr]
+    _update_time_range(event.timestamp, acc)
+    length_str = event.get_attr("prompt_length")
     if length_str:
         try:
             acc.prompt_length = int(length_str)
@@ -166,9 +170,9 @@ def _process_user_prompt(event: object, acc: _PromptAccumulator) -> None:
             pass
 
 
-def _process_api_request(event: object, acc: _PromptAccumulator) -> None:
+def _process_api_request(event: OTLPEvent, acc: _PromptAccumulator) -> None:
     """Extract token counts and cost from an api_request event."""
-    _update_time_range(event.timestamp, acc)  # type: ignore[union-attr]
+    _update_time_range(event.timestamp, acc)
     acc.api_calls += 1
 
     input_tokens = _int_attr(event, "input_tokens")
@@ -179,7 +183,7 @@ def _process_api_request(event: object, acc: _PromptAccumulator) -> None:
     acc.output_tokens += output_tokens
     acc.cache_creation_tokens += cache_creation
 
-    model = event.get_attr("model") or "unknown"  # type: ignore[union-attr]
+    model = event.get_attr("model") or "unknown"
     input_price, output_price = get_model_pricing(model)
     acc.cost += (
         (input_tokens * input_price / 1_000_000)
@@ -188,11 +192,11 @@ def _process_api_request(event: object, acc: _PromptAccumulator) -> None:
     )
 
 
-def _process_tool_result(event: object, acc: _PromptAccumulator) -> None:
+def _process_tool_result(event: OTLPEvent, acc: _PromptAccumulator) -> None:
     """Count tool calls and failures from a tool_result event."""
-    _update_time_range(event.timestamp, acc)  # type: ignore[union-attr]
+    _update_time_range(event.timestamp, acc)
     acc.tool_calls += 1
-    success = event.get_attr("success")  # type: ignore[union-attr]
+    success = event.get_attr("success")
     if success in ("false", "False", False):
         acc.tool_failures += 1
 
@@ -205,12 +209,12 @@ def _update_time_range(ts: datetime, acc: _PromptAccumulator) -> None:
         acc.last_ts = ts
 
 
-def _int_attr(event: object, key: str) -> int:
+def _int_attr(event: OTLPEvent, key: str) -> int:
     """Get an integer attribute, returning 0 if absent or invalid."""
-    val = event.get_attr_as_float(key)  # type: ignore[union-attr]
+    val = event.get_attr_as_float(key)
     if val is not None:
         return int(val)
-    raw = event.get_attr(key)  # type: ignore[union-attr]
+    raw = event.get_attr(key)
     if raw:
         try:
             return int(raw)

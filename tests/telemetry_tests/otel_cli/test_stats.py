@@ -103,11 +103,11 @@ class TestOutputStats(unittest.TestCase):
         self.assertIn("cpu", buf.getvalue())
 
     def test_json_format_returns_none(self):
-        # emit_one returns None
+        # _output_stats returns 0 for json format
         buf = io.StringIO()
         with patch("sys.stdout", buf):
             result = _output_stats({"cpu": 5}, "Metrics", "json")
-        self.assertIsNone(result)
+        self.assertEqual(result, 0)
         data = json.loads(buf.getvalue())
         self.assertEqual(data["cpu"], 5)
 

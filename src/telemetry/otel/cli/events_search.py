@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import re
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from core.cli_output import emit_rows
 from telemetry.otel.cli._format_helpers import (
@@ -17,6 +18,9 @@ from telemetry.otel.cli._format_helpers import (
 )
 from telemetry.otel.reader import OTLPDataDir, OTLPReader
 
+if TYPE_CHECKING:
+    from telemetry.otel.models import OTLPEvent
+
 
 def main(argv: list[str] | None = None) -> int:
     """Search telemetry events by substring or regex pattern."""
@@ -27,7 +31,8 @@ def main(argv: list[str] | None = None) -> int:
         return err
 
     pattern = _compile_pattern(args.contains)
-    matches = _search_events(data_dir, since, pattern, args.session, args.limit)
+    resolved_dir = data_dir or OTLPDataDir.from_env()
+    matches = _search_events(resolved_dir, since, pattern, args.session, args.limit)
 
     headers = ["timestamp", "session_id", "event_type", "matching_text"]
     display_rows = [
@@ -102,23 +107,23 @@ def _search_events(
     return matches
 
 
-def _get_session_id(event: object) -> str:
+def _get_session_id(event: OTLPEvent) -> str:
     """Extract session ID from an event."""
     return (
-        event.get_attr("session.id")  # type: ignore[union-attr]
-        or event.get_attr("session_id")  # type: ignore[union-attr]
+        event.get_attr("session.id")
+        or event.get_attr("session_id")
         or "unknown"
     )
 
 
 def _check_event(
-    event: object,
+    event: OTLPEvent,
     since: datetime | None,
     pattern: re.Pattern[str],
     session_filter: str | None,
 ) -> dict | None:
     """Check a single event against filters and pattern. Returns match dict or None."""
-    if since and event.timestamp < since:  # type: ignore[union-attr]
+    if since and event.timestamp < since:
         return None
 
     session_id = _get_session_id(event)
@@ -130,19 +135,19 @@ def _check_event(
         return None
 
     return {
-        "timestamp": event.timestamp.strftime("%Y-%m-%d %H:%M:%S"),  # type: ignore[union-attr]
+        "timestamp": event.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
         "session_id": session_id,
-        "event_type": event.body,  # type: ignore[union-attr]
+        "event_type": event.body,
         "matching_text": matching_text,
     }
 
 
-def _find_match(event: object, pattern: re.Pattern[str]) -> str | None:
+def _find_match(event: OTLPEvent, pattern: re.Pattern[str]) -> str | None:
     """Check if event body or any attribute value matches the pattern."""
-    if pattern.search(event.body):  # type: ignore[union-attr]
-        return event.body  # type: ignore[union-attr]
+    if pattern.search(event.body):
+        return event.body
 
-    for attr in event.attributes:  # type: ignore[union-attr]
+    for attr in event.attributes:
         val = attr.value.as_str()
         if pattern.search(val):
             return f"{attr.key}={val}"

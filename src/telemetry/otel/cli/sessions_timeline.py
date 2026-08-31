@@ -6,14 +6,18 @@ Extracted from sessions.py to reduce complexity.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from telemetry.otel.reader import OTLPDataDir, OTLPReader
 
+if TYPE_CHECKING:
+    from telemetry.otel.models import OTLPEvent
 
-def _sum_token_attrs(event: object) -> int:
+
+def _sum_token_attrs(event: OTLPEvent) -> int:
     """Sum input_tokens and output_tokens from event attributes."""
     total = 0
-    for attr in event.attributes:  # type: ignore[union-attr]
+    for attr in event.attributes:
         if attr.key in ("input_tokens", "output_tokens"):
             try:
                 total += int(float(attr.value.as_str()))
@@ -22,11 +26,11 @@ def _sum_token_attrs(event: object) -> int:
     return total
 
 
-def _extract_tool_result_detail(event: object) -> str:
+def _extract_tool_result_detail(event: OTLPEvent) -> str:
     """Extract detail from a tool_result event."""
-    tool_name = event.get_attr("tool_name") or "unknown"  # type: ignore[union-attr]
-    success = event.get_attr("success")  # type: ignore[union-attr]
-    duration = event.get_attr_as_float("duration_ms")  # type: ignore[union-attr]
+    tool_name = event.get_attr("tool_name") or "unknown"
+    success = event.get_attr("success")
+    duration = event.get_attr_as_float("duration_ms")
     outcome = "ok" if success not in ("false", "False", False) else "fail"
     dur_str = f", {duration:.0f}ms" if duration else ""
     return f"{tool_name}, {outcome}{dur_str}"
@@ -57,34 +61,34 @@ def _format_api_request_detail(
     return ", ".join(parts)
 
 
-def _extract_api_request_detail(event: object) -> str:
+def _extract_api_request_detail(event: OTLPEvent) -> str:
     """Extract detail from an api_request event."""
-    model = event.get_attr("model") or "unknown"  # type: ignore[union-attr]
-    duration = event.get_attr_as_float("duration_ms")  # type: ignore[union-attr]
+    model = event.get_attr("model") or "unknown"
+    duration = event.get_attr_as_float("duration_ms")
     tokens = _sum_token_attrs(event)
     return _format_api_request_detail(model, duration, tokens)
 
 
-def _extract_event_detail(event: object, body: str) -> str:
+def _extract_event_detail(event: OTLPEvent, body: str) -> str:
     """Extract detail string based on event type."""
     if "api_request" in body:
         return _extract_api_request_detail(event)
     if "api_error" in body:
-        status = event.get_attr("status_code") or "unknown"  # type: ignore[union-attr]
+        status = event.get_attr("status_code") or "unknown"
         return f"status={status}"
     if "tool_result" in body:
         return _extract_tool_result_detail(event)
     if "user_prompt" in body:
-        length = event.get_attr("prompt_length") or ""  # type: ignore[union-attr]
+        length = event.get_attr("prompt_length") or ""
         return f"{length} chars" if length else ""
     return ""
 
 
-def _event_to_timeline_entry(event: object) -> dict[str, object]:
+def _event_to_timeline_entry(event: OTLPEvent) -> dict[str, object]:
     """Convert an OTLPEvent to a timeline entry dict."""
-    body = event.body  # type: ignore[union-attr]
+    body = event.body
     return {
-        "timestamp": event.timestamp,  # type: ignore[union-attr]
+        "timestamp": event.timestamp,
         "event_type": body,
         "detail": _extract_event_detail(event, body),
     }

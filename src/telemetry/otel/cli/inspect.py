@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from pathlib import Path
 
 from core.cli_output import emit_rows
@@ -44,12 +45,13 @@ def main(argv: list[str] | None = None) -> int:
 
     reader = OTLPReader(data_dir)
 
-    records_by_type = {
+    records_by_type: dict[str, Callable[[], list]] = {
         "metrics": reader.read_metrics,
         "events": reader.read_events,
         "spans": reader.read_spans,
     }
-    records = records_by_type[args.type]()[: args.limit]
+    limit: int = args.limit
+    records = records_by_type[str(args.type)]()[:limit]
 
     if args.format == "json":
         rows = _build_json_rows(records, args.type)
