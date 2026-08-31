@@ -132,7 +132,10 @@ class TestIsMismatch(unittest.TestCase):
 class TestCollectParams(unittest.TestCase):
     """Unit tests for receiver-skipping logic."""
 
-    def _parse_func(self, src: str) -> ast.FunctionDef:
+    def _parse_func(self, src: str) -> ast.FunctionDef | ast.AsyncFunctionDef:
+        # Annotated as the union the isinstance check actually admits. It said
+        # `ast.FunctionDef` while returning either, which the changed-files
+        # mypy gate correctly rejected.
         tree = ast.parse(textwrap.dedent(src))
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
