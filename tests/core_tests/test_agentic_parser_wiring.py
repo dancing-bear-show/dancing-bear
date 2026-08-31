@@ -424,7 +424,7 @@ class CliPathExistsContractTests(unittest.TestCase):
         import resume.agentic as mod
 
         with self.assertRaises(TypeError):
-            mod._cli_path_exists([["extract"]])  # type: ignore[list-item]
+            mod._cli_path_exists([["extract"]])
 
     def test_unknown_subcommand_is_false(self):
         import resume.agentic as mod

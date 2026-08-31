@@ -271,7 +271,7 @@ def _remove_job_file(job_path: Path) -> None:
     import logging as _logging
 
     try:
-        job_path.unlink(missing_ok=True)  # type: ignore[arg-type]
+        job_path.unlink(missing_ok=True)
     except Exception as exc:
         _logging.getLogger(__name__).debug(
             "Failed to remove job file %s: %s", job_path, exc

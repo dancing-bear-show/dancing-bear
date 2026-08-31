@@ -37,7 +37,7 @@ class TestSeriesSpec(unittest.TestCase):
         from charts.types.base import SeriesSpec
         s = SeriesSpec(name="x", data=[])
         with self.assertRaises((AttributeError, TypeError)):
-            s.name = "y"  # type: ignore[misc]
+            s.name = "y"
 
 
 class TestChartSpec(unittest.TestCase):
@@ -73,7 +73,7 @@ class TestChartSpec(unittest.TestCase):
         from charts.types.base import ChartSpec
         spec = ChartSpec(title="T", x_field="ts", series=self._make_series())
         with self.assertRaises((AttributeError, TypeError)):
-            spec.title = "X"  # type: ignore[misc]
+            spec.title = "X"
 
 
 class TestChartKind(unittest.TestCase):
@@ -294,7 +294,7 @@ class TestTheme(unittest.TestCase):
         from charts.theme import get_theme
         t = get_theme("dark")
         with self.assertRaises((AttributeError, TypeError)):
-            t.name = "foo"  # type: ignore[misc]
+            t.name = "foo"
 
 
 class TestGridConfig(unittest.TestCase):
@@ -369,7 +369,7 @@ class TestGridConfig(unittest.TestCase):
     def test_frozen(self):
         cfg = self._load_from_raw(self._make_raw())
         with self.assertRaises((AttributeError, TypeError)):
-            cfg.title = "X"  # type: ignore[misc]
+            cfg.title = "X"
 
 
 class TestRenderChartMocked(unittest.TestCase):
@@ -428,7 +428,7 @@ class TestRenderChartImportError(unittest.TestCase):
         import sys
         # Temporarily hide matplotlib
         orig = sys.modules.get("matplotlib")
-        sys.modules["matplotlib"] = None  # type: ignore[assignment]
+        sys.modules["matplotlib"] = None
         try:
             # Need to reload to pick up the missing import
             import importlib

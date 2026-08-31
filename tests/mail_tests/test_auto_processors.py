@@ -466,7 +466,7 @@ class TestAutoSummaryProcessorSadPath(unittest.TestCase):
         """A non-dict proposal that raises on access is wrapped as ResultEnvelope error."""
         # AutoSummaryProcessor._process_safe calls payload.proposal.get("messages") —
         # passing a non-dict proposal triggers AttributeError.
-        payload = AutoSummaryPayload(proposal="not-a-dict")  # type: ignore[arg-type]
+        payload = AutoSummaryPayload(proposal="not-a-dict")
         processor = AutoSummaryProcessor()
         envelope = processor.process(payload)
 

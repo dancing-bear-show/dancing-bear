@@ -11,7 +11,7 @@ class LocationsMapTests(unittest.TestCase):
         # Clear any cache to force reload from built-in map
         try:
             import calendars.locations_map as lm
-            lm._CACHED_MAP = None  # type: ignore[attr-defined]
+            lm._CACHED_MAP = None
         except Exception:  # nosec B110 - test setup
             pass
 

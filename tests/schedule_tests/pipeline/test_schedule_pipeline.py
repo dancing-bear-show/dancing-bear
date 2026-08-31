@@ -46,7 +46,7 @@ class SchedulePipelineTests(TestCase):
 
         env = PlanProcessor(loader=fake_loader).process(PlanRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertEqual(len(env.payload.document["events"]), 1)  # type: ignore[union-attr]
+        self.assertEqual(len(env.payload.document["events"]), 1)
 
     def test_plan_processor_handles_error(self):
         request = PlanRequest(sources=["bad"], kind=None, out_path=Path("plan.yaml"))

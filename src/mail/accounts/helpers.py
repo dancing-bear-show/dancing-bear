@@ -63,7 +63,7 @@ def build_client_for_account(acc: dict):
         )
     if provider == "outlook":
         try:
-            from core.outlook import OutlookClient  # type: ignore
+            from core.outlook import OutlookClient
         except Exception as e:
             raise SystemExit(f"Outlook provider unavailable: {e}")
         return OutlookClient(**_outlook_client_kwargs(acc))
@@ -89,7 +89,7 @@ def build_provider_for_account(acc: dict):
         )
     if provider == "outlook":
         try:
-            from ..providers.outlook import OutlookProvider  # type: ignore
+            from ..providers.outlook import OutlookProvider
         except Exception as e:
             raise SystemExit(f"Outlook provider unavailable: {e}")
         return OutlookProvider(**_outlook_client_kwargs(acc))

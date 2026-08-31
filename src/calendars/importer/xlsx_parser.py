@@ -23,7 +23,7 @@ class XLSXParser(ScheduleParser):
             RuntimeError: If openpyxl is not installed
         """
         try:
-            import openpyxl  # type: ignore
+            import openpyxl
         except Exception as e:  # pragma: no cover - optional
             raise RuntimeError("openpyxl is required to parse .xlsx files. Try: python3 -m pip install openpyxl") from e
 

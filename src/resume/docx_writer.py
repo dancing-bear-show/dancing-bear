@@ -215,7 +215,7 @@ def write_resume_docx(
     if not docx:
         raise RuntimeError("Rendering DOCX requires python-docx; install python-docx.")
 
-    from docx import Document  # type: ignore
+    from docx import Document
 
     doc = Document()
     page_cfg = template.get("page") or {}

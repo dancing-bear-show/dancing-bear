@@ -50,7 +50,7 @@ class TestAtomicWriteJson(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "out.json"
             with self.assertRaises(TypeError):
-                atomic_write_json(p, {"bad": object()})  # type: ignore[arg-type]
+                atomic_write_json(p, {"bad": object()})
             self.assertEqual(list(Path(td).glob("*.tmp")), [])
 
 

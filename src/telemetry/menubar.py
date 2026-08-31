@@ -24,7 +24,7 @@ except ImportError:
 # AppKit symbols are patched by tests via patch.multiple(menubar_module, NSColor=...).
 # Keep this import block here so the patched names live in this module's namespace.
 try:
-    from AppKit import (  # type: ignore[import-not-found]
+    from AppKit import (
         NSAttributedString,  # noqa: F401
         NSColor,  # noqa: F401
         NSFont,  # noqa: F401
@@ -162,10 +162,10 @@ def _score_color(score: int) -> object:
     Requires AppKit — callers must guard with _HAS_APPKIT.
     """
     if score <= 3:
-        return NSColor.systemGreenColor()  # type: ignore[name-defined]
+        return NSColor.systemGreenColor()
     if score <= 6:
-        return NSColor.systemOrangeColor()  # type: ignore[name-defined]
-    return NSColor.systemRedColor()  # type: ignore[name-defined]
+        return NSColor.systemOrangeColor()
+    return NSColor.systemRedColor()
 
 
 def _compose_icon_attributed(
@@ -178,32 +178,32 @@ def _compose_icon_attributed(
     Requires AppKit — callers must guard with _HAS_APPKIT.
     """
     values = _icon_substitutions(icon_ctx, mtd_cost, score, otel_cost_1d)
-    font = NSFont.menuBarFontOfSize_(0)  # type: ignore[name-defined]
-    plain_attrs = {NSFontAttributeName: font}  # type: ignore[name-defined]
+    font = NSFont.menuBarFontOfSize_(0)
+    plain_attrs = {NSFontAttributeName: font}
     score_attrs = {
-        NSFontAttributeName: font,  # type: ignore[name-defined]
-        NSForegroundColorAttributeName: _score_color(score),  # type: ignore[name-defined]
+        NSFontAttributeName: font,
+        NSForegroundColorAttributeName: _score_color(score),
     }
-    out = NSMutableAttributedString.alloc().init()  # type: ignore[name-defined]
+    out = NSMutableAttributedString.alloc().init()
     for kind, text in _icon_token_stream(template):
         if kind == "lit":
             if text:
                 out.appendAttributedString_(
-                    NSAttributedString.alloc().initWithString_attributes_(text, plain_attrs)  # type: ignore[name-defined]
+                    NSAttributedString.alloc().initWithString_attributes_(text, plain_attrs)
                 )
             continue
         if text == "score":
             out.appendAttributedString_(
-                NSAttributedString.alloc().initWithString_attributes_(values["score"], score_attrs)  # type: ignore[name-defined]
+                NSAttributedString.alloc().initWithString_attributes_(values["score"], score_attrs)
             )
         elif text in values:
             out.appendAttributedString_(
-                NSAttributedString.alloc().initWithString_attributes_(values[text], plain_attrs)  # type: ignore[name-defined]
+                NSAttributedString.alloc().initWithString_attributes_(values[text], plain_attrs)
             )
         else:
             literal = "${" + text + "}" if kind == "braced" else f"${text}"
             out.appendAttributedString_(
-                NSAttributedString.alloc().initWithString_attributes_(literal, plain_attrs)  # type: ignore[name-defined]
+                NSAttributedString.alloc().initWithString_attributes_(literal, plain_attrs)
             )
     return out
 
@@ -220,7 +220,7 @@ def _acquire_instance_lock() -> None:
     _CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
     fd = os.open(str(_LOCK_PATH), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)  # type: ignore[name-defined]
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         os.close(fd)
         raise CLIError("ClaudeStats is already running.", ExitCode.ERROR)

@@ -130,9 +130,9 @@ _W_VAL = "w:val"  # XML attribute name used repeatedly in run properties
 
 def _add_hyperlink_impl(paragraph, url: str, display: str) -> None:
     """Internal: add hyperlink element. Raises on failure — caller catches."""
-    from docx.oxml import OxmlElement  # type: ignore
-    from docx.oxml.ns import qn  # type: ignore
-    from docx.opc.constants import RELATIONSHIP_TYPE as RT  # type: ignore
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.opc.constants import RELATIONSHIP_TYPE as RT
 
     # Register the external hyperlink relationship on the document part.
     part = paragraph.part

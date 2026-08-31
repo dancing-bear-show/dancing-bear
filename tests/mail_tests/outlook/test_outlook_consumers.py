@@ -58,7 +58,7 @@ class TestOutlookRulesListPayload(unittest.TestCase):
     def test_missing_client_raises_type_error(self):
         """client is a required field with no default; omitting it must raise TypeError."""
         with self.assertRaisesRegex(TypeError, "client"):
-            OutlookRulesListPayload()  # type: ignore[call-arg]
+            OutlookRulesListPayload()
 
 
 class TestOutlookRulesExportPayload(unittest.TestCase):
@@ -79,12 +79,12 @@ class TestOutlookRulesExportPayload(unittest.TestCase):
         """out_path is required with no default; omitting it must raise TypeError."""
         client = Mock()
         with self.assertRaisesRegex(TypeError, "out_path"):
-            OutlookRulesExportPayload(client=client)  # type: ignore[call-arg]
+            OutlookRulesExportPayload(client=client)
 
     def test_missing_client_raises_type_error(self):
         """client is required with no default; omitting it must raise TypeError."""
         with self.assertRaisesRegex(TypeError, "client"):
-            OutlookRulesExportPayload(out_path=test_path("out.yaml"))  # type: ignore[call-arg]  # noqa: S108 - test fixture path
+            OutlookRulesExportPayload(out_path=test_path("out.yaml"))  # noqa: S108 - test fixture path
 
 
 class TestOutlookRulesSyncPayload(unittest.TestCase):
@@ -117,12 +117,12 @@ class TestOutlookRulesSyncPayload(unittest.TestCase):
         """config_path is required with no default; omitting it must raise TypeError."""
         client = Mock()
         with self.assertRaisesRegex(TypeError, "config_path"):
-            OutlookRulesSyncPayload(client=client)  # type: ignore[call-arg]
+            OutlookRulesSyncPayload(client=client)
 
     def test_missing_client_raises_type_error(self):
         """client is required with no default; omitting it must raise TypeError."""
         with self.assertRaisesRegex(TypeError, "client"):
-            OutlookRulesSyncPayload(config_path="/cfg.yaml")  # type: ignore[call-arg]
+            OutlookRulesSyncPayload(config_path="/cfg.yaml")
 
 
 class TestOutlookRulesSweepPayload(unittest.TestCase):
@@ -335,7 +335,7 @@ class TestOutlookRulesListConsumer(unittest.TestCase):
     def test_init_missing_client_raises_type_error(self):
         """client is a required positional/keyword arg with no default."""
         with self.assertRaisesRegex(TypeError, "client"):
-            OutlookRulesListConsumer()  # type: ignore[call-arg]
+            OutlookRulesListConsumer()
 
 
 class TestOutlookRulesExportConsumer(unittest.TestCase):
@@ -416,7 +416,7 @@ class TestOutlookCategoriesListConsumer(unittest.TestCase):
     def test_init_missing_client_raises_type_error(self):
         """client is a required positional/keyword arg with no default."""
         with self.assertRaisesRegex(TypeError, "client"):
-            OutlookCategoriesListConsumer()  # type: ignore[call-arg]
+            OutlookCategoriesListConsumer()
 
 
 class TestOutlookCategoriesExportConsumer(unittest.TestCase):
@@ -448,7 +448,7 @@ class TestOutlookCategoriesExportConsumer(unittest.TestCase):
         """out_path is a required positional/keyword arg with no default."""
         client = Mock()
         with self.assertRaisesRegex(TypeError, "out_path"):
-            OutlookCategoriesExportConsumer(client=client)  # type: ignore[call-arg]
+            OutlookCategoriesExportConsumer(client=client)
 
 
 class TestOutlookCategoriesSyncConsumer(unittest.TestCase):

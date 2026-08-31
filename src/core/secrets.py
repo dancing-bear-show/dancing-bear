@@ -443,9 +443,9 @@ def install_output_masking_from_env() -> None:
         if val in {"", "0", "false", "no"}:
             return
         if not isinstance(getattr(sys, "stdout"), MaskingWriter):
-            sys.stdout = MaskingWriter(getattr(sys, "stdout"))  # type: ignore[assignment]
+            sys.stdout = MaskingWriter(getattr(sys, "stdout"))
         if not isinstance(getattr(sys, "stderr"), MaskingWriter):
-            sys.stderr = MaskingWriter(getattr(sys, "stderr"))  # type: ignore[assignment]
+            sys.stderr = MaskingWriter(getattr(sys, "stderr"))
     except Exception:
         return
 

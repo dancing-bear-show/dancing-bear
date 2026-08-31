@@ -172,7 +172,7 @@ class TestTranscriptParseProcessorHappyPath(unittest.TestCase):
             "force": False,
             "limit": 0,
         }
-        defaults.update(kwargs)  # type: ignore[arg-type]
+        defaults.update(kwargs)
         return TranscriptParseRequest(**defaults)  # type: ignore[arg-type]
 
     def test_happy_path_processor_returns_success_envelope(self) -> None:

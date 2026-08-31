@@ -137,9 +137,9 @@ class MalformedSpecTests(unittest.TestCase):
         self.assertEqual(out, [{"match": {"from": "a@b"}, "action": {}}])
 
     def test_filters_list_handles_none(self):
-        # Deliberately off-annotation: `filters or []` accepts None at runtime,
-        # and an empty YAML `filters:` key parses to exactly that.
-        self.assertEqual(normalize_filters_for_outlook(None), [])  # type: ignore[arg-type]
+        # An empty YAML `filters:` key parses to None, so the None case is real
+        # input rather than a synthetic edge case.
+        self.assertEqual(normalize_filters_for_outlook(None), [])
 
     def test_filters_list_handles_empty(self):
         self.assertEqual(normalize_filters_for_outlook([]), [])
@@ -176,9 +176,9 @@ class MalformedLabelTests(unittest.TestCase):
         self.assertEqual(normalize_labels_for_outlook([None, "x", 42, ()]), [])
 
     def test_none_and_empty_input(self):
-        # Deliberately off-annotation: `labels or []` accepts None at runtime,
-        # and an empty YAML `labels:` key parses to exactly that.
-        self.assertEqual(normalize_labels_for_outlook(None), [])  # type: ignore[arg-type]
+        # An empty YAML `labels:` key parses to None, so the None case is real
+        # input rather than a synthetic edge case.
+        self.assertEqual(normalize_labels_for_outlook(None), [])
         self.assertEqual(normalize_labels_for_outlook([]), [])
 
     def test_missing_or_empty_name_is_skipped(self):

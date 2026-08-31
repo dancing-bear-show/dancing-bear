@@ -66,7 +66,7 @@ class CalendarExtraPipelineTests(TestCase):
         )
         env = processor.process(OutlookScheduleImportRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertEqual(env.payload.created, 2)  # type: ignore[union-attr]
+        self.assertEqual(env.payload.created, 2)
         svc.create_event.assert_called_once()
         svc.create_recurring_event.assert_called_once()
         buf = io.StringIO()
@@ -91,7 +91,7 @@ class CalendarExtraPipelineTests(TestCase):
         )
         env = processor.process(OutlookScheduleImportRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertEqual(env.payload.created, 2)  # type: ignore[union-attr]
+        self.assertEqual(env.payload.created, 2)
         svc.create_event.assert_not_called()
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -133,7 +133,7 @@ class CalendarExtraPipelineTests(TestCase):
             OutlookListOneOffsRequestConsumer(request).consume()
         )
         self.assertTrue(env.ok())
-        self.assertEqual(len(env.payload.rows), 2)  # type: ignore[union-attr]
+        self.assertEqual(len(env.payload.rows), 2)
         buf = io.StringIO()
         with redirect_stdout(buf):
             OutlookListOneOffsProducer().produce(env)

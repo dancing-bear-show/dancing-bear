@@ -11,7 +11,7 @@ __all__ = ["load_config", "dump_config"]
 
 def _require_yaml():
     try:
-        import yaml  # type: ignore
+        import yaml
 
         return yaml
     except Exception as exc:  # pragma: no cover - runtime guard
@@ -33,7 +33,7 @@ def load_config(path: str | None) -> dict[str, Any]:
     # None means empty/comment-only YAML; coerce to empty dict
     if result is None:
         result = {}
-    return result  # type: ignore[return-value]
+    return result
 
 
 def dump_config(path: str, data: dict[str, Any]) -> None:

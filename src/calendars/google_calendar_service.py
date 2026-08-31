@@ -35,7 +35,7 @@ class GoogleCalendarService:
     def __init__(self, credentials: Any) -> None:
         # Lazy import — googleapiclient is optional
         try:
-            from googleapiclient.discovery import build  # type: ignore
+            from googleapiclient.discovery import build
         except Exception as exc:  # nosec B110 - optional dependency guard
             raise RuntimeError(
                 "Google API libraries not installed. "

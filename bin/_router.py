@@ -107,7 +107,7 @@ def _main() -> int:
         mod = __import__(f"{module}.__main__", fromlist=["main"])
         main_fn = getattr(mod, "main")
 
-    return main_fn()  # type: ignore[no-any-return]
+    return main_fn()
 
 
 if __name__ == "__main__":

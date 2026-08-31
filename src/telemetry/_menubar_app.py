@@ -12,8 +12,8 @@ try:
     _AppBase = rumps.App
 except ImportError:
     _HAS_RUMPS = False
-    rumps = None  # type: ignore[assignment]
-    _AppBase = object  # type: ignore[assignment,misc]
+    rumps = None
+    _AppBase = object
 
 from telemetry.otel.menubar_provider import OtelDisplayData, OtelMenubarProvider
 from telemetry.ccpulse_reader import read_current as _read_ccpulse

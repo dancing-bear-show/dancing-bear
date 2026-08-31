@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from docx.document import Document
 
-from docx.shared import Pt, Inches, RGBColor  # type: ignore
+from docx.shared import Pt, Inches, RGBColor
 
 from .io_utils import safe_import
 from .docx_styles import (
@@ -341,7 +341,7 @@ class ResumeWriterBase(ABC):
         if not docx:
             raise RuntimeError("Rendering DOCX requires python-docx; install python-docx.")
 
-        from docx import Document  # type: ignore
+        from docx import Document
         self.doc = Document()
 
         self._apply_page_styles()

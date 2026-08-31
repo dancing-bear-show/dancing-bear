@@ -10,7 +10,7 @@ class TestAgenticWrite(unittest.TestCase):
         sys.path.insert(0, str(pkg_parent))
 
     def test_agentic_write_to_file(self):
-        import mail.llm_cli as mod  # type: ignore
+        import mail.llm_cli as mod
         with tempfile.TemporaryDirectory() as td:
             target = Path(td) / 'AGENTIC.out.md'
             rc = mod.main(["agentic", "--write", str(target)])

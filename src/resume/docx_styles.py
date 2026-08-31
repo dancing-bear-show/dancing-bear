@@ -7,10 +7,10 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 
-from docx.shared import Pt, RGBColor  # type: ignore
-from docx.enum.text import WD_ALIGN_PARAGRAPH  # type: ignore
-from docx.oxml import OxmlElement  # type: ignore
-from docx.oxml.ns import qn  # type: ignore
+from docx.shared import Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 
 # Type alias for RGB tuples

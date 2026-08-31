@@ -59,7 +59,7 @@ def _run_experience_overlay_render(case, tmpdir, profile, template):
         case.assertEqual(proc.returncode, 0, msg=proc.stderr)
         case.assertTrue(os.path.exists(out_path))
 
-        from docx import Document  # type: ignore
+        from docx import Document
 
         doc = Document(out_path)
         text = "\n".join(p.text for p in doc.paragraphs)
@@ -375,7 +375,7 @@ class TestResumeCLIRender(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, msg=proc.stderr)
             self.assertTrue(os.path.exists(out_path))
 
-            from docx import Document  # type: ignore
+            from docx import Document
 
             doc = Document(out_path)
             sec = doc.sections[0]
@@ -424,7 +424,7 @@ class TestResumeCLIStructure(unittest.TestCase):
         infer_structure_from_docx heading-detection logic end to end.
         """
         try:
-            from docx import Document  # type: ignore
+            from docx import Document
         except Exception:
             self.skipTest("python-docx not installed")
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -704,7 +704,7 @@ class TestResumeCLIOnePageTemplateE2E(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, msg=proc.stderr)
             self.assertTrue(os.path.exists(out_path))
 
-            from docx import Document  # type: ignore
+            from docx import Document
 
             doc = Document(out_path)
             sec = doc.sections[0]
@@ -1031,7 +1031,7 @@ class TestResumeCLIExportPdf(unittest.TestCase):
         'beta.docx' → '<data-home>/.../beta.pdf'.  They must differ.
         This test verifies the _resolve_out behaviour without actually running soffice.
         """
-        from resume.cli.main import _resolve_out  # type: ignore[import]
+        from resume.cli.main import _resolve_out
         import argparse
 
         with tempfile.TemporaryDirectory() as tmpdir:

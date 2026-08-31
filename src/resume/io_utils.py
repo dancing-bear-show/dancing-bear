@@ -34,7 +34,7 @@ def read_text_any(path: str | os.PathLike[str]) -> str:
             raise CLIError(
                 "Reading .docx requires python-docx. Install it or provide .txt/.md."
             )
-        from docx import Document  # type: ignore
+        from docx import Document
 
         doc = Document(str(p))
         return "\n".join(par.text for par in doc.paragraphs)
@@ -45,7 +45,7 @@ def read_text_any(path: str | os.PathLike[str]) -> str:
             raise CLIError(
                 "Reading .pdf requires pdfminer.six. Install it or provide .txt/.md."
             )
-        from pdfminer.high_level import extract_text  # type: ignore
+        from pdfminer.high_level import extract_text
 
         return extract_text(str(p))
     # Fallback treat as text

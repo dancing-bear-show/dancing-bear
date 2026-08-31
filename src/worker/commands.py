@@ -95,12 +95,12 @@ class StatusCommand:
         nxt_txt = f"{nxt}s" if nxt is not None else "-"
         counts: dict[str, object] = (
             status.get("counts") if isinstance(status.get("counts"), dict) else {}
-        )  # type: ignore[assignment]
+        )
         error_ids: list[str] = (
             status.get("recent_error_ids")
             if isinstance(status.get("recent_error_ids"), list)
             else []
-        )  # type: ignore[assignment]
+        )
 
         lines = [
             f"Queue root: {status.get('root')}",
