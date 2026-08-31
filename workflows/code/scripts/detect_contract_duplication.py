@@ -82,15 +82,8 @@ SUSPICIONS, not defects; verify each pair by reading both methods before
 deleting.  Low yield is expected: the value is regression prevention, not
 clearing a backlog.
 
-Usage
------
-Must be run from the **repo root**::
-
-    python3 workflows/code/scripts/detect_contract_duplication.py
-
-The script uses relative paths (``TESTS = "tests"``, MIXINS paths starting
-with ``tests/``).  Running it from any other directory will silently find
-zero test files and emit ``"finding_count": 0``.
+The script can be invoked from any working directory -- paths are resolved
+relative to the script's own location, not the caller's cwd.
 """
 
 from __future__ import annotations
@@ -101,19 +94,30 @@ import json
 import os
 import sys
 from collections.abc import Iterator
+from pathlib import Path
 
-TESTS = "tests"
+# Resolve paths relative to the script's own location so the detector works
+# correctly regardless of the caller's cwd.
+#
+# Layout: workflows/code/scripts/detect_contract_duplication.py
+#                  ^          ^         ^
+#         parents[0]  parents[1] parents[2] parents[3] = repo root
+_REPO_ROOT: Path = Path(__file__).resolve().parents[3]
+
+TESTS: str = str(_REPO_ROOT / "tests")
 SKIP_WALK_DIRS = {
     ".git", ".venv", ".claude", "__pycache__", "node_modules",
     ".cache", "out", "_out", "backups", "personal_assistants.egg-info",
 }
 
 # Shared contract mixin modules and their class names.
+# Keys are absolute paths derived from _REPO_ROOT so the detector works
+# regardless of the caller's cwd.
 MIXINS: dict[str, str] = {
-    "tests/agentic_builder_contract.py": "AgenticBuilderContractMixin",
-    "tests/agentic_cli_contract.py": "AgenticCLIContractMixin",
-    "tests/cli_separator_contract.py": "SeparatorContractMixin",
-    "tests/llm_cli_contract.py": "LLMCLIContractMixin",
+    str(_REPO_ROOT / "tests" / "agentic_builder_contract.py"): "AgenticBuilderContractMixin",
+    str(_REPO_ROOT / "tests" / "agentic_cli_contract.py"): "AgenticCLIContractMixin",
+    str(_REPO_ROOT / "tests" / "cli_separator_contract.py"): "SeparatorContractMixin",
+    str(_REPO_ROOT / "tests" / "llm_cli_contract.py"): "LLMCLIContractMixin",
 }
 
 # Similarity gate: Jaccard over called function/method names.

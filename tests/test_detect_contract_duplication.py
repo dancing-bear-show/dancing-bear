@@ -1,10 +1,12 @@
 """Unit tests for workflows/code/scripts/detect_contract_duplication.py.
 
 Covers:
-- Fixture reproducing the slides shape (4 shared calls, Jaccard 0.444): must be flagged.
+- Fixture reproducing the slides shape: 4 shared calls (> gate of 3), Jaccard
+  0.444 (> threshold of 0.40) -- must be flagged.
 - Fixture of an app-unique test sharing one helper: must NOT be flagged.
 - A method overriding a contract method by the same name: must NOT be flagged.
 - A method using patch.object (conditional-branch testing): must NOT be flagged.
+- cwd-independence: detector finds contracts from an unrelated working directory.
 
 The script lives outside the installed package, so we load it via importlib
 the same way tests/test_detect_facades.py does.
@@ -80,7 +82,6 @@ class _TmpRepo:
         self._mixin_src = textwrap.dedent(mixin_src)
         self._test_src = textwrap.dedent(test_file_src)
         self._tmp: tempfile.TemporaryDirectory | None = None
-        self._old_cwd: str = ""
         self._old_tests: str = _det.TESTS
         self._old_mixins: dict = dict(_det.MIXINS)
 
@@ -93,16 +94,14 @@ class _TmpRepo:
         mixin_path = str(tests / "fake_contract.py")
         Path(mixin_path).write_text(self._mixin_src)
         (tests / "test_fake_agentic.py").write_text(self._test_src)
-        # Redirect scan() to look at our temporary tree.
-        self._old_cwd = os.getcwd()
-        os.chdir(root)
-        _det.TESTS = "tests"
+        # Redirect scan() to look at our temporary tree using absolute paths
+        # so the detector works regardless of cwd.
+        _det.TESTS = str(tests)
         _det.MIXINS.clear()
         _det.MIXINS[mixin_path] = "FakeContractMixin"
         return self
 
     def __exit__(self, *_):
-        os.chdir(self._old_cwd)
         _det.TESTS = self._old_tests
         _det.MIXINS.clear()
         _det.MIXINS.update(self._old_mixins)
@@ -375,6 +374,50 @@ class TestJaccard(unittest.TestCase):
         b = frozenset({"b", "c", "d"})
         # intersection 2, union 4 -> 0.5
         self.assertAlmostEqual(_jaccard(a, b), 0.5)
+
+
+# ---------------------------------------------------------------------------
+# Regression test: cwd-independence
+# ---------------------------------------------------------------------------
+
+class TestCwdIndependence(unittest.TestCase):
+    """Detector finds the real contract files regardless of working directory.
+
+    Before the structural fix, TESTS and MIXINS were relative strings resolved
+    against cwd.  Running from /tmp or any non-root directory silently produced
+    finding_count=0, indistinguishable from a clean tree.
+    """
+
+    def test_mixin_index_non_empty_from_unrelated_cwd(self):
+        """scan() must find at least one contract mixin from an unrelated cwd."""
+        old_cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chdir(tmp)
+            try:
+                # Import and call scan with the real (unpatched) TESTS/MIXINS.
+                # We don't assert a specific finding count -- the repo may be
+                # clean -- but the mixin index must be non-empty, proving the
+                # contract files were resolved correctly from an unrelated cwd.
+                import importlib.util as _ilu
+                spec = _ilu.spec_from_file_location(
+                    "detect_cwd_probe",
+                    _SCRIPT,
+                )
+                if spec is None or spec.loader is None:
+                    self.fail(f"importlib could not build a spec for {_SCRIPT}")
+                probe = _ilu.module_from_spec(spec)
+                spec.loader.exec_module(probe)
+                # At least one MIXINS file must exist (the repo is present).
+                found = [p for p in probe.MIXINS if os.path.isfile(p)]
+                self.assertGreater(
+                    len(found), 0,
+                    msg=(
+                        f"No MIXINS files found from cwd={tmp!r}. "
+                        f"MIXINS keys: {list(probe.MIXINS)}"
+                    ),
+                )
+            finally:
+                os.chdir(old_cwd)
 
 
 if __name__ == "__main__":
