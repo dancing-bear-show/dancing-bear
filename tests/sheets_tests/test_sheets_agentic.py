@@ -1,5 +1,13 @@
 """Tests for the sheets agentic capsule.
 
+Adopts AgenticBuilderContractMixin for the shared builder contract
+(build_agentic_capsule / emit_agentic_context). sheets hand-writes its capsule
+(no build_domain_map, no CLI tree), so EXPECT_DOMAIN_MAP and EXPECT_CLI_TREE
+are both False.
+
+The CLI --agentic surface is covered by test_sheets_agentic_cli.py via
+AgenticCLIContractMixin.
+
 The capsule is what an LLM agent reads to discover this CLI, so its command
 strings must stay in step with the real parser -- a capsule advertising a flag
 that does not exist sends an agent down a dead end.
@@ -7,16 +15,23 @@ that does not exist sends an agent down a dead end.
 
 from __future__ import annotations
 
-import io
 import unittest
-from contextlib import redirect_stdout
 
-from sheets.agentic import build_agentic_capsule, emit_agentic_context
+from tests.agentic_builder_contract import AgenticBuilderContractMixin
+from sheets.agentic import build_agentic_capsule
 
 
-class TestBuildAgenticCapsule(unittest.TestCase):
-    def test_names_the_app(self) -> None:
-        self.assertIn("agentic: sheets", build_agentic_capsule())
+class TestSheetsAgenticBuilder(AgenticBuilderContractMixin, unittest.TestCase):
+    """The shared agentic builder contract."""
+
+    MODULE_PATH = "sheets.agentic"
+    APP_ID = "sheets"
+    EXPECT_CLI_TREE = False
+    EXPECT_DOMAIN_MAP = False
+
+
+class TestSheetsCapsuleContent(unittest.TestCase):
+    """sheets-specific capsule content not covered by the shared contract."""
 
     def test_documents_both_subcommands(self) -> None:
         capsule = build_agentic_capsule()
@@ -41,19 +56,3 @@ class TestBuildAgenticCapsule(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIn(f"- {command}:", capsule)
                 self.assertIn(command, registered)
-
-
-class TestEmitAgenticContext(unittest.TestCase):
-    def test_returns_zero_and_prints_capsule(self) -> None:
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            rc = emit_agentic_context()
-        self.assertEqual(rc, 0)
-        self.assertIn("agentic: sheets", buf.getvalue())
-
-    def test_format_and_compact_args_are_accepted(self) -> None:
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            rc = emit_agentic_context("json", True)
-        self.assertEqual(rc, 0)
-        self.assertTrue(buf.getvalue().strip())

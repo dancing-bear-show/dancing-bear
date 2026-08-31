@@ -9,6 +9,8 @@ from contextlib import redirect_stderr, redirect_stdout
 from typing import Protocol
 from unittest.mock import patch
 
+from tests.cli_separator_contract import SeparatorContractMixin
+
 from qlty import cli
 from qlty.models import Source
 from qlty.runner import InvocationResult, QltyInvocationError
@@ -509,6 +511,13 @@ class MetaTests(unittest.TestCase):
 
         self.assertEqual(META.bin_name, "./bin/qlty-assistant")
         self.assertNotEqual(META.bin_name, "./bin/qlty")
+
+
+class TestQltySeparatorCLI(SeparatorContractMixin, unittest.TestCase):
+    """The shared ``--`` separator contract."""
+
+    MODULE_PATH = "qlty.cli"
+    APP_ID = "qlty"
 
 
 if __name__ == "__main__":

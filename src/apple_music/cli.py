@@ -8,6 +8,7 @@ Implementation lives in:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
 
 from core.assistant import BaseAssistant
@@ -27,6 +28,7 @@ from .cli_helpers import (  # noqa: F401
 )
 from .config import DEFAULT_PROFILE, load_profile
 from .developer_token import MAX_TTL_DAYS, SECONDS_PER_DAY, decode_claims, mint_developer_token
+from .meta import META
 from .cli_playlist import (  # noqa: F401
     ALIZEE,
     GIPSY_KINGS,
@@ -272,10 +274,14 @@ app = CLIApp(
     add_common_args=True,
 )
 
-_assistant = BaseAssistant(
-    "apple-music-assistant",
-    "agentic: apple-music-assistant\npurpose: Apple Music playlist management",
-)
+_assistant = BaseAssistant(META.app_id, META.agentic_fallback)
+
+
+@lru_cache(maxsize=1)
+def _lazy_agentic():
+    from . import agentic as _agentic
+
+    return _agentic.emit_agentic_context
 
 
 class _JsonOutputWriter(OutputWriter):
@@ -636,6 +642,6 @@ def main(argv: list[str] | None = None) -> int:
     """CLI entry point."""
     return app.run_with_assistant(
         _assistant,
-        emit_func=lambda fmt, compact: (print(_assistant.fallback_banner) or 0),
+        emit_func=lambda fmt, compact: _lazy_agentic()(fmt, compact),
         argv=argv,
     )
