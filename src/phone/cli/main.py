@@ -17,6 +17,7 @@ from pathlib import Path  # noqa: F401  # re-exported for test patch compatibili
 
 from core.cli_framework import CLIApp
 from core.assistant import BaseAssistant
+from ..meta import META
 
 # Import command implementations from split siblings
 from .cmd_merge import cmd_merge_folders, cmd_reorg  # noqa: F401
@@ -74,10 +75,7 @@ app = CLIApp(
 )
 
 # Create assistant for agentic support
-assistant = BaseAssistant(
-    "phone",
-    "agentic: phone\npurpose: Home Screen layout planning + manifest helpers",
-)
+assistant = BaseAssistant(META.app_id, META.agentic_fallback)
 
 # Create command groups
 profile_group = app.group("profile", help="Home Screen Layout profile helpers")

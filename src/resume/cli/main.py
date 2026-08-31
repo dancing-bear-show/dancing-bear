@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Callable
 
 from core.assistant import BaseAssistant
+from ..meta import META
 from core.cli_errors import CLIError, ExitCode
 from core.cli_framework import CLIApp
 from core.paths import ENV_DATA_HOME, config_home, output_dir
@@ -75,10 +76,7 @@ DATA_HELP = (
 EXT_JSON = ".json"
 EXT_YAML = ".yaml"
 
-assistant = BaseAssistant(
-    "resume",
-    "agentic: resume\npurpose: Extract, summarize, and render resumes",
-)
+assistant = BaseAssistant(META.app_id, META.agentic_fallback)
 
 app = CLIApp(
     "resume-assistant",

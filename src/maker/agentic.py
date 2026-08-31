@@ -4,9 +4,6 @@ from pathlib import Path
 
 from core.agentic import section as _section
 
-FALLBACK_AGENTIC_HEADER: str = "agentic: maker\npurpose: Utility generators and print helpers"
-
-
 def build_agentic_capsule() -> str:
     from .pipeline import scan_tools
 

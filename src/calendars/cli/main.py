@@ -11,6 +11,7 @@ from __future__ import annotations
 
 
 from core.assistant import BaseAssistant
+from ..meta import META
 from core.cli_framework import CLIApp
 from core.cli_help_text import (
     HELP_CACHE_DIR,
@@ -57,10 +58,7 @@ from ..gmail.commands import (
     run_gmail_sweep_top,
 )
 
-assistant = BaseAssistant(
-    "calendar",
-    "agentic: calendar\npurpose: Outlook calendars + Gmail scans → plans",
-)
+assistant = BaseAssistant(META.app_id, META.agentic_fallback)
 
 app = CLIApp(
     "calendar-assistant",

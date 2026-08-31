@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 
 from core.assistant import BaseAssistant
+from .meta import META
 from core.cli_framework import CLIApp
 from core.cli_output import OutputWriter
 
@@ -27,10 +28,7 @@ def _paths_default() -> list[str]:
     return [os.path.expanduser("~/Downloads"), os.path.expanduser("~/Desktop")]
 
 
-assistant = BaseAssistant(
-    "desk",
-    "agentic: desk\npurpose: Scan, plan, and tidy macOS folders",
-)
+assistant = BaseAssistant(META.app_id, META.agentic_fallback)
 
 app = CLIApp(
     "desk-assistant",
@@ -41,13 +39,17 @@ app = CLIApp(
 
 
 def _emit_agentic(fmt: str, compact: bool) -> int:
-    try:
-        # agentic.py is in outer desk package
-        from desk.agentic import emit_agentic_context
-        return emit_agentic_context(fmt, compact)
-    except ImportError:
-        print("agentic: desk\npurpose: Scan, plan, and tidy macOS folders")
-        return 0
+    """Emit the agentic capsule, importing the builder on first use.
+
+    No local ImportError guard: BaseAssistant.maybe_emit_agentic already wraps
+    this call and prints assistant.fallback_banner (derived from META) on any
+    exception. A second hand-written banner here would duplicate that
+    derivation and drift if META.purpose changed.
+    """
+    # agentic.py is in the outer desk package, not desk.cli
+    from desk.agentic import emit_agentic_context
+
+    return emit_agentic_context(fmt, compact)
 
 
 # scan command
