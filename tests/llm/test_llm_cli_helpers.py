@@ -315,5 +315,37 @@ class TestBindEntrypoints(unittest.TestCase):
         self.assertEqual(other_build().prog, 'llm-other')
 
 
+class TestDomainLlmConfigOverrides(unittest.TestCase):
+    """Tests for DomainLlmConfig prog/description override fields."""
+
+    def _make_config(self, **extra):
+        from core.llm_builders import DomainLlmConfig, make_domain_llm_module
+        cfg = DomainLlmConfig(
+            app_id="testapp",
+            app_title="TestApp",
+            purpose="testing purposes",
+            agentic_module="core.llm_builders",  # any importable module
+            **extra,
+        )
+        return make_domain_llm_module(cfg)
+
+    def test_prog_defaults_to_llm_dash_app_id(self):
+        llm_config = self._make_config()
+        self.assertEqual(llm_config.prog, "llm-testapp")
+
+    def test_prog_override_is_honoured(self):
+        llm_config = self._make_config(prog="llm")
+        self.assertEqual(llm_config.prog, "llm")
+
+    def test_description_defaults_to_generated_string(self):
+        llm_config = self._make_config()
+        self.assertIn("TestApp", llm_config.description)
+        self.assertIn("inventory", llm_config.description)
+
+    def test_description_override_is_honoured(self):
+        llm_config = self._make_config(description="Custom description")
+        self.assertEqual(llm_config.description, "Custom description")
+
+
 if __name__ == '__main__':
     unittest.main()
