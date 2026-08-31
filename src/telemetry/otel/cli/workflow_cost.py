@@ -11,6 +11,7 @@ from pathlib import Path
 
 from core.cli_output import emit_rows
 from core.date_utils import parse_iso_utc
+from telemetry._menubar_budget import _safe_float, _safe_int
 from telemetry.otel.cli._format_helpers import add_format_argument, get_work_dir
 from telemetry.timeutil import now_utc, parse_window
 
@@ -22,18 +23,12 @@ _NO_METADATA_MSG = (
 
 def _coerce_float(v: object) -> float:
     """Safely coerce a metadata value to float, returning 0.0 on failure."""
-    try:
-        return float(str(v)) if v else 0.0
-    except (TypeError, ValueError):
-        return 0.0
+    return _safe_float(v, 0.0)
 
 
 def _coerce_int(v: object) -> int:
     """Safely coerce a metadata value to int, returning 0 on failure."""
-    try:
-        return int(str(v)) if v else 0
-    except (TypeError, ValueError):
-        return 0
+    return _safe_int(v, 0)
 
 
 def main(argv: list[str] | None = None) -> int:

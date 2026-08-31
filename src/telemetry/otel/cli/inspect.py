@@ -50,7 +50,8 @@ def main(argv: list[str] | None = None) -> int:
         "events": reader.read_events,
         "spans": reader.read_spans,
     }
-    records = records_by_type[str(args.type)]()[:int(str(args.limit))]
+    limit: int = args.limit
+    records = records_by_type[str(args.type)]()[:limit]
 
     if args.format == "json":
         rows = _build_json_rows(records, args.type)
