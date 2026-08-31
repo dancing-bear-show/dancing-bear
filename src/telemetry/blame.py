@@ -21,7 +21,7 @@ class BlameEngine:
 
         for evt in events:
             if evt.tool_name == "Skill" and evt.tool_input:
-                active_skill = evt.tool_input.get("skill", "") or active_skill
+                active_skill = str(evt.tool_input.get("skill", "")) or active_skill
 
             if evt.classification not in ("avoidable", "review"):
                 evt.blame_target = None

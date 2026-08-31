@@ -23,7 +23,7 @@ _NO_METADATA_MSG = (
 def _coerce_float(v: object) -> float:
     """Safely coerce a metadata value to float, returning 0.0 on failure."""
     try:
-        return float(v) if v else 0.0
+        return float(str(v)) if v else 0.0
     except (TypeError, ValueError):
         return 0.0
 
@@ -31,7 +31,7 @@ def _coerce_float(v: object) -> float:
 def _coerce_int(v: object) -> int:
     """Safely coerce a metadata value to int, returning 0 on failure."""
     try:
-        return int(v) if v else 0
+        return int(str(v)) if v else 0
     except (TypeError, ValueError):
         return 0
 
@@ -92,7 +92,7 @@ def _run_workspace_mode(workspace: Path, fmt: str) -> int:
 
 
 def _read_stage_results(stages_dir: Path) -> list[dict]:
-    results = []
+    results: list[dict] = []
     if not stages_dir.exists():
         return results
     for p in sorted(stages_dir.glob("*.json")):
@@ -254,7 +254,7 @@ def _build_since_rows(run_groups: dict[str, list[dict]]) -> list[dict]:
             "run_id": "TOTAL",
             "workflow": "",
             "started_at": "",
-            "stages": sum(r["stages"] for r in rows),
+            "stages": sum(int(r["stages"]) for r in rows if isinstance(r["stages"], int)),
             "total_tokens": grand_tokens,
             "total_cost_usd": round(grand_cost, 4),
         }

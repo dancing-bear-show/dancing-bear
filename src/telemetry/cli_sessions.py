@@ -64,7 +64,7 @@ def _lazy_agentic():
 @app.argument("--rules", dest="rules_path", default=None, help="Path to custom rules YAML.")
 def cmd_live(args: argparse.Namespace) -> int:
     try:
-        from telemetry.tui import run_live
+        from telemetry.tui._app import run_live
     except ImportError as exc:
         raise CLIError(
             "textual is required for `telemetry live`: pip install 'personal-assistants[tui]'"
@@ -79,7 +79,7 @@ def cmd_live(args: argparse.Namespace) -> int:
 @app.argument("--compact", action="store_true", help="Single-line compact format.")
 @app.argument("--rules", dest="rules_path", default=None, help="Path to custom rules YAML.")
 def cmd_stats(args: argparse.Namespace) -> int:
-    from telemetry.tui import run_stats
+    from telemetry.tui._stats import run_stats
     run_stats(session_id=args.session, refresh=args.refresh, compact=args.compact, rules_path=args.rules_path)
     return 0
 
@@ -88,7 +88,7 @@ def cmd_stats(args: argparse.Namespace) -> int:
 @app.argument("--session", default=None, help="Session ID to summarise (auto-detects if omitted).")
 @app.argument("--rules", dest="rules_path", default=None, help="Path to custom rules YAML.")
 def cmd_summary(args: argparse.Namespace) -> int:
-    from telemetry.tui import print_summary
+    from telemetry.tui._stats import print_summary
     print_summary(session_id=args.session, rules_path=args.rules_path)
     return 0
 

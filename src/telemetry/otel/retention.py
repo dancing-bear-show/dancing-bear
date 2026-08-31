@@ -167,14 +167,14 @@ class TelemetryPruner:
         """Get earliest timestamp from a record dict."""
         try:
             if data_type == "metrics":
-                record = OTLPMetricsRecord.from_dict(record_dict)
-                return record.earliest_timestamp()
+                metrics_record = OTLPMetricsRecord.from_dict(record_dict)
+                return metrics_record.earliest_timestamp()
             elif data_type == "events":
-                record = OTLPEventsRecord.from_dict(record_dict)
-                return min((e.timestamp for e in record.log_records), default=None)
+                events_record = OTLPEventsRecord.from_dict(record_dict)
+                return min((e.timestamp for e in events_record.log_records), default=None)
             else:  # spans
-                record = OTLPSpansRecord.from_dict(record_dict)
-                return min((s.start_timestamp for s in record.spans), default=None)
+                spans_record = OTLPSpansRecord.from_dict(record_dict)
+                return min((s.start_timestamp for s in spans_record.spans), default=None)
         except (KeyError, ValueError):
             return None
 

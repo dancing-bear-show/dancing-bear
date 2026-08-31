@@ -117,9 +117,12 @@ def _load_or_init_session_index(index_dir: Path, session_id: str) -> dict[str, o
         # Coerce scalar counts — a corrupted JSON value (e.g. str) would break arithmetic.
         for key, list_key in (("prompt_count", "prompts"), ("bash_count", "bash_commands")):
             try:
-                idx[key] = int(idx.get(key) or len(idx[list_key]))  # type: ignore[arg-type]
+                _list_val = idx[list_key]
+                _list_len = len(_list_val) if isinstance(_list_val, (list, tuple)) else 0
+                idx[key] = int(str(idx.get(key) or _list_len))
             except (TypeError, ValueError):
-                idx[key] = len(idx[list_key])  # type: ignore[arg-type]
+                _lv = idx[list_key]
+                idx[key] = len(_lv) if isinstance(_lv, (list, tuple)) else 0
         return idx
     return {
         "session_id": session_id,
@@ -230,7 +233,7 @@ def _process_one_file(
     abs_path = str(jsonl_path.resolve())
     session_id = _session_id_from_path(jsonl_path)
     try:
-        start_offset = 0 if force else int(state.get(abs_path, 0) or 0)
+        start_offset = 0 if force else int(str(state.get(abs_path, 0) or 0))
     except (TypeError, ValueError):
         start_offset = 0  # corrupted state entry — reprocess from beginning
     project_path = str(jsonl_path.parent)

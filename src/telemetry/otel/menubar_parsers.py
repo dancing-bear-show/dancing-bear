@@ -1,7 +1,7 @@
 """Parsing/accumulation helpers extracted from menubar_provider.py."""
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 
 from core.fileutil import find_rotated_files, iter_jsonl_file
@@ -55,7 +55,7 @@ def _parse_attrs(attr_list: list[dict[str, object]]) -> dict[str, object]:
     """Flatten an OTLP attribute list into {key: value}."""
     out: dict[str, object] = {}
     for attr in attr_list:
-        key = attr.get("key", "")
+        key = str(attr.get("key", ""))
         val = attr.get("value", {})
         if not isinstance(val, dict):
             out[key] = None
@@ -76,7 +76,7 @@ def _parse_attrs(attr_list: list[dict[str, object]]) -> dict[str, object]:
 def _parse_nano_ts(value: object) -> int:
     """Parse a timeUnixNano field to int, returning 0 on malformed input."""
     try:
-        return int(value or 0)
+        return int(str(value or 0))
     except (ValueError, TypeError):
         return 0
 
@@ -86,7 +86,7 @@ def _trunc(s: object, n: int = _MAX_ATTR_LEN) -> str:
     return str(s)[:n] if s is not None else ""
 
 
-def _top_n(counts: dict[str, int | float], n: int) -> list[tuple[str, int | float]]:
+def _top_n(counts: Mapping[str, int | float], n: int) -> list[tuple[str, int | float]]:
     """Return the top *n* items from *counts* sorted by value descending."""
     return sorted(counts.items(), key=lambda x: x[1], reverse=True)[:n]
 
@@ -100,9 +100,21 @@ def _is_event_success(attrs: dict[str, object]) -> bool:
 def _iter_log_records(raw_objs: list[dict[str, object]]) -> Iterator[dict[str, object]]:
     """Yield every logRecord dict from a list of decoded OTLP resourceLogs objects."""
     for obj in raw_objs:
-        for rl in obj.get("resourceLogs", []):
-            for sl in rl.get("scopeLogs", []):
-                yield from sl.get("logRecords", [])
+        resource_logs = obj.get("resourceLogs", [])
+        if not isinstance(resource_logs, list):
+            continue
+        for rl in resource_logs:
+            if not isinstance(rl, dict):
+                continue
+            scope_logs = rl.get("scopeLogs", [])
+            if not isinstance(scope_logs, list):
+                continue
+            for sl in scope_logs:
+                if not isinstance(sl, dict):
+                    continue
+                log_records = sl.get("logRecords", [])
+                if isinstance(log_records, list):
+                    yield from log_records
 
 
 def _accumulate_datapoint(
@@ -128,16 +140,16 @@ def _accumulate_loc_delta(
     loc_type = str(attrs.get("type", ""))
     v = _safe_int(value, 0)
     if loc_type == "added":
-        counters["lines_added"] = int(counters["lines_added"]) + v  # type: ignore[arg-type]
+        counters["lines_added"] = _safe_int(counters["lines_added"], 0) + v
     elif loc_type == "removed":
-        counters["lines_removed"] = int(counters["lines_removed"]) + v  # type: ignore[arg-type]
+        counters["lines_removed"] = _safe_int(counters["lines_removed"], 0) + v
 
 
 def _accumulate_commit_count(
     value: float, attrs: dict[str, object], counters: dict[str, object]  # noqa: ARG001
 ) -> None:
     """Add a commit.count datapoint into counters['commits_today']."""
-    counters["commits_today"] = int(counters["commits_today"]) + _safe_int(value, 0)  # type: ignore[arg-type]
+    counters["commits_today"] = _safe_int(counters["commits_today"], 0) + _safe_int(value, 0)
 
 
 def _accumulate_language_count(
@@ -176,10 +188,10 @@ def _accumulate_compaction_events(
     """Accumulate compaction event counts and token savings into counters."""
     for event_type, _ts, attrs in events_24h:
         if event_type == "claude_code.compaction":
-            counters["compaction_count"] = int(counters["compaction_count"]) + 1  # type: ignore[arg-type]
+            counters["compaction_count"] = _safe_int(counters["compaction_count"], 0) + 1
             pre = _safe_int(attrs.get("pre_tokens", 0), 0)
             post = _safe_int(attrs.get("post_tokens", 0), 0)
-            counters["tokens_saved"] = int(counters["tokens_saved"]) + max(0, pre - post)  # type: ignore[arg-type]
+            counters["tokens_saved"] = _safe_int(counters["tokens_saved"], 0) + max(0, pre - post)
 
 
 # token_type -> counters key. All four are OTel attribute discriminators, not secrets.
@@ -229,12 +241,32 @@ def _iter_metric_datapoints(
     raw: dict[str, object],
 ) -> Iterator[tuple[str, dict[str, object]]]:
     """Yield (metric_name, datapoint_dict) pairs from a single raw metrics JSONL record."""
-    for rm in raw.get("resourceMetrics", []):
-        for sm in rm.get("scopeMetrics", []):
-            for metric in sm.get("metrics", []):
-                name = metric.get("name", "")
+    resource_metrics = raw.get("resourceMetrics", [])
+    if not isinstance(resource_metrics, list):
+        return
+    for rm in resource_metrics:
+        if not isinstance(rm, dict):
+            continue
+        scope_metrics = rm.get("scopeMetrics", [])
+        if not isinstance(scope_metrics, list):
+            continue
+        for sm in scope_metrics:
+            if not isinstance(sm, dict):
+                continue
+            metrics = sm.get("metrics", [])
+            if not isinstance(metrics, list):
+                continue
+            for metric in metrics:
+                if not isinstance(metric, dict):
+                    continue
+                name = str(metric.get("name", ""))
                 gauge = metric.get("gauge", {})
                 sum_data = metric.get("sum", {})
-                data_points = gauge.get("dataPoints") or sum_data.get("dataPoints", [])
+                gauge_dict = gauge if isinstance(gauge, dict) else {}
+                sum_dict = sum_data if isinstance(sum_data, dict) else {}
+                data_points = gauge_dict.get("dataPoints") or sum_dict.get("dataPoints", [])
+                if not isinstance(data_points, list):
+                    continue
                 for dp in data_points:
-                    yield name, dp
+                    if isinstance(dp, dict):
+                        yield name, dp

@@ -30,7 +30,10 @@ class TipsEngine:
         groups: dict[tuple[str, str, str, str], list[SessionEvent]] = defaultdict(list)
         for evt in actionable:
             bt = evt.blame_target
-            key = (evt.waste_reason, bt.level, bt.name, evt.classification or "")
+            if bt is None:
+                continue
+            waste_reason = evt.waste_reason or ""
+            key = (waste_reason, bt.level, bt.name, evt.classification or "")
             groups[key].append(evt)
 
         tips: list[Tip] = []
@@ -38,7 +41,7 @@ class TipsEngine:
             cost_impact = sum(e.cost_usd for e in evts if e.cost_usd is not None)
             count = len(evts)
             first_bt = evts[0].blame_target
-            severity = evts[0].classification
+            severity = evts[0].classification or "review"
             icon = "✗" if severity == "avoidable" else "⚠"
             cost_str = f"${cost_impact:.2f}"
             label = "avoidable" if severity == "avoidable" else "review"
@@ -46,6 +49,9 @@ class TipsEngine:
                 message = f"{icon} {count}× {waste_reason} ({cost_str} {label})"
             else:
                 message = f"{icon} {name} → {count}× {waste_reason} ({cost_str} {label})"
+
+            if first_bt is None:
+                continue
 
             tips.append(Tip(
                 severity=severity,

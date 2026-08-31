@@ -53,15 +53,15 @@ class InsightsMixin:
             count = _safe_int(t.get("count"), 0)
             reason = str(t.get("waste_reason") or "?")
             tip_cost = _safe_float(t.get("cost_impact"), 0.0)
-            row.title = f"  {icon} {count}× {reason}  ·  saves ~${tip_cost:.2f}"  # type: ignore[union-attr]
-            row.hidden = False  # type: ignore[union-attr]
+            row.title = f"  {icon} {count}× {reason}  ·  saves ~${tip_cost:.2f}"  # type: ignore[attr-defined]
+            row.hidden = False  # type: ignore[attr-defined]
             self._insights_tip_hints[idx] = {  # type: ignore[attr-defined]
                 "waste_reason": reason,
                 "claude_rule": str(t.get("claude_rule") or ""),
                 "fix_hint": str(t.get("fix_hint") or ""),
             }
         else:
-            row.hidden = True  # type: ignore[union-attr]
+            row.hidden = True  # type: ignore[attr-defined]
             self._insights_tip_hints[idx] = {}  # type: ignore[attr-defined]
 
     def _render_insights(self, payload: dict | None, max_tips: int = _MAX_TIPS_LIMIT) -> None:
@@ -80,7 +80,8 @@ class InsightsMixin:
             else "-- Insights (current session) --"
         )
         eff = _safe_float(payload.get("efficiency_score"), 0.0)
-        ws = payload.get("waste_summary") if isinstance(payload.get("waste_summary"), dict) else {}
+        _ws_raw = payload.get("waste_summary")
+        ws: dict = _ws_raw if isinstance(_ws_raw, dict) else {}
         cost = _safe_float(payload.get("cost_usd"), 0.0)
         cost_est = bool(payload.get("cost_is_estimated", False))
         avoid = _safe_int(ws.get("avoidable"), 0)

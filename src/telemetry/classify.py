@@ -125,7 +125,7 @@ class ClassifyEngine:
 
     def _classify_bash(self, evt: SessionEvent) -> tuple[str, str] | None:
         """Check bash-as-X rules. Returns (classification, reason) or None."""
-        command = (evt.tool_input or {}).get("command", "")
+        command = str((evt.tool_input or {}).get("command", ""))
         first_segment = command.split("|")[0].strip()
 
         avoidable_rules = self.rules.get("avoidable", {})
@@ -187,7 +187,7 @@ class ClassifyEngine:
                 continue
             pattern = rule.get("pattern")
             if pattern:
-                command = (evt.tool_input or {}).get("command", "")
+                command = str((evt.tool_input or {}).get("command", ""))
                 if not re.search(pattern, command):
                     continue
             classification = rule.get("classification", "review")
@@ -207,7 +207,7 @@ class ClassifyEngine:
             return "productive"
         if evt.tool_name in neutral_tools:
             return "neutral"
-        return _TOOL_CLASS_MAP.get(evt.tool_name, "neutral")
+        return _TOOL_CLASS_MAP.get(evt.tool_name or "", "neutral")
 
     # ------------------------------------------------------------------
     # Second pass: context-dependent classification

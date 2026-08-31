@@ -132,7 +132,7 @@ def _output_table(metrics: list[PromptMetrics]) -> None:
 
 def _output_json(metrics: list[PromptMetrics]) -> None:
     """Render prompt metrics as JSON."""
-    output = [
+    output: list[dict[str, object]] = [
         {
             "prompt_id": pm.prompt_id,
             "session_id": pm.session_id,

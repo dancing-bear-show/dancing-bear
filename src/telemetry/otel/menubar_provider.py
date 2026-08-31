@@ -175,7 +175,7 @@ class OtelMenubarProvider:
 
         for name, value, attrs in metrics_24h:
             if name == _METRIC_TOKEN_USAGE:
-                _accumulate_token_metric(attrs.get("type", ""), _safe_int(value, 0), token_counters)
+                _accumulate_token_metric(str(attrs.get("type", "")), _safe_int(value, 0), token_counters)
             elif name == _METRIC_COST:
                 _accumulate_cost_metric(value, attrs, cost_holder, model_cost)
             elif name == "claude_code.active_time.total":
@@ -291,10 +291,10 @@ class OtelMenubarProvider:
                 tool_result_count += 1
                 _process_tool_result_event(attrs, state)
 
-        bash_calls = int(state["bash_calls"])  # type: ignore[arg-type]
-        bash_errors = int(state["bash_errors"])  # type: ignore[arg-type]
-        total_input = float(state["total_input_bytes"])  # type: ignore[arg-type]
-        total_output = float(state["total_output_bytes"])  # type: ignore[arg-type]
+        bash_calls = _safe_int(state["bash_calls"], 0)
+        bash_errors = _safe_int(state["bash_errors"], 0)
+        total_input = _safe_float(state["total_input_bytes"], 0.0)
+        total_output = _safe_float(state["total_output_bytes"], 0.0)
         accept_rate = 100.0 * accepted / tool_decision_count if tool_decision_count > 0 else 0.0
         bash_error_rate = 100.0 * bash_errors / bash_calls if bash_calls > 0 else 0.0
         avg_input = total_input / tool_result_count if tool_result_count > 0 else 0.0
@@ -304,7 +304,7 @@ class OtelMenubarProvider:
             tool_calls_today=tool_result_count,
             accept_rate_pct=accept_rate,
             top_tools=_top_n(tool_counts, 4),
-            tool_error_count=int(state["tool_errors"]),  # type: ignore[arg-type]
+            tool_error_count=_safe_int(state["tool_errors"], 0),
             bash_error_rate_pct=bash_error_rate,
             avg_input_bytes=avg_input,
             avg_output_bytes=avg_output,
@@ -328,12 +328,12 @@ class OtelMenubarProvider:
         _accumulate_compaction_events(events_24h, counters)
 
         return CodeImpact(
-            lines_added_today=int(counters["lines_added"]),  # type: ignore[arg-type]
-            lines_removed_today=int(counters["lines_removed"]),  # type: ignore[arg-type]
+            lines_added_today=_safe_int(counters["lines_added"], 0),
+            lines_removed_today=_safe_int(counters["lines_removed"], 0),
             top_languages=_top_n(lang_counts, 3),
-            commits_today=int(counters["commits_today"]),  # type: ignore[arg-type]
-            compaction_count=int(counters["compaction_count"]),  # type: ignore[arg-type]
-            tokens_saved_by_compaction=int(counters["tokens_saved"]),  # type: ignore[arg-type]
+            commits_today=_safe_int(counters["commits_today"], 0),
+            compaction_count=_safe_int(counters["compaction_count"], 0),
+            tokens_saved_by_compaction=_safe_int(counters["tokens_saved"], 0),
         )
 
     def _compute_skills(
