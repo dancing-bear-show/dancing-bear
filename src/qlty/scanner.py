@@ -17,7 +17,14 @@ from .runner import QltyRunner
 # radarlint caps issues per run, so one high-count cluster can crowd out
 # findings elsewhere. Re-scan until the finding set stops changing, bounded so a
 # genuinely unstable repo cannot loop forever.
-_MAX_RESCAN_ITERATIONS = 5
+#
+# Stability requires a "dry streak" of consecutive identical iterations, not just
+# one match. A single pair of matching runs can be a coincidental double-cap --
+# empirically, qlty returned the same empty set on two consecutive runs while 22
+# real findings existed. The default streak of 2 means at least 3 iterations
+# must agree before stability is declared.
+_MAX_RESCAN_ITERATIONS = 8
+_DEFAULT_DRY_STREAK = 2
 
 
 @dataclass(frozen=True)
@@ -213,18 +220,29 @@ class Scanner:
         *,
         rescan_until_stable: bool = False,
         max_iterations: int = _MAX_RESCAN_ITERATIONS,
+        dry_streak: int = _DEFAULT_DRY_STREAK,
     ) -> ScanResult:
         """Run the requested qlty sources and merge their findings.
 
-        With ``rescan_until_stable``, repeats the whole scan until two
-        consecutive runs report the same finding identities, because qlty's
-        per-run issue cap means a single scan can under-report.
+        With ``rescan_until_stable``, repeats the whole scan until the finding
+        identity set has been identical for ``dry_streak`` consecutive runs,
+        because qlty's per-run issue cap means a single scan can under-report
+        and even two consecutive matching runs can be a coincidental double-cap.
+
+        ``dry_streak`` defaults to 2, meaning at least 3 iterations must agree
+        before stability is declared. Raise it for thorough sweeps; lower to 1
+        to restore the old (faster but less reliable) behaviour.
         """
         req = request or ScanRequest()
         result = self._scan_once(req)
         if not rescan_until_stable:
             return result
-        return self._rescan(req, first=result, max_iterations=max_iterations)
+        return self._rescan(
+            req,
+            first=result,
+            max_iterations=max_iterations,
+            dry_streak=dry_streak,
+        )
 
     def _rescan(
         self,
@@ -232,12 +250,22 @@ class Scanner:
         *,
         first: ScanResult,
         max_iterations: int,
+        dry_streak: int,
     ) -> ScanResult:
-        """Re-run until the finding identity set repeats, or the cap is hit.
+        """Re-run until the finding identity set repeats ``dry_streak`` times, or the cap is hit.
 
         Findings are accumulated across iterations rather than replaced: the
         point of re-scanning is that any single run may omit findings the cap
         crowded out, so the union is closer to the truth than the last run.
+
+        Two consecutive matching runs are not enough to declare stability because
+        qlty's cap is nondeterministic: the same capped subset can appear on two
+        consecutive runs while many findings remain hidden. ``dry_streak``
+        consecutive matching iterations are required before ``stable=True`` is
+        returned. The default of 2 means at least 3 iterations must agree.
+
+        ``stable=False`` is always reported when the cap is hit so callers know
+        the result may be incomplete.
         """
         accumulated = _Accumulator()
         accumulated.absorb(first)
@@ -245,6 +273,7 @@ class Scanner:
 
         previous = first.identities()
         iterations = 1
+        consecutive = 0  # how many consecutive runs matched ``previous``
 
         for _ in range(max(0, max_iterations - 1)):
             iterations += 1
@@ -253,12 +282,16 @@ class Scanner:
 
             identities = current.identities()
             if identities == previous:
-                return accumulated.build(
-                    iterations=iterations,
-                    stable=True,
-                    scope=request.scope,
-                )
-            previous = identities
+                consecutive += 1
+                if consecutive >= dry_streak:
+                    return accumulated.build(
+                        iterations=iterations,
+                        stable=True,
+                        scope=request.scope,
+                    )
+            else:
+                consecutive = 0
+                previous = identities
 
         return accumulated.build(
             iterations=iterations, stable=False, scope=request.scope

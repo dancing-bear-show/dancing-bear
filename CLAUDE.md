@@ -167,6 +167,12 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
   that matters there.
 - `./bin/qlty-assistant scan --expect-min N` fails loudly on an implausibly
   empty scan — still worth using as a sanity check on any surprisingly clean result
+- **A single clean scan proves nothing.** qlty caps findings per run and the cap is
+  nondeterministic: 16 identical runs on an unchanged tree yielded 0–4 findings each,
+  while the union was 22. Two consecutive matching runs can both be the same capped
+  subset. Always use `--rescan-until-stable`; never trust one clean result. Do not use
+  `--filter` to verify a finding is gone — `--filter=radarlint-python` frequently
+  returns "✔ No issues" in the same minute an unfiltered run reports radarlint findings.
 - **qlty now scans correctly from inside an agent worktree.** The exclusion is
   `**/.claude/worktrees/**`, narrowed from `**/.claude/**`. The old pattern also
   matched the `.claude/` directory *inside* each worktree — and since a worktree

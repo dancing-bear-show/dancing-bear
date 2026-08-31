@@ -184,11 +184,29 @@ class RescanTests(unittest.TestCase):
         files = {f.file for f in result.findings}
         self.assertEqual(files, {"src/a.py", "src/b.py"})
 
-    def test_rescan_stops_once_identities_repeat(self):
+    def test_rescan_stops_after_dry_streak(self):
+        # With the default dry_streak=2, at least 3 iterations must agree before
+        # stable=True is declared. A single matching pair is not enough because
+        # qlty's nondeterministic cap can produce the same capped subset twice in
+        # a row while hiding real findings.
         steady = result_of([make_finding()])
         runner = FakeRunner({Source.SMELLS: [steady]})
         result = Scanner(runner).scan(
             ScanRequest(sources=(Source.SMELLS,)), rescan_until_stable=True
+        )
+        self.assertTrue(result.stable)
+        self.assertEqual(result.iterations, 3)
+
+    def test_rescan_dry_streak_one_stops_after_one_match(self):
+        # dry_streak=1 restores the legacy behaviour: two consecutive identical
+        # runs are enough. Exposed as an explicit escape hatch for speed-sensitive
+        # callers that accept the risk.
+        steady = result_of([make_finding()])
+        runner = FakeRunner({Source.SMELLS: [steady]})
+        result = Scanner(runner).scan(
+            ScanRequest(sources=(Source.SMELLS,)),
+            rescan_until_stable=True,
+            dry_streak=1,
         )
         self.assertTrue(result.stable)
         self.assertEqual(result.iterations, 2)
@@ -222,6 +240,27 @@ class RescanTests(unittest.TestCase):
             ScanRequest(sources=(Source.SMELLS,)), rescan_until_stable=True
         )
         self.assertEqual(len(result.degradations), 1)
+
+    def test_coincidental_double_cap_does_not_declare_stable(self):
+        # Scenario: qlty caps at the same empty subset on iterations 2 and 3,
+        # then returns a different result on iteration 4. The old stop condition
+        # (one consecutive match) would have falsely declared stable=True at
+        # iteration 3. The dry_streak=2 default catches this: consecutive resets
+        # to 0 when iteration 4 differs, and the cap is hit without stability.
+        empty = result_of([])  # simulates a capped-to-zero run
+        new = result_of([make_finding(path="src/hidden.py")])  # different
+        # Sequence: empty, empty, new (then new repeats)
+        runner = FakeRunner({Source.SMELLS: [empty, empty, new]})
+        result = Scanner(runner).scan(
+            ScanRequest(sources=(Source.SMELLS,)),
+            rescan_until_stable=True,
+            max_iterations=4,
+        )
+        # stable must be False: the streak was interrupted by a different result
+        self.assertFalse(result.stable)
+        # The hidden finding must still be surfaced (accumulation is correct)
+        files = {f.file for f in result.findings}
+        self.assertIn("src/hidden.py", files)
 
     def test_unstable_scan_is_flagged_at_the_cap(self):
         # Alternating results never settle; the run must report instability
