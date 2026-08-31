@@ -27,9 +27,8 @@ class TestFormatTimestamp(unittest.TestCase):
         from apple_music.cli_helpers import _format_timestamp
 
         result = _format_timestamp(0)
-        self.assertIsNotNone(result)
-        assert result is not None  # nosec B101 - type narrowing for mypy
-        self.assertIsInstance(result, str)
+        if not isinstance(result, str):
+            self.fail(f"expected str from _format_timestamp, got {result!r}")
         self.assertIn("1970-01-01", result)
         self.assertTrue(result.endswith("Z"), f"Expected Z suffix: {result}")
 
@@ -39,8 +38,8 @@ class TestFormatTimestamp(unittest.TestCase):
         # 2024-01-15 12:00:00 UTC
         epoch = 1705320000
         result = _format_timestamp(epoch)
-        self.assertIsNotNone(result)
-        assert result is not None  # nosec B101 - type narrowing for mypy
+        if not isinstance(result, str):
+            self.fail(f"expected str from _format_timestamp, got {result!r}")
         self.assertIn("2024-01-15", result)
         self.assertTrue(result.endswith("Z"))
 
@@ -48,7 +47,8 @@ class TestFormatTimestamp(unittest.TestCase):
         from apple_music.cli_helpers import _format_timestamp
 
         result = _format_timestamp(1705320000)
-        assert result is not None  # nosec B101 - type narrowing for mypy
+        if not isinstance(result, str):
+            self.fail(f"expected str from _format_timestamp, got {result!r}")
         # ISO-8601 format: YYYY-MM-DDTHH:MM:SS...Z
         self.assertIn("T", result)
         self.assertNotIn("+00:00", result)

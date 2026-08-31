@@ -91,13 +91,14 @@ class TestParseParams(unittest.TestCase):
     def test_invalid_format_returns_error(self) -> None:
         params, err = _parse_params(["not-a-kv-pair"])
         self.assertEqual(params, {})
-        self.assertIsNotNone(err)
-        assert err is not None  # nosec B101 - type narrowing for mypy
+        if not isinstance(err, str):
+            self.fail(f"expected str error, got {err!r}")
         self.assertIn("key=value", err)
 
     def test_invalid_entry_error_includes_value(self) -> None:
         _, err = _parse_params(["badformat"])
-        assert err is not None  # nosec B101 - type narrowing for mypy
+        if not isinstance(err, str):
+            self.fail(f"expected str error, got {err!r}")
         self.assertIn("badformat", err)
 
 
