@@ -33,10 +33,14 @@ description: >
 
   Two shapes that look like gaps but are not, and must NOT be "fixed":
     - telemetry is Click-based. It emits {app_id, commands, notes, prog,
-      purpose} instead of the argparse six, so it cannot satisfy rule A3.
-      Converting it is explicitly out of scope (770 lines, 36 @click
-      decorators, 79 test files, Click also imported outside the CLI layer).
-      The remedy is to SPLIT the contract, not rewrite the app.
+      purpose} instead of the argparse six, so it cannot satisfy rule A3 AS
+      LONG AS IT IS CLICK. Measured scope: 43 @click decorators, 38 options,
+      2 groups, 11 subcommands, click imported in 5 files, and only 4 of 79
+      telemetry test files using CliRunner.
+      When migrate_click is "false" (the default) telemetry keeps its A3/A6
+      exemptions and the conformance stages must NOT flag them as defects.
+      When migrate_click is "true" the G2b stream ports it to argparse and
+      retire-click-exemption then removes both carve-outs from the standard.
     - charts, diagrams, sheets, slides, worker, workflow and apple_music
       define no build_domain_map by design (minimal tier); telemetry is
       minimal by shape too but is covered by the Click exemption. They are not
@@ -265,8 +269,10 @@ stages:
 
       Deferral is a legitimate outcome. Explicitly mark as DEFERRED, with
       reasons, anything where the fix is riskier than the inconsistency:
-        - Converting telemetry from Click to argparse (out of scope; the
-          standard mandates splitting the contract instead)
+        - Converting telemetry from Click to argparse — DEFER ONLY when
+          migrate_click is "false". That work belongs to the G2b stream in
+          this same workflow, not to P1/P2/P3, and must never be attempted
+          inside a conformance fix package.
         - Changing any app's ANNOUNCED app_id — that is a public identifier.
           apple_music announces "apple-music-assistant"; check
           `./bin/llm inventory --stdout` and the llm dispatch registry before
@@ -370,6 +376,11 @@ stages:
       Touch ONLY tests/ files.
 
       P4 first — split the CLI contract so telemetry can adopt part of it.
+        SKIP P4 ENTIRELY when migrate_click is "true": the migration makes
+        telemetry a normal argparse adopter of the whole contract, so a
+        parser-agnostic base mixin would be built in this group and rendered
+        pointless by groups 9-12. Say in your report that you skipped it and
+        why. Run P4 only when migrate_click is "false".
         Extract A1/A2/A5 (announces itself, clears MIN_CAPSULE_BYTES, compacts
         smaller) into a parser-agnostic base mixin. Keep A3/A4 (the exact
         six-key argparse schema) in a subclass that today's adopters use

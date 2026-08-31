@@ -207,10 +207,11 @@ capsule construction as suspect.
 
 ## The Click exemption (`telemetry`)
 
-`telemetry` is Click-based and fails **A3** (5 keys vs 6). Converting it to
-argparse is **explicitly out of scope** and not recommended:
+`telemetry` is Click-based and fails **A3** (5 keys vs 6).
 
-Measured scope, for whoever runs the migration:
+Converting it to argparse was previously ruled out here as "out of scope." That
+call was wrong, and it was wrong for a specific reason worth recording: it
+rested on a claim about this codebase that nobody had measured. Measured scope:
 
 - 43 `@click` decorators (36 in `cli_sessions.py`, 7 in `parse_transcripts.py`)
 - 38 `click.option`, 8 `click.Choice`, 2 groups, 11 subcommands
