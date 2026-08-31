@@ -152,6 +152,11 @@ def _packages(counts: dict[str, int]) -> dict[str, int]:
     return dict(sorted(packages.items()))
 
 
+def _rev_exists(ref: str) -> bool:
+    """True when `ref` resolves to a commit in this clone."""
+    return bool(_git("rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}").strip())
+
+
 def _git(*args: str) -> str:
     """Run a git command in the repo root, returning stdout ('' on failure)."""
     git_bin = shutil.which("git")
@@ -187,19 +192,36 @@ def _changed_files(base: str) -> tuple[list[str], str]:
     that turned 9 changed files into 46). Three dots diffs against the
     merge-base — this branch's changes only, the same set CI evaluates.
 
-    Falls back to the working tree when the committed diff is empty, so
-    uncommitted work is still checked instead of reporting a false clean.
+    The committed diff is unioned with the working tree (modified, staged, and
+    untracked), never used alone. Taking the diff alone and only falling back
+    when it is empty means that on a branch with any commit at all, staged and
+    uncommitted work is silently skipped — a developer running this before
+    committing would get a pass while their new code went unchecked. That is
+    the same false-clean this gate exists to prevent, so both sources always
+    contribute.
     """
-    diff = _git("diff", "--name-only", "--diff-filter=d", f"{base}...HEAD")
-    files = [p for p in diff.splitlines() if _is_checkable(p)]
-    if files:
-        return sorted(set(files)), f"git diff {base}...HEAD"
+    # An unresolvable base is a hard error, not a quiet downgrade to the working
+    # tree. A typo in TYPECHECK_BASE, or a shallow CI clone with no merge-base,
+    # would otherwise check almost nothing and report a pass — the exact
+    # false-clean this gate is built to prevent. CI must use fetch-depth: 0.
+    if not _rev_exists(base):
+        raise MypyInvocationError(
+            f"base ref {base!r} does not resolve to a commit in this clone. "
+            "In CI this usually means a shallow checkout — set `fetch-depth: 0` "
+            "on actions/checkout. Locally, fetch the branch or pass a valid "
+            "--base. Refusing to fall back to the working tree, because that "
+            "would silently check far less than intended."
+        )
 
-    # Nothing committed on the branch (or no merge-base). Fall back to the
-    # working tree: modified, staged, and untracked files.
-    status = _git("status", "--porcelain")
+    sources: list[str] = []
+
+    diff = _git("diff", "--name-only", "--diff-filter=d", f"{base}...HEAD")
+    committed = [p for p in diff.splitlines() if _is_checkable(p)]
+    if committed:
+        sources.append(f"git diff {base}...HEAD")
+
     working: list[str] = []
-    for line in status.splitlines():
+    for line in _git("status", "--porcelain").splitlines():
         if not line.strip():
             continue
         path = line[3:].strip() if len(line) > 3 else ""
@@ -208,14 +230,34 @@ def _changed_files(base: str) -> tuple[list[str], str]:
             path = path.split(" -> ", 1)[1]
         if path and _is_checkable(path):
             working.append(path)
-    return sorted(set(working)), "git status --porcelain (no committed diff)"
+    if working:
+        sources.append("working tree")
+
+    files = sorted(set(committed) | set(working))
+    if sources:
+        label = " + ".join(sources)
+    else:
+        label = f"git diff {base}...HEAD + working tree"
+    return files, label
+
+
+def _display_path(path: Path) -> str:
+    """Repo-relative path when possible, absolute otherwise.
+
+    relative_to() raises for a path outside the repo, so it cannot be used bare
+    inside an error message — that turns a clear diagnostic into a ValueError.
+    """
+    try:
+        return str(path.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
 
 
 def _load_baseline() -> dict:
     """Read the committed baseline, failing loudly when it is missing."""
     if not BASELINE_PATH.exists():
         raise MypyInvocationError(
-            f"no baseline at {BASELINE_PATH.relative_to(REPO_ROOT)}. "
+            f"no baseline at {_display_path(BASELINE_PATH)}. "
             "Generate it with `make typecheck-baseline` and commit the result."
         )
     with BASELINE_PATH.open(encoding="utf-8") as handle:
@@ -297,6 +339,7 @@ def cmd_changed(args: argparse.Namespace) -> int:
             print(f"\ntypecheck-changed: OK — {len(files)} file(s) checked, no type errors.")
         return 0
 
+    sys.stdout.flush()  # Keep the stderr block below ordered after the listing.
     print(
         f"\ntypecheck-changed: FAIL — {sum(blocking.values())} type error(s) in "
         f"{len(blocking)} changed file(s):",
@@ -334,6 +377,7 @@ def cmd_ratchet(args: argparse.Namespace) -> int:
     }
 
     if regressed:
+        sys.stdout.flush()  # Keep the stderr block below ordered after the summary.
         print("\ntypecheck-ratchet: FAIL — these packages regressed:", file=sys.stderr)
         for pkg, (now, was) in sorted(regressed.items()):
             print(f"  {pkg}: {was} -> {now}  (+{now - was})", file=sys.stderr)
@@ -365,6 +409,13 @@ def cmd_ratchet(args: argparse.Namespace) -> int:
     return 0
 
 
+def _format_delta(delta: int) -> str:
+    """Render a signed count change for the baseline-update summary."""
+    if delta == 0:
+        return "unchanged"
+    return f"+{delta}" if delta > 0 else str(delta)
+
+
 def cmd_update_baseline(args: argparse.Namespace) -> int:
     """Regenerate the baseline from the current tree."""
     output = _run_mypy(list(CHECKED_ROOTS))
@@ -379,12 +430,12 @@ def cmd_update_baseline(args: argparse.Namespace) -> int:
 
     _write_baseline(total, packages, list(per_file))
 
-    rel = BASELINE_PATH.relative_to(REPO_ROOT)
+    rel = _display_path(BASELINE_PATH)
     if previous is None:
         print(f"Wrote {rel}: {total} error(s) in {len(per_file)} file(s).")
     else:
         delta = total - previous
-        direction = "unchanged" if delta == 0 else (f"+{delta}" if delta > 0 else str(delta))
+        direction = _format_delta(delta)
         print(f"Updated {rel}: {previous} -> {total} ({direction}).")
         if delta > 0:
             print(

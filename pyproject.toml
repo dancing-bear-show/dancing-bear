@@ -63,13 +63,21 @@ calendars = [
 dev = [
   "pytest==9.1.1",
   "vulture==2.16",
-  # mypy is report-only: CI does not gate on it, and `make typecheck` prints
-  # findings without failing. Declared because the open-pr workflow probes
-  # `.venv/bin/python -m mypy` and, finding nothing, recorded the type gate as
-  # UNAVAILABLE on every run — a check that never ran reads the same as a check
-  # with nothing to say. Repo-wide it reports ~448 findings, most of them
-  # structural (untyped dicts, and mixins whose attributes live on the sibling
-  # class), so gating on a clean run would mean annotating those patterns first.
+  # mypy is enforced incrementally, not wholesale. `make typecheck` stays
+  # report-only (it prints findings and exits 0) because gating on a clean run
+  # would mean first annotating the structural patterns behind most findings:
+  # untyped dicts, and mixins whose attributes live on the sibling class.
+  #
+  # What DOES block, both in CI and via make:
+  #   typecheck-changed  — any new type error in a file the branch touched
+  #   typecheck-ratchet  — any growth in a package's error count
+  # See bin/mypy_ratchet.py and typecheck-baseline.json. The baseline is 684
+  # across src/, tests/ and bin/ (445 of them in src/ alone, which is what the
+  # report-only target still measures).
+  #
+  # Also declared because the open-pr workflow probes `.venv/bin/python -m mypy`
+  # and, finding nothing, recorded the type gate as UNAVAILABLE on every run — a
+  # check that never ran reads the same as a check with nothing to say.
   "mypy==2.3.1",
   # Self-reference so the textual pin lives only in [tui].
   "personal-assistants[tui]",
