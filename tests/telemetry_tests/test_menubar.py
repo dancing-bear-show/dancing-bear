@@ -170,29 +170,29 @@ class TestScoreColor(unittest.TestCase):
     def test_score_le_3_returns_green(self) -> None:
         ns_color = self._mock_ns_color()
         # Inject NSColor directly into the module namespace (it doesn't exist without AppKit)
-        menubar.NSColor = ns_color  # type: ignore[attr-defined]
+        menubar.NSColor = ns_color
         try:
             result = menubar._score_color(3)
         finally:
-            del menubar.NSColor  # type: ignore[attr-defined]
+            del menubar.NSColor
         self.assertEqual(result, "green")
 
     def test_score_4_to_6_returns_orange(self) -> None:
         ns_color = self._mock_ns_color()
-        menubar.NSColor = ns_color  # type: ignore[attr-defined]
+        menubar.NSColor = ns_color
         try:
             result = menubar._score_color(5)
         finally:
-            del menubar.NSColor  # type: ignore[attr-defined]
+            del menubar.NSColor
         self.assertEqual(result, "orange")
 
     def test_score_7_plus_returns_red(self) -> None:
         ns_color = self._mock_ns_color()
-        menubar.NSColor = ns_color  # type: ignore[attr-defined]
+        menubar.NSColor = ns_color
         try:
             result = menubar._score_color(9)
         finally:
-            del menubar.NSColor  # type: ignore[attr-defined]
+            del menubar.NSColor
         self.assertEqual(result, "red")
 
 

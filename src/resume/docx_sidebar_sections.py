@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from docx.shared import Pt, Inches, RGBColor  # type: ignore
-from docx.enum.table import WD_TABLE_ALIGNMENT  # type: ignore
+from docx.shared import Pt, Inches, RGBColor
+from docx.enum.table import WD_TABLE_ALIGNMENT
 
 from .docx_base import ResumeWriterBase
 from .schema import ExperienceEntry, PriorityItem, Presentation, Resume, _Item
@@ -227,7 +227,7 @@ def _usable_width_in(doc: Any) -> float:
     that checks against a sane default.
     """
     try:
-        from docx.shared import Emu  # type: ignore
+        from docx.shared import Emu
 
         sec = doc.sections[0]
         # Length arithmetic returns a bare int of EMUs, not a Length, so it has
@@ -316,7 +316,7 @@ class SidebarResumeWriter(ResumeWriterBase):
         table.alignment = WD_TABLE_ALIGNMENT.CENTER
         table.autofit = False
 
-        from docx.shared import Inches as _Inches  # type: ignore
+        from docx.shared import Inches as _Inches
         table.columns[0].width = _Inches(sidebar_width)
         table.columns[1].width = _Inches(main_width)
 

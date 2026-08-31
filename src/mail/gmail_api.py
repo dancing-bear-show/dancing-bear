@@ -10,10 +10,10 @@ from typing import Any
 
 try:
     # Imported here; CLI avoids importing this module on --help unless used.
-    from google.auth.transport.requests import Request  # type: ignore
-    from google.oauth2.credentials import Credentials  # type: ignore
-    from google_auth_oauthlib.flow import InstalledAppFlow  # type: ignore
-    from googleapiclient.discovery import build  # type: ignore
+    from google.auth.transport.requests import Request
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    from googleapiclient.discovery import build
 except Exception:  # pragma: no cover - optional dependency
     Request = Credentials = InstalledAppFlow = build = None  # type: ignore
 
@@ -51,7 +51,7 @@ class GmailClient(ConfigCacheMixin):
         ConfigCacheMixin.__init__(self, cache_dir, provider="gmail")
         self.credentials_path = os.path.expanduser(credentials_path)
         self.token_path = os.path.expanduser(token_path)
-        self.creds: Credentials | None = None  # type: ignore
+        self.creds: Credentials | None = None
         self._service = None
         self.cache = MailCache(cache_dir) if cache_dir else None
         self.cache_dir = cache_dir

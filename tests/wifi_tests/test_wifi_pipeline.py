@@ -40,7 +40,7 @@ class WifiPipelineTests(TestCase):
             request = DiagnoseRequest(config=DiagnoseConfig(ping_targets=["1.1.1.1"]))
             env = DiagnoseProcessor().process(DiagnoseRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertIs(env.payload.report, report)  # type: ignore[union-attr]
+        self.assertIs(env.payload.report, report)
         fake_run.assert_called_once()
 
     def test_producer_writes_json(self):

@@ -355,7 +355,7 @@ class FiltersExportProcessorSadPathTests(unittest.TestCase):
         # A non-dict entry in filters triggers AttributeError inside _process_safe via
         # filt.get("criteria") being called on a string — surfaced as ResultEnvelope(error).
         payload = FiltersExportPayload(
-            filters=["not-a-dict"],  # type: ignore[list-item]
+            filters=["not-a-dict"],
             id_to_name={},
             out_path=Path("/dev/null"),
         )

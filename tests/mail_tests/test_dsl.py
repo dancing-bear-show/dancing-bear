@@ -139,7 +139,7 @@ class MalformedSpecTests(unittest.TestCase):
     def test_filters_list_handles_none(self):
         # Deliberately off-annotation: `filters or []` accepts None at runtime,
         # and an empty YAML `filters:` key parses to exactly that.
-        self.assertEqual(normalize_filters_for_outlook(None), [])  # type: ignore[arg-type]
+        self.assertEqual(normalize_filters_for_outlook(None), [])
 
     def test_filters_list_handles_empty(self):
         self.assertEqual(normalize_filters_for_outlook([]), [])
@@ -178,7 +178,7 @@ class MalformedLabelTests(unittest.TestCase):
     def test_none_and_empty_input(self):
         # Deliberately off-annotation: `labels or []` accepts None at runtime,
         # and an empty YAML `labels:` key parses to exactly that.
-        self.assertEqual(normalize_labels_for_outlook(None), [])  # type: ignore[arg-type]
+        self.assertEqual(normalize_labels_for_outlook(None), [])
         self.assertEqual(normalize_labels_for_outlook([]), [])
 
     def test_missing_or_empty_name_is_skipped(self):

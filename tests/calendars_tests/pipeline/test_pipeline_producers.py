@@ -68,9 +68,9 @@ class CalendarPipelineTests(TestCase):
             OutlookVerifyRequestConsumer(request).consume()
         )
         self.assertTrue(env.ok())
-        self.assertEqual(env.payload.total, 2)  # type: ignore[union-attr]
-        self.assertEqual(env.payload.duplicates, 1)  # type: ignore[union-attr]
-        self.assertEqual(env.payload.missing, 1)  # type: ignore[union-attr]
+        self.assertEqual(env.payload.total, 2)
+        self.assertEqual(env.payload.duplicates, 1)
+        self.assertEqual(env.payload.missing, 1)
         buf = io.StringIO()
         with redirect_stdout(buf):
             OutlookVerifyProducer().produce(env)
@@ -103,7 +103,7 @@ class CalendarPipelineTests(TestCase):
         )
         env = OutlookDedupProcessor().process(OutlookDedupRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertEqual(env.payload.deleted, 1)  # type: ignore[union-attr]
+        self.assertEqual(env.payload.deleted, 1)
         svc.delete_event_by_id.assert_called_once_with("A")
         buf = io.StringIO()
         with redirect_stdout(buf):

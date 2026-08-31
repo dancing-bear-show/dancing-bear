@@ -24,14 +24,14 @@ class RichmondHillSkatingParser(ScheduleParser):
         """Parse Richmond Hill skating schedule."""
         html = _fetch_html(url)
         try:
-            from bs4 import BeautifulSoup  # type: ignore  # noqa: F401
+            from bs4 import BeautifulSoup  # noqa: F401
             return self._parse_with_bs4(html, url)
         except ImportError:
             return self._parse_with_regex(html, url)
 
     def _parse_with_bs4(self, html: str, url: str) -> list[ScheduleItem]:
         """Parse using BeautifulSoup."""
-        from bs4 import BeautifulSoup  # type: ignore
+        from bs4 import BeautifulSoup
 
         soup = BeautifulSoup(html, 'html.parser')
         out: list[ScheduleItem] = []

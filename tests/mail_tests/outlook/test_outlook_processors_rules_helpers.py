@@ -114,7 +114,7 @@ class TestFetchRulesWithResilienceCacheFallback(unittest.TestCase):
         """A 500 error (server error) is not auth; must fall back."""
         client = MagicMock()
         err = Exception("Internal Server Error")
-        err.response = MagicMock(status_code=500)  # type: ignore[attr-defined]
+        err.response = MagicMock(status_code=500)
         cached = [{"id": "r-500-cached"}]
 
         client.list_filters.side_effect = [err, cached]

@@ -58,8 +58,8 @@ try:
 except ImportError:  # optional dep; nothing to guard when it is absent
     pass
 else:
-    InstalledAppFlow.run_local_server = _blocked_auth  # type: ignore[method-assign]
-    InstalledAppFlow.run_console = _blocked_auth  # type: ignore[method-assign]
+    InstalledAppFlow.run_local_server = _blocked_auth
+    InstalledAppFlow.run_console = _blocked_auth
 
 # Opening a browser is never correct under test, whatever triggers it.
 webbrowser.open = _blocked_auth  # type: ignore[assignment]

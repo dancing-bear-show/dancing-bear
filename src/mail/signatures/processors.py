@@ -25,7 +25,7 @@ class _SafeDict(dict):
 def _inline_css(html: str) -> str:
     """Inline CSS using premailer if available."""
     try:
-        from premailer import transform  # type: ignore
+        from premailer import transform
 
         return transform(html)
     except Exception:

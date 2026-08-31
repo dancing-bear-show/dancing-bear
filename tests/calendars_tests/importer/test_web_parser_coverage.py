@@ -191,7 +191,7 @@ class TestFetchHtmlErrorHandling(unittest.TestCase):
         mock_response.text = '<html>partial</html>'
 
         exc = RuntimeError('server error')
-        exc.response = mock_response  # type: ignore[attr-defined]
+        exc.response = mock_response
         mock_client_cls.return_value.get.side_effect = exc
 
         result = _fetch_html('http://example.com')

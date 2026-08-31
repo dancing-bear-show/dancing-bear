@@ -76,7 +76,7 @@ class PhonePipelineTests(TestCase):
             request = ExportRequest(backup=None, out_path=Path("out.yaml"))
             env = ExportProcessor().process(ExportRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertIn("dock", env.payload.document)  # type: ignore[union-attr]
+        self.assertIn("dock", env.payload.document)
 
     def test_export_processor_failure(self):
         err = LayoutLoadError(code=2, message="no backup")
@@ -100,7 +100,7 @@ class PhonePipelineTests(TestCase):
             request = PlanRequest(layout=None, backup=None, out_path=Path("plan.yaml"))
             env = PlanProcessor().process(PlanRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertIn("pins", env.payload.document)  # type: ignore[union-attr]
+        self.assertIn("pins", env.payload.document)
 
     def test_plan_producer_writes_file(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -123,7 +123,7 @@ class PhonePipelineTests(TestCase):
             )
             env = ChecklistProcessor().process(ChecklistRequestConsumer(req).consume())
         self.assertTrue(env.ok())
-        self.assertGreater(len(env.payload.steps), 0)  # type: ignore[union-attr]
+        self.assertGreater(len(env.payload.steps), 0)
 
     def test_checklist_producer_writes_text(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -151,7 +151,7 @@ class PhonePipelineTests(TestCase):
             )
             env = UnusedProcessor().process(UnusedRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertIsInstance(env.payload.rows, list)  # type: ignore[union-attr]
+        self.assertIsInstance(env.payload.rows, list)
 
     def test_unused_processor_failure(self):
         err = LayoutLoadError(code=2, message="no backup")
@@ -205,8 +205,8 @@ class PhonePipelineTests(TestCase):
             )
             env = PruneProcessor().process(PruneRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertIsInstance(env.payload.lines, list)  # type: ignore[union-attr]
-        self.assertIn("OFFLOAD", env.payload.lines[0])  # type: ignore[union-attr]
+        self.assertIsInstance(env.payload.lines, list)
+        self.assertIn("OFFLOAD", env.payload.lines[0])
 
     def test_prune_processor_delete_mode(self):
         with patch("phone.pipeline_export.load_layout", return_value=self.layout):
@@ -222,7 +222,7 @@ class PhonePipelineTests(TestCase):
             )
             env = PruneProcessor().process(PruneRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertIn("DELETE", env.payload.lines[0])  # type: ignore[union-attr]
+        self.assertIn("DELETE", env.payload.lines[0])
 
     def test_prune_producer_writes_file(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -250,8 +250,8 @@ class PhonePipelineTests(TestCase):
             )
             env = AnalyzeProcessor().process(AnalyzeRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertIn("dock_count", env.payload.metrics)  # type: ignore[union-attr]
-        self.assertIn("pages_count", env.payload.metrics)  # type: ignore[union-attr]
+        self.assertIn("dock_count", env.payload.metrics)
+        self.assertIn("pages_count", env.payload.metrics)
 
     def test_analyze_processor_failure(self):
         err = LayoutLoadError(code=2, message="no backup")
@@ -301,7 +301,7 @@ class PhonePipelineTests(TestCase):
             request = ExportDeviceRequest(udid="test-udid", ecid=None, out_path=Path("out.yaml"))
             env = ExportDeviceProcessor().process(ExportDeviceRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertEqual(env.payload.document, mock_export)  # type: ignore[union-attr]
+        self.assertEqual(env.payload.document, mock_export)
 
     def test_export_device_processor_cfgutil_not_found(self):
         with patch("phone.device.find_cfgutil_path", side_effect=FileNotFoundError("cfgutil not found")):
@@ -333,7 +333,7 @@ class PhonePipelineTests(TestCase):
             request = IconmapRequest(udid=None, ecid=None, format="json", out_path=Path("out.json"))
             env = IconmapProcessor().process(IconmapRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertEqual(env.payload.data, b'{"dock": []}')  # type: ignore[union-attr]
+        self.assertEqual(env.payload.data, b'{"dock": []}')
 
     def test_iconmap_processor_cfgutil_not_found(self):
         with patch("phone.device.find_cfgutil_path", side_effect=FileNotFoundError("cfgutil not found")):
@@ -366,8 +366,8 @@ class PhonePipelineTests(TestCase):
             request = ManifestFromExportRequest(export_path=export_path, out_path=Path(tmp) / "manifest.yaml")
             env = ManifestFromExportProcessor().process(ManifestFromExportRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertIn("layout", env.payload.manifest)  # type: ignore[union-attr]
-        self.assertEqual(env.payload.manifest["layout"]["dock"], ["app1"])  # type: ignore[union-attr]
+        self.assertIn("layout", env.payload.manifest)
+        self.assertEqual(env.payload.manifest["layout"]["dock"], ["app1"])
 
     def test_manifest_from_export_processor_file_not_found(self):
         request = ManifestFromExportRequest(export_path=Path("/nonexistent.yaml"), out_path=Path("out.yaml"))
@@ -393,7 +393,7 @@ class PhonePipelineTests(TestCase):
             request = ManifestFromDeviceRequest(udid="test-udid", export_out=None, out_path=Path("out.yaml"))
             env = ManifestFromDeviceProcessor().process(ManifestFromDeviceRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertIn("layout", env.payload.manifest)  # type: ignore[union-attr]
+        self.assertIn("layout", env.payload.manifest)
 
     def test_manifest_from_device_processor_cfgutil_not_found(self):
         with patch("phone.device.find_cfgutil_path", side_effect=FileNotFoundError("cfgutil not found")):
@@ -425,8 +425,8 @@ class PhonePipelineTests(TestCase):
             )
             env = IdentityVerifyProcessor().process(IdentityVerifyRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertEqual(env.payload.cert_subject, "CN=TestOrg")  # type: ignore[union-attr]
-        self.assertTrue(env.payload.org_match)  # type: ignore[union-attr]
+        self.assertEqual(env.payload.cert_subject, "CN=TestOrg")
+        self.assertTrue(env.payload.org_match)
 
     def test_identity_verify_processor_no_p12(self):
         with patch("phone.device.read_credentials_ini", return_value=(None, {})), \

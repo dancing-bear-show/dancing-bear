@@ -143,7 +143,7 @@ class CompletedRunTests(unittest.TestCase):
     def test_is_frozen(self):
         res = CompletedRun(stdout="", stderr="", returncode=0)
         with self.assertRaises(Exception):
-            res.returncode = 1  # type: ignore[misc]
+            res.returncode = 1
 
     def test_sentinel_properties_are_exclusive(self):
         self.assertTrue(CompletedRun("", "", RC_TIMEOUT).timed_out)

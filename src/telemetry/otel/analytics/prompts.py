@@ -79,7 +79,7 @@ def _matches_prompt_filters(
     """Return True when event passes the since/session_id filters."""
     if since_dt and event.timestamp < since_dt:  # type: ignore[union-attr]
         return False
-    if session_id and get_session_id(event) != session_id:  # type: ignore[arg-type]
+    if session_id and get_session_id(event) != session_id:
         return False
     return True
 
@@ -95,12 +95,12 @@ def _accumulate_record_events(
         if not _matches_prompt_filters(event, since_dt, session_id):
             continue
 
-        prompt_id = event.get_attr("prompt.id")  # type: ignore[union-attr]
+        prompt_id = event.get_attr("prompt.id")
         if not prompt_id:
             continue
 
         acc = prompts[prompt_id]
-        acc.session_id = get_session_id(event)  # type: ignore[arg-type]
+        acc.session_id = get_session_id(event)
         _dispatch_prompt_event(event, acc)
 
 

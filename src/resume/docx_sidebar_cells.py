@@ -12,9 +12,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from docx.shared import Pt, Inches, RGBColor  # type: ignore
-from docx.oxml.ns import qn  # type: ignore
-from docx.oxml import OxmlElement  # type: ignore
+from docx.shared import Pt, Inches, RGBColor
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 
 from .docx_styles import _parse_hex_color, _tight_paragraph
 from .render_config import IndentedRunStyle

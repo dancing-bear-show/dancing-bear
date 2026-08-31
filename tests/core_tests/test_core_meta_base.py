@@ -89,7 +89,7 @@ class TestAppMetaIsFrozen(unittest.TestCase):
     def test_assignment_raises(self):
         meta = AppMeta(app_id="demo", purpose="p")
         with self.assertRaises(dataclasses.FrozenInstanceError):
-            meta.app_id = "other"  # type: ignore[misc]
+            meta.app_id = "other"
 
 
 if __name__ == "__main__":

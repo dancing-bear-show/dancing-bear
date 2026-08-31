@@ -191,7 +191,7 @@ class TestHomeScreenConfigBuilder(unittest.TestCase):
 
     def test_add_all_apps_folder_no_export(self):
         builder = HomeScreenConfigBuilder(None)
-        builder.layout_export = None  # type: ignore
+        builder.layout_export = None
         # Should return early without error
         builder.add_all_apps_folder(page=1, name="All")
         self.assertNotIn(1, builder.pages)

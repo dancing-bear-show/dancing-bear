@@ -18,13 +18,13 @@ from core.constants import (
 )
 
 # Lazy optional deps: avoid importing on --help to prevent warnings/overhead
-msal = None  # type: ignore
-requests = None  # type: ignore
+msal = None
+requests = None
 
-def _msal():  # type: ignore
+def _msal():
     global msal
     if msal is None:  # pragma: no cover - optional import
-        import msal as _msal  # type: ignore
+        import msal as _msal
         msal = _msal
     return msal
 
@@ -61,14 +61,14 @@ class _TimeoutRequestsWrapper:
         return self._requests.head(url, **kwargs)
 
 
-_requests_wrapper = None  # type: ignore
+_requests_wrapper = None
 
 
-def _requests():  # type: ignore
+def _requests():
     """Return requests module wrapped with default timeout."""
     global requests, _requests_wrapper
     if _requests_wrapper is None:  # pragma: no cover - optional import
-        import requests as _req  # type: ignore
+        import requests as _req
         requests = _req
         _requests_wrapper = _TimeoutRequestsWrapper(_req, DEFAULT_REQUEST_TIMEOUT)
     return _requests_wrapper

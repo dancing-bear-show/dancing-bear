@@ -28,7 +28,7 @@ from pathlib import Path
 try:
     import yaml
 except ImportError:
-    yaml = None  # type: ignore[assignment]
+    yaml = None
 
 BIN_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = BIN_DIR / "_wrappers.yaml"
@@ -127,7 +127,7 @@ def _main() -> int:
         mod = __import__(f"{{module}}.__main__", fromlist=["main"])
         main_fn = getattr(mod, "main")
 
-    return main_fn()  # type: ignore[no-any-return]
+    return main_fn()
 
 
 if __name__ == "__main__":
@@ -307,7 +307,7 @@ def _update_symlink(path: Path, target: Path, check: bool) -> str:
     """
     rel_target = target.name  # both in same directory; use bare filename
     if path.is_symlink():
-        existing_target = path.readlink()  # type: ignore[attr-defined]
+        existing_target = path.readlink()
         if str(existing_target) == rel_target:
             return "unchanged"
         if not check:

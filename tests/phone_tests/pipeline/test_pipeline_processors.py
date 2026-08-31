@@ -202,7 +202,7 @@ class TestManifestInstallProcessor(unittest.TestCase):
             with patch("phone.profile.build_mobileconfig", return_value=mock_profile):
                 env = ManifestInstallProcessor().process(ManifestInstallRequestConsumer(req).consume())
         self.assertTrue(env.ok())
-        self.assertTrue(env.payload.dry_run)  # type: ignore[union-attr]
+        self.assertTrue(env.payload.dry_run)
 
     def test_manifest_with_plan_auto_path(self):
         """Test that auto path is generated from device label when out_path is None."""
@@ -227,7 +227,7 @@ class TestManifestInstallProcessor(unittest.TestCase):
                 env = ManifestInstallProcessor().process(ManifestInstallRequestConsumer(req).consume())
         self.assertTrue(env.ok())
         # Auto-generated path should include 'mydevice'
-        self.assertIn("mydevice", str(env.payload.profile_path))  # type: ignore[union-attr]
+        self.assertIn("mydevice", str(env.payload.profile_path))
 
 
 class TestPlanFromLayout(unittest.TestCase):
@@ -288,7 +288,7 @@ class TestIdentityVerifyProcessorBranches(unittest.TestCase):
             )
             env = IdentityVerifyProcessor().process(IdentityVerifyRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertEqual(env.payload.udid, "resolved-udid")  # type: ignore[union-attr]
+        self.assertEqual(env.payload.udid, "resolved-udid")
 
     def test_verify_runtime_error_from_p12(self):
         from phone.pipeline_plan import IdentityVerifyProcessor, IdentityVerifyRequest, IdentityVerifyRequestConsumer
@@ -386,7 +386,7 @@ class TestPruneProcessorCandidateLine(unittest.TestCase):
             )
             env = PruneProcessor().process(PruneRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertTrue(any("com.example.app" in line for line in env.payload.lines))  # type: ignore[union-attr]
+        self.assertTrue(any("com.example.app" in line for line in env.payload.lines))
 
 
 class TestAnalyzeProcessorWithPlanPath(unittest.TestCase):
@@ -429,7 +429,7 @@ class TestIdentityVerifyNoLabelNoUdid(unittest.TestCase):
             )
             env = IdentityVerifyProcessor().process(IdentityVerifyRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertIsNone(env.payload.udid)  # type: ignore[union-attr]
+        self.assertIsNone(env.payload.udid)
 
 
 if __name__ == "__main__":

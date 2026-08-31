@@ -53,7 +53,7 @@ def _parse_env_int(key: str, default: int) -> int:
         return default
 
 
-def _make_session():  # type: ignore[return]
+def _make_session():
     """Lazy-import requests and return a new Session."""
     import requests  # noqa: PLC0415 - intentional lazy import
 
@@ -214,7 +214,7 @@ class HttpClient:
             )
             if self.logger.isEnabledFor(logging.DEBUG):
                 content_len: int | str = "<streamed>" if b.stream else len(resp.content)
-                self._log_response(method, url, resp.status_code, content_len)  # type: ignore[arg-type]
+                self._log_response(method, url, resp.status_code, content_len)
             if self._should_retry_response(resp, method, url, attempt):
                 resp.close()
                 return None

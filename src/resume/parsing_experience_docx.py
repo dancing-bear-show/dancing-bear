@@ -358,7 +358,7 @@ def parse_resume_docx(path: str) -> dict[str, Any]:
     docx = safe_import("docx")
     if not docx:
         raise RuntimeError("Parsing .docx requires python-docx; install python-docx.")
-    from docx import Document  # type: ignore
+    from docx import Document
 
     doc = Document(path)
     helper = _DocxParaHelper(doc.paragraphs)

@@ -408,7 +408,7 @@ def _scan_enrich_items(extracted: list) -> None:
         if meta.get("location"):
             ev["location"] = meta["location"]
         if meta.get("range"):
-            ev.setdefault("range", {}).update(meta["range"])  # type: ignore[call-arg]
+            ev.setdefault("range", {}).update(meta["range"])
 
 
 def _scan_dedup_events(extracted: list) -> list:

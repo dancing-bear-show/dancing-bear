@@ -21,7 +21,7 @@ class TestDataTypeRetention(unittest.TestCase):
     def test_frozen(self):
         r = DataTypeRetention(keep_days=7)
         with self.assertRaises(AttributeError):
-            r.keep_days = 99  # type: ignore[misc]
+            r.keep_days = 99
 
 
 class TestRetentionConfigFromDict(unittest.TestCase):

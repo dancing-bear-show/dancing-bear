@@ -90,7 +90,7 @@ Location: Elgin West""",
         processor = GmailReceiptsProcessor(service_builder=lambda _auth: svc)
         env = processor.process(GmailReceiptsRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertEqual(len(env.payload.document["events"]), 1)  # type: ignore[union-attr]
+        self.assertEqual(len(env.payload.document["events"]), 1)
 
     def test_scan_classes_processor_and_producer(self):
         text = """Location: Elgin West
@@ -111,7 +111,7 @@ Monday from 5:00 pm to 5:30 pm"""
         processor = GmailScanClassesProcessor(service_builder=lambda _auth: svc)
         env = processor.process(GmailScanClassesRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertEqual(len(env.payload.events), 1)  # type: ignore[union-attr]
+        self.assertEqual(len(env.payload.events), 1)
         buf = io.StringIO()
         with redirect_stdout(buf):
             GmailScanClassesProducer().produce(env)
@@ -293,7 +293,7 @@ Tuesday from 6:00 pm to 6:30 pm"""
         request = OutlookVerifyRequest(config_path=tf_path, calendar=None, service=svc)
         env = OutlookVerifyProcessor().process(OutlookVerifyRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertEqual(env.payload.duplicates, 1)  # type: ignore[union-attr]
+        self.assertEqual(env.payload.duplicates, 1)
 
     def test_outlook_verify_producer_prints_logs(self):
         buf = io.StringIO()
@@ -325,7 +325,7 @@ Tuesday from 6:00 pm to 6:30 pm"""
         )
         env = OutlookAddProcessor().process(OutlookAddRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertEqual(env.payload.created, 2)  # type: ignore[union-attr]
+        self.assertEqual(env.payload.created, 2)
         buf = io.StringIO()
         with redirect_stdout(buf):
             OutlookAddProducer().produce(env)
@@ -346,8 +346,8 @@ Tuesday from 6:00 pm to 6:30 pm"""
         )
         env = OutlookDedupProcessor().process(OutlookDedupRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertEqual(len(env.payload.duplicates), 1)  # type: ignore[union-attr]
-        dup = env.payload.duplicates[0]  # type: ignore[union-attr]
+        self.assertEqual(len(env.payload.duplicates), 1)
+        dup = env.payload.duplicates[0]
         self.assertEqual(dup.keep, "A")
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -371,8 +371,8 @@ Tuesday from 6:00 pm to 6:30 pm"""
         )
         env = OutlookDedupProcessor().process(OutlookDedupRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertTrue(env.payload.apply)  # type: ignore[union-attr]
-        self.assertEqual(env.payload.deleted, 1)  # type: ignore[union-attr]
+        self.assertTrue(env.payload.apply)
+        self.assertEqual(env.payload.deleted, 1)
         svc.delete_event_by_id.assert_called_once_with("S2")
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -413,10 +413,10 @@ Tuesday from 6:00 pm to 6:30 pm"""
         )
         env = OutlookRemoveProcessor().process(OutlookRemoveRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertEqual(len(env.payload.plan), 2)  # type: ignore[union-attr]
-        first = env.payload.plan[0]  # type: ignore[union-attr]
+        self.assertEqual(len(env.payload.plan), 2)
+        first = env.payload.plan[0]
         self.assertEqual(first.series_ids, ["S1"])
-        second = env.payload.plan[1]  # type: ignore[union-attr]
+        second = env.payload.plan[1]
         self.assertEqual(second.event_ids, ["E1"])
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -446,7 +446,7 @@ Tuesday from 6:00 pm to 6:30 pm"""
         )
         env = OutlookRemoveProcessor().process(OutlookRemoveRequestConsumer(request).consume())
         self.assertTrue(env.ok())
-        self.assertEqual(env.payload.deleted, 1)  # type: ignore[union-attr]
+        self.assertEqual(env.payload.deleted, 1)
         svc.delete_event_by_id.assert_called_once_with("S1")
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -489,7 +489,7 @@ Tuesday from 6:00 pm to 6:30 pm"""
             OutlookRemindersRequestConsumer(request).consume()
         )
         self.assertTrue(env.ok())
-        self.assertTrue(env.payload.dry_run)  # type: ignore[union-attr]
+        self.assertTrue(env.payload.dry_run)
         buf = io.StringIO()
         with redirect_stdout(buf):
             OutlookRemindersProducer().produce(env)
@@ -519,8 +519,8 @@ Tuesday from 6:00 pm to 6:30 pm"""
             OutlookRemindersRequestConsumer(request).consume()
         )
         self.assertTrue(env.ok())
-        self.assertFalse(env.payload.dry_run)  # type: ignore[union-attr]
-        self.assertEqual(env.payload.updated, 2)  # type: ignore[union-attr]
+        self.assertFalse(env.payload.dry_run)
+        self.assertEqual(env.payload.updated, 2)
         from calendars.outlook_service import UpdateEventReminderRequest
         svc.update_event_reminder.assert_any_call(
             UpdateEventReminderRequest(event_id="S1", calendar_id=None, calendar_name=None, is_on=False)

@@ -28,7 +28,7 @@ def dedupe(items: list[T], key_fn: Callable[[T], Hashable] | None = None) -> lis
     """
     if key_fn is None:
         def _identity(x: T) -> Hashable:
-            return x  # type: ignore[return-value]
+            return x
         key_fn = _identity
 
     seen: set[Hashable] = set()

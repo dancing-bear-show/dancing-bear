@@ -6,7 +6,7 @@ from typing import Callable, Iterable, Sequence
 
 # argparse is optional at import time; type checking only.
 try:  # pragma: no cover - best effort typing
-    from argparse import ArgumentParser  # type: ignore
+    from argparse import ArgumentParser
 except Exception:  # pragma: no cover
     ArgumentParser = object  # type: ignore
 

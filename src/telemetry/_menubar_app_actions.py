@@ -12,7 +12,7 @@ from telemetry._menubar_config import (
 from telemetry import login_item as _login_item
 
 try:
-    from AppKit import (  # type: ignore[import-not-found]
+    from AppKit import (
         NSPasteboard,
         NSPasteboardTypeString,
     )
@@ -29,7 +29,7 @@ class ActionsMixin:
     @staticmethod
     def _notify(title: str, body: str) -> None:
         try:
-            import rumps as _rumps  # type: ignore[import-not-found]
+            import rumps as _rumps
             _rumps.notification(title=title, subtitle="", message=body[:200])
         except Exception:  # nosec B110 - notification failure is non-fatal
             pass
@@ -51,7 +51,7 @@ class ActionsMixin:
             pass
 
     def _on_configure(self, _sender: object) -> None:  # noqa: ARG002
-        import rumps as _rumps  # type: ignore[import-not-found]
+        import rumps as _rumps
         from telemetry._menubar_config import _load_config
         cfg = _load_config()
         win = _rumps.Window(
@@ -74,7 +74,7 @@ class ActionsMixin:
             _rumps.alert(title="Save failed", message=str(exc))
             return
         self._rebuild_menu(updated)  # type: ignore[attr-defined]
-        self._last_cfg = updated  # type: ignore[attr-defined]
+        self._last_cfg = updated
         self._refresh(None)  # type: ignore[attr-defined]
         if rejected:
             preview = "\n".join(f"  • {line}" for line in rejected[:8])
@@ -89,7 +89,7 @@ class ActionsMixin:
             )
 
     def _on_toggle_login_item(self, _sender: object) -> None:  # noqa: ARG002
-        import rumps as _rumps  # type: ignore[import-not-found]
+        import rumps as _rumps
         if not _login_item.is_bundle_mode():
             _rumps.alert(title="Start at Login", message=(
                 "This feature requires the packaged ClaudeStats app. "
@@ -123,7 +123,7 @@ class ActionsMixin:
         return deleted
 
     def _on_clear(self, _sender: object) -> None:  # noqa: ARG002
-        import rumps as _rumps  # type: ignore[import-not-found]
+        import rumps as _rumps
         response = _rumps.alert(
             title="Clear old sessions",
             message=(

@@ -94,8 +94,8 @@ class TestAccountsSyncLabelsProcessor(unittest.TestCase):
         mock_load_accounts.return_value = [make_account_dict(name="work", provider="outlook")]
         mock_load_config.return_value = {"labels": [{"name": "Parent/Child"}]}
         client = FakeOutlookClient(categories=[])
-        client.list_labels = lambda: []  # type: ignore[method-assign]
-        client.create_label = lambda **body: {"id": "LBL_1", **body}  # type: ignore[method-assign]
+        client.list_labels = lambda: []
+        client.create_label = lambda **body: {"id": "LBL_1", **body}
         mock_build.return_value = client
 
         request = AccountsSyncLabelsRequest(
@@ -237,9 +237,9 @@ class TestAccountsSyncFiltersProcessorOutlook(unittest.TestCase):
             "filters": [{"match": {"from": "boss@example.com"}, "action": {"add": ["VIP"]}}]
         }
         client = FakeOutlookClient(categories=[{"id": "CAT_1", "displayName": "VIP"}])
-        client.list_filters = lambda: []  # type: ignore[method-assign]
-        client.get_label_id_map = lambda: {"VIP": "CAT_1"}  # type: ignore[method-assign]
-        client.create_filter = lambda criteria, action: {"id": "NEW"}  # type: ignore[method-assign]
+        client.list_filters = lambda: []
+        client.get_label_id_map = lambda: {"VIP": "CAT_1"}
+        client.create_filter = lambda criteria, action: {"id": "NEW"}
         mock_build.return_value = client
 
         request = AccountsSyncFiltersRequest(
@@ -265,10 +265,10 @@ class TestAccountsSyncFiltersProcessorOutlook(unittest.TestCase):
             "filters": [{"match": {"from": "boss@example.com"}, "action": {"add": ["VIP"]}}]
         }
         client = FakeOutlookClient(categories=[{"id": "CAT_1", "displayName": "VIP"}])
-        client.list_filters = lambda: []  # type: ignore[method-assign]
-        client.get_label_id_map = lambda: {"VIP": "CAT_1"}  # type: ignore[method-assign]
+        client.list_filters = lambda: []
+        client.get_label_id_map = lambda: {"VIP": "CAT_1"}
         create_calls = []
-        client.create_filter = lambda criteria, action: create_calls.append((criteria, action))  # type: ignore[method-assign]
+        client.create_filter = lambda criteria, action: create_calls.append((criteria, action))
         mock_build.return_value = client
 
         request = AccountsSyncFiltersRequest(
@@ -292,13 +292,13 @@ class TestAccountsSyncFiltersProcessorOutlook(unittest.TestCase):
             "filters": [{"match": {"from": "boss@example.com"}, "action": {"add": ["VIP"]}}]
         }
         client = FakeOutlookClient(categories=[{"id": "CAT_1", "displayName": "VIP"}])
-        client.list_filters = lambda: []  # type: ignore[method-assign]
-        client.get_label_id_map = lambda: {"VIP": "CAT_1"}  # type: ignore[method-assign]
+        client.list_filters = lambda: []
+        client.get_label_id_map = lambda: {"VIP": "CAT_1"}
 
         def _raise(criteria, action):
             raise RuntimeError("Graph API error")
 
-        client.create_filter = _raise  # type: ignore[method-assign]
+        client.create_filter = _raise
         mock_build.return_value = client
 
         request = AccountsSyncFiltersRequest(

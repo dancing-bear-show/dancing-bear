@@ -118,7 +118,7 @@ class TestJsonToSpecSad(unittest.TestCase):
     def test_non_dict_raises(self):
         from charts.reshape import json_to_spec
         with self.assertRaises(ValueError) as ctx:
-            json_to_spec([1, 2, 3])  # type: ignore[arg-type]
+            json_to_spec([1, 2, 3])
         self.assertIn("JSON object", str(ctx.exception))
 
     def test_missing_title_raises(self):
@@ -219,7 +219,7 @@ class TestCoerceSeries(unittest.TestCase):
     def test_non_dict_series_element_raises(self):
         from charts.reshape import _coerce_series
         with self.assertRaises(ValueError) as ctx:
-            _coerce_series(["not_a_dict"], "ts")  # type: ignore[list-item]
+            _coerce_series(["not_a_dict"], "ts")
         self.assertIn("series[0]", str(ctx.exception))
 
     def test_missing_name_raises(self):

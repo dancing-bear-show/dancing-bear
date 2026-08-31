@@ -36,7 +36,7 @@ class PDFParser(ScheduleParser):
             NotImplementedError: If PDF format is not supported
         """
         try:
-            from pdfminer.high_level import extract_text  # type: ignore
+            from pdfminer.high_level import extract_text
         except Exception as e:  # pragma: no cover - optional
             raise RuntimeError("pdfminer.six is required to parse PDFs. Try: python3 -m pip install pdfminer.six") from e
 
@@ -122,7 +122,7 @@ class PDFParser(ScheduleParser):
         Returns empty list if pdfplumber is not available or extraction fails.
         """
         try:
-            import pdfplumber  # type: ignore
+            import pdfplumber
         except Exception:
             return []
 

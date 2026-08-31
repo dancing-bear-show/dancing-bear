@@ -137,7 +137,7 @@ def _run_app_cli(app: str, argv: list[str]) -> int:
         return module.main(argv)
     if hasattr(module, "CONFIG"):
         from core.llm_cli import run
-        return run(module.CONFIG, argv)  # type: ignore[attr-defined]
+        return run(module.CONFIG, argv)
     raise RuntimeError(f"App module {module_name} missing an entry point")
 
 
@@ -438,7 +438,7 @@ def _render_flow_content(flow: dict[str, Any], fmt: str) -> str:
     if fmt == "json":
         return json.dumps(flow, indent=2)
     if fmt == "yaml":
-        import yaml  # type: ignore
+        import yaml
         return yaml.safe_dump(flow, sort_keys=False)
     return (
         f"id: {flow.get('id')}\n"

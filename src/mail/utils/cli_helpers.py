@@ -54,7 +54,7 @@ def with_gmail_client(func: Callable[..., Any]) -> Callable[..., Any]:
 
     Attaches the client as `args._gmail_client` before invoking the function.
     """
-    def wrapper(args, *a, **kw):  # type: ignore[no-untyped-def]
+    def wrapper(args, *a, **kw):
         client = gmail_provider_from_args(args)
         client.authenticate()
         try:

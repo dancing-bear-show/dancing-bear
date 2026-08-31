@@ -73,7 +73,7 @@ class _FakeCtx:
 
 
 def _make_svc():
-    return OutlookService(ctx=_FakeCtx())  # type: ignore[arg-type]
+    return OutlookService(ctx=_FakeCtx())
 
 
 # ---------------------------------------------------------------------------

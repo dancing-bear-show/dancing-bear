@@ -485,7 +485,7 @@ class TestWorkflowRun(unittest.TestCase):
     def test_frozen(self) -> None:
         run = self._make_run()
         with self.assertRaises(FrozenInstanceError):
-            run.run_id = "changed"  # type: ignore[misc]
+            run.run_id = "changed"
 
 
 if __name__ == "__main__":

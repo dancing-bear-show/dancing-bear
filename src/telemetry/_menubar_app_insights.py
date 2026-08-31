@@ -19,10 +19,10 @@ class InsightsMixin:
         parts = [p for p in name.split("-") if p]
         return parts[-1][:32] if parts else ""
 
-    def _make_tip_click_handler(self, idx: int):  # type: ignore[no-untyped-def]
+    def _make_tip_click_handler(self, idx: int):
         def _handler(_sender: object) -> None:  # noqa: ARG001
             # Late import avoids circular: _menubar_app imports this module.
-            import rumps as _rumps  # type: ignore[import-not-found]
+            import rumps as _rumps
             data = self._insights_tip_hints[idx] if idx < len(self._insights_tip_hints) else {}  # type: ignore[attr-defined]
             rule = data.get("claude_rule") or ""
             reason = data.get("waste_reason") or "tip"

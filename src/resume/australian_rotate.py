@@ -147,10 +147,10 @@ def convert_docx_to_pdf(docx_path: str, pdf_path: str) -> ConversionResult:
 def rotate_pdf_180(input_pdf: str, output_pdf: str) -> bool:
     """Rotate PDF 180 degrees using pypdf."""
     try:
-        from pypdf import PdfReader, PdfWriter  # type: ignore
+        from pypdf import PdfReader, PdfWriter
     except ImportError:
         try:
-            from PyPDF2 import PdfReader, PdfWriter  # type: ignore
+            from PyPDF2 import PdfReader, PdfWriter
         except ImportError:
             print("Error: pypdf or PyPDF2 required. Install: pip install pypdf", file=sys.stderr)
             return False

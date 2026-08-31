@@ -108,7 +108,7 @@ def _decode_otlp_value(value: object) -> object:
     ):
         if key in value:
             try:
-                return typ(value[key])  # type: ignore[operator]
+                return typ(value[key])
             except (TypeError, ValueError):
                 return value[key]
     return value
