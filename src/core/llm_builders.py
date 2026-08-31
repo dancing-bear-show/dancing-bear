@@ -134,7 +134,11 @@ class DomainLlmConfig:
     """Configuration for creating domain-specific LLM modules.
 
     Groups identity fields (app_id, app_title, purpose, agentic_module)
-    with optional customization (familiar steps, policies fallback).
+    with optional customization (familiar steps, policies fallback, prog, description).
+
+    Optional overrides (added at end to preserve positional construction):
+        prog: Override the default ``llm-{app_id}`` prog name for the LlmConfig.
+        description: Override the default generated description string.
     """
 
     app_id: str
@@ -144,6 +148,8 @@ class DomainLlmConfig:
     familiar_compact_steps: list[str] | None = None
     familiar_extended_steps: list[str] | None = None
     policies_fallback: str | None = None
+    prog: str | None = None
+    description: str | None = None
 
 
 def make_domain_llm_module(
@@ -176,10 +182,13 @@ def make_domain_llm_module(
     policies_builder = _build_policies_builder(config.policies_fallback)
 
     return LlmConfig(
-        prog=f"llm-{config.app_id}",
+        prog=config.prog or f"llm-{config.app_id}",
         description=(
-            f"{config.app_title} Assistant LLM utilities"
-            " (inventory, familiar, policies, agentic, domain-map)"
+            config.description
+            or (
+                f"{config.app_title} Assistant LLM utilities"
+                " (inventory, familiar, policies, agentic, domain-map)"
+            )
         ),
         agentic=agentic_builder,
         domain_map=domain_map_builder,

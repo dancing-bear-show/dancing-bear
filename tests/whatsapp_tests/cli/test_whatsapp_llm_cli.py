@@ -2,9 +2,8 @@
 
 Includes:
 1. The shared LLM CLI contract via LLMCLIContractMixin.
-2. Domain-specific tests for the private helper functions (_agentic,
-   _domain_map, etc.) that are unique to the whatsapp implementation
-   and are not part of the shared contract.
+2. Domain-specific tests for CONFIG builder callables that are unique
+   to the whatsapp implementation and are not part of the shared contract.
 """
 
 from __future__ import annotations
@@ -25,80 +24,80 @@ class TestWhatsappLLMCLI(LLMCLIContractMixin, unittest.TestCase):
 
 
 # ------------------------------------------------------------------
-# Domain-specific tests for private helpers
-# These test whatsapp's internal implementation helpers, which are not
-# part of the shared contract and should not be in the mixin.
+# Domain-specific tests for CONFIG builder callables.
+# The private helpers were removed when the module was migrated to
+# make_domain_llm_module; these tests now call through CONFIG.
 # ------------------------------------------------------------------
 
 
-class TestAgenticFunction(unittest.TestCase):
-    """Tests for _agentic function."""
+class TestAgenticBuilder(unittest.TestCase):
+    """Tests for CONFIG.agentic builder."""
 
     def test_returns_string(self):
-        result = llm_cli._agentic()
+        result = llm_cli.CONFIG.agentic()
         self.assertIsInstance(result, str)
 
     def test_contains_whatsapp(self):
-        result = llm_cli._agentic()
+        result = llm_cli.CONFIG.agentic()
         self.assertIn("whatsapp", result.lower())
 
     def test_result_is_nonempty(self):
-        result = llm_cli._agentic()
+        result = llm_cli.CONFIG.agentic()
         self.assertGreater(len(result), 0)
 
 
-class TestDomainMapFunction(unittest.TestCase):
-    """Tests for _domain_map function."""
+class TestDomainMapBuilder(unittest.TestCase):
+    """Tests for CONFIG.domain_map builder."""
 
     def test_returns_string(self):
-        result = llm_cli._domain_map()
+        result = llm_cli.CONFIG.domain_map()
         self.assertIsInstance(result, str)
 
 
-class TestInventoryFunction(unittest.TestCase):
-    """Tests for _inventory function."""
+class TestInventoryBuilder(unittest.TestCase):
+    """Tests for CONFIG.inventory builder."""
 
     def test_returns_string(self):
-        result = llm_cli._inventory()
+        result = llm_cli.CONFIG.inventory()
         self.assertIsInstance(result, str)
 
     def test_contains_content(self):
-        result = llm_cli._inventory()
+        result = llm_cli.CONFIG.inventory()
         self.assertGreater(len(result), 0)
 
 
-class TestFamiliarCompactFunction(unittest.TestCase):
-    """Tests for _familiar_compact function."""
+class TestFamiliarCompactBuilder(unittest.TestCase):
+    """Tests for CONFIG.familiar_compact builder."""
 
     def test_returns_string(self):
-        result = llm_cli._familiar_compact()
+        result = llm_cli.CONFIG.familiar_compact()
         self.assertIsInstance(result, str)
 
     def test_contains_yaml_structure(self):
-        result = llm_cli._familiar_compact()
+        result = llm_cli.CONFIG.familiar_compact()
         self.assertGreater(len(result), 0)
         self.assertTrue("meta:" in result or "steps:" in result)
 
 
-class TestFamiliarExtendedFunction(unittest.TestCase):
-    """Tests for _familiar_extended function."""
+class TestFamiliarExtendedBuilder(unittest.TestCase):
+    """Tests for CONFIG.familiar_extended builder."""
 
     def test_returns_string(self):
-        result = llm_cli._familiar_extended()
+        result = llm_cli.CONFIG.familiar_extended()
         self.assertIsInstance(result, str)
 
     def test_returns_fallback(self):
         from whatsapp.meta import META
 
-        result = llm_cli._familiar_extended()
+        result = llm_cli.CONFIG.familiar_extended()
         self.assertEqual(result, META.familiar_extended_fallback)
 
 
-class TestPoliciesFunction(unittest.TestCase):
-    """Tests for _policies function."""
+class TestPoliciesBuilder(unittest.TestCase):
+    """Tests for CONFIG.policies builder."""
 
     def test_returns_string(self):
-        result = llm_cli._policies()
+        result = llm_cli.CONFIG.policies()
         self.assertIsInstance(result, str)
 
 
