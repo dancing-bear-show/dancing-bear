@@ -254,7 +254,6 @@ class SkillsSectionRenderer(ListSectionRenderer):
     def _render_groups(self, groups: list[SkillGroup], cfg: dict) -> None:
         """Render skills organized by groups."""
         as_bullets = bool(cfg.get("bullets", False))
-        sep = cfg.get("separator") or " • "
         max_groups = int(cfg.get("max_groups", 999))
         max_items_per_group = int(cfg.get("max_items_per_group", 999))
         show_desc = bool(cfg.get("show_desc", True))
@@ -275,7 +274,7 @@ class SkillsSectionRenderer(ListSectionRenderer):
                     self.headers.add_group_title(title, cfg)
                 self._render_bullet_items(items, cfg)
             else:
-                self._render_inline_items(title, items, cfg, sep)
+                self._render_inline_items(title, items, cfg)
 
     def _normalize_group_items(
         self, raw_items: list[SkillGroupItem], show_desc: bool, desc_sep: str
@@ -347,7 +346,7 @@ class SkillsSectionRenderer(ListSectionRenderer):
                 self.bullets.add_named_bullet(it.name, "", sec=cfg, glyph=glyph, sep="")
 
     def _render_inline_items(
-        self, title: str, items: list[LabeledItem], cfg: dict, sep: str
+        self, title: str, items: list[LabeledItem], cfg: dict
     ) -> None:
         """Render a skills group as a title line plus one paragraph per item.
 
@@ -375,11 +374,6 @@ class SkillsSectionRenderer(ListSectionRenderer):
         paragraphs carried ``left_indent=None`` while every other bulleted line
         in the document carried ``left_indent=0``. They now go through
         ``add_bullet_line`` like everything else.
-
-        ``sep`` is intentionally no longer used to join: it was only ever a
-        visual separator for the collapsed form. It stays in the signature
-        because the caller reads it from config and the surrounding branch
-        still passes it.
 
         The group title is emitted bold and the item names are emitted bold
         with their descriptions plain, matching the reference document this
