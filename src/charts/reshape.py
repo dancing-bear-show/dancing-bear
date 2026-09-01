@@ -20,10 +20,17 @@ _KIND_TO_SPEC: dict[ChartKind, type[ChartSpec]] = {
 }
 
 
-def json_to_spec(raw: dict[str, object]) -> ChartSpec:
+def json_to_spec(raw: object) -> ChartSpec:
     """Parse the data-contract dict into a ChartSpec.
 
     Raises ValueError with a precise field path on any schema violation.
+
+    Takes ``object`` rather than ``dict``: callers pass the result of
+    ``json.loads`` on user-supplied files (see ``charts.cli``), which is any
+    JSON value, so a list or string genuinely reaches this function and is
+    rejected by the isinstance guard below. Annotating the narrower ``dict``
+    described the happy path rather than the contract, and made the guard --
+    plus the test covering it -- look like dead code to type-aware linters.
     """
     if not isinstance(raw, dict):
         raise ValueError(f"chart spec must be a JSON object, got {type(raw).__name__}")
