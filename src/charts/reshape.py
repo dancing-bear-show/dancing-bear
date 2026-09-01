@@ -35,7 +35,13 @@ def json_to_spec(raw: object) -> ChartSpec:
     The guard narrows ``object`` to ``dict[Any, Any]``, not ``dict[str,
     object]``, which would leak ``Any`` out of every ``.get()`` and into the
     helpers below. ``spec`` re-binds it at the stricter type so the body stays
-    checked; mypy verifies that assignment rather than being asked to trust it.
+    checked.
+
+    That re-bind is an assertion, not a proof: because the narrowed type
+    carries ``Any`` parameters, mypy checks only that the value is a ``dict``
+    and accepts any key/value types (a deliberately wrong ``dict[int, float]``
+    passes silently; ``list[str]`` is still rejected). The runtime guarantee
+    comes from the per-field validation below, not from this line.
     """
     if not isinstance(raw, dict):
         raise ValueError(f"chart spec must be a JSON object, got {type(raw).__name__}")
