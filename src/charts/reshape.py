@@ -32,9 +32,10 @@ def json_to_spec(raw: object) -> ChartSpec:
     described the happy path rather than the contract, and made the guard --
     plus the test covering it -- look like dead code to type-aware linters.
 
-    The guard narrows ``object`` to ``dict[Any, Any]``, not ``dict[str,
-    object]``, which would leak ``Any`` out of every ``.get()`` and into the
-    helpers below. ``spec`` re-binds it at the stricter type so the body stays
+    The guard narrows ``object`` to ``dict[Any, Any]`` rather than to
+    ``dict[str, object]``. ``dict[Any, Any]`` is the problem: it returns ``Any``
+    from every ``.get()``, and that ``Any`` spreads into the helpers below.
+    ``spec`` re-binds the value as ``dict[str, object]`` so the body stays
     checked.
 
     That re-bind is an assertion, not a proof: because the narrowed type
