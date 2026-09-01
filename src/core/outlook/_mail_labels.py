@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any, Protocol
 
-from .client import OutlookClientBase, _requests
+from .client import _requests
 from core.constants import GRAPH_API_URL
 
 
@@ -40,7 +40,7 @@ class LabelsFiltersMixin:
 
     # -------------------- Categories (labels) --------------------
     def list_labels(
-        self: OutlookClientBase,
+        self: "_LabelsHost",
         use_cache: bool = False,
         ttl: int = 300,
     ) -> list[dict[str, Any]]:
@@ -69,7 +69,7 @@ class LabelsFiltersMixin:
         return out
 
     def create_label(
-        self: OutlookClientBase,
+        self: "_LabelsHost",
         name: str,
         color: dict[str, Any] | None = None,
         **_kwargs: Any,
@@ -83,7 +83,7 @@ class LabelsFiltersMixin:
         return {"id": c.get("id"), "name": c.get("displayName")}
 
     def update_label(
-        self: OutlookClientBase,
+        self: "_LabelsHost",
         label_id: str,
         body: dict[str, Any],
     ) -> dict[str, Any]:
@@ -102,7 +102,7 @@ class LabelsFiltersMixin:
         r.raise_for_status()
         return r.json() if r.text else {}
 
-    def delete_label(self: OutlookClientBase, label_id: str) -> None:
+    def delete_label(self: "_LabelsHost", label_id: str) -> None:
         r = _requests().delete(
             f"{GRAPH_API_URL}/me/outlook/masterCategories/{label_id}",
             headers=self._headers(),
@@ -120,7 +120,7 @@ class LabelsFiltersMixin:
         return created.get("id", "")
 
     # -------------------- Rules (filters) --------------------
-    def _fetch_inbox_rules_raw(self: OutlookClientBase) -> list[dict[str, Any]]:
+    def _fetch_inbox_rules_raw(self: "_LabelsHost") -> list[dict[str, Any]]:
         """Fetch raw inbox rules from Graph API."""
         r = _requests().get(
             f"{GRAPH_API_URL}/me/mailFolders/inbox/messageRules",
@@ -129,7 +129,7 @@ class LabelsFiltersMixin:
         r.raise_for_status()
         return r.json().get("value", [])
 
-    def _map_rule(self: OutlookClientBase, ru: dict[str, Any]) -> dict[str, Any]:
+    def _map_rule(self: "_LabelsHost", ru: dict[str, Any]) -> dict[str, Any]:
         """Map a raw Graph rule to the internal filter format."""
         cond = ru.get("conditions", {}) or {}
         act = ru.get("actions", {}) or {}
@@ -165,7 +165,7 @@ class LabelsFiltersMixin:
             rules = self._fetch_inbox_rules_raw()
         return [self._map_rule(ru) for ru in rules]
 
-    def _build_rule_conditions(self: OutlookClientBase, criteria: dict[str, Any]) -> dict[str, Any]:
+    def _build_rule_conditions(self: "_LabelsHost", criteria: dict[str, Any]) -> dict[str, Any]:
         """Convert filter criteria dict to Graph API conditions format."""
         cond: dict[str, Any] = {}
         if criteria.get("from"):
@@ -176,7 +176,7 @@ class LabelsFiltersMixin:
             cond["subjectContains"] = [s.strip() for s in str(criteria["subject"]).split("OR")]
         return cond
 
-    def _build_rule_actions(self: OutlookClientBase, action: dict[str, Any]) -> dict[str, Any]:
+    def _build_rule_actions(self: "_LabelsHost", action: dict[str, Any]) -> dict[str, Any]:
         """Convert filter action dict to Graph API actions format."""
         act: dict[str, Any] = {}
         if action.get("addLabelIds"):
@@ -209,7 +209,7 @@ class LabelsFiltersMixin:
         r.raise_for_status()
         return r.json()
 
-    def delete_filter(self: OutlookClientBase, filter_id: str) -> None:
+    def delete_filter(self: "_LabelsHost", filter_id: str) -> None:
         r = _requests().delete(
             f"{GRAPH_API_URL}/me/mailFolders/inbox/messageRules/{filter_id}",
             headers=self._headers(),

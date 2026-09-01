@@ -165,13 +165,13 @@ class StandardResumeWriter(ResumeWriterBase):
 
         # Name heading
         if name:
-            self.doc.add_heading(name, level=0)
-            _tight_paragraph(self.doc.paragraphs[-1], after_pt=2)
-            self._center_paragraph(self.doc.paragraphs[-1])
+            self._doc.add_heading(name, level=0)
+            _tight_paragraph(self._doc.paragraphs[-1], after_pt=2)
+            self._center_paragraph(self._doc.paragraphs[-1])
 
         # Headline
         if headline:
-            p_head = self.doc.add_paragraph(str(headline))
+            p_head = self._doc.add_paragraph(str(headline))
             _tight_paragraph(p_head, after_pt=2)
             self._center_paragraph(p_head)
 
@@ -181,7 +181,7 @@ class StandardResumeWriter(ResumeWriterBase):
 
         has_content = email or plain_parts or link_items
         if has_content:
-            p = self.doc.add_paragraph()
+            p = self._doc.add_paragraph()
             _tight_paragraph(p, after_pt=6)
             self._center_paragraph(p)
             self._render_contact_runs(p, email, plain_parts, link_items)
@@ -205,10 +205,10 @@ class StandardResumeWriter(ResumeWriterBase):
         """Render a section heading with optional shading."""
         if not title:
             return
-        self.doc.add_heading(str(title), level=1)
-        _tight_paragraph(self.doc.paragraphs[-1], before_pt=6, after_pt=2)
-        _flush_left(self.doc.paragraphs[-1])
+        self._doc.add_heading(str(title), level=1)
+        _tight_paragraph(self._doc.paragraphs[-1], before_pt=6, after_pt=2)
+        _flush_left(self._doc.paragraphs[-1])
         page_h1_bg = self.page_cfg.get("h1_bg") or self.page_cfg.get("heading_bg")
         bg_rgb = _parse_hex_color(page_h1_bg)
         if bg_rgb:
-            _apply_paragraph_shading(self.doc.paragraphs[-1], bg_rgb)
+            _apply_paragraph_shading(self._doc.paragraphs[-1], bg_rgb)
