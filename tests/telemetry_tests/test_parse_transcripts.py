@@ -1045,7 +1045,7 @@ class TestParseTranscriptsCli(unittest.TestCase):
         self.assertIn("session_id", out)
 
     def test_cli_invalid_since_exits_1(self):
-        rc, out = _run_main([
+        rc, _ = _run_main([
             "parse-transcripts",
             "--projects-dir", str(self.projects_dir),
             "--index-dir", str(self.index_dir),
@@ -1057,7 +1057,7 @@ class TestParseTranscriptsCli(unittest.TestCase):
         self._write_jsonl("proj/s3.jsonl", [
             {"message": {"role": "user", "content": "Force me"}}
         ])
-        rc, out = _run_main([
+        rc, _ = _run_main([
             "parse-transcripts",
             "--projects-dir", str(self.projects_dir),
             "--index-dir", str(self.index_dir),
@@ -1084,7 +1084,7 @@ class TestParseTranscriptsCli(unittest.TestCase):
         self.assertEqual(len(data), 1)
 
     def test_cli_since_7d(self):
-        rc, out = _run_main([
+        rc, _ = _run_main([
             "parse-transcripts",
             "--projects-dir", str(self.projects_dir),
             "--index-dir", str(self.index_dir),

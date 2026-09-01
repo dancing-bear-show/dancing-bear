@@ -29,7 +29,7 @@ def _run_main(argv: list[str]) -> tuple[int, str]:
     try:
         with contextlib.redirect_stdout(buf):
             rc = main(argv)
-    except SystemExit as e:
+    except SystemExit as e:  # NOSONAR - argparse --help exits by design; re-raising would defeat the helper
         rc = e.code if isinstance(e.code, int) else 0
     return rc, buf.getvalue()
 
@@ -197,7 +197,7 @@ class TestRulesCommand(unittest.TestCase):
         errors = ["avoidable.bash-as-grep: enabled must be boolean"]
         with patch("telemetry.rules.load_rules", return_value=DEFAULT_RULES):
             with patch("telemetry.rules.validate_rules", return_value=errors):
-                rc, out = _run_main(["rules", "--validate"])
+                rc, _ = _run_main(["rules", "--validate"])
         self.assertNotEqual(rc, 0)
 
 
@@ -218,7 +218,7 @@ class TestHistoryCommand(unittest.TestCase):
         s = _make_session_summary()
         with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
             MockProvider.return_value.get_sessions.return_value = [s]
-            rc, out = _run_main(["history", "--days", "3"])
+            rc, _ = _run_main(["history", "--days", "3"])
         self.assertEqual(rc, 0)
 
     def test_model_split_on_slash(self):
@@ -289,14 +289,14 @@ class TestSessionsCommand(unittest.TestCase):
         s = _make_session_summary()
         with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
             MockProvider.return_value.get_sessions.return_value = [s]
-            rc, out = _run_main(["sessions", "--since", "7d", "--format", "table"])
+            rc, _ = _run_main(["sessions", "--since", "7d", "--format", "table"])
         self.assertEqual(rc, 0)
 
     def test_projects_dir_passed_to_provider(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
                 MockProvider.return_value.get_sessions.return_value = []
-                rc, out = _run_main(["sessions", "--since", "7d", "--projects-dir", tmpdir])
+                rc, _ = _run_main(["sessions", "--since", "7d", "--projects-dir", tmpdir])
             self.assertEqual(rc, 0)
             self.assertIsNotNone(MockProvider.call_args)
 
@@ -335,7 +335,7 @@ class TestAgentsCommand(unittest.TestCase):
         rows = [_make_agent_token_row()]
         with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
             MockProvider.return_value.aggregate_agents.return_value = rows
-            rc, out = _run_main(["agents", "--since", "7d", "--format", "table"])
+            rc, _ = _run_main(["agents", "--since", "7d", "--format", "table"])
         self.assertEqual(rc, 0)
 
     def test_model_filter(self):
@@ -467,7 +467,7 @@ class TestCostBreakdownCommand(unittest.TestCase):
         rows = [_make_agent_token_row()]
         with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
             MockProvider.return_value.aggregate_agents.return_value = rows
-            rc, out = _run_main(["cost-breakdown", "--since", "7d", "--format", "table", "--group-by", "agent"])
+            rc, _ = _run_main(["cost-breakdown", "--since", "7d", "--format", "table", "--group-by", "agent"])
         self.assertEqual(rc, 0)
 
     def test_group_by_day_table(self):
@@ -476,7 +476,7 @@ class TestCostBreakdownCommand(unittest.TestCase):
         s.start_time = now
         with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
             MockProvider.return_value.get_sessions.return_value = [s]
-            rc, out = _run_main(["cost-breakdown", "--since", "7d", "--format", "table", "--group-by", "day"])
+            rc, _ = _run_main(["cost-breakdown", "--since", "7d", "--format", "table", "--group-by", "day"])
         self.assertEqual(rc, 0)
 
     def test_limit_applied(self):
@@ -503,7 +503,7 @@ class TestCostBreakdownCommand(unittest.TestCase):
         s.start_time = None
         with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
             MockProvider.return_value.get_sessions.return_value = [s]
-            rc, out = _run_main(["cost-breakdown", "--since", "7d", "--group-by", "day"])
+            rc, _ = _run_main(["cost-breakdown", "--since", "7d", "--group-by", "day"])
         self.assertEqual(rc, 0)
 
 
@@ -563,7 +563,7 @@ class TestMainCLI(unittest.TestCase):
 class TestOtelCommand(unittest.TestCase):
     def test_otel_delegates_to_otel_main(self):
         with patch("telemetry.otel.cli.main", return_value=0) as mock_otel_main:
-            rc, out = _run_main(["otel", "help"])
+            rc, _ = _run_main(["otel", "help"])
         self.assertEqual(rc, 0)
         mock_otel_main.assert_called_once_with(["help"])
 

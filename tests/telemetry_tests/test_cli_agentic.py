@@ -82,7 +82,7 @@ class HelpAndDispatchTests(unittest.TestCase):
         try:
             with contextlib.redirect_stdout(buf):
                 main(["--help"])
-        except SystemExit as e:
+        except SystemExit as e:  # NOSONAR - argparse --help exits by design; re-raising would defeat the assertion
             self.assertEqual(e.code, 0)
         out = buf.getvalue()
         self.assertIn("--agentic", out)
@@ -92,7 +92,7 @@ class HelpAndDispatchTests(unittest.TestCase):
         self.assertIn("cost", out)
 
     def test_bare_invocation_preserves_legacy_exit_two(self):
-        rc, out = _run([])
+        rc, _ = _run([])
         self.assertEqual(rc, 2)
 
     def test_cost_alias_dispatches(self):
@@ -101,7 +101,7 @@ class HelpAndDispatchTests(unittest.TestCase):
         try:
             with contextlib.redirect_stdout(buf):
                 main(["cost", "--help"])
-        except SystemExit as e:
+        except SystemExit as e:  # NOSONAR - argparse --help exits by design; re-raising would defeat the assertion
             self.assertEqual(e.code, 0)
         out = buf.getvalue()
         self.assertIn("cost breakdown", out.lower())
