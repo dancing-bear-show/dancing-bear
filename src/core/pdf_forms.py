@@ -18,8 +18,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 __all__ = [
     "DEFAULT_FONT_SIZES",
+    "FALLBACK_FONT_SIZE",
     "font_size_for",
     "format_da",
+    "pdf_string",
     "set_text_field",
     "fill_text_fields",
     "set_checkbox",
@@ -71,6 +73,32 @@ def font_size_for(
     return table[match] if match else fallback
 
 
+def pdf_string(value: str) -> str:
+    """Wrap ``value`` as a PDF literal string, escaping what must be escaped.
+
+    Inside a literal string ``\\``, ``(`` and ``)`` are syntax, so a value
+    carrying them cannot be interpolated raw. The failure modes are not
+    symmetric and neither is loud:
+
+    * a lone backslash is consumed as an escape introducer, so ``back\\slash``
+      is stored as ``backslash`` -- silent data loss, no error raised;
+    * an unbalanced ``)`` closes the string early and the rest is parsed as
+      dictionary syntax, raising ``FzErrorSyntax: invalid key in dict``;
+    * *balanced* parens happen to round-trip intact, which is what makes this
+      easy to miss -- ``Smith (Jr)`` works, ``Smith (Jr`` does not.
+
+    Names carrying either character are ordinary, so escape rather than
+    reject.
+
+    >>> pdf_string("Smith (Jr)")
+    '(Smith \\\\(Jr\\\\))'
+    >>> pdf_string("plain")
+    '(plain)'
+    """
+    escaped = value.replace("\\", r"\\").replace("(", r"\(").replace(")", r"\)")
+    return f"({escaped})"
+
+
 def format_da(size: int, font: str = "Helv", color: str = "0 g") -> str:
     """Build a ``/DA`` default-appearance value as a parenthesized PDF string.
 
@@ -82,7 +110,7 @@ def format_da(size: int, font: str = "Helv", color: str = "0 g") -> str:
     >>> format_da(7)
     '(0 g /Helv 7 Tf)'
     """
-    return f"({color} /{font} {size} Tf)"
+    return pdf_string(f"{color} /{font} {size} Tf")
 
 
 def _widget_index(doc: fitz.Document) -> list[tuple[str, int, str, list[str]]]:
@@ -134,7 +162,7 @@ def set_text_field(
     for name, xref, ftype, _states in widgets:
         if name != field_name or ftype not in ("Text", "ComboBox"):
             continue
-        doc.xref_set_key(xref, "V", f"({value})")
+        doc.xref_set_key(xref, "V", pdf_string(value))
         doc.xref_set_key(xref, "DA", da)
         # Drop the cached appearance stream so the viewer regenerates it
         # from the value and /DA we just wrote.

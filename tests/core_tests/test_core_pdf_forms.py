@@ -8,6 +8,7 @@ from core.pdf_forms import (
     fill_text_fields,
     font_size_for,
     format_da,
+    pdf_string,
     set_checkbox,
     set_text_field,
 )
@@ -56,6 +57,37 @@ class TestFontSizeFor(unittest.TestCase):
         before = dict(DEFAULT_FONT_SIZES)
         font_size_for("lastName", {"lastName": 5})
         self.assertEqual(DEFAULT_FONT_SIZES, before)
+
+
+class TestPdfString(unittest.TestCase):
+    def test_plain_value_is_simply_wrapped(self):
+        self.assertEqual(pdf_string("Sherwin"), "(Sherwin)")
+
+    def test_escapes_backslash(self):
+        # Unescaped, the backslash is consumed as an escape introducer and the
+        # value round-trips as "backslash" -- silent data loss, no error.
+        self.assertEqual(pdf_string(r"back\slash"), r"(back\\slash)")
+
+    def test_escapes_unbalanced_closing_paren(self):
+        # Unescaped, this closes the string early and the remainder parses as
+        # dictionary syntax: FzErrorSyntax: invalid key in dict.
+        self.assertEqual(pdf_string("un)balanced"), r"(un\)balanced)")
+
+    def test_escapes_unbalanced_opening_paren(self):
+        self.assertEqual(pdf_string("Smith (Jr"), r"(Smith \(Jr)")
+
+    def test_escapes_balanced_parens_too(self):
+        # Balanced parens happen to survive unescaped, which is exactly why
+        # this bug hides: escaping must not depend on the value being lucky.
+        self.assertEqual(pdf_string("Smith (Jr)"), r"(Smith \(Jr\))")
+
+    def test_backslash_escaped_before_parens(self):
+        # Order matters: escaping parens first would then double-escape the
+        # backslashes those escapes introduced.
+        self.assertEqual(pdf_string(r"a\(b"), r"(a\\\(b)")
+
+    def test_empty_value(self):
+        self.assertEqual(pdf_string(""), "()")
 
 
 class TestFormatDa(unittest.TestCase):
@@ -143,6 +175,13 @@ class TestSetTextField(unittest.TestCase):
     def test_returns_zero_when_no_widget_matches(self):
         doc = self._doc()
         self.assertEqual(set_text_field(doc, "renamedOnNewTemplate", "x"), 0)
+
+    def test_escapes_pdf_syntax_in_the_written_value(self):
+        # A surname carrying a paren is ordinary; unescaped it either corrupts
+        # the value or raises FzErrorSyntax when the PDF is parsed.
+        doc = self._doc()
+        set_text_field(doc, "lastName", "Smith (Jr")
+        self.assertEqual(doc.written(10, "V"), r"(Smith \(Jr)")
 
 
 class TestFillTextFields(unittest.TestCase):
