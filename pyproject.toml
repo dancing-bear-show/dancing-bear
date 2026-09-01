@@ -100,8 +100,13 @@ dev = [
 ]
 # Note: pdfplumber depends on pdfminer.six==20251107 (vulnerable version)
 # Keep as optional but not recommended for security-sensitive use
+#
+# PyMuPDF backs the AcroForm field helpers in src/core/pdf_forms.py, used to
+# fill insurance/government PDF templates. Imported lazily there so the core
+# CLIs stay dependency-light.
 pdf = [
   "pdfplumber>=0.11.0",
+  "PyMuPDF>=1.24.0",
 ]
 
 [project.scripts]
