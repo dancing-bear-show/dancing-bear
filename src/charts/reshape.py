@@ -31,24 +31,30 @@ def json_to_spec(raw: object) -> ChartSpec:
     rejected by the isinstance guard below. Annotating the narrower ``dict``
     described the happy path rather than the contract, and made the guard --
     plus the test covering it -- look like dead code to type-aware linters.
+
+    The guard narrows ``object`` to ``dict[Any, Any]``, not ``dict[str,
+    object]``, which would leak ``Any`` out of every ``.get()`` and into the
+    helpers below. ``spec`` re-binds it at the stricter type so the body stays
+    checked; mypy verifies that assignment rather than being asked to trust it.
     """
     if not isinstance(raw, dict):
         raise ValueError(f"chart spec must be a JSON object, got {type(raw).__name__}")
-    title = raw.get("title")
+    spec: dict[str, object] = raw
+    title = spec.get("title")
     if not title:
         raise ValueError("missing required field 'title'")
 
-    x_field = raw.get("x_field")
+    x_field = spec.get("x_field")
     if not x_field:
         raise ValueError("missing required field 'x_field'")
 
-    raw_series = raw.get("series")
+    raw_series = spec.get("series")
     if not raw_series:
         raise ValueError("missing required field 'series' (must be a non-empty list)")
     if not isinstance(raw_series, list):
         raise ValueError("'series' must be a list")
 
-    kind = _detect_kind(raw)
+    kind = _detect_kind(spec)
     series = _coerce_series(raw_series, str(x_field))
 
     spec_cls = _KIND_TO_SPEC.get(kind, LineChartSpec)
@@ -60,9 +66,9 @@ def json_to_spec(raw: object) -> ChartSpec:
         "kind": kind,
     }
 
-    _apply_optional_fields(raw, kwargs)
-    _apply_bar_fields(raw, kwargs, kind)
-    _apply_area_fields(raw, kwargs, kind)
+    _apply_optional_fields(spec, kwargs)
+    _apply_bar_fields(spec, kwargs, kind)
+    _apply_area_fields(spec, kwargs, kind)
 
     return spec_cls(**kwargs)  # type: ignore[arg-type]
 
