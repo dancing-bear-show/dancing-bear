@@ -24,22 +24,21 @@ uniform exception→exit-code mapping.
 `AppMeta` derives every fallback string (agentic, domain-map, inventory,
 familiarize) from one `app_id` + `purpose`. Hand-written fallback literals
 duplicate that derivation and drift from it.
-*Conformant (18):* every app. Verify with `ls src/*/meta.py | wc -l` rather
-than trusting this line — a roster is a snapshot, and this one was stale for
-three merges before anyone noticed.
+*Conformant (18):* every app. Confirm on merged `main` with
+`ls src/*/meta.py | wc -l` rather than trusting this line — it is a snapshot,
+not a gate, and it sat stale through three merges before anyone checked.
 
-The last seven adopted in #332 (calendars, desk, mail, maker, phone, resume,
-schedule). Six were byte-identical substitutions; two needed care and are worth
-remembering if a similar sweep comes up:
+The last seven adopted in #332. Six were byte-identical substitutions,
+confirmed by diffing `AppMeta(...).agentic_fallback` against each app's live
+`assistant.fallback_banner`. Two carried a wrinkle worth remembering if a
+similar sweep comes up:
 
-- `maker` hid its literal behind `FALLBACK_AGENTIC_HEADER`, imported at two
-  call sites. The constant was deleted rather than left as a dead alias.
+- `maker`'s literal lived behind `FALLBACK_AGENTIC_HEADER`, imported at two
+  call sites. Identical in content, but the constant had to be deleted rather
+  than left as a dead alias.
 - `mail`'s was a bullet list `AppMeta` does not generate, so adopting it
   **changed the emitted fallback text**. Safe only because nothing asserted on
   the old string — checked before changing, not after.
-
-Counts verified by `ls src/*/meta.py` after the apple_music fix landed. Re-run
-that command rather than trusting this list — it is a snapshot, not a gate.
 
 **S3. MUST dispatch through `run_with_assistant(...)` with a real `emit_func`**
 that builds a capsule. An `emit_func` that prints `assistant.fallback_banner`
