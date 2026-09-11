@@ -90,7 +90,7 @@ Labels and signatures work the same way: `./bin/mail labels export`,
 
 ## 3. Workflow engine
 
-52 checked-in YAML DAG workflows covering PR review, coverage expansion,
+Dozens of checked-in YAML DAG workflows covering PR review, coverage expansion,
 complexity sweeps, CI debugging, and resume tailoring. Stages run in parallel
 where the DAG allows, and human gates pause execution for approval before
 anything consequential.
@@ -175,9 +175,10 @@ agent or by day. Useful for finding which workflows are expensive.
 ./bin/telemetry summary
 ```
 
-Windows are `--since 7d` / `24h`, not a day count. This CLI is Click-based
-rather than argparse, so its flag parsing differs slightly from the others.
-`--format` takes `table|json|csv`.
+Windows are `--since 7d` / `24h`, not a day count. `--format` takes
+`table|json` on `sessions`; check `--help` for the per-subcommand set, which
+varies. (This CLI was Click-based until #341 ported it to argparse — it now
+parses flags like every other app here.)
 
 There is a live TUI behind an optional extra:
 

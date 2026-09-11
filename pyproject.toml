@@ -9,7 +9,6 @@ description = "Reconstituted personal assistants (mail, resume, schedule)"
 requires-python = ">=3.11"
 readme = "README.md"
 dependencies = [
-  "click==8.5.0",
   "cryptography==50.0.1",
   "rich==15.0.0",
   "PyYAML==6.0.3",
@@ -71,11 +70,13 @@ dev = [
   # What DOES block, both in CI and via make:
   #   typecheck-changed  — any new type error in a file the branch touched
   #   typecheck-ratchet  — any growth in a package's error count
-  # See bin/mypy_ratchet.py and typecheck-baseline.json. The baseline is 680
-  # across src/, tests/ and bin/, measured on Linux (the platform CI enforces
-  # on); macOS reports 684 because rumps is darwin-only, so the menubar tests
-  # are analysed there and not in CI. src/ alone is 445 on both, which is what
-  # the report-only target still measures.
+  # See bin/mypy_ratchet.py and typecheck-baseline.json — read the total from
+  # that file rather than from a comment, since it drops with every type-fixing
+  # PR (it has already run 680 -> 566 -> 371 -> 347). It is measured on Linux,
+  # the platform CI enforces on; macOS reports a few more because rumps is
+  # darwin-only, so the menubar tests are analysed there and not in CI. The
+  # report-only target measures src/ alone, a strictly smaller scope than the
+  # baseline's src/ + tests/ + bin/.
   #
   # Also declared because the open-pr workflow probes `.venv/bin/python -m mypy`
   # and, finding nothing, recorded the type gate as UNAVAILABLE on every run — a
@@ -141,7 +142,10 @@ exclude = [
   "src/workflow/models.py", "src/telemetry/otel/models.py",
 ]
 ignore_decorators = [
-  # Click CLI dispatch: framework invokes by registry, not direct call.
+  # CLIApp dispatch (src/core/cli_framework.py): the framework invokes these by
+  # registry, not by direct call. Named for Click historically; the telemetry
+  # Click port landed in #341 and no Click remains, but @app.command is still
+  # the CLIApp decorator across schedule/, wifi/ and others.
   "@*.command", "@*.group",
 ]
 ignore_names = [

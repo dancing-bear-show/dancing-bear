@@ -18,6 +18,29 @@ description: >
   same directory. Original files become thin re-export shims so external
   imports never break.
 
+  ⚠️ UNRESOLVED CONFLICT WITH PROJECT POLICY — read before running.
+
+  This workflow's default strategy is a thin re-export shim, but CLAUDE.md
+  lists "maintaining backwards-compatible wrappers for internal APIs" under
+  **Avoid**, and says to update all call sites instead. Those are flatly
+  incompatible, and nothing here documents an exemption.
+
+  Two further reasons to prefer workflows/shared/complexity-reduce.yaml for
+  anything driven by a complexity number:
+
+    - Splitting does not reduce total complexity. qlty's file score is a pure
+      SUM of per-function scores with no file-level term, so moving functions
+      out lowers the flagged path while leaving the sum unchanged -- and both
+      halves often stay flagged. PR #152 ran a split-based sweep and 20 of the
+      files it CREATED are flagged again today.
+    - `qlty check`'s S3776 findings are per-FUNCTION. Splitting a file does
+      nothing for them; only in-place reduction clears them.
+
+  Use this workflow when a file genuinely holds unrelated responsibilities and
+  the split is a design fix that happens to move score. Do not use it as the
+  default response to a high number, and resolve the shim conflict above with
+  the repo owner before adopting its shim strategy.
+
   Stage dependency graph:
 
     discover-candidates

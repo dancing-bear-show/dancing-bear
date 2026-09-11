@@ -142,9 +142,15 @@ class CapsuleEmitterTests(unittest.TestCase):
     CLIs gain commands, but a banner-only fallback can never approach this.
     """
 
-    # Domains whose capsule is built by a module-level agentic.py. Domains with
-    # no agentic.py (apple_music) legitimately emit only the banner.
-    CAPSULE_DOMAINS = ["calendars", "phone", "resume", "schedule", "whatsapp"]
+    # Domains whose capsule is built by a module-level agentic.py.
+    CAPSULE_DOMAINS = [
+        "apple_music",
+        "calendars",
+        "phone",
+        "resume",
+        "schedule",
+        "whatsapp",
+    ]
 
     # The banner is two short lines; every real capsule carries a commands
     # block or a CLI tree on top of it.
@@ -195,14 +201,20 @@ class CapsuleEmitterTests(unittest.TestCase):
         fallback, only running the real entry point can tell you which branch
         you got.
         """
+        # domain -> (entry module, relative import the emitter must use).
+        # The depth differs by CLI layout, and the failure message below quotes
+        # it: a cli/main.py package reaches the builder as `..agentic`, while a
+        # flat cli.py module reaches it as `.agentic`. Hardcoding one form sent
+        # maintainers to the wrong fix for the other.
         entry_points = {
-            "calendars": "calendars.cli.main",
-            "schedule": "schedule.cli.main",
-            "whatsapp": "whatsapp.cli.main",
-            "resume": "resume.cli.main",
-            "phone": "phone.cli.main",
+            "apple_music": ("apple_music.cli", ".agentic"),
+            "calendars": ("calendars.cli.main", "..agentic"),
+            "schedule": ("schedule.cli.main", "..agentic"),
+            "whatsapp": ("whatsapp.cli.main", "..agentic"),
+            "resume": ("resume.cli.main", "..agentic"),
+            "phone": ("phone.cli.main", "..agentic"),
         }
-        for domain, module_path in entry_points.items():
+        for domain, (module_path, expected_import) in entry_points.items():
             with self.subTest(domain=domain):
                 mod = importlib.import_module(module_path)
                 buf = io.StringIO()
@@ -218,7 +230,7 @@ class CapsuleEmitterTests(unittest.TestCase):
                     "the fallback banner: emit_func raised and "
                     "maybe_emit_agentic swallowed it. Check the relative "
                     "import depth in the CLI's agentic emitter -- from inside "
-                    f"{module_path} the builder is `..agentic`, not `.agentic`.",
+                    f"{module_path} the builder is `{expected_import}`.",
                 )
 
 

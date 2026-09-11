@@ -31,20 +31,20 @@ description: >
   Consequently every conformance check in this workflow asserts on CONTENT
   (byte counts, key sets, tree presence), never on exit codes alone.
 
-  Two shapes that look like gaps but are not, and must NOT be "fixed":
-    - telemetry is Click-based. It emits {app_id, commands, notes, prog,
-      purpose} instead of the argparse six, so it cannot satisfy rule A3 AS
-      LONG AS IT IS CLICK. Measured scope: 43 @click decorators, 38 options,
-      2 groups, 11 subcommands, click imported in 5 files, and only 4 of 79
-      telemetry test files using CliRunner.
-      When migrate_click is "false" (the default) telemetry keeps its A3/A6
-      exemptions and the conformance stages must NOT flag them as defects.
-      When migrate_click is "true" the G2b stream ports it to argparse and
-      retire-click-exemption then removes both carve-outs from the standard.
-    - charts, diagrams, sheets, slides, worker, workflow and apple_music
-      define no build_domain_map by design (minimal tier); telemetry is
-      minimal by shape too but is covered by the Click exemption. They are not
-      unadopted — the opt-out (EXPECT_DOMAIN_MAP=False) asserts GENUINE
+  RETIRED EXEMPTION — telemetry is no longer Click-based.
+    PR #341 ("port Click to argparse, completing CLI-standard conformance")
+    landed the migration. Verified 2026-09-11: zero `@click` decorators, zero
+    `click` imports and zero `CliRunner` uses remain anywhere in src/telemetry/
+    or tests/telemetry_tests/.
+    telemetry therefore has NO A3/A6 carve-out — hold it to the same rules as
+    every other argparse app, and treat an A3/A6 gap there as a real defect.
+    The `migrate_click` param below is retained only so existing invocations do
+    not break; it now has nothing left to migrate.
+
+  One shape that looks like a gap but is not, and must NOT be "fixed":
+    - charts, diagrams, sheets, slides, worker, workflow, apple_music and
+      telemetry define no build_domain_map by design (minimal tier). They are
+      not unadopted — the opt-out (EXPECT_DOMAIN_MAP=False) asserts GENUINE
       ABSENCE in both directions, so it cannot mask a deleted function.
 
   Note on prior remediation: apple_music's capsule was a 72-byte fallback
@@ -85,7 +85,14 @@ trigger:
     apps: "*"                  # comma-list of apps to include, or "*" for all
     tiers: "0,1,2,3"           # which standard tiers to enforce
     fix_source: "true"         # "false" = audit + test adoption only, no src/ edits
-    migrate_click: "false"     # "true" = also run the telemetry Click->argparse stream
+    # DEAD SWITCH — leave at "false". #341 already ported telemetry to argparse,
+    # so the five G2b stages this gates (capture-click-baseline,
+    # migrate-click-to-argparse, validate-click-equivalence,
+    # test-click-migration, retire-click-exemption) have nothing to migrate.
+    # Setting it "true" runs a migration stream against a CLI with no Click in
+    # it. The stages are kept for now rather than deleted -- that is a ~290-line
+    # structural change deserving its own PR -- but nothing should enable this.
+    migrate_click: "false"
     pr_title: "refactor(cli): bring all CLIs to the shared standard"
     # Declared here (not under include.params) because include.params is parsed
     # but NOT wired to substitution — see src/workflow/models.py IncludeSpec.params
@@ -95,9 +102,10 @@ trigger:
       Focus on whether the audit's conformance verdicts are trustworthy: does
       each check actually execute the app rather than read it, and would it
       survive the rc=0 fallback trap? Challenge any rule that asserts only an
-      exit code or only a first line. Also challenge the two claimed
-      exemptions (telemetry/Click, minimal-tier domains) — are they genuine
-      design variation, or unadopted abstractions being excused?
+      exit code or only a first line. Also challenge the remaining claimed
+      exemption (minimal-tier domains) — is it genuine design variation, or an
+      unadopted abstraction being excused? The telemetry/Click exemption was
+      retired with #341 and must not be reintroduced.
 
 workspace_dir: "{work_dir}/cli-standard-conformance"
 
@@ -182,9 +190,10 @@ stages:
             announces "apple-music-assistant".
           - separator_equivalent compares main(["--agentic"]) output to
             main(["--","--agentic"]) output for BYTE equality.
-          - Record telemetry's json_keys as-is. Do NOT mark its 5-key schema a
-            violation of A3 — record it as parser:"click" and let the plan
-            stage decide. Flagging it as a defect is a false positive.
+          - telemetry is argparse since #341 and has no A3 carve-out. Record
+            parser:"argparse" and hold its json_keys to the argparse six like
+            any other app; a 5-key schema there is a real A3 violation now, not
+            the false positive it was while the CLI was Click-based.
 
       Step 3 — determine contract adoption, PER FILE not per directory.
         Record, for each app, the exact LIST OF FILES that adopt each of
@@ -230,15 +239,19 @@ stages:
             not that the app is broken.
           - At least one app must report a capsule > 10KB (mail is by far the
             largest). If none does, the audit is truncating.
-          - Exactly one app should report parser:"click" (telemetry) with a
-            5-key schema; every other app should report 6 keys. If two or more
-            apps report a non-6 key set, investigate before proceeding.
+          - NO app should report parser:"click" — the last one (telemetry) was
+            ported in #341. Every app should report the argparse 6-key schema
+            {description, epilog, options, prog, subcommands, usage}. Any
+            non-6 key set, or any parser:"click", means investigate before
+            proceeding.
           - The AppMeta count must equal `ls src/*/meta.py | wc -l`. Run that
             command and compare — do not hardcode the number.
-          - Every CLIApp app (i.e. every app EXCEPT telemetry) must pass
-            separator_equivalent. telemetry is expected to FAIL it: Click never
-            routes through normalize_argv, so it returns rc=2 with 0 bytes.
-            Record that as an exemption, NOT a violation.
+          - EVERY CLIApp app must pass separator_equivalent, telemetry
+            included. It was exempt only while Click kept it out of
+            normalize_argv; since #341 it routes through the same path as the
+            rest. Measured 2026-09-11: main(["--agentic"]) and
+            main(["--","--agentic"]) both return rc=0 and are byte-identical.
+            A telemetry failure here is now a real violation, not an exemption.
 
         If a shape check fails, fix the AUDIT. If the shape checks pass but the
         violation list is shorter than you expected, that is a valid result —
@@ -307,10 +320,10 @@ stages:
 
       Deferral is a legitimate outcome. Explicitly mark as DEFERRED, with
       reasons, anything where the fix is riskier than the inconsistency:
-        - Converting telemetry from Click to argparse — DEFER ONLY when
-          migrate_click is "false". That work belongs to the G2b stream in
-          this same workflow, not to P1/P2/P3, and must never be attempted
-          inside a conformance fix package.
+        - (Historical) Converting telemetry from Click to argparse. #341
+          completed this, so there is nothing left to defer or migrate —
+          telemetry is a normal conformance candidate now. Do not reinstate a
+          Click deferral for it.
         - Changing any app's ANNOUNCED app_id — that is a public identifier.
           apple_music announces "apple-music-assistant"; check
           `./bin/llm inventory --stdout` and the llm dispatch registry before
