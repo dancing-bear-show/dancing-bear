@@ -903,6 +903,48 @@ class TestPlanNestedExplicitDestination(unittest.TestCase):
         self.assertEqual(envelope.status, "success")
         client.get_folder_path_map.assert_not_called()
 
+    def test_plan_folder_map_follows_the_payload_cache_policy(self):
+        """The folder map must not silently become cache-backed.
+
+        Regression: `get_folder_id_map` read folders live, but
+        `get_folder_path_map` is backed by the `folders_all` cache with a 600s
+        default TTL. Swapping to it made the plan cache-backed while ignoring
+        `payload.use_cache`, so a plan run just after a folder was created,
+        deleted or recreated could use a stale path→id map and disagree with the
+        sync it previews.
+
+        `use_cache` defaults to False, and the rules fetch already honours it,
+        so the folder map has to as well.
+
+        The bypass is a minimal positive ttl, not ttl=0 and not clear_cache:
+        `cfg_get_json` reads ttl=0 as "no expiry check" and serves an entry of
+        any age (core/cache.py:53), and clear_cache rmtree's the whole provider
+        cache directory (core/cache.py:86) — including the rules cache this
+        processor uses as its outage fallback.
+        """
+        for use_cache, expected_ttl in ((False, 1), (True, 600)):
+            with self.subTest(use_cache=use_cache):
+                client = _make_client(folder_path_map={"Security/Alerts": "real-sec-id"})
+                payload = OutlookRulesPlanPayload(
+                    client=client,
+                    config_path="/t.yaml",
+                    move_to_folders=True,
+                    use_cache=use_cache,
+                    cache_ttl=600,
+                )
+                filters = [{
+                    "match": {"from": "sec.example.net"},
+                    "action": {"add": ["Security/Alerts"], "moveToFolder": "Security/Alerts"},
+                }]
+                with patch("core.yamlio.load_config", return_value={"filters": filters}):
+                    envelope = OutlookRulesPlanProcessor().process(payload)
+
+                self.assertEqual(envelope.status, "success")
+                kwargs = client.get_folder_path_map.call_args.kwargs
+                self.assertEqual(expected_ttl, kwargs.get("ttl"))
+                # Never the blunt bypass: it would wipe the rules cache too.
+                self.assertFalse(kwargs.get("clear_cache", False))
+
     def test_plan_processor_requests_a_path_keyed_map(self):
         """The processor must source folder ids by path, as sync and sweep do.
 

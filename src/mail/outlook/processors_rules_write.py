@@ -229,11 +229,27 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
             # either way. Gating solely on move_to_folders left the map empty
             # under --categories-only, so plan fell back to the literal path
             # while apply used the Graph id.
-            folder_map = (
-                client.get_folder_path_map()
-                if payload.move_to_folders or _has_explicit_destination(desired)
-                else {}
-            )
+            # Follow the payload's cache policy, matching the rules fetch above
+            # (line 213) and the plan's fresh-by-default contract.
+            # `get_folder_id_map` read folders live, but `get_folder_path_map`
+            # is backed by the `folders_all` cache (600s default TTL), so
+            # swapping to it silently made the plan cache-backed: a plan run
+            # just after a folder was created, deleted or recreated would use a
+            # stale path→id map and disagree with the sync it previews.
+            #
+            # Two traps in how the bypass is spelled:
+            #   ttl=0 is NOT "no cache" — `cfg_get_json` reads it as "no expiry
+            #     check" and returns an entry of any age (core/cache.py:53),
+            #     which would make staleness worse rather than better.
+            #   clear_cache=True calls `cfg_clear()`, which rmtree's the whole
+            #     provider cache directory (core/cache.py:86) — including the
+            #     rules cache this processor relies on as its outage fallback.
+            #     Far too blunt for a read-only plan.
+            # A minimal positive ttl expires any stale entry by age and forces a
+            # live refetch, without deleting anything else.
+            folder_ttl = payload.cache_ttl if payload.use_cache else 1
+            need_folders = payload.move_to_folders or _has_explicit_destination(desired)
+            folder_map = client.get_folder_path_map(ttl=folder_ttl) if need_folders else {}
 
             plan_items = self._build_plan_items(
                 desired, existing_keys, name_to_id, folder_map, payload.move_to_folders
