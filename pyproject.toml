@@ -207,6 +207,36 @@ ignore_names = [
   # __getattr__: PEP 562 module-level __getattr__ for lazy attribute access;
   #   the import system calls it, not any code in this repo.
   "__getattr__",
+  # Protocol self-types (`def m(self: "_FoldersHost")`): each declares the
+  #   combined cross-mixin surface a mixin's methods need from their host
+  #   class. They are referenced only inside string annotations, which vulture
+  #   does not resolve, so every one reads as an unused class. Deleting any
+  #   breaks mypy, not runtime — which is exactly why they exist.
+  "_FoldersHost", "_LabelsHost", "_OutlookMailHost",
+  "_ContentHost", "_ImageHost", "_ShapeUtilsHost", "_TableHost",
+  "_QueueHost",
+  # github: read via a string-keyed loop over ("website", "linkedin",
+  #   "github") in docx_base.py:405 and docx_writer.py:94, not by attribute
+  #   access. Its two siblings escape detection only because the PDF/text
+  #   parsers also assign them by name; the same dict-key blind spot as
+  #   old_from and due_at above.
+  "github",
+  # html.parser.HTMLParser overrides in a vendored-BeautifulSoup stand-in
+  #   (tests/calendars_tests/importer/test_rh_vendor_bs4_paths.py): the base
+  #   class's feed() dispatches to them, nothing calls them by name.
+  "handle_starttag", "handle_endtag", "handle_data",
+  # discovery: attribute set on a MagicMock standing in for the
+  #   googleapiclient module, read by the code under test as
+  #   googleapiclient.discovery.build.
+  "discovery",
+  # unittest.TestCase subclasses discovered and run by the test loader, never
+  #   referenced by name. Only these two are flagged because they sit in a
+  #   module whose other classes are referenced from its own helpers.
+  "SubprocessEnvironment", "InvocationParsing",
+  # function: parameter name on a Protocol's addCleanup stub
+  #   (tests/worker_tests/helpers.py:22). It must match unittest.TestCase's
+  #   real signature; the stub body is `...`, so the binding is never read.
+  "function",
   # python-pptx object protocol attributes set on Mock/stub objects in tests.
   # The code under test reads these via the python-pptx object model; setting
   # them on MagicMock satisfies the attribute lookup at test time.
