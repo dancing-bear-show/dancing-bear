@@ -199,6 +199,32 @@ def _apply_move_to_folders(out_specs: list[dict]) -> None:
             spec["action"] = a
 
 
+def _drop_actionless_specs(out_specs: list[dict]) -> list[dict]:
+    """Drop derived specs whose action ended up empty.
+
+    Suppressing a derived destination can leave nothing behind: an archive-only
+    ``keepInInbox`` rule (``remove: [INBOX]`` and the marker, no category or
+    forward) has its Archive move suppressed and no other action to keep. The
+    spec still carries criteria, so ``OutlookRulesSyncProcessor`` would treat it
+    as a rule and call ``create_filter(criteria, {})`` — and ``create_filter``
+    sets ``stopProcessingRules: True`` unconditionally
+    (``core/outlook/_mail_labels.py:202``). That creates a rule which matches
+    mail, does nothing, and halts every later inbox rule.
+
+    Omitting the rule is what the directive actually asks for: the mail stays in
+    the inbox untouched, which is the same outcome with no rule at all. Gmail is
+    unaffected — its output is a pass-through of the source filters, and the
+    ``remove`` directive there is still honoured.
+    """
+    kept = []
+    for spec in out_specs:
+        action = spec.get("action") or {}
+        if not action:
+            continue
+        kept.append(spec)
+    return kept
+
+
 class DeriveFiltersProcessor(SafeProcessor[DeriveFiltersRequest, DeriveFiltersResult]):
     def _process_safe(self, payload: DeriveFiltersRequest) -> DeriveFiltersResult:
         from core.yamlio import load_config, dump_config
@@ -223,6 +249,7 @@ class DeriveFiltersProcessor(SafeProcessor[DeriveFiltersRequest, DeriveFiltersRe
         # Unconditional: neither branch above runs when both flags are off, and
         # keepInInbox is an input directive that must never reach the provider.
         _strip_keep_in_inbox(out_specs)
+        out_specs = _drop_actionless_specs(out_specs)
 
         out_o = Path(payload.out_outlook)
         out_o.parent.mkdir(parents=True, exist_ok=True)

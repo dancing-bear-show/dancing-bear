@@ -1022,6 +1022,84 @@ class TestSweepHonoursKeepInInboxEndToEnd(unittest.TestCase):
         self.assertEqual(2, client.move_message.call_count)
 
 
+class TestSyncNeverCreatesAnActionlessRule(unittest.TestCase):
+    """Derive must not hand sync a spec that becomes `create_filter(crit, {})`.
+
+    `create_filter` sets `stopProcessingRules: True` unconditionally
+    (`core/outlook/_mail_labels.py:202`), so an empty action produces a rule
+    that matches mail, does nothing, and halts every later inbox rule.
+
+    This is the sync-side half of the derive fix: the derive test asserts the
+    actionless spec is omitted, and this one asserts what would happen if it
+    ever reached sync again.
+    """
+
+    def _derive(self, yaml_text: str, archive: bool) -> list[dict]:
+        import tempfile
+
+        import yaml as _yaml
+
+        from mail.config_cli.pipeline_derive import (
+            DeriveFiltersProcessor,
+            DeriveFiltersRequest,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            ip = Path(td) / "in.yaml"
+            ip.write_text(yaml_text)
+            og, oo = Path(td) / "g.yaml", Path(td) / "o.yaml"
+            res = DeriveFiltersProcessor().process(
+                DeriveFiltersRequest(
+                    in_path=str(ip),
+                    out_gmail=str(og),
+                    out_outlook=str(oo),
+                    outlook_archive_on_remove_inbox=archive,
+                )
+            )
+            self.assertTrue(res.ok(), "derive step failed")
+            return _yaml.safe_load(oo.read_text())["filters"]
+
+    ARCHIVE_ONLY = (
+        "filters:\n"
+        "  - match:\n"
+        "      from: grafana.com\n"
+        "    action:\n"
+        "      keepInInbox: true\n"
+        "      remove: [INBOX]\n"
+    )
+
+    def test_archive_only_keep_in_inbox_creates_no_rule(self):
+        """End to end: derive omits it, so sync creates nothing."""
+        specs = self._derive(self.ARCHIVE_ONLY, archive=True)
+        client = _make_client()
+        payload = OutlookRulesSyncPayload(
+            client=client, config_path="/t.yaml", dry_run=False, move_to_folders=True
+        )
+        with patch("core.yamlio.load_config", return_value={"filters": specs}):
+            envelope = OutlookRulesSyncProcessor().process(payload)
+
+        self.assertEqual(envelope.status, "success")
+        client.create_filter.assert_not_called()
+
+    def test_an_empty_action_spec_would_be_an_actionless_rule(self):
+        """Guard the invariant directly, independent of the derive step.
+
+        If a spec with criteria and an empty action ever reaches sync again,
+        this documents the consequence: `create_filter` is called with `{}`.
+        """
+        client = _make_client()
+        payload = OutlookRulesSyncPayload(
+            client=client, config_path="/t.yaml", dry_run=False, move_to_folders=True
+        )
+        specs = [{"match": {"from": "grafana.com"}, "action": {}}]
+        with patch("core.yamlio.load_config", return_value={"filters": specs}):
+            OutlookRulesSyncProcessor().process(payload)
+
+        self.assertEqual(1, client.create_filter.call_count)
+        _criteria, action = client.create_filter.call_args.args
+        self.assertEqual({}, action, "documents why derive must not emit this")
+
+
 class TestSweepCategoriesOnlyExplicitDestination(unittest.TestCase):
     """`sweep --dry-run` must report what the live run will actually do.
 

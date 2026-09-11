@@ -297,8 +297,72 @@ class DeriveFiltersTests(TestCase):
 
             import yaml
 
-            action = yaml.safe_load(out_outlook.read_text())["filters"][0]["action"]
-            self.assertNotIn("moveToFolder", action)
+            # No Archive destination is derived. With no other action to keep,
+            # the rule is omitted entirely rather than emitted with an empty
+            # action — see
+            # test_derive_filters_omits_an_actionless_archive_only_rule for why
+            # an actionless spec must not reach sync. Asserting on the whole
+            # list keeps this test honest about that outcome instead of indexing
+            # a spec that is correctly no longer there.
+            outlook = yaml.safe_load(out_outlook.read_text())["filters"]
+            self.assertEqual([], outlook)
+
+    def test_derive_filters_omits_an_actionless_archive_only_rule(self):
+        """Suppressing the only action must omit the rule, not emit an empty one.
+
+        Regression: an archive-only `keepInInbox` rule has its Archive move
+        suppressed and nothing else to keep, leaving `action: {}`. The spec still
+        carried criteria, so `OutlookRulesSyncProcessor` treated it as a rule and
+        called `create_filter(criteria, {})` — and `create_filter` sets
+        `stopProcessingRules: True` unconditionally
+        (`core/outlook/_mail_labels.py:202`). That is a rule which matches mail,
+        does nothing, and halts every later inbox rule.
+
+        Omitting it is what the directive asks for: the mail stays in the inbox
+        untouched, identical to having no rule at all.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            in_path = Path(tmpdir) / "filters.yaml"
+            in_path.write_text(
+                "filters:\n"
+                "  - match:\n"
+                "      from: grafana.com\n"
+                "    action:\n"
+                "      keepInInbox: true\n"
+                "      remove: [INBOX]\n"
+                "  - match:\n"
+                "      from: shop.example.com\n"
+                "    action:\n"
+                "      add: [Lists/Commercial]\n"
+                "      remove: [INBOX]\n"
+            )
+            out_gmail = Path(tmpdir) / "gmail.yaml"
+            out_outlook = Path(tmpdir) / "outlook.yaml"
+
+            result = DeriveFiltersProcessor().process(
+                DeriveFiltersRequest(
+                    in_path=str(in_path),
+                    out_gmail=str(out_gmail),
+                    out_outlook=str(out_outlook),
+                    outlook_archive_on_remove_inbox=True,
+                )
+            )
+            self.assertTrue(result.ok())
+
+            import yaml
+
+            outlook = yaml.safe_load(out_outlook.read_text())["filters"]
+            senders = [f["match"]["from"] for f in outlook]
+            self.assertNotIn("grafana.com", senders, "actionless rule must be omitted")
+            # The rule that still has an action survives — this is a targeted
+            # drop, not "keepInInbox removes rules".
+            self.assertIn("shop.example.com", senders)
+            self.assertEqual(1, len(outlook))
+
+            # Gmail is a pass-through, so the source rule is untouched there and
+            # its `remove: [INBOX]` is still honoured.
+            gmail = yaml.safe_load(out_gmail.read_text())["filters"]
+            self.assertEqual(2, len(gmail))
 
     def test_derive_filters_keep_in_inbox_survives_a_dropped_entry(self):
         """A dropped entry ahead of a marked rule must not misalign the lookup.
