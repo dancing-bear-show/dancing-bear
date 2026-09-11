@@ -342,11 +342,18 @@ stages:
                shell quoting.  Reading it from a file removes the shell from
                the path entirely.
 
-                 Write /tmp/candidate-template.txt  <- the path, one line
+                 Write {workspace}/outputs/candidate-template.txt
+                   <- the candidate path, one line, nothing else
+
+               Use the WORKSPACE, never a fixed /tmp name.  {workspace} is
+               per-run, so concurrent claims runs cannot overwrite each
+               other's candidate, and it is not a world-writable directory
+               where another process can swap the file (or replace it with a
+               symlink) between the write and the read.
 
                PYTHONPATH="$(pwd)/src" .venv/bin/python -c "
                import pathlib, re, fitz
-               cand = pathlib.Path('/tmp/candidate-template.txt').read_text().strip()
+               cand = pathlib.Path('{workspace}/outputs/candidate-template.txt').read_text().strip()
                if not cand or not pathlib.Path(cand).is_file():
                    raise SystemExit(f'REJECT: not a file: {cand!r}')
                d = fitz.open(cand)
@@ -383,8 +390,17 @@ stages:
                                     'data pattern(s) -- not a blank template')
                print('BLANK OK')"
 
-             Pass the path via the TEMPLATE environment variable, never by
-             interpolating it into the command text.
+             On BLANK OK, record that exact path as blank_template_path in
+             your manifest.  verify reads it from there rather than searching
+             again -- re-discovering a template in a later stage could pick a
+             different file than the one validated here, which would make the
+             approval meaningless.
+
+             The path reaches Python through that workspace file only.  Do
+             not pass it via a TEMPLATE environment variable and do not
+             interpolate it into the command text: resolve_params does a
+             plain str.replace with no shell quoting, so a path containing a
+             quote, $() or a backtick would execute.
 
              THE PATTERNS ARE A BACKSTOP, NOT A GUARANTEE.  They cannot
              enumerate every way personal data can appear -- a form whose
@@ -471,6 +487,7 @@ stages:
             "existing_pdf_forms_tests": "PASS|FAIL",
             "tests_rewritten_in_core": [],
             "shipped_form_equivalence": "PASS|FAIL|SKIPPED -- <reason>",
+            "blank_template_path": null,
             "da_mismatches": []
           }
 
@@ -1090,10 +1107,22 @@ stages:
                  assert ratio < 0.99 (a blank region returns exactly 1.0)
              - the PNG decodes and its dimensions match the requested clip
 
-        If no blank template was available, record
-        packet_render_check: "SKIPPED -- no blank template" and say so in the
-        manifest.  Do NOT substitute a receipt render and call it a packet
-        check -- that is the substitution this step exists to prevent.
+        Take the template from blank_template_path in
+        {workspace}/outputs/font-size-migration.json -- the SAME approved
+        template migrate-font-sizes validated.  Do NOT search for one, and do
+        NOT substitute a receipt render and call it a packet check; that is
+        the substitution this step exists to prevent.
+
+        If blank_template_path is null, record
+        packet_render_check: "SKIPPED -- no approved blank template".
+
+        In practice that branch is rare: migrate-font-sizes reports status
+        failed when no approved template is found, and the orchestrator skips
+        downstream stages of a failed required stage, so verify usually will
+        not run at all in that case.  The branch stays because a human can
+        resume a halted run after supplying a template, and because a stage
+        that silently assumes its input exists is how a null path becomes a
+        confusing traceback three steps later.
 
         Report byte counts and page counts only -- never log PDF content or
         field values.
