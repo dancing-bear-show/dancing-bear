@@ -334,7 +334,7 @@ stages:
     outputs:
       - name: plan
         mode: generate
-        description: plan.md and work-packages.json with four disjoint packages.
+        description: plan.md and work-packages.json with three disjoint packages.
     required: true
     writes_to:
       - design/plan.md
@@ -418,14 +418,8 @@ stages:
       build a parser-agnostic base mixin.)
 
       Touch ONLY tests/ files.
-        Extract A1/A2/A5 (announces itself, clears MIN_CAPSULE_BYTES, compacts
-        smaller) into a parser-agnostic base mixin. Keep A3/A4 (the exact
-        six-key argparse schema) in a subclass that today's adopters use
-        unchanged. Existing adopters MUST keep their current assertions —
-        this is a refactor of the contract, not a relaxation of it.
-        Then adopt the base mixin in telemetry's test file.
 
-      P2 second — adopt the contracts where missing.
+      P2 — adopt the contracts where missing.
         Read every contract file in tests/ first; match their docstring and
         comment style exactly.
 
