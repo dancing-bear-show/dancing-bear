@@ -111,8 +111,10 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
     ) -> tuple[str, bool] | None:
         """Build criteria/action/key for one spec and create it if missing.
 
-        Returns (key, was_created) for specs with valid criteria, or None to skip
-        (invalid criteria, so no key is contributed to the desired-keys set).
+        Returns (key, was_created) for specs with valid criteria and a real
+        action, or None to skip — no key is contributed to the desired-keys set
+        in that case, so `--delete-missing` does not treat a skipped spec as
+        something to preserve.
         """
         m = spec.get("match") or {}
         a_act = spec.get("action") or {}
@@ -121,6 +123,19 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
             return None
 
         action = _build_rule_action(a_act, ctx)
+        # Guard the BUILT action, not the source spec. `create_filter` sets
+        # `stopProcessingRules: True` unconditionally
+        # (core/outlook/_mail_labels.py:202), so an empty action becomes a rule
+        # that matches mail, does nothing, and halts every later inbox rule.
+        #
+        # Derive drops such specs (`_drop_actionless_specs`), but `rules.sync`
+        # also accepts the RAW unified config directly, where nothing has run
+        # that filter — a `keepInInbox` + `remove: [INBOX]` rule with no
+        # category normalizes to `action: {}` and arrived here intact. Checking
+        # the built action covers both config shapes, and anything else that
+        # empties an action on the way in.
+        if not action:
+            return None
         key = _create_rule_key(criteria, action)
         if key in existing:
             return key, False
@@ -229,43 +244,32 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
             # either way. Gating solely on move_to_folders left the map empty
             # under --categories-only, so plan fell back to the literal path
             # while apply used the Graph id.
-            # Follow the payload's cache policy, matching the rules fetch above
-            # (line 213) and the plan's fresh-by-default contract.
-            # `get_folder_id_map` read folders live, but `get_folder_path_map`
-            # is backed by the `folders_all` cache (600s default TTL), so
-            # swapping to it silently made the plan cache-backed: a plan run
-            # just after a folder was created, deleted or recreated would use a
-            # stale path→id map and disagree with the sync it previews.
+            # Call it exactly as sync does (line 83) — no ttl argument — so the
+            # preview resolves destinations the same way the apply will.
             #
-            # Match the folder-map policy sync uses, so the preview resolves
-            # destinations the same way the apply will.
+            # `--use-cache` / `--cache-ttl` exist on plan but not on sync, and
+            # they are about the *rules* fetch (honoured at line 213). Threading
+            # them into the folder map made `rules.plan --cache-ttl 1` read a
+            # fresher map than the apply, which reintroduces the plan/sync rule
+            # key divergence those flags have nothing to do with.
             #
-            # Sync (line 83) calls `get_folder_path_map()` with its 600s default
-            # and has no `use_cache` field at all, and `_build_rule_action`
-            # consults that cached map *before* falling back to
-            # `ensure_folder_path` (processors_rules_helpers.py:86). So sync is
-            # itself cache-backed: a plan that reads fresher folders than sync
-            # does would disagree with it, which is the opposite of the goal.
+            # Sync is itself cache-backed: `get_folder_path_map()` defaults to a
+            # 600s TTL on the `folders_all` cache, and `_build_rule_action`
+            # consults that map *before* falling back to `ensure_folder_path`
+            # (processors_rules_helpers.py:86). Matching it is the goal; reading
+            # fresher than it is the bug.
             #
-            # There is no clean per-key bypass to reach for instead. Verified
-            # against core/cache.py rather than assumed:
-            #   ttl=0  — the `ttl > 0` guard is skipped, so an entry of ANY age
-            #            is served.
-            #   ttl<0  — same guard, same outcome; not a bypass either.
-            #   ttl=1  — only expires entries older than a second, leaving a
-            #            sub-second race, and diverging from sync the rest of
-            #            the time.
-            #   clear_cache=True — `cfg_clear()` rmtree's the whole provider
-            #            cache directory (core/cache.py:86), including the rules
-            #            cache this processor uses as its outage fallback.
-            #
-            # `use_cache=False` therefore means "do not reuse the *rules* cache"
-            # (honoured at line 213); the residual folder-cache staleness is
-            # shared with sync by construction, and `--clear-cache` on sweep is
-            # the existing escape hatch when folders have just changed.
-            folder_ttl = payload.cache_ttl
+            # There is no clean per-key bypass to reach for instead — verified
+            # against core/cache.py rather than assumed: `ttl=0` and any
+            # negative ttl skip the `ttl > 0` guard and serve an entry of any
+            # age, and `clear_cache=True` rmtree's the whole provider cache
+            # directory (core/cache.py:86) including the rules cache used here
+            # as an outage fallback. The residual folder staleness is therefore
+            # shared with sync by construction; closing it needs identical
+            # folder-cache controls plumbed through both commands, which is a
+            # CLI change beyond this fix.
             need_folders = payload.move_to_folders or _has_explicit_destination(desired)
-            folder_map = client.get_folder_path_map(ttl=folder_ttl) if need_folders else {}
+            folder_map = client.get_folder_path_map() if need_folders else {}
 
             plan_items = self._build_plan_items(
                 desired, existing_keys, name_to_id, folder_map, payload.move_to_folders

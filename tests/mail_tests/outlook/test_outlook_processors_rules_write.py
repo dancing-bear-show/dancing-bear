@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch
 
 from mail.outlook.processors_rules_write import (
     OutlookRulesSyncProcessor,
+    OutlookRulesSyncResult,
     OutlookRulesPlanProcessor,
     OutlookRulesPlanResult,
     OutlookRulesSweepProcessor,
@@ -130,7 +131,7 @@ class TestCreateRuleIfNewApplyPath(unittest.TestCase):
 
         proc = OutlookRulesSyncProcessor()
         result = proc._create_rule_if_new(
-            spec={"match": {"from": "news@example.com"}, "action": {}},
+            spec={"match": {"from": "news@example.com"}, "action": {"forward": "x@example.com"}},
             existing={},
             ctx=ctx,
             dry_run=False,
@@ -148,7 +149,7 @@ class TestCreateRuleIfNewApplyPath(unittest.TestCase):
 
         proc = OutlookRulesSyncProcessor()
         result = proc._create_rule_if_new(
-            spec={"match": {"from": "spam@example.com"}, "action": {}},
+            spec={"match": {"from": "spam@example.com"}, "action": {"forward": "x@example.com"}},
             existing={},
             ctx=ctx,
             dry_run=False,
@@ -173,7 +174,7 @@ class TestCreateDesiredRulesSkipInvalid(unittest.TestCase):
         mock_load.return_value = {"filters": []}
         mock_norm.return_value = [
             {"match": {}, "action": {}},                             # invalid — no criteria
-            {"match": {"from": "valid@example.com"}, "action": {}},  # valid
+            {"match": {"from": "valid@example.com"}, "action": {"forward": "x@example.com"}},  # valid
         ]
 
         client = _make_client(list_filters=[])
@@ -190,8 +191,8 @@ class TestCreateDesiredRulesSkipInvalid(unittest.TestCase):
         """Two valid new specs both count as created; loop iterates twice with was_created=True."""
         mock_load.return_value = {"filters": []}
         mock_norm.return_value = [
-            {"match": {"from": "first@example.com"}, "action": {}},
-            {"match": {"from": "second@example.com"}, "action": {}},
+            {"match": {"from": "first@example.com"}, "action": {"forward": "x@example.com"}},
+            {"match": {"from": "second@example.com"}, "action": {"forward": "y@example.com"}},
         ]
 
         client = _make_client(list_filters=[])
@@ -913,23 +914,30 @@ class TestPlanNestedExplicitDestination(unittest.TestCase):
         plan reading *fresher* folders than sync would disagree with the apply
         it previews — the opposite of what a preview is for.
 
-        An earlier attempt passed `ttl=1` to force freshness. That both left a
-        sub-second race and diverged from sync the rest of the time. Verified
-        against core/cache.py: `ttl=0` and any negative ttl skip the `ttl > 0`
-        guard and serve an entry of any age, and `clear_cache=True` rmtree's the
-        whole provider cache directory including the rules cache this processor
-        relies on as its outage fallback. There is no clean per-key bypass, so
-        matching sync is the correct target rather than out-freshing it.
+        Two earlier attempts got this wrong. Passing `ttl=1` to force freshness
+        left a sub-second race and diverged from sync the rest of the time.
+        Passing `payload.cache_ttl` then let `rules.plan --cache-ttl 1` read a
+        fresher map than the apply — and those flags are about the *rules*
+        fetch, not folders; `rules.sync` has no cache flags at all.
+
+        So the call takes NO cache arguments: identical to sync's. Verified
+        against core/cache.py that no clean per-key bypass exists either —
+        `ttl=0` and any negative ttl skip the `ttl > 0` guard and serve an entry
+        of any age, and `clear_cache=True` rmtree's the whole provider cache
+        directory including the rules cache used here as an outage fallback.
+
+        `cache_ttl` is varied across subtests precisely to prove it does NOT
+        reach this call.
         """
-        for use_cache in (False, True):
-            with self.subTest(use_cache=use_cache):
+        for use_cache, cache_ttl in ((False, 600), (True, 600), (False, 1)):
+            with self.subTest(use_cache=use_cache, cache_ttl=cache_ttl):
                 client = _make_client(folder_path_map={"Security/Alerts": "real-sec-id"})
                 payload = OutlookRulesPlanPayload(
                     client=client,
                     config_path="/t.yaml",
                     move_to_folders=True,
                     use_cache=use_cache,
-                    cache_ttl=600,
+                    cache_ttl=cache_ttl,
                 )
                 filters = [{
                     "match": {"from": "sec.example.net"},
@@ -939,10 +947,9 @@ class TestPlanNestedExplicitDestination(unittest.TestCase):
                     envelope = OutlookRulesPlanProcessor().process(payload)
 
                 self.assertEqual(envelope.status, "success")
-                kwargs = client.get_folder_path_map.call_args.kwargs
-                self.assertEqual(600, kwargs.get("ttl"), "must match sync's default")
-                # Never the blunt bypass: it would wipe the rules cache too.
-                self.assertFalse(kwargs.get("clear_cache", False))
+                call = client.get_folder_path_map.call_args
+                self.assertEqual((), call.args, "no positional cache args")
+                self.assertEqual({}, call.kwargs, "must call exactly as sync does")
 
     def test_plan_processor_requests_a_path_keyed_map(self):
         """The processor must source folder ids by path, as sync and sweep do.
@@ -1122,11 +1129,20 @@ class TestSyncNeverCreatesAnActionlessRule(unittest.TestCase):
         self.assertEqual(envelope.status, "success")
         client.create_filter.assert_not_called()
 
-    def test_an_empty_action_spec_would_be_an_actionless_rule(self):
-        """Guard the invariant directly, independent of the derive step.
+    def test_sync_skips_an_empty_action_spec_from_any_source(self):
+        """Sync guards the built action itself, not just derive's output.
 
-        If a spec with criteria and an empty action ever reaches sync again,
-        this documents the consequence: `create_filter` is called with `{}`.
+        This started as documentation of the hazard — it asserted that an empty
+        action DID reach `create_filter`, to explain why derive must not emit
+        one. That was not enough: `rules.sync` also accepts the RAW unified
+        config, where `_drop_actionless_specs` never runs, so a
+        `keepInInbox` + `remove: [INBOX]` rule with no category arrived here
+        intact and created the stop-processing no-op rule anyway.
+
+        `_create_rule_if_new` now returns None on an empty built action, which
+        covers both config shapes and anything else that empties an action on
+        the way in. The spec contributes no key either, so `--delete-missing`
+        does not treat a skipped spec as one to preserve.
         """
         client = _make_client()
         payload = OutlookRulesSyncPayload(
@@ -1134,11 +1150,49 @@ class TestSyncNeverCreatesAnActionlessRule(unittest.TestCase):
         )
         specs = [{"match": {"from": "grafana.com"}, "action": {}}]
         with patch("core.yamlio.load_config", return_value={"filters": specs}):
-            OutlookRulesSyncProcessor().process(payload)
+            envelope = OutlookRulesSyncProcessor().process(payload)
 
-        self.assertEqual(1, client.create_filter.call_count)
+        self.assertEqual(envelope.status, "success")
+        client.create_filter.assert_not_called()
+        result = envelope.payload
+        self.assertIsNotNone(result)
+        self.assertEqual(0, cast(OutlookRulesSyncResult, result).created)
+
+    def test_sync_skips_a_raw_archive_only_keep_in_inbox_rule(self):
+        """The raw-config path, end to end: no rule created.
+
+        Regression: derive drops the actionless spec, but `rules.sync --config`
+        on the documented unified YAML skips derive entirely. Verified before
+        the fix — this exact input produced `create_filter(criteria, {})`.
+        """
+        client = _make_client()
+        payload = OutlookRulesSyncPayload(
+            client=client, config_path="/t.yaml", dry_run=False, move_to_folders=True
+        )
+        raw = [{
+            "match": {"from": "grafana.com"},
+            "action": {"keepInInbox": True, "remove": ["INBOX"]},
+        }]
+        with patch("core.yamlio.load_config", return_value={"filters": raw}):
+            envelope = OutlookRulesSyncProcessor().process(payload)
+
+        self.assertEqual(envelope.status, "success")
+        client.create_filter.assert_not_called()
+
+    def test_sync_still_creates_a_rule_with_a_real_action(self):
+        """Contrast: the guard must not suppress rules that do something."""
+        client = _make_client(name_to_id={"Tech/Grafana": "cat-graf"})
+        payload = OutlookRulesSyncPayload(
+            client=client, config_path="/t.yaml", dry_run=False, move_to_folders=False
+        )
+        specs = [{"match": {"from": "grafana.com"}, "action": {"add": ["Tech/Grafana"]}}]
+        with patch("core.yamlio.load_config", return_value={"filters": specs}):
+            envelope = OutlookRulesSyncProcessor().process(payload)
+
+        self.assertEqual(envelope.status, "success")
+        client.create_filter.assert_called_once()
         _criteria, action = client.create_filter.call_args.args
-        self.assertEqual({}, action, "documents why derive must not emit this")
+        self.assertEqual(["cat-graf"], action["addLabelIds"])
 
 
 class TestSweepCategoriesOnlyExplicitDestination(unittest.TestCase):
