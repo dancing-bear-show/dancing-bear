@@ -10,6 +10,7 @@ Targets the following uncovered paths (as of 75.2% baseline):
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from typing import cast
 from unittest.mock import MagicMock, patch
 
@@ -749,6 +750,103 @@ class TestPlanProcessorHonoursNoMoveToFolder(unittest.TestCase):
         comm = next(i for i in items if "shop.example.com" in i)
         self.assertNotIn("moveToFolderId", graf)
         self.assertIn("moveToFolderId", comm)
+
+
+class TestSweepHonoursKeepInInboxEndToEnd(unittest.TestCase):
+    """Real derive output through the real sweep processor, NOT dry-run.
+
+    The helper-level tests mock the action spec directly. This one derives it
+    from a unified config, so it covers the derive->sweep seam where the marker
+    could be lost or overridden, and asserts on `move_message` — the call that
+    actually takes mail out of the inbox — rather than on a resolved folder ID.
+
+    Non-dry-run on purpose: `_resolve_destination_folder` branches on `dry_run`,
+    so a dry-run-only test leaves the live path unproven.
+    """
+
+    def _derive_outlook_action(self, yaml_text: str, archive: bool) -> dict:
+        import tempfile
+
+        import yaml as _yaml
+
+        from mail.config_cli.pipeline_derive import (
+            DeriveFiltersProcessor,
+            DeriveFiltersRequest,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            ip = Path(td) / "in.yaml"
+            ip.write_text(yaml_text)
+            og, oo = Path(td) / "g.yaml", Path(td) / "o.yaml"
+            res = DeriveFiltersProcessor().process(
+                DeriveFiltersRequest(
+                    in_path=str(ip),
+                    out_gmail=str(og),
+                    out_outlook=str(oo),
+                    outlook_archive_on_remove_inbox=archive,
+                    outlook_move_to_folders=not archive,
+                )
+            )
+            self.assertTrue(res.ok(), "derive step failed")
+            doc = _yaml.safe_load(oo.read_text())
+        return doc["filters"][0]
+
+    def _sweep(self, spec: dict) -> MagicMock:
+        client = _make_client(folder_path_map={"Tech/Grafana": "fid-graf", "Archive": "fid-arch"})
+        client.ensure_folder_path.return_value = "fid-arch"
+        client.search_inbox_messages.return_value = ["m1", "m2"]
+        payload = OutlookRulesSweepPayload(
+            client=client,
+            config_path="/t.yaml",
+            dry_run=False,
+            move_to_folders=True,
+        )
+        with patch("core.yamlio.load_config", return_value={"filters": [spec]}):
+            envelope = OutlookRulesSweepProcessor().process(payload)
+        self.assertEqual(envelope.status, "success")
+        return client
+
+    KEEP_PLUS_REMOVE = (
+        "filters:\n"
+        "  - match:\n"
+        "      from: grafana.com\n"
+        "    action:\n"
+        "      add: [Tech/Grafana]\n"
+        "      keepInInbox: true\n"
+        "      remove: [INBOX]\n"
+    )
+
+    UNMARKED_REMOVE = (
+        "filters:\n"
+        "  - match:\n"
+        "      from: shop.example.com\n"
+        "    action:\n"
+        "      add: [Lists/Commercial]\n"
+        "      remove: [INBOX]\n"
+    )
+
+    def test_sweep_does_not_move_keep_in_inbox_rule(self):
+        """keepInInbox + move_to_folders: sweep must not move anything."""
+        spec = self._derive_outlook_action(self.KEEP_PLUS_REMOVE, archive=False)
+        client = self._sweep(spec)
+        client.move_message.assert_not_called()
+
+    def test_sweep_does_not_move_keep_in_inbox_rule_under_archive_flag(self):
+        """Same, with --outlook-archive-on-remove-inbox.
+
+        Regression: the archive branch set `moveToFolder: Archive` without
+        checking the marker, and every consumer prioritises an explicit
+        destination — so the sweep moved mail to Archive despite keepInInbox.
+        """
+        spec = self._derive_outlook_action(self.KEEP_PLUS_REMOVE, archive=True)
+        client = self._sweep(spec)
+        client.move_message.assert_not_called()
+
+    def test_sweep_still_moves_unmarked_rule_under_archive_flag(self):
+        """Contrast: an unmarked remove:[INBOX] rule must still be archived."""
+        spec = self._derive_outlook_action(self.UNMARKED_REMOVE, archive=True)
+        client = self._sweep(spec)
+        self.assertEqual(2, client.move_message.call_count)
 
 
 if __name__ == "__main__":

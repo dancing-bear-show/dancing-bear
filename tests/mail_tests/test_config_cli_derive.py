@@ -203,14 +203,26 @@ class DeriveFiltersTests(TestCase):
             # The internal marker IS present so the plan/sweep stage can honour it.
             self.assertTrue(action.get("noMoveToFolder"))
 
-    def test_derive_filters_keep_in_inbox_stripped_on_archive_path(self):
-        """The archive branch also converts the keepInInbox marker to noMoveToFolder.
+    def test_derive_filters_keep_in_inbox_beats_archive_on_remove_inbox(self):
+        """keepInInbox wins over the derived Archive destination.
 
-        `remove: [INBOX]` is required for this to test what its name claims:
+        `remove: [INBOX]` is required for this to reach the branch at all:
         `_apply_archive_on_remove_inbox` only rewrites specs whose *original*
         filter removes INBOX. Without it the branch was invoked but mutated
-        nothing (verified: 0 specs changed), so a regression in the conversion
-        after that branch would still have passed here.
+        nothing (verified by instrumentation: 0 specs changed), so this test was
+        inert and asserted nothing about the archive path.
+
+        With the directive present it caught a real defect. The two sibling
+        derive branches disagreed: `_apply_move_to_folders` skips marked rules,
+        while this branch archived them regardless. A rule carrying both
+        `remove: [INBOX]` and `keepInInbox: true` therefore left the inbox
+        through all three consumers (sync, plan and sweep all resolved
+        Archive) even though `noMoveToFolder` was set.
+
+        Archive is a *derived* destination, so the marker suppresses it — the
+        documented contract is "suppress the derived Outlook moveToFolder"
+        (config/filters_unified.example.yaml:30). An explicitly authored
+        `moveToFolder` is a different case and still overrides the marker.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             in_path = Path(tmpdir) / "filters.yaml"
@@ -240,13 +252,47 @@ class DeriveFiltersTests(TestCase):
 
             action = yaml.safe_load(out_outlook.read_text())["filters"][0]["action"]
             self.assertNotIn("keepInInbox", action)
-            # The internal marker must be present on the archive path too.
             self.assertTrue(action.get("noMoveToFolder"))
-            # The archive branch really did run: it replaces `add` with an
-            # explicit Archive folder. Asserting this pins the branch as
-            # exercised, so the test cannot silently go inert again.
+            # No Archive destination: the marker suppressed it.
+            self.assertNotIn("moveToFolder", action)
+            # `add` survives because the archive branch never rewrote this spec.
+            self.assertEqual(["Tech/Grafana"], action["add"])
+
+    def test_derive_filters_archive_on_remove_inbox_still_archives_unmarked(self):
+        """Contrast: without the marker, remove:[INBOX] must still derive Archive.
+
+        Guards the fix above from becoming "keepInInbox disables archiving for
+        everyone", which would stop commercial and newsletter mail being filed.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            in_path = Path(tmpdir) / "filters.yaml"
+            in_path.write_text(
+                "filters:\n"
+                "  - match:\n"
+                "      from: shop.example.com\n"
+                "    action:\n"
+                "      add: [Lists/Commercial]\n"
+                "      remove: [INBOX]\n"
+            )
+            out_gmail = Path(tmpdir) / "gmail.yaml"
+            out_outlook = Path(tmpdir) / "outlook.yaml"
+
+            result = DeriveFiltersProcessor().process(
+                DeriveFiltersRequest(
+                    in_path=str(in_path),
+                    out_gmail=str(out_gmail),
+                    out_outlook=str(out_outlook),
+                    outlook_archive_on_remove_inbox=True,
+                )
+            )
+            self.assertTrue(result.ok())
+
+            import yaml
+
+            action = yaml.safe_load(out_outlook.read_text())["filters"][0]["action"]
             self.assertEqual("Archive", action.get("moveToFolder"))
             self.assertNotIn("add", action)
+            self.assertNotIn("noMoveToFolder", action)
 
     def test_derive_filters_keep_in_inbox_stripped_with_all_flags_off(self):
         """Both flags off means neither branch runs — the marker must still be converted.

@@ -122,10 +122,26 @@ def _strip_keep_in_inbox(out_specs: list[dict]) -> None:
 
 
 def _apply_archive_on_remove_inbox(out_specs: list[dict], filters: list[dict]) -> None:
-    """Mutate out_specs: replace 'add' with 'moveToFolder=Archive' when original removes INBOX."""
+    """Mutate out_specs: replace 'add' with 'moveToFolder=Archive' when original removes INBOX.
+
+    ``keepInInbox`` wins over this branch, matching ``_apply_move_to_folders``:
+    Archive is a destination *derived* from ``remove: [INBOX]``, and the marker's
+    documented job is to suppress a derived move ("suppress the derived Outlook
+    moveToFolder", config/filters_unified.example.yaml:30). An explicitly
+    authored ``moveToFolder`` is untouched here and still overrides the marker
+    downstream.
+
+    Without this check the two sibling derive branches disagreed: the
+    move-to-folders branch skipped marked rules while this one archived them
+    anyway, so a rule carrying both `remove: [INBOX]` and `keepInInbox: true`
+    left the inbox through all three consumers despite the marker being present.
+    """
     for i, spec in enumerate(out_specs):
         orig = filters[i] if i < len(filters) else {}
-        remove_list = ((orig or {}).get("action") or {}).get("remove") or []
+        orig_action = (orig or {}).get("action") or {}
+        if orig_action.get("keepInInbox"):
+            continue
+        remove_list = orig_action.get("remove") or []
         if isinstance(remove_list, list) and any(str(x).upper() == "INBOX" for x in remove_list):
             a = spec.get("action") or {}
             a["moveToFolder"] = "Archive"
