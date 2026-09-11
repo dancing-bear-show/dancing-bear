@@ -188,6 +188,15 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         )
 
 
+def _has_explicit_destination(desired: list[dict[str, Any]]) -> bool:
+    """True when any spec names a ``moveToFolder`` outright.
+
+    Such a destination is honoured regardless of ``move_to_folders``, so its id
+    has to be resolvable even under ``--categories-only``.
+    """
+    return any((spec.get("action") or {}).get("moveToFolder") for spec in desired)
+
+
 class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelope[OutlookRulesPlanResult]]):
     """Plan Outlook inbox rules sync (dry-run)."""
 
@@ -212,7 +221,19 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
             # rule key diverged from apply's and reported an existing rule as
             # "Would create". A path map also reverses correctly for display in
             # _format_plan_action.
-            folder_map = client.get_folder_path_map() if payload.move_to_folders else {}
+            #
+            # Loaded whenever a destination needs resolving, not only when
+            # automatic derivation is on: `_build_plan_action` honours an
+            # explicit `moveToFolder` regardless of move_to_folders, and
+            # `_build_rule_action` resolves it through ensure_folder_path()
+            # either way. Gating solely on move_to_folders left the map empty
+            # under --categories-only, so plan fell back to the literal path
+            # while apply used the Graph id.
+            folder_map = (
+                client.get_folder_path_map()
+                if payload.move_to_folders or _has_explicit_destination(desired)
+                else {}
+            )
 
             plan_items = self._build_plan_items(
                 desired, existing_keys, name_to_id, folder_map, payload.move_to_folders

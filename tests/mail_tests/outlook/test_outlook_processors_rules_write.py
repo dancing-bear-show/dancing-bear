@@ -664,9 +664,12 @@ class TestPlanProcessorHonoursNoMoveToFolder(unittest.TestCase):
     """
 
     def _plan(self, filters: list[dict]) -> list[str]:
+        # Path-keyed: that is what the processor loads, and the ids are
+        # deliberately unlike the normalized label spellings so an assertion can
+        # tell a real resolution from the path-fallback string.
         client = _make_client(
             name_to_id={"Tech/Grafana": "cat-graf", "Lists/Commercial": "cat-comm"},
-            folder_id_map={"Tech/Grafana": "folder-graf", "Lists/Commercial": "folder-comm"},
+            folder_path_map={"Tech/Grafana": "folder-graf", "Lists/Commercial": "folder-comm"},
         )
         payload = OutlookRulesPlanPayload(
             client=client,
@@ -703,7 +706,11 @@ class TestPlanProcessorHonoursNoMoveToFolder(unittest.TestCase):
             [{"match": {"from": "shop.example.com"}, "action": {"add": ["Lists/Commercial"]}}]
         )
         self.assertEqual(1, len(items))
-        self.assertIn("moveToFolderId", items[0])
+        # The REAL id, not merely "some id". Asserting presence alone passed on
+        # the path-fallback string `Lists-Commercial`, which is what made the
+        # plan key diverge from apply's for every nested rule.
+        self.assertIn("'moveToFolderId': 'folder-comm'", items[0])
+        self.assertNotIn("Lists-Commercial", items[0])
 
     def test_raw_keep_in_inbox_config_plans_no_folder_move(self):
         """The RAW unified config must work too, with no derive step in between.
@@ -816,6 +823,84 @@ class TestPlanNestedExplicitDestination(unittest.TestCase):
         action = _build_plan_action(dict(self.ACTION), plan_ctx)
         disp = _format_plan_action(action, self.PATH_MAP)
         self.assertEqual("Security/Alerts", disp["moveToFolder"])
+
+    def test_nested_raw_add_label_resolves_to_the_real_id(self):
+        """A nested label in `add[]` must resolve like sync, not to its alias.
+
+        Regression: the `add[0]` branch normalized before the lookup, so a raw
+        `add: [Lists/Commercial]` became `Lists-Commercial`, missed the
+        path-keyed map, and was used as the folder id — while
+        `_build_rule_action` resolves the raw path and gets a Graph id. Keys
+        then diverged for every nested raw rule, not just explicit ones.
+        """
+        path_map = {"Lists/Commercial": "real-comm-id"}
+        plan_ctx = RuleContext.for_plan(
+            name_to_id={}, folder_map=path_map, move_to_folders=True
+        )
+        client = MagicMock()
+        client.ensure_folder_path.return_value = "real-comm-id"
+        sync_ctx = RuleContext(
+            client=client, name_to_id={}, folder_map=path_map, move_to_folders=True
+        )
+
+        spec = {"add": ["Lists/Commercial"]}
+        plan_action = _build_plan_action(dict(spec), plan_ctx)
+        sync_action = _build_rule_action(dict(spec), sync_ctx)
+
+        self.assertEqual("real-comm-id", plan_action["moveToFolderId"])
+        self.assertEqual(sync_action, plan_action)
+        crit = _build_rule_criteria({"from": "shop.example.com"})
+        self.assertEqual(
+            _create_rule_key(crit, sync_action), _create_rule_key(crit, plan_action)
+        )
+
+    def test_explicit_destination_loads_path_map_under_categories_only(self):
+        """`--categories-only` must still resolve an explicit destination.
+
+        Regression: the map was gated on `move_to_folders` alone, but both
+        builders honour an explicit `moveToFolder` regardless of that flag. With
+        `--categories-only` the plan therefore fell back to the literal path
+        while apply used the Graph id, so an existing rule read as "Would
+        create".
+        """
+        client = _make_client(folder_path_map={"Security/Alerts": "real-sec-id"})
+        payload = OutlookRulesPlanPayload(
+            client=client, config_path="/t.yaml", move_to_folders=False
+        )
+        filters = [{
+            "match": {"from": "sec.example.net"},
+            "action": {"add": ["Security/Alerts"], "moveToFolder": "Security/Alerts"},
+        }]
+        with patch("core.yamlio.load_config", return_value={"filters": filters}):
+            envelope = OutlookRulesPlanProcessor().process(payload)
+
+        self.assertEqual(envelope.status, "success")
+        result = envelope.payload
+        self.assertIsNotNone(result)
+        items = cast(OutlookRulesPlanResult, result).plan_items
+        self.assertEqual(1, len(items))
+        self.assertIn("'moveToFolderId': 'real-sec-id'", items[0])
+        client.get_folder_path_map.assert_called_once()
+
+    def test_no_explicit_destination_skips_the_map_under_categories_only(self):
+        """Contrast: with nothing to resolve, the map must not be fetched.
+
+        Keeps the fix above from turning into an unconditional extra API call on
+        every categories-only plan.
+        """
+        client = _make_client(folder_path_map={"Security/Alerts": "real-sec-id"})
+        payload = OutlookRulesPlanPayload(
+            client=client, config_path="/t.yaml", move_to_folders=False
+        )
+        filters = [{
+            "match": {"from": "a@example.com"},
+            "action": {"add": ["Tech/Grafana"], "noMoveToFolder": True},
+        }]
+        with patch("core.yamlio.load_config", return_value={"filters": filters}):
+            envelope = OutlookRulesPlanProcessor().process(payload)
+
+        self.assertEqual(envelope.status, "success")
+        client.get_folder_path_map.assert_not_called()
 
     def test_plan_processor_requests_a_path_keyed_map(self):
         """The processor must source folder ids by path, as sync and sweep do.

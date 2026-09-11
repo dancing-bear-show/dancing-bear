@@ -110,6 +110,25 @@ def _create_rule_key(criteria: dict[str, Any], action: dict[str, Any]) -> str:
     })
 
 
+def _resolve_folder_id(path: str, folder_map: dict[str, str]) -> str:
+    """Resolve a folder path to an id for planning, raw path first.
+
+    ``folder_map`` may be path-keyed (``get_folder_path_map``) or
+    display-name-keyed (``get_folder_id_map``), so both spellings are tried.
+    Normalizing first turns ``Security/Alerts`` into ``Security-Alerts``, which
+    matches neither map — leaving the normalized string to be used as the folder
+    id itself, while ``_build_rule_action`` resolves the raw path through
+    ``ensure_folder_path()`` and gets a real Graph id. The plan's rule key then
+    diverged from apply's and an existing rule was reported as "Would create"
+    with the wrong destination displayed.
+
+    Falling back to the path itself keeps planning possible when the map has no
+    entry (a folder sync would create on apply); it is not a Graph id, so a
+    caller comparing keys against live rules will still see a difference.
+    """
+    return folder_map.get(path) or folder_map.get(norm_label_name_outlook(path)) or path
+
+
 def _build_plan_action(action_spec: dict[str, Any], ctx: RuleContext) -> dict[str, Any]:
     """Build action dict for plan (without creating folders).
 
@@ -131,25 +150,16 @@ def _build_plan_action(action_spec: dict[str, Any], ctx: RuleContext) -> dict[st
     adds = action_spec.get("add") or []
 
     if action_spec.get("moveToFolder"):
-        # Look the RAW path up first. `folder_map` may be path-keyed
-        # (get_folder_path_map) or display-name-keyed (get_folder_id_map), and
-        # normalizing first turns `Security/Alerts` into `Security-Alerts`,
-        # which matches neither — leaving the normalized string to be used as
-        # the folder id itself. Sync resolves the same path through
-        # ensure_folder_path() and gets a real Graph id, so the plan's rule key
-        # diverged from apply's and an existing rule was reported as
-        # "Would create" with the wrong destination shown.
-        pth = str(action_spec["moveToFolder"])
-        action["moveToFolderId"] = (
-            ctx.folder_map.get(pth)
-            or ctx.folder_map.get(norm_label_name_outlook(pth))
-            or pth
+        action["moveToFolderId"] = _resolve_folder_id(
+            str(action_spec["moveToFolder"]), ctx.folder_map
         )
     elif ctx.move_to_folders and adds and not action_spec.get("noMoveToFolder"):
-        # Normal rule with move_to_folders: derive folder from first add label.
-        lab_name = norm_label_name_outlook(adds[0])
-        fid = ctx.folder_map.get(lab_name) or lab_name
-        action["moveToFolderId"] = fid
+        # Derive from the first add label — raw path first, for the same reason
+        # as the explicit branch above. `add: [Lists/Commercial]` in a raw
+        # config is a nested path, and `_build_rule_action` resolves that raw
+        # value, so normalizing first here made the plan key diverge from
+        # apply's for every nested rule.
+        action["moveToFolderId"] = _resolve_folder_id(str(adds[0]), ctx.folder_map)
     elif adds:
         # Categorise only: either noMoveToFolder (keepInInbox) or move_to_folders=False.
         ids = [ctx.name_to_id.get(x) or ctx.name_to_id.get(norm_label_name_outlook(x)) for x in adds]
