@@ -29,4 +29,21 @@ WPATH="$REPO_ROOT/.claude/worktrees/$NAME"
 mkdir -p "$REPO_ROOT/.claude/worktrees"
 git -C "$REPO_ROOT" worktree add -b "$NAME" "$WPATH" HEAD >/dev/null
 
+# Whitelist the new worktree's own .envrc.
+#
+# .envrc exports PYTHONPATH="$PWD/src", but direnv only loads an .envrc it has
+# been told to trust. A worktree's .envrc is a distinct file from the main
+# checkout's, so it starts untrusted: direnv keeps the PYTHONPATH it already
+# exported for whichever checkout the shell started in, and every import of
+# mail/resume/core in this worktree silently resolves to THAT tree. Tests then
+# pass against unmodified source, which is indistinguishable from a real pass.
+#
+# Approving it here means the variable is right from the worktree's first
+# command instead of depending on someone noticing. Non-fatal: if direnv is not
+# installed the worktree is still usable, and bin/_router.py repairs the path
+# for every ./bin/* command regardless.
+if command -v direnv >/dev/null 2>&1; then
+  (cd "$WPATH" && direnv allow . >/dev/null 2>&1) || true
+fi
+
 echo "$WPATH"
