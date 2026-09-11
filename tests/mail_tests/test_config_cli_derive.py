@@ -258,6 +258,48 @@ class DeriveFiltersTests(TestCase):
             # `add` survives because the archive branch never rewrote this spec.
             self.assertEqual(["Tech/Grafana"], action["add"])
 
+    def test_derive_filters_keep_in_inbox_honoured_without_a_category(self):
+        """An archive-only rule — `remove: [INBOX]` + `keepInInbox`, no `add`.
+
+        Regression: `normalize_filter_for_outlook` carries `keepInInbox` only
+        when add/forward/moveToFolder has content, so this form normalizes to
+        `action: {}` and the marker is gone by the time the archive branch runs.
+        A spec-only check therefore missed it and archived the rule — exactly
+        what the directive forbids. The marker is now read from either the
+        source or the normalized spec, and the source always has it.
+
+        The pairing is meaningful rather than malformed: under
+        `--outlook-archive-on-remove-inbox` it is `remove: [INBOX]` itself that
+        produces the moveToFolder there is to suppress.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            in_path = Path(tmpdir) / "filters.yaml"
+            in_path.write_text(
+                "filters:\n"
+                "  - match:\n"
+                "      from: grafana.com\n"
+                "    action:\n"
+                "      keepInInbox: true\n"
+                "      remove: [INBOX]\n"
+            )
+            out_gmail = Path(tmpdir) / "gmail.yaml"
+            out_outlook = Path(tmpdir) / "outlook.yaml"
+
+            result = DeriveFiltersProcessor().process(
+                DeriveFiltersRequest(
+                    in_path=str(in_path),
+                    out_gmail=str(out_gmail),
+                    out_outlook=str(out_outlook),
+                    outlook_archive_on_remove_inbox=True,
+                )
+            )
+            self.assertTrue(result.ok())
+
+            import yaml
+
+            action = yaml.safe_load(out_outlook.read_text())["filters"][0]["action"]
+            self.assertNotIn("moveToFolder", action)
+
     def test_derive_filters_keep_in_inbox_survives_a_dropped_entry(self):
         """A dropped entry ahead of a marked rule must not misalign the lookup.
 

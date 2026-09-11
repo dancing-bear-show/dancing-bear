@@ -161,10 +161,18 @@ def _apply_archive_on_remove_inbox(out_specs: list[dict], filters: list[dict]) -
     left the inbox through all three consumers despite the marker being present.
     """
     for spec, orig in _pair_specs_with_sources(out_specs, filters):
-        spec_action = spec.get("action") or {}
-        if spec_action.get("keepInInbox"):
-            continue
         orig_action = (orig or {}).get("action") or {}
+        spec_action = spec.get("action") or {}
+        # Read the marker from EITHER side. The source always carries it, and is
+        # the only side that does for an archive-only rule: normalization keeps
+        # `keepInInbox` solely when add/forward/moveToFolder has content, so
+        # `remove: [INBOX]` + `keepInInbox` with no category normalizes to
+        # `action: {}` and a spec-only check missed it — then archived the rule,
+        # which is precisely what the directive forbids. `remove` pairs with the
+        # marker legitimately here because, under this flag, it is what produces
+        # the moveToFolder there is to suppress.
+        if orig_action.get("keepInInbox") or spec_action.get("keepInInbox"):
+            continue
         remove_list = orig_action.get("remove") or []
         if isinstance(remove_list, list) and any(str(x).upper() == "INBOX" for x in remove_list):
             a = spec.get("action") or {}
