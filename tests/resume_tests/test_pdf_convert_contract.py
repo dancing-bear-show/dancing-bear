@@ -44,7 +44,7 @@ from resume.australian_rotate import (
     ConversionResult,
     convert_docx_to_pdf,
 )
-from resume.cli.main import cmd_export_pdf
+from resume.cli.cmd_docx import cmd_export_pdf
 
 
 @dataclass(frozen=True)
@@ -465,7 +465,7 @@ class TestExportPdfSadPaths(unittest.TestCase):
         The superseded wording promised the feature was "planned for future";
         the documented behaviour is to redirect the user to ``export-pdf``.
         """
-        from resume.cli.main import cmd_render
+        from resume.cli.cmd_render import cmd_render
 
         args = argparse.Namespace(
             out="resume.pdf",
@@ -478,10 +478,10 @@ class TestExportPdfSadPaths(unittest.TestCase):
             min_priority=None,
             structure=None,
         )
-        with patch("resume.cli.main._load_candidate_data", return_value={"name": "T"}):
-            with patch("resume.cli.main.load_template", return_value={}):
-                with patch("resume.cli.main._apply_filter_pipeline", return_value={"name": "T"}):
-                    with patch("resume.cli.main._load_structure", return_value=None):
+        with patch("resume.cli.cmd_render._load_candidate_data", return_value={"name": "T"}):
+            with patch("resume.cli.cmd_render.load_template", return_value={}):
+                with patch("resume.cli.cmd_render._apply_filter_pipeline", return_value={"name": "T"}):
+                    with patch("resume.cli.cmd_render._load_structure", return_value=None):
                         with self.assertRaises(CLIError) as ctx:
                             cmd_render(args)
 
@@ -490,6 +490,32 @@ class TestExportPdfSadPaths(unittest.TestCase):
         self.assertIn("export-pdf", err.message)
         self.assertIn(".docx only", err.message)
         self.assertNotIn("planned for future", err.message)
+
+    def test_ok_result_carrying_no_pdf_path_raises_rather_than_attribute_error(self) -> None:
+        """``ok=True`` with ``pdf_path=None`` must surface a CLIError.
+
+        Every other success test supplies a path, so this branch would sit
+        unverified: a malformed-but-truthy ConversionResult would reach
+        ``actual.rename(...)`` and die with ``AttributeError: 'NoneType' object
+        has no attribute 'rename'`` — an internal-looking crash rather than a
+        reported failure with an exit code.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            docx = Path(td, "myresume.docx")
+            docx.write_bytes(b"fake docx")
+            requested = Path(td, "final-name.pdf")
+
+            def fake_convert(_docx: str, _pdf: str) -> ConversionResult:
+                return ConversionResult(ok=True, pdf_path=None)
+
+            with patch("resume.australian_rotate.convert_docx_to_pdf", fake_convert):
+                with self.assertRaises(CLIError) as ctx:
+                    cmd_export_pdf(_export_args(str(docx), str(requested)))
+
+        err = ctx.exception
+        self.assertEqual(err.code, ExitCode.ERROR)
+        self.assertIn("pdf_path", err.message)
+        self.assertFalse(requested.exists())
 
 
 class TestConverterRequiresAnOutputFile(unittest.TestCase):

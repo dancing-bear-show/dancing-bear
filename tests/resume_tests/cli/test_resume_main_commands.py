@@ -20,7 +20,7 @@ class TestStructureHelpersRealFiles(unittest.TestCase):
     """
 
     def test_try_load_structure_loads_existing_yaml(self):
-        from resume.cli.main import _try_load_structure
+        from resume.cli.cmd_render import _try_load_structure
 
         with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False, mode="w") as f:
             f.write("sections:\n  - experience\n  - education\n")
@@ -33,7 +33,7 @@ class TestStructureHelpersRealFiles(unittest.TestCase):
             path.unlink()
 
     def test_try_load_structure_loads_existing_json(self):
-        from resume.cli.main import _try_load_structure
+        from resume.cli.cmd_render import _try_load_structure
 
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
             f.write('{"sections": ["skills"]}')
@@ -46,7 +46,7 @@ class TestStructureHelpersRealFiles(unittest.TestCase):
             path.unlink()
 
     def test_try_load_structure_returns_none_for_invalid_yaml(self):
-        from resume.cli.main import _try_load_structure
+        from resume.cli.cmd_render import _try_load_structure
 
         with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False, mode="w") as f:
             f.write("invalid: yaml: content: [")
@@ -60,7 +60,7 @@ class TestStructureHelpersRealFiles(unittest.TestCase):
 
     def test_find_structure_in_dirs_prefers_nested_over_legacy_on_disk(self):
         """With both a nested and a legacy file for real, nested must win."""
-        from resume.cli.main import _find_structure_in_dirs
+        from resume.cli.cmd_render import _find_structure_in_dirs
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
@@ -73,7 +73,7 @@ class TestStructureHelpersRealFiles(unittest.TestCase):
             self.assertEqual(result, {"source": "nested"})
 
     def test_find_structure_in_dirs_searches_multiple_dirs_in_order(self):
-        from resume.cli.main import _find_structure_in_dirs
+        from resume.cli.cmd_render import _find_structure_in_dirs
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
@@ -86,7 +86,7 @@ class TestStructureHelpersRealFiles(unittest.TestCase):
 
     def test_find_structure_in_dirs_tries_multiple_extensions(self):
         """.yml (not just .yaml/.json) must be resolved for a real file."""
-        from resume.cli.main import _find_structure_in_dirs
+        from resume.cli.cmd_render import _find_structure_in_dirs
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
@@ -103,16 +103,16 @@ class TestStructureHelpers(unittest.TestCase):
 
     def test_try_load_structure_nonexistent_file(self):
         """Test _try_load_structure returns None for nonexistent file."""
-        from resume.cli.main import _try_load_structure
+        from resume.cli.cmd_render import _try_load_structure
         from pathlib import Path
 
         result = _try_load_structure(Path("nonexistent/file.json"))
         self.assertIsNone(result)
 
-    @patch('resume.cli.main.read_yaml_or_json')
+    @patch('resume.cli.cmd_render.read_yaml_or_json')
     def test_try_load_structure_success(self, mock_read):
         """Test _try_load_structure loads valid structure."""
-        from resume.cli.main import _try_load_structure
+        from resume.cli.cmd_render import _try_load_structure
         from pathlib import Path
 
         mock_read.return_value = {"sections": ["header", "experience"]}
@@ -121,10 +121,10 @@ class TestStructureHelpers(unittest.TestCase):
             result = _try_load_structure(Path("valid.json"))
             self.assertEqual(result, {"sections": ["header", "experience"]})
 
-    @patch('resume.cli.main.read_yaml_or_json')
+    @patch('resume.cli.cmd_render.read_yaml_or_json')
     def test_try_load_structure_exception(self, mock_read):
         """Test _try_load_structure returns None on read error."""
-        from resume.cli.main import _try_load_structure
+        from resume.cli.cmd_render import _try_load_structure
         from pathlib import Path
 
         mock_read.side_effect = RuntimeError("Parse error")
@@ -133,10 +133,10 @@ class TestStructureHelpers(unittest.TestCase):
             result = _try_load_structure(Path("invalid.json"))
             self.assertIsNone(result)
 
-    @patch('resume.cli.main._try_load_structure')
+    @patch('resume.cli.cmd_render._try_load_structure')
     def test_find_structure_in_dirs_nested(self, mock_try_load):
         """Test _find_structure_in_dirs finds nested structure."""
-        from resume.cli.main import _find_structure_in_dirs
+        from resume.cli.cmd_render import _find_structure_in_dirs
         from pathlib import Path
 
         mock_try_load.side_effect = lambda p: {"sections": []} if "out/prof/structure" in str(p) else None
@@ -144,10 +144,10 @@ class TestStructureHelpers(unittest.TestCase):
         result = _find_structure_in_dirs("prof", [Path("out")])
         self.assertEqual(result, {"sections": []})
 
-    @patch('resume.cli.main._try_load_structure')
+    @patch('resume.cli.cmd_render._try_load_structure')
     def test_find_structure_in_dirs_legacy(self, mock_try_load):
         """Test _find_structure_in_dirs finds legacy flat structure."""
-        from resume.cli.main import _find_structure_in_dirs
+        from resume.cli.cmd_render import _find_structure_in_dirs
         from pathlib import Path
 
         # Return None for nested, structure for legacy
@@ -163,20 +163,20 @@ class TestStructureHelpers(unittest.TestCase):
         result = _find_structure_in_dirs("prof", [Path("out")])
         self.assertEqual(result, {"sections": ["legacy"]})
 
-    @patch('resume.cli.main._try_load_structure')
+    @patch('resume.cli.cmd_render._try_load_structure')
     def test_find_structure_in_config(self, mock_try_load):
         """Test _find_structure_in_config searches config directory."""
-        from resume.cli.main import _find_structure_in_config
+        from resume.cli.cmd_render import _find_structure_in_config
 
         mock_try_load.side_effect = lambda p: {"sections": []} if "config/profiles" in str(p) else None
 
         result = _find_structure_in_config("prof")
         self.assertEqual(result, {"sections": []})
 
-    @patch('resume.cli.main.infer_structure_from_docx')
+    @patch('resume.cli.cmd_render.infer_structure_from_docx')
     def test_load_structure_from_docx(self, mock_infer):
         """Test _load_structure loads from DOCX."""
-        from resume.cli.main import _load_structure
+        from resume.cli.cmd_render import _load_structure
 
         mock_infer.return_value = {"sections": ["from_docx"]}
 
@@ -187,10 +187,10 @@ class TestStructureHelpers(unittest.TestCase):
         self.assertEqual(result, {"sections": ["from_docx"]})
         mock_infer.assert_called_once_with("template.docx")
 
-    @patch('resume.cli.main._try_load_structure')
+    @patch('resume.cli.cmd_render._try_load_structure')
     def test_load_structure_from_json_path(self, mock_try_load):
         """Test _load_structure loads from JSON path."""
-        from resume.cli.main import _load_structure
+        from resume.cli.cmd_render import _load_structure
 
         mock_try_load.return_value = {"sections": ["from_json"]}
 
@@ -200,10 +200,10 @@ class TestStructureHelpers(unittest.TestCase):
         result = _load_structure(args)
         self.assertEqual(result, {"sections": ["from_json"]})
 
-    @patch('resume.cli.main._find_structure_in_dirs')
+    @patch('resume.cli.cmd_render._find_structure_in_dirs')
     def test_load_structure_auto_discover(self, mock_find_dirs):
         """Test _load_structure auto-discovers from profile."""
-        from resume.cli.main import _load_structure
+        from resume.cli.cmd_render import _load_structure
 
         mock_find_dirs.return_value = {"sections": ["auto"]}
 
@@ -217,7 +217,7 @@ class TestStructureHelpers(unittest.TestCase):
 
     def test_load_structure_no_profile(self):
         """Test _load_structure returns None when no profile."""
-        from resume.cli.main import _load_structure
+        from resume.cli.cmd_render import _load_structure
 
         args = MagicMock()
         args.structure_from = None
@@ -230,13 +230,15 @@ class TestStructureHelpers(unittest.TestCase):
 class TestResumeCommands(unittest.TestCase):
     """Test resume command functions."""
 
-    @patch('resume.cli.main.write_yaml_or_json')
-    @patch('resume.cli.main.merge_profiles')
-    @patch('resume.cli.main.read_text_any')
-    def test_cmd_extract_text_files(self, mock_read_text, mock_merge, mock_write):
+    @patch('resume.cli.cmd_extract.write_yaml_or_json')
+    @patch('resume.cli.cmd_extract.merge_profiles')
+    @patch('resume.cli.cmd_extract.read_text_any')
+    @patch('resume.cli.helpers.read_text_any')
+    def test_cmd_extract_text_files(self, mock_helpers_read, mock_read_text, mock_merge, mock_write):
         """Test cmd_extract with text files."""
-        from resume.cli.main import cmd_extract
+        from resume.cli.cmd_extract import cmd_extract
 
+        mock_helpers_read.return_value = "LinkedIn text"
         mock_read_text.return_value = "Resume text"
         mock_merge.return_value = {"name": "John Doe"}
 
@@ -251,13 +253,13 @@ class TestResumeCommands(unittest.TestCase):
         self.assertEqual(result, 0)
         mock_write.assert_called_once()
 
-    @patch('resume.cli.main.write_yaml_or_json')
-    @patch('resume.cli.main.merge_profiles')
-    @patch('resume.cli.main.read_text_raw')
-    @patch('resume.cli.main.read_text_any')
+    @patch('resume.cli.cmd_extract.write_yaml_or_json')
+    @patch('resume.cli.cmd_extract.merge_profiles')
+    @patch('resume.cli.helpers.read_text_raw')
+    @patch('resume.cli.cmd_extract.read_text_any')
     def test_cmd_extract_html_linkedin(self, mock_read_any, mock_read_raw, mock_merge, mock_write):
         """Test cmd_extract with HTML LinkedIn file."""
-        from resume.cli.main import cmd_extract
+        from resume.cli.cmd_extract import cmd_extract
 
         mock_read_raw.return_value = "<html>LinkedIn profile</html>"
         mock_read_any.return_value = "Resume text"
@@ -274,12 +276,13 @@ class TestResumeCommands(unittest.TestCase):
         self.assertEqual(result, 0)
         mock_read_raw.assert_called_once_with("profile.html")
 
-    @patch('resume.cli.main.write_yaml_or_json')
-    @patch('resume.cli.main.merge_profiles')
-    @patch('resume.cli.main.read_text_any')
-    def test_cmd_extract_binary_resume_formats(self, mock_read_any, mock_merge, mock_write):
+    @patch('resume.cli.cmd_extract.write_yaml_or_json')
+    @patch('resume.cli.cmd_extract.merge_profiles')
+    @patch('resume.cli.cmd_extract.read_text_any')
+    @patch('resume.cli.helpers.read_text_any')
+    def test_cmd_extract_binary_resume_formats(self, mock_helpers_read, mock_read_any, mock_merge, mock_write):
         """Test cmd_extract with a DOCX or PDF resume, each dispatching to its own parser."""
-        from resume.cli.main import cmd_extract
+        from resume.cli.cmd_extract import cmd_extract
 
         cases = [
             (
@@ -295,6 +298,7 @@ class TestResumeCommands(unittest.TestCase):
         ]
         for label, resume_filename, parse_target, parse_return, candidate_name in cases:
             with self.subTest(label):
+                mock_helpers_read.return_value = "LinkedIn text"
                 mock_read_any.return_value = "LinkedIn text"
                 mock_merge.return_value = {"name": candidate_name}
 
@@ -312,12 +316,12 @@ class TestResumeCommands(unittest.TestCase):
                     self.assertEqual(result, 0)
                     mock_parse.assert_called_once_with(resume_filename)
 
-    @patch('resume.cli.main.write_yaml_or_json')
-    @patch('resume.cli.main.merge_profiles')
-    @patch('resume.cli.main.parse_linkedin_text')
+    @patch('resume.cli.cmd_extract.write_yaml_or_json')
+    @patch('resume.cli.cmd_extract.merge_profiles')
+    @patch('resume.cli.cmd_extract.parse_linkedin_text')
     def test_cmd_extract_linkedin_only(self, mock_parse_li, mock_merge, mock_write):
         """Test cmd_extract with LinkedIn only."""
-        from resume.cli.main import cmd_extract
+        from resume.cli.cmd_extract import cmd_extract
 
         mock_parse_li.return_value = {"name": "Test User"}
         mock_merge.return_value = {"name": "Test User"}
@@ -332,11 +336,11 @@ class TestResumeCommands(unittest.TestCase):
         result = cmd_extract(args)
         self.assertEqual(result, 0)
 
-    @patch('resume.cli.main.write_yaml_or_json')
-    @patch('resume.cli.main.infer_structure_from_docx')
+    @patch('resume.cli.cmd_render.write_yaml_or_json')
+    @patch('resume.cli.cmd_render.infer_structure_from_docx')
     def test_cmd_structure(self, mock_infer, mock_write):
         """Test cmd_structure command."""
-        from resume.cli.main import cmd_structure
+        from resume.cli.cmd_render import cmd_structure
 
         mock_infer.return_value = {"sections": ["header", "experience"]}
 
@@ -351,14 +355,14 @@ class TestResumeCommands(unittest.TestCase):
         mock_infer.assert_called_once_with("reference.docx")
         mock_write.assert_called_once()
 
-    @patch('resume.cli.main.write_yaml_or_json')
-    @patch('resume.cli.main.build_keyword_spec')
-    @patch('resume.cli.main.load_job_config')
-    @patch('resume.cli.main.align_candidate_to_job')
-    @patch('resume.cli.main.read_yaml_or_json')
+    @patch('resume.cli.cmd_align.write_yaml_or_json')
+    @patch('resume.cli.cmd_align.build_keyword_spec')
+    @patch('resume.cli.cmd_align.load_job_config')
+    @patch('resume.cli.cmd_align.align_candidate_to_job')
+    @patch('resume.cli.helpers.read_yaml_or_json')
     def test_cmd_align_without_tailored(self, mock_read, mock_align, mock_load_job, mock_build_kw, mock_write):
         """Test cmd_align without tailored output."""
-        from resume.cli.main import cmd_align
+        from resume.cli.cmd_align import cmd_align
 
         mock_read.return_value = {"name": "Test"}
         mock_load_job.return_value = {"title": "Engineer"}
@@ -379,15 +383,15 @@ class TestResumeCommands(unittest.TestCase):
         self.assertEqual(result, 0)
         mock_align.assert_called_once()
 
-    @patch('resume.cli.main.write_yaml_or_json')
-    @patch('resume.cli.main.build_tailored_candidate')
-    @patch('resume.cli.main.build_keyword_spec')
-    @patch('resume.cli.main.load_job_config')
-    @patch('resume.cli.main.align_candidate_to_job')
-    @patch('resume.cli.main.read_yaml_or_json')
+    @patch('resume.cli.cmd_align.write_yaml_or_json')
+    @patch('resume.cli.cmd_align.build_tailored_candidate')
+    @patch('resume.cli.cmd_align.build_keyword_spec')
+    @patch('resume.cli.cmd_align.load_job_config')
+    @patch('resume.cli.cmd_align.align_candidate_to_job')
+    @patch('resume.cli.helpers.read_yaml_or_json')
     def test_cmd_align_with_tailored(self, mock_read, mock_align, mock_load_job, mock_build_kw, mock_build_tailored, mock_write):
         """Test cmd_align with tailored output."""
-        from resume.cli.main import cmd_align
+        from resume.cli.cmd_align import cmd_align
 
         mock_read.return_value = {"name": "Test"}
         mock_load_job.return_value = {"title": "Engineer"}
@@ -411,11 +415,11 @@ class TestResumeCommands(unittest.TestCase):
         # Should write both alignment and tailored
         self.assertEqual(mock_write.call_count, 2)
 
-    @patch('resume.cli.main.write_yaml_or_json')
-    @patch('resume.cli.main.read_yaml_or_json')
+    @patch('resume.cli.cmd_align.write_yaml_or_json')
+    @patch('resume.cli.helpers.read_yaml_or_json')
     def test_cmd_candidate_init_without_experience(self, mock_read, mock_write):
         """Test cmd_candidate_init without experience."""
-        from resume.cli.main import cmd_candidate_init
+        from resume.cli.cmd_align import cmd_candidate_init
 
         mock_read.return_value = {
             "name": "John Doe",
@@ -442,11 +446,11 @@ class TestResumeCommands(unittest.TestCase):
         written_data = mock_write.call_args[0][0]
         self.assertNotIn("experience", written_data)
 
-    @patch('resume.cli.main.write_yaml_or_json')
-    @patch('resume.cli.main.read_yaml_or_json')
+    @patch('resume.cli.cmd_align.write_yaml_or_json')
+    @patch('resume.cli.helpers.read_yaml_or_json')
     def test_cmd_candidate_init_with_experience(self, mock_read, mock_write):
         """Test cmd_candidate_init with experience."""
-        from resume.cli.main import cmd_candidate_init
+        from resume.cli.cmd_align import cmd_candidate_init
 
         mock_read.return_value = {
             "name": "John Doe",
@@ -494,11 +498,11 @@ class TestResumeCommands(unittest.TestCase):
         args.out_dir = "out"
         return args
 
-    @patch('resume.cli.main.write_yaml_or_json')
-    @patch('resume.cli.main.read_yaml_or_json')
+    @patch('resume.cli.cmd_align.write_yaml_or_json')
+    @patch('resume.cli.helpers.read_yaml_or_json')
     def test_cmd_candidate_init_drops_bullets_with_no_text(self, mock_read, mock_write):
         """Bullets whose item_text() is empty are filtered out of the skeleton."""
-        from resume.cli.main import cmd_candidate_init
+        from resume.cli.cmd_align import cmd_candidate_init
 
         mock_read.return_value = {
             "name": "Jordan Sample",
@@ -519,8 +523,8 @@ class TestResumeCommands(unittest.TestCase):
         written_data = mock_write.call_args[0][0]
         self.assertEqual(written_data["experience"][0]["bullets"], ["Alpha"])
 
-    @patch('resume.cli.main.write_yaml_or_json')
-    @patch('resume.cli.main.read_yaml_or_json')
+    @patch('resume.cli.cmd_align.write_yaml_or_json')
+    @patch('resume.cli.helpers.read_yaml_or_json')
     def test_cmd_candidate_init_leading_empty_bullet_consumes_a_slice_slot(
         self, mock_read, mock_write
     ):
@@ -536,7 +540,7 @@ class TestResumeCommands(unittest.TestCase):
         two sites is real and would be silently changed by a consistency
         refactor.
         """
-        from resume.cli.main import cmd_candidate_init
+        from resume.cli.cmd_align import cmd_candidate_init
 
         mock_read.return_value = {
             "name": "Jordan Sample",
@@ -557,13 +561,13 @@ class TestResumeCommands(unittest.TestCase):
         written_data = mock_write.call_args[0][0]
         self.assertEqual(written_data["experience"][0]["bullets"], ["Alpha"])
 
-    @patch('resume.cli.main.write_yaml_or_json')
-    @patch('resume.cli.main.read_yaml_or_json')
+    @patch('resume.cli.cmd_align.write_yaml_or_json')
+    @patch('resume.cli.helpers.read_yaml_or_json')
     def test_cmd_candidate_init_keeps_full_slice_when_no_bullet_is_empty(
         self, mock_read, mock_write
     ):
         """Happy-path counterpart: with no empties, max_bullets=2 emits two bullets."""
-        from resume.cli.main import cmd_candidate_init
+        from resume.cli.cmd_align import cmd_candidate_init
 
         mock_read.return_value = {
             "name": "Jordan Sample",
@@ -584,11 +588,11 @@ class TestResumeCommands(unittest.TestCase):
         written_data = mock_write.call_args[0][0]
         self.assertEqual(written_data["experience"][0]["bullets"], ["Alpha", "Beta"])
 
-    @patch('resume.cli.main.write_yaml_or_json')
-    @patch('resume.cli.main.read_yaml_or_json')
+    @patch('resume.cli.cmd_align.write_yaml_or_json')
+    @patch('resume.cli.helpers.read_yaml_or_json')
     def test_cmd_candidate_init_flattens_mixed_bullet_forms(self, mock_read, mock_write):
         """Dict, bare-string and empty bullets together flatten to prose strings."""
-        from resume.cli.main import cmd_candidate_init
+        from resume.cli.cmd_align import cmd_candidate_init
 
         mock_read.return_value = {
             "name": "Jordan Sample",
@@ -618,11 +622,11 @@ class TestResumeCommands(unittest.TestCase):
             ["Bare string bullet", "Dict bullet", "Line-keyed bullet"],
         )
 
-    @patch('resume.cli.main.write_yaml_or_json')
+    @patch('resume.cli.cmd_style.write_yaml_or_json')
     @patch('resume.style.build_style_profile')
     def test_cmd_style_build(self, mock_build, mock_write):
         """Test cmd_style_build command."""
-        from resume.cli.main import cmd_style_build
+        from resume.cli.cmd_style import cmd_style_build
 
         mock_build.return_value = {"word_freq": {"leadership": 10}}
 
@@ -637,13 +641,13 @@ class TestResumeCommands(unittest.TestCase):
         mock_build.assert_called_once_with("corpus")
         mock_write.assert_called_once()
 
-    @patch('resume.cli.main.write_text')
-    @patch('resume.cli.main.build_summary')
-    @patch('resume.cli.main.FilterPipeline')
-    @patch('resume.cli.main.read_yaml_or_json')
+    @patch('resume.cli.cmd_summarize.write_text')
+    @patch('resume.cli.cmd_summarize.build_summary')
+    @patch('resume.cli.helpers.FilterPipeline')
+    @patch('resume.cli.helpers.read_yaml_or_json')
     def test_cmd_summarize_markdown_output(self, mock_read, mock_pipeline_class, mock_build_summary, mock_write_text):
         """Test cmd_summarize with markdown output."""
-        from resume.cli.main import cmd_summarize
+        from resume.cli.cmd_summarize import cmd_summarize
 
         mock_read.return_value = {"name": "Test"}
         mock_pipeline = MagicMock()
@@ -687,13 +691,13 @@ class TestResumeCommands(unittest.TestCase):
         self.assertIn("## Top Skills", written_text)
         self.assertIn("Python, Docker", written_text)
 
-    @patch('resume.cli.main.write_yaml_or_json')
-    @patch('resume.cli.main.build_summary')
-    @patch('resume.cli.main.FilterPipeline')
-    @patch('resume.cli.main.read_yaml_or_json')
+    @patch('resume.cli.cmd_summarize.write_yaml_or_json')
+    @patch('resume.cli.cmd_summarize.build_summary')
+    @patch('resume.cli.helpers.FilterPipeline')
+    @patch('resume.cli.helpers.read_yaml_or_json')
     def test_cmd_summarize_json_output(self, mock_read, mock_pipeline_class, mock_build_summary, mock_write_json):
         """Test cmd_summarize with JSON output."""
-        from resume.cli.main import cmd_summarize
+        from resume.cli.cmd_summarize import cmd_summarize
 
         mock_read.return_value = {"name": "Test"}
         mock_pipeline = MagicMock()

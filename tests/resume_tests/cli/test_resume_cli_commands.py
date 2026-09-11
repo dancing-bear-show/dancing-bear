@@ -1031,7 +1031,7 @@ class TestResumeCLIExportPdf(unittest.TestCase):
         'beta.docx' → '<data-home>/.../beta.pdf'.  They must differ.
         This test verifies the _resolve_out behaviour without actually running soffice.
         """
-        from resume.cli.main import _resolve_out
+        from resume.cli.helpers import _resolve_out
         import argparse
 
         with tempfile.TemporaryDirectory() as tmpdir:
