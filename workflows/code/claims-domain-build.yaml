@@ -506,11 +506,30 @@ stages:
       Step 5 -- write src/claims/rules.py.
         @dataclass RuleResult: eligible: bool; reason: str | None
         apply_rules(claim: Claim, ledger: ClaimLedger) -> RuleResult:
+          if claim.receipt.total is None:
+            return RuleResult(eligible=False, reason="no amount parsed")
           if claim.receipt.total == 0.0:
             return RuleResult(eligible=False, reason="$0 patient-pays: provider direct-billed")
+          if not in_plan_year(claim.receipt.date, claim.plan_year):
+            return RuleResult(eligible=False, reason="outside plan year")
           if claim.receipt.invoice_id and ledger.is_duplicate(claim.receipt.invoice_id):
             return RuleResult(eligible=False, reason="duplicate: already submitted")
           return RuleResult(eligible=True, reason=None)
+
+        in_plan_year(service_date: str | None, plan_year: int) -> bool:
+          A plan year does NOT necessarily start in January.  Take the start
+          month from config rather than hard-coding it, and treat the window
+          as [start, start + 1 year).  Return True when service_date is None
+          -- an unparsed date is not evidence the receipt is out of window,
+          and the $0/None checks above already catch unusable receipts.
+
+          Required because a service date can fall outside the plan whose
+          form it is being submitted on, and a receipt claimed against the
+          wrong plan year is rejected by the insurer rather than silently
+          ignored.  Note the ledger deliberately checks ALL prior
+          submissions, not just the current plan year, so the two rules are
+          independent: this one bounds the SERVICE date, the ledger bounds
+          resubmission.
 
       Step 6 -- write src/claims/forms.py.
         CLAIM_FONT_SIZES = {
@@ -698,22 +717,41 @@ stages:
         grep -n "sidecar\|load_sidecar" src/receipts/extract.py
         Confirm sidecar is only invoked AFTER all PARSERS have declined.
 
-      Step 9 -- verify agentic schema in both CLIs.
-        grep -n "run_with_assistant\|agentic" src/receipts/cli.py src/claims/cli.py
+      Step 9 -- verify agentic schema in the claims CLI.
+        grep -n "run_with_assistant\|agentic" src/claims/cli.py
+        (src/receipts/cli.py shipped with receipts-domain-build and is not
+        modified here; the full-suite run is its regression guard.)
+
+      Step 9b -- read the migration verdict.  Do NOT assume it.
+        Read {workspace}/outputs/font-size-migration.json and take
+        migration_safe and shipped_form_equivalence from it verbatim.
+
+        migration_safe is itself derived in migrate-font-sizes from three
+        checks, and is false whenever the equivalence proof was SKIPPED --
+        which is the EXPECTED outcome when no approved blank template is
+        available.  "Unverified" is not "verified": report it as a blocking
+        finding here rather than letting fix-integration branch on a
+        hard-coded true.
 
       Step 10 -- write {workspace}/outputs/integration-review.json:
         {
           "dependency_direction_violations": [],
-          "font_size_migration_verified": true,
+          "font_size_migration_verified": false,
+          "migration_safe": false,
+          "shipped_form_equivalence": "PASS|FAIL|SKIPPED",
           "lazy_fitz_violations": [],
           "pdfparser_abc_method_count": 2,
           "zero_dollar_rule_present": true,
           "render_verification_present": true,
           "sidecar_last_resort_verified": true,
-          "agentic_wired": {"receipts": true, "claims": true},
+          "agentic_wired": {"claims": true},
           "blocking_count": 0,
           "overall": "PASS|ISSUES"
         }
+
+        font_size_migration_verified MUST equal migration_safe as read in
+        Step 9b -- never a literal.  If it is false, count it in
+        blocking_count and set overall to "ISSUES".
 
       Write {workspace}/outputs/integration-review.md with a human-readable
       summary of any issues and recommended fixes.
@@ -758,11 +796,26 @@ stages:
           Remove the cross-layer import.
           Refactor to pass the data as a parameter instead.
 
-      Step 3 -- fix font-size migration issues.
-        If font_size_migration_verified == false:
-          Ensure DEFAULT_FONT_SIZES is {} in src/core/pdf_forms.py.
-          Ensure CLAIM_FONT_SIZES exists in src/claims/forms.py.
-          Ensure fill_text_fields is called with sizes=CLAIM_FONT_SIZES.
+      Step 3 -- font-size migration: distinguish BROKEN from UNVERIFIED.
+        If font_size_migration_verified == false, read
+        shipped_form_equivalence before changing anything.
+
+        a. shipped_form_equivalence == "FAIL"
+             The migration genuinely changed rendering.  Fix it:
+             ensure DEFAULT_FONT_SIZES is {} in src/core/pdf_forms.py,
+             CLAIM_FONT_SIZES exists in src/claims/forms.py, and
+             fill_text_fields is called with sizes=CLAIM_FONT_SIZES.
+
+        b. shipped_form_equivalence startswith "SKIPPED"
+             There was no approved blank template, so the proof could not
+             run.  This is NOT a code defect and there is nothing here to
+             fix.  Do NOT edit files to make the flag flip, and do NOT
+             re-run the check against a non-approved template.  Leave the
+             finding standing, record it in your results as
+             "unverified -- no approved blank template", and let the human
+             gate decide.  Silently converting an unverified migration into
+             a verified one is the exact failure this chain exists to
+             prevent.
 
       Step 4 -- fix lazy fitz violations.
         For each hit in lazy_fitz_violations:
@@ -878,6 +931,17 @@ stages:
           SAD:
           - apply_rules on a $0.00 claim returns eligible=False with reason
             containing "$0".
+          - apply_rules on a claim whose service date falls OUTSIDE the plan
+            year returns eligible=False with reason containing "plan year"
+            (use a date one day before the window start, and one day after
+            the window end -- both must be rejected).
+          - apply_rules on a claim whose service date is the FIRST day of the
+            plan year returns eligible=True (the window is inclusive at the
+            start), and the day before the next window starts is also
+            eligible.
+          - apply_rules on a claim whose receipt.date is None returns
+            eligible=True on that basis alone: an unparsed date must not be
+            treated as out-of-window.
           - apply_rules on a claim whose invoice_id is already in the ledger
             returns eligible=False with reason containing "duplicate".
           - apply_rules on a claim with invoice_id=None and total>0 returns

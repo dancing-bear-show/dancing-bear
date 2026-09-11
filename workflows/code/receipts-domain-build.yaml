@@ -613,9 +613,16 @@ stages:
         {
           "files_written": ["src/core/pdf_read.py"],
           "pyproject_ocr_extra_requested": true,
+          "ci_yml_edited": true,
+          "ci_steps_added": ["tesseract-ocr apt-get", "build_fixtures.py",
+                             "install extras widened to [tui,slides,pdf,ocr]"],
           "import_smoke_check": "PASS|FAIL",
           "import_error": null
         }
+
+        ci_yml_edited records the .github/workflows/ci.yml change from Step 2.
+        Without it nothing downstream knows the edit was meant to happen, and
+        integration-review cannot tell "not needed" from "forgotten".
     agent:
       role: code-writer
       model: sonnet
@@ -1171,13 +1178,33 @@ stages:
         grep -n "sidecar\|load_sidecar" src/receipts/extract.py
         Confirm sidecar is only invoked AFTER all PARSERS have declined.
 
-      Step 9 -- verify agentic schema in both CLIs.
+      Step 8b -- verify the CI edits actually landed.
+        implement-pdf-read is the only stage that edits
+        .github/workflows/ci.yml, and nothing has checked it since.  A pass
+        here while CI still lacks these means the fixture tests fail on the
+        next push and the OCR path is never exercised -- a green workflow
+        run followed by a red CI run.
+
+          grep -n "tesseract-ocr" .github/workflows/ci.yml
+          grep -n "build_fixtures.py" .github/workflows/ci.yml
+          grep -n "pdf,ocr\|pdf\]" .github/workflows/ci.yml
+
+        All three must hit.  Confirm the ORDER too: install extras, then
+        generate fixtures, then run tests -- fixtures generated before
+        PyMuPDF is installed fail with ModuleNotFoundError.  Any miss is a
+        BLOCKING finding recorded as ci_steps_verified: false.
+
+      Step 9 -- verify agentic schema in the receipts CLI.
+        Only receipts: src/claims/cli.py is intentionally absent from
+        this workflow, and a title saying "both" lets the report imply
+        a check that never ran.
         grep -n "run_with_assistant\|agentic" src/receipts/cli.py
 
       Step 10 -- write {workspace}/outputs/integration-review.json:
         {
           "dependency_direction_violations": [],
           "core_pdf_forms_untouched": true,
+          "ci_steps_verified": true,
           "lazy_fitz_violations": [],
           "pdfparser_abc_method_count": 2,
           "zero_dollar_rule_present": true,
