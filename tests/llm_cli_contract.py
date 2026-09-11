@@ -97,15 +97,36 @@ class LLMCLIContractMixin:
             )
 
     def test_derive_all_subcommands_still_work(self):
-        """inventory, familiar, policies subcommands work even though derive-all skips them."""
+        """inventory, familiar, policies emit their CONFIG builder, not a fallback.
+
+        Suppressing the derive-all file write for these three must not detach
+        their builders. Asserting only that output is non-empty does not catch
+        that: every emit handler passes a non-empty fallback to _safe_call
+        ("# LLM Agent Inventory\n\n(no data)", _default_policies(), and a
+        familiar meta stub), so a detached builder still prints something.
+        Verified by setting inventory=None on the domain factory — the
+        subcommand degraded to the "(no data)" stub while a length-only
+        assertion stayed green. Compare against the builder instead.
+        """
         mod = self._mod()
-        for subcmd in ["inventory", "familiar", "policies"]:
+        # familiar without --verbose resolves to familiar_compact.
+        expected_builders = {
+            "inventory": mod.CONFIG.inventory,
+            "familiar": mod.CONFIG.familiar_compact,
+            "policies": mod.CONFIG.policies,
+        }
+        for subcmd, builder in expected_builders.items():
             with self.subTest(subcmd=subcmd):
                 with capture_stdout() as buf:
                     rc = mod.main([subcmd, "--stdout"])
                 self.assertEqual(rc, 0, f"{subcmd} --stdout returned non-zero")
-                self.assertGreater(
-                    len(buf.getvalue()), 0, f"{subcmd} --stdout produced no output"
+                self.assertIsNotNone(
+                    builder, f"{subcmd} builder is not wired on CONFIG"
+                )
+                self.assertEqual(
+                    buf.getvalue(),
+                    builder() + "\n",
+                    f"{subcmd} --stdout did not emit its configured builder",
                 )
 
     # ------------------------------------------------------------------

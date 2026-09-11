@@ -90,6 +90,39 @@ class TestLlmCli(unittest.TestCase):
         out = buf.getvalue()
         self.assertIn('agentic: phone', out)
 
+    def test_default_llm_config_derive_all_includes_shared_files(self):
+        """A config that does not opt out still derives the three shared docs.
+
+        The domain fix works by setting inventory_filename / familiar_filename /
+        policies_filename to None in make_domain_llm_module, which required
+        widening those LlmConfig fields to `str | None`. Their DEFAULTS are the
+        compatibility contract for any direct LlmConfig / make_app_llm_config
+        caller, and nothing else pins them: the repo-level test below exercises
+        _handle_derive_all, which hard-codes the DEFAULT_* constants, and every
+        domain test asserts these fields are None. Verified the gap by setting
+        familiar_filename's default to None -- the whole tests/llm suite stayed
+        green.
+        """
+        from core.llm_cli import _collect_derive_outputs, make_app_llm_config
+
+        config = make_app_llm_config(
+            prog='llm-probe',
+            description='probe',
+            agentic=lambda: 'agentic: probe',
+            domain_map=lambda: 'domain map',
+            inventory=lambda: 'inventory body',
+            familiar_compact=lambda: 'familiar body',
+            policies=lambda: 'policies body',
+        )
+        written = {name for name, _ in _collect_derive_outputs(config)}
+        for name in ('INVENTORY.md', 'familiarize.yaml', 'PR_POLICIES.yaml'):
+            self.assertIn(
+                name,
+                written,
+                f'default LlmConfig must still derive {name}; a caller that does '
+                'not opt out relies on these defaults',
+            )
+
     def test_repo_derive_all_still_writes_shared_files(self):
         """The repo-level generator owns the five shared .llm/ docs.
 
