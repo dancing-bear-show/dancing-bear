@@ -107,29 +107,50 @@ def _safe_mtime(p: Path) -> float:
         return 0.0
 
 
+def _coerce_count(raw: object, fallback: int) -> int:
+    """Coerce a possibly-corrupt scalar count to an int, falling back on junk.
+
+    A persisted index is untrusted: any JSON type can land in a count field and
+    would break later arithmetic. Resolution order, all behaviour-significant:
+    - None or 0 -> fallback (the companion list's length)
+    - a non-bool int/float -> _to_int (exact for ints, tolerant for floats)
+    - anything else -> parsed as a numeric string, or fallback when that raises
+
+    bool is deliberately excluded from the numeric branch, so True parses as the
+    string "True" and lands on fallback rather than counting as 1.
+    """
+    if raw is None or raw == 0:
+        return fallback
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        return _to_int(raw)  # exact for ints, tolerant for floats
+    try:
+        return int(float(str(raw)))  # numeric strings; raises on junk
+    except (TypeError, ValueError):
+        return fallback  # corrupted entry — fall back to list length
+
+
+def _list_length(value: object) -> int:
+    """Return the length of a list/tuple value, or 0 for any other type."""
+    return len(value) if isinstance(value, (list, tuple)) else 0
+
+
+def _normalize_session_index(idx: dict[str, object]) -> dict[str, object]:
+    """Repair list and scalar-count fields on a loaded index, in place."""
+    # Ensure list fields exist for safe appending
+    for key in ("prompts", "bash_commands", "tool_calls"):
+        if not isinstance(idx.get(key), list):
+            idx[key] = []
+    # Coerce scalar counts — a corrupted JSON value (e.g. str) would break arithmetic.
+    for key, list_key in (("prompt_count", "prompts"), ("bash_count", "bash_commands")):
+        idx[key] = _coerce_count(idx.get(key), _list_length(idx[list_key]))
+    return idx
+
+
 def _load_or_init_session_index(index_dir: Path, session_id: str) -> dict[str, object]:
     index_path = index_dir / f"{session_id}.json"
     idx: dict[str, object] = _load_json_nullable(index_path) or {}
     if idx:
-        # Ensure list fields exist for safe appending
-        for key in ("prompts", "bash_commands", "tool_calls"):
-            if not isinstance(idx.get(key), list):
-                idx[key] = []
-        # Coerce scalar counts — a corrupted JSON value (e.g. str) would break arithmetic.
-        for key, list_key in (("prompt_count", "prompts"), ("bash_count", "bash_commands")):
-            _list_val = idx[list_key]
-            _list_len = len(_list_val) if isinstance(_list_val, (list, tuple)) else 0
-            raw = idx.get(key)
-            if raw is None or raw == 0:
-                idx[key] = _list_len
-            elif isinstance(raw, (int, float)) and not isinstance(raw, bool):
-                idx[key] = _to_int(raw)  # exact for ints, tolerant for floats
-            else:
-                try:
-                    idx[key] = int(float(str(raw)))  # numeric strings; raises on junk
-                except (TypeError, ValueError):
-                    idx[key] = _list_len  # corrupted entry — fall back to list length
-        return idx
+        return _normalize_session_index(idx)
     return {
         "session_id": session_id,
         "project_path": "",
