@@ -388,9 +388,23 @@ stages:
 
         python3 -c "import pathlib; print([d.name for d in pathlib.Path('src').iterdir() if d.is_dir() and (d/'__init__.py').exists() and not (d/'meta.py').exists()])"
 
-      and if it reports nothing but `core`, P1 is done: say so in your report
-      and make no edits. The two literals that once needed judgement here —
-      maker's FALLBACK_AGENTIC_HEADER and mail's bullet-list fallback — are both
+      A meta.py file is NOT sufficient on its own — P1 has two halves, and this
+      check only covers the first. Declare P1 done only when ALL THREE hold:
+        a. the command above reports nothing but `core`;
+        b. the plan and conformance.json record no outstanding S2 work; and
+        c. each app's BaseAssistant is actually wired to META.agentic_fallback
+           rather than a hand-written literal. Verify PER PACKAGE, not per
+           file — a per-file grep false-positives on shims (telemetry/cli.py
+           re-exports; the wiring lives in telemetry/cli_sessions.py):
+
+             python3 -c "import pathlib; print([d.name for d in pathlib.Path('src').iterdir() if d.is_dir() and (d/'__init__.py').exists() and d.name != 'core' and not any('agentic_fallback' in p.read_text(errors='replace') for p in d.rglob('*.py'))])"
+
+           Measured 2026-09-11: prints [] — all 18 apps wired. This is a guard
+           against a future meta.py landing without its call-site change, not a
+           known gap today.
+      If all three hold, say so in your report and make no edits. The two
+      literals that once needed judgement here — maker's
+      FALLBACK_AGENTIC_HEADER and mail's bullet-list fallback — are both
       resolved, and that constant no longer exists in maker/agentic.py.
 
       If the check DOES find an app without meta.py:
@@ -461,8 +475,11 @@ stages:
       before: calendars announces "calendar", and the second parameter of
       emit_agentic_context is named _compact in every domain except mail, which
       uses compact. Do not trust that split either — count it
-      (`grep -L _compact src/*/agentic.py`); an earlier version of this note
-      said "nine domains" and was stale by eight.
+      (`grep -L _compact src/*/agentic.py | grep -v '^src/core/'`); an earlier
+      version of this note said "nine domains" and was stale by eight. The
+      core/ filter matters: core.agentic is the shared package, not a domain,
+      and it also lacks _compact — counting it makes mail look like one of two
+      exceptions rather than the only one.
     agent:
       role: tester
       model: sonnet
