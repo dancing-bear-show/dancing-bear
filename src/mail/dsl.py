@@ -64,11 +64,15 @@ def normalize_filter_for_outlook(spec: object) -> dict[str, Any] | None:
         return None
     m = spec.get("match") or {}
     a = spec.get("action") or {}
-    crit = {}
+    crit: dict[str, str] = {}
     for k in ("from", "to", "subject"):
         if m.get(k):
             crit[k] = str(m[k])
-    act = {}
+    # Annotated because the values are heterogeneous: `add` is a list, `forward`
+    # and `moveToFolder` are strings, and the keepInInbox/noMoveToFolder markers
+    # are bools. Without this mypy infers dict[str, list[str]] from the first
+    # assignment below and rejects every other one.
+    act: dict[str, Any] = {}
     if a.get("add"):
         act["add"] = _coerce_label_list(a["add"])
     if a.get("forward"):
