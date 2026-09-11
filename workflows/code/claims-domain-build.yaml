@@ -107,8 +107,16 @@ stages:
 
       Step 2 -- confirm core.pdf_forms is intact (this workflow will edit it):
         PYTHONPATH="$(pwd)/src" .venv/bin/python -m unittest \
-          tests.core_tests.test_core_pdf_forms 2>&1 | tail -3
-        Record the passing test count as the pre-migration baseline.
+          tests.core_tests.test_core_pdf_forms > /tmp/claims-baseline.log 2>&1
+        status=$?; tail -3 /tmp/claims-baseline.log; echo "BASELINE_EXIT=$status"
+
+        Do NOT pipe straight into tail: a pipeline reports the LAST command's
+        status, so tail's zero exit hides a failing baseline.
+
+        If BASELINE_EXIT is not 0, STOP.  Write ready: false and report this
+        stage's status as "failed".  A broken baseline means the migration
+        cannot be shown to preserve anything, so proceeding is worse than
+        halting.  Record the passing test count only when the exit was 0.
 
       Step 3 -- record the Receipt surface claims must build against:
         PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
@@ -215,9 +223,34 @@ stages:
         breaking a merged, working module.
 
         PYTHONPATH="$(pwd)/src" .venv/bin/python -m unittest \
-          tests.core_tests.test_core_pdf_forms 2>&1 | tail -5
+          tests.core_tests.test_core_pdf_forms > /tmp/pdf-forms-tests.log 2>&1
+        unit_status=$?; tail -5 /tmp/pdf-forms-tests.log
         PYTHONPATH="$(pwd)/src" .venv/bin/python -m doctest src/core/pdf_forms.py -v \
-          2>&1 | tail -3
+          > /tmp/pdf-forms-doctest.log 2>&1
+        doc_status=$?; tail -3 /tmp/pdf-forms-doctest.log
+        echo "UNIT_EXIT=$unit_status DOCTEST_EXIT=$doc_status"
+
+        Neither may be piped into tail directly -- tail's zero exit would mask
+        a failure and let existing_pdf_forms_tests record PASS on a red run,
+        which is exactly what the migration_safe gate depends on.
+
+        existing_pdf_forms_tests is "PASS" only when BOTH exits are 0.
+
+        THE DOCTEST WILL FAIL UNTIL YOU FIX IT, and that is expected: the
+        docstring of font_size_for() in src/core/pdf_forms.py contains
+
+            >>> font_size_for("2.day_phone.area")
+            7
+
+        which asserts the very default this migration removes.  Update that
+        doctest in the same edit -- pass an explicit sizes map so it still
+        demonstrates longest-prefix matching:
+
+            >>> font_size_for("2.day_phone.area", {"2.day_phone.": 7})
+            7
+
+        Do not delete the doctest and do not weaken it to assert 9; the point
+        of the example is the prefix mechanism, which core still owns.
 
         Tests asserting the OLD Sun Life prefixes (e.g. font_size_for(
         "2.day_phone.area") == 7) will now fail, because that knowledge has
@@ -980,8 +1013,11 @@ stages:
           /tmp/claims-new-tests.log | head -60
         echo "UNITTEST_EXIT=$status"
 
-        UNITTEST_EXIT must be 0.  Any other value is a FAIL: record it as
-        such and do not report this stage as successful.
+        UNITTEST_EXIT must be 0.  Any other value means this stage FAILED:
+        set "status": "failed" in your completion JSON and set all_green to
+        false.  Recording the number while reporting success is not enough --
+        the completion template pre-fills "success", so you must override it
+        explicitly or a red test run reaches the human gate looking green.
 
       Step 3 -- run the FULL test suite (regression guard):
         make test > /tmp/receipt-claims-verify.log 2>&1; echo "EXIT=$?"

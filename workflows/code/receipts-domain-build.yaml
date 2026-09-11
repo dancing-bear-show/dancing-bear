@@ -131,8 +131,18 @@ stages:
           OCR fallback rule:
             extract_text() detects an empty text layer (len(text.strip()) == 0)
             and falls back to page.get_textpage_ocr() from PyMuPDF.
+            Define in src/core/pdf_read.py:
+
+              class OcrUnavailableError(RuntimeError):
+                  """No text layer and no Tesseract binary to fall back on."""
+
+            It subclasses RuntimeError so existing `except RuntimeError`
+            handlers still work, while letting extract() catch ONLY this
+            condition rather than every RuntimeError a parser might raise.
+            Export it in __all__.
+
             Tesseract availability must be detected at runtime.  A missing
-            Tesseract raises RuntimeError("OCR requested but tesseract binary
+            Tesseract raises OcrUnavailableError("OCR requested but tesseract binary
             not found on PATH") -- NEVER a silent empty string.
             OCR is declared as an optional extra in pyproject.toml:
               [project.optional-dependencies]
@@ -170,7 +180,7 @@ stages:
                 1. Try each parser in PARSERS order (jane -> costco -> generic).
                    A parser that matches but yields total=None does NOT claim
                    the document -- continue to the next.
-                2. A RuntimeError from extract_text() (no text layer, no
+                2. A OcrUnavailableError from extract_text() (no text layer, no
                    Tesseract) is caught per parser and treated as a decline,
                    not a failure.
                 3. If sidecar=True AND no parser produced a total AND a
@@ -347,7 +357,7 @@ stages:
           - parse(doc) must never raise on a parseable document.  Unparseable
             fields -> None.
           - matches(doc) and parse(doc) MAY be called when OCR is unavailable.
-            extract_text() raises RuntimeError in that case; extract() catches
+            extract_text() raises OcrUnavailableError in that case; extract() catches
             it per parser and treats it as a decline, so an individual parser
             need not guard it -- but must not rely on never seeing it either.
           - total=0.00 is a SUCCESSFUL parse (provider direct-billed), never a
@@ -428,7 +438,7 @@ stages:
 
         5. OCR optional-dep pattern
            Does the spec declare pytesseract as an [ocr] extra (NOT in base)?
-           Does extract_text() degrade to RuntimeError (not empty string) when
+           Does extract_text() degrade to OcrUnavailableError (not empty string) when
            Tesseract is missing and the text layer is empty?
            Silent empty-string degradation is BLOCKING.
 
@@ -484,7 +494,7 @@ stages:
         - No BLOCKING issues remain
         - Dependency direction (receipts->core) confirmed
         - $0 patient-pays flow verified through all three layers
-        - OCR degrade-to-RuntimeError confirmed
+        - OCR degrade-to-OcrUnavailableError confirmed
         - Sidecar is last resort after all parsers
         - render_png signature pinned for the claims workflow
       max_revisions: 1
@@ -532,7 +542,7 @@ stages:
                   except Exception:
                       import shutil
                       if not shutil.which("tesseract"):
-                          raise RuntimeError(
+                          raise OcrUnavailableError(
                               "OCR requested but tesseract binary not found on PATH"
                           )  # nosec B603 - shutil.which, no subprocess
                       raise
@@ -589,9 +599,9 @@ stages:
                  Use a real skip, never a try/except that swallows the failure
                  -- a swallowed failure reads identical to a pass.
 
-              c. The RuntimeError path is the ONE OCR test that must run
+              c. The OcrUnavailableError path is the ONE OCR test that must run
                  everywhere: mock shutil.which to return None and assert
-                 RuntimeError is raised on an empty-text-layer page.  That
+                 OcrUnavailableError is raised on an empty-text-layer page.  That
                  assertion needs no binary, and it is the behaviour that
                  actually protects against a silent empty string being read as
                  "no amount found".
@@ -856,7 +866,7 @@ stages:
             # If OCR unavailable and text empty, return False (do not raise).
             try:
               text = doc.extract_text(0)
-            except RuntimeError:
+            except OcrUnavailableError:
               return False
             # Case-insensitive deliberately: the pharmacy receipts print
             # "Costco Pharmacies" while optical prints "COSTCO OPTICAL
@@ -883,7 +893,7 @@ stages:
             # invoice_id=None always.
             # Returns Receipt(..., invoice_id=None, ...).
 
-        OCR degrade behaviour: if extract_text() raises RuntimeError (no
+        OCR degrade behaviour: if extract_text() raises OcrUnavailableError (no
         Tesseract), parse() catches it and returns Receipt with all optional
         fields None, plus a note in the vendor field: "Costco (OCR unavailable)".
         This prevents a hard crash when Tesseract is absent.
@@ -1001,10 +1011,17 @@ stages:
                 if not parser.matches(doc):
                   continue
                 candidate = parser.parse(doc)
-              except RuntimeError:
-                # OCR unavailable on a document with no text layer.  That is a
-                # degraded environment, not a parse failure: let the remaining
+              except OcrUnavailableError:
+                # Degraded environment, not a parse failure: let the remaining
                 # parsers and then the sidecar have their turn.
+                #
+                # Deliberately NOT a bare `except RuntimeError`.  This block
+                # wraps both matches() and parse(), so a broad catch would
+                # swallow any parser BUG as an OCR decline -- the document
+                # would quietly fall through to the sidecar or to a
+                # misattributed parser, and the real error would never
+                # surface.  A dedicated type means only the condition we
+                # actually want to tolerate is tolerated.
                 continue
               if candidate is None or candidate.total is None:
                 # Matched the shape but found no amount: keep looking, and
@@ -1027,8 +1044,8 @@ stages:
           # local variable `path`, not a workflow parameter.  Copy it exactly.
           raise ValueError(f"no parser extracted a total: " + str(path))
 
-        CRITICAL -- why the RuntimeError guard lives HERE and not in each
-        parser:  extract_text() raises RuntimeError when a document has no
+        CRITICAL -- why the OcrUnavailableError guard lives HERE and not in each
+        parser:  extract_text() raises OcrUnavailableError when a document has no
         text layer and Tesseract is absent.  JaneParser runs FIRST and calls
         extract_text() in its matches(), so an unguarded raise kills dispatch
         before Costco or Generic is reached -- and before the sidecar.  A
@@ -1207,8 +1224,7 @@ stages:
           "ci_steps_verified": true,
           "lazy_fitz_violations": [],
           "pdfparser_abc_method_count": 2,
-          "zero_dollar_rule_present": true,
-          "render_verification_present": true,
+          "zero_dollar_parses_as_value": true,
           "sidecar_last_resort_verified": true,
           "agentic_wired": {"receipts": true},
           "blocking_count": 0,
@@ -1387,7 +1403,7 @@ stages:
           - extract_text() on a page index out of range raises IndexError or
             ValueError (document the expected exception in the test).
           - If tesseract is not on PATH: mock shutil.which to return None, then
-            confirm extract_text() raises RuntimeError on an empty-text-layer page
+            confirm extract_text() raises OcrUnavailableError on an empty-text-layer page
             (not a silent empty string).
 
         Write tests/receipts_tests/__init__.py (empty).
@@ -1425,7 +1441,7 @@ stages:
           - JaneParser.parse() sets invoice_id=None for a PDF with no matching pattern
             (should not raise).
           - CostcoParser.matches() returns False (not raises) when extract_text()
-            raises RuntimeError (mock PdfDocument.extract_text to raise RuntimeError).
+            raises OcrUnavailableError (mock PdfDocument.extract_text to raise OcrUnavailableError).
           - GenericParser.parse() sets total=None for a PDF with no dollar amounts.
 
         Write tests/receipts_tests/test_extract.py.
@@ -1464,8 +1480,11 @@ stages:
         grep -E "test_pdf_read|test_models|test_sidecar|test_parsers|test_extract|OK|FAIL|ERROR" /tmp/receipts-new-tests.log | head -60
         echo "UNITTEST_EXIT=$status"
 
-        UNITTEST_EXIT must be 0.  Any other value is a FAIL: record it as
-        such and do not report this stage as successful.
+        UNITTEST_EXIT must be 0.  Any other value means this stage FAILED:
+        set "status": "failed" in your completion JSON and set all_green to
+        false.  Recording the number while reporting success is not enough --
+        the completion template pre-fills "success", so you must override it
+        explicitly or a red test run reaches the human gate looking green.
 
       Step 3 -- run the FULL test suite (regression guard):
         make test > /tmp/receipt-claims-verify.log 2>&1; echo "EXIT=$?"
