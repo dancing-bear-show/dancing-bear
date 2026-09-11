@@ -199,6 +199,13 @@ def _apply_move_to_folders(out_specs: list[dict]) -> None:
             spec["action"] = a
 
 
+# Keys that make a derived Outlook spec worth creating as a rule. The
+# keepInInbox / noMoveToFolder markers are deliberately absent: they are
+# modifiers on an action, never actions themselves, so a spec carrying only a
+# marker has nothing for the rule to do.
+_ACTIONABLE_KEYS = ("add", "forward", "moveToFolder")
+
+
 def _drop_actionless_specs(out_specs: list[dict]) -> list[dict]:
     """Drop derived specs whose action ended up empty.
 
@@ -219,7 +226,12 @@ def _drop_actionless_specs(out_specs: list[dict]) -> list[dict]:
     kept = []
     for spec in out_specs:
         action = spec.get("action") or {}
-        if not action:
+        # Test the meaningful VALUES, not the dict's truthiness. `add: ["", null]`
+        # coerces to `add: []`, so `action` is `{"add": []}` — truthy as a dict
+        # while carrying no action. That slipped through, and sync's own
+        # re-normalization then dropped the empty list, leaving `{}` and creating
+        # the stop-processing no-op rule this function exists to prevent.
+        if not any(action.get(k) for k in _ACTIONABLE_KEYS):
             continue
         kept.append(spec)
     return kept

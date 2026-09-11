@@ -364,6 +364,57 @@ class DeriveFiltersTests(TestCase):
             gmail = yaml.safe_load(out_gmail.read_text())["filters"]
             self.assertEqual(2, len(gmail))
 
+    def test_derive_filters_omits_a_spec_whose_add_coerced_to_empty(self):
+        """`add: ["", null]` is actionless too, and must be dropped.
+
+        Regression: `_drop_actionless_specs` tested the action dict's
+        truthiness. `_coerce_label_list` turns `["", null]` into `[]`, so the
+        action is `{"add": []}` — truthy as a dict while carrying nothing. It
+        survived the drop, and sync's own re-normalization then discarded the
+        empty list, leaving `{}` and creating exactly the stop-processing no-op
+        rule the drop exists to prevent.
+
+        The check now tests the meaningful values. The keepInInbox /
+        noMoveToFolder markers are excluded from that set on purpose: they
+        modify an action rather than being one.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            in_path = Path(tmpdir) / "filters.yaml"
+            in_path.write_text(
+                "filters:\n"
+                "  - match:\n"
+                "      from: grafana.com\n"
+                "    action:\n"
+                '      add: ["", null]\n'
+                "      keepInInbox: true\n"
+                "      remove: [INBOX]\n"
+                "  - match:\n"
+                "      from: shop.example.com\n"
+                "    action:\n"
+                "      add: [Lists/Commercial]\n"
+                "      remove: [INBOX]\n"
+            )
+            out_gmail = Path(tmpdir) / "gmail.yaml"
+            out_outlook = Path(tmpdir) / "outlook.yaml"
+
+            result = DeriveFiltersProcessor().process(
+                DeriveFiltersRequest(
+                    in_path=str(in_path),
+                    out_gmail=str(out_gmail),
+                    out_outlook=str(out_outlook),
+                    outlook_archive_on_remove_inbox=True,
+                )
+            )
+            self.assertTrue(result.ok())
+
+            import yaml
+
+            outlook = yaml.safe_load(out_outlook.read_text())["filters"]
+            senders = [f["match"]["from"] for f in outlook]
+            self.assertNotIn("grafana.com", senders, "empty add is still actionless")
+            # The real rule beside it survives: this is a targeted drop.
+            self.assertEqual(["shop.example.com"], senders)
+
     def test_derive_filters_keep_in_inbox_survives_a_dropped_entry(self):
         """A dropped entry ahead of a marked rule must not misalign the lookup.
 
