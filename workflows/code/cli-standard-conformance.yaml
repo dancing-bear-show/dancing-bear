@@ -66,6 +66,7 @@ description: >
     fix-  fix-  fix-
     meta  con-  llm
           tracts
+    |     |     |
     +-----+-----+
           |
     verify-conformance
@@ -624,8 +625,10 @@ stages:
     # `description` is REQUIRED by the parser but DISCARDED at dispatch for
     # kind:validate — the prompt is built from validation.criteria ONLY.
     description: >
-      Run the full suite and lint, and confirm test code shrank.
-      (Contract is in validation.criteria, not here.)
+      Run the full suite and lint, and confirm duplicated hand-rolled
+      assertions were removed from the files that adopted a contract mixin.
+      NOT that test code shrank — a growing total is expected here; see the
+      criteria. (Contract is in validation.criteria, not here.)
     validation:
       strategy: deliverable
       criteria:
