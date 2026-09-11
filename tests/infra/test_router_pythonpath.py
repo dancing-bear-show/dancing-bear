@@ -68,6 +68,10 @@ def _run_prologue(pythonpath: str, cwd: Path) -> dict[str, str]:
         text=True,
         cwd=str(cwd),
         env=env,
+        # Bounded so a stalled interpreter fails this one test instead of
+        # hanging the whole suite. The probe only parses a file and prints JSON,
+        # so 60s is generous even on a loaded machine.
+        timeout=60,
     )
     if proc.returncode != 0:
         raise AssertionError(f"router prologue failed: {proc.stderr}")

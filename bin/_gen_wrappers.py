@@ -125,7 +125,9 @@ def _strip_foreign_src_paths(repo_root: Path) -> list[str]:
     entries alone, since stripping those would break setups this router knows
     nothing about.
 
-    Returns the entries that were removed, so the caller can report them.
+    Returns the entries that were removed. The router itself does not bind the
+    result — DANCING_BEAR_PATH_DEBUG=1 is how a human sees what was dropped —
+    but the return value is what tests assert against.
     """
     raw = os.environ.get("PYTHONPATH", "")
     if not raw:
@@ -166,7 +168,7 @@ def _strip_foreign_src_paths(repo_root: Path) -> list[str]:
     return dropped
 
 
-_DROPPED_SRC_PATHS = _strip_foreign_src_paths(_REPO_ROOT)
+_strip_foreign_src_paths(_REPO_ROOT)
 
 _VENV_PY = _REPO_ROOT / ".venv" / "bin" / "python3"
 _VENV_PY_REAL = os.path.realpath(str(_VENV_PY)) if _VENV_PY.exists() else ""

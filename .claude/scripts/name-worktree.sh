@@ -29,21 +29,29 @@ WPATH="$REPO_ROOT/.claude/worktrees/$NAME"
 mkdir -p "$REPO_ROOT/.claude/worktrees"
 git -C "$REPO_ROOT" worktree add -b "$NAME" "$WPATH" HEAD >/dev/null
 
-# Whitelist the new worktree's own .envrc.
+# Deliberately NOT running `direnv allow` here.
 #
-# .envrc exports PYTHONPATH="$PWD/src", but direnv only loads an .envrc it has
-# been told to trust. A worktree's .envrc is a distinct file from the main
-# checkout's, so it starts untrusted: direnv keeps the PYTHONPATH it already
-# exported for whichever checkout the shell started in, and every import of
-# mail/resume/core in this worktree silently resolves to THAT tree. Tests then
-# pass against unmodified source, which is indistinguishable from a real pass.
+# It would fix a real problem: .envrc exports PYTHONPATH="$PWD/src", direnv only
+# loads an .envrc it has been told to trust, and a worktree's .envrc is a
+# distinct file from the main checkout's — so it starts untrusted, the shell
+# keeps the PYTHONPATH it exported for whichever checkout it started in, and
+# imports of mail/resume/core silently resolve to THAT tree.
 #
-# Approving it here means the variable is right from the worktree's first
-# command instead of depending on someone noticing. Non-fatal: if direnv is not
-# installed the worktree is still usable, and bin/_router.py repairs the path
-# for every ./bin/* command regardless.
-if command -v direnv >/dev/null 2>&1; then
-  (cd "$WPATH" && direnv allow . >/dev/null 2>&1) || true
+# But .envrc is a TRACKED, branch-controlled file. Auto-approving it means any
+# branch this hook creates a worktree for — including one from an untrusted PR —
+# gets its .envrc trusted and executed on the next direnv load, before a human
+# reads it. That is arbitrary shell execution from branch content, a worse
+# problem than the one it solves.
+#
+# Handled without the trust grant instead:
+#   - bin/_router.py strips foreign-checkout PYTHONPATH entries, so every
+#     ./bin/* command resolves to this worktree regardless of direnv.
+#   - The Makefile pins PYTHONPATH for make targets.
+#   - .claude/scripts/check-pythonpath.sh warns at SessionStart when PYTHONPATH
+#     names another checkout, and tells the user to run `direnv allow .`
+#     themselves after reading the file.
+if command -v direnv >/dev/null 2>&1 && [ -f "$WPATH/.envrc" ]; then
+  echo "note: run 'direnv allow .' in $WPATH after reviewing its .envrc" >&2
 fi
 
 echo "$WPATH"
