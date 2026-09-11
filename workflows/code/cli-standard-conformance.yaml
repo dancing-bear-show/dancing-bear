@@ -286,8 +286,8 @@ stages:
       Write {workspace}/{plan_file} (markdown) and
       {workspace}/design/work-packages.json.
 
-      Partition into exactly these four packages. The partition is by FILE, not
-      by app, because the contract mixins are shared files:
+      Partition into exactly these three packages. The partition is by FILE,
+      not by app, because the contract mixins are shared files:
 
         P1 "fix-meta"      — src/<app>/meta.py + the BaseAssistant construction
                              in each non-conformant app's cli.py. Rule S2.
@@ -449,8 +449,10 @@ stages:
       Before writing any test, run a throwaway probe that imports each target
       module and prints its ACTUAL values. Assumptions have been wrong here
       before: calendars announces "calendar", and the second parameter of
-      emit_agentic_context is named _compact in nine domains but compact in
-      mail.
+      emit_agentic_context is named _compact in every domain except mail, which
+      uses compact. Do not trust that split either — count it
+      (`grep -L _compact src/*/agentic.py`); an earlier version of this note
+      said "nine domains" and was stale by eight.
     agent:
       role: tester
       model: sonnet
