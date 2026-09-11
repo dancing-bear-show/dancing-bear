@@ -131,8 +131,20 @@ def _build_plan_action(action_spec: dict[str, Any], ctx: RuleContext) -> dict[st
     adds = action_spec.get("add") or []
 
     if action_spec.get("moveToFolder"):
-        lab_name = norm_label_name_outlook(str(action_spec["moveToFolder"]))
-        action["moveToFolderId"] = ctx.folder_map.get(lab_name) or lab_name
+        # Look the RAW path up first. `folder_map` may be path-keyed
+        # (get_folder_path_map) or display-name-keyed (get_folder_id_map), and
+        # normalizing first turns `Security/Alerts` into `Security-Alerts`,
+        # which matches neither — leaving the normalized string to be used as
+        # the folder id itself. Sync resolves the same path through
+        # ensure_folder_path() and gets a real Graph id, so the plan's rule key
+        # diverged from apply's and an existing rule was reported as
+        # "Would create" with the wrong destination shown.
+        pth = str(action_spec["moveToFolder"])
+        action["moveToFolderId"] = (
+            ctx.folder_map.get(pth)
+            or ctx.folder_map.get(norm_label_name_outlook(pth))
+            or pth
+        )
     elif ctx.move_to_folders and adds and not action_spec.get("noMoveToFolder"):
         # Normal rule with move_to_folders: derive folder from first add label.
         lab_name = norm_label_name_outlook(adds[0])

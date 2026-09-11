@@ -20,7 +20,14 @@ from mail.outlook.processors_rules_write import (
     OutlookRulesPlanResult,
     OutlookRulesSweepProcessor,
 )
-from mail.outlook.processors_rules_helpers import RuleContext
+from mail.outlook.processors_rules_helpers import (
+    RuleContext,
+    _build_plan_action,
+    _build_rule_action,
+    _build_rule_criteria,
+    _create_rule_key,
+    _format_plan_action,
+)
 from mail.outlook.consumers import (
     OutlookRulesSyncPayload,
     OutlookRulesPlanPayload,
@@ -750,6 +757,86 @@ class TestPlanProcessorHonoursNoMoveToFolder(unittest.TestCase):
         comm = next(i for i in items if "shop.example.com" in i)
         self.assertNotIn("moveToFolderId", graf)
         self.assertIn("moveToFolderId", comm)
+
+
+class TestPlanNestedExplicitDestination(unittest.TestCase):
+    """A nested explicit `moveToFolder` must key and display the same as sync.
+
+    Regression: `_build_plan_action` normalized the path before looking it up,
+    turning `Security/Alerts` into `Security-Alerts`. That matched no key in
+    either folder map, so the normalized string was used AS the folder id —
+    while sync resolved the real path through `ensure_folder_path()` and got a
+    Graph id. The plan's `_create_rule_key` therefore differed from apply's, so
+    an existing rule was reported as "Would create" and the destination was
+    displayed with the wrong name.
+
+    Two changes are needed together: look the raw path up first, and give plan
+    a path-keyed map (`get_folder_path_map`, as sync and sweep already use)
+    rather than `get_folder_id_map`, which keys displayName only and can never
+    contain a nested path.
+    """
+
+    ACTION = {"add": ["Security/Alerts"], "moveToFolder": "Security/Alerts"}
+    MATCH = {"from": "sec.example.net"}
+    PATH_MAP = {"Security/Alerts": "real-graph-id"}
+
+    def test_plan_key_matches_sync_key(self):
+        """The same spec must produce the same rule key in plan and sync."""
+        plan_ctx = RuleContext.for_plan(
+            name_to_id={"Security/Alerts": "cat-sec"},
+            folder_map=self.PATH_MAP,
+            move_to_folders=True,
+        )
+        client = MagicMock()
+        client.ensure_folder_path.return_value = "real-graph-id"
+        sync_ctx = RuleContext(
+            client=client,
+            name_to_id={"Security/Alerts": "cat-sec"},
+            folder_map=self.PATH_MAP,
+            move_to_folders=True,
+        )
+
+        plan_action = _build_plan_action(dict(self.ACTION), plan_ctx)
+        sync_action = _build_rule_action(dict(self.ACTION), sync_ctx)
+
+        self.assertEqual("real-graph-id", plan_action["moveToFolderId"])
+        self.assertEqual(sync_action, plan_action)
+        crit = _build_rule_criteria(self.MATCH)
+        self.assertEqual(
+            _create_rule_key(crit, sync_action),
+            _create_rule_key(crit, plan_action),
+            "plan key must match sync key or plan reports an existing rule as new",
+        )
+
+    def test_plan_displays_the_real_path(self):
+        """Display resolves back to `Security/Alerts`, not `Security-Alerts`."""
+        plan_ctx = RuleContext.for_plan(
+            name_to_id={}, folder_map=self.PATH_MAP, move_to_folders=True
+        )
+        action = _build_plan_action(dict(self.ACTION), plan_ctx)
+        disp = _format_plan_action(action, self.PATH_MAP)
+        self.assertEqual("Security/Alerts", disp["moveToFolder"])
+
+    def test_plan_processor_requests_a_path_keyed_map(self):
+        """The processor must source folder ids by path, as sync and sweep do.
+
+        Asserted at the client-call level: with only `get_folder_id_map`
+        populated (displayName keys), a nested destination cannot resolve.
+        """
+        client = _make_client(folder_path_map=self.PATH_MAP)
+        client.get_folder_id_map.return_value = {"Alerts": "wrong-id"}
+        payload = OutlookRulesPlanPayload(
+            client=client, config_path="/t.yaml", move_to_folders=True
+        )
+        with patch(
+            "core.yamlio.load_config",
+            return_value={"filters": [{"match": self.MATCH, "action": dict(self.ACTION)}]},
+        ):
+            envelope = OutlookRulesPlanProcessor().process(payload)
+
+        self.assertEqual(envelope.status, "success")
+        client.get_folder_path_map.assert_called_once()
+        client.get_folder_id_map.assert_not_called()
 
 
 class TestSweepHonoursKeepInInboxEndToEnd(unittest.TestCase):

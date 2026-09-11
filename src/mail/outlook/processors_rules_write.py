@@ -205,7 +205,14 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
             )
             existing_keys = {_canon_rule(r) for r in existing}
             name_to_id = client.get_label_id_map()
-            folder_map = client.get_folder_id_map() if payload.move_to_folders else {}
+            # Path-keyed, matching sync (line 83) and sweep (line 285). Plan used
+            # get_folder_id_map, which keys displayName only, so an explicit
+            # nested destination like `Security/Alerts` resolved to no id here
+            # while sync resolved it through ensure_folder_path() — the plan's
+            # rule key diverged from apply's and reported an existing rule as
+            # "Would create". A path map also reverses correctly for display in
+            # _format_plan_action.
+            folder_map = client.get_folder_path_map() if payload.move_to_folders else {}
 
             plan_items = self._build_plan_items(
                 desired, existing_keys, name_to_id, folder_map, payload.move_to_folders
