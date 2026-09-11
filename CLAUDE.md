@@ -89,7 +89,7 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 - The workflow engine (`src/workflow/compiler.py`) inserts `--` before flags for most skills; `llm` and `docs` CLIs are exempt (`_NO_SEPARATOR_CLIS`). `docs` is reserved for a planned external documentation CLI — no `bin/docs` ships today
 - `--` separator is now **optional** for all CLIApp-based CLIs (mail, calendar, schedule, resume, phone, whatsapp, desk, wifi, maker, apple_music, workflow); `src/core/cli_framework.py` strips bare `--` tokens automatically. The workflow engine's `_NO_SEPARATOR_CLIS` exemption for `llm`/`docs` remains unchanged.
 - Auto-derived agentic schema: **all 18 apps** support `--agentic --agentic-format json` to emit a machine-readable parser schema that never drifts from the real CLI; add `--agentic-compact` to strip low-value fields; add `--agentic-domain <prefix>` to filter to one subcommand group. Run `./bin/llm inventory --stdout` for the authoritative list — it prints the exact invocation per app, because `./bin/<app>` is wrong for four of them (`apple-music` and `qlty` use `-assistant` wrappers, `resume` goes through `./bin/assistant resume`, and `desk` has no wrapper: `python3 -m desk`).
-- Most apps get this via `CLIApp.run_with_assistant()`. Four wire it manually to preserve legacy no-subcommand exit codes: charts (1) and diagrams (0) call `assistant.add_agentic_flags(parser)` then `maybe_emit_agentic(...)` before their `cmd_func is None` branch; worker (1) and workflow (2) pass `on_no_command=` through `run_with_assistant()`. telemetry is Click, not argparse, so it declares eager `--agentic*` options on the group with `invoke_without_command=True`.
+- Most apps get this via `CLIApp.run_with_assistant()`. Four wire it manually to preserve legacy no-subcommand exit codes: charts (1) and diagrams (0) call `assistant.add_agentic_flags(parser)` then `maybe_emit_agentic(...)` before their `cmd_func is None` branch; worker (1) and workflow (2) pass `on_no_command=` through `run_with_assistant()`.
 
 ## Development Rules
 
@@ -214,12 +214,23 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
   shallow clone has no merge-base, and the changed-files diff would come back
   empty — a pass that checked nothing. The script hard-fails on an unresolvable
   base ref rather than degrading quietly.
-- Baseline lives in `typecheck-baseline.json`: **680 errors** across `src/`,
-  `tests/` and `bin/`, measured on **Linux**, the platform CI enforces on. It is
-  per-package, so a regression in a small package is visible instead of lost in
-  the total.
-- **The count is platform-dependent, and that is expected.** macOS reports 684
-  (`mail` 47 vs 48, `tests` 237 vs 232); the other 13 packages are identical.
+- Baseline lives in `typecheck-baseline.json`, measured on **Linux**, the
+  platform CI enforces on. It is per-package, so a regression in a small package
+  is visible instead of lost in the total. **Read the total from the file rather
+  than from prose** — it drops with every type-fixing PR, and a number quoted
+  here goes stale fast (it has already run 680 → 566 → 371 → **347**):
+
+  ```bash
+  python3 -c "import json;d=json.load(open('typecheck-baseline.json'));print(d['total'])"
+  ```
+
+  Note `make typecheck` defaults to `TYPECHECK_PATHS ?= src`, so it measures
+  `src/` alone, while the baseline's total spans `src` + `tests` + `bin` —
+  and `tests` is the largest single contributor. A smaller src-only number is
+  scope, not an improvement.
+- **The count is platform-dependent, and that is expected.** macOS reports a few
+  more errors than Linux, concentrated in `mail` and `tests`; the other packages
+  are identical.
   `rumps` is pinned `sys_platform == 'darwin'`, so mypy analyses the menubar
   tests on macOS and not on Linux. Run `make typecheck-ratchet` on macOS and it
   reports the difference and exits 0 rather than failing on something you did
@@ -336,9 +347,10 @@ change is fine and the environment is wrong.
 ## Check for an Existing Workflow First
 
 **Before starting any multi-step task, check whether a workflow already does it.**
-This repo has 52 workflows (count as of 2026-08-28 — `./bin/workflow list` is
-authoritative). Reinventing one wastes the work already invested in it and
-produces a second, diverging implementation of the same process.
+This repo has ~70 workflows (count as of 2026-09-11 — `./bin/workflow list` is
+authoritative and the only number worth trusting). Reinventing one wastes the
+work already invested in it and produces a second, diverging implementation of
+the same process.
 
 ```bash
 ./bin/workflow list                      # live catalog — authoritative

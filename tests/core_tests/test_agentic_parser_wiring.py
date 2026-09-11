@@ -142,9 +142,15 @@ class CapsuleEmitterTests(unittest.TestCase):
     CLIs gain commands, but a banner-only fallback can never approach this.
     """
 
-    # Domains whose capsule is built by a module-level agentic.py. Domains with
-    # no agentic.py (apple_music) legitimately emit only the banner.
-    CAPSULE_DOMAINS = ["calendars", "phone", "resume", "schedule", "whatsapp"]
+    # Domains whose capsule is built by a module-level agentic.py.
+    CAPSULE_DOMAINS = [
+        "apple_music",
+        "calendars",
+        "phone",
+        "resume",
+        "schedule",
+        "whatsapp",
+    ]
 
     # The banner is two short lines; every real capsule carries a commands
     # block or a CLI tree on top of it.
@@ -196,6 +202,8 @@ class CapsuleEmitterTests(unittest.TestCase):
         you got.
         """
         entry_points = {
+            # apple_music's CLI is a flat module, not a cli/main.py package.
+            "apple_music": "apple_music.cli",
             "calendars": "calendars.cli.main",
             "schedule": "schedule.cli.main",
             "whatsapp": "whatsapp.cli.main",
