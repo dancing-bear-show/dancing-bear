@@ -24,8 +24,9 @@ from qlty.report import (
     render_triage_text,
     strip_ansi,
 )
+from qlty.runner import _strip_rule_namespace
 from qlty.scanner import ScanResult
-from qlty.strategies import known_strategies, strategy_for
+from qlty.strategies import known_strategies, strategy_for, tooling_for
 from tests.qlty_tests.shared_fixtures import make_finding
 
 
@@ -477,6 +478,74 @@ class NonActionableTierLabelTests(unittest.TestCase):
             for t in (Tier.C, Tier.D, Tier.UNKNOWN)
         }
         self.assertEqual(len(rows), 3)
+
+
+class ToolingForTests(unittest.TestCase):
+    """Rule -> remediation workflow mapping.
+
+    The complexity sweep scans both ``qlty smells`` (file-level) and
+    ``qlty check`` (per-function), so every rule it discovers must route to
+    it. A rule the workflow handles that returns None here is a silent
+    routing gap: triage reports "no tooling" for something already automated.
+    """
+
+    SWEEP = "workflows/code/qlty-complexity-sweep.yaml"
+
+    def test_file_complexity_routes_to_the_sweep(self):
+        self.assertEqual(tooling_for("file-complexity"), self.SWEEP)
+
+    def test_per_function_rules_route_to_the_sweep(self):
+        # These are the rules the widened discover-candidates stage picks up
+        # from `qlty check`; file-complexity alone would miss a small file
+        # holding one very complex function.
+        for rule in ("function-complexity", "nested-control-flow"):
+            with self.subTest(rule=rule):
+                self.assertEqual(tooling_for(rule), self.SWEEP)
+
+    def test_cognitive_complexity_routes_under_its_normalized_key(self):
+        # Radarlint keys reach the strategy table with the tool namespace
+        # stripped but the rule's own `python:` prefix intact. Keying this
+        # entry on the raw SARIF ruleId would match nothing in practice.
+        tool, rule = _strip_rule_namespace("radarlint-python:python:S3776")
+        self.assertEqual(tool, "radarlint-python")
+        self.assertEqual(rule, "python:S3776")
+        self.assertEqual(tooling_for(rule), self.SWEEP)
+
+    def test_raw_sarif_rule_id_is_not_the_lookup_key(self):
+        # Complement of the above: the un-normalized id must NOT match, which
+        # is what proves the table is keyed on the value callers actually pass.
+        self.assertIsNone(tooling_for("radarlint-python:python:S3776"))
+
+    def test_unautomated_rules_report_no_tooling(self):
+        # tooling_for must stay honest: claiming a workflow for a rule the
+        # sweep does not handle would route a human to a tool that ignores it.
+        for rule in ("similar-code", "function-parameters", "return-statements"):
+            with self.subTest(rule=rule):
+                self.assertIsNone(tooling_for(rule))
+
+    def test_unknown_rule_reports_no_tooling(self):
+        self.assertIsNone(tooling_for("not-a-real-rule"))
+
+    def test_every_automated_rule_has_a_real_strategy(self):
+        # A rule can route to the sweep while being absent from the strategy
+        # table, and the two then contradict each other: tooling_for names a
+        # workflow that remediates it while strategy_for returns Tier UNKNOWN
+        # ("No strategy recorded... do not assume it is actionable"). Triage
+        # would print both. Keep the two tables in step.
+        for rule in (
+            "file-complexity",
+            "function-complexity",
+            "nested-control-flow",
+            "python:S3776",
+        ):
+            with self.subTest(rule=rule):
+                strategy = strategy_for(rule)
+                self.assertIsNot(
+                    strategy.tier,
+                    Tier.UNKNOWN,
+                    f"{rule} routes to the sweep but has no strategy entry",
+                )
+                self.assertTrue(strategy.action.strip())
 
 
 if __name__ == "__main__":

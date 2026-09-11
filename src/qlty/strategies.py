@@ -19,9 +19,16 @@ _STRATEGIES: tuple[RuleStrategy, ...] = (
     RuleStrategy(
         rule="file-complexity",
         tier=Tier.A,
-        action="Split into focused modules; plan + human gate before editing.",
+        action=(
+            "Reduce per-function complexity in place (dispatch tables, guard "
+            "clauses, extracted predicates); plan + human gate before editing."
+        ),
         rationale=(
-            "Mechanical and well understood. Existing tooling: "
+            "The score is a pure SUM of per-function complexity, so splitting "
+            "a file redistributes it across siblings rather than reducing it "
+            "-- both halves stay flagged. Only per-function reduction removes "
+            "it. Split only when a file holds genuinely unrelated "
+            "responsibilities. Existing tooling: "
             "workflows/code/qlty-complexity-sweep.yaml."
         ),
     ),
@@ -30,6 +37,34 @@ _STRATEGIES: tuple[RuleStrategy, ...] = (
         tier=Tier.A,
         action="Extract helpers, dispatch tables, early returns.",
         rationale="Localized to one function; low blast radius.",
+    ),
+    RuleStrategy(
+        rule="python:S3776",
+        tier=Tier.A,
+        action="Extract helpers, dispatch tables, early returns, guard clauses.",
+        rationale=(
+            "Radarlint's cognitive-complexity rule. Reports the same defect as "
+            "function-complexity but from `qlty check` rather than `qlty "
+            "smells`, and scores it differently -- one function measured 26 "
+            "under function-complexity and 22 here, another 49 vs 43. A single "
+            "fix normally clears both, so deduplicate by (path, function) "
+            "before planning. Unlike the qlty rule, the message states the "
+            "threshold. Existing tooling: "
+            "workflows/code/qlty-complexity-sweep.yaml."
+        ),
+    ),
+    RuleStrategy(
+        rule="nested-control-flow",
+        tier=Tier.A,
+        action=(
+            "Flatten with early returns or guard clauses; extract the inner "
+            "block into a helper."
+        ),
+        rationale=(
+            "Usually the same defect the complexity rules flag, seen from the "
+            "nesting angle, and it clears alongside them. Existing tooling: "
+            "workflows/code/qlty-complexity-sweep.yaml."
+        ),
     ),
     RuleStrategy(
         rule="boolean-logic",
@@ -109,6 +144,26 @@ _UNKNOWN_ACTION = (
     "actionable."
 )
 
+_COMPLEXITY_SWEEP = "workflows/code/qlty-complexity-sweep.yaml"
+
+# Rules the complexity sweep actually discovers and remediates. It scans both
+# `qlty smells` (file-level) and `qlty check` (per-function) because the two
+# return DISJOINT sets, so the per-function rules belong here alongside
+# file-complexity.
+#
+# Radarlint keys are normalized -- the tool namespace is stripped but the
+# rule's own `python:` prefix survives, so cognitive complexity is
+# `python:S3776`, never `radarlint-python:python:S3776`
+# (see runner._strip_rule_namespace).
+_COMPLEXITY_SWEEP_RULES: frozenset[str] = frozenset(
+    {
+        "file-complexity",
+        "function-complexity",
+        "nested-control-flow",
+        "python:S3776",
+    }
+)
+
 
 def strategy_for(rule: str) -> RuleStrategy:
     """Return the strategy for a rule, or an explicit UNKNOWN placeholder.
@@ -155,6 +210,6 @@ def known_strategies() -> tuple[RuleStrategy, ...]:
 
 def tooling_for(rule: str) -> Optional[str]:
     """Existing workflow that automates a rule, if any."""
-    if rule == "file-complexity":
-        return "workflows/code/qlty-complexity-sweep.yaml"
+    if rule in _COMPLEXITY_SWEEP_RULES:
+        return _COMPLEXITY_SWEEP
     return None

@@ -44,7 +44,7 @@ always confirm against the live list before presenting an invocation:
 |----------|------|--------------|------------|
 | **optimize-code** | `workflows/code/optimize-code.yaml` | Post-implementation optimization: 5 parallel quality scans, collate, correct, recheck | `source_root`, `test_path`, `pr_number`, `skip_checks`, `auth_domains` |
 | **decompose-sweep** | `workflows/code/decompose-sweep.yaml` | Find oversized Python files, group by domain, fan out agents to split them | `source_threshold`, `test_threshold`, `domains`, `pr_title` |
-| **qlty-complexity-sweep** | `workflows/code/qlty-complexity-sweep.yaml` | Sweep qlty file-complexity smells, group by source dir, reduce complexity | `complexity_floor`, `max_files`, `pr_title` |
+| **qlty-complexity-sweep** | `workflows/code/qlty-complexity-sweep.yaml` | Sweep qlty complexity findings (file-level + per-function), group by source dir, reduce complexity in place | `complexity_floor`, `max_files`, `pr_title` |
 | **complexity-fanout-generate** | `workflows/code/complexity-fanout-generate.yaml` | Triage complexity-flagged files into reduction strategies and generate the fan-out plan | `complexity_floor`, `min_symbols_to_split`, `output_dir`, `prior_split_ref` |
 | **design-criteria-audit** | `workflows/code/design-criteria-audit.yaml` | Read-only audit of `src/` domains against `.llm/DESIGN_CRITERIA.md` (C1–C10) | `domains` |
 | **design-criteria-normalize** | `workflows/code/design-criteria-normalize.yaml` | Apply pass for the audit's approved findings | `audit_workspace`, `domains`, `criteria` |
