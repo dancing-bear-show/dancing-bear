@@ -858,9 +858,13 @@ stages:
           PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s <test_dir> -t . -p "test_*.py" -q 2>&1
         Fix anything you broke before writing the summary.
 
-      Step 6 — run qlty on the files you touched:
-        ~/.qlty/bin/qlty check <touched paths...>
-        Confirm no new issues introduced.
+      Step 6 — run qlty on the files you touched that still EXIST:
+          for p in <touched paths>; do test -f "$p" && echo "$p"; done
+          ~/.qlty/bin/qlty check <the surviving paths>
+        Filter first: a split may have deleted the original module outright
+        (the no-facade rule leaves nothing behind), and a path-scoped qlty
+        command hard-errors on a missing file — failing this step on the
+        cleanest possible outcome. Confirm no new issues introduced.
 
       Step 7 — write per-group summary to your OWN worktree, at the absolute
       path <your-cwd>/outputs/{group}-splits.md:
@@ -1437,9 +1441,13 @@ stages:
         A module that legitimately still owns code will have definitions and
         is not a facade, however many imports it also carries.
 
-      Step 7 — run qlty on all modified files:
-        ~/.qlty/bin/qlty check <list of modified .py files>
-        Note any new issues introduced.
+      Step 7 — run qlty on the modified files that still EXIST:
+          for p in <modified .py files>; do test -f "$p" && echo "$p"; done
+          ~/.qlty/bin/qlty check <the surviving paths>
+        Filter first — `git diff --name-only` lists DELETED paths too, and a
+        full split removes the original module under the no-facade rule. A
+        path-scoped qlty command hard-errors on a missing file. Note any new
+        issues introduced.
 
       Step 8 — re-run the complexity scan to confirm real improvement:
         Re-scan ALL FOUR candidate rules, not just the file score. A small
