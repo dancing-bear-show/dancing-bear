@@ -1330,17 +1330,20 @@ stages:
       Full verification pass: RUNS the code (tests, CLI smoke, render check).
       Do not skip execution in favour of reading.
 
-      Step 0 -- build the shared fixtures FIRST.
-        Run: .venv/bin/python tests/receipts_fixtures/build_fixtures.py
+      Step 0 -- install, then build the shared fixtures.
+        Install the [pdf] extra BEFORE generating anything.  `make venv`
+        installs ".[dev]", which does not include PyMuPDF -- fitz lives in the
+        [pdf] extra -- so running the builder first fails with
+        ModuleNotFoundError.  The CI install does not help an agent worktree.
 
-        PREREQUISITE -- install the [pdf] extra in THIS worktree first.
-        `make venv` installs ".[dev]", which does not include PyMuPDF (fitz
-        lives in the [pdf] extra), so build_fixtures.py fails with
-        ModuleNotFoundError before generating anything.  The CI fix does not
-        help an agent worktree.  Run once, then generate:
+          .venv/bin/python -m pip install -e ".[pdf,ocr]" > /tmp/pdf-install.log 2>&1
+          status=$?; tail -2 /tmp/pdf-install.log; echo "INSTALL_EXIT=$status"
 
-          .venv/bin/python -m pip install -e ".[pdf,ocr]" 2>&1 | tail -2
+        INSTALL_EXIT must be 0 before continuing -- do not pipe straight into
+        tail, which would hide a failed install behind its own zero exit.
+
           .venv/bin/python tests/receipts_fixtures/build_fixtures.py
+
         This writes seven synthetic PDFs under tests/receipts_fixtures/, each
         reproducing one real-world parsing hazard confirmed against actual
         receipts.  They are synthetic on purpose: real receipts carry patient
@@ -1492,13 +1495,22 @@ stages:
         CRITICAL: verify the "Ran N tests" line exists.  No such line means the
         suite did not run -- do not report PASS in that case.
 
-      Step 4 -- CLI --help smoke tests:
-        ./bin/receipts --help          2>&1 | head -3
-        ./bin/receipts parse --help    2>&1 | head -3
-        ./bin/receipts --agentic --agentic-format json --agentic-compact 2>&1 | python3 -c "import sys,json; json.load(sys.stdin); print('agentic JSON ok')"
+      Step 4 -- CLI --help smoke tests.
+        Capture each status; `cmd | head` reports head's exit, not the CLI's,
+        so a broken CLI would smoke green.
+
+          ./bin/receipts --help > /tmp/h1.log 2>&1; h1=$?; head -3 /tmp/h1.log
+          ./bin/receipts parse --help > /tmp/h2.log 2>&1; h2=$?; head -3 /tmp/h2.log
+          ./bin/receipts --agentic --agentic-format json --agentic-compact \
+            > /tmp/h3.log 2>&1; h3=$?
+          python3 -c "import sys,json; json.load(open('/tmp/h3.log')); print('agentic JSON ok')"; h4=$?
+          echo "HELP_EXITS=$h1,$h2,$h3,$h4"
+
+        All four must be 0.  Any non-zero is a FAIL: set cli_smoke fields to
+        "FAIL", all_green to false, and this stage's status to "failed".
+
         Do NOT smoke ./bin/claims -- neither src/claims/ nor bin/claims is
         created by this workflow; those checks belong to claims-domain-build.
-        Record exit codes and any failures.
 
       Step 5 -- qlty lint (if run_qlty == "true"):
         ~/.qlty/bin/qlty check \
