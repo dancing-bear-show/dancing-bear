@@ -198,4 +198,7 @@ def make_domain_llm_module(
         policies=policies_builder,
         agentic_filename=f"AGENTIC_{config.app_id.upper()}.md",
         domain_map_filename=f"DOMAIN_MAP_{config.app_id.upper()}.md",
+        inventory_filename=None,
+        familiar_filename=None,
+        policies_filename=None,
     )

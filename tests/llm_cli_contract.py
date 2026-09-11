@@ -79,6 +79,34 @@ class LLMCLIContractMixin:
                 f"agentic: {self.APP_ID}",
                 agentic_file.read_text(encoding="utf-8"),
             )
+            # Shared repo-level files must NOT be written by domain derive-all.
+            # Writing them would clobber .llm/familiarize.yaml, INVENTORY.md,
+            # and PR_POLICIES.yaml that the repo-level generator owns.
+            td_path = Path(td)
+            self.assertFalse(
+                (td_path / "INVENTORY.md").exists(),
+                "domain derive-all must not write INVENTORY.md (repo-level file)",
+            )
+            self.assertFalse(
+                (td_path / "familiarize.yaml").exists(),
+                "domain derive-all must not write familiarize.yaml (repo-level file)",
+            )
+            self.assertFalse(
+                (td_path / "PR_POLICIES.yaml").exists(),
+                "domain derive-all must not write PR_POLICIES.yaml (repo-level file)",
+            )
+
+    def test_derive_all_subcommands_still_work(self):
+        """inventory, familiar, policies subcommands work even though derive-all skips them."""
+        mod = self._mod()
+        for subcmd in ["inventory", "familiar", "policies"]:
+            with self.subTest(subcmd=subcmd):
+                with capture_stdout() as buf:
+                    rc = mod.main([subcmd, "--stdout"])
+                self.assertEqual(rc, 0, f"{subcmd} --stdout returned non-zero")
+                self.assertGreater(
+                    len(buf.getvalue()), 0, f"{subcmd} --stdout produced no output"
+                )
 
     # ------------------------------------------------------------------
     # main() contract — other subcommands
@@ -126,6 +154,22 @@ class LLMCLIContractMixin:
         mod = self._mod()
         self.assertEqual(
             mod.CONFIG.domain_map_filename, f"DOMAIN_MAP_{self.DOC_SUFFIX}.md"
+        )
+
+    def test_config_shared_filenames_are_none(self):
+        """Domain configs must not set shared repo-level filenames."""
+        mod = self._mod()
+        self.assertIsNone(
+            mod.CONFIG.inventory_filename,
+            "inventory_filename must be None for domain modules",
+        )
+        self.assertIsNone(
+            mod.CONFIG.familiar_filename,
+            "familiar_filename must be None for domain modules",
+        )
+        self.assertIsNone(
+            mod.CONFIG.policies_filename,
+            "policies_filename must be None for domain modules",
         )
 
     def test_config_agentic_returns_nonempty_string(self):
