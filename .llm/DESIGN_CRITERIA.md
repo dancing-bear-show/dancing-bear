@@ -78,6 +78,28 @@ For every `SafeProcessor`/`BaseProducer` pair (or, pre-migration, every command 
 - Introducing new external dependencies to achieve any of the above.
 - Retrofitting `maker/`, `_disasm/`, `out/`, `backups/` (excluded scan paths per CLAUDE.md "Ignore During Scanning").
 - Rewriting already-migrated pipelines (mail, calendar, schedule, desk, resume, phone, whatsapp, wifi core commands) — audit should confirm compliance, not churn working code without a found defect.
+- **Splitting `src/resume/schema.py` on line count alone (measured 2026-09-11).** At 619 lines it is one of the largest files in `src/`, so a size-driven sweep (`decompose-sweep`, `qlty-complexity-sweep`) will keep proposing it. It is a deliberate exemption: the file is one cohesive type, and every candidate seam cuts a live dependency.
+  - All 11 dataclasses inherit `_Item`, which supplies the shared `extra`/`_present`/`_order` round-trip machinery plus generic `from_dict`/`to_dict`.
+  - `Resume` references **9 of the 10** sibling classes as field types and coerces them in `_convert`.
+  - `SkillGroup` holds `list[SkillGroupItem]` and calls `_as_items(value, SkillGroupItem, ...)` at runtime.
+  - Four module-level helpers are used throughout: `_warn` (4 call sites), `_emit` (3), `_as_items` (5), `_as_summary` (2).
+  - Any split therefore yields modules that import each other, trading a long-but-linear file for a circular-import risk and worse cohesion.
+  - **Logger hazard if split anyway:** `_warn` wraps `logging.getLogger(__name__)`, so moving it renames the logger. Four assertions in `tests/resume_tests/test_e2e_schema_roundtrip.py` (lines 658, 676, 701, 714) name `"resume.schema"` as a plain string. They would keep passing while watching a logger nothing writes to — silent dead coverage, not a failure.
+  - Re-measure before re-proposing — this prints each class's bases and which siblings it references, so a genuine loosening of the coupling would be visible:
+    ```bash
+    python3 - <<'PY'
+    import ast, pathlib
+    src = pathlib.Path("src/resume/schema.py").read_text()
+    tree = ast.parse(src)
+    classes = {n.name: n for n in tree.body if isinstance(n, ast.ClassDef)}
+    for cname, node in classes.items():
+        seg = ast.get_source_segment(src, node) or ""
+        refs = sorted(o for o in classes if o != cname and o in seg)
+        bases = [b.id for b in node.bases if isinstance(b, ast.Name)]
+        print(f"{cname:<20} bases={bases} refs={refs}")
+    PY
+    ```
+  - `src/resume/cli/main.py` was the genuinely splittable resume file and was decomposed into `resume/cli/cmd_*.py` following the `mail/cli/` pattern.
 
 ## How this doc is used
 

@@ -44,7 +44,7 @@ from resume.australian_rotate import (
     ConversionResult,
     convert_docx_to_pdf,
 )
-from resume.cli.main import cmd_export_pdf
+from resume.cli.cmd_docx import cmd_export_pdf
 
 
 @dataclass(frozen=True)
@@ -465,7 +465,7 @@ class TestExportPdfSadPaths(unittest.TestCase):
         The superseded wording promised the feature was "planned for future";
         the documented behaviour is to redirect the user to ``export-pdf``.
         """
-        from resume.cli.main import cmd_render
+        from resume.cli.cmd_render import cmd_render
 
         args = argparse.Namespace(
             out="resume.pdf",
@@ -478,10 +478,10 @@ class TestExportPdfSadPaths(unittest.TestCase):
             min_priority=None,
             structure=None,
         )
-        with patch("resume.cli.main._load_candidate_data", return_value={"name": "T"}):
-            with patch("resume.cli.main.load_template", return_value={}):
-                with patch("resume.cli.main._apply_filter_pipeline", return_value={"name": "T"}):
-                    with patch("resume.cli.main._load_structure", return_value=None):
+        with patch("resume.cli.cmd_render._load_candidate_data", return_value={"name": "T"}):
+            with patch("resume.cli.cmd_render.load_template", return_value={}):
+                with patch("resume.cli.cmd_render._apply_filter_pipeline", return_value={"name": "T"}):
+                    with patch("resume.cli.cmd_render._load_structure", return_value=None):
                         with self.assertRaises(CLIError) as ctx:
                             cmd_render(args)
 
