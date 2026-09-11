@@ -504,9 +504,15 @@ stages:
       mail is DOCUMENTED AS EXEMPT, not as a gap — default to leaving it
       alone. `src/mail/llm_cli.py` is a re-export shim of `core.llm_cli` that
       never calls make_domain_llm_module, so it has NO CONFIG — and neither
-      does core.llm_cli behind it. Most of the mixin's tests read `mod.CONFIG.*`
-      (12 of 19 as of 2026-09-11 — count them rather than trusting that figure),
-      and its derive-all produces no AGENTIC_MAIL.md / DOMAIN_MAP_MAIL.md.
+      does core.llm_cli behind it. Most of the mixin's tests read `mod.CONFIG.*`,
+      so adoption fails on the majority of them. Count it rather than trusting a
+      figure here — three different numbers have been written into this line,
+      because "mentions CONFIG" and "dereferences mod.CONFIG" differ:
+
+        python3 -c "import re,pathlib; t=pathlib.Path('tests/llm_cli_contract.py').read_text(); m=re.findall(r'def (test_\\w+)\\(self[^)]*\\):((?:\\n(?!    def ).*)*)', t); print(sum(1 for _,b in m if re.search(r'mod\\.CONFIG\\.', b)), 'of', len(m))"
+
+      Measured 2026-09-11: 11 of 19 dereference mod.CONFIG. Its derive-all also
+      produces no AGENTIC_MAIL.md / DOMAIN_MAP_MAIL.md.
       Adoption would mean INVENTING a domain CONFIG that does not exist, which
       is not a refactor.
 
