@@ -1,0 +1,1404 @@
+# Build the receipt-parsing foundation: the PDF read layer plus a
+# vendor-agnostic receipt parser.
+#
+#   src/core/pdf_read.py  -- READ counterpart to the merged core.pdf_forms
+#   src/receipts/         -- parses ANY receipt; knows nothing about insurance
+#
+# This is part 1 of 2.  The insurer-specific claim pipeline (src/claims/) is
+# built by workflows/code/claims-domain-build.yaml, which runs AFTER this one
+# has merged.  The split is deliberate: a single DAG building three packages,
+# two CLIs and ~15 files is where one bad stage does the most damage, and two
+# real ordering bugs were already found in the combined version by inspection
+# alone.  Building claims against a receipts package that is merged and proven
+# beats building it against one written minutes earlier in the same run.
+#
+# Prerequisite: src/core/pdf_forms.py on the branch (merged in PR #349).
+# Nothing here modifies pdf_forms -- the font-size migration that does now
+# lives in the claims workflow, taking the riskiest edit off this critical path.
+#
+# Dependency direction enforced throughout:
+#   receipts -> core.pdf_read / core.pdf_forms
+#   core must know nothing about any vendor
+#
+# Stage graph:
+#
+#   design-interfaces
+#       |
+#   critique-interfaces  [human gate]
+#       |
+#   implement-pdf-read   implement-receipts-models   (parallel)
+#       \                        |
+#        \              parser fan-out: jane / costco / generic
+#         \                      |
+#          \             implement-receipts-dispatch
+#           \                    |
+#            integration-review ─┘
+#                   |
+#            fix-integration
+#                   |
+#            verify            -- RUNS the code against real fixtures
+#                   |
+#            human-gate
+
+name: receipts-domain-build
+version: "1.0"
+description: >
+  Design and implement src/core/pdf_read.py and the src/receipts/ package: a
+  PdfDocument read layer with an OCR fallback, and a vendor-agnostic receipt
+  parser covering the Jane clinic shape, Costco's OCR-degraded scans, and a
+  generic label fallback.
+
+  Part 1 of 2.  src/claims/ is built separately by claims-domain-build.yaml
+  once this has merged, so the insurer layer builds on a proven foundation.
+
+  Nothing is pushed to main or auto-merged.  The branch and worktree location
+  are reported at the human gate for review and manual merge.
+
+metadata:
+  author: dancing-bear
+  created: "2026-09-11"
+
+trigger:
+  source: manual
+  params:
+    run_qlty: "true"       # set "false" to skip qlty in verify
+    real_pdf: ""           # optional: path to a real receipt PDF for smoke test
+
+workspace_dir: "{work_dir}/receipts-domain-build"
+
+stages:
+
+
+  - name: design-interfaces
+    kind: gather
+    depends_on: []
+    description: >
+      Produce a comprehensive interface spec covering BOTH packages built
+      here: src/core/pdf_read.py and src/receipts/.
+
+      Do NOT design src/claims/ -- it is built by a separate workflow
+      (claims-domain-build.yaml) after this one merges.  You MAY note
+      what claims will need from receipts, as a "consumer contract"
+      section, so the later workflow has a pinned surface to build on.
+      This document is the shared contract for every downstream implementation
+      stage.
+
+      Step 1 -- orient to the codebase.
+        Read the following files in full:
+          src/core/pdf_forms.py             (the WRITE side; new work must compose)
+          src/wifi/cli.py                   (CLIApp pattern to mirror)
+          src/core/cli_framework.py         (CLIApp/BaseAssistant internals)
+          bin/_wrappers.yaml                (bin wrapper registration)
+          pyproject.toml                    (optional-extra declaration pattern)
+        Read one existing test for style:
+          find tests/ -name "test_*.py" | head -3 | xargs head -50 2>/dev/null
+
+      Step 2 -- read the three hard-won lessons from pdf_forms.py that the new
+        packages MUST NOT regress:
+          1. /DA must be written as a PARENTHESIZED PDF string (format_da() does
+             this).  A bare value stores null and viewers auto-size text LARGER.
+          2. Yes/No checkbox pairs share ONE field name and differ only by
+             on-state, so setting by name ticks both; must write per-xref
+             (see set_checkbox logic in pdf_forms.py).
+          3. Field values must be escaped with pdf_string() -- unescaped
+             backslashes are consumed silently and an unbalanced ) raises
+             FzErrorSyntax.
+        Document these as "Core Invariants" at the top of the spec.
+
+      Step 3 -- write {workspace}/outputs/design/interfaces.md with these sections:
+
+        ## Core Invariants (from pdf_forms.py -- must not regress)
+        (the three lessons above, verbatim)
+
+        ## Package: src/core/pdf_read.py
+
+          Class PdfDocument:
+            __init__(self, path: str | Path): opens with fitz; lazy-imported
+            page_count: int  (property)
+            extract_text(page: int = 0) -> str
+            lines(page: int = 0) -> list[str]
+            render_png(page: int = 0, clip: fitz.Rect | None = None,
+                       dpi: int = 150) -> bytes
+            merge(other: "PdfDocument") -> "PdfDocument"  (new in-memory doc)
+            close() -> None
+            __enter__ / __exit__ for context-manager use
+
+          Abstract base PdfParser:
+            matches(doc: PdfDocument) -> bool
+            parse(doc: PdfDocument) -> Any  (return type: domain-specific dataclass)
+            Note: PdfParser MUST be minimal.  Do not add speculative hooks.
+              The only two methods are matches() and parse().
+
+          OCR fallback rule:
+            extract_text() detects an empty text layer (len(text.strip()) == 0)
+            and falls back to page.get_textpage_ocr() from PyMuPDF.
+            Tesseract availability must be detected at runtime.  A missing
+            Tesseract raises RuntimeError("OCR requested but tesseract binary
+            not found on PATH") -- NEVER a silent empty string.
+            OCR is declared as an optional extra in pyproject.toml:
+              [project.optional-dependencies]
+              ocr = ["pytesseract>=0.3"]  # OCR fallback for image-only PDFs
+            with a comment matching the [tui] / [slides] pattern explaining why
+            it is optional.  fitz is already in the [pdf] extra; pytesseract
+            goes in the NEW [ocr] extra.  Neither is in base dependencies.
+
+        ## Package: src/receipts/
+
+          File: models.py
+            @dataclass Receipt:
+              vendor: str
+              date: str | None          # ISO 8601 when parseable, else raw string
+              total: float | None       # patient-pays amount; 0.00 is valid
+              line_items: list[LineItem]
+              patient: str | None
+              invoice_id: str | None    # None for receipts with no invoice number
+              source_path: str | None   # path the receipt was read from
+
+            @dataclass LineItem:
+              description: str
+              amount: float | None
+
+            Critical: total=0.00 means provider direct-billed insurer.  It is a
+            valid parse result, NOT an error or "unparseable".  parsers must
+            never treat 0.00 as a sentinel for "no amount found".
+
+          File: extract.py
+            extract(path: str | Path, *, sidecar: bool = True) -> Receipt
+              Dispatches over registered parsers in priority order:
+                1. Try each parser in PARSERS list (jane -> costco -> generic).
+                2. If sidecar=True AND no parser succeeds AND a .amount.json
+                   sidecar exists, use sidecar.py as LAST resort.
+                3. Raise ValueError("no parser matched") if nothing works.
+              PARSERS: list[PdfParser] = [JaneParser(), CostcoParser(), GenericParser()]
+
+          File: sidecar.py
+            load_sidecar(path: str | Path) -> Receipt | None
+              Reads <path>.amount.json.  Returns None if file absent.
+              Schema: {{"vendor": str, "date": str|null, "total": float,
+                        "patient": str|null, "invoice_id": str|null}}
+
+          File: parsers/jane.py
+            JaneParser(PdfParser):
+              Marker: text contains "Invoice #" followed by NNNNN-PNN pattern.
+              Clinics: Advanced Psychology, Aurora Speech, Balance Family
+                Chiropractic, Oak Ridges Physiotherapy, Massage Addict.
+              Amount label: "Payer Total".
+              matches() -> True when Invoice # pattern present in page 0 text.
+              parse() extracts: invoice_id from "Invoice #NNNNN-PNN", vendor
+                from clinic name on first page, date from receipt header, total
+                from "Payer Total" line.  total=0.00 is a valid result.
+
+          File: parsers/costco.py
+            CostcoParser(PdfParser):
+              Image-only: no AcroForm fields, no "Invoice #", no "Payer Total".
+              Uses OCR fallback in PdfDocument.extract_text().
+              matches() -> True when "Costco" in text (may require OCR).
+              parse() extracts: vendor="Costco", total from "Total" or
+                "Total Amount" line, date from receipt header.
+              invoice_id=None always (Costco receipts have none).
+
+          File: parsers/generic.py
+            GenericParser(PdfParser):
+              Last-resort non-OCR parser.  Amount label variance:
+                "Payer Total", "Total", "Total Amount",
+                "Patient Pays", or heuristic (largest dollar amount on page).
+              matches() -> always True (catch-all).
+              parse() returns Receipt with whatever fields it can extract;
+                unrecognised fields are None.
+
+          File: cli.py
+            CLIApp "receipts", subcommands:
+              parse  --pdf <path> [--json] [--no-sidecar]
+              list-parsers
+            Agentic schema via run_with_assistant().
+            No insurance-specific logic in CLI or models.
+
+        ## Package: src/claims/
+
+          File: models.py
+            @dataclass Claim:
+              receipt: Receipt         (from receipts.models)
+              claimant: str            (person name)
+              plan_year: int
+              submitted: bool = False
+
+          File: ledger.py
+            ClaimLedger:
+              __init__(self, ledger_path: str | Path)
+              is_duplicate(invoice_id: str) -> bool
+              record(invoice_id: str, claimant: str, amount: float,
+                     submitted_at: str) -> None
+              load() -> list[dict]  (read ledger JSON)
+              save() -> None
+              The ledger is a JSON list of submission records.
+              Deduplication is by invoice_id across ALL prior submissions.
+              This is the highest-value piece: it caught a real double-claim.
+
+          File: rules.py
+            RULES applying to a Claim before submission:
+              - $0 patient-pays exclusion: total==0.00 -> skip (provider
+                direct-billed, no patient claim needed).
+              - Plan-year window: submitted_at date must fall in plan_year.
+              - Duplicate detection: invoice_id already in ledger -> skip.
+            apply_rules(claim: Claim, ledger: ClaimLedger) -> RuleResult
+            @dataclass RuleResult:
+              eligible: bool
+              reason: str | None
+
+          File: forms.py
+            CLAIM_FONT_SIZES: dict[str, int] = {{
+              "2.day_phone.": 7,
+              "4.DOB.": 7,
+              "5.date.": 7,
+              "3.total_claimed": 8,
+              "dateOfBirth": 7,
+            }}
+            # Migration note: these were previously in core.pdf_forms.DEFAULT_FONT_SIZES.
+            # core.pdf_forms keeps only a generic default; insurer-specific sizes live here.
+            # font_size_for() accepts a sizes= override; pass CLAIM_FONT_SIZES explicitly.
+
+            fill_claim_form(template_path: str, receipt: Receipt, claimant: str,
+                            out_path: str) -> None
+              Builds field dict from Receipt + claimant.
+              Calls core.pdf_forms.fill_text_fields(..., sizes=CLAIM_FONT_SIZES).
+              No knowledge of PDF mechanics; delegates entirely to core.
+
+          File: packet.py
+            build_packet(claim: Claim, template_path: str,
+                         out_dir: str | Path) -> Path
+              Fills form, merges receipt PDF, writes verification PNG of key
+              fields.  Returns path to final merged PDF.
+            Render-verification step: after fill, call PdfDocument.render_png()
+              on each filled field region and write to out_dir for visual check.
+              Reading field values back is NOT sufficient; the null-/DA bug was
+              invisible to value inspection and only visible in a render.
+
+          File: cli.py
+            CLIApp "claims", subcommands:
+              fill    --template <path> --receipt <pdf> [--claimant NAME]
+                      [--out-dir <dir>] [--dry-run]
+              check   --receipt <pdf>   (rules check without filling)
+              ledger  show|add          (inspect and manually add ledger entries)
+            Agentic schema via run_with_assistant().
+
+          Bin wrappers:
+            bin/receipts  (registers receipts module in _wrappers.yaml)
+            bin/claims    (registers claims module in _wrappers.yaml)
+
+      Step 4 -- write {workspace}/outputs/design/dataclasses.md
+        List every @dataclass and ABC with field names, types, default values,
+        and one-line docstrings.  Include Receipt, LineItem, Claim, RuleResult.
+        Agents implementing in parallel will use this file as the ground truth
+        for field names.
+
+      Step 5 -- write {workspace}/outputs/design/parser-contract.md
+        Document the PdfParser ABC contract:
+          - matches(doc) MUST return True for at most one concrete parser per
+            document (the dispatch loop takes the FIRST match).
+          - parse(doc) MUST return a Receipt.  It must never raise on a
+            parseable document.  Unparseable fields -> None.
+          - parse(doc) MAY be called even when OCR is unavailable (CostcoParser
+            must degrade to partial parse rather than raising).
+
+      Step 6 -- mkdir workspace dirs.
+        mkdir -p {workspace}/design
+        mkdir -p {workspace}/outputs
+        mkdir -p {workspace}/validation
+        mkdir -p {workspace}/stages
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    outputs:
+      - name: interfaces
+        mode: generate
+        description: >
+          Interface spec at {workspace}/outputs/design/interfaces.md, dataclass
+          definitions at {workspace}/outputs/design/dataclasses.md, and parser
+          contract at {workspace}/outputs/design/parser-contract.md.
+    required: true
+    writes_to:
+      - outputs/design/interfaces.md
+      - outputs/design/dataclasses.md
+      - outputs/design/parser-contract.md
+
+  # ===========================================================================
+  # S1: Critique interfaces -- adversarial review before any code is written
+  # ===========================================================================
+
+  # kind: gather, NOT validate.  _validate() in src/workflow/dispatch.py builds
+  # its prompt from validation.criteria and domain_rules only -- it never reads
+  # stage.description -- so a validate stage would silently discard every
+  # instruction below, including the nine evaluation axes and the approve/fix/
+  # abort decision prompt.  The criteria block is retained as the pass/fail
+  # contract; the description carries the method.
+
+  - name: critique-interfaces
+    kind: gather
+    human_gate: true
+    depends_on: [design-interfaces]
+    reads_from: [design-interfaces]
+    description: >
+      Adversarially critique the interface spec before code is written.  Fixing
+      a signature gap here is cheap; fixing it after a parallel fan-out is
+      expensive.
+
+      Read {workspace}/outputs/design/interfaces.md, {workspace}/outputs/design/dataclasses.md,
+      and {workspace}/outputs/design/parser-contract.md.
+
+      Evaluate against these axes and write findings to
+      {workspace}/validation/critique.md:
+
+        1. Dependency direction
+                Verify no receipts symbol appears in core.
+           Flag any import that would cross the layer boundary as BLOCKING.
+
+        2. Consumer contract for the claims layer
+           The claims workflow will build on this spec without being able to
+           change it cheaply.  Does the Receipt dataclass carry everything an
+           insurer pipeline needs (vendor, date, total, patient, invoice_id,
+           source_path)?  A field missing here forces a breaking change later.
+
+        3. $0 patient-pays handling
+           Does Receipt.total=0.00 flow correctly through the whole stack?
+             a. Parser: a "Payer Total: $0.00" line must parse as 0.00, not None.
+             b. Rules: rules.py must SKIP (not error) on a $0 claim.
+             c. Ledger: a $0 receipt must NOT be recorded in the ledger (skip
+                before recording, not after).
+           Any gap is BLOCKING.
+
+        4. Sidecar demoted to last resort
+           Does extract() try all parsers before falling back to sidecar?
+           Is the order: jane -> costco -> generic -> sidecar?
+           A sidecar that intercepts before OCR is a BLOCKING design gap.
+
+        5. OCR optional-dep pattern
+           Does the spec declare pytesseract as an [ocr] extra (NOT in base)?
+           Does extract_text() degrade to RuntimeError (not empty string) when
+           Tesseract is missing and the text layer is empty?
+           Silent empty-string degradation is BLOCKING.
+
+        6. PdfParser ABC minimality
+           Does the ABC define ONLY matches() and parse()?
+           Any speculative hook (e.g. format_hint(), confidence()) is a
+           SUGGESTION to remove; a second required method that breaks a simple
+           implementation is BLOCKING.
+
+        7. Ledger correctness
+           Is deduplication keyed on invoice_id?
+           Does is_duplicate() check ALL prior submissions, not just plan_year?
+           Does the ledger save/load roundtrip?
+           Costco receipts (invoice_id=None) should not be deduplicated by id
+           -- clarify or flag as BLOCKING.
+
+        8. render_png contract
+           Does PdfDocument.render_png() accept page/clip/dpi and return bytes?
+           The claims workflow depends on it for render verification, so the
+           signature must be pinned now.
+
+        9. agentic schema and bin wrapper
+           Is the receipts CLI wired to run_with_assistant()?
+           Is it registered in bin/_wrappers.yaml?
+           Missing registration means llm inventory misses the domain.
+
+      Write {workspace}/validation/critique.md:
+        ## BLOCKING Issues
+        ## Suggestions
+        ## Confirmed Correct
+
+      Present the critique and ask:
+        A) Approve -- proceed to implementation
+        B) Fix blocking issues -- describe what to change, re-run design-interfaces
+        C) Abort
+
+      Write the decision to {workspace}/validation/critique-decision.md.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    outputs:
+      - name: interface-critique
+        mode: generate
+        description: >
+          Adversarial critique of the interface spec at
+          {workspace}/validation/critique.md, plus the approve/fix/abort
+          decision at {workspace}/validation/critique-decision.md.
+    validation:
+      strategy: unit
+      criteria:
+        - No BLOCKING issues remain
+        - Dependency direction (receipts->core) confirmed
+        - $0 patient-pays flow verified through all three layers
+        - OCR degrade-to-RuntimeError confirmed
+        - Sidecar is last resort after all parsers
+        - render_png signature pinned for the claims workflow
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/critique.md
+      - validation/critique-decision.md
+
+  # ===========================================================================
+  # S2: Migrate font sizes -- move insurer constants OUT of core.pdf_forms
+  # ===========================================================================
+  #
+  # The Sun Life field-size prefixes currently in core.pdf_forms.DEFAULT_FONT_SIZES
+  # are insurer-specific and belong in claims/forms.py.  font_size_for() already
+  # accepts a sizes= override.  This stage performs the migration BEFORE the
+  # parallel implementation stages so they build against the corrected interface.
+  #
+  # This must not regress existing callers of DEFAULT_FONT_SIZES.
+
+  - name: implement-pdf-read
+    kind: execute
+    depends_on: [critique-interfaces]
+    reads_from: [critique-interfaces, design-interfaces]
+    description: >
+      Implement src/core/pdf_read.py per {workspace}/outputs/design/interfaces.md.
+
+      Step 1 -- read the spec:
+        Read {workspace}/outputs/design/interfaces.md (section: Package: src/core/pdf_read.py).
+        Read {workspace}/outputs/design/dataclasses.md.
+        Read src/core/pdf_forms.py for style reference (lazy import pattern).
+
+      Step 2 -- write src/core/pdf_read.py.
+        CRITICAL constraints:
+          - fitz is NEVER imported at module level.  Every fitz import is inside
+            a function or method body.  Match the lazy-import pattern in pdf_forms.py.
+          - PdfParser ABC: import abc; define as ABC with @abstractmethod matches()
+            and parse().  Exactly two abstract methods, no more.
+          - extract_text() empty-layer detection:
+              text = page.get_text()
+              if not text.strip():
+                  # text layer absent; attempt OCR
+                  try:
+                      page_ocr = page.get_textpage_ocr()
+                      text = page.get_text(textpage=page_ocr)
+                  except Exception:
+                      import shutil
+                      if not shutil.which("tesseract"):
+                          raise RuntimeError(
+                              "OCR requested but tesseract binary not found on PATH"
+                          )  # nosec B603 - shutil.which, no subprocess
+                      raise
+          - The [ocr] extra: edit pyproject.toml to add under
+            [project.optional-dependencies]:
+              ocr = ["pytesseract>=0.3"]
+              # Optional OCR fallback for image-only PDFs (e.g. Costco receipts).
+              # Not in base deps -- the [pdf] extra covers PyMuPDF; pytesseract
+              # is declared separately so installs without Tesseract still work.
+
+          - IMPORTANT -- Tesseract is a SYSTEM BINARY, not a pip package.
+            Installing the [ocr] extra gets you pytesseract, the Python
+            wrapper; it does NOT get you the tesseract binary.  Verified: the
+            binary is absent both on this developer machine and in CI
+            (.github/workflows/ci.yml is ubuntu-latest and installs only jq).
+
+            This means the OCR branch would never execute anywhere, which is
+            precisely the trap CLAUDE.md documents: an optional dependency that
+            is never installed reports 0% coverage, indistinguishable from
+            untested code.  Handle it explicitly:
+
+              a. Add to .github/workflows/ci.yml, in the test job, before the
+                 test step:
+                   - name: Install Tesseract for OCR-path tests
+                     run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
+                 Without this the OCR path is dead code in CI.
+
+              b. Tests covering the OCR path must skip cleanly, not fail, when
+                 the binary is genuinely absent (a developer without it should
+                 still get a green local run):
+                   @unittest.skipUnless(shutil.which("tesseract"),
+                                        "tesseract binary not installed")
+                 Use a real skip, never a try/except that swallows the failure
+                 -- a swallowed failure reads identical to a pass.
+
+              c. The RuntimeError path is the ONE OCR test that must run
+                 everywhere: mock shutil.which to return None and assert
+                 RuntimeError is raised on an empty-text-layer page.  That
+                 assertion needs no binary, and it is the behaviour that
+                 actually protects against a silent empty string being read as
+                 "no amount found".
+            Add "core*" to [tool.setuptools.packages.find] include list only if
+            core is not already there (check pyproject.toml first).
+          - PdfDocument.merge() returns a NEW in-memory PdfDocument (does not
+            mutate self or other).
+          - render_png() returns bytes (pixmap.tobytes("png")), never writes to disk.
+          - context-manager: __enter__ returns self; __exit__ calls self.close().
+          - Type hints: PEP 585/604 style.  No bare except: pass.
+
+      Step 3 -- import smoke check:
+        PYTHONPATH="$(pwd)/src" python3 -c \
+          "from core.pdf_read import PdfDocument, PdfParser; print('ok')" 2>&1
+        If fail, fix and retry.
+
+      Step 4 -- write {workspace}/outputs/pdf-read-manifest.json:
+        {{
+          "files_written": ["src/core/pdf_read.py"],
+          "pyproject_ocr_extra": true,
+          "import_smoke_check": "PASS|FAIL",
+          "import_error": null
+        }}
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+    outputs:
+      - name: pdf-read
+        mode: generate
+        description: >
+          src/core/pdf_read.py with PdfDocument class and PdfParser ABC.
+          Manifest at {workspace}/outputs/pdf-read-manifest.json.
+    required: true
+    writes_to:
+      - outputs/pdf-read-manifest.json
+
+  # ===========================================================================
+  # S3b: Implement receipts/models.py and receipts/__init__.py
+  # ===========================================================================
+  #
+  # Runs parallel to implement-pdf-read.  Models are pure dataclasses with no
+  # fitz dependency; they can be pinned before the parsers are written.
+
+  - name: implement-receipts-models
+    kind: execute
+    depends_on: [critique-interfaces]
+    reads_from: [critique-interfaces, design-interfaces]
+    description: >
+      Implement src/receipts/__init__.py, src/receipts/models.py, and
+      src/receipts/sidecar.py per {workspace}/outputs/design/interfaces.md.
+
+      The receipts package must know NOTHING about insurance (no claims imports,
+      no Sun Life field names, no plan year logic).
+
+      Step 1 -- read the spec:
+        Read {workspace}/outputs/design/interfaces.md (section: Package: src/receipts/).
+        Read {workspace}/outputs/design/dataclasses.md.
+        Read src/core/pdf_forms.py (just the header docstring and __all__ for
+        style reference).
+
+      Step 2 -- write src/receipts/__init__.py.
+        Empty or minimal re-exports.  No fitz import at module level.
+        Register the package in pyproject.toml if "receipts*" is not already
+        in [tool.setuptools.packages.find] include list.
+
+      Step 2b -- write src/receipts/parsers/__init__.py (empty file).
+        Created HERE, not in a parser stage.  The three parser stages
+        (jane/costco/generic) share one depends_on and therefore start
+        together, so "whichever runs first creates it" is not an ordering the
+        DAG provides -- costco and generic would run their import smoke checks
+        against a package directory that may have no __init__.py yet, and two
+        agents creating it concurrently is a lost-update race.  This stage is
+        the single writer of both package __init__ files.
+
+      Step 3 -- write src/receipts/models.py.
+        @dataclass Receipt with ALL fields in the spec.
+        @dataclass LineItem.
+        Critical: total: float | None.  total=0.00 is a valid parse result.
+        Add __all__ = ["Receipt", "LineItem"].
+
+      Step 4 -- write src/receipts/sidecar.py.
+        load_sidecar(path: str | Path) -> Receipt | None
+        Returns None if <path>.amount.json absent.
+        Reading rules: the JSON file schema is
+          {{"vendor": str, "date": str|null, "total": float,
+            "patient": str|null, "invoice_id": str|null}}.
+        Constructs and returns a Receipt; line_items=[], source_path=str(path).
+        Does NOT raise on a missing sidecar file -- that is the normal case.
+
+      Step 5 -- import smoke check:
+        PYTHONPATH="$(pwd)/src" python3 -c \
+          "from receipts.models import Receipt, LineItem; \
+           from receipts.sidecar import load_sidecar; print('ok')" 2>&1
+
+      Step 6 -- write {workspace}/outputs/receipts-models-manifest.json:
+        {{
+          "files_written": [
+            "src/receipts/__init__.py",
+            "src/receipts/models.py",
+            "src/receipts/sidecar.py"
+          ],
+          "pyproject_receipts_registered": true,
+          "import_smoke_check": "PASS|FAIL",
+          "import_error": null
+        }}
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+    outputs:
+      - name: receipts-models
+        mode: generate
+        description: >
+          src/receipts/{__init__,models,sidecar}.py.
+          Manifest at {workspace}/outputs/receipts-models-manifest.json.
+    required: true
+    writes_to:
+      - outputs/receipts-models-manifest.json
+
+  # ===========================================================================
+  # S4: Implement receipts parsers -- jane, costco, generic (parallel fan-out)
+  # ===========================================================================
+  #
+  # Each parser is a separate stage to avoid write conflicts.  All three depend
+  # on implement-receipts-models (for Receipt) and implement-pdf-read (for
+  # PdfDocument / PdfParser ABC).
+
+  - name: implement-parser-jane
+    kind: execute
+    depends_on: [implement-pdf-read, implement-receipts-models]
+    reads_from: [implement-pdf-read, implement-receipts-models, design-interfaces]
+    description: >
+      Implement src/receipts/parsers/jane.py.
+
+      Do NOT create src/receipts/parsers/__init__.py -- implement-receipts-models
+      is its single writer.  This stage runs concurrently with the costco and
+      generic parser stages; creating a shared file from any of them is a race.
+
+      Step 1 -- read:
+        Read {workspace}/outputs/design/interfaces.md (parser-contract section and jane
+        subsection).
+        Read {workspace}/outputs/design/parser-contract.md.
+        Read src/core/pdf_read.py to confirm PdfParser ABC signature.
+        Read src/receipts/models.py to confirm Receipt signature.
+
+      Step 2 -- write src/receipts/parsers/jane.py.
+        class JaneParser(PdfParser):
+          INVOICE_RE = re.compile(r"Invoice\s+#(\d{{5}}-P\d{{2}})")
+          AMOUNT_LABEL = "Payer Total"
+
+          def matches(self, doc: PdfDocument) -> bool:
+            text = doc.extract_text(0)
+            return bool(self.INVOICE_RE.search(text))
+
+          def parse(self, doc: PdfDocument) -> Receipt:
+            text = doc.extract_text(0)
+            # Extract invoice_id, vendor, date, total from text.
+            # total=0.00 is valid -- parse "Payer Total: $0.00" as 0.00.
+            # Unknown fields -> None.
+            # Returns Receipt(vendor=..., date=..., total=..., line_items=[],
+            #                 patient=None, invoice_id=..., source_path=None).
+
+        Lazy-import fitz via PdfDocument; no direct fitz import in jane.py.
+        Store line_items=[] (Jane receipts have no itemised table; total suffices).
+
+      Step 3 -- import smoke check:
+        PYTHONPATH="$(pwd)/src" python3 -c \
+          "from receipts.parsers.jane import JaneParser; print('ok')" 2>&1
+
+      Step 4 -- write {workspace}/outputs/parser-jane-manifest.json:
+        {{"file": "src/receipts/parsers/jane.py", "import_smoke_check": "PASS|FAIL"}}
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+    outputs:
+      - name: parser-jane
+        mode: generate
+        description: >
+          src/receipts/parsers/jane.py.
+          Manifest at {workspace}/outputs/parser-jane-manifest.json.
+    required: true
+    writes_to:
+      - outputs/parser-jane-manifest.json
+
+  - name: implement-parser-costco
+    kind: execute
+    depends_on: [implement-pdf-read, implement-receipts-models]
+    reads_from: [implement-pdf-read, implement-receipts-models, design-interfaces]
+    description: >
+      Implement src/receipts/parsers/costco.py.
+
+      Step 1 -- read:
+        Read {workspace}/outputs/design/interfaces.md (costco subsection and OCR fallback).
+        Read {workspace}/outputs/design/parser-contract.md.
+        Read src/core/pdf_read.py to confirm PdfDocument.extract_text() OCR path.
+        Read src/receipts/models.py to confirm Receipt signature.
+
+      Step 2 -- write src/receipts/parsers/costco.py.
+        class CostcoParser(PdfParser):
+          def matches(self, doc: PdfDocument) -> bool:
+            # extract_text() handles OCR fallback internally if text layer empty.
+            # If OCR unavailable and text empty, return False (do not raise).
+            try:
+              text = doc.extract_text(0)
+            except RuntimeError:
+              return False
+            return "Costco" in text
+
+          def parse(self, doc: PdfDocument) -> Receipt:
+            text = doc.extract_text(0)  # may invoke OCR
+            # Extract: vendor="Costco Wholesale" or "Costco Pharmacy",
+            #   total from "Total" or "Total Amount" line,
+            #   date from receipt header.
+            # invoice_id=None always.
+            # Returns Receipt(..., invoice_id=None, ...).
+
+        OCR degrade behaviour: if extract_text() raises RuntimeError (no
+        Tesseract), parse() catches it and returns Receipt with all optional
+        fields None, plus a note in the vendor field: "Costco (OCR unavailable)".
+        This prevents a hard crash when Tesseract is absent.
+
+      Step 3 -- import smoke check:
+        PYTHONPATH="$(pwd)/src" python3 -c \
+          "from receipts.parsers.costco import CostcoParser; print('ok')" 2>&1
+
+      Step 4 -- write {workspace}/outputs/parser-costco-manifest.json:
+        {{"file": "src/receipts/parsers/costco.py", "import_smoke_check": "PASS|FAIL"}}
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+    outputs:
+      - name: parser-costco
+        mode: generate
+        description: >
+          src/receipts/parsers/costco.py.
+          Manifest at {workspace}/outputs/parser-costco-manifest.json.
+    required: true
+    writes_to:
+      - outputs/parser-costco-manifest.json
+
+  - name: implement-parser-generic
+    kind: execute
+    depends_on: [implement-pdf-read, implement-receipts-models]
+    reads_from: [implement-pdf-read, implement-receipts-models, design-interfaces]
+    description: >
+      Implement src/receipts/parsers/generic.py.
+
+      Step 1 -- read:
+        Read {workspace}/outputs/design/interfaces.md (generic subsection, amount label
+        variance section).
+        Read {workspace}/outputs/design/parser-contract.md.
+        Read src/core/pdf_read.py and src/receipts/models.py.
+
+      Step 2 -- write src/receipts/parsers/generic.py.
+        Amount label variance to handle:
+          "Payer Total", "Total", "Total Amount", "Patient Pays",
+          and heuristic (largest dollar amount on page).
+
+        class GenericParser(PdfParser):
+          AMOUNT_LABELS = ["Patient Pays", "Payer Total", "Total Amount", "Total"]
+
+          def matches(self, doc: PdfDocument) -> bool:
+            return True  # catch-all; always last in the dispatch list
+
+          def parse(self, doc: PdfDocument) -> Receipt:
+            text = doc.extract_text(0)
+            # Try each label in AMOUNT_LABELS order.
+            # If none found, heuristic: extract all $N.NN patterns and take max.
+            # total=0.00 from a "$0.00" line is a valid result.
+            # Unknown fields -> None.
+
+      Step 3 -- import smoke check:
+        PYTHONPATH="$(pwd)/src" python3 -c \
+          "from receipts.parsers.generic import GenericParser; print('ok')" 2>&1
+
+      Step 4 -- write {workspace}/outputs/parser-generic-manifest.json:
+        {{"file": "src/receipts/parsers/generic.py", "import_smoke_check": "PASS|FAIL"}}
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+    outputs:
+      - name: parser-generic
+        mode: generate
+        description: >
+          src/receipts/parsers/generic.py.
+          Manifest at {workspace}/outputs/parser-generic-manifest.json.
+    required: true
+    writes_to:
+      - outputs/parser-generic-manifest.json
+
+  # ===========================================================================
+  # S5: Implement receipts dispatch + CLI
+  # ===========================================================================
+
+  - name: implement-receipts-dispatch
+    kind: execute
+    depends_on: [implement-parser-jane, implement-parser-costco, implement-parser-generic]
+    reads_from:
+      - implement-parser-jane
+      - implement-parser-costco
+      - implement-parser-generic
+      - implement-receipts-models
+      - design-interfaces
+    description: >
+      Implement src/receipts/extract.py and src/receipts/cli.py, plus register
+      the bin/receipts wrapper.
+
+      Step 1 -- read:
+        Read {workspace}/outputs/design/interfaces.md (extract.py and cli.py subsections).
+        Read src/receipts/models.py, src/receipts/sidecar.py.
+        Read src/receipts/parsers/jane.py, costco.py, generic.py (confirm imports).
+        Read src/wifi/cli.py for CLIApp pattern.
+        Read bin/_wrappers.yaml for registration syntax.
+
+      Step 2 -- write src/receipts/extract.py.
+        from receipts.parsers.jane import JaneParser
+        from receipts.parsers.costco import CostcoParser
+        from receipts.parsers.generic import GenericParser
+
+        PARSERS: list[PdfParser] = [JaneParser(), CostcoParser(), GenericParser()]
+
+        def extract(path: str | Path, *, sidecar: bool = True) -> Receipt:
+          doc = PdfDocument(str(path))
+          try:
+            for parser in PARSERS:
+              if parser.matches(doc):
+                receipt = parser.parse(doc)
+                receipt.source_path = str(path)
+                return receipt
+          finally:
+            doc.close()
+          # All parsers declined; try sidecar as last resort.
+          if sidecar:
+            from receipts.sidecar import load_sidecar
+            result = load_sidecar(path)
+            if result is not None:
+              return result
+          raise ValueError(f"no parser matched: {{path}}")
+
+      Step 3 -- write src/receipts/cli.py.
+        CLIApp "receipts". Subcommands:
+          parse --pdf <path> [--json] [--no-sidecar]
+          list-parsers
+        run_with_assistant() for agentic schema.
+        No insurance logic.
+
+      Step 4 -- write src/receipts/__main__.py.
+        Mirror src/wifi/__main__.py pattern exactly.
+
+      Step 5 -- register in bin/_wrappers.yaml.
+        Add under python: section:
+          receipts: {{module: receipts, doc: "Parse receipts from PDF (Jane, Costco, generic)."}}
+        Run: make bin-wrappers
+        Verify: ls -la bin/receipts
+
+      Step 6 -- import smoke check:
+        PYTHONPATH="$(pwd)/src" python3 -c \
+          "from receipts.extract import extract; print('ok')" 2>&1
+
+      Step 7 -- write {workspace}/outputs/receipts-dispatch-manifest.json:
+        {{
+          "files_written": [
+            "src/receipts/extract.py",
+            "src/receipts/cli.py",
+            "src/receipts/__main__.py"
+          ],
+          "bin_wrapper": "bin/receipts",
+          "import_smoke_check": "PASS|FAIL"
+        }}
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+    outputs:
+      - name: receipts-dispatch
+        mode: generate
+        description: >
+          src/receipts/extract.py, cli.py, __main__.py; bin/receipts wrapper.
+          Manifest at {workspace}/outputs/receipts-dispatch-manifest.json.
+    required: true
+    writes_to:
+      - outputs/receipts-dispatch-manifest.json
+
+  # ===========================================================================
+  # S6: Implement claims domain
+  # ===========================================================================
+
+  - name: integration-review
+    kind: gather
+    depends_on: [implement-receipts-dispatch]
+    reads_from:
+      - implement-receipts-dispatch
+      - implement-parser-jane
+      - implement-parser-costco
+      - implement-parser-generic
+      - implement-receipts-models
+      - implement-pdf-read
+      - design-interfaces
+    description: >
+      Cross-check the implemented packages for API consistency, dependency
+      direction violations, and pdf_forms core-invariant compliance.
+
+      Step 1 -- read all source files:
+        src/core/pdf_read.py
+        src/core/pdf_forms.py
+        src/receipts/models.py
+        src/receipts/sidecar.py
+        src/receipts/parsers/jane.py
+        src/receipts/parsers/costco.py
+        src/receipts/parsers/generic.py
+        src/receipts/extract.py
+        src/receipts/cli.py
+        src/claims/models.py
+        src/claims/ledger.py
+        src/claims/rules.py
+        src/claims/forms.py
+        src/claims/packet.py
+        src/claims/cli.py
+
+      Step 2 -- dependency direction check.
+        Run:
+          grep -n "^from claims\|^import claims" src/receipts/*.py \
+            src/receipts/parsers/*.py src/core/pdf_read.py src/core/pdf_forms.py 2>/dev/null
+        Any hit is a BLOCKING violation.
+          grep -n "^from receipts\|^import receipts" src/core/pdf_read.py \
+            src/core/pdf_forms.py 2>/dev/null
+        Any hit is a BLOCKING violation.
+
+      Step 3 -- (claims font-size checks deferred to claims-domain-build)
+        Confirm core.pdf_forms.DEFAULT_FONT_SIZES is UNCHANGED by this workflow.
+        This workflow must not touch pdf_forms at all:
+          git diff --name-only main...HEAD -- src/core/pdf_forms.py
+        Any output is a BLOCKING finding -- the font-size migration belongs to
+        the claims workflow, not this one.
+
+      Step 3b -- (superseded) verify CLAIM_FONT_SIZES is in claims/forms.py, NOT in
+        core/pdf_forms.DEFAULT_FONT_SIZES.
+        grep -n "DEFAULT_FONT_SIZES" src/core/pdf_forms.py
+        grep -n "CLAIM_FONT_SIZES" src/claims/forms.py
+        grep -n "sizes=CLAIM_FONT_SIZES" src/claims/forms.py
+        Confirm fill_text_fields is called with sizes= kwarg.
+
+      Step 4 -- verify lazy fitz import in pdf_read.py.
+        grep -n "^import fitz\|^from fitz" src/core/pdf_read.py
+        Any hit is BLOCKING.
+
+      Step 5 -- verify PdfParser ABC is minimal.
+        grep -n "abstractmethod\|@abc.abstractmethod" src/core/pdf_read.py
+        Count abstract methods.  More than 2 (matches + parse) is a BLOCKING violation.
+
+      Step 6 -- verify $0 handling in rules.py.
+        grep -n "total.*0.0\|0\.0.*total\|== 0" src/claims/rules.py
+        Confirm $0 -> eligible=False, reason="$0 patient-pays...".
+
+      Step 7 -- verify render-verification in packet.py.
+        grep -n "render_png\|verify_" src/claims/packet.py
+        Confirm at least one render_png() call writes to out_dir.
+
+      Step 8 -- verify sidecar is last resort in extract.py.
+        grep -n "sidecar\|load_sidecar" src/receipts/extract.py
+        Confirm sidecar is only invoked AFTER all PARSERS have declined.
+
+      Step 9 -- verify agentic schema in both CLIs.
+        grep -n "run_with_assistant\|agentic" src/receipts/cli.py src/claims/cli.py
+
+      Step 10 -- write {workspace}/outputs/integration-review.json:
+        {{
+          "dependency_direction_violations": [],
+          "font_size_migration_verified": true,
+          "lazy_fitz_violations": [],
+          "pdfparser_abc_method_count": 2,
+          "zero_dollar_rule_present": true,
+          "render_verification_present": true,
+          "sidecar_last_resort_verified": true,
+          "agentic_wired": {{"receipts": true}},
+          "blocking_count": 0,
+          "overall": "PASS|ISSUES"
+        }}
+
+      Write {workspace}/outputs/integration-review.md with a human-readable
+      summary of any issues and recommended fixes.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-only
+    outputs:
+      - name: integration-review
+        mode: generate
+        description: >
+          Integration review results at {workspace}/outputs/integration-review.json
+          and {workspace}/outputs/integration-review.md.
+    required: true
+    writes_to:
+      - outputs/integration-review.json
+      - outputs/integration-review.md
+
+  # ===========================================================================
+  # S8: Fix integration -- repair issues found in integration-review
+  # ===========================================================================
+
+  - name: fix-integration
+    kind: execute
+    depends_on: [integration-review]
+    reads_from: [integration-review, design-interfaces]
+    description: >
+      Apply fixes for every BLOCKING issue in the integration review.
+      If overall=="PASS" and blocking_count==0, write a sentinel and exit.
+
+      Step 1 -- read:
+        Read {workspace}/outputs/integration-review.json.
+        Read {workspace}/outputs/integration-review.md.
+        If overall == "PASS" and blocking_count == 0:
+          Write {workspace}/outputs/fix-integration-sentinel.md:
+            "no fixes needed -- integration review passed"
+          Exit.
+
+      Step 2 -- fix dependency direction violations.
+        For each violation in dependency_direction_violations:
+          Remove the cross-layer import.
+          Refactor to pass the data as a parameter instead.
+
+      Step 3 -- fix font-size migration issues.
+        If font_size_migration_verified == false:
+          Ensure DEFAULT_FONT_SIZES is {{}} in src/core/pdf_forms.py.
+          Ensure CLAIM_FONT_SIZES exists in src/claims/forms.py.
+          Ensure fill_text_fields is called with sizes=CLAIM_FONT_SIZES.
+
+      Step 4 -- fix lazy fitz violations.
+        For each hit in lazy_fitz_violations:
+          Move the top-level fitz import inside the calling function.
+
+      Step 5 -- fix PdfParser ABC if over 2 abstract methods.
+        Remove any abstract methods beyond matches() and parse().
+
+      Step 6 -- re-run import smoke checks after fixes:
+        PYTHONPATH="$(pwd)/src" python3 -c \
+          "from core.pdf_read import PdfDocument, PdfParser; \
+           from receipts.extract import extract; \
+           from claims.ledger import ClaimLedger; \
+           from claims.forms import fill_claim_form; print('all ok')" 2>&1
+
+      Step 7 -- write {workspace}/outputs/fix-integration-results.json:
+        {{
+          "fixes_applied": [],
+          "sentinel": false,
+          "import_smoke_check": "PASS|FAIL"
+        }}
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Write, Bash]
+      access: read-write
+    outputs:
+      - name: fix-integration
+        mode: generate
+        description: >
+          Integration fixes. Results at {workspace}/outputs/fix-integration-results.json.
+    required: true
+    writes_to:
+      - outputs/fix-integration-results.json
+
+  # ===========================================================================
+  # S9: Verify -- RUN the code, not just read it
+  # ===========================================================================
+  #
+  # This repo has a documented lesson: review and execution find disjoint defects.
+  # Five review rounds missed 3 bugs one dry run caught in minutes.
+
+  - name: verify
+    kind: gather
+    depends_on: [fix-integration]
+    reads_from: [fix-integration, implement-receipts-dispatch]
+    description: >
+      Full verification pass: RUNS the code (tests, CLI smoke, render check).
+      Do not skip execution in favour of reading.
+
+      Step 0 -- build the shared fixtures FIRST.
+        Run: python3 tests/receipts_fixtures/build_fixtures.py
+        This writes seven synthetic PDFs under tests/receipts_fixtures/, each
+        reproducing one real-world parsing hazard confirmed against actual
+        receipts.  They are synthetic on purpose: real receipts carry patient
+        names, addresses and prescribing physicians and must never enter the
+        repo.  Read the module docstring before writing parser tests -- it
+        documents what each fixture is for.
+
+          jane_clinic.pdf      "Invoice #NNNNN-PNN" + "Payer Total  $190.00"
+          jane_zero.pdf        same shape, "$0.00" -- direct-billed; MUST parse
+                               as 0.00, never None
+          invoice_total.pdf    "Total" only, NO "Payer Total" -- this exact gap
+                               once understated a real claim by $190
+          speech_aim.pdf       "Total Amount" -- a third spelling
+          costco_pharmacy.pdf  OCR-degraded scan: "!Patient Pays: 88.21 j",
+                               no "$", garbled header text
+          costco_optical.pdf   text layer present but NO total label and NO "$"
+                               amount -- the genuine sidecar case
+          image_only.pdf       no text layer at all -- the OCR-fallback trigger
+
+        Note for the parser stages: Costco receipts are NOT blank scans.  They
+        carry a dirty OCR layer, so a parser that tests "is there text?" to
+        decide whether to OCR will mis-handle them.  Optical is the only shape
+        with genuinely nothing to extract.
+
+      Step 1 -- write tests for the new packages.
+        Tests must assert BEHAVIOUR -- both happy paths (normal use) and sad paths
+        (error conditions, boundary values, missing dependencies).  Do NOT write
+        import-only tests or tests whose only assertion is that a constructor runs.
+
+        Every parser test MUST run against the fixtures above, not against a
+        PDF built inline in setUp.  A parser that passes only on an idealised
+        receipt it was written alongside proves nothing about the label
+        variance that actually breaks parsing.
+
+        Write tests/core_tests/test_pdf_read.py:
+          HAPPY:
+          - PdfDocument opens a synthetic in-memory PDF (build with fitz in setUp).
+          - extract_text() returns a non-empty string for a PDF with text layer.
+          - lines() returns a list with at least one element for a text PDF.
+          - render_png() returns bytes with len > 1000 (not just non-zero).
+          - render_png() output decodes as a real image of the expected size:
+            open it with fitz.Pixmap(io.BytesIO(png)) and assert width/height
+            match the requested clip at the requested dpi (within 2px).
+            A byte count proves a pixmap was produced, not that it depicts
+            anything -- the null-/DA bug produced perfectly valid PNG bytes of
+            text rendered at the WRONG SIZE.
+          - a render of a filled field is not blank: rasterise the field's clip
+            rect and assert the pixmap is not uniformly the background colour
+            (pix.color_topusage() returns a (ratio, colour) TUPLE -- assert
+            ratio < 0.99; a blank page returns exactly 1.0).  This is the cheapest
+            automated proxy for "the value actually appears on the page";
+            catching a wrong FONT SIZE still requires human inspection, which
+            is what the human-gate stage is for.
+          - context manager (__enter__/__exit__) closes without error.
+          - merge() returns a new PdfDocument whose page_count equals the sum of
+            both input documents.
+          SAD:
+          - PdfDocument("does_not_exist.pdf") raises FileNotFoundError (or fitz
+            equivalent).
+          - extract_text() on a page index out of range raises IndexError or
+            ValueError (document the expected exception in the test).
+          - If tesseract is not on PATH: mock shutil.which to return None, then
+            confirm extract_text() raises RuntimeError on an empty-text-layer page
+            (not a silent empty string).
+
+        Write tests/receipts_tests/__init__.py (empty).
+        Write tests/receipts_tests/test_models.py:
+          HAPPY:
+          - Receipt with total=0.00 constructs without error.
+          - Receipt with total=None constructs without error.
+          - LineItem with amount=None constructs without error.
+          SAD:
+          - Receipt is a dataclass (assert dataclasses.is_dataclass(Receipt)).
+          - All required fields (vendor, date, total, etc.) are present on the class.
+
+        Write tests/receipts_tests/test_sidecar.py:
+          HAPPY:
+          - load_sidecar for a valid .amount.json returns a Receipt with correct
+            total and vendor (write a temp file in setUp).
+          - load_sidecar where total=0 in the JSON returns Receipt(total=0.0),
+            not None or an error.
+          SAD:
+          - load_sidecar for a non-existent file returns None (no exception).
+          - load_sidecar for a malformed JSON file raises ValueError or json.JSONDecodeError.
+
+        Write tests/receipts_tests/test_parsers.py:
+          HAPPY:
+          - JaneParser.matches() returns True for a synthetic PDF whose text
+            contains "Invoice #12345-P01" (build synthetic PDF in setUp with fitz).
+          - JaneParser.parse() extracts invoice_id "12345-P01" from that same PDF.
+          - JaneParser.parse() extracts total=0.00 from a PDF with "Payer Total: $0.00".
+          - CostcoParser.matches() returns False for a Jane-style PDF.
+          - GenericParser.matches() always returns True (any PDF).
+          - GenericParser.parse() extracts total=42.50 from a PDF with "Total: $42.50".
+          - GenericParser.parse() extracts total=0.00 from a PDF with "Total: $0.00".
+          SAD:
+          - JaneParser.matches() returns False for a PDF with no Invoice # pattern.
+          - JaneParser.parse() sets invoice_id=None for a PDF with no matching pattern
+            (should not raise).
+          - CostcoParser.matches() returns False (not raises) when extract_text()
+            raises RuntimeError (mock PdfDocument.extract_text to raise RuntimeError).
+          - GenericParser.parse() sets total=None for a PDF with no dollar amounts.
+
+        Write tests/receipts_tests/test_extract.py:
+          HAPPY:
+          - extract() on a Jane-style synthetic PDF returns a Receipt with invoice_id.
+          - extract() on a "$0.00 Payer Total" PDF returns Receipt(total=0.00).
+          SAD:
+          - extract() on a PDF no parser can match AND sidecar absent raises ValueError.
+          - extract() on a PDF no parser can match BUT .amount.json sidecar present
+            returns the sidecar Receipt (confirms last-resort path).
+          - extract(path, sidecar=False) raises ValueError even if a sidecar exists.
+
+        Write tests/claims_tests/__init__.py (empty).
+        Write tests/claims_tests/test_rules.py:
+          HAPPY:
+          - apply_rules on a valid $25.00 unseen claim returns eligible=True.
+          SAD:
+          - apply_rules on a $0.00 claim returns eligible=False with reason
+            containing "$0".
+          - apply_rules on a claim whose invoice_id is already in the ledger
+            returns eligible=False with reason containing "duplicate".
+          - apply_rules on a claim with invoice_id=None and total>0 returns
+            eligible=True (Costco receipts have no invoice_id but should be claimable).
+
+        Write tests/claims_tests/test_ledger.py:
+          HAPPY:
+          - is_duplicate returns False for a fresh ledger with an unseen invoice_id.
+          - After record("INV-001", ...), is_duplicate("INV-001") returns True.
+          - load() after save() round-trips the ledger entries correctly.
+          SAD:
+          - is_duplicate(None) returns False always (Costco; no id to deduplicate).
+          - record(None, ...) is a no-op: load() still returns an empty list.
+          - is_duplicate on a ledger whose file is missing (path does not exist)
+            returns False (does not raise -- fresh ledger is valid).
+
+        Write tests/claims_tests/test_forms.py:
+          HAPPY:
+          - CLAIM_FONT_SIZES["2.day_phone."] == 7.
+          - CLAIM_FONT_SIZES["3.total_claimed"] == 8.
+          SAD (migration regression guard):
+          - core.pdf_forms.DEFAULT_FONT_SIZES is empty (== {{}}). This test fails
+            if someone accidentally re-adds Sun Life prefixes to core.
+          - CLAIM_FONT_SIZES is NOT the same object as
+            core.pdf_forms.DEFAULT_FONT_SIZES (import both and assert they are
+            distinct dicts).
+
+      Step 2 -- run the new tests:
+        PYTHONPATH="$(pwd)/src" python3 -m unittest discover \
+          -s tests -t . -p "test_*.py" -v 2>&1 | grep -E "test_pdf_read|test_models|test_extract|test_rules|test_ledger|test_forms|OK|FAIL|ERROR" | head -60
+        Record results.
+
+      Step 3 -- run the FULL test suite (regression guard):
+        make test > /tmp/receipt-claims-verify.log 2>&1; echo "EXIT=$?"
+        grep -E "^Ran [0-9]+ tests" /tmp/receipt-claims-verify.log
+        CRITICAL: verify the "Ran N tests" line exists.  No such line means the
+        suite did not run -- do not report PASS in that case.
+
+      Step 4 -- CLI --help smoke tests:
+        ./bin/receipts --help          2>&1 | head -3
+        ./bin/receipts parse --help    2>&1 | head -3
+        ./bin/receipts --agentic --agentic-format json --agentic-compact 2>&1 | python3 -c "import sys,json; json.load(sys.stdin); print('agentic JSON ok')"
+        ./bin/claims --help            2>&1 | head -3
+        ./bin/claims fill --help       2>&1 | head -3
+        ./bin/claims --agentic --agentic-format json --agentic-compact 2>&1 | python3 -c "import sys,json; json.load(sys.stdin); print('agentic JSON ok')"
+        Record exit codes and any failures.
+
+      Step 5 -- qlty lint (if run_qlty == "true"):
+        ~/.qlty/bin/qlty check \
+          src/core/pdf_read.py src/core/pdf_forms.py \
+          src/receipts/models.py src/receipts/extract.py \
+          src/receipts/sidecar.py src/receipts/cli.py \
+          src/receipts/parsers/jane.py src/receipts/parsers/costco.py \
+          src/receipts/parsers/generic.py \
+          src/claims/models.py src/claims/ledger.py src/claims/rules.py \
+          src/claims/forms.py src/claims/packet.py src/claims/cli.py 2>&1
+        If auto-fixable issues, run: ~/.qlty/bin/qlty check --fix <file>
+        Re-run once to confirm clean.
+
+      Step 6 -- render-verification smoke test.
+        If real_pdf is non-empty AND the file exists:
+          PYTHONPATH="$(pwd)/src" python3 -c "
+          from core.pdf_read import PdfDocument
+          doc = PdfDocument('{real_pdf}')
+          png = doc.render_png(page=0, dpi=72)
+          print(f'render_png returned {{len(png)}} bytes')
+          doc.close()
+          " 2>&1
+          Report byte count only (never log PDF content or field values).
+
+      Step 7 -- write {workspace}/outputs/verify-results.json:
+        {{
+          "new_tests_written": [],
+          "new_tests_passed": "PASS|FAIL",
+          "full_suite": "PASS|FAIL",
+          "full_suite_ran_count": 0,
+          "cli_smoke": {{
+            "receipts_help": "PASS|FAIL",
+            "receipts_agentic": "PASS|FAIL",
+            "claims_help": "PASS|FAIL",
+            "claims_agentic": "PASS|FAIL"
+          }},
+          "qlty_status": "PASS|ISSUES|SKIPPED",
+          "render_smoke": "PASS|FAIL|SKIPPED",
+          "all_green": true
+        }}
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+    outputs:
+      - name: verify
+        mode: generate
+        description: >
+          Verification results at {workspace}/outputs/verify-results.json.
+    required: true
+    writes_to:
+      - outputs/verify-results.json
+
+  # ===========================================================================
+  # S10: Human gate -- final review before Brian merges
+  # ===========================================================================
+
+  - name: human-gate
+    kind: propose
+    human_gate: true
+    depends_on: [verify]
+    reads_from: [verify, integration-review, design-interfaces]
+    description: >
+      Present the full build summary and confirm the branch location before
+      Brian decides to merge.  Nothing is pushed to main; nothing is auto-merged.
+
+      Step 1 -- collect results:
+        Read {workspace}/outputs/verify-results.json.
+        Read {workspace}/outputs/integration-review.json.
+        Read {workspace}/outputs/claims-manifest.json.
+        Read {workspace}/validation/critique.md.
+
+      Step 2 -- identify branch and worktree:
+        git worktree list 2>&1
+        git branch --show-current 2>&1
+
+      Step 3 -- write {workspace}/outputs/human-gate-summary.md:
+
+        ## Receipt/Claims Domain Build -- Final Summary
+
+        ### What Was Built
+        - src/core/pdf_read.py      -- PdfDocument + PdfParser ABC (OCR fallback)
+        - src/core/pdf_forms.py     -- MIGRATED: DEFAULT_FONT_SIZES emptied;
+                                       Sun Life constants moved to claims/forms.py
+        - src/receipts/models.py    -- Receipt, LineItem dataclasses
+        - src/receipts/sidecar.py   -- .amount.json fallback (last resort)
+        - src/receipts/parsers/     -- jane, costco, generic
+        - src/receipts/extract.py   -- dispatch (jane -> costco -> generic -> sidecar)
+        - src/receipts/cli.py       -- CLIApp with agentic schema
+        - src/claims/ledger.py      -- dedup by invoice_id across all submissions
+        - src/claims/rules.py       -- $0 exclusion, duplicate detection, plan-year
+        - src/claims/packet.py      -- merge + render-verification PNGs
+        - src/claims/cli.py         -- CLIApp with agentic schema
+        - bin/receipts, bin/claims  -- registered in _wrappers.yaml
+
+        ### Core Invariants Preserved
+        - pdf_forms /DA written as parenthesized string (pdf_string/format_da)
+        - pdf_forms checkbox written per-xref, not by field name
+        - Field values escaped with pdf_string() before writing
+
+        ### Font-Size Migration
+
+        ### Test / Lint Status
+        (from verify-results.json)
+
+        ### Integration Review
+        (blocking count; all resolved?)
+
+        ### Branch and Worktree
+        (from Step 2)
+        To merge: git checkout <your-branch> && git merge <this-branch>
+        To open a PR: /open-pr from the branch above
+
+      Present the summary and ask:
+        A) Looks good -- I will merge the branch manually
+        B) Something needs fixing -- describe the issue
+        C) Abandon -- the branch and worktree remain available
+
+      Write the decision to {workspace}/outputs/human-gate-decision.md.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-only
+    required: true
+    writes_to:
+      - outputs/human-gate-summary.md
+      - outputs/human-gate-decision.md
