@@ -209,8 +209,17 @@ stages:
               matches() -> True when "costco" appears case-INSENSITIVELY
               (may require OCR). Real receipts print both "Costco
               Pharmacies" and "COSTCO OPTICAL DEPARTMENT".
-              parse() extracts: vendor="Costco", total from "Total" or
-                "Total Amount" line, date from receipt header.
+              parse() extracts: vendor="Costco", date from receipt header,
+                total from AMOUNT_LABELS in this order:
+                  ["Patient Pays", "Total Amount", "Total"]
+                "Patient Pays" FIRST and non-optional: Costco pharmacy
+                receipts label the amount owed that way and carry no "Total"
+                line at all, so a contract of just Total/Total Amount makes
+                CostcoParser decline its own pharmacy fixture and hands it to
+                GenericParser.  Amounts may have NO "$" sigil and may sit in
+                OCR garble ("!Patient Pays: 88.21 j"), so match the label and
+                take the first decimal number after it rather than requiring
+                a currency symbol.
               invoice_id=None always (Costco receipts have none).
 
           File: parsers/generic.py
@@ -546,7 +555,7 @@ stages:
                    - name: Install Tesseract for OCR-path tests
                      run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
                    - name: Generate receipt fixtures
-                     run: python3 tests/receipts_fixtures/build_fixtures.py
+                     run: .venv/bin/python tests/receipts_fixtures/build_fixtures.py
 
                  AND widen the install step in that same job.  It currently
                  reads `pip install -e ".[tui,slides]"` (ci.yml:90), which does
@@ -585,7 +594,7 @@ stages:
           - Type hints: PEP 585/604 style.  No bare except: pass.
 
       Step 3 -- import smoke check:
-        PYTHONPATH="$(pwd)/src" python3 -c \
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
           "from core.pdf_read import PdfDocument, PdfParser; print('ok')" 2>&1
         If fail, fix and retry.
 
@@ -692,7 +701,7 @@ stages:
         Does NOT raise on a missing sidecar file -- that is the normal case.
 
       Step 5 -- import smoke check:
-        PYTHONPATH="$(pwd)/src" python3 -c \
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
           "from receipts.models import Receipt, LineItem; \
            from receipts.sidecar import load_sidecar; print('ok')" 2>&1
 
@@ -789,7 +798,7 @@ stages:
         Store line_items=[] (Jane receipts have no itemised table; total suffices).
 
       Step 3 -- import smoke check:
-        PYTHONPATH="$(pwd)/src" python3 -c \
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
           "from receipts.parsers.jane import JaneParser; print('ok')" 2>&1
 
       Step 4 -- write {workspace}/outputs/parser-jane-manifest.json:
@@ -838,11 +847,21 @@ stages:
             # sidecar path it is supposed to exercise.
             return "costco" in text.lower()
 
+          AMOUNT_LABELS = ["Patient Pays", "Total Amount", "Total"]
+
           def parse(self, doc: PdfDocument) -> Receipt:
             text = doc.extract_text(0)  # may invoke OCR
             # Extract: vendor="Costco Wholesale" or "Costco Pharmacy",
-            #   total from "Total" or "Total Amount" line,
-            #   date from receipt header.
+            #   date from receipt header, total via AMOUNT_LABELS in order.
+            # "Patient Pays" is FIRST and required: pharmacy receipts label
+            # the amount owed that way and have no "Total" line at all, so a
+            # Total-only contract makes this parser decline costco_pharmacy
+            # and hand it to GenericParser.
+            # No "$" sigil: take the first decimal number after the label.
+            # Expect OCR garble around it -- "!Patient Pays: 88.21 j" must
+            # yield 88.21.
+            # total=None when no label matches (costco_optical): that is a
+            # DECLINE, which is how the sidecar fallback gets reached.
             # invoice_id=None always.
             # Returns Receipt(..., invoice_id=None, ...).
 
@@ -852,7 +871,7 @@ stages:
         This prevents a hard crash when Tesseract is absent.
 
       Step 3 -- import smoke check:
-        PYTHONPATH="$(pwd)/src" python3 -c \
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
           "from receipts.parsers.costco import CostcoParser; print('ok')" 2>&1
 
       Step 4 -- write {workspace}/outputs/parser-costco-manifest.json:
@@ -904,7 +923,7 @@ stages:
             # Unknown fields -> None.
 
       Step 3 -- import smoke check:
-        PYTHONPATH="$(pwd)/src" python3 -c \
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
           "from receipts.parsers.generic import GenericParser; print('ok')" 2>&1
 
       Step 4 -- write {workspace}/outputs/parser-generic-manifest.json:
@@ -1030,7 +1049,7 @@ stages:
         Verify: ls -la bin/receipts
 
       Step 6 -- import smoke check:
-        PYTHONPATH="$(pwd)/src" python3 -c \
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
           "from receipts.extract import extract; print('ok')" 2>&1
 
       Step 7 -- write {workspace}/outputs/receipts-dispatch-manifest.json:
@@ -1130,7 +1149,7 @@ stages:
       Step 6 -- verify $0 parses as a VALUE, not a failure.
         A "$0.00 Payer Total" receipt means the provider direct-billed the
         insurer.  It must parse as total=0.00, never as None.
-        PYTHONPATH="$(pwd)/src" python3 -c \
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
           "from receipts.extract import extract; \
            r = extract('tests/receipts_fixtures/jane_zero.pdf'); \
            print('total:', r.total); \
@@ -1147,7 +1166,7 @@ stages:
       Step 10 -- write {workspace}/outputs/integration-review.json:
         {
           "dependency_direction_violations": [],
-          "font_size_migration_verified": true,
+          "core_pdf_forms_untouched": true,
           "lazy_fitz_violations": [],
           "pdfparser_abc_method_count": 2,
           "zero_dollar_rule_present": true,
@@ -1215,7 +1234,7 @@ stages:
         Remove any abstract methods beyond matches() and parse().
 
       Step 6 -- re-run import smoke checks after fixes:
-        PYTHONPATH="$(pwd)/src" python3 -c \
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
           "from core.pdf_read import PdfDocument, PdfParser; \
            from receipts.models import Receipt, LineItem; \
            from receipts.sidecar import load_sidecar; \
@@ -1258,7 +1277,7 @@ stages:
       Do not skip execution in favour of reading.
 
       Step 0 -- build the shared fixtures FIRST.
-        Run: python3 tests/receipts_fixtures/build_fixtures.py
+        Run: .venv/bin/python tests/receipts_fixtures/build_fixtures.py
 
         PREREQUISITE -- install the [pdf] extra in THIS worktree first.
         `make venv` installs ".[dev]", which does not include PyMuPDF (fitz
@@ -1267,7 +1286,7 @@ stages:
         help an agent worktree.  Run once, then generate:
 
           .venv/bin/python -m pip install -e ".[pdf,ocr]" 2>&1 | tail -2
-          python3 tests/receipts_fixtures/build_fixtures.py
+          .venv/bin/python tests/receipts_fixtures/build_fixtures.py
         This writes seven synthetic PDFs under tests/receipts_fixtures/, each
         reproducing one real-world parsing hazard confirmed against actual
         receipts.  They are synthetic on purpose: real receipts carry patient
@@ -1398,9 +1417,17 @@ stages:
         claims-domain-build.yaml.
 
       Step 2 -- run the new tests:
-        PYTHONPATH="$(pwd)/src" python3 -m unittest discover \
-          -s tests -t . -p "test_*.py" -v 2>&1 | grep -E "test_pdf_read|test_models|test_sidecar|test_parsers|test_extract|OK|FAIL|ERROR" | head -60
-        Record results.
+        A pipeline reports the LAST command's status, so
+        `unittest ... | grep | head` returns 0 even when the tests fail --
+        a red suite would be recorded as a pass.  Capture the status first:
+
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -m unittest discover \
+          -s tests -t . -p "test_*.py" -v > /tmp/receipts-new-tests.log 2>&1; status=$?
+        grep -E "test_pdf_read|test_models|test_sidecar|test_parsers|test_extract|OK|FAIL|ERROR" /tmp/receipts-new-tests.log | head -60
+        echo "UNITTEST_EXIT=$status"
+
+        UNITTEST_EXIT must be 0.  Any other value is a FAIL: record it as
+        such and do not report this stage as successful.
 
       Step 3 -- run the FULL test suite (regression guard):
         make test > /tmp/receipt-claims-verify.log 2>&1; echo "EXIT=$?"
@@ -1431,7 +1458,7 @@ stages:
         parameter: a real receipt carries a patient name and a clinician, and
         the fixtures already cover every shape this workflow parses.
 
-          PYTHONPATH="$(pwd)/src" python3 -c "
+          PYTHONPATH="$(pwd)/src" .venv/bin/python -c "
           from core.pdf_read import PdfDocument
           doc = PdfDocument('tests/receipts_fixtures/jane_clinic.pdf')
           png = doc.render_png(page=0, dpi=72)
@@ -1450,9 +1477,7 @@ stages:
           "full_suite_ran_count": 0,
           "cli_smoke": {
             "receipts_help": "PASS|FAIL",
-            "receipts_agentic": "PASS|FAIL",
-            "claims_help": "PASS|FAIL",
-            "claims_agentic": "PASS|FAIL"
+            "receipts_agentic": "PASS|FAIL"
           },
           "qlty_status": "PASS|ISSUES|SKIPPED",
           "render_smoke": "PASS|FAIL|SKIPPED",
@@ -1488,8 +1513,11 @@ stages:
       Step 1 -- collect results:
         Read {workspace}/outputs/verify-results.json.
         Read {workspace}/outputs/integration-review.json.
-        Read {workspace}/outputs/claims-manifest.json.
+        Read {workspace}/outputs/receipts-dispatch-manifest.json.
         Read {workspace}/validation/critique.md.
+
+        There is no claims-manifest.json in this workflow: src/claims/ is
+        built by claims-domain-build.yaml after this one merges.
 
       Step 2 -- identify branch and worktree:
         git worktree list 2>&1

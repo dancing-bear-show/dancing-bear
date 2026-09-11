@@ -95,7 +95,7 @@ stages:
         not continue into stages that will fail more confusingly later.
 
       Step 1 -- confirm the packages exist and import:
-        PYTHONPATH="$(pwd)/src" python3 -c \
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
           "from core.pdf_read import PdfDocument, PdfParser; \
            from receipts.models import Receipt; \
            from receipts.extract import extract; \
@@ -106,12 +106,12 @@ stages:
         receipts-domain-build.yaml, which must merge first.
 
       Step 2 -- confirm core.pdf_forms is intact (this workflow will edit it):
-        PYTHONPATH="$(pwd)/src" python3 -m unittest \
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -m unittest \
           tests.core_tests.test_core_pdf_forms 2>&1 | tail -3
         Record the passing test count as the pre-migration baseline.
 
       Step 3 -- record the Receipt surface claims must build against:
-        PYTHONPATH="$(pwd)/src" python3 -c \
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
           "import dataclasses, receipts.models as m; \
            print([f.name for f in dataclasses.fields(m.Receipt)])" 2>&1
 
@@ -202,7 +202,7 @@ stages:
         Use the Edit tool.
 
       Step 4 -- verify the import smoke check passes.
-        PYTHONPATH="$(pwd)/src" python3 -c \
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
           "from core.pdf_forms import DEFAULT_FONT_SIZES, font_size_for, \
            format_da, pdf_string, set_text_field, fill_text_fields, set_checkbox; \
            print('import ok'); \
@@ -214,9 +214,9 @@ stages:
         returns for every unmatched field, so those tests are the guard against
         breaking a merged, working module.
 
-        PYTHONPATH="$(pwd)/src" python3 -m unittest \
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -m unittest \
           tests.core_tests.test_core_pdf_forms 2>&1 | tail -5
-        PYTHONPATH="$(pwd)/src" python3 -m doctest src/core/pdf_forms.py -v \
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -m doctest src/core/pdf_forms.py -v \
           2>&1 | tail -3
 
         Tests asserting the OLD Sun Life prefixes (e.g. font_size_for(
@@ -289,7 +289,7 @@ stages:
                b. page text that contains none of the identifying tokens a
                   filled claim would carry.
 
-               TEMPLATE="<path>" PYTHONPATH="$(pwd)/src" python3 -c "
+               TEMPLATE="<path>" PYTHONPATH="$(pwd)/src" .venv/bin/python -c "
                import os, re, fitz
                d = fitz.open(os.environ['TEMPLATE'])
                widgets = [w for pno in range(d.page_count)
@@ -306,15 +306,42 @@ stages:
                                     'flattened or scanned, not a blank template')
                if filled:
                    raise SystemExit(f'REJECT: {len(filled)} filled field(s)')
-               # Belt and braces: a blank form carries labels, not data.
-               if re.search(r'\b\d{3}-\d{3}-\d{4}\b', page_text) or \
-                  re.search(r'\b(19|20)\d{2}-\d{2}-\d{2}\b', page_text):
-                   raise SystemExit('REJECT: page text contains phone/date '
-                                    'data -- not a blank template')
+               # Belt and braces: a blank form carries LABELS, not data.
+               # These patterns are a backstop, NOT a proof of blankness --
+               # they cannot enumerate every way a name or amount can appear.
+               # The real guarantee is the widget check above plus the
+               # approved-source rule below.
+               import itertools
+               PATTERNS = [
+                   r'\b\d{3}[-. ]\d{3}[-. ]\d{4}\b',      # phone, any sep
+                   r'\b(19|20)\d{2}-\d{2}-\d{2}\b',        # ISO date
+                   r'\b\d{1,2}/\d{1,2}/(19|20)\d{2}\b',    # slashed date
+                   r'\$\s?\d[\d,]*\.\d{2}',                # currency amount
+                   r'\b[A-Z]\d[A-Z]\s?\d[A-Z]\d\b',        # CA postal code
+               ]
+               hits = [pat for pat in PATTERNS if re.search(pat, page_text)]
+               if hits:
+                   raise SystemExit(f'REJECT: page text matches {len(hits)} '
+                                    'data pattern(s) -- not a blank template')
                print('BLANK OK')"
 
              Pass the path via the TEMPLATE environment variable, never by
              interpolating it into the command text.
+
+             THE PATTERNS ARE A BACKSTOP, NOT A GUARANTEE.  They cannot
+             enumerate every way personal data can appear -- a form whose
+             static text carries a name, a member ID, or a space-separated
+             phone number can still slip past.  So the rule is source-based
+             first and pattern-based second:
+
+               ACCEPT only a template from an approved blank source: one
+               committed to this repo as a synthetic fixture, or one the user
+               has explicitly identified as blank in this run.  Anything
+               discovered by searching the filesystem is NOT an approved
+               source, however clean it looks.
+
+             If you cannot name the approved source, treat the candidate as
+             rejected even when every pattern check passes.
 
              On ANY reject, STOP -- do not open it further, do not copy it, do
              not quote its contents.  Record shipped_form_equivalence:
@@ -485,7 +512,7 @@ stages:
         # They are Sun Life EHC-specific and belong here, not in core.
 
         VERIFY THE REAL SIGNATURE BEFORE WRITING THIS.  Run:
-          PYTHONPATH="$(pwd)/src" python3 -c \
+          PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
             "import inspect, core.pdf_forms as f; \
              print(inspect.signature(f.fill_text_fields)); \
              print(inspect.signature(f.set_checkbox))"
@@ -556,7 +583,7 @@ stages:
         Verify: ls -la bin/claims
 
       Step 11 -- import smoke check:
-        PYTHONPATH="$(pwd)/src" python3 -c \
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
           "from claims.ledger import ClaimLedger; \
            from claims.rules import apply_rules; \
            from claims.forms import fill_claim_form, CLAIM_FONT_SIZES; \
@@ -733,7 +760,7 @@ stages:
         Remove any abstract methods beyond matches() and parse().
 
       Step 6 -- re-run import smoke checks after fixes:
-        PYTHONPATH="$(pwd)/src" python3 -c \
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
           "from core.pdf_read import PdfDocument, PdfParser; \
            from receipts.extract import extract; \
            from claims.ledger import ClaimLedger; \
@@ -775,7 +802,7 @@ stages:
       Do not skip execution in favour of reading.
 
       Step 0 -- regenerate the shared fixtures FIRST.
-        Run: python3 tests/receipts_fixtures/build_fixtures.py
+        Run: .venv/bin/python tests/receipts_fixtures/build_fixtures.py
 
         PREREQUISITE -- install the [pdf] extra in THIS worktree first.
         `make venv` installs ".[dev]", which does not include PyMuPDF (fitz
@@ -784,7 +811,7 @@ stages:
         help an agent worktree.  Run once, then generate:
 
           .venv/bin/python -m pip install -e ".[pdf,ocr]" 2>&1 | tail -2
-          python3 tests/receipts_fixtures/build_fixtures.py
+          .venv/bin/python tests/receipts_fixtures/build_fixtures.py
 
         The generated PDFs are gitignored (*.pdf), so a fresh checkout has the
         builder but not its output.  The full-suite run in Step 3 re-executes
@@ -867,9 +894,18 @@ stages:
             distinct dicts).
 
       Step 2 -- run the new tests:
-        PYTHONPATH="$(pwd)/src" python3 -m unittest discover \
-          -s tests -t . -p "test_*.py" -v 2>&1 | grep -E "test_pdf_read|test_models|test_extract|test_rules|test_ledger|test_forms|OK|FAIL|ERROR" | head -60
-        Record results.
+        A pipeline reports the LAST command's status, so
+        `unittest ... | grep | head` returns 0 even when the tests fail --
+        a red suite would be recorded as a pass.  Capture the status first:
+
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -m unittest discover \
+          -s tests -t . -p "test_*.py" -v > /tmp/claims-new-tests.log 2>&1; status=$?
+        grep -E "test_rules|test_ledger|test_forms|test_packet|OK|FAIL|ERROR" \
+          /tmp/claims-new-tests.log | head -60
+        echo "UNITTEST_EXIT=$status"
+
+        UNITTEST_EXIT must be 0.  Any other value is a FAIL: record it as
+        such and do not report this stage as successful.
 
       Step 3 -- run the FULL test suite (regression guard):
         make test > /tmp/receipt-claims-verify.log 2>&1; echo "EXIT=$?"
