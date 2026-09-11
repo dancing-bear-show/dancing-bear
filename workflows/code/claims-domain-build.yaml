@@ -289,9 +289,21 @@ stages:
                b. page text that contains none of the identifying tokens a
                   filled claim would carry.
 
-               TEMPLATE="<path>" PYTHONPATH="$(pwd)/src" .venv/bin/python -c "
-               import os, re, fitz
-               d = fitz.open(os.environ['TEMPLATE'])
+               Write the candidate path to a FILE with the Write tool --
+               never onto a shell command line.  `TEMPLATE="<path>"` is still
+               shell source: a path containing a quote, $() or a backtick
+               executes, and resolve_params does a plain str.replace with no
+               shell quoting.  Reading it from a file removes the shell from
+               the path entirely.
+
+                 Write /tmp/candidate-template.txt  <- the path, one line
+
+               PYTHONPATH="$(pwd)/src" .venv/bin/python -c "
+               import pathlib, re, fitz
+               cand = pathlib.Path('/tmp/candidate-template.txt').read_text().strip()
+               if not cand or not pathlib.Path(cand).is_file():
+                   raise SystemExit(f'REJECT: not a file: {cand!r}')
+               d = fitz.open(cand)
                widgets = [w for pno in range(d.page_count)
                           for w in (d[pno].widgets() or [])]
                text_widgets = [w for w in widgets

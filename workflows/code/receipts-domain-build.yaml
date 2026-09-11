@@ -193,10 +193,21 @@ stages:
 
           File: parsers/jane.py
             JaneParser(PdfParser):
-              Marker: text contains "Invoice #" followed by NNNNN-PNN pattern.
+              Marker: text contains "Invoice #" followed by a 3-6 digit
+                number, a hyphen, "P", and two digits (e.g. 8254-P01,
+                19931-P01, 66803-P01 -- widths vary in real receipts).
               Clinics: Advanced Psychology, Aurora Speech, Balance Family
                 Chiropractic, Oak Ridges Physiotherapy, Massage Addict.
-              Amount label: "Payer Total".
+              AMOUNT_LABELS, tried in this order:
+                ["Payer Total", "Total Amount", "Total"]
+                NOT just "Payer Total": the same practice software prints
+                "Payer Total" on receipts and "Total" on invoices, and some
+                clinics use "Total Amount".  A single-label contract is the
+                bug that once understated a real claim by $190, and it makes
+                the invoice_total and speech_aim fixtures fall through to
+                GenericParser instead of Jane.
+                Order matters -- "Payer Total" must be tried before the bare
+                "Total" or a substring match claims the wrong line.
               matches() -> True when Invoice # pattern present in page 0 text.
               parse() extracts: invoice_id from "Invoice #NNNNN-PNN", vendor
                 from clinic name on first page, date from receipt header, total
