@@ -224,7 +224,7 @@ class TestCalendarProviderProtocol(unittest.TestCase):
 
     def _make_gmail_conformant(self):
         """Minimal Gmail-side conformant object."""
-        from calendars.gmail_pipelines import CalendarEvent
+        from calendars.gmail_types import CalendarEvent
 
         class FakeGmailBackend:
             def list_events(self, date_range: tuple) -> list:
@@ -237,7 +237,7 @@ class TestCalendarProviderProtocol(unittest.TestCase):
 
     def _make_outlook_conformant(self):
         """Minimal Outlook-side conformant object."""
-        from calendars.gmail_pipelines import CalendarEvent
+        from calendars.gmail_types import CalendarEvent
 
         class FakeOutlookBackend:
             def list_events(self, date_range: tuple) -> list:
@@ -261,7 +261,7 @@ class TestCalendarProviderProtocol(unittest.TestCase):
     def test_missing_list_events_does_not_satisfy_protocol(self):
         """Object missing list_events must not satisfy CalendarProvider."""
         from calendars.importer.base import CalendarProvider
-        from calendars.gmail_pipelines import CalendarEvent
+        from calendars.gmail_types import CalendarEvent
 
         class MissingListEvents:
             def add_event(self, event: CalendarEvent) -> CalendarEvent:

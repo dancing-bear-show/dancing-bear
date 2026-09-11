@@ -83,7 +83,9 @@ DICT_DOMAIN_MODULES: tuple[str, ...] = (
 # Render modules that consume the typed schema once Steps 3-5 land.
 TYPED_DOMAIN_MODULES: tuple[str, ...] = (
     "docx_base.py",
-    "docx_renderers.py",
+    "docx_bullets.py",
+    "docx_header.py",
+    "docx_list_sections.py",
     "docx_sections_exp.py",
     "docx_sections_simple.py",
     "docx_sections_skills.py",
@@ -119,7 +121,7 @@ UNMIGRATED_GET_BASELINE: dict[str, int] = {
     # because it is not a modelled field. Neither is un-migrated work: the
     # first will not reach 0 while ``teaching`` stays ``list[Any]``, and the
     # second has no attribute to migrate to by construction.
-    "docx_renderers.py": 4,
+    "docx_list_sections.py": 4,
     "docx_sections_exp.py": 0,
     "docx_sections_simple.py": 0,
     "docx_sections_skills.py": 0,
