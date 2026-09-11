@@ -204,7 +204,14 @@ class DeriveFiltersTests(TestCase):
             self.assertTrue(action.get("noMoveToFolder"))
 
     def test_derive_filters_keep_in_inbox_stripped_on_archive_path(self):
-        """The archive branch also converts the keepInInbox marker to noMoveToFolder."""
+        """The archive branch also converts the keepInInbox marker to noMoveToFolder.
+
+        `remove: [INBOX]` is required for this to test what its name claims:
+        `_apply_archive_on_remove_inbox` only rewrites specs whose *original*
+        filter removes INBOX. Without it the branch was invoked but mutated
+        nothing (verified: 0 specs changed), so a regression in the conversion
+        after that branch would still have passed here.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             in_path = Path(tmpdir) / "filters.yaml"
             in_path.write_text(
@@ -214,6 +221,7 @@ class DeriveFiltersTests(TestCase):
                 "    action:\n"
                 "      add: [Tech/Grafana]\n"
                 "      keepInInbox: true\n"
+                "      remove: [INBOX]\n"
             )
             out_gmail = Path(tmpdir) / "gmail.yaml"
             out_outlook = Path(tmpdir) / "outlook.yaml"
@@ -234,6 +242,11 @@ class DeriveFiltersTests(TestCase):
             self.assertNotIn("keepInInbox", action)
             # The internal marker must be present on the archive path too.
             self.assertTrue(action.get("noMoveToFolder"))
+            # The archive branch really did run: it replaces `add` with an
+            # explicit Archive folder. Asserting this pins the branch as
+            # exercised, so the test cannot silently go inert again.
+            self.assertEqual("Archive", action.get("moveToFolder"))
+            self.assertNotIn("add", action)
 
     def test_derive_filters_keep_in_inbox_stripped_with_all_flags_off(self):
         """Both flags off means neither branch runs — the marker must still be converted.

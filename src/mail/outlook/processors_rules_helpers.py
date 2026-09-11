@@ -117,11 +117,23 @@ def _build_plan_action(action_spec: dict[str, Any], ctx: RuleContext) -> dict[st
     rules that had ``keepInInbox: true`` in the unified config.  When present,
     the folder derivation branch is skipped and the rule categorises/labels
     without a folder move.
+
+    An explicit ``moveToFolder`` still wins over the marker, matching
+    ``_build_rule_action`` and ``_resolve_destination_folder``: the marker
+    suppresses a folder *derived* from ``add[0]``, not a destination the config
+    named outright. The two can legitimately co-occur — ``derive.filters
+    --outlook-archive-on-remove-inbox`` emits ``moveToFolder: Archive``
+    alongside the marker. This branch was previously absent here, so the plan
+    reported "no move" for a rule that sync and sweep would move: the plan
+    contradicted the apply it is supposed to preview.
     """
     action = {}
     adds = action_spec.get("add") or []
 
-    if ctx.move_to_folders and adds and not action_spec.get("noMoveToFolder"):
+    if action_spec.get("moveToFolder"):
+        lab_name = norm_label_name_outlook(str(action_spec["moveToFolder"]))
+        action["moveToFolderId"] = ctx.folder_map.get(lab_name) or lab_name
+    elif ctx.move_to_folders and adds and not action_spec.get("noMoveToFolder"):
         # Normal rule with move_to_folders: derive folder from first add label.
         lab_name = norm_label_name_outlook(adds[0])
         fid = ctx.folder_map.get(lab_name) or lab_name

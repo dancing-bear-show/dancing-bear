@@ -714,6 +714,28 @@ class TestPlanProcessorHonoursNoMoveToFolder(unittest.TestCase):
         self.assertEqual(1, len(items))
         self.assertNotIn("moveToFolderId", items[0])
 
+    def test_explicit_move_to_folder_wins_over_the_marker(self):
+        """An explicit moveToFolder beats noMoveToFolder, and plan must agree with apply.
+
+        The two co-occur in real output: `derive.filters
+        --outlook-archive-on-remove-inbox` emits `moveToFolder: Archive`
+        alongside the marker for any rule that removes INBOX.
+
+        Regression: `_build_plan_action` did not check `moveToFolder` at all, so
+        it reported no move while `_build_rule_action` (sync) and
+        `_resolve_destination_folder` (sweep) both moved to Archive. A plan that
+        contradicts its own apply is worse than either behaviour alone, because
+        the plan is what you read before committing to the change.
+        """
+        items = self._plan(
+            [{
+                "match": {"from": "grafana.com"},
+                "action": {"moveToFolder": "Archive", "noMoveToFolder": True},
+            }]
+        )
+        self.assertEqual(1, len(items))
+        self.assertIn("moveToFolderId", items[0])
+
     def test_mixed_rules_each_take_their_own_path(self):
         """Both rule kinds in one config: only the marked one skips the move."""
         items = self._plan(
