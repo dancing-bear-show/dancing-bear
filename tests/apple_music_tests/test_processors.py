@@ -11,19 +11,21 @@ import json
 import unittest
 from contextlib import redirect_stdout
 
-from apple_music.cli import (
+from apple_music.cli_models import (
     ExportPlaylistResult,
-    ExportProcessor,
-    ExportProducer,
     ExportRequest,
-    ListPlaylistsProcessor,
-    ListPlaylistsProducer,
     ListPlaylistsRequest,
     PlaylistResult,
     TrackResult,
+    TracksRequest,
+)
+from apple_music.cli_pipeline import (
+    ExportProcessor,
+    ExportProducer,
+    ListPlaylistsProcessor,
+    ListPlaylistsProducer,
     TracksProcessor,
     TracksProducer,
-    TracksRequest,
 )
 from core.cli_errors import AuthError
 from core.cli_output import OutputConfig, OutputFormat, OutputWriter
