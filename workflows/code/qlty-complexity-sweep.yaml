@@ -11,14 +11,26 @@ description: >
 
   Default strategy is reduce-in-place, NOT splitting. qlty's file-complexity
   score is a pure SUM of per-function cognitive complexity, with no
-  file-level structural term. Verified by controlled probe: 6 identical
-  functions scored 90, 12 scored 180, 24 scored 360 — exactly 15 per
-  function, perfectly linear. So splitting a file lowers the score at the
-  path you were looking at while leaving total complexity unchanged: a
-  24-function file at 360 split into two 12-function files yields 180 + 180,
-  and BOTH halves stay flagged. Flattening the same 24 functions' nesting in
-  place yielded 96 — a 73% real reduction. PR #152 ran a split-based sweep
-  and 20 of the files it CREATED are flagged again today.
+  file-level structural term. Verified by controlled probe, twice with
+  different function bodies: N identical functions score N x k exactly, with
+  k fixed by the body (12 functions scored 192 and 24 scored 384 in one run,
+  k=16; an earlier run measured k=15). Perfectly linear either way, which is
+  the load-bearing part — the constant is body-dependent, so do not expect a
+  specific k.
+
+  So splitting a file lowers the score at the path you were looking at while
+  leaving total complexity unchanged: a 24-function file at 384 split into
+  two 12-function files yields 192 + 192, and BOTH halves stay flagged.
+  Flattening those same functions' nesting in place is what actually removes
+  the finding.
+
+  So the score at a given path can fall while nothing was actually fixed.
+  PR #152 ran a split-based sweep over 26 files, splitting 19 behind
+  re-export shims; of its 44 surviving files exactly one still carries a
+  complexity finding today, so that sweep's numbers did largely hold — the
+  argument against splitting is that it redistributes rather than reduces,
+  not that its gains evaporate. Judge a sweep by total complexity across the
+  siblings it creates, never by the original path's score alone.
 
   Splitting is therefore permitted only where a file genuinely holds 2+
   unrelated responsibility clusters — a design fix that happens to also move
