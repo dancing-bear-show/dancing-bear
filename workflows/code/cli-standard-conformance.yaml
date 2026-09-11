@@ -298,14 +298,11 @@ stages:
                              DELETE the hand-rolled assertions they replace.
         P3 "fix-llm"       — tests/ only: adopt LLMCLIContractMixin where
                              missing (mail is the one gap).
-        P4 "split-click"   — tests/agentic_cli_contract.py only: extract the
-                             parser-agnostic subset (A1, A2, A5) into a base
-                             mixin telemetry can adopt; keep the argparse
-                             key-set assertion (A3/A4) in a subclass.
-
-      P2 and P4 both touch tests/agentic_cli_contract.py. Therefore P4 MUST run
-      before P2, or they must be assigned to the same agent. State which you
-      chose and why. Do not let two agents edit that file concurrently.
+      (There was a P4 "split-click" package that split the CLI contract into a
+      parser-agnostic base mixin so a Click-based telemetry could adopt part of
+      it. #341 ported telemetry to argparse and it now adopts the whole
+      contract, so P4 is retired — do not plan one, and do not reintroduce the
+      P2/P4 ordering constraint it required.)
 
       For each package record: rule IDs addressed, exact file list, apps
       affected, and expected test-count delta.
@@ -325,10 +322,10 @@ stages:
           differing no-subcommand exit codes (charts 1, diagrams 0, worker 1,
           workflow 2) as DELIBERATE — do not normalise them.
 
-      Present to the human: violation counts by rule and tier, the four
-      packages with file lists, the ordering constraint on P2/P4, everything
-      deferred with reasons, and the expected net line delta (this work should
-      DELETE more test code than it adds).
+      Present to the human: violation counts by rule and tier, the three
+      packages with file lists, everything deferred with reasons, and the
+      expected net line delta (this work should DELETE more test code than it
+      adds).
     agent:
       role: Plan
       model: sonnet
@@ -411,17 +408,16 @@ stages:
     depends_on: [pc-revise]
     reads_from: [plan-remediation, audit-conformance]
     description: >
-      Packages P4 then P2, in that order, in ONE agent — they share
-      tests/agentic_cli_contract.py and must not be edited concurrently.
+      Package P2. (A P4 "split-click" package used to run first in this same
+      agent, because both touched tests/agentic_cli_contract.py. It split the
+      contract into a parser-agnostic base mixin so a Click-based telemetry
+      could adopt part of it. #341 ported telemetry to argparse and it now
+      adopts the whole contract directly —
+      tests/telemetry_tests/test_agentic_cli_contract.py subclasses
+      AgenticCLIContractMixin like every other app — so P4 is retired. Do not
+      build a parser-agnostic base mixin.)
 
       Touch ONLY tests/ files.
-
-      P4 first — split the CLI contract so telemetry can adopt part of it.
-        NOTE: #341 made telemetry a normal argparse adopter of the WHOLE
-        contract, so the parser-agnostic base mixin this step describes may
-        already be unnecessary. Check whether telemetry still needs a partial
-        adoption before building one; if it adopts the full contract, report
-        that P4 is moot rather than splitting a contract nothing needs split.
         Extract A1/A2/A5 (announces itself, clears MIN_CAPSULE_BYTES, compacts
         smaller) into a parser-agnostic base mixin. Keep A3/A4 (the exact
         six-key argparse schema) in a subclass that today's adopters use
@@ -705,8 +701,7 @@ stages:
         - Apps brought to full conformance, and what remains
         - Net test-line delta (negative is the goal)
         - Capsule byte counts before/after, flagging ANY decrease
-        - Everything deferred, with reasons — especially telemetry/Click and
-          any app_id left alone
+        - Everything deferred, with reasons — especially any app_id left alone
         - Test and lint status, naming the known guard-hook timeout explicitly
           so it is not mistaken for a regression
 
