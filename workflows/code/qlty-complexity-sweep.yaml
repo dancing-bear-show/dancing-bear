@@ -106,11 +106,44 @@ stages:
       Per-function findings are the higher-signal half: they name the exact
       function to fix, which is what the reduce-in-place strategy acts on.
 
-      Step 1 — run the structure scan (file-complexity + 2 per-function rules):
-        ~/.qlty/bin/qlty smells --all --json > {workspace}/outputs/qlty-smells.json
+      Step 1 — get the authoritative finding set (BOTH scans, stable):
+        ./bin/qlty-assistant scan --rescan-until-stable --format json \
+          --rule file-complexity --rule function-complexity \
+          --rule nested-control-flow --rule python:S3776 \
+          > {workspace}/outputs/qlty-stable.json
 
-      Step 2 — run the linter scan (cognitive complexity):
-        ~/.qlty/bin/qlty check --all --json > {workspace}/outputs/qlty-check.json
+        This single command IS the data path — do not plan from a one-shot
+        raw scan. The wrapper merges `check` and `smells` (the two return
+        disjoint sets) and re-scans until findings stop changing, which is
+        required rather than advisory: qlty's per-run cap is
+        nondeterministic, so one capped `qlty check --all` can omit the very
+        S3776 findings this stage was widened to discover. Measured on this
+        repo across all rules: a single unfiltered run reported 19 findings
+        where the stable union over the same tree was 36.
+
+        Confirm the result really is stable before using it — the JSON
+        carries "stable": true, "iterations": N, and "degraded". If
+        "stable" is false or "degraded" is true, record that in scan_errors
+        and do not treat the list as complete.
+
+        The wrapper's normalized shape differs from raw qlty JSON: findings
+        live under "findings", each with "rule" (already namespace-stripped,
+        so cognitive complexity is "python:S3776"), "file", "line", "level",
+        "value", "message", and "other_locations". Counts per rule are in
+        "counts_by_rule". Read these fields, not the raw two-field
+        tool/ruleKey form.
+
+      Step 2 — OPTIONAL raw cross-check, for message text only:
+        The wrapper's normalized rows are sufficient for planning. If you
+        need a raw message the wrapper elided, you may additionally run:
+          ~/.qlty/bin/qlty smells --all --json > {workspace}/outputs/qlty-smells.json
+          ~/.qlty/bin/qlty check --all --json > {workspace}/outputs/qlty-check.json
+        Treat these as supplementary only. They are single capped runs and
+        MUST NOT be the source of the candidate list.
+
+        In raw output the rule identity is TWO SEPARATE fields — `tool` and
+        `ruleKey`. There is no combined "radarlint-python:python:S3776" key;
+        filtering on one matches zero rows.
 
         Judge these by EXIT CODE, not by row count. Per the verified qlty
         exit-code contract (CLI 0.640.0):
@@ -130,35 +163,55 @@ stages:
         runs frequently report "no issues" in the same minute an unfiltered
         run reports findings for that rule.
 
-      Step 3 — extract findings of interest:
+      Step 3 — extract findings of interest from qlty-stable.json:
 
-        Match on the `tool` and `ruleKey` fields, which are SEPARATE keys in
-        every qlty JSON row. There is no combined "radarlint-python:python:S3776"
-        key — filtering on one matches zero rows, which then reads as "no
-        findings" from a scan that actually succeeded. Verified against real
-        output from both scans (CLI 0.640.0).
+        Read {workspace}/outputs/qlty-stable.json — the stable merged scan
+        from Step 1, NOT the optional raw files. Its rows are already
+        namespace-normalized, so select on the "rule" field alone:
 
-        From qlty-smells.json — the three qlty-native rules. All carry
-        tool == "qlty" and driver == "structure":
-          ruleKey == "file-complexity"      value >= {complexity_floor}
-                                            (message "High total complexity (count = N)")
-          ruleKey == "function-complexity"  per-function, names the function
-                                            (message "Function with high complexity (count = N): <name>")
-          ruleKey == "nested-control-flow"  deeply nested blocks
-                                            (message "Deeply nested control flow (level = N)")
+          rule == "file-complexity"      value >= {complexity_floor}
+                                         (message "High total complexity (count = N)")
+          rule == "function-complexity"  per-function; the function name is in
+                                         the message, the line in "line"
+                                         (message "Function with high complexity (count = N): <name>")
+          rule == "nested-control-flow"  deeply nested blocks
+                                         (message "Deeply nested control flow (level = N)")
+          rule == "python:S3776"         cognitive complexity; "value" is
+                                         EMPTY for this rule — its score is
+                                         only in the message
+                                         (message "Refactor this function to reduce its
+                                          Cognitive Complexity from N to the 15 allowed.")
 
-        From qlty-check.json — cognitive complexity, the one rule that comes
-        from the linter side rather than the structure scan:
-          tool == "radarlint-python", ruleKey == "python:S3776"
-            (message "Refactor this function to reduce its Cognitive
-            Complexity from N to the 15 allowed.")
+        Each of the four is already restricted by the --rule flags in Step 1,
+        so a row of another rule means the command was altered — re-run it as
+        written rather than filtering the difference out here.
+
+        Only if you fell back to the raw files does the two-field form apply:
+        there, rule identity is `tool` PLUS `ruleKey`, with no combined
+        "radarlint-python:python:S3776" key — filtering on one matches zero
+        rows, which then reads as "no findings" from a scan that actually
+        succeeded.
 
         Note the overlap: function-complexity and python:S3776 report the same
-        underlying defect from two different tools, usually on the same
-        function, with different scores (they count differently). Deduplicate
-        by (path, function) so one defect is not planned twice, and keep both
-        scores — the S3776 message states the threshold, which the qlty rule
-        does not.
+        underlying defect from two different tools, with different scores
+        (they count differently). Deduplicate so one defect is not planned
+        twice, and keep both scores — the S3776 message states the threshold,
+        which the qlty rule does not.
+
+        Deduplicate by (path, LINE), not by (path, function name). qlty
+        identifies a function by UNQUALIFIED name, so two classes in one file
+        that both define `run` are indistinguishable by name — keying on the
+        name merges two real defects into one and silently drops the second
+        from the plan. Verified: a file with `Alpha.run` and `Beta.run`, both
+        complex, yields two findings distinguished only by startLine (11 and
+        25); the nested-control-flow message carries no function name at all.
+
+        When matching a function-complexity finding to its python:S3776
+        counterpart, allow a small line offset — the two tools anchor to
+        slightly different lines (one to the `def`, one to the body) — and
+        match within the same enclosing function rather than demanding an
+        exact line equality. Record the qualified name (Class.method) in the
+        plan so the fixer is unambiguous about which one to target.
 
         The per-function rules are the ones a file-complexity floor misses
         entirely.
@@ -253,6 +306,23 @@ stages:
       file decide a remediation strategy, group candidates into directory
       batches, and write the execution plan. Present the plan for human
       approval before any files are modified.
+
+      Step 0 — HALT on a failed scan, before planning anything:
+        If candidates.json has a non-empty "scan_errors" array, STOP. Write
+        {workspace}/outputs/design/plan.md containing only the scan_errors
+        content and the sentence "planning aborted: upstream scan failed",
+        set this stage's status to "failed", and do not write
+        domain-groups.json.
+
+        Do not plan around a failed scan. A parse or filter failure upstream
+        yields an EMPTY candidate list, which is indistinguishable from a
+        genuinely clean repo — and an empty plan flows through the remaining
+        stages as a successful no-op sweep. That is the silent-false-clean
+        this workflow exists to avoid; scan_errors is the signal, so it has
+        to block here rather than merely being recorded.
+
+        An empty "candidates" list WITH an empty scan_errors is the real
+        clean case: write a plan saying so and finish successfully.
 
       Strategies (apply the first that fits):
 
@@ -376,6 +446,23 @@ stages:
       access: read-write
     human_gate: true
     required: true
+    # Required for agent dispatch — see the note on verify-tests' outputs.
+    # This stage was already kind:propose before the compliance rewrite, so it
+    # has always taken the local no-op path under `./bin/workflow run`; the
+    # plan and the human gate were never produced there.
+    outputs:
+      - name: plan
+        mode: generate
+        description: >
+          Execution plan written to {workspace}/outputs/design/plan.md —
+          per-file strategy, target functions, deferrals with reasons, and
+          call-site risk notes.
+      - name: domain-groups
+        mode: generate
+        description: >
+          Fan-out index written to
+          {workspace}/outputs/design/domain-groups.json, one entry per
+          directory group with its files and chosen strategies.
     writes_to:
       - outputs/design/plan.md
       - outputs/design/domain-groups.json
@@ -699,7 +786,24 @@ stages:
             it is not.
 
       Step 3 — run the full suite to catch cross-group regressions:
-        PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests -t . -q 2>&1 | tail -20
+        PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests -t . -q > /tmp/full-suite.log 2>&1; echo "EXIT=$?"
+        grep -E "Ran [0-9]+ tests" /tmp/full-suite.log
+        grep -E "^(OK|FAILED)" /tmp/full-suite.log
+
+        Redirect to a file and read EXIT — do NOT pipe the test command into
+        `tail`. A pipeline returns the exit status of its LAST element, so
+        `... | tail -20` reports tail's success and a failing suite reads as
+        green (unless the shell happens to have `pipefail` set, which is not
+        guaranteed here).
+
+        Two further traps, both of which produce a false green:
+          - unittest writes `Ran N tests`, `OK` and `FAILED` to STDERR, so the
+            `2>&1` is required or the verdict vanishes with the failures.
+          - EXIT=0 is not by itself evidence the suite ran. If there is no
+            `Ran N tests` line the suite did not execute — re-run, do not
+            record a baseline. Do not anchor that grep to column 0: the line
+            is often preceded by progress dots.
+
         A refactor in one directory can break another directory's mocks, so
         the full suite is required.
 
@@ -751,6 +855,19 @@ stages:
         - No behavior changes introduced by the refactor
       max_revisions: 3
     required: true
+    # An `outputs:` entry with mode:generate is REQUIRED, not decorative.
+    # dispatchers._needs_agent() routes a stage to the agent dispatcher only
+    # when kind is validate/sub-workflow OR some output is generate/template.
+    # This stage is kind:execute (so its description reaches the prompt), so
+    # without this block `./bin/workflow run` sends it to LocalDispatcher,
+    # which runs no commands and reports success — silently skipping the test
+    # gate entirely.
+    outputs:
+      - name: test-results
+        mode: generate
+        description: >
+          Per-group test results table written to
+          {workspace}/validation/test-results.md, plus the full-suite verdict.
     writes_to:
       - validation/test-results.md
 
@@ -785,16 +902,39 @@ stages:
           python3 -c "import <module_path>" 2>&1
 
       Step 3 — export parity against git HEAD:
-        For each touched file, confirm no public symbol silently vanished.
-        Do NOT rely on plan.md's symbol list (candidates.json captured only
-        the first 40 class/def names as a planning hint):
-          a. git show HEAD:<path> | grep -n "^class \|^def "
-          b. python3 -c "import <m>; print([n for n in dir(<m>) if not n.startswith('_')])"
-          c. Any pre-existing public symbol now missing from the module is a
-             regression UNLESS it moved in a split AND every call site was
-             updated to its new home. Verify the new home exports it.
-        If the file declared __all__, confirm every name still resolves from
-        whichever module now owns it.
+        Confirm no public symbol silently vanished. Do NOT rely on plan.md's
+        symbol list (candidates.json captured only the first 40 class/def
+        names as a planning hint).
+
+        Compare against HEAD ONLY for files that EXISTED in HEAD. A sibling
+        created by a split has no HEAD blob, so `git show HEAD:<new-path>`
+        fails with "does not exist in HEAD" — running it over every touched
+        file turns any valid split into a false validation failure. Partition
+        first:
+          git ls-tree -r --name-only HEAD -- <path>   # non-empty => pre-existing
+
+        a. For each PRE-EXISTING touched file:
+             git show HEAD:<path> | grep -n "^class \|^def "
+             python3 -c "import <m>; print([n for n in dir(<m>) if not n.startswith('_')])"
+           Any pre-existing public symbol now missing is a regression UNLESS
+           it moved in a split AND every call site was updated to its new
+           home — verify the new home exports it (Step 3b).
+
+        b. For each MOVED symbol, verify it at its destination instead of at
+           the original path:
+             python3 -c "from <new_module> import <Symbol>; print('ok')"
+           The union of symbols across the original path (whatever it still
+           holds) and its new siblings must cover HEAD's public set. An
+           original file deleted outright is fine provided every one of its
+           symbols resolves from a new home and no call site still names the
+           old path (Step 4).
+
+        c. NEWLY CREATED files have no HEAD baseline, so there is nothing to
+           compare — only the Step 2 import check and Step 3b destination
+           checks apply. Do not report them as missing exports.
+
+        If a pre-existing file declared __all__, confirm every name still
+        resolves from whichever module now owns it.
 
       Step 4 — hunt dangling references (split entries only):
         For every symbol that changed modules, all three of these must
@@ -839,24 +979,94 @@ stages:
 
       Step 6 — confirm no re-export facade was introduced:
         Any module emptied by a split must NOT have been rewritten as a
-        re-export shim. Check every original split path:
-          grep -n "noqa: F401" <original_split_paths...>
-        A re-export block in an emptied module is a project-rule violation
-        even if every test passes. Report it as a failure, not a warning.
+        re-export shim.
+
+        Detect this STRUCTURALLY, not by grepping for one comment spelling.
+        `grep "noqa: F401"` misses every other way to write the same facade:
+        a bare `from .sibling import X` with no suppression, an `__all__`
+        re-export list, `import ... as ...` aliases, or a different linter
+        directive. A shim in any of those forms would leave facades_detected
+        empty and pass the gate.
+
+        The structural property that defines a facade: the module's body
+        contains NO definitions of its own (no class, no def, no assignment
+        other than __all__/dunders) and consists only of imports.
+
+        Use the Write tool to create {workspace}/outputs/detect_facade.py
+        with exactly this content, then run it with the Bash tool:
+
+          import ast
+          import sys
+
+          for target in sys.argv[1:]:
+              tree = ast.parse(open(target).read())
+              body = [n for n in tree.body
+                      if not isinstance(n, ast.Expr)
+                      or not isinstance(n.value, ast.Constant)]
+              imports = [n for n in body
+                         if isinstance(n, (ast.Import, ast.ImportFrom))]
+              defines = [n for n in body
+                         if isinstance(n, (ast.ClassDef, ast.FunctionDef,
+                                           ast.AsyncFunctionDef))]
+              assigns = [n for n in body
+                         if isinstance(n, (ast.Assign, ast.AnnAssign))]
+              targets_of = lambda a: getattr(a, "targets", None) or [a.target]
+              real = [a for a in assigns
+                      if not all(getattr(t, "id", "").startswith("__")
+                                 for t in targets_of(a) if t is not None)]
+              if imports and not defines and not real:
+                  print("FACADE: " + target)
+
+        Run:
+          python3 {workspace}/outputs/detect_facade.py <original_split_paths...>
+
+        Verified against nine fixtures: it flags the shim written with
+        `# noqa: F401`, the bare `from .x import Y`, the `__all__` re-export
+        list, the `import X as X` alias form, and a mixed docstring+imports
+        module; it clears a module with a def, one with a real constant, a
+        docstring-only module, and one that re-exports a base class while
+        defining a subclass.
+
+        Any FACADE line is a project-rule violation even if every test
+        passes. Report it as a failure, not a warning, and record the path in
+        facades_detected.
+
+        A module that legitimately still owns some code will have definitions
+        and is not a facade, however many imports it also carries.
 
       Step 7 — run qlty on all modified files:
         ~/.qlty/bin/qlty check <list of modified .py files>
         Note any new issues introduced.
 
       Step 8 — re-run the complexity scan to confirm real improvement:
-        ./bin/qlty-assistant scan --smells-only --rule file-complexity \
-          --format csv
+        Re-scan ALL FOUR candidate rules, not just the file score. A small
+        file can sit below {complexity_floor} on file-complexity while still
+        breaching python:S3776, function-complexity, or nested-control-flow —
+        exactly the per-function case discover-candidates was widened to
+        catch. Rechecking only file-complexity would report improvement on a
+        file that is still flagged.
+
+        Do NOT pass --smells-only here: python:S3776 comes from `qlty check`,
+        so --smells-only silently drops it. Use the merged scan:
+
+          ./bin/qlty-assistant scan --rescan-until-stable --format csv \
+            --rule file-complexity --rule function-complexity \
+            --rule nested-control-flow --rule python:S3776
+
+        --rule is repeatable. --rescan-until-stable is required: a single
+        capped run can omit findings, and this gate must not pass because a
+        finding happened not to be reported this time.
+
+        Note the CSV `value` column is EMPTY for python:S3776 — that rule
+        carries its score only in the message text ("from N to the 15
+        allowed"). Parse the message for it rather than reading `value`.
+
         Compare against {workspace}/outputs/analysis/candidates.json. For
-        reduce-in-place files, the score should be genuinely lower. For split
-        files, check the SUM across the original path plus all new siblings —
-        a split that halves one path while the sum is unchanged has not
-        reduced complexity, and must be reported as "relocated", not
-        "improved".
+        reduce-in-place files, the score should be genuinely lower and no new
+        per-function finding may appear. For split files, check the SUM
+        across the original path plus all new siblings — a split that halves
+        one path while the sum is unchanged has not reduced complexity, and
+        must be reported as "relocated", not "improved".
 
       Step 9 — write {workspace}/validation/import-check.json:
         {
@@ -933,6 +1143,15 @@ stages:
           unchanged is reported as RELOCATED, not REDUCED
       max_revisions: 1
     required: true
+    # Required for agent dispatch — see the note on verify-tests' outputs.
+    outputs:
+      - name: import-check
+        mode: generate
+        description: >
+          Call-site audit written to
+          {workspace}/validation/import-check.json: updated call sites,
+          stale_references, facades_detected, and the per-rule complexity
+          recheck.
     writes_to:
       - validation/import-check.json
 
@@ -1053,9 +1272,21 @@ stages:
         single clean result.
 
       Step 3 — qlty complexity recheck:
-        ./bin/qlty-assistant scan --smells-only --rule file-complexity \
-          --format csv
-        Confirm no file touched by this sweep exceeds its pre-change value.
+        Re-scan ALL FOUR candidate rules — a file can clear the
+        file-complexity floor while still breaching a per-function rule, and
+        checking only the file score would report improvement on a file that
+        is still flagged. Do NOT use --smells-only: python:S3776 comes from
+        `qlty check` and would be dropped.
+
+          ./bin/qlty-assistant scan --rescan-until-stable --format csv \
+            --rule file-complexity --rule function-complexity \
+            --rule nested-control-flow --rule python:S3776
+
+        The CSV `value` column is empty for python:S3776; its score lives in
+        the message ("from N to the 15 allowed").
+
+        Confirm no file touched by this sweep exceeds its pre-change value on
+        any of the four rules, and that no NEW per-function finding appeared.
         For split files, compare the SUM across the original path and all
         new siblings against the original score: if the sum is unchanged,
         complexity was relocated, not reduced — record that verdict honestly.
@@ -1073,8 +1304,20 @@ stages:
           "qlty_issues": [],
           "complexity_status": "IMPROVED|RELOCATED|REGRESSED",
           "unresolved_failures": [],
-          "ready_for_commit": true
+          "ready_for_commit": false
         }
+
+        `ready_for_commit` is DERIVED, never asserted. It may be true only
+        when ALL of these hold, and it is false the moment any one does not:
+          test_status == "PASS"
+          qlty_status == "PASS"
+          complexity_status == "IMPROVED"   (RELOCATED and REGRESSED both
+                                             block — relocation is not a fix)
+          unresolved_failures == []
+        The example above shows false deliberately: an agent that copies the
+        schema verbatim must hand the human gate a NON-commit-ready result,
+        not a green one it never earned. Compute the flag from the four
+        fields and state which one blocked it when false.
 
       Acceptance criteria — this stage is not done until all hold:
         - Full unittest discover exits 0 and prints a "Ran N tests" summary
@@ -1103,6 +1346,16 @@ stages:
           facades remain
       max_revisions: 1
     required: true
+    # Required for agent dispatch — see the note on verify-tests' outputs.
+    # Without it the final tests/lint/complexity recheck no-ops and the human
+    # gate receives a stale or absent recheck.json.
+    outputs:
+      - name: recheck
+        mode: generate
+        description: >
+          Final verification written to {workspace}/validation/recheck.json:
+          test and lint status, and the per-rule before/after complexity
+          comparison with REDUCED / RELOCATED / REGRESSED per file.
     writes_to:
       - validation/recheck.json
 
@@ -1155,5 +1408,16 @@ stages:
       tools: [Read, Write]
       access: read-only
     required: true
+    # Required for agent dispatch — see the note on verify-tests' outputs.
+    # `propose` is not in _needs_agent()'s kind list either, so without this
+    # the human-gate prompt is never dispatched and the run records a
+    # successful local stage with no summary and no commit decision.
+    outputs:
+      - name: human-gate-decision
+        mode: generate
+        description: >
+          Human-gate summary written to
+          {workspace}/validation/human-gate-decision.md: what changed, what
+          was verified, and the commit / open-PR recommendation.
     writes_to:
       - validation/human-gate-decision.md
