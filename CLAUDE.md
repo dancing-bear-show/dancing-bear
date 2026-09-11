@@ -347,10 +347,15 @@ change is fine and the environment is wrong.
 ## Check for an Existing Workflow First
 
 **Before starting any multi-step task, check whether a workflow already does it.**
-This repo has ~70 workflows (count as of 2026-09-11 — `./bin/workflow list` is
-authoritative and the only number worth trusting). Reinventing one wastes the
-work already invested in it and produces a second, diverging implementation of
-the same process.
+This repo has 53 runnable workflows (count as of 2026-09-11 — `./bin/workflow
+list` is authoritative). There are 73 YAML files under `workflows/`, but 19 are
+`fragment: true` includes that are not runnable on their own, so counting files
+overstates the catalog. Reinventing a workflow wastes the work already invested
+in it and produces a second, diverging implementation of the same process.
+
+Count them with `./bin/workflow list --format json`, not by grepping the table —
+the text output wraps long descriptions across lines, so `grep -c` over it
+returns far too many.
 
 ```bash
 ./bin/workflow list                      # live catalog — authoritative
@@ -511,7 +516,7 @@ Never use a bare `sleep` loop in a Bash tool call to wait for a condition.
 
 | Agent | Model | Use For |
 |-------|-------|---------|
-| `code-writer` | inherit | Feature development, bug fixes, refactoring |
+| `code-writer` | Sonnet | Feature development, bug fixes, refactoring |
 | `doc-writer` | Sonnet | PR descriptions, changelogs, postmortems, READMEs |
 | `reviewer` | Sonnet | Code review, dead code analysis, pattern finding |
 | `tester` | Sonnet | Test writing, coverage expansion, test refactoring |
