@@ -8,11 +8,12 @@ the last person copied. ``emit_agentic_context`` was exercised in 16 test files
 while ``build_domain_map`` was exercised in 9, even though 10 domains define it.
 
 A second class of agentic modules -- ``apple_music``, ``charts``,
-``diagrams``, ``sheets``, ``slides``, ``worker``, and ``workflow`` -- define
-``build_agentic_capsule`` and ``emit_agentic_context`` but deliberately omit
-``build_domain_map``. (``telemetry`` is minimal by shape too. It was formerly
+``diagrams``, ``sheets``, ``slides``, ``telemetry``, ``worker``, and
+``workflow`` -- define ``build_agentic_capsule`` and ``emit_agentic_context``
+but deliberately omit ``build_domain_map``. (``telemetry`` was formerly
 Click-based and carried a separate exemption; #341 ported it to argparse and the
-exemption is retired, so it is now a normal member of this group.) These
+exemption is retired, so it is now a plain member of this group rather than a
+special case.) These
 hand-write their capsule content rather than deriving it from a domain map. They
 set ``EXPECT_DOMAIN_MAP = False`` to opt out of the three domain-map tests; the
 mixin then asserts that ``build_domain_map`` genuinely does not exist, so the
@@ -66,10 +67,12 @@ class AgenticBuilderContractMixin:
     #: by ``core.agentic.cached_parser_loader``, which is a real defect that
     #: leaves the capsule silently less useful.
     EXPECT_CLI_TREE: bool = True
-    #: Whether the module defines ``build_domain_map()``. Seven domains
+    #: Whether the module defines ``build_domain_map()``. Eight domains
     #: (``apple_music``, ``charts``, ``diagrams``, ``sheets``, ``slides``,
-    #: ``worker``, ``workflow``) hand-write their capsule and define no domain
-    #: map -- the same roster as the module docstring above. When
+    #: ``telemetry``, ``worker``, ``workflow``) hand-write their capsule and
+    #: define no domain map -- the same roster as the module docstring above.
+    #: ``telemetry`` joined once #341 retired its Click exemption; it sets
+    #: ``EXPECT_DOMAIN_MAP = False`` and defines no ``build_domain_map``. When
     #: False the three domain-map tests are skipped and the mixin instead
     #: asserts that ``build_domain_map`` does not exist on the module -- so
     #: the flag cannot silently hide a deletion from a map-defining module.

@@ -367,9 +367,15 @@ class CapsuleMatchesParser(unittest.TestCase):
         # asserting anything. That is how `desk` sat green while its capsule
         # still advertised `./bin/desk-assistant`, a wrapper that never existed.
         #
-        # "Advertises nothing" is a different, legitimate state — calendar,
-        # schedule and apple-music ship header-only capsules. Distinguish them by
-        # asking whether the capsule contains any command-shaped text at all.
+        # "Advertises nothing" is a different, legitimate state: a capsule may
+        # carry only a header and no invocations. Distinguish the two by asking
+        # whether the capsule contains any command-shaped text at all.
+        #
+        # Measured 2026-09-11: NO domain is header-only today — all 18 emit a
+        # `commands:` section, including calendars, schedule and apple_music,
+        # which this comment previously cited as the header-only examples. The
+        # branch is kept as tolerance for a future minimal capsule, not because
+        # any current domain takes it.
         if not checked and _INVOCATION.search(capsule):
             unmatched = sorted(
                 {m.group(0).split()[0] for m in _INVOCATION.finditer(capsule)}
