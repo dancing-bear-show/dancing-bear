@@ -1,20 +1,23 @@
 """Tests for slides._table — TableMixin."""
 
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from pptx.enum.dml import MSO_THEME_COLOR
 from pptx.enum.shapes import MSO_SHAPE_TYPE
-from pptx.util import Inches
+from pptx.util import Inches, Pt
 
 from slides._table import TableMixin
 from slides.constants import (
+    FONT_SIZE_TABLE_CELL,
+    SEVERITY_COLORS,
     TABLE_HEADER_BG,
     TABLE_ROW_EVEN_BG,
     TABLE_ROW_ODD_BG,
     TABLE_TOP,
     VERTICAL_ANCHOR_MIDDLE,
 )
+from slides.generator import SlideGenerator
 from slides.schema import BulletItem, TableSlide
 
 
@@ -432,3 +435,335 @@ class TestPopulateTableSlide(unittest.TestCase):
         self.mixin._populate_table_slide(slide, content, self.theme)
 
         self.mixin._add_bullets_below.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Tests via SlideGenerator (integration-level; mixin called through unified class)
+# ---------------------------------------------------------------------------
+
+
+class TestAddTableToSlideAllRowsEmpty(unittest.TestCase):
+    """Cover the early-return when all rows become empty after normalization."""
+
+    def setUp(self) -> None:
+        self.generator = SlideGenerator(template_path="/fake/template.pptx")
+
+    def test_returns_early_when_all_rows_empty_after_normalization(self) -> None:
+        """All-empty rows after normalization triggers early return (line 526)."""
+        mock_slide = MagicMock()
+        self.generator._add_table_to_slide(
+            mock_slide,
+            headers=["A", "B"],
+            rows=[[], [], []],
+            theme_color=MSO_THEME_COLOR.LIGHT_2,
+        )
+        mock_slide.shapes.add_table.assert_not_called()
+
+    def test_returns_early_when_rows_is_empty_list(self) -> None:
+        """Empty rows list triggers early return before normalization."""
+        mock_slide = MagicMock()
+        self.generator._add_table_to_slide(
+            mock_slide,
+            headers=["A", "B"],
+            rows=[],
+            theme_color=MSO_THEME_COLOR.LIGHT_2,
+        )
+        mock_slide.shapes.add_table.assert_not_called()
+
+    def test_returns_early_when_headers_empty(self) -> None:
+        """Empty headers triggers early return."""
+        mock_slide = MagicMock()
+        self.generator._add_table_to_slide(
+            mock_slide,
+            headers=[],
+            rows=[["val"]],
+            theme_color=MSO_THEME_COLOR.LIGHT_2,
+        )
+        mock_slide.shapes.add_table.assert_not_called()
+
+
+class TestStyleTableDataRowsSeverityColors(unittest.TestCase):
+    """Cover _style_table_data_rows severity color styling (lines 597-599)."""
+
+    def setUp(self) -> None:
+        self.generator = SlideGenerator(template_path="/fake/template.pptx")
+
+    def test_severity_p0_cell_gets_red_color(self) -> None:
+        """Cell with 'P0' value gets severity red color and bold."""
+        mock_table = MagicMock()
+        mock_cell = MagicMock()
+        mock_para = MagicMock()
+        mock_run = MagicMock()
+        mock_para.add_run.return_value = mock_run
+        mock_cell.text_frame.paragraphs = [mock_para]
+        mock_table.cell.return_value = mock_cell
+
+        rows: list[list[object]] = [["Service A", "P0"]]
+
+        self.generator._style_table_data_rows(
+            mock_table, rows, MSO_THEME_COLOR.LIGHT_2
+        )
+
+        self.assertEqual(mock_run.font.color.rgb, SEVERITY_COLORS["P0"])
+        self.assertTrue(mock_run.font.bold)
+
+    def test_severity_colors_applied_for_all_levels(self) -> None:
+        """All severity levels (P0-P3) get their respective colors."""
+        for sev_label, expected_color in SEVERITY_COLORS.items():
+            mock_table = MagicMock()
+            mock_cell = MagicMock()
+            mock_para = MagicMock()
+            mock_run = MagicMock()
+            mock_para.add_run.return_value = mock_run
+            mock_cell.text_frame.paragraphs = [mock_para]
+            mock_table.cell.return_value = mock_cell
+
+            rows = [[sev_label]]
+
+            self.generator._style_table_data_rows(
+                mock_table, rows, MSO_THEME_COLOR.LIGHT_2
+            )
+
+            self.assertEqual(mock_run.font.color.rgb, expected_color)
+            self.assertTrue(mock_run.font.bold)
+            self.assertEqual(mock_run.font.size, Pt(FONT_SIZE_TABLE_CELL))
+
+    def test_non_severity_cell_uses_theme_color(self) -> None:
+        """Cell without severity value uses _style_run with theme color."""
+        mock_table = MagicMock()
+        mock_cell = MagicMock()
+        mock_para = MagicMock()
+        mock_run = MagicMock()
+        mock_para.add_run.return_value = mock_run
+        mock_cell.text_frame.paragraphs = [mock_para]
+        mock_table.cell.return_value = mock_cell
+
+        rows: list[list[object]] = [["Normal value"]]
+
+        with patch.object(self.generator, "_style_run") as mock_style:
+            self.generator._style_table_data_rows(
+                mock_table, rows, MSO_THEME_COLOR.LIGHT_2
+            )
+            mock_style.assert_called()
+
+
+class TestPopulateTableSlideSubtitle(unittest.TestCase):
+    """Cover _populate_table_slide subtitle rendering (lines 684-690)."""
+
+    def setUp(self) -> None:
+        self.generator = SlideGenerator(template_path="/fake/template.pptx")
+
+    def _make_mock_slide(self) -> tuple:
+        """Create a mock slide with title placeholder for table slides."""
+        mock_sub_run = MagicMock()
+        mock_sub_para = MagicMock()
+        mock_sub_para.add_run.return_value = mock_sub_run
+
+        mock_title_run = MagicMock()
+        mock_title_para = MagicMock()
+        mock_title_para.text = ""
+        mock_title_para.runs = [mock_title_run]
+
+        mock_title = MagicMock()
+        mock_title.is_placeholder = True
+        mock_title.has_text_frame = True
+        mock_title.placeholder_format.idx = 0
+        mock_title.text_frame.paragraphs = [mock_title_para]
+        mock_title.text_frame.add_paragraph.return_value = mock_sub_para
+
+        mock_text_box = MagicMock()
+        mock_text_box.is_placeholder = False
+        mock_text_box.shape_type = MSO_SHAPE_TYPE.TEXT_BOX
+        mock_text_box._element = MagicMock()
+
+        shapes_list = [mock_title, mock_text_box]
+
+        mock_slide = MagicMock()
+        mock_slide.shapes = MagicMock()
+        mock_slide.shapes.__iter__ = lambda self: iter(shapes_list)
+
+        mock_table_shape = MagicMock()
+        mock_table = MagicMock()
+        mock_table_shape.table = mock_table
+        mock_slide.shapes.add_table = MagicMock(return_value=mock_table_shape)
+
+        mock_cell = MagicMock()
+        mock_cell.text_frame = MagicMock()
+        mock_cell.text_frame.paragraphs = [MagicMock()]
+        mock_table.cell = MagicMock(return_value=mock_cell)
+        mock_table.columns = [MagicMock() for _ in range(2)]
+
+        return mock_slide, mock_title, mock_sub_para, mock_sub_run
+
+    def test_table_slide_with_subtitle_renders_subtitle(self) -> None:
+        """Table slide with subtitle adds subtitle paragraph below title."""
+        mock_slide, mock_title, _, mock_sub_run = self._make_mock_slide()
+
+        content = TableSlide(
+            title="Test Table",
+            subtitle="Table Subtitle",
+            headers=["Col1", "Col2"],
+            rows=[["a", "b"]],
+        )
+
+        self.generator._populate_table_slide(
+            mock_slide, content, MSO_THEME_COLOR.LIGHT_2
+        )
+
+        mock_title.text_frame.add_paragraph.assert_called_once()
+        self.assertEqual(mock_sub_run.text, "Table Subtitle")
+
+    def test_table_slide_without_subtitle_skips_subtitle(self) -> None:
+        """Table slide without subtitle does not add subtitle paragraph."""
+        mock_slide, mock_title, _, _ = self._make_mock_slide()
+
+        content = TableSlide(
+            title="No Subtitle Table",
+            subtitle=None,
+            headers=["Col1", "Col2"],
+            rows=[["a", "b"]],
+        )
+
+        self.generator._populate_table_slide(
+            mock_slide, content, MSO_THEME_COLOR.LIGHT_2
+        )
+
+        mock_title.text_frame.add_paragraph.assert_not_called()
+
+    def test_table_slide_subtitle_style_run_called(self) -> None:
+        """Table slide subtitle run is styled with font_size=Pt(18)."""
+        mock_slide, _, _, mock_sub_run = self._make_mock_slide()
+
+        content = TableSlide(
+            title="Styled Table",
+            subtitle="Styled Subtitle",
+            headers=["Col1", "Col2"],
+            rows=[["a", "b"]],
+        )
+
+        with patch.object(self.generator, "_style_run") as mock_style:
+            self.generator._populate_table_slide(
+                mock_slide, content, MSO_THEME_COLOR.LIGHT_2
+            )
+
+            subtitle_calls = [
+                c for c in mock_style.call_args_list
+                if c.kwargs.get("font_size") == Pt(18)
+            ]
+            self.assertEqual(len(subtitle_calls), 1)
+            self.assertEqual(subtitle_calls[0].args[0], mock_sub_run)
+
+    def test_table_slide_title_font_size(self) -> None:
+        """Table slide title runs are styled with font_size=Pt(28)."""
+        mock_slide, mock_title, _mock_sub_para, _mock_sub_run = self._make_mock_slide()
+
+        mock_title_run = mock_title.text_frame.paragraphs[0].runs[0]
+
+        content = TableSlide(
+            title="Font Size Table",
+            subtitle=None,
+            headers=["Col1", "Col2"],
+            rows=[["a", "b"]],
+        )
+
+        with patch.object(self.generator, "_style_run") as mock_style:
+            self.generator._populate_table_slide(
+                mock_slide, content, MSO_THEME_COLOR.LIGHT_2
+            )
+
+            title_calls = [
+                c for c in mock_style.call_args_list
+                if c.kwargs.get("font_size") == Pt(28)
+            ]
+            self.assertEqual(len(title_calls), 1)
+            self.assertEqual(title_calls[0].args[0], mock_title_run)
+
+
+class TestPopulateTableSlideWithBullets(unittest.TestCase):
+    """Cover the bullets-below-table path in _populate_table_slide (lines 558-560)."""
+
+    def setUp(self) -> None:
+        self.generator = SlideGenerator(template_path="/fake/template.pptx")
+
+    def _make_mock_slide(self) -> MagicMock:
+        """Create a mock slide with a title placeholder and a text box."""
+        mock_title = MagicMock()
+        mock_title.is_placeholder = True
+        mock_title.has_text_frame = True
+        mock_title.placeholder_format.idx = 0
+        mock_title.text_frame = MagicMock()
+        mock_title_para = MagicMock()
+        mock_title_para.text = ""
+        mock_title_para.runs = []
+        mock_title.text_frame.paragraphs = [mock_title_para]
+
+        mock_text_box = MagicMock()
+        mock_text_box.is_placeholder = False
+        mock_text_box.shape_type = MSO_SHAPE_TYPE.TEXT_BOX
+        mock_text_box._element = MagicMock()
+
+        mock_slide = MagicMock()
+        mock_slide.shapes = MagicMock()
+        mock_slide.shapes.__iter__ = MagicMock(
+            return_value=iter([mock_title, mock_text_box])
+        )
+
+        mock_table_shape = MagicMock()
+        mock_table = MagicMock()
+        mock_table_shape.table = mock_table
+        mock_slide.shapes.add_table = MagicMock(return_value=mock_table_shape)
+
+        mock_cell = MagicMock()
+        mock_cell.text_frame = MagicMock()
+        mock_cell.text_frame.paragraphs = [MagicMock()]
+        mock_table.cell = MagicMock(return_value=mock_cell)
+        mock_table.columns = [MagicMock() for _ in range(2)]
+
+        mock_bullets_textbox = MagicMock()
+        mock_bullets_tf = MagicMock()
+        mock_bullets_tf.paragraphs = [MagicMock()]
+        mock_bullets_textbox.text_frame = mock_bullets_tf
+        mock_slide.shapes.add_textbox = MagicMock(return_value=mock_bullets_textbox)
+
+        return mock_slide
+
+    def test_table_slide_with_bullets_adds_textbox_below(self) -> None:
+        """Table slide with bullets calls _add_bullets_below."""
+        mock_slide = self._make_mock_slide()
+
+        content = TableSlide(
+            title="Test Table",
+            headers=["Col1", "Col2"],
+            rows=[["a", "b"]],
+            bullets=["Note about table"],
+        )
+
+        with patch.object(self.generator, "_add_bullets_below") as mock_add_bullets:
+            self.generator._populate_table_slide(
+                mock_slide, content, MSO_THEME_COLOR.LIGHT_2
+            )
+            mock_add_bullets.assert_called_once()
+            call_args = mock_add_bullets.call_args
+            bullets_top = call_args[0][3]
+            self.assertGreater(bullets_top, 2.0, "bullets_top should be below the title")
+
+    def test_table_slide_without_bullets_skips_add_bullets(self) -> None:
+        """Table slide without bullets does not call _add_bullets_below."""
+        mock_slide = self._make_mock_slide()
+
+        content = TableSlide(
+            title="No Bullets Table",
+            headers=["Col1", "Col2"],
+            rows=[["a", "b"]],
+            bullets=[],
+        )
+
+        with patch.object(self.generator, "_add_bullets_below") as mock_add_bullets:
+            self.generator._populate_table_slide(
+                mock_slide, content, MSO_THEME_COLOR.LIGHT_2
+            )
+            mock_add_bullets.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()
