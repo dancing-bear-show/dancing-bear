@@ -48,10 +48,12 @@ description: >
       ABSENCE in both directions, so it cannot mask a deleted function.
 
   Note on prior remediation: apple_music's capsule was a 72-byte fallback
-  banner when this workflow was written and has since been FIXED (1239 bytes,
-  with meta.py and agentic.py added). Treat that as history, not as a defect to
+  banner when this workflow was written and has since been FIXED (~1.2KB, with
+  meta.py and agentic.py added). Treat that as history, not as a defect to
   rediscover — the audit measures the live tree, and Step 5 below deliberately
-  checks SHAPE rather than fixed expected values for exactly this reason.
+  checks SHAPE rather than fixed expected values for exactly this reason. That
+  applies to the size quoted here too: it is an order of magnitude, not a
+  target to reproduce.
 
   Stage dependency graph:
 
@@ -160,9 +162,15 @@ stages:
           appmeta        -> importlib.import_module(f"{{pkg}}.meta").META exists
                             and produces a non-empty agentic_fallback
           cliapp         -> a CLIApp instance is reachable; CHECK BOTH
-                            <pkg>.cli AND <pkg>.cli.main (apple_music, desk,
-                            sheets, slides and wifi define it in <pkg>/cli.py
-                            and have no cli/main.py at all)
+                            <pkg>.cli AND <pkg>.cli.main. Many packages define
+                            it in <pkg>/cli.py with no cli/main.py at all —
+                            measured 2026-09-11, eleven of them: apple_music,
+                            charts, desk, diagrams, qlty, sheets, slides,
+                            telemetry, wifi, worker, workflow. Do not trust
+                            that list either; derive it
+                            (`for d in src/*/; do [ -f "$d/cli.py" ] && [ ! -f
+                            "$d/cli/main.py" ] && echo "$d"; done`). Checking
+                            only <pkg>.cli.main would mis-measure every one.
           has_llm_cli    -> the module imports and exposes CONFIG
           has_domain_map -> hasattr(<pkg>.agentic, "build_domain_map")
         A rule the audit cannot measure live is a rule it must report as
@@ -324,8 +332,11 @@ stages:
 
       Present to the human: violation counts by rule and tier, the three
       packages with file lists, everything deferred with reasons, and the
-      expected net line delta (this work should DELETE more test code than it
-      adds).
+      expected duplication removed per file. Do NOT promise a net-negative line
+      delta: the bulk deletion already happened in PR #320, so adopting
+      contracts now ADDS lines on balance. verify-tests measures duplication
+      removed, not net lines, and a plan that targets the wrong number sets up
+      a false failure.
     agent:
       role: Plan
       model: sonnet
@@ -370,22 +381,26 @@ stages:
       src/telemetry/meta.py; #341 completed that migration and the stream has
       been removed, so no exclusion applies.)
 
-      For each app in P1:
+      CHECK FIRST — this package may already be empty. Measured 2026-09-11:
+      every app package under src/ has a meta.py (18 of 18; only `core`, which
+      is not an app, lacks one). Run
+
+        python3 -c "import pathlib; print([d.name for d in pathlib.Path('src').iterdir() if d.is_dir() and (d/'__init__.py').exists() and not (d/'meta.py').exists()])"
+
+      and if it reports nothing but `core`, P1 is done: say so in your report
+      and make no edits. The two literals that once needed judgement here —
+      maker's FALLBACK_AGENTIC_HEADER and mail's bullet-list fallback — are both
+      resolved, and that constant no longer exists in maker/agentic.py.
+
+      If the check DOES find an app without meta.py:
         1. Create src/<app>/meta.py declaring an AppMeta. Model it on
            src/wifi/meta.py. Read src/core/meta_base.py for the field set and
            the derived fallback properties.
         2. Replace the hand-written BaseAssistant fallback literal with
-           META.agentic_fallback.
-
-        Six of these literals are byte-identical to what AppMeta generates, so
-        the substitution is mechanical. Two are not, and need judgement:
-          - maker hides the literal behind FALLBACK_AGENTIC_HEADER in
-            maker/agentic.py, imported by maker/cli/main.py and printed
-            directly at one other call site. Update ALL call sites atomically.
-          - mail's fallback is a bullet list that does NOT match the
-            "agentic: <id>\\npurpose: <p>" format. Adopting AppMeta CHANGES the
-            emitted fallback text. Verify nothing asserts on the old string
-            before changing it; if something does, report it and defer mail.
+           META.agentic_fallback. Where the existing literal does not match the
+           "agentic: <id>\\npurpose: <p>" shape, adopting AppMeta CHANGES the
+           emitted fallback text — verify nothing asserts on the old string
+           first, and report and defer that app if something does.
 
       Per project rules: update all call sites directly. Do NOT leave a
       backwards-compatible re-export, alias, or shim behind.
@@ -471,10 +486,11 @@ stages:
       mail is DOCUMENTED AS EXEMPT, not as a gap — default to leaving it
       alone. `src/mail/llm_cli.py` is a re-export shim of `core.llm_cli` that
       never calls make_domain_llm_module, so it has NO CONFIG — and neither
-      does core.llm_cli behind it. Eleven of the mixin's tests read
-      `mod.CONFIG.*`, and its derive-all produces no AGENTIC_MAIL.md /
-      DOMAIN_MAP_MAIL.md. Adoption would mean INVENTING a domain CONFIG that
-      does not exist, which is not a refactor.
+      does core.llm_cli behind it. Most of the mixin's tests read `mod.CONFIG.*`
+      (12 of 19 as of 2026-09-11 — count them rather than trusting that figure),
+      and its derive-all produces no AGENTIC_MAIL.md / DOMAIN_MAP_MAIL.md.
+      Adoption would mean INVENTING a domain CONFIG that does not exist, which
+      is not a refactor.
 
       Verify rather than assume: run
         python3 -c "import mail.llm_cli as m; print(hasattr(m,'CONFIG'))"
@@ -629,12 +645,17 @@ stages:
           the module actually loaded from — python3 -c "import wifi;
           print(wifi.__file__)" — and confirm the path is under THIS worktree.
         - >-
-          Known pre-existing failure, NOT caused by this work: the guard-hook
+          Possible pre-existing failure, NOT caused by this work: the guard-hook
           suite (tests.infra.test_guard_hooks.TestGuardHookSuites.test_block_destructive_bash_suite_passes)
-          times out under parallel-agent load — block-destructive-bash.test.sh
-          needs ~196s against a 180s cap. Measured baseline on main: "Ran 12730
-          tests", FAILED (errors=1, skipped=19). Treat exactly that one error as
-          expected; ANY other failure is caused by this work and must be fixed.
+          can time out under parallel-agent load — block-destructive-bash.test.sh
+          needs ~196s against the 180s cap at tests/infra/test_guard_hooks.py:125.
+          It is LOAD-DEPENDENT, not deterministic: unloaded runs on 2026-09-11
+          passed cleanly ("Ran 13121 tests", OK, skipped=16). So a clean run is
+          the expected case, not an anomaly — do not go looking for that error.
+          If it does appear, treat exactly that one error as expected; ANY other
+          failure is caused by this work and must be fixed.
+          Do not hardcode the test count: establish the baseline by running the
+          suite on main yourself, since it grows with every merge.
         - >-
           Lint the changed files. `make lint` runs ruff ONLY and is NOT
           sufficient — CI also runs bandit and radarlint through qlty. Get the
@@ -656,9 +677,8 @@ stages:
           Measure DUPLICATION, not net line count. A growing total is the
           expected and correct outcome here — the bulk deletion already
           happened in PR #320, so the remaining work is adding contracts and
-          adopting them, and the current branch is +144 tests. A net-negative
-          target would be unmeetable and would only force a justification
-          paragraph.
+          adopting them, which adds lines on balance. A net-negative target
+          would be unmeetable and would only force a justification paragraph.
           The real check: for every file that adopts a contract mixin, confirm
           it does NOT also define its own copies of the assertions that mixin
           covers. Report, per adopting file, the count of hand-rolled
@@ -695,7 +715,9 @@ stages:
       Surface:
         - Conformance by rule and tier, before vs after
         - Apps brought to full conformance, and what remains
-        - Net test-line delta (negative is the goal)
+        - Duplication removed per adopting file (hand-rolled assertions
+          deleted). NOT net line delta — a growing total is expected here; see
+          verify-tests, which measures duplication rather than line count
         - Capsule byte counts before/after, flagging ANY decrease
         - Everything deferred, with reasons — especially any app_id left alone
         - Test and lint status, naming the known guard-hook timeout explicitly
