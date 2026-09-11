@@ -59,6 +59,38 @@ def _decode_label(value: bytes) -> list[str]:
     return [value.decode("utf-8", "replace")] if value else []
 
 
+def _apply_inbox_markers(a: dict[str, Any], act: dict[str, Any]) -> None:
+    """Carry the keep-in-inbox markers onto a normalized Outlook action.
+
+    Both markers are modifiers on a real action, never actions in their own
+    right, so neither rides along unless one of add/forward/moveToFolder carries
+    content. Testing ``act`` alone is not enough: ``add: ["", None]`` coerces to
+    ``add: []``, leaving act truthy as a dict while holding nothing.
+
+    ``keepInInbox`` is the user-facing input directive, preserved so
+    ``_strip_keep_in_inbox`` has something to consume on the derive path.
+
+    ``noMoveToFolder`` is the internal form the three Outlook helpers actually
+    read, and it is set from EITHER marker because two paths reach them:
+
+    - derived config: ``_strip_keep_in_inbox`` already rewrote keepInInbox to
+      noMoveToFolder, and the plan/sync/sweep processors re-normalize what derive
+      wrote (processors_rules_write.py:69, :201, :284). Normalization builds its
+      action from an allowlist, so a key absent here is silently dropped.
+    - raw config: ``rules.plan``/``rules.sync``/``rules.sweep`` accept the
+      documented unified config directly, with no derive step in between. Only
+      keepInInbox exists then, and the helpers never look at it — so the rule
+      fell through to deriving a folder from add[0] and moved the mail out,
+      which is exactly what the directive exists to prevent.
+    """
+    if not any(act.get(k) for k in ("add", "forward", "moveToFolder")):
+        return
+    if a.get("keepInInbox"):
+        act["keepInInbox"] = True
+    if a.get("noMoveToFolder") or a.get("keepInInbox"):
+        act["noMoveToFolder"] = True
+
+
 def normalize_filter_for_outlook(spec: object) -> dict[str, Any] | None:
     if not isinstance(spec, dict):
         return None
@@ -80,24 +112,7 @@ def normalize_filter_for_outlook(spec: object) -> dict[str, Any] | None:
     # Outlook-only hint: move to folder by path
     if a.get("moveToFolder"):
         act["moveToFolder"] = str(a["moveToFolder"])  # path or name
-    # Per-rule opt-out from the moveToFolder derived from add[] when move-to-folders
-    # is enabled, so this rule's mail stays in the inbox while others still move.
-    # Carried through here; stripped from the output by _strip_keep_in_inbox.
-    #
-    # It is a modifier on the actions above, not an action of its own, so it only
-    # rides along when one of them actually carries content. Testing `act` alone is
-    # not enough: `add: ["", None]` coerces to `add: []`, leaving act truthy as a
-    # dict while holding no real action.
-    if a.get("keepInInbox") and any(act.get(k) for k in ("add", "forward", "moveToFolder")):
-        act["keepInInbox"] = True
-    # ``noMoveToFolder`` is the derived form of ``keepInInbox`` written by
-    # _strip_keep_in_inbox. Normalization runs again over already-derived configs
-    # (OutlookRulesPlanProcessor and the sweep path both re-normalize what derive
-    # wrote), and this builds ``act`` from an allowlist — so a key absent here is
-    # silently dropped. Omitting it let the plan/sweep stage fall back to deriving
-    # a folder from add[0], which is the inbox-move the marker exists to prevent.
-    if a.get("noMoveToFolder") and any(act.get(k) for k in ("add", "forward", "moveToFolder")):
-        act["noMoveToFolder"] = True
+    _apply_inbox_markers(a, act)
     if not crit and not act:
         return None
     return {"match": crit, "action": act}

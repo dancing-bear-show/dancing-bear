@@ -697,6 +697,23 @@ class TestPlanProcessorHonoursNoMoveToFolder(unittest.TestCase):
         self.assertEqual(1, len(items))
         self.assertIn("moveToFolderId", items[0])
 
+    def test_raw_keep_in_inbox_config_plans_no_folder_move(self):
+        """The RAW unified config must work too, with no derive step in between.
+
+        Regression: `rules.plan`/`rules.sync`/`rules.sweep` accept the documented
+        unified config directly, where the marker is still spelled `keepInInbox`.
+        The fix originally keyed only on the derived `noMoveToFolder`, so this
+        path kept deriving a folder from add[0] and moving the mail out.
+
+        Verified live before the fix: `rules.plan` on a raw config emitted
+        `action={'moveToFolderId': 'Tech-Grafana', ...}`.
+        """
+        items = self._plan(
+            [{"match": {"from": "grafana.com"}, "action": {"add": ["Tech/Grafana"], "keepInInbox": True}}]
+        )
+        self.assertEqual(1, len(items))
+        self.assertNotIn("moveToFolderId", items[0])
+
     def test_mixed_rules_each_take_their_own_path(self):
         """Both rule kinds in one config: only the marked one skips the move."""
         items = self._plan(

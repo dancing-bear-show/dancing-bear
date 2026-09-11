@@ -102,13 +102,23 @@ class DslNormalizeTests(unittest.TestCase):
         self.assertNotIn("keepInInbox", out["action"])
 
     def test_normalize_filter_for_outlook_keeps_keep_in_inbox_beside_an_action(self):
-        """Paired with a real action it is preserved for the derive step to read."""
+        """Paired with a real action it is preserved for the derive step to read.
+
+        `noMoveToFolder` now rides along too. The Outlook helpers only read that
+        key, and `rules.plan`/`rules.sync`/`rules.sweep` accept the raw unified
+        config with no derive step in between — so setting it here is what makes
+        keepInInbox work on the un-derived path. `keepInInbox` itself is still
+        carried, because `_strip_keep_in_inbox` consumes it on the derive path.
+        """
         out = normalize_filter_for_outlook(
             {"match": {"from": "a@b.com"}, "action": {"add": ["X"], "keepInInbox": True}}
         )
         self.assertEqual(
             out,
-            {"match": {"from": "a@b.com"}, "action": {"add": ["X"], "keepInInbox": True}},
+            {
+                "match": {"from": "a@b.com"},
+                "action": {"add": ["X"], "keepInInbox": True, "noMoveToFolder": True},
+            },
         )
 
     def test_normalize_filter_for_outlook_preserves_no_move_to_folder(self):
@@ -136,6 +146,26 @@ class DslNormalizeTests(unittest.TestCase):
                 "action": {"add": ["Tech/Grafana"], "noMoveToFolder": True},
             },
         )
+
+    def test_normalize_filter_for_outlook_raw_keep_in_inbox_sets_no_move_to_folder(self):
+        """A raw unified config must gain `noMoveToFolder`, with no derive step.
+
+        Regression: `rules.plan`, `rules.sync` and `rules.sweep` all accept the
+        documented unified config directly. On that path nothing has rewritten
+        `keepInInbox` yet, and the three Outlook helpers only ever read
+        `noMoveToFolder` — so the rule fell through to deriving a folder from
+        add[0] and moved the mail out of the inbox, which is precisely what
+        keepInInbox exists to prevent.
+
+        Reproduced before the fix: `rules.plan` on a raw config emitted
+        `action={'moveToFolderId': 'Tech-Grafana'}`.
+        """
+        out = normalize_filter_for_outlook(
+            {"match": {"from": "grafana.com"}, "action": {"add": ["Tech/Grafana"], "keepInInbox": True}}
+        )
+        self.assertTrue(out["action"]["noMoveToFolder"])
+        # Still carried for _strip_keep_in_inbox to consume on the derive path.
+        self.assertTrue(out["action"]["keepInInbox"])
 
     def test_normalize_filter_for_outlook_no_move_to_folder_alone_is_not_an_action(self):
         """Like keepInInbox, the derived marker is a modifier and never an action itself."""
