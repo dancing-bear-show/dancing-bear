@@ -66,18 +66,27 @@ def _build_rule_criteria(match_spec: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build_rule_action(action_spec: dict[str, Any], ctx: RuleContext) -> dict[str, Any]:
-    """Build action dict from action spec."""
+    """Build action dict from action spec.
+
+    ``noMoveToFolder`` is an internal marker written by the derive step for rules
+    that carried ``keepInInbox: true`` in the unified config.  It signals that
+    the rule must categorise/label mail without moving it, even when
+    ``ctx.move_to_folders`` is True.  The marker is read here but never written
+    to the output ``action`` dict — it must not appear in the Graph API payload.
+    """
     action = {}
     add_labs = action_spec.get("add") or []
 
     if action_spec.get("moveToFolder"):
         fid = ctx.client.ensure_folder_path(str(action_spec.get("moveToFolder")))
         action["moveToFolderId"] = fid
-    elif ctx.move_to_folders and add_labs:
+    elif ctx.move_to_folders and add_labs and not action_spec.get("noMoveToFolder"):
+        # Normal rule with move_to_folders: derive folder from first add label.
         lab_name = str(add_labs[0])
         fid = ctx.folder_map.get(lab_name) or ctx.client.ensure_folder_path(lab_name)
         action["moveToFolderId"] = fid
     elif add_labs:
+        # Categorise only: either noMoveToFolder (keepInInbox) or move_to_folders=False.
         ids = [ctx.name_to_id.get(x) or ctx.name_to_id.get(norm_label_name_outlook(x)) for x in add_labs]
         ids = [x for x in ids if x]
         if ids:
@@ -102,15 +111,23 @@ def _create_rule_key(criteria: dict[str, Any], action: dict[str, Any]) -> str:
 
 
 def _build_plan_action(action_spec: dict[str, Any], ctx: RuleContext) -> dict[str, Any]:
-    """Build action dict for plan (without creating folders)."""
+    """Build action dict for plan (without creating folders).
+
+    ``noMoveToFolder: true`` is the internal marker set by the derive step for
+    rules that had ``keepInInbox: true`` in the unified config.  When present,
+    the folder derivation branch is skipped and the rule categorises/labels
+    without a folder move.
+    """
     action = {}
     adds = action_spec.get("add") or []
 
-    if ctx.move_to_folders and adds:
+    if ctx.move_to_folders and adds and not action_spec.get("noMoveToFolder"):
+        # Normal rule with move_to_folders: derive folder from first add label.
         lab_name = norm_label_name_outlook(adds[0])
         fid = ctx.folder_map.get(lab_name) or lab_name
         action["moveToFolderId"] = fid
     elif adds:
+        # Categorise only: either noMoveToFolder (keepInInbox) or move_to_folders=False.
         ids = [ctx.name_to_id.get(x) or ctx.name_to_id.get(norm_label_name_outlook(x)) for x in adds]
         ids = [x for x in ids if x]
         if ids:
@@ -152,12 +169,22 @@ def _resolve_destination_folder(
     client: Any,
     dry_run: bool,
 ) -> str | None:
-    """Resolve destination folder ID for sweep operation."""
+    """Resolve destination folder ID for sweep operation.
+
+    Returns None for rules that carry ``noMoveToFolder: true``, which is the
+    internal marker set by the derive step for rules that had ``keepInInbox``
+    in the unified config.  Returning None causes the sweep loop to skip the
+    move step, leaving the message in the inbox.
+    """
     if action_spec.get("moveToFolder"):
         pth = str(action_spec.get("moveToFolder"))
         if dry_run:
             return folder_paths.get(pth)
         return client.ensure_folder_path(pth)
+
+    # noMoveToFolder is the internal marker for keepInInbox rules: no move wanted.
+    if action_spec.get("noMoveToFolder"):
+        return None
 
     if move_to_folders and (action_spec.get("add") or []):
         pth = str((action_spec.get("add") or ["Inbox"])[0])

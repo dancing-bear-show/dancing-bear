@@ -10,11 +10,13 @@ Targets the following uncovered paths (as of 75.2% baseline):
 from __future__ import annotations
 
 import unittest
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 from mail.outlook.processors_rules_write import (
     OutlookRulesSyncProcessor,
     OutlookRulesPlanProcessor,
+    OutlookRulesPlanResult,
     OutlookRulesSweepProcessor,
 )
 from mail.outlook.processors_rules_helpers import RuleContext
@@ -636,6 +638,78 @@ class TestSweepFullIntegration(unittest.TestCase):
 
         self.assertEqual(envelope.status, "success")
         self.assertEqual(envelope.payload.moved, 3)
+
+
+class TestPlanProcessorHonoursNoMoveToFolder(unittest.TestCase):
+    """The plan processor must not derive a folder for a keepInInbox rule.
+
+    This exercises OutlookRulesPlanProcessor.process end to end (config load ->
+    normalize -> _build_plan_action) rather than calling the action builder
+    directly. That distinction is the whole point of these tests: the builder
+    was already guarded, but `process` re-normalizes the derived config first,
+    and normalization dropped the `noMoveToFolder` marker because it builds its
+    action dict from an allowlist. The guard then never fired and the rule got
+    a folder move anyway -- the exact inbox-move keepInInbox exists to prevent.
+
+    Reproduced against live Outlook before the fix: `rules.plan` emitted
+    `action={'moveToFolderId': 'Tech-Grafana', ...}` for the grafana rule.
+    """
+
+    def _plan(self, filters: list[dict]) -> list[str]:
+        client = _make_client(
+            name_to_id={"Tech/Grafana": "cat-graf", "Lists/Commercial": "cat-comm"},
+            folder_id_map={"Tech/Grafana": "folder-graf", "Lists/Commercial": "folder-comm"},
+        )
+        payload = OutlookRulesPlanPayload(
+            client=client,
+            config_path="/t.yaml",
+            move_to_folders=True,
+        )
+        with patch(
+            "core.yamlio.load_config", return_value={"filters": filters}
+        ):
+            envelope = OutlookRulesPlanProcessor().process(payload)
+        self.assertEqual(envelope.status, "success")
+        result = envelope.payload
+        self.assertIsNotNone(result)
+        # cast rather than `assert` for the Optional narrowing: bandit flags a
+        # bare assert (B101) since it vanishes under -O. assertIsNotNone above
+        # is the real check.
+        return cast(OutlookRulesPlanResult, result).plan_items
+
+    def test_keep_in_inbox_rule_plans_no_folder_move(self):
+        """A derived noMoveToFolder rule must plan an action with no moveToFolderId."""
+        items = self._plan(
+            [{"match": {"from": "grafana.com"}, "action": {"add": ["Tech/Grafana"], "noMoveToFolder": True}}]
+        )
+        self.assertEqual(1, len(items))
+        self.assertNotIn("moveToFolderId", items[0])
+
+    def test_normal_rule_still_plans_a_folder_move(self):
+        """Contrast: without the marker the folder derivation must still happen.
+
+        Guards against "fixing" the bug by disabling folder moves for everyone,
+        which would stop commercial and newsletter mail being filed.
+        """
+        items = self._plan(
+            [{"match": {"from": "shop.example.com"}, "action": {"add": ["Lists/Commercial"]}}]
+        )
+        self.assertEqual(1, len(items))
+        self.assertIn("moveToFolderId", items[0])
+
+    def test_mixed_rules_each_take_their_own_path(self):
+        """Both rule kinds in one config: only the marked one skips the move."""
+        items = self._plan(
+            [
+                {"match": {"from": "grafana.com"}, "action": {"add": ["Tech/Grafana"], "noMoveToFolder": True}},
+                {"match": {"from": "shop.example.com"}, "action": {"add": ["Lists/Commercial"]}},
+            ]
+        )
+        self.assertEqual(2, len(items))
+        graf = next(i for i in items if "grafana.com" in i)
+        comm = next(i for i in items if "shop.example.com" in i)
+        self.assertNotIn("moveToFolderId", graf)
+        self.assertIn("moveToFolderId", comm)
 
 
 if __name__ == "__main__":

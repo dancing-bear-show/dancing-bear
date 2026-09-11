@@ -541,5 +541,155 @@ class TestExportRuleEntry(unittest.TestCase):
         self.assertIn("match", entry)
 
 
+# ---------------------------------------------------------------------------
+# _build_rule_action — noMoveToFolder (keepInInbox) behaviour
+# ---------------------------------------------------------------------------
+
+class TestBuildRuleActionNoMoveToFolder(unittest.TestCase):
+    """noMoveToFolder: true suppresses folder derivation even with move_to_folders=True.
+
+    This is the fix for the keepInInbox regression: the derive step converts
+    ``keepInInbox: true`` to ``noMoveToFolder: true`` in the derived Outlook
+    config.  Without this guard, the ``elif ctx.move_to_folders and add_labs``
+    branch fired and re-derived a moveToFolderId from the first add label,
+    moving mail out of the inbox — the exact behaviour keepInInbox was written
+    to prevent.
+    """
+
+    def test_no_move_to_folder_marker_suppresses_folder_when_move_to_folders_true(self):
+        """noMoveToFolder with move_to_folders=True must produce addLabelIds, NOT moveToFolderId."""
+        client = MagicMock()
+        ctx = RuleContext(
+            client=client,
+            name_to_id={"Tech/Grafana": "label-id-grafana"},
+            folder_map={"Tech/Grafana": "folder-id-grafana"},
+            move_to_folders=True,
+        )
+        action_spec = {"add": ["Tech/Grafana"], "noMoveToFolder": True}
+
+        result = _build_rule_action(action_spec, ctx)
+
+        # Must NOT move to a folder
+        self.assertNotIn("moveToFolderId", result)
+        client.ensure_folder_path.assert_not_called()
+        # Must categorise with label IDs
+        self.assertEqual(result.get("addLabelIds"), ["label-id-grafana"])
+
+    def test_no_move_to_folder_marker_not_present_in_output(self):
+        """noMoveToFolder must never appear in the returned action dict (Graph API payload)."""
+        client = MagicMock()
+        ctx = RuleContext(
+            client=client,
+            name_to_id={"Tech/Grafana": "label-id-grafana"},
+            folder_map={},
+            move_to_folders=True,
+        )
+        action_spec = {"add": ["Tech/Grafana"], "noMoveToFolder": True}
+
+        result = _build_rule_action(action_spec, ctx)
+
+        self.assertNotIn("noMoveToFolder", result)
+
+    def test_normal_rule_still_moves_when_move_to_folders_true(self):
+        """Without noMoveToFolder, move_to_folders=True still derives a folder.
+
+        Contrast test: the fix must not disable folder derivation for rules
+        that did NOT have keepInInbox in the unified config.
+        """
+        client = MagicMock()
+        client.ensure_folder_path.return_value = "folder-id-nintendo"
+        ctx = RuleContext(
+            client=client,
+            name_to_id={},
+            folder_map={},
+            move_to_folders=True,
+        )
+        action_spec = {"add": ["Tech/Nintendo"]}
+
+        result = _build_rule_action(action_spec, ctx)
+
+        self.assertEqual(result["moveToFolderId"], "folder-id-nintendo")
+        self.assertNotIn("addLabelIds", result)
+
+
+# ---------------------------------------------------------------------------
+# _resolve_destination_folder — noMoveToFolder (keepInInbox) behaviour
+# ---------------------------------------------------------------------------
+
+class TestResolveDestinationFolderNoMoveToFolder(unittest.TestCase):
+    """noMoveToFolder: true returns None (no folder move) even with move_to_folders=True.
+
+    Same root cause as the _build_rule_action bug: without this guard the
+    ``elif move_to_folders and add`` branch fires and derives a folder ID,
+    causing the sweep to move messages that should stay in the inbox.
+    """
+
+    def test_dry_run_returns_none_for_no_move_to_folder_rule(self):
+        """dry_run=True: noMoveToFolder returns None, not a folder ID."""
+        client = MagicMock()
+        folder_paths = {"Tech/Grafana": "fid-grafana"}
+
+        result = _resolve_destination_folder(
+            action_spec={"add": ["Tech/Grafana"], "noMoveToFolder": True},
+            move_to_folders=True,
+            folder_paths=folder_paths,
+            client=client,
+            dry_run=True,
+        )
+
+        self.assertIsNone(result)
+        client.ensure_folder_path.assert_not_called()
+
+    def test_live_returns_none_for_no_move_to_folder_rule(self):
+        """dry_run=False: noMoveToFolder returns None, ensure_folder_path not called."""
+        client = MagicMock()
+        client.ensure_folder_path.return_value = "fid-grafana"
+
+        result = _resolve_destination_folder(
+            action_spec={"add": ["Tech/Grafana"], "noMoveToFolder": True},
+            move_to_folders=True,
+            folder_paths={},
+            client=client,
+            dry_run=False,
+        )
+
+        self.assertIsNone(result)
+        client.ensure_folder_path.assert_not_called()
+
+    def test_normal_rule_still_resolves_folder_dry_run(self):
+        """Without noMoveToFolder, move_to_folders=True still resolves a folder (dry_run).
+
+        Contrast test: the fix must not break normal folder resolution.
+        """
+        client = MagicMock()
+        folder_paths = {"Tech/Nintendo": "fid-nintendo"}
+
+        result = _resolve_destination_folder(
+            action_spec={"add": ["Tech/Nintendo"]},
+            move_to_folders=True,
+            folder_paths=folder_paths,
+            client=client,
+            dry_run=True,
+        )
+
+        self.assertEqual(result, "fid-nintendo")
+
+    def test_normal_rule_still_resolves_folder_live(self):
+        """Without noMoveToFolder, move_to_folders=True still resolves a folder (live)."""
+        client = MagicMock()
+        client.ensure_folder_path.return_value = "live-fid-nintendo"
+
+        result = _resolve_destination_folder(
+            action_spec={"add": ["Tech/Nintendo"]},
+            move_to_folders=True,
+            folder_paths={},
+            client=client,
+            dry_run=False,
+        )
+
+        client.ensure_folder_path.assert_called_once_with("Tech/Nintendo")
+        self.assertEqual(result, "live-fid-nintendo")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -102,19 +102,23 @@ DeriveFiltersRequestConsumer = RequestConsumer[DeriveFiltersRequest]
 
 
 def _strip_keep_in_inbox(out_specs: list[dict]) -> None:
-    """Remove the ``keepInInbox`` marker from every derived Outlook spec.
+    """Convert the ``keepInInbox`` input marker to the internal ``noMoveToFolder`` marker.
 
-    ``keepInInbox`` is an input directive that suppresses the derived
-    ``moveToFolder``; it is not part of the provider payload. Stripping happens
-    here, unconditionally, rather than inside the move/archive branches: those
-    are mutually exclusive and both are skipped under
-    ``--no-outlook-move-to-folders``, which previously let the marker leak into
-    the derived Outlook config.
+    ``keepInInbox`` is a user-facing input directive that must never appear in the
+    provider payload.  When present it is replaced with ``noMoveToFolder: true``,
+    which the plan and sweep stages read to suppress folder derivation even when
+    ``move_to_folders`` is True.  When absent the key is removed so normal rules
+    are unaffected.
+
+    The conversion happens unconditionally — outside the move/archive branches —
+    so the marker is always handled regardless of which flags are active.  Without
+    this conversion the plan/sweep stage cannot distinguish a keepInInbox rule
+    (no folder wanted) from a rule where no folder was specified.
     """
     for spec in out_specs:
         action = spec.get("action")
-        if isinstance(action, dict):
-            action.pop("keepInInbox", None)
+        if isinstance(action, dict) and action.pop("keepInInbox", None):
+            action["noMoveToFolder"] = True
 
 
 def _apply_archive_on_remove_inbox(out_specs: list[dict], filters: list[dict]) -> None:

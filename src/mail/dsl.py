@@ -86,6 +86,14 @@ def normalize_filter_for_outlook(spec: object) -> dict[str, Any] | None:
     # dict while holding no real action.
     if a.get("keepInInbox") and any(act.get(k) for k in ("add", "forward", "moveToFolder")):
         act["keepInInbox"] = True
+    # ``noMoveToFolder`` is the derived form of ``keepInInbox`` written by
+    # _strip_keep_in_inbox. Normalization runs again over already-derived configs
+    # (OutlookRulesPlanProcessor and the sweep path both re-normalize what derive
+    # wrote), and this builds ``act`` from an allowlist — so a key absent here is
+    # silently dropped. Omitting it let the plan/sweep stage fall back to deriving
+    # a folder from add[0], which is the inbox-move the marker exists to prevent.
+    if a.get("noMoveToFolder") and any(act.get(k) for k in ("add", "forward", "moveToFolder")):
+        act["noMoveToFolder"] = True
     if not crit and not act:
         return None
     return {"match": crit, "action": act}

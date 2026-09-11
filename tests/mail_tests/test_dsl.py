@@ -111,6 +111,48 @@ class DslNormalizeTests(unittest.TestCase):
             {"match": {"from": "a@b.com"}, "action": {"add": ["X"], "keepInInbox": True}},
         )
 
+    def test_normalize_filter_for_outlook_preserves_no_move_to_folder(self):
+        """The derived `noMoveToFolder` marker must survive re-normalization.
+
+        Regression: normalization builds its action dict from an allowlist, and
+        `noMoveToFolder` was not on it. That mattered because normalization runs
+        a *second* time over an already-derived config —
+        `OutlookRulesPlanProcessor` (processors_rules_write.py) and the sweep
+        path both re-normalize what the derive step wrote. The marker was
+        therefore dropped before the plan/sweep stage could read it, which sent
+        the rule down the `move_to_folders and add` fallback and derived a
+        folder from add[0] — the inbox move that keepInInbox exists to prevent.
+
+        Unit tests that called the action builders directly did not catch this,
+        because they bypassed normalization entirely.
+        """
+        out = normalize_filter_for_outlook(
+            {"match": {"from": "grafana.com"}, "action": {"add": ["Tech/Grafana"], "noMoveToFolder": True}}
+        )
+        self.assertEqual(
+            out,
+            {
+                "match": {"from": "grafana.com"},
+                "action": {"add": ["Tech/Grafana"], "noMoveToFolder": True},
+            },
+        )
+
+    def test_normalize_filter_for_outlook_no_move_to_folder_alone_is_not_an_action(self):
+        """Like keepInInbox, the derived marker is a modifier and never an action itself."""
+        out = normalize_filter_for_outlook(
+            {"match": {"from": "a@b.com"}, "action": {"noMoveToFolder": True}}
+        )
+        self.assertEqual({}, out["action"])
+        self.assertNotIn("noMoveToFolder", out["action"])
+
+    def test_normalize_filter_for_outlook_no_move_to_folder_needs_a_non_empty_action(self):
+        """An all-falsy `add` is not a real action, so the marker must not ride along."""
+        out = normalize_filter_for_outlook(
+            {"match": {"from": "a@b.com"}, "action": {"add": ["", None], "noMoveToFolder": True}}
+        )
+        self.assertEqual([], out["action"]["add"])
+        self.assertNotIn("noMoveToFolder", out["action"])
+
     def test_normalize_filters_for_outlook_maps_list(self):
         inp = [
             {"match": {"from": "a@b"}, "action": {"add": ["X"]}},
