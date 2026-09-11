@@ -491,6 +491,32 @@ class TestExportPdfSadPaths(unittest.TestCase):
         self.assertIn(".docx only", err.message)
         self.assertNotIn("planned for future", err.message)
 
+    def test_ok_result_carrying_no_pdf_path_raises_rather_than_attribute_error(self) -> None:
+        """``ok=True`` with ``pdf_path=None`` must surface a CLIError.
+
+        Every other success test supplies a path, so this branch would sit
+        unverified: a malformed-but-truthy ConversionResult would reach
+        ``actual.rename(...)`` and die with ``AttributeError: 'NoneType' object
+        has no attribute 'rename'`` — an internal-looking crash rather than a
+        reported failure with an exit code.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            docx = Path(td, "myresume.docx")
+            docx.write_bytes(b"fake docx")
+            requested = Path(td, "final-name.pdf")
+
+            def fake_convert(_docx: str, _pdf: str) -> ConversionResult:
+                return ConversionResult(ok=True, pdf_path=None)
+
+            with patch("resume.australian_rotate.convert_docx_to_pdf", fake_convert):
+                with self.assertRaises(CLIError) as ctx:
+                    cmd_export_pdf(_export_args(str(docx), str(requested)))
+
+        err = ctx.exception
+        self.assertEqual(err.code, ExitCode.ERROR)
+        self.assertIn("pdf_path", err.message)
+        self.assertFalse(requested.exists())
+
 
 class TestConverterRequiresAnOutputFile(unittest.TestCase):
     """A zero exit is not sufficient -- the PDF must actually be on disk.

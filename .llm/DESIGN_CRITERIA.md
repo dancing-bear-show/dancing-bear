@@ -80,8 +80,8 @@ For every `SafeProcessor`/`BaseProducer` pair (or, pre-migration, every command 
 - Rewriting already-migrated pipelines (mail, calendar, schedule, desk, resume, phone, whatsapp, wifi core commands) — audit should confirm compliance, not churn working code without a found defect.
 - **Splitting `src/resume/schema.py` on line count alone (measured 2026-09-11).** At 619 lines it is one of the largest files in `src/`, so a size-driven sweep (`decompose-sweep`, `qlty-complexity-sweep`) will keep proposing it. It is a deliberate exemption: the file is one cohesive type, and every candidate seam cuts a live dependency.
   - All 11 dataclasses inherit `_Item`, which supplies the shared `extra`/`_present`/`_order` round-trip machinery plus generic `from_dict`/`to_dict`.
-  - `Resume` references **9 of the 10** sibling classes as field types and coerces them in `_convert`.
-  - `SkillGroup` holds `list[SkillGroupItem]` and calls `_as_items(value, SkillGroupItem, ...)` at runtime.
+  - `Resume` references **9 of the 10** sibling classes as real identifier nodes — field types it coerces in `_convert`, not prose mentions.
+  - `SkillGroup` holds `list[SkillGroupItem]` and calls `_as_items(value, SkillGroupItem, ...)` at runtime. The dependency is one-way: `SkillGroupItem` does not reference `SkillGroup` in code, only in its docstring.
   - Four module-level helpers are used throughout: `_warn` (4 call sites), `_emit` (3), `_as_items` (5), `_as_summary` (2).
   - Any split therefore yields modules that import each other, trading a long-but-linear file for a circular-import risk and worse cohesion.
   - **Logger hazard if split anyway:** `_warn` wraps `logging.getLogger(__name__)`, so moving it renames the logger. Four assertions in `tests/resume_tests/test_e2e_schema_roundtrip.py` (lines 658, 676, 701, 714) name `"resume.schema"` as a plain string. They would keep passing while watching a logger nothing writes to — silent dead coverage, not a failure.
@@ -93,8 +93,18 @@ For every `SafeProcessor`/`BaseProducer` pair (or, pre-migration, every command 
     tree = ast.parse(src)
     classes = {n.name: n for n in tree.body if isinstance(n, ast.ClassDef)}
     for cname, node in classes.items():
-        seg = ast.get_source_segment(src, node) or ""
-        refs = sorted(o for o in classes if o != cname and o in seg)
+        # Match identifier NODES, never a substring of the source text. A
+        # substring scan reads the class declaration and docstrings too, so
+        # `SkillGroupItem` appears to depend on `SkillGroup` (it contains it),
+        # and a class merely NAMED in prose counts as a dependency. That
+        # over-reports: it invented three false edges here.
+        refs = sorted({
+            sub.id for sub in ast.walk(node)
+            if isinstance(sub, ast.Name) and sub.id in classes and sub.id != cname
+        } | {
+            sub.attr for sub in ast.walk(node)
+            if isinstance(sub, ast.Attribute) and sub.attr in classes and sub.attr != cname
+        })
         bases = [b.id for b in node.bases if isinstance(b, ast.Name)]
         print(f"{cname:<20} bases={bases} refs={refs}")
     PY
