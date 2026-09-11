@@ -251,32 +251,64 @@ stages:
              VERIFY IT IS BLANK EITHER WAY, with the same check -- a supplied
              parameter is not a trusted source.  Pointing it at a filled claim
              form would reopen exactly the PII exposure this section exists to
-             close:
+             close.
 
-               PYTHONPATH="$(pwd)/src" python3 -c "
-               import os, fitz
-               p = os.environ['TEMPLATE']
-               d = fitz.open(p)
-               filled = [w.field_name for pno in range(d.page_count)
-                         for w in (d[pno].widgets() or [])
-                         if w.field_type_string in ('Text','ComboBox')
-                         and (w.field_value or '').strip()]
+             Counting filled WIDGETS is not sufficient on its own: a flattened
+             or scanned PDF has no AcroForm widgets at all, so it reports zero
+             filled fields while its page text still carries every name and
+             amount.  Require BOTH:
+
+               a. an intact AcroForm with every text widget empty, AND
+               b. page text that contains none of the identifying tokens a
+                  filled claim would carry.
+
+               TEMPLATE="<path>" PYTHONPATH="$(pwd)/src" python3 -c "
+               import os, re, fitz
+               d = fitz.open(os.environ['TEMPLATE'])
+               widgets = [w for pno in range(d.page_count)
+                          for w in (d[pno].widgets() or [])]
+               text_widgets = [w for w in widgets
+                               if w.field_type_string in ('Text','ComboBox')]
+               filled = [w.field_name for w in text_widgets
+                         if (w.field_value or '').strip()]
+               page_text = ' '.join(p.get_text() for p in d)
                d.close()
-               print('FILLED FIELDS:', len(filled))
-               raise SystemExit(1 if filled else 0)"
+               # A blank template is a FORM: it must have text widgets.
+               if not text_widgets:
+                   raise SystemExit('REJECT: no AcroForm text widgets -- '
+                                    'flattened or scanned, not a blank template')
+               if filled:
+                   raise SystemExit(f'REJECT: {len(filled)} filled field(s)')
+               # Belt and braces: a blank form carries labels, not data.
+               if re.search(r'\\b\\d{3}-\\d{3}-\\d{4}\\b', page_text) or \\
+                  re.search(r'\\b(19|20)\\d{2}-\\d{2}-\\d{2}\\b', page_text):
+                   raise SystemExit('REJECT: page text contains phone/date '
+                                    'data -- not a blank template')
+               print('BLANK OK')"
 
              Pass the path via the TEMPLATE environment variable, never by
              interpolating it into the command text.
 
-             If the check reports any filled field, STOP -- do not open it
-             further, do not copy it, do not quote its contents.  Record
-             shipped_form_equivalence: "SKIPPED -- candidate template was not
-             blank" and go to step 4.
+             On ANY reject, STOP -- do not open it further, do not copy it, do
+             not quote its contents.  Record shipped_form_equivalence:
+             "SKIPPED -- candidate template was not blank" and go to step 4.
 
              Never search under ~/Documents/sunlife-claims/ or any directory
              holding real claims; a blank template is a blank form, not a
-             generated claim.  If no blank template is found, record
-             shipped_form_equivalence: "SKIPPED -- no blank template".
+             generated claim.
+
+             EXPECT TO FIND NOTHING, AND SKIP CLEANLY.  Verified on the
+             author's machine: the insurer-supplied template in ~/Downloads is
+             NOT blank -- Sun Life pre-populates it with member ID, full name,
+             date of birth and home address, so it carries PII before anyone
+             fills a claim.  The check above correctly rejects it.  There may
+             be no blank template anywhere on the machine.
+
+             That is a normal outcome, not a failure to work around.  Record
+             shipped_form_equivalence: "SKIPPED -- no blank template", which
+             makes migration_safe false, which halts the run for a human.
+             Do NOT relax the check, strip fields to manufacture a blank, or
+             fall back to a personalised form because nothing else was found.
 
           2. Fill a copy using SYNTHETIC values only -- the same "Pat Doe"
              placeholder style as tests/receipts_fixtures/build_fixtures.py:
@@ -718,6 +750,15 @@ stages:
       Step 0 -- regenerate the shared fixtures FIRST.
         Run: python3 tests/receipts_fixtures/build_fixtures.py
 
+        PREREQUISITE -- install the [pdf] extra in THIS worktree first.
+        `make venv` installs ".[dev]", which does not include PyMuPDF (fitz
+        lives in the [pdf] extra), so build_fixtures.py fails with
+        ModuleNotFoundError before generating anything.  The CI fix does not
+        help an agent worktree.  Run once, then generate:
+
+          .venv/bin/python -m pip install -e ".[pdf,ocr]" 2>&1 | tail -2
+          python3 tests/receipts_fixtures/build_fixtures.py
+
         The generated PDFs are gitignored (*.pdf), so a fresh checkout has the
         builder but not its output.  The full-suite run in Step 3 re-executes
         the receipts tests, which read these files -- without this step they
@@ -830,21 +871,34 @@ stages:
         If auto-fixable issues, run: ~/.qlty/bin/qlty check --fix <file>
         Re-run once to confirm clean.
 
-      Step 6 -- render-verification smoke test.
-        Use the synthetic fixture.  There is deliberately no "real PDF"
-        parameter: a real claim or receipt carries names, DOBs and amounts,
-        and the fixtures cover every shape involved.
+      Step 6 -- render-verification of a FILLED CLAIM, not just a receipt.
+        Rendering a receipt fixture only exercises PdfDocument.render_png; it
+        proves nothing about fill_claim_form() or build_packet(), which are
+        what this workflow actually adds.  A broken fill/merge/render path
+        would sail through such a check.
 
-          PYTHONPATH="$(pwd)/src" python3 -c "
-          from core.pdf_read import PdfDocument
-          doc = PdfDocument('tests/receipts_fixtures/jane_clinic.pdf')
-          png = doc.render_png(page=0, dpi=72)
-          assert len(png) > 1000, f'suspiciously small render: {{len(png)}}'
-          print(f'render_png returned {{len(png)}} bytes')
-          doc.close()
-          " 2>&1
+        Build a synthetic claim end to end and inspect the result:
 
-        Report the byte count only -- never log PDF content or field values.
+          1. Construct a Receipt in memory with synthetic values
+             (vendor "Northside Therapy", total 190.00, patient "Pat Doe",
+             invoice_id "8254-P01") -- no file, no real data.
+          2. Call build_packet() with it against a blank template if one was
+             found in migrate-font-sizes (reuse that stage's verdict; do NOT
+             re-search, and never fall back to a personalised form).
+          3. Assert on the produced packet:
+             - page_count == form pages + receipt pages
+             - the claimant-row region renders non-blank:
+                 pix.color_topusage() returns a (ratio, colour) tuple;
+                 assert ratio < 0.99 (a blank region returns exactly 1.0)
+             - the PNG decodes and its dimensions match the requested clip
+
+        If no blank template was available, record
+        packet_render_check: "SKIPPED -- no blank template" and say so in the
+        manifest.  Do NOT substitute a receipt render and call it a packet
+        check -- that is the substitution this step exists to prevent.
+
+        Report byte counts and page counts only -- never log PDF content or
+        field values.
 
       Step 7 -- write {workspace}/outputs/verify-results.json:
         {{
@@ -893,7 +947,13 @@ stages:
         Read {workspace}/outputs/verify-results.json.
         Read {workspace}/outputs/integration-review.json.
         Read {workspace}/outputs/claims-manifest.json.
-        Read {workspace}/validation/critique.md.
+        Read {workspace}/outputs/preflight.json.
+        Read {workspace}/outputs/font-size-migration.json -- in particular
+        migration_safe and shipped_form_equivalence, so the gate reports
+        whether the migration was PROVEN or merely unverified.
+
+        (There is no validation/critique.md in this workflow: the interface
+        critique belongs to receipts-domain-build, which has already merged.)
 
       Step 2 -- identify branch and worktree:
         git worktree list 2>&1

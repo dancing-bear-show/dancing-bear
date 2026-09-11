@@ -163,12 +163,27 @@ stages:
 
           File: extract.py
             extract(path: str | Path, *, sidecar: bool = True) -> Receipt
-              Dispatches over registered parsers in priority order:
-                1. Try each parser in PARSERS list (jane -> costco -> generic).
-                2. If sidecar=True AND no parser succeeds AND a .amount.json
-                   sidecar exists, use sidecar.py as LAST resort.
-                3. Raise ValueError("no parser matched") if nothing works.
+              Dispatch is FIRST SUCCESSFUL EXTRACTION, not first match.
+              Parsers MAY overlap: more than one can match the same document,
+              and a parser that matches is free to decline by returning
+              total=None.
+                1. Try each parser in PARSERS order (jane -> costco -> generic).
+                   A parser that matches but yields total=None does NOT claim
+                   the document -- continue to the next.
+                2. A RuntimeError from extract_text() (no text layer, no
+                   Tesseract) is caught per parser and treated as a decline,
+                   not a failure.
+                3. If sidecar=True AND no parser produced a total AND a
+                   .amount.json sidecar exists, use sidecar.py as LAST resort.
+                4. Raise ValueError("no parser extracted a total: <path>")
+                   if nothing works.
               PARSERS: list[PdfParser] = [JaneParser(), CostcoParser(), GenericParser()]
+
+              Why not first-match: GenericParser.matches() returns True
+              unconditionally, so a first-match rule would always stop there
+              and make the sidecar branch unreachable dead code.  The
+              costco_optical fixture -- text layer present, no label, no
+              amount -- is the case that proves it.
 
           File: sidecar.py
             load_sidecar(path: str | Path) -> Receipt | None
@@ -299,12 +314,24 @@ stages:
 
       Step 5 -- write {workspace}/outputs/design/parser-contract.md
         Document the PdfParser ABC contract:
-          - matches(doc) MUST return True for at most one concrete parser per
-            document (the dispatch loop takes the FIRST match).
-          - parse(doc) MUST return a Receipt.  It must never raise on a
-            parseable document.  Unparseable fields -> None.
-          - parse(doc) MAY be called even when OCR is unavailable (CostcoParser
-            must degrade to partial parse rather than raising).
+          - matches(doc) MAY return True for MORE THAN ONE parser per document.
+            Overlap is expected and allowed: GenericParser.matches() returns
+            True unconditionally, so every document matches at least two.
+            Dispatch takes the FIRST SUCCESSFUL EXTRACTION, not the first
+            match.  Do NOT write "at most one parser" or "first match" into
+            this document -- an implementation following that wording makes
+            the sidecar fallback unreachable dead code.
+          - parse(doc) MUST return a Receipt, and MAY decline by returning
+            total=None when it recognises the shape but finds no amount.
+            Declining is how costco_optical reaches the sidecar.
+          - parse(doc) must never raise on a parseable document.  Unparseable
+            fields -> None.
+          - matches(doc) and parse(doc) MAY be called when OCR is unavailable.
+            extract_text() raises RuntimeError in that case; extract() catches
+            it per parser and treats it as a decline, so an individual parser
+            need not guard it -- but must not rely on never seeing it either.
+          - total=0.00 is a SUCCESSFUL parse (provider direct-billed), never a
+            sentinel for "no amount found".  Only None means nothing found.
 
       Step 6 -- mkdir workspace dirs.
         mkdir -p {workspace}/design
@@ -928,9 +955,15 @@ stages:
           parsed: Receipt | None = None
           try:
             for parser in PARSERS:
-              if not parser.matches(doc):
+              try:
+                if not parser.matches(doc):
+                  continue
+                candidate = parser.parse(doc)
+              except RuntimeError:
+                # OCR unavailable on a document with no text layer.  That is a
+                # degraded environment, not a parse failure: let the remaining
+                # parsers and then the sidecar have their turn.
                 continue
-              candidate = parser.parse(doc)
               if candidate is None or candidate.total is None:
                 # Matched the shape but found no amount: keep looking, and
                 # fall through to the sidecar if nothing else succeeds.
@@ -949,6 +982,15 @@ stages:
             if result is not None:
               return result
           raise ValueError(f"no parser extracted a total: {{path}}")
+
+        CRITICAL -- why the RuntimeError guard lives HERE and not in each
+        parser:  extract_text() raises RuntimeError when a document has no
+        text layer and Tesseract is absent.  JaneParser runs FIRST and calls
+        extract_text() in its matches(), so an unguarded raise kills dispatch
+        before Costco or Generic is reached -- and before the sidecar.  A
+        per-parser try/except only works if every parser remembers it; one
+        guard in the loop cannot be forgotten.  image_only.pdf on a machine
+        without Tesseract is the case that proves it.
 
         CRITICAL -- why the loop tests `candidate.total is None` and not just
         `parser.matches()`:  GenericParser.matches() returns True
@@ -1210,6 +1252,15 @@ stages:
 
       Step 0 -- build the shared fixtures FIRST.
         Run: python3 tests/receipts_fixtures/build_fixtures.py
+
+        PREREQUISITE -- install the [pdf] extra in THIS worktree first.
+        `make venv` installs ".[dev]", which does not include PyMuPDF (fitz
+        lives in the [pdf] extra), so build_fixtures.py fails with
+        ModuleNotFoundError before generating anything.  The CI fix does not
+        help an agent worktree.  Run once, then generate:
+
+          .venv/bin/python -m pip install -e ".[pdf,ocr]" 2>&1 | tail -2
+          python3 tests/receipts_fixtures/build_fixtures.py
         This writes seven synthetic PDFs under tests/receipts_fixtures/, each
         reproducing one real-world parsing hazard confirmed against actual
         receipts.  They are synthetic on purpose: real receipts carry patient
