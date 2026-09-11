@@ -61,10 +61,12 @@ BASELINE_PATH = REPO_ROOT / "typecheck-baseline.json"
 CHECKED_ROOTS = ("src", "tests", "bin")
 
 # The baseline is generated on Linux (the platform CI enforces on), but people
-# develop on macOS, and the same tree genuinely yields different counts:
-#
-#   macOS  mail=47  tests=237  total=684
-#   Linux  mail=48  tests=232  total=680
+# develop on macOS, and the same tree genuinely yields different counts —
+# historically macOS total=684 vs Linux total=680, differing in `mail` and
+# `tests`. Those figures are kept only to show the SHAPE of the difference: the
+# totals fall with every type-fixing PR (680 -> 566 -> 371 -> 347 so far), so
+# read the current numbers from typecheck-baseline.json rather than from this
+# comment.
 #
 # The cause is platform-gated optional dependencies, not flakiness. `rumps` is
 # pinned `sys_platform == 'darwin'`, so on macOS mypy analyses the menubar tests

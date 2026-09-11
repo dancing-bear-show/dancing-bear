@@ -175,9 +175,10 @@ agent or by day. Useful for finding which workflows are expensive.
 ./bin/telemetry summary
 ```
 
-Windows are `--since 7d` / `24h`, not a day count. This CLI is Click-based
-rather than argparse, so its flag parsing differs slightly from the others.
-`--format` takes `table|json|csv`.
+Windows are `--since 7d` / `24h`, not a day count. `--format` takes
+`table|json` on `sessions`; check `--help` for the per-subcommand set, which
+varies. (This CLI was Click-based until #341 ported it to argparse — it now
+parses flags like every other app here.)
 
 There is a live TUI behind an optional extra:
 
