@@ -244,6 +244,26 @@ class CliTests(unittest.TestCase):
     def test_missing_source_exits_nonzero(self):
         self.assertEqual(public_symbols.main(["--source", "/nonexistent.py"]), 1)
 
+    def test_invalid_utf8_source_exits_nonzero(self):
+        # A non-UTF-8 file raises UnicodeDecodeError from open(encoding="utf-8").
+        # Without UnicodeError in the handler the CLI still leaves a nonzero
+        # status but prints a traceback, breaking the documented contract and
+        # making a decode failure indistinguishable from a crash.
+        import tempfile
+
+        tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        bad = tmp / "bad.py"
+        bad.write_bytes(b"\xff\xfe\x00invalid")
+        self.assertEqual(public_symbols.main(["--source", str(bad)]), 1)
+
+    def test_syntax_error_source_exits_nonzero(self):
+        import tempfile
+
+        tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        broken = tmp / "broken.py"
+        broken.write_text("def unterminated(")
+        self.assertEqual(public_symbols.main(["--source", str(broken)]), 1)
+
     def test_unimportable_module_exits_nonzero(self):
         self.assertEqual(public_symbols.main(["--module", "no.such.module"]), 1)
 

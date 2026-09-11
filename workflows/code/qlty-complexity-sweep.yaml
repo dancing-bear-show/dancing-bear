@@ -301,14 +301,23 @@ stages:
         `~/.qlty/bin/qlty`, not to the wrapper.)
 
         Check the JSON's own fields instead:
-          a. "total" vs your extracted row count. Your count must be <=
-             "total". If "total" > 0 but you extracted ZERO rows, that is a
-             filter or parse bug on your side, NOT a clean tree — record it
-             in "scan_errors" and say so plainly. The most likely cause is
-             selecting on the wrong field (see the rule-key note in Step 3).
-          b. "counts_by_rule" — sum the four candidate rules. That sum is the
-             number of rows you should have extracted; any shortfall is a
-             parse bug, not an absence of findings.
+          a. "counts_by_rule" is the authority, NOT "total" and NOT any exit
+             code. Sum the entries for the four candidate rules; that sum is
+             exactly how many rows you should have extracted. A shortfall is
+             a parse bug. Equality with zero is a genuine clean result.
+
+             Judge the subset, never the whole scan. "total" > 0 with zero
+             extracted rows is NOT by itself an error: a scan can legitimately
+             contain only unrelated rows (ripgrep NOTE markers,
+             function-parameters, python:S5655) and no complexity finding at
+             all. Flagging that as a parse bug would push discovery into
+             scan_errors on a healthy tree every time any unrelated lint
+             finding exists. The error condition is a MISMATCH between
+             counts_by_rule for the four rules and what you extracted — not
+             the presence of other rules, and not a non-zero total.
+          b. If counts_by_rule shows a candidate rule you extracted nothing
+             for, you are selecting on the wrong field (see the rule-key note
+             in Step 3). Record it in "scan_errors" and say so plainly.
           c. "degradations" — a non-empty array means a wire-format fallback
              occurred. Record it; the run may be missing rules entirely.
           d. Unparseable output, or a missing "findings" key, is an ERROR.
@@ -919,15 +928,30 @@ stages:
         A refactor in one directory can break another directory's mocks, so
         the full suite is required.
 
-        Confirm you honored the test constraint:
+        Confirm you honored the test constraint. BOTH commands are required:
+
           git diff --name-only -- tests/
-        For groups with NO split entries this MUST print nothing. For split
-        entries, the only acceptable output is files whose sole change is a
-        mock.patch target string — confirm with:
+          git status --short --untracked-files=all -- tests/
+
+        The second is not redundant. `git diff` does not list untracked
+        files, so a newly ADDED test file is invisible to it — an agent could
+        create tests/new_test.py to make a failure disappear and both the
+        name-only and -U0 checks would still look clean. Verified: with an
+        untracked file present, `git diff --name-only` showed only the
+        modified path while `git status --short -uall` showed its `??` entry.
+
+        Reject any `??` path under tests/ outright: creating a test file is a
+        violation of this stage's constraint regardless of content.
+
+        For groups with NO split entries the first command MUST print nothing
+        and the second MUST show no tests/ entries at all. For split entries,
+        the only acceptable change is a file whose sole edit is a mock.patch
+        target string — confirm with:
           git diff -U0 -- tests/
         Every changed line must be a dotted path inside patch(...). Any
         assertion, fixture, or test-logic change is a violation: revert those
-        files with `git checkout -- tests/`, re-run, and record it.
+        files with `git checkout -- tests/`, delete any created file, re-run,
+        and record it.
 
       Step 4 — write {workspace}/validation/test-results.md:
         | Group | Test Dir | Tests Run | Status | Notes |
@@ -1136,8 +1160,21 @@ stages:
            fine, so every other check passes while the CLI path is broken:
              grep -rn "['\"]<old_module>" \
                --include="*.py" --include="*.yaml" --include="*.yml" \
-               --include="*.json" --include="*.toml" --include="*.md" \
-               src/ tests/ bin/ .llm/ workflows/ pyproject.toml 2>/dev/null
+               --include="*.json" --include="*.toml" \
+               src/ tests/ bin/ .llm/ pyproject.toml 2>/dev/null
+
+           Note what is NOT searched here, and why. `workflows/` and `*.md`
+           are excluded because they contain INSTRUCTIONAL prose that quotes
+           module paths as examples — this very file mentions "mail.llm_cli"
+           three times as a documented dispatcher entry and a known
+           false-positive facade. Splitting such a module would make those
+           mentions read as stale call sites and block an otherwise valid
+           run. Runtime dispatch tables live under src/, tests/, bin/, .llm/
+           and pyproject.toml; those are the paths that can actually break.
+
+           If a workflow YAML genuinely holds a runtime dotted path (a
+           `fan_out.script`, a CLI command string), search it deliberately
+           and read each hit rather than treating a raw count as a failure.
            Also check the parent package path. Known tables in this repo:
              src/core/llm_handlers.py, src/core/assistant_cli.py,
              src/telemetry/otel/cli/__init__.py, src/maker/pipeline.py
@@ -1229,19 +1266,30 @@ stages:
         so --smells-only silently drops it. Scan the TOUCHED PATHS, which
         also keeps the cap off this gate:
 
-          ./bin/qlty-assistant scan --rescan-until-stable --format csv \
+          ./bin/qlty-assistant scan --rescan-until-stable --format json \
             --rule file-complexity --rule function-complexity \
             --rule nested-control-flow --rule python:S3776 \
-            <every touched path, plus every new sibling>
+            <every touched path, plus every new sibling> \
+            > {workspace}/validation/recheck-scan.json
+
+        Use --format JSON, never csv. The CSV renderer emits finding rows
+        ONLY — it carries no "stable", "degraded", "degradations" or
+        "iterations" field (verified: a `--rescan-until-stable --format csv`
+        run contains zero occurrences of either word). Since the wrapper
+        exits 0 whether or not stability was reached, a CSV-reading gate
+        cannot tell a stable scan from one that exhausted its iterations or
+        degraded to a SARIF fallback — so it would compare an incomplete
+        result and still report IMPROVED. BLOCK the gate when "stable" is
+        false or "degraded" is true, and record it rather than proceeding.
 
         --rule is repeatable but only filters output, so the path arguments
         are what actually narrow the scan. --rescan-until-stable is
         required: a single capped run can omit findings, and this gate must
         not pass because a finding happened not to be reported this time.
 
-        Note the CSV `value` column is EMPTY for python:S3776 — that rule
-        carries its score only in the message text ("from N to the 15
-        allowed"). Parse the message for it rather than reading `value`.
+        The `value` field is EMPTY for python:S3776 — that rule carries its
+        score only in the message text ("from N to the 15 allowed"). Parse
+        the message for it rather than reading `value`.
 
         Compare PER BASELINE FINDING, not per file score. Every finding in
         candidates.json that triggered work on a file must be shown to have
@@ -1493,17 +1541,27 @@ stages:
         is still flagged. Do NOT use --smells-only: python:S3776 comes from
         `qlty check` and would be dropped.
 
-          ./bin/qlty-assistant scan --rescan-until-stable --format csv \
+          ./bin/qlty-assistant scan --rescan-until-stable --format json \
             --rule file-complexity --rule function-complexity \
             --rule nested-control-flow --rule python:S3776 \
-            <every touched path, plus every new sibling>
+            <every touched path, plus every new sibling> \
+            > {workspace}/validation/final-scan.json
+
+        JSON, not csv — this is the LAST gate before the human sees a
+        commit recommendation, and CSV carries no "stable"/"degraded"/
+        "iterations" metadata. Without those fields this stage cannot tell a
+        genuine stable result from a rescan that exhausted its iterations or
+        fell back in wire format, and would write complexity_status:
+        IMPROVED off an incomplete comparison. Block on "stable": false or
+        "degraded": true and record it in the recheck output; do not accept
+        the scan.
 
         Pass the touched paths: `--rule` only filters output, so path
         arguments are the sole lever that keeps the per-run cap from hiding a
         finding this gate is meant to catch.
 
-        The CSV `value` column is empty for python:S3776; its score lives in
-        the message ("from N to the 15 allowed").
+        The `value` field is empty for python:S3776; its score lives in the
+        message ("from N to the 15 allowed").
 
         Confirm, PER BASELINE FINDING rather than per file score, that every
         finding which triggered work has disappeared or improved — matching

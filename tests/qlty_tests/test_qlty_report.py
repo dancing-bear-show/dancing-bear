@@ -26,7 +26,12 @@ from qlty.report import (
 )
 from qlty.runner import _strip_rule_namespace
 from qlty.scanner import ScanResult
-from qlty.strategies import known_strategies, strategy_for, tooling_for
+from qlty.strategies import (
+    _COMPLEXITY_SWEEP_RULES,
+    known_strategies,
+    strategy_for,
+    tooling_for,
+)
 from tests.qlty_tests.shared_fixtures import make_finding
 
 
@@ -495,9 +500,10 @@ class ToolingForTests(unittest.TestCase):
         self.assertEqual(tooling_for("file-complexity"), self.SWEEP)
 
     def test_per_function_rules_route_to_the_sweep(self):
-        # These are the rules the widened discover-candidates stage picks up
-        # from `qlty check`; file-complexity alone would miss a small file
-        # holding one very complex function.
+        # Both of these come from `qlty smells` (driver "structure"), NOT from
+        # `qlty check` — only python:S3776 is on the linter side. The widened
+        # discover-candidates stage reads both scans because file-complexity
+        # alone would miss a small file holding one very complex function.
         for rule in ("function-complexity", "nested-control-flow"):
             with self.subTest(rule=rule):
                 self.assertEqual(tooling_for(rule), self.SWEEP)
@@ -532,12 +538,13 @@ class ToolingForTests(unittest.TestCase):
         # workflow that remediates it while strategy_for returns Tier UNKNOWN
         # ("No strategy recorded... do not assume it is actionable"). Triage
         # would print both. Keep the two tables in step.
-        for rule in (
-            "file-complexity",
-            "function-complexity",
-            "nested-control-flow",
-            "python:S3776",
-        ):
+        #
+        # Driven from _COMPLEXITY_SWEEP_RULES rather than a hard-coded tuple:
+        # a literal list would only protect today's entries, so adding a rule
+        # to the routing set without a strategy would route it while this test
+        # still passed — the very drift the test exists to prevent.
+        self.assertTrue(_COMPLEXITY_SWEEP_RULES, "routing set must not be empty")
+        for rule in sorted(_COMPLEXITY_SWEEP_RULES):
             with self.subTest(rule=rule):
                 strategy = strategy_for(rule)
                 self.assertIsNot(
@@ -546,6 +553,22 @@ class ToolingForTests(unittest.TestCase):
                     f"{rule} routes to the sweep but has no strategy entry",
                 )
                 self.assertTrue(strategy.action.strip())
+
+    def test_routing_set_matches_the_documented_rules(self):
+        # Complement to the invariant above: pin the expected membership so an
+        # accidental addition or removal is visible, while the test above stays
+        # generic over whatever the set actually contains.
+        self.assertEqual(
+            _COMPLEXITY_SWEEP_RULES,
+            frozenset(
+                {
+                    "file-complexity",
+                    "function-complexity",
+                    "nested-control-flow",
+                    "python:S3776",
+                }
+            ),
+        )
 
 
 if __name__ == "__main__":

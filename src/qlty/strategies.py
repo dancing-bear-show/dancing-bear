@@ -150,10 +150,14 @@ _UNKNOWN_ACTION = (
 
 _COMPLEXITY_SWEEP = "workflows/code/qlty-complexity-sweep.yaml"
 
-# Rules the complexity sweep actually discovers and remediates. It scans both
-# `qlty smells` (file-level) and `qlty check` (per-function) because the two
-# return DISJOINT sets, so the per-function rules belong here alongside
-# file-complexity.
+# Rules the complexity sweep actually discovers and remediates. It runs both
+# scans because they return DISJOINT sets -- but the split is by TOOL, not by
+# granularity, and assuming otherwise is how per-function findings get missed:
+#   `qlty smells`  (tool "qlty", driver "structure")
+#       file-complexity, function-complexity, nested-control-flow
+#   `qlty check`   (linters)
+#       python:S3776 -- the only complexity rule on that side
+# So two of the three per-function rules come from `smells`, not `check`.
 #
 # Radarlint keys are normalized -- the tool namespace is stripped but the
 # rule's own `python:` prefix survives, so cognitive complexity is

@@ -98,7 +98,7 @@ what happens to a finding.
 
 | Tier | Meaning | Rules |
 |---|---|---|
-| A | mechanical, safe to fan out | `file-complexity`, `function-complexity`, `boolean-logic` |
+| A | mechanical, safe to fan out | `file-complexity`, `function-complexity`, `python:S3776`, `nested-control-flow`, `boolean-logic` |
 | B | judgment required; default LEAVE | `function-parameters` |
 | C | false positive; suppress with a stated reason | any rule, case by case |
 | D | read required; reported, never auto-fixed | `similar-code`, `return-statements` |

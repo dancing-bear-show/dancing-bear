@@ -91,7 +91,10 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         names = from_source(args.source) if args.source else from_module(args.module)
-    except (OSError, SyntaxError) as exc:
+    # UnicodeError covers UnicodeDecodeError from a non-UTF-8 source file:
+    # without it the CLI emits a traceback instead of the documented exit-1
+    # contract, and a caller parsing stderr cannot tell the two apart.
+    except (OSError, SyntaxError, UnicodeError) as exc:
         print(f"error: cannot read or parse source: {exc}", file=sys.stderr)
         return 1
     except ImportError as exc:
