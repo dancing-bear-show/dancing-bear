@@ -258,6 +258,72 @@ class DeriveFiltersTests(TestCase):
             # `add` survives because the archive branch never rewrote this spec.
             self.assertEqual(["Tech/Grafana"], action["add"])
 
+    def test_derive_filters_keep_in_inbox_survives_a_dropped_entry(self):
+        """A dropped entry ahead of a marked rule must not misalign the lookup.
+
+        Regression: `_apply_archive_on_remove_inbox` read `filters[i]`, but
+        `normalize_filters_for_outlook` drops entries that normalize to None, so
+        `out_specs` is not positionally aligned with `filters`. With a dropped
+        entry first, the guard inspected the *wrong* source rule, missed the
+        marker, and archived the marked rule anyway.
+
+        Verified before the fix: a leading non-dict entry gives len(filters)=2,
+        len(out_specs)=1, and filters[0] is the malformed entry rather than the
+        rule that survived normalization.
+
+        The second rule is here on purpose: it proves the pairing stays exact
+        past the drop instead of merely being off-by-one in a harmless way.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            in_path = Path(tmpdir) / "filters.yaml"
+            in_path.write_text(
+                "filters:\n"
+                # Dropped by normalization: no criteria and no action.
+                "  - match: {}\n"
+                "    action: {}\n"
+                "  - match:\n"
+                "      from: grafana.com\n"
+                "    action:\n"
+                "      add: [Tech/Grafana]\n"
+                "      keepInInbox: true\n"
+                "      remove: [INBOX]\n"
+                "  - match:\n"
+                "      from: shop.example.com\n"
+                "    action:\n"
+                "      add: [Lists/Commercial]\n"
+                "      remove: [INBOX]\n"
+            )
+            out_gmail = Path(tmpdir) / "gmail.yaml"
+            out_outlook = Path(tmpdir) / "outlook.yaml"
+
+            result = DeriveFiltersProcessor().process(
+                DeriveFiltersRequest(
+                    in_path=str(in_path),
+                    out_gmail=str(out_gmail),
+                    out_outlook=str(out_outlook),
+                    outlook_archive_on_remove_inbox=True,
+                )
+            )
+            self.assertTrue(result.ok())
+
+            import yaml
+
+            derived = yaml.safe_load(out_outlook.read_text())["filters"]
+            self.assertEqual(2, len(derived), "the malformed entry should be dropped")
+
+            by_sender = {f["match"]["from"]: f["action"] for f in derived}
+
+            # The marked rule kept its label and was NOT archived.
+            grafana = by_sender["grafana.com"]
+            self.assertTrue(grafana.get("noMoveToFolder"))
+            self.assertNotIn("moveToFolder", grafana)
+            self.assertEqual(["Tech/Grafana"], grafana["add"])
+
+            # The unmarked rule after it still archives — pairing stayed exact.
+            commercial = by_sender["shop.example.com"]
+            self.assertEqual("Archive", commercial.get("moveToFolder"))
+            self.assertNotIn("add", commercial)
+
     def test_derive_filters_archive_on_remove_inbox_still_archives_unmarked(self):
         """Contrast: without the marker, remove:[INBOX] must still derive Archive.
 

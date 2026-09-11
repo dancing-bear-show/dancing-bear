@@ -121,6 +121,30 @@ def _strip_keep_in_inbox(out_specs: list[dict]) -> None:
             action["noMoveToFolder"] = True
 
 
+def _pair_specs_with_sources(
+    out_specs: list[dict], filters: list[dict]
+) -> list[tuple[dict, dict]]:
+    """Pair each normalized spec with the source filter it came from.
+
+    ``normalize_filters_for_outlook`` drops entries that normalize to ``None``
+    (non-dicts, and specs carrying neither criteria nor action), so ``out_specs``
+    is **not** positionally aligned with ``filters``. Indexing ``filters[i]``
+    therefore reads the wrong source rule once anything ahead of it is dropped —
+    verified with a leading non-dict entry: ``len(filters)=2``,
+    ``len(out_specs)=1``, and ``filters[0]`` is the malformed entry rather than
+    the rule that survived.
+
+    Re-normalizing each source filter and keeping only those that survive
+    reproduces the same skip decisions, so the pairing is exact rather than
+    positional. Consumers need the source because Gmail-side directives such as
+    ``remove`` are not carried onto the normalized spec.
+    """
+    from ..dsl import normalize_filter_for_outlook
+
+    sources = [f for f in (filters or []) if normalize_filter_for_outlook(f)]
+    return list(zip(out_specs, sources))
+
+
 def _apply_archive_on_remove_inbox(out_specs: list[dict], filters: list[dict]) -> None:
     """Mutate out_specs: replace 'add' with 'moveToFolder=Archive' when original removes INBOX.
 
@@ -136,11 +160,11 @@ def _apply_archive_on_remove_inbox(out_specs: list[dict], filters: list[dict]) -
     anyway, so a rule carrying both `remove: [INBOX]` and `keepInInbox: true`
     left the inbox through all three consumers despite the marker being present.
     """
-    for i, spec in enumerate(out_specs):
-        orig = filters[i] if i < len(filters) else {}
-        orig_action = (orig or {}).get("action") or {}
-        if orig_action.get("keepInInbox"):
+    for spec, orig in _pair_specs_with_sources(out_specs, filters):
+        spec_action = spec.get("action") or {}
+        if spec_action.get("keepInInbox"):
             continue
+        orig_action = (orig or {}).get("action") or {}
         remove_list = orig_action.get("remove") or []
         if isinstance(remove_list, list) and any(str(x).upper() == "INBOX" for x in remove_list):
             a = spec.get("action") or {}
