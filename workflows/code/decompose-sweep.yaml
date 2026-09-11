@@ -447,16 +447,34 @@ stages:
           - If still failing after 3 fix cycles: mark domain as FAIL and
             document the blocker — do not abort other domains.
 
-      Step 3 — run the full suite to catch cross-domain regressions:
-        make test > /tmp/decompose-verify.log 2>&1; echo "EXIT=$?"
-        grep -E "^Ran [0-9]+ tests" /tmp/decompose-verify.log
-        grep -E "^OK$|^FAILED" /tmp/decompose-verify.log
-        The 2>&1 is required — unittest writes "Ran N tests", OK, and FAILED
-        to stderr. Piping to tail returns tail's exit code, not unittest's,
-        hiding a failing suite. No "Ran N tests" line means the suite never
-        ran — re-run rather than recording a pass.
-        Confirm the count matches the pre-split baseline recorded in
-        test-results.md.
+      Step 3 — run the full suite to catch cross-domain regressions.
+
+        Write it as ONE command whose own exit status is the verdict, so a
+        failing suite cannot be recorded as a pass:
+
+          make test > /tmp/decompose-verify.log 2>&1 \
+            && grep -qE "^Ran [0-9]+ tests" /tmp/decompose-verify.log \
+            && grep -qE "^OK" /tmp/decompose-verify.log \
+            && echo VERIFY_PASS || echo VERIFY_FAIL
+
+        Record the stage as passing only when the output is VERIFY_PASS.
+
+        Do NOT write this as `make test ...; echo "EXIT=$?"` followed by bare
+        greps. Separating with `;` makes the sequence's final status that of the
+        LAST grep, and `echo "EXIT=$?"` only prints the value — nothing asserts
+        it. A failing suite still emits a "Ran N tests" line, so the greps
+        succeed and the whole sequence looks green unless an agent happens to
+        read the printed number.
+
+        The 2>&1 is required — unittest writes "Ran N tests", OK, and FAILED to
+        stderr. Never pipe the suite through tail/head: a pipeline's status is
+        the last command's, which hides the failure. No "Ran N tests" line means
+        the suite never ran — re-run rather than recording a pass.
+
+        Then confirm the count matches the pre-split baseline recorded in
+        test-results.md. An equal count is part of the pass condition, not a
+        separate nicety: a changed count means tests were dropped or
+        double-collected.
 
       Step 4 — write {workspace}/validation/test-results.md:
         | Domain | Test Dir | Tests Run | Status | Notes |
@@ -524,36 +542,43 @@ stages:
                grep -rn "^class <Symbol>\|^def <Symbol>" src/
              Zero hits means the symbol was dropped. Two or more means it was
              copied rather than moved — a silent duplicate that will drift.
-          c. Confirm it imports from its new home:
-               python3 -c "from <new_module> import <Symbol>"
+          c. Confirm it imports from its new home. Pin PYTHONPATH here too —
+             the smoke-import above does, and an unpinned symbol import can
+             resolve the PRE-SPLIT module from another checkout and report
+             success even when the symbol is missing from the module this run
+             created:
+               PYTHONPATH="$PWD/src" python3 -c \
+                 "import <new_module> as _m; print(_m.__file__); from <new_module> import <Symbol>"
+             The printed path must lie under the current checkout.
 
       Step 2b — confirm NO re-export shim was left behind:
         The original file should either be deleted or contain only symbols
-        that genuinely still belong to it. Use a structural AST check —
-        a module whose body has only imports, __all__, and docstrings but no
-        function or class definitions is a shim. Run for each modified file:
+        that genuinely still belong to it.
 
-          python3 - <<'PYEOF'
-          import ast, sys
-          target = "<each modified file>"
-          tree = ast.parse(open(target).read())
-          # Inspect tree.body (TOP LEVEL) only — never ast.walk. ast.walk
-          # descends into nested scopes, so an assignment tucked inside an
-          # `if TYPE_CHECKING:` guard makes a genuine re-export facade report
-          # "ok". Verified: on a guarded facade, ast.walk says not-a-shim
-          # while tree.body correctly says SHIM.
-          is_shim = not any(
-              isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-              or (isinstance(n, ast.Assign)
-                  and any(isinstance(t, ast.Name) and t.id != "__all__"
-                          for t in n.targets))
-              for n in tree.body
-          )
-          print(target, "SHIM" if is_shim else "ok")
-          PYEOF
+        Use the repo's existing detector rather than an inline AST snippet:
 
-        Any file that prints SHIM violates CLAUDE.md's no-wrapper rule
-        and must be deleted with its importers repointed.
+          python3 workflows/code/scripts/detect_facades.py
+
+        It emits JSON with a "facades" array; each entry names a module whose
+        top level is imports and __all__ only. Any module this split created or
+        touched that appears there violates CLAUDE.md's no-wrapper rule and must
+        be deleted with its importers repointed.
+
+        Note that `mail.llm_cli` is a KNOWN entry and is not a defect: it is a
+        live `llm --app mail` dispatch target referenced by string literal, so
+        it is reported but must not be removed. Compare the output against the
+        files this run modified rather than treating every entry as new.
+
+        Why a utility and not an inline snippet: a heredoc embedded in this
+        description is covered by no test, so it drifts silently and any bug in
+        it is discovered by an agent acting on a wrong answer. Two real bugs
+        proved that — an earlier version used `ast.walk`, which descends into
+        nested scopes and so reported a `TYPE_CHECKING`-guarded facade as "ok";
+        its replacement counted only `ast.Assign`, so a real module holding
+        `VERSION: str = "1.2.3"` (an `ast.AnnAssign`) was reported as a SHIM and
+        would have been DELETED. detect_facades.py handles both — it checks
+        `ast.Assign` and `ast.AnnAssign`, and it is covered by
+        tests/test_detect_facades.py.
         Note: grepping for "# noqa: F401" misses re-export modules that use
         __all__ or omit the suppression comment — the AST check is authoritative.
 
@@ -734,8 +759,17 @@ stages:
       Step 1 — full test suite. Use make test, never a bare
         `python3 -m unittest`: an inherited PYTHONPATH resolves packages to a
         DIFFERENT checkout, so the suite passes against unmodified code.
-          make test > /tmp/decompose-recheck.log 2>&1; echo "EXIT=$?"
-          grep -E "^Ran [0-9]+ tests" /tmp/decompose-recheck.log
+          make test > /tmp/decompose-recheck.log 2>&1 \
+            && grep -qE "^Ran [0-9]+ tests" /tmp/decompose-recheck.log \
+            && grep -qE "^OK" /tmp/decompose-recheck.log \
+            && echo RECHECK_PASS || echo RECHECK_FAIL
+
+        Record the stage as passing only on RECHECK_PASS. Chain with && so the
+        command's own status is the verdict — `make test ...; echo "EXIT=$?"`
+        followed by bare greps makes the final status that of the last grep, and
+        a failing suite still prints a "Ran N tests" line, so the sequence looks
+        green unless someone reads the printed number.
+
         The 2>&1 is required — unittest writes "Ran N tests", OK, and FAILED
         to stderr. No "Ran N tests" line means the suite never ran; re-run it
         rather than recording a pass.
