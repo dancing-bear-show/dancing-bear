@@ -59,7 +59,6 @@ trigger:
   params:
     run_qlty: "true"
     reference_claim_pdf: ""   # optional override for the equivalence check
-    real_pdf: ""              # optional: real receipt PDF for the CLI smoke test
 
 workspace_dir: "{work_dir}/claims-domain-build"
 
@@ -246,12 +245,38 @@ stages:
         twice through two code paths.  Build both sides yourself from invented
         values:
 
-          1. Locate a BLANK claim template.  If {reference_claim_pdf} is set,
-             use it; otherwise search for an unfilled template and confirm it
-             is unfilled (every text widget has an empty field_value).  If you
-             cannot find a blank template, record
-             shipped_form_equivalence: "SKIPPED -- no blank template" and
-             continue.  Do NOT substitute a filled claim form.
+          1. Locate a BLANK claim template.  Candidate is
+             {reference_claim_pdf} if set, otherwise a template you find.
+
+             VERIFY IT IS BLANK EITHER WAY, with the same check -- a supplied
+             parameter is not a trusted source.  Pointing it at a filled claim
+             form would reopen exactly the PII exposure this section exists to
+             close:
+
+               PYTHONPATH="$(pwd)/src" python3 -c "
+               import os, fitz
+               p = os.environ['TEMPLATE']
+               d = fitz.open(p)
+               filled = [w.field_name for pno in range(d.page_count)
+                         for w in (d[pno].widgets() or [])
+                         if w.field_type_string in ('Text','ComboBox')
+                         and (w.field_value or '').strip()]
+               d.close()
+               print('FILLED FIELDS:', len(filled))
+               raise SystemExit(1 if filled else 0)"
+
+             Pass the path via the TEMPLATE environment variable, never by
+             interpolating it into the command text.
+
+             If the check reports any filled field, STOP -- do not open it
+             further, do not copy it, do not quote its contents.  Record
+             shipped_form_equivalence: "SKIPPED -- candidate template was not
+             blank" and go to step 4.
+
+             Never search under ~/Documents/sunlife-claims/ or any directory
+             holding real claims; a blank template is a blank form, not a
+             generated claim.  If no blank template is found, record
+             shipped_form_equivalence: "SKIPPED -- no blank template".
 
           2. Fill a copy using SYNTHETIC values only -- the same "Pat Doe"
              placeholder style as tests/receipts_fixtures/build_fixtures.py:
@@ -279,18 +304,35 @@ stages:
         itself rather than from a form that was generated months ago under
         different inputs.
 
-      Step 7 -- write {workspace}/outputs/font-size-migration.json:
-        {{
-          "call_sites_found": [],
-          "call_sites_outside_claims": [],
-          "migration_safe": true,
-          "core_pdf_forms_edited": true,
-          "import_smoke_check": "PASS|FAIL",
-          "existing_pdf_forms_tests": "PASS|FAIL",
-          "tests_moved_to_claims": [],
-          "shipped_form_equivalence": "PASS|FAIL|SKIPPED -- no reference PDF",
-          "da_mismatches": []
-        }}
+      Step 7 -- write {workspace}/outputs/font-size-migration.json.
+
+        migration_safe is a DERIVED value, not a default.  Set it true ONLY
+        when the equivalence proof actually ran and passed:
+
+          migration_safe = (existing_pdf_forms_tests == "PASS"
+                            and import_smoke_check   == "PASS"
+                            and shipped_form_equivalence == "PASS")
+
+        A SKIPPED equivalence check means the migration is UNVERIFIED, which
+        is not the same as safe.  Writing migration_safe: true on a skip would
+        let implement-claims build on an unproven edit to a merged module --
+        the precise failure this stage exists to prevent.
+
+          {{
+            "call_sites_found": [],
+            "call_sites_outside_claims": [],
+            "migration_safe": false,
+            "core_pdf_forms_edited": true,
+            "import_smoke_check": "PASS|FAIL",
+            "existing_pdf_forms_tests": "PASS|FAIL",
+            "tests_rewritten_in_core": [],
+            "shipped_form_equivalence": "PASS|FAIL|SKIPPED -- <reason>",
+            "da_mismatches": []
+          }}
+
+        If migration_safe is false, report this stage's status as "failed" so
+        the run halts here rather than proceeding into implement-claims.  A
+        skip is a legitimate reason to stop and ask a human, not to continue.
     agent:
       role: code-writer
       model: sonnet
@@ -789,23 +831,15 @@ stages:
         Re-run once to confirm clean.
 
       Step 6 -- render-verification smoke test.
-        Use the synthetic fixture, not a real document:
-          tests/receipts_fixtures/jane_clinic.pdf
+        Use the synthetic fixture.  There is deliberately no "real PDF"
+        parameter: a real claim or receipt carries names, DOBs and amounts,
+        and the fixtures cover every shape involved.
 
-        If the run supplied a real_pdf parameter, pass it through the
-        ENVIRONMENT -- never interpolate it into the command text.  A path
-        containing a quote, $(), or a backtick would otherwise execute inside
-        the shell, and a path with spaces would simply break:
-
-          RECEIPT_PDF="tests/receipts_fixtures/jane_clinic.pdf" \
           PYTHONPATH="$(pwd)/src" python3 -c "
-          import os, pathlib
           from core.pdf_read import PdfDocument
-          p = pathlib.Path(os.environ['RECEIPT_PDF'])
-          if not p.is_file():
-              raise SystemExit(f'not a file: {{p}}')
-          doc = PdfDocument(str(p))
+          doc = PdfDocument('tests/receipts_fixtures/jane_clinic.pdf')
           png = doc.render_png(page=0, dpi=72)
+          assert len(png) > 1000, f'suspiciously small render: {{len(png)}}'
           print(f'render_png returned {{len(png)}} bytes')
           doc.close()
           " 2>&1

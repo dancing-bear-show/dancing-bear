@@ -45,10 +45,15 @@ Which parser claims which fixture, given the order jane -> costco -> generic
   jane_clinic       -> Jane    yields 190.00
   jane_zero         -> Jane    yields 0.00   (success, not failure)
   invoice_total     -> Jane    yields 250.00 -- carries a Jane invoice id but a
-                               "Total" label, so it tests whether JANE copes
-                               with label variance, not whether Generic does
+                               "Total" label.  This is why JaneParser carries
+                               AMOUNT_LABELS ["Payer Total", "Total Amount",
+                               "Total"] rather than a single label: with only
+                               "Payer Total" it matches, extracts nothing, and
+                               falls through to Generic.
   speech_aim        -> Jane    yields 150.00 -- likewise, "Total Amount"
-  costco_pharmacy   -> Costco  yields 88.21 from OCR-garbled text, no "$"
+  costco_pharmacy   -> Costco  yields 88.21 from OCR-garbled text, no "$".
+                               Matching is case-INSENSITIVE: this file says
+                               "Costco Pharmacies", optical says "COSTCO".
   costco_optical    -> Costco  MATCHES but must DECLINE: no label, no amount.
                                This is what forces the sidecar fallback, so a
                                dispatcher that returns on first match rather

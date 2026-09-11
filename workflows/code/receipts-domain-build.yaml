@@ -62,7 +62,6 @@ trigger:
   source: manual
   params:
     run_qlty: "true"       # set "false" to skip qlty in verify
-    real_pdf: ""           # optional: path to a real receipt PDF for smoke test
 
 workspace_dir: "{work_dir}/receipts-domain-build"
 
@@ -192,7 +191,9 @@ stages:
             CostcoParser(PdfParser):
               Image-only: no AcroForm fields, no "Invoice #", no "Payer Total".
               Uses OCR fallback in PdfDocument.extract_text().
-              matches() -> True when "Costco" in text (may require OCR).
+              matches() -> True when "costco" appears case-INSENSITIVELY
+              (may require OCR). Real receipts print both "Costco
+              Pharmacies" and "COSTCO OPTICAL DEPARTMENT".
               parse() extracts: vendor="Costco", total from "Total" or
                 "Total Amount" line, date from receipt header.
               invoice_id=None always (Costco receipts have none).
@@ -519,6 +520,14 @@ stages:
                      run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
                    - name: Generate receipt fixtures
                      run: python3 tests/receipts_fixtures/build_fixtures.py
+
+                 AND widen the install step in that same job.  It currently
+                 reads `pip install -e ".[tui,slides]"` (ci.yml:90), which does
+                 NOT pull PyMuPDF -- fitz lives in the [pdf] extra.  Without
+                 this, build_fixtures.py dies on `import fitz` before a single
+                 fixture test runs:
+                   python -m pip install -e ".[tui,slides,pdf,ocr]"
+                 Order matters: install, then generate fixtures, then test.
                  The first keeps the OCR path from being dead code in CI.  The
                  second is required because the fixture PDFs are gitignored
                  (*.pdf), so CI checks out the builder but not its output --
@@ -617,9 +626,19 @@ stages:
           # install, which is why OCR-dependent tests skip when it is absent.
           ocr = ["pytesseract>=0.3"]
 
-        If that manifest is not yet present (pdf_read still running), apply the
-        receipts registration now and note in your own manifest that the ocr
-        extra still needs adding; integration-review will catch it.
+        If that manifest is not yet present (pdf_read may still be running),
+        do NOT just leave a note -- nothing downstream consumes one, so the
+        package would ship without the extra and the OCR tests would skip
+        forever while looking green.  Instead apply the [ocr] block yourself
+        from the spec above: it is a fixed, known block, not something
+        pdf_read computes.  Adding it unconditionally is idempotent -- check
+        whether an `ocr = [` key already exists under
+        [project.optional-dependencies] and only append if absent.
+
+        Then record in your manifest:
+          "pyproject_ocr_extra_applied": true,
+          "pyproject_receipts_registered": true
+        integration-review verifies BOTH by reading pyproject.toml directly.
 
       Step 2b -- write src/receipts/parsers/__init__.py (empty file).
         Created HERE, not in a parser stage.  The three parser stages
@@ -709,7 +728,15 @@ stages:
           # fails to match a 4-digit id -- and matches(), returning False,
           # looks identical to "not a Jane receipt".
           INVOICE_RE = re.compile(r"Invoice\s+#(\d{{3,6}}-P\d{{2}})")
-          AMOUNT_LABEL = "Payer Total"
+          # Jane-family clinics do NOT all use the same total label.  Observed
+          # in real receipts from the same practice software:
+          #   "Payer Total"  receipts       "Total"        invoices
+          #   "Total Amount" some clinics
+          # Trying only "Payer Total" is what once understated a claim by $190,
+          # and the invoice_total / speech_aim fixtures encode those shapes.
+          # Order matters: "Payer Total" before the bare "Total", or the
+          # substring match claims the wrong line.
+          AMOUNT_LABELS = ["Payer Total", "Total Amount", "Total"]
 
           def matches(self, doc: PdfDocument) -> bool:
             text = doc.extract_text(0)
@@ -718,7 +745,10 @@ stages:
           def parse(self, doc: PdfDocument) -> Receipt:
             text = doc.extract_text(0)
             # Extract invoice_id, vendor, date, total from text.
+            # Try AMOUNT_LABELS in order; first hit wins.
             # total=0.00 is valid -- parse "Payer Total: $0.00" as 0.00.
+            # If no label matches, return total=None so extract() falls
+            # through to the next parser rather than claiming the document.
             # Unknown fields -> None.
             # Returns Receipt(vendor=..., date=..., total=..., line_items=[],
             #                 patient=None, invoice_id=..., source_path=None).
@@ -769,7 +799,12 @@ stages:
               text = doc.extract_text(0)
             except RuntimeError:
               return False
-            return "Costco" in text
+            # Case-insensitive deliberately: the pharmacy receipts print
+            # "Costco Pharmacies" while optical prints "COSTCO OPTICAL
+            # DEPARTMENT".  A case-sensitive check silently misses the optical
+            # shape, which then falls to GenericParser and never reaches the
+            # sidecar path it is supposed to exercise.
+            return "costco" in text.lower()
 
           def parse(self, doc: PdfDocument) -> Receipt:
             text = doc.extract_text(0)  # may invoke OCR
@@ -1025,6 +1060,16 @@ stages:
         Any output is a BLOCKING finding -- the font-size migration belongs to
         the claims workflow, not this one.
 
+      Step 3c -- verify pyproject.toml carries both edits.
+        Neither is optional, and each was written by a different stage:
+          grep -n 'ocr = \[' pyproject.toml
+          grep -n 'receipts\*' pyproject.toml
+        A missing [ocr] extra is BLOCKING: pytesseract never installs, the OCR
+        tests skip permanently, and the gap looks identical to passing.
+        A missing receipts* registration is BLOCKING: the package will not be
+        installed by `pip install -e .` and imports fail outside the source
+        tree.
+
       Step 4 -- verify lazy fitz import in pdf_read.py.
         grep -n "^import fitz\|^from fitz" src/core/pdf_read.py
         Any hit is BLOCKING.
@@ -1123,9 +1168,10 @@ stages:
       Step 6 -- re-run import smoke checks after fixes:
         PYTHONPATH="$(pwd)/src" python3 -c \
           "from core.pdf_read import PdfDocument, PdfParser; \
-           from receipts.extract import extract; \
-           from claims.ledger import ClaimLedger; \
-           from claims.forms import fill_claim_form; print('all ok')" 2>&1
+           from receipts.models import Receipt, LineItem; \
+           from receipts.sidecar import load_sidecar; \
+           from receipts.extract import extract; print('all ok')" 2>&1
+        Do NOT import claims.* here -- this workflow does not create it.
 
       Step 7 -- write {workspace}/outputs/fix-integration-results.json:
         {{
@@ -1308,9 +1354,8 @@ stages:
         ./bin/receipts --help          2>&1 | head -3
         ./bin/receipts parse --help    2>&1 | head -3
         ./bin/receipts --agentic --agentic-format json --agentic-compact 2>&1 | python3 -c "import sys,json; json.load(sys.stdin); print('agentic JSON ok')"
-        ./bin/claims --help            2>&1 | head -3
-        ./bin/claims fill --help       2>&1 | head -3
-        ./bin/claims --agentic --agentic-format json --agentic-compact 2>&1 | python3 -c "import sys,json; json.load(sys.stdin); print('agentic JSON ok')"
+        Do NOT smoke ./bin/claims -- neither src/claims/ nor bin/claims is
+        created by this workflow; those checks belong to claims-domain-build.
         Record exit codes and any failures.
 
       Step 5 -- qlty lint (if run_qlty == "true"):
@@ -1324,15 +1369,20 @@ stages:
         Re-run once to confirm clean.
 
       Step 6 -- render-verification smoke test.
-        If real_pdf is non-empty AND the file exists:
+        Use the synthetic fixture.  There is deliberately no "real PDF"
+        parameter: a real receipt carries a patient name and a clinician, and
+        the fixtures already cover every shape this workflow parses.
+
           PYTHONPATH="$(pwd)/src" python3 -c "
           from core.pdf_read import PdfDocument
-          doc = PdfDocument('{real_pdf}')
+          doc = PdfDocument('tests/receipts_fixtures/jane_clinic.pdf')
           png = doc.render_png(page=0, dpi=72)
+          assert len(png) > 1000, f'suspiciously small render: {{len(png)}}'
           print(f'render_png returned {{len(png)}} bytes')
           doc.close()
           " 2>&1
-          Report byte count only (never log PDF content or field values).
+
+        Report the byte count only -- never log PDF content or field values.
 
       Step 7 -- write {workspace}/outputs/verify-results.json:
         {{
