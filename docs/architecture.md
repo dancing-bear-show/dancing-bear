@@ -380,7 +380,8 @@ dependencies, and rewriting already-migrated pipelines without a found defect.
 
 ## Before you change anything
 
-- **Check for an existing workflow first**: `./bin/workflow list`. There are 52.
+- **Check for an existing workflow first**: `./bin/workflow list`
+  (`--format json` to count them).
   Improving one beats forking a near-duplicate.
 - **Read the LLM context files** in order: `.llm/CONTEXT.md`, `.llm/PATTERNS.md`
   (copy-paste templates for everything above), then

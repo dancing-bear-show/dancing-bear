@@ -347,11 +347,17 @@ change is fine and the environment is wrong.
 ## Check for an Existing Workflow First
 
 **Before starting any multi-step task, check whether a workflow already does it.**
-This repo has 53 runnable workflows (count as of 2026-09-11 — `./bin/workflow
-list` is authoritative). There are 73 YAML files under `workflows/`, but 19 are
-`fragment: true` includes that are not runnable on their own, so counting files
-overstates the catalog. Reinventing a workflow wastes the work already invested
-in it and produces a second, diverging implementation of the same process.
+`./bin/workflow list` is the authoritative catalog and shows 53 workflows (as of
+2026-09-11). Counting the files instead overstates it: of 73 YAML files under
+`workflows/`, 19 are `fragment: true` includes that cannot run on their own.
+
+53 is the *listable* count, not quite the runnable one — `workflow list` skips
+everything under `workflows/shared/`, and one file there
+(`workflows/shared/critique.yaml`) is a non-fragment workflow that can be invoked
+directly. So 54 are runnable and 53 are listed.
+
+Reinventing a workflow wastes the work already invested in it and produces a
+second, diverging implementation of the same process.
 
 Count them with `./bin/workflow list --format json`, not by grepping the table —
 the text output wraps long descriptions across lines, so `grep -c` over it

@@ -308,7 +308,7 @@ prefixed with `outputs/`, `validation/`, `stages/`, or `dispatch/` is used as-is
 | `src/workflow/README.md` | module-level architecture and key modules |
 | `src/workflow/compiler.py` | topological sort, parallel groups, CLI compilation |
 | `src/workflow/dispatch.py` | per-kind agent prompt construction |
-| `workflows/` | 52 checked-in workflows to read as examples |
+| `workflows/` | the checked-in workflows, to read as examples |
 
 Related skills: `/select-workflow` to find the right one, `/write-workflow` to
 author a new one, `/validate-workflow` to check it before committing.

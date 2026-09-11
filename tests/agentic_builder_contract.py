@@ -10,8 +10,9 @@ while ``build_domain_map`` was exercised in 9, even though 10 domains define it.
 A second class of agentic modules -- ``apple_music``, ``charts``,
 ``diagrams``, ``sheets``, ``slides``, ``worker``, and ``workflow`` -- define
 ``build_agentic_capsule`` and ``emit_agentic_context`` but deliberately omit
-``build_domain_map``. (``telemetry`` is minimal by shape too, but is Click-based
-and covered separately -- see the Click exemption in .llm/CLI_STANDARD.md.) These
+``build_domain_map``. (``telemetry`` is minimal by shape too. It was formerly
+Click-based and carried a separate exemption; #341 ported it to argparse and the
+exemption is retired, so it is now a normal member of this group.) These
 hand-write their capsule content rather than deriving it from a domain map. They
 set ``EXPECT_DOMAIN_MAP = False`` to opt out of the three domain-map tests; the
 mixin then asserts that ``build_domain_map`` genuinely does not exist, so the

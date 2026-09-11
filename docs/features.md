@@ -90,7 +90,7 @@ Labels and signatures work the same way: `./bin/mail labels export`,
 
 ## 3. Workflow engine
 
-52 checked-in YAML DAG workflows covering PR review, coverage expansion,
+Dozens of checked-in YAML DAG workflows covering PR review, coverage expansion,
 complexity sweeps, CI debugging, and resume tailoring. Stages run in parallel
 where the DAG allows, and human gates pause execution for approval before
 anything consequential.

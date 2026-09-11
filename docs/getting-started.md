@@ -54,7 +54,7 @@ agent, or yourself, before touching anything.
 Two more worth running now:
 
 ```bash
-./bin/workflow list        # 52 checked-in workflows
+./bin/workflow list        # the checked-in workflow catalog
 ./bin/mail --agentic --agentic-format yaml --agentic-compact
 ```
 

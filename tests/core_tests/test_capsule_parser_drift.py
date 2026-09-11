@@ -240,8 +240,10 @@ def _index(schema: dict) -> tuple[dict[str, set[str]], set[str]]:
     """Return (sub path -> long flags valid there, all boolean long flags).
 
     Root options live under "". Handles both schema shapes: argparse nests
-    under ``subcommands``, the Click emitter (telemetry) uses a flat
-    ``commands`` list.
+    under ``subcommands``, while a flat ``commands`` list is also accepted.
+    Every app emits the argparse shape today -- telemetry was the last flat
+    ``commands`` emitter and #341 ported it -- so the flat branch is kept only
+    as tolerance for a hand-written capsule, not for any current app.
     """
     index: dict[str, set[str]] = {}
     booleans: set[str] = set()
