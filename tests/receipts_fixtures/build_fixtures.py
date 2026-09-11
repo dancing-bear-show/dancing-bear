@@ -25,16 +25,36 @@ Shapes encoded here, all confirmed against real files:
   speech_aim.pdf        "Total Amount  $150.00" -- a third spelling.
 
   costco_pharmacy.pdf   OCR-degraded text: "!Patient Pays: 88.21 j", no dollar
-                        sign, surrounding garble ("0/A ewe Pharmacies"). Real
-                        Costco receipts are scans carrying a dirty OCR layer,
-                        NOT clean text and NOT blank.
+                        sign, stray punctuation around the amount. Real Costco
+                        receipts are scans carrying a dirty OCR layer, NOT
+                        clean text and NOT blank. Keeps the literal "Costco"
+                        because CostcoParser.matches() keys on it.
 
   costco_optical.pdf    Text layer present but carrying NO total label and NO
                         "$"-prefixed amount. Nothing to extract: this is the
-                        genuine sidecar case, and the only one.
+                        genuine sidecar case, and the only one. Also keeps the
+                        "Costco" marker so it reaches CostcoParser and is
+                        declined on the AMOUNT, not on the match.
 
   image_only.pdf        A page with no text layer at all -- the OCR-fallback
                         trigger.
+
+Which parser claims which fixture, given the order jane -> costco -> generic
+-> sidecar (verified, not assumed):
+
+  jane_clinic       -> Jane    yields 190.00
+  jane_zero         -> Jane    yields 0.00   (success, not failure)
+  invoice_total     -> Jane    yields 250.00 -- carries a Jane invoice id but a
+                               "Total" label, so it tests whether JANE copes
+                               with label variance, not whether Generic does
+  speech_aim        -> Jane    yields 150.00 -- likewise, "Total Amount"
+  costco_pharmacy   -> Costco  yields 88.21 from OCR-garbled text, no "$"
+  costco_optical    -> Costco  MATCHES but must DECLINE: no label, no amount.
+                               This is what forces the sidecar fallback, so a
+                               dispatcher that returns on first match rather
+                               than first successful EXTRACTION makes the
+                               sidecar unreachable.
+  image_only        -> OCR fallback (empty text layer)
 
 Run: python3 tests/receipts_fixtures/build_fixtures.py
 """
@@ -159,7 +179,10 @@ def costco_pharmacy(path: pathlib.Path) -> None:
     """
     doc = fitz.open()
     _page(doc, [
-        "0/A ewe Pharmacies (Ontario) Ltd.",
+        # The vendor name is retained deliberately: CostcoParser.matches()
+        # keys on this literal, and a retailer name is not personal data.
+        # Everything identifying a PATIENT is invented.
+        "Costco Pharmacies (Ontario) Ltd.",
         "35 Example Rd. Springfield",
         "9os-1eo-21os",
         "Rx:0000000",
@@ -171,6 +194,8 @@ def costco_pharmacy(path: pathlib.Path) -> None:
         "Cost:",
         "253. 70",
         "Example Insurer Limited [EI] 169. 98",
+        # OCR garble around the amount is faithful to real scans: the stray
+        # "!" and "j", and no "$" sigil anywhere on the line.
         "!Patient Pays: 88.21 j",
         "OFFICIAL PRESCRIPTION RECEIPT",
     ])
@@ -186,7 +211,9 @@ def costco_optical(path: pathlib.Path) -> None:
     """
     doc = fitz.open()
     _page(doc, [
-        "EXAMPLE OPTICAL DEPARTMENT",
+        # "Costco" retained so this reaches CostcoParser: the fixture must be
+        # declined for having no extractable amount, not for failing to match.
+        "COSTCO OPTICAL DEPARTMENT",
         "500 Example Pkwy, Springfield ON",
         "MEMBER 000000000000",
         "",
