@@ -19,6 +19,7 @@ from mail.outlook.processors_rules_write import (
     OutlookRulesPlanProcessor,
     OutlookRulesPlanResult,
     OutlookRulesSweepProcessor,
+    OutlookRulesSweepResult,
 )
 from mail.outlook.processors_rules_helpers import (
     RuleContext,
@@ -1019,6 +1020,61 @@ class TestSweepHonoursKeepInInboxEndToEnd(unittest.TestCase):
         spec = self._derive_outlook_action(self.UNMARKED_REMOVE, archive=True)
         client = self._sweep(spec)
         self.assertEqual(2, client.move_message.call_count)
+
+
+class TestSweepCategoriesOnlyExplicitDestination(unittest.TestCase):
+    """`sweep --dry-run` must report what the live run will actually do.
+
+    Regression: sweep gated `folder_paths` on `move_to_folders` alone, but
+    `_resolve_destination_folder` honours an explicit `moveToFolder` regardless
+    — reading the map on the dry-run branch and calling `ensure_folder_path()`
+    on the live one. Under `--categories-only` the map was empty, so dry-run
+    resolved None and reported zero moves while the live run moved mail.
+
+    A dry run that under-reports is worse than no dry run: the whole
+    plan-then-apply discipline rests on the preview being honest.
+    """
+
+    FILTERS = [{
+        "match": {"from": "sec.example.net"},
+        "action": {"add": ["Security/Alerts"], "moveToFolder": "Security/Alerts"},
+    }]
+    NO_DEST = [{
+        "match": {"from": "a@example.com"},
+        "action": {"add": ["Tech/Grafana"], "noMoveToFolder": True},
+    }]
+
+    def _sweep(self, filters: list[dict], dry_run: bool):
+        client = MagicMock()
+        client.get_folder_path_map.return_value = {"Security/Alerts": "real-sec-id"}
+        client.ensure_folder_path.return_value = "real-sec-id"
+        client.search_inbox_messages.return_value = ["m1", "m2"]
+        payload = OutlookRulesSweepPayload(
+            client=client, config_path="/t.yaml", dry_run=dry_run, move_to_folders=False
+        )
+        with patch("core.yamlio.load_config", return_value={"filters": filters}):
+            envelope = OutlookRulesSweepProcessor().process(payload)
+        self.assertEqual(envelope.status, "success")
+        result = envelope.payload
+        self.assertIsNotNone(result)
+        return cast(OutlookRulesSweepResult, result).moved, client
+
+    def test_dry_run_count_matches_the_live_run(self):
+        """The headline assertion: same count, whatever the flags."""
+        dry_moved, dry_client = self._sweep(self.FILTERS, dry_run=True)
+        live_moved, live_client = self._sweep(self.FILTERS, dry_run=False)
+
+        self.assertEqual(2, dry_moved)
+        self.assertEqual(dry_moved, live_moved, "dry-run must not under-report")
+        # Dry-run really was a preview: it reported moves without making any.
+        dry_client.move_message.assert_not_called()
+        self.assertEqual(2, live_client.move_message.call_count)
+
+    def test_no_explicit_destination_skips_the_map(self):
+        """Contrast: nothing to resolve means no extra Graph call."""
+        moved, client = self._sweep(self.NO_DEST, dry_run=True)
+        self.assertEqual(0, moved)
+        client.get_folder_path_map.assert_not_called()
 
 
 if __name__ == "__main__":

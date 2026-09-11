@@ -111,22 +111,33 @@ def _create_rule_key(criteria: dict[str, Any], action: dict[str, Any]) -> str:
 
 
 def _resolve_folder_id(path: str, folder_map: dict[str, str]) -> str:
-    """Resolve a folder path to an id for planning, raw path first.
+    """Resolve a folder path to an id for planning, by raw path only.
 
-    ``folder_map`` may be path-keyed (``get_folder_path_map``) or
-    display-name-keyed (``get_folder_id_map``), so both spellings are tried.
-    Normalizing first turns ``Security/Alerts`` into ``Security-Alerts``, which
-    matches neither map — leaving the normalized string to be used as the folder
-    id itself, while ``_build_rule_action`` resolves the raw path through
-    ``ensure_folder_path()`` and gets a real Graph id. The plan's rule key then
-    diverged from apply's and an existing rule was reported as "Would create"
-    with the wrong destination displayed.
+    The raw path is what ``_build_rule_action`` passes to
+    ``ensure_folder_path()``, so matching it is what keeps the plan's rule key
+    equal to apply's. Normalizing first turned ``Security/Alerts`` into
+    ``Security-Alerts``, matched nothing, and left that string to be used as the
+    folder id — the plan then reported an existing rule as "Would create" with
+    the wrong destination displayed.
+
+    The normalized alias is tried **only for a flat name**, where normalization
+    is a no-op. For a nested path it is unsafe: ``Security/Alerts`` flattens to
+    ``Security-Alerts``, which may be a genuinely different, top-level folder.
+    Resolving to that folder's id would make the plan name a destination apply
+    never touches — a wrong answer, where a miss is merely an unresolved one.
 
     Falling back to the path itself keeps planning possible when the map has no
-    entry (a folder sync would create on apply); it is not a Graph id, so a
-    caller comparing keys against live rules will still see a difference.
+    entry (apply would create the folder); it is not a Graph id, so a caller
+    comparing keys against live rules still sees a difference rather than a
+    false match.
     """
-    return folder_map.get(path) or folder_map.get(norm_label_name_outlook(path)) or path
+    if path in folder_map:
+        return folder_map[path]
+    if "/" not in path:
+        alias = norm_label_name_outlook(path)
+        if alias in folder_map:
+            return folder_map[alias]
+    return path
 
 
 def _build_plan_action(action_spec: dict[str, Any], ctx: RuleContext) -> dict[str, Any]:

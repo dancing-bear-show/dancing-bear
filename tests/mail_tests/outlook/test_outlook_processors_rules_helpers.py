@@ -18,6 +18,7 @@ from mail.outlook.processors_rules_helpers import (
     _export_rule_entry,
     _fetch_rules_with_resilience,
     _resolve_destination_folder,
+    _resolve_folder_id,
 )
 
 
@@ -615,6 +616,43 @@ class TestBuildRuleActionNoMoveToFolder(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _resolve_destination_folder — noMoveToFolder (keepInInbox) behaviour
 # ---------------------------------------------------------------------------
+
+class TestResolveFolderIdAliasCollision(unittest.TestCase):
+    """The normalized alias must not resolve a nested path to a different folder.
+
+    `norm_label_name_outlook` flattens `Security/Alerts` to `Security-Alerts`,
+    which can be a real, *separate* top-level folder. Falling back to it would
+    make the plan name a destination apply never touches — a wrong answer, where
+    an unresolved path is merely an incomplete one.
+
+    The alias is still useful for a flat name, where normalization is a no-op
+    and the two spellings are the same folder by definition.
+    """
+
+    def test_nested_path_does_not_fall_back_to_the_flattened_name(self):
+        """A top-level `Security-Alerts` must not satisfy `Security/Alerts`."""
+        folder_map = {"Security-Alerts": "TOPLEVEL-other-id"}
+        self.assertEqual(
+            "Security/Alerts",
+            _resolve_folder_id("Security/Alerts", folder_map),
+            "must not resolve to a different folder's id",
+        )
+
+    def test_nested_path_resolves_when_the_map_has_it(self):
+        """The raw path is matched first and exactly."""
+        folder_map = {"Security/Alerts": "NESTED-real-id", "Security-Alerts": "other"}
+        self.assertEqual(
+            "NESTED-real-id", _resolve_folder_id("Security/Alerts", folder_map)
+        )
+
+    def test_flat_name_still_uses_the_alias(self):
+        """For a flat name the alias is the same string, so the lookup is safe."""
+        self.assertEqual("flat-id", _resolve_folder_id("Archive", {"Archive": "flat-id"}))
+
+    def test_unknown_path_falls_back_to_itself(self):
+        """No entry: return the path, not an unrelated id."""
+        self.assertEqual("Nope/Missing", _resolve_folder_id("Nope/Missing", {}))
+
 
 class TestResolveDestinationFolderNoMoveToFolder(unittest.TestCase):
     """noMoveToFolder: true returns None (no folder move) even with move_to_folders=True.

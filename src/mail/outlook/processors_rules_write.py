@@ -310,7 +310,19 @@ class OutlookRulesSweepProcessor(Processor[OutlookRulesSweepPayload, ResultEnvel
 
             doc = load_config(payload.config_path)
             desired = normalize_filters_for_outlook(doc.get("filters") or [])
-            folder_paths = client.get_folder_path_map(clear_cache=payload.clear_cache) if payload.move_to_folders else {}
+            # Same condition as the plan processor, and for a sharper reason:
+            # `_resolve_destination_folder` reads the map only on the dry-run
+            # branch and calls ensure_folder_path() on the live one. Gating on
+            # move_to_folders alone left the map empty under --categories-only,
+            # so a rule with an explicit `moveToFolder` resolved None in dry-run
+            # and a real id live — `sweep --dry-run` reported zero moves while
+            # the real run moved mail. A dry run that under-reports is worse
+            # than no dry run at all.
+            folder_paths = (
+                client.get_folder_path_map(clear_cache=payload.clear_cache)
+                if payload.move_to_folders or _has_explicit_destination(desired)
+                else {}
+            )
 
             total_moves = self._process_sweep_rules(desired, folder_paths, client, payload)
 
