@@ -106,25 +106,55 @@ stages:
       Per-function findings are the higher-signal half: they name the exact
       function to fix, which is what the reduce-in-place strategy acts on.
 
-      Step 1 — get the authoritative finding set (BOTH scans, stable):
-        ./bin/qlty-assistant scan --rescan-until-stable --format json \
-          --rule file-complexity --rule function-complexity \
-          --rule nested-control-flow --rule python:S3776 \
-          > {workspace}/outputs/qlty-stable.json
+      Step 1 — get the best available finding set (BOTH scans, stable, and
+      per-directory so the cap has less to crowd out):
 
-        This single command IS the data path — do not plan from a one-shot
-        raw scan. The wrapper merges `check` and `smells` (the two return
-        disjoint sets) and re-scans until findings stop changing, which is
-        required rather than advisory: qlty's per-run cap is
-        nondeterministic, so one capped `qlty check --all` can omit the very
-        S3776 findings this stage was widened to discover. Measured on this
-        repo across all rules: a single unfiltered run reported 19 findings
-        where the stable union over the same tree was 36.
+        The repo-wide sweep first, for the overall picture:
+          ./bin/qlty-assistant scan --rescan-until-stable --format json \
+            --rule file-complexity --rule function-complexity \
+            --rule nested-control-flow --rule python:S3776 \
+            > {workspace}/outputs/qlty-stable.json
 
-        Confirm the result really is stable before using it — the JSON
-        carries "stable": true, "iterations": N, and "degraded". If
-        "stable" is false or "degraded" is true, record that in scan_errors
-        and do not treat the list as complete.
+        Then ONE SCOPED SCAN PER top-level src/ directory, merged in:
+          for d in src/*/ ; do
+            ./bin/qlty-assistant scan --rescan-until-stable --format json \
+              --rule file-complexity --rule function-complexity \
+              --rule nested-control-flow --rule python:S3776 \
+              "$d" > "{workspace}/outputs/scoped-$(basename $d).json"
+          done
+
+        Union all of them by (file, line, rule). The scoped scans are not
+        redundant: `--rule` is a POST-SCAN filter applied by
+        `ScanResult.filter_by_rules()` to the already-capped result set — the
+        flags are never passed to qlty itself. So the cap is applied across
+        ALL rules first, and unrelated findings (function-parameters,
+        similar-code, ripgrep comment markers) can crowd out the four rules
+        this stage wants. Narrowing the scan's INPUT with a path argument is
+        the only lever that actually reduces cap pressure. Confirmed: a
+        path-scoped stable scan of src/telemetry/ for python:S3776 alone
+        returned all 4 findings.
+
+        Do not plan from a one-shot raw scan. The wrapper merges `check` and
+        `smells` (disjoint sets) and re-scans until the identity set repeats.
+        Measured on this repo across all rules: a single unfiltered run
+        reported 19 findings where the stable union over the same tree was
+        36.
+
+        "stable": true is NOT a completeness guarantee — be honest about
+        this in the output. `Scanner._rescan()` documents that the union is
+        only "closer to the truth than the last run", and the JSON's own
+        note says the count "is not a completeness signal". Stability means
+        the identity set repeated for `dry_streak` iterations; findings the
+        cap hid on every iteration stay hidden. So:
+          - If "stable" is false or "degraded" is true, record it in
+            scan_errors and treat the list as incomplete.
+          - Even when stable, record "completeness": "best-effort" in
+            candidates.json along with the iteration count and the number of
+            scoped scans merged. Never describe the result as complete or
+            authoritative — a later stage reading "authoritative" will skip
+            checks it should still run.
+          - The recheck stages therefore re-scan rather than trusting this
+            list, and a file absent here is "not detected", not "clean".
 
         The wrapper's normalized shape differs from raw qlty JSON: findings
         live under "findings", each with "rule" (already namespace-stripped,
@@ -223,15 +253,32 @@ stages:
         with file_complexity null and its function findings attached.
 
       Step 3b — sanity-check the extraction before trusting it:
-        If a scan exited 1 (issues found) but your extracted list for that
-        scan is EMPTY, that is a filter or parse bug on your side — not a
-        clean tree. Do not proceed as though there were no findings: record
-        it in "scan_errors" and say so plainly. The most likely cause is
-        matching a rule key against the wrong field (see the tool/ruleKey
-        note in Step 3).
-        Cross-check: the row count you extracted should be less than or equal
-        to the total rows in the JSON, and greater than zero whenever the
-        scan reported issues.
+        Do NOT test the wrapper's exit code for this. `./bin/qlty-assistant
+        scan` returns 0 whenever it successfully parsed a scan — with
+        findings or without — so an exit-based guard can never fire. Verified
+        both ways: a scoped scan returning 4 findings and a clean scan both
+        exit 0. (The exit-1-means-issues contract belongs to raw
+        `~/.qlty/bin/qlty`, not to the wrapper.)
+
+        Check the JSON's own fields instead:
+          a. "total" vs your extracted row count. Your count must be <=
+             "total". If "total" > 0 but you extracted ZERO rows, that is a
+             filter or parse bug on your side, NOT a clean tree — record it
+             in "scan_errors" and say so plainly. The most likely cause is
+             selecting on the wrong field (see the rule-key note in Step 3).
+          b. "counts_by_rule" — sum the four candidate rules. That sum is the
+             number of rows you should have extracted; any shortfall is a
+             parse bug, not an absence of findings.
+          c. "degradations" — a non-empty array means a wire-format fallback
+             occurred. Record it; the run may be missing rules entirely.
+          d. Unparseable output, or a missing "findings" key, is an ERROR.
+             Record it. An empty finding list from a parse failure and an
+             empty list from a clean repo must never collapse to the same
+             result.
+
+        Also use `--expect-min N` when you have a prior expectation for the
+        tree: the wrapper exits nonzero on an implausibly small scan, which
+        is the one exit-code signal it does provide.
 
       Step 4 — merge per-file and sort:
         Key by path. Union the two sources so a file flagged by both appears
@@ -713,6 +760,14 @@ stages:
       model: sonnet
       tools: [Read, Write, Edit, Bash]
       access: read-write
+      # REQUIRED, not optional: this stage fans out one code-writer per
+      # directory group, all writing source concurrently. The orchestrator
+      # passes isolation to Agent() only when this field is present, so
+      # without it every worker edits the SAME checkout and their edits
+      # interleave — a second agent's write is based on a read that predates
+      # the first's, silently reverting it. The stage text below promises
+      # isolation:worktree; this is what makes that true.
+      isolation: worktree
     required: true
     fan_out:
       source: plan-splits
@@ -841,6 +896,22 @@ stages:
       model: sonnet
       tools: [Read, Edit, Bash]
       access: read-write
+    # NOTE on this validation block and the two like it (validate-imports,
+    # recheck): `build_dispatch_instruction()` sets is_validation and
+    # validation_strategy only for kind:validate, and `_validate()` is the
+    # only prompt builder that reads validation.criteria/max_revisions. On a
+    # kind:execute stage this block is therefore NOT delivered to the agent
+    # and grants no validator or revision gate.
+    #
+    # It is kept deliberately, for two reasons: `./bin/workflow lint` and the
+    # human reader both use it as the stage's declared contract, and a future
+    # engine change that honours criteria on non-validate kinds would pick it
+    # up. The ENFORCEABLE copy is the "Acceptance criteria" list inside the
+    # description above, which every prompt builder does deliver.
+    #
+    # The two lists MUST stay in sync. If you edit one, edit the other — and
+    # do not "simplify" by deleting the description copy, which is the only
+    # one that reaches the agent.
     validation:
       strategy: deliverable
       criteria:
@@ -913,9 +984,39 @@ stages:
         first:
           git ls-tree -r --name-only HEAD -- <path>   # non-empty => pre-existing
 
-        a. For each PRE-EXISTING touched file:
-             git show HEAD:<path> | grep -n "^class \|^def "
-             python3 -c "import <m>; print([n for n in dir(<m>) if not n.startswith('_')])"
+        a. For each PRE-EXISTING touched file, extract the SAME symbol set on
+           both sides. The two sides must agree on what counts, or the
+           comparison produces noise in both directions:
+             - `grep "^class \|^def "` includes PRIVATE names (`_helper`) that
+               `dir()` filtering by `not n.startswith("_")` excludes, so every
+               ordinary private helper reads as a missing export.
+             - that grep also MISSES `async def`, so public coroutines are
+               never checked at all.
+
+           Use the dedicated script for both sides — it applies one predicate
+           (public top-level classes and functions, async included, that the
+           module itself defines), so the sets are directly comparable:
+
+             git show HEAD:<path> > /tmp/head-version.py
+             python3 workflows/code/scripts/public_symbols.py \
+               --source /tmp/head-version.py > /tmp/before.txt
+             PYTHONPATH="$PWD/src" python3 workflows/code/scripts/public_symbols.py \
+               --module <m> > /tmp/after.txt
+             diff /tmp/before.txt /tmp/after.txt
+
+           It is covered by tests/test_public_symbols.py, including a test
+           that both modes agree on the same module. Do not reimplement it
+           inline: embedded Python in workflow YAML is a ratified critical
+           concern in this repo, and a second copy drifts from the tested one.
+
+           Both exclusions it applies are load-bearing. Private names are
+           dropped on BOTH sides (a raw `grep "^def "` keeps them, so every
+           ordinary private helper would read as a missing export), `async
+           def` is included (that grep missed it, so public coroutines went
+           unchecked), and imported-then-re-exported names plus imported
+           submodules are excluded (a bare `dir()` lists them, masking a
+           genuinely deleted definition behind an unrelated import).
+
            Any pre-existing public symbol now missing is a regression UNLESS
            it moved in a split AND every call site was updated to its new
            home — verify the new home exports it (Step 3b).
@@ -988,51 +1089,37 @@ stages:
         directive. A shim in any of those forms would leave facades_detected
         empty and pass the gate.
 
-        The structural property that defines a facade: the module's body
-        contains NO definitions of its own (no class, no def, no assignment
-        other than __all__/dunders) and consists only of imports.
+        Use the EXISTING tested detector. Do NOT write an AST check inline
+        here: `workflows/code/scripts/detect_facades.py` already implements
+        exactly this ("imports > 0 AND defs == 0 AND other == 0"), is covered
+        by `tests/test_detect_facades.py`, and is reused byte-identically by
+        `facade-elimination.yaml`. Embedding Python in workflow YAML is a
+        ratified project concern, and a second copy of this logic would drift
+        from the tested one. Its resolver also handles four symbol-binding
+        forms a naive implementation misses, each a real miss found during a
+        dry run against this repo.
 
-        Use the Write tool to create {workspace}/outputs/detect_facade.py
-        with exactly this content, then run it with the Bash tool:
+          PYTHONPATH="$PWD/src" python3 workflows/code/scripts/detect_facades.py \
+            > {workspace}/validation/facades.json
 
-          import ast
-          import sys
+        It walks src/ and emits {"total_facades": N, "facades": [...]} with a
+        "module" field per entry. Env overrides: INCLUDE_INIT, DOMAINS.
 
-          for target in sys.argv[1:]:
-              tree = ast.parse(open(target).read())
-              body = [n for n in tree.body
-                      if not isinstance(n, ast.Expr)
-                      or not isinstance(n.value, ast.Constant)]
-              imports = [n for n in body
-                         if isinstance(n, (ast.Import, ast.ImportFrom))]
-              defines = [n for n in body
-                         if isinstance(n, (ast.ClassDef, ast.FunctionDef,
-                                           ast.AsyncFunctionDef))]
-              assigns = [n for n in body
-                         if isinstance(n, (ast.Assign, ast.AnnAssign))]
-              targets_of = lambda a: getattr(a, "targets", None) or [a.target]
-              real = [a for a in assigns
-                      if not all(getattr(t, "id", "").startswith("__")
-                                 for t in targets_of(a) if t is not None)]
-              if imports and not defines and not real:
-                  print("FACADE: " + target)
+        Interpreting the result — compare against the BASELINE, not zero:
+          a. Before the sweep began, the same detector reported a known
+             baseline for this repo. Re-run it on origin/main if you do not
+             have that number.
+          b. Any module in "facades" that was NOT in the baseline, and that
+             this sweep touched, is a project-rule violation — record it in
+             facades_detected and fail the stage.
+          c. Pre-existing entries are not this sweep's doing. `mail.llm_cli`
+             in particular is a KNOWN FALSE POSITIVE: it is a live
+             `llm --app mail` dispatch target reached through a string
+             literal, so it is structurally a facade but not removable. Do
+             not report it as introduced, and do not "fix" it.
 
-        Run:
-          python3 {workspace}/outputs/detect_facade.py <original_split_paths...>
-
-        Verified against nine fixtures: it flags the shim written with
-        `# noqa: F401`, the bare `from .x import Y`, the `__all__` re-export
-        list, the `import X as X` alias form, and a mixed docstring+imports
-        module; it clears a module with a def, one with a real constant, a
-        docstring-only module, and one that re-exports a base class while
-        defining a subclass.
-
-        Any FACADE line is a project-rule violation even if every test
-        passes. Report it as a failure, not a warning, and record the path in
-        facades_detected.
-
-        A module that legitimately still owns some code will have definitions
-        and is not a facade, however many imports it also carries.
+        A module that legitimately still owns code will have definitions and
+        is not a facade, however many imports it also carries.
 
       Step 7 — run qlty on all modified files:
         ~/.qlty/bin/qlty check <list of modified .py files>
@@ -1246,14 +1333,28 @@ stages:
       check is still failing.
 
       Step 1 — full test suite:
-        PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests -t . -q 2>&1
+        PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests -t . -q > /tmp/recheck-suite.log 2>&1; echo "EXIT=$?"
+        grep -E "Ran [0-9]+ tests" /tmp/recheck-suite.log
+        grep -E "^(OK|FAILED)" /tmp/recheck-suite.log
 
-        Confirm the summary line, not the exit code alone — a run that
-        executed zero tests can still exit 0:
-          grep -E "^Ran [0-9]+ tests"
-        No "Ran N tests" line means the suite did not run; re-run it.
+        Three things this form gets right, each of which otherwise yields a
+        false green:
+          - The log file gives the greps an INPUT. A bare
+            `grep -E "Ran [0-9]+ tests"` with no file argument reads stdin and
+            blocks, or inspects nothing — it cannot verify a run whose output
+            already went to the terminal.
+          - No `^` anchor on the "Ran" grep: unittest prefixes that line with
+            progress dots, so anchoring to column 0 misses it and a completed
+            run looks like it never finished.
+          - EXIT is read from a non-piped command. Do not pipe the test
+            command into `tail`/`head`; a pipeline returns its LAST element's
+            status, so a failing suite reports success.
 
-        If exit != 0:
+        The `2>&1` is required: unittest writes `Ran N tests`, `OK` and
+        `FAILED` to stderr. No "Ran N tests" line means the suite did not
+        run — re-run it, do not record a verdict.
+
+        If EXIT != 0:
           Record failure output to {workspace}/validation/recheck-test-failure.txt.
           Attempt one targeted fix in src/ or bin/ only. Re-run once. If
           still failing: set test_status "FAIL" and document the blocker. The
