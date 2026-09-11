@@ -94,24 +94,42 @@ def _is_event_success(attrs: dict[str, object]) -> bool:
     return str(v).lower() not in ("false", "0", "no")
 
 
+def _iter_envelope_level(
+    container: dict[str, object], key: str
+) -> Iterator[dict[str, object]]:
+    """Yield the dict entries of ``container[key]``, skipping malformed input.
+
+    One level of an OTLP envelope: a missing key, a non-list value, and any
+    non-dict entry within the list are all skipped silently.
+    """
+    values = container.get(key, [])
+    if not isinstance(values, list):
+        return
+    for value in values:
+        if isinstance(value, dict):
+            yield value
+
+
+def _iter_list_value(
+    container: dict[str, object], key: str
+) -> Iterator[dict[str, object]]:
+    """Yield the entries of ``container[key]`` unfiltered, skipping a non-list value.
+
+    Unlike :func:`_iter_envelope_level` this does not drop non-dict entries: the
+    leaf level is declared as dicts by the caller contract and is passed through
+    as-is.
+    """
+    values = container.get(key, [])
+    if isinstance(values, list):
+        yield from values
+
+
 def _iter_log_records(raw_objs: list[dict[str, object]]) -> Iterator[dict[str, object]]:
     """Yield every logRecord dict from a list of decoded OTLP resourceLogs objects."""
     for obj in raw_objs:
-        resource_logs = obj.get("resourceLogs", [])
-        if not isinstance(resource_logs, list):
-            continue
-        for rl in resource_logs:
-            if not isinstance(rl, dict):
-                continue
-            scope_logs = rl.get("scopeLogs", [])
-            if not isinstance(scope_logs, list):
-                continue
-            for sl in scope_logs:
-                if not isinstance(sl, dict):
-                    continue
-                log_records = sl.get("logRecords", [])
-                if isinstance(log_records, list):
-                    yield from log_records
+        for resource_log in _iter_envelope_level(obj, "resourceLogs"):
+            for scope_log in _iter_envelope_level(resource_log, "scopeLogs"):
+                yield from _iter_list_value(scope_log, "logRecords")
 
 
 def _accumulate_datapoint(
@@ -244,36 +262,24 @@ def _str_or_empty(value: object) -> str:
     return str(value) if value is not None else ""
 
 
+def _iter_metric_points(metric: dict[str, object]) -> Iterator[dict[str, object]]:
+    """Yield the datapoint dicts of one OTLP metric, preferring gauge over sum."""
+    gauge = metric.get("gauge", {})
+    sum_data = metric.get("sum", {})
+    gauge_dict = gauge if isinstance(gauge, dict) else {}
+    sum_dict = sum_data if isinstance(sum_data, dict) else {}
+    if gauge_dict.get("dataPoints"):
+        return _iter_envelope_level(gauge_dict, "dataPoints")
+    return _iter_envelope_level(sum_dict, "dataPoints")
+
+
 def _iter_metric_datapoints(
     raw: dict[str, object],
 ) -> Iterator[tuple[str, dict[str, object]]]:
     """Yield (metric_name, datapoint_dict) pairs from a single raw metrics JSONL record."""
-    resource_metrics = raw.get("resourceMetrics", [])
-    if not isinstance(resource_metrics, list):
-        return
-    for rm in resource_metrics:
-        if not isinstance(rm, dict):
-            continue
-        scope_metrics = rm.get("scopeMetrics", [])
-        if not isinstance(scope_metrics, list):
-            continue
-        for sm in scope_metrics:
-            if not isinstance(sm, dict):
-                continue
-            metrics = sm.get("metrics", [])
-            if not isinstance(metrics, list):
-                continue
-            for metric in metrics:
-                if not isinstance(metric, dict):
-                    continue
+    for resource_metric in _iter_envelope_level(raw, "resourceMetrics"):
+        for scope_metric in _iter_envelope_level(resource_metric, "scopeMetrics"):
+            for metric in _iter_envelope_level(scope_metric, "metrics"):
                 name = _str_or_empty(metric.get("name"))
-                gauge = metric.get("gauge", {})
-                sum_data = metric.get("sum", {})
-                gauge_dict = gauge if isinstance(gauge, dict) else {}
-                sum_dict = sum_data if isinstance(sum_data, dict) else {}
-                data_points = gauge_dict.get("dataPoints") or sum_dict.get("dataPoints", [])
-                if not isinstance(data_points, list):
-                    continue
-                for dp in data_points:
-                    if isinstance(dp, dict):
-                        yield name, dp
+                for datapoint in _iter_metric_points(metric):
+                    yield name, datapoint
