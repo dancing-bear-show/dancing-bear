@@ -52,7 +52,7 @@ def from_module(dotted: str) -> list[str]:
     """Public classes/functions *defined by* the module named *dotted*.
 
     Mirrors :func:`from_source`, which reports only top-level classes and
-    functions, so the two can be compared directly. Three exclusions make that
+    functions, so the two can be compared directly. Four exclusions make that
     equivalence hold:
 
     - ``__module__ != dotted`` drops names imported from elsewhere and merely
@@ -62,6 +62,13 @@ def from_module(dotted: str) -> list[str]:
       ``__module__``, so an attribute-defaulting check misattributes it.
     - non-callable, non-class values (constants) are dropped, because
       :func:`from_source` does not report assignments either.
+    - an ALIAS of a local definition is dropped: ``class Foo: ...`` followed by
+      ``PublicAlias = Foo`` binds two names to one object, and the object's
+      ``__module__`` matches for both, so an attribute-only check reports a
+      name :func:`from_source` never sees. Requiring ``value.__name__`` to
+      equal the binding name keeps the two sides symmetric. (A decorated
+      function still passes: ``functools.wraps`` copies ``__name__``, and an
+      undecorated rename is genuinely an alias.)
     """
     mod = importlib.import_module(dotted)
     return sorted(
@@ -71,6 +78,7 @@ def from_module(dotted: str) -> list[str]:
         and not isinstance(value, types.ModuleType)
         and (isinstance(value, type) or callable(value))
         and getattr(value, "__module__", None) == dotted
+        and getattr(value, "__name__", name) == name
     )
 
 

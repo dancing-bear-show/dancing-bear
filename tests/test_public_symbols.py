@@ -141,6 +141,24 @@ class FromSourceTests(unittest.TestCase):
 class FromModuleTests(unittest.TestCase):
     """Runtime-side extraction, restricted to the module's own definitions."""
 
+    _paths: dict[str, str] = {}
+
+    def _make_module(self, name: str, body: str) -> str:
+        """Write a temp module, make it importable, and return its dotted name."""
+        import tempfile
+
+        tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        target = tmp / f"{name}.py"
+        target.write_text(textwrap.dedent(body))
+        sys.path.insert(0, str(tmp))
+        self.addCleanup(sys.path.remove, str(tmp))
+        self.addCleanup(sys.modules.pop, name, None)
+        self._paths[name] = str(target)
+        return name
+
+    def _module_path(self, name: str) -> str:
+        return self._paths[name]
+
     def test_own_definitions_only(self):
         # json re-exports names from json.decoder/json.encoder; those must not
         # be attributed to json itself, which is the asymmetry a bare dir()
@@ -169,6 +187,55 @@ class FromModuleTests(unittest.TestCase):
     def test_unimportable_raises(self):
         with self.assertRaises(ImportError):
             public_symbols.from_module("no.such.module.anywhere")
+
+    def test_alias_of_local_definition_excluded(self):
+        # `class Foo: ...` plus `PublicAlias = Foo` binds two names to one
+        # object, and __module__ matches for both — so an attribute-only check
+        # reports a name from_source() never sees, and the workflow's diff
+        # fails parity on a module that is in fact unchanged.
+        mod = self._make_module(
+            "aliasmod",
+            """
+            class Foo: pass
+            def bar(): pass
+            PublicAlias = Foo
+            another_alias = bar
+            """,
+        )
+        self.assertEqual(public_symbols.from_module(mod), ["Foo", "bar"])
+
+    def test_decorated_function_still_counted(self):
+        # The alias filter compares __name__ to the binding name, so it must
+        # not exclude a decorated function: functools.wraps copies __name__.
+        mod = self._make_module(
+            "decormod",
+            """
+            import functools
+
+            def deco(fn):
+                @functools.wraps(fn)
+                def inner(*a, **k):
+                    return fn(*a, **k)
+                return inner
+
+            @deco
+            def wrapped(): pass
+            """,
+        )
+        self.assertIn("wrapped", public_symbols.from_module(mod))
+
+    def test_alias_matches_source_side(self):
+        # The two sides must agree on the alias case, which is the property
+        # the workflow's `diff` actually depends on.
+        source = """
+            class Foo: pass
+            PublicAlias = Foo
+            """
+        mod = self._make_module("aliasparity", source)
+        path = self._module_path(mod)
+        self.assertEqual(
+            public_symbols.from_source(path), public_symbols.from_module(mod)
+        )
 
 
 class CliTests(unittest.TestCase):

@@ -47,10 +47,14 @@ _STRATEGIES: tuple[RuleStrategy, ...] = (
             "function-complexity but from `qlty check` rather than `qlty "
             "smells`, and scores it differently -- one function measured 26 "
             "under function-complexity and 22 here, another 49 vs 43. A single "
-            "fix normally clears both, so deduplicate by (path, function) "
-            "before planning. Unlike the qlty rule, the message states the "
-            "threshold. Existing tooling: "
-            "workflows/code/qlty-complexity-sweep.yaml."
+            "fix normally clears both, so deduplicate before planning -- but "
+            "key on (path, LINE), never (path, function name): qlty reports "
+            "functions by UNQUALIFIED name, so two classes in one file that "
+            "both define `run` are indistinguishable by name and keying on it "
+            "merges two real findings into one. Allow a small line offset when "
+            "pairing the two rules, since they anchor to slightly different "
+            "lines. Unlike the qlty rule, the message states the threshold. "
+            "Existing tooling: workflows/code/qlty-complexity-sweep.yaml."
         ),
     ),
     RuleStrategy(

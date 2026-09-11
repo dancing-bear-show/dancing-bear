@@ -123,8 +123,45 @@ stages:
               "$d" > "{workspace}/outputs/scoped-$(basename $d).json"
           done
 
-        Union all of them by (file, line, rule). The scoped scans are not
-        redundant: `--rule` is a POST-SCAN filter applied by
+      Step 1b — MERGE the scans into one file, and extract from that:
+        The scoped scans are worthless unless something reads them. Union
+        qlty-stable.json with every scoped-*.json by (file, line, rule) and
+        write the result to:
+
+          {workspace}/outputs/qlty-merged.json
+
+        Shape it like the wrapper's own output so Step 3 reads one format:
+          {
+            "findings": [ ...deduplicated union... ],
+            "counts_by_rule": { ...recomputed from the union... },
+            "total": <len(findings)>,
+            "sources": [
+              {"file": "qlty-stable.json", "scope": "all",
+               "stable": true, "degraded": false, "iterations": 3,
+               "total": 10},
+              {"file": "scoped-telemetry.json", "scope": "src/telemetry/",
+               "stable": true, "degraded": false, "iterations": 3,
+               "total": 4}
+            ],
+            "completeness": "best-effort",
+            "any_unstable": false,
+            "any_degraded": false
+          }
+
+        Preserve each source's stability and degradation status rather than
+        collapsing them: `any_unstable` / `any_degraded` are true if ANY
+        contributing scan was, and that must reach scan_errors. Collapsing
+        them to a single flag would let one unstable scoped scan hide inside
+        an otherwise stable union.
+
+        STEP 3 READS qlty-merged.json, NOT qlty-stable.json. A finding
+        recovered only by a scoped scan is exactly what the per-directory
+        pass exists to surface; extracting from the repo-wide file alone
+        discards it and silently defeats both the widened discovery and the
+        cap-pressure workaround.
+
+        The scoped scans are not redundant: `--rule` is a POST-SCAN filter
+        applied by
         `ScanResult.filter_by_rules()` to the already-capped result set — the
         flags are never passed to qlty itself. So the cap is applied across
         ALL rules first, and unrelated findings (function-parameters,
@@ -193,11 +230,14 @@ stages:
         runs frequently report "no issues" in the same minute an unfiltered
         run reports findings for that rule.
 
-      Step 3 — extract findings of interest from qlty-stable.json:
+      Step 3 — extract findings of interest from qlty-merged.json:
 
-        Read {workspace}/outputs/qlty-stable.json — the stable merged scan
-        from Step 1, NOT the optional raw files. Its rows are already
-        namespace-normalized, so select on the "rule" field alone:
+        Read {workspace}/outputs/qlty-merged.json — the Step 1b union of the
+        repo-wide scan and every per-directory scoped scan. NOT
+        qlty-stable.json (which is only the repo-wide contributor, so
+        scoped-only findings would be dropped) and NOT the optional raw
+        files. Its rows are already namespace-normalized, so select on the
+        "rule" field alone:
 
           rule == "file-complexity"      value >= {complexity_floor}
                                          (message "High total complexity (count = N)")
@@ -739,8 +779,23 @@ stages:
         ~/.qlty/bin/qlty check <touched paths...>
         Confirm no new issues introduced.
 
-      Step 7 — write per-group summary to
-        {workspace}/outputs/{group}-splits.md:
+      Step 7 — write per-group summary to your OWN worktree, at the absolute
+      path <your-cwd>/outputs/{group}-splits.md:
+
+        This stage runs with isolation:worktree, so you are NOT permitted to
+        write the shared {workspace}. Use the absolute own-cwd path the
+        orchestrator injects; it copies your declared outputs back into
+        {workspace}/outputs/ after you finish and before any downstream stage
+        reads them. A bare relative path would resolve against the
+        orchestrator's cwd — the shared repo tree — and leak outside your
+        worktree, while writing {workspace}/... directly may simply fail.
+
+        Commit your source edits before finishing. `git merge` moves commits,
+        not uncommitted files: an isolated agent that edits and returns
+        without committing leaves nothing to merge, and the stage reports
+        success while no code lands.
+
+        Content of <your-cwd>/outputs/{group}-splits.md:
 
           ## {group} Complexity Reduction
           | File | Strategy | Techniques / Siblings | Before | After | Import |
@@ -778,10 +833,12 @@ stages:
       - name: group_splits
         mode: generate
         description: >
-          Per-group reduction summary written to
-          {workspace}/outputs/{group}-splits.md. Contains files touched,
-          techniques applied, before/after scores, strategy downgrades, and
-          the call-site update ledger for any split entries.
+          Per-group reduction summary. The isolated worker writes it to
+          <its-cwd>/outputs/{group}-splits.md and the orchestrator copies it
+          back to {workspace}/outputs/{group}-splits.md, which is where
+          downstream stages read it. Contains files touched, techniques
+          applied, before/after scores, strategy downgrades, and the
+          call-site update ledger for any split entries.
     writes_to:
       - outputs/{group}-splits.md
 
@@ -997,12 +1054,30 @@ stages:
            (public top-level classes and functions, async included, that the
            module itself defines), so the sets are directly comparable:
 
+           The HEAD baseline, for every pre-existing touched file:
              git show HEAD:<path> > /tmp/head-version.py
              python3 workflows/code/scripts/public_symbols.py \
                --source /tmp/head-version.py > /tmp/before.txt
+
+           Then branch on whether the file SURVIVED the refactor. Check first:
+             test -f <path> && echo SURVIVED || echo DELETED
+
+           SURVIVED — compare in place:
              PYTHONPATH="$PWD/src" python3 workflows/code/scripts/public_symbols.py \
                --module <m> > /tmp/after.txt
              diff /tmp/before.txt /tmp/after.txt
+
+           DELETED — do NOT run `--module <m>` on it. The module no longer
+           exists, so the script exits 1 by design (it must not report "no
+           symbols" for an unimportable module), and the run would fail here
+           before ever reaching the deleted-original allowance in Step 3b.
+           Instead verify each baseline symbol at its new home:
+             for each name in /tmp/before.txt:
+               PYTHONPATH="$PWD/src" python3 -c "from <new_module> import <name>"
+           Every name in the baseline must resolve from some destination
+           module named in the plan. A baseline symbol that resolves nowhere
+           is a lost export — that is the regression this step exists to
+           catch, and deleting the original does not excuse it.
 
            It is covered by tests/test_public_symbols.py, including a test
            that both modes agree on the same module. Do not reimplement it
@@ -1099,19 +1174,36 @@ stages:
         forms a naive implementation misses, each a real miss found during a
         dry run against this repo.
 
-          PYTHONPATH="$PWD/src" python3 workflows/code/scripts/detect_facades.py \
+          INCLUDE_INIT=true PYTHONPATH="$PWD/src" \
+            python3 workflows/code/scripts/detect_facades.py \
             > {workspace}/validation/facades.json
 
-        It walks src/ and emits {"total_facades": N, "facades": [...]} with a
-        "module" field per entry. Env overrides: INCLUDE_INIT, DOMAINS.
+        INCLUDE_INIT=true is REQUIRED here. The detector defaults it to false
+        and then skips every `__init__.py` outright, but a split can leave a
+        package's `__init__.py` as a pure re-export shim — and this stage
+        elsewhere explicitly requires checking `__init__.py` re-export lists.
+        Without the override the gate cannot see the very shim it is meant to
+        catch. Confirm the output's "include_init": true before trusting it.
 
-        Interpreting the result — compare against the BASELINE, not zero:
-          a. Before the sweep began, the same detector reported a known
-             baseline for this repo. Re-run it on origin/main if you do not
-             have that number.
+        It walks src/ and emits {"total_facades": N, "facades": [...]} with a
+        "module" field per entry. Other env override: DOMAINS.
+
+        Interpreting the result — compare against the BASELINE, never zero:
+          a. With INCLUDE_INIT=true the baseline on origin/main is 11
+             modules, because re-export-only `__init__.py` files are a normal
+             package idiom in this repo and are NOT violations:
+               calendars.outlook_pipelines.__init__  charts.__init__
+               charts.types.__init__  mail.llm_cli  qlty.__init__
+               resume.cli.__init__  sheets.__init__  slides.__init__
+               wifi.__init__  worker.__init__  workflow.__init__
+             Re-run the detector on origin/main to refresh that list rather
+             than trusting this one if the tree has moved on. A gate that
+             demanded zero would fail every run.
           b. Any module in "facades" that was NOT in the baseline, and that
              this sweep touched, is a project-rule violation — record it in
-             facades_detected and fail the stage.
+             facades_detected and fail the stage. That includes a newly
+             emptied `__init__.py`, which is the case the override exists
+             for.
           c. Pre-existing entries are not this sweep's doing. `mail.llm_cli`
              in particular is a KNOWN FALSE POSITIVE: it is a live
              `llm --app mail` dispatch target reached through a string
@@ -1134,26 +1226,48 @@ stages:
         file that is still flagged.
 
         Do NOT pass --smells-only here: python:S3776 comes from `qlty check`,
-        so --smells-only silently drops it. Use the merged scan:
+        so --smells-only silently drops it. Scan the TOUCHED PATHS, which
+        also keeps the cap off this gate:
 
           ./bin/qlty-assistant scan --rescan-until-stable --format csv \
             --rule file-complexity --rule function-complexity \
-            --rule nested-control-flow --rule python:S3776
+            --rule nested-control-flow --rule python:S3776 \
+            <every touched path, plus every new sibling>
 
-        --rule is repeatable. --rescan-until-stable is required: a single
-        capped run can omit findings, and this gate must not pass because a
-        finding happened not to be reported this time.
+        --rule is repeatable but only filters output, so the path arguments
+        are what actually narrow the scan. --rescan-until-stable is
+        required: a single capped run can omit findings, and this gate must
+        not pass because a finding happened not to be reported this time.
 
         Note the CSV `value` column is EMPTY for python:S3776 — that rule
         carries its score only in the message text ("from N to the 15
         allowed"). Parse the message for it rather than reading `value`.
 
-        Compare against {workspace}/outputs/analysis/candidates.json. For
-        reduce-in-place files, the score should be genuinely lower and no new
-        per-function finding may appear. For split files, check the SUM
-        across the original path plus all new siblings — a split that halves
-        one path while the sum is unchanged has not reduced complexity, and
-        must be reported as "relocated", not "improved".
+        Compare PER BASELINE FINDING, not per file score. Every finding in
+        candidates.json that triggered work on a file must be shown to have
+        disappeared or improved:
+
+          a. For each baseline finding (file, line, rule, value), locate its
+             counterpart in the post-scan result. Match within the same
+             enclosing function and allow the small cross-tool line offset
+             documented in discover-candidates — do not demand exact line
+             equality, since a reduce-in-place edit moves lines.
+          b. GONE -> resolved. Present with a LOWER value -> improved.
+             Present with an UNCHANGED or HIGHER value -> NOT improved, even
+             if the file's file-complexity score fell.
+          c. A file whose file-complexity dropped while a per-function
+             finding it was flagged for still stands is NOT improved. This is
+             the symmetrical hole to the discovery one: candidates can
+             qualify on a per-function finding with file_complexity null, so
+             a gate that only compares file scores never checks the finding
+             that caused the work.
+          d. Any per-function finding that is NEW relative to baseline is a
+             regression, regardless of file score.
+
+        For split files, also check the SUM of file-complexity across the
+        original path plus all new siblings — a split that halves one path
+        while the sum is unchanged has relocated complexity, not reduced it,
+        and must be reported as "relocated", not "improved".
 
       Step 9 — write {workspace}/validation/import-check.json:
         {
@@ -1381,13 +1495,24 @@ stages:
 
           ./bin/qlty-assistant scan --rescan-until-stable --format csv \
             --rule file-complexity --rule function-complexity \
-            --rule nested-control-flow --rule python:S3776
+            --rule nested-control-flow --rule python:S3776 \
+            <every touched path, plus every new sibling>
+
+        Pass the touched paths: `--rule` only filters output, so path
+        arguments are the sole lever that keeps the per-run cap from hiding a
+        finding this gate is meant to catch.
 
         The CSV `value` column is empty for python:S3776; its score lives in
         the message ("from N to the 15 allowed").
 
-        Confirm no file touched by this sweep exceeds its pre-change value on
-        any of the four rules, and that no NEW per-function finding appeared.
+        Confirm, PER BASELINE FINDING rather than per file score, that every
+        finding which triggered work has disappeared or improved — matching
+        within the same enclosing function with the documented line offset,
+        since a reduce-in-place edit shifts lines. A file whose
+        file-complexity fell while the per-function finding it was flagged
+        for still stands at an unchanged value is NOT improved. Also confirm
+        no file exceeds its pre-change value on any of the four rules, and
+        that no NEW per-function finding appeared.
         For split files, compare the SUM across the original path and all
         new siblings against the original score: if the sum is unchanged,
         complexity was relocated, not reduced — record that verdict honestly.
