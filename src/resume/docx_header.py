@@ -4,13 +4,10 @@ Provides HeaderRenderer for experience and education entry headers.
 """
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from .docx_styles import StyleManager
 from .render_config import HeaderLineConfig, MetaRunConfig
-
-_logger = logging.getLogger(__name__)
 
 
 class HeaderRenderer:

@@ -316,10 +316,6 @@ class TestResolvedBullet(unittest.TestCase):
             resolved.text = "mutated"
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestBulletItemDataclass(unittest.TestCase):
     """Tests for BulletItem dataclass defaults and usage."""
 
@@ -429,3 +425,7 @@ class TestSlideDeckDataclass(unittest.TestCase):
         )
         self.assertEqual(len(deck.slides), 1)
         self.assertEqual(deck.template_path, "/path/to/template.pptx")
+
+
+if __name__ == "__main__":
+    unittest.main()

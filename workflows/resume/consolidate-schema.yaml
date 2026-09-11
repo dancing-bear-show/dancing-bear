@@ -253,7 +253,9 @@ stages:
         - src/resume/priority.py:67      — filters 8 keys incl. teaching,
                                            certifications, coursework
         - src/resume/docx_sidebar_sections.py:331 — renderer dispatch table
-        - src/resume/docx_renderers.py, docx_sections_*.py
+        - src/resume/docx_bullets.py (BulletRenderer), docx_header.py
+          (HeaderRenderer), docx_list_sections.py (ListSectionRenderer),
+          docx_sections_*.py
         - src/resume/templating.py       — DEFAULT_TEMPLATE section list
         - src/resume/config/*.yaml       — real template files
         - src/resume/skills_filter.py, experience_filter.py

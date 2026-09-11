@@ -368,9 +368,10 @@ stages:
 
         After splitting each file:
           c. Run a quick import smoke-check:
-               python3 -c "import <module_path>" 2>&1
+               PYTHONPATH="$PWD/src" python3 -c "import <module_path>; import <module_path> as _m; print(_m.__file__)" 2>&1
              (Derive module_path from the file path: replace / with . and
              strip .py. For nested packages prefix with the package name.)
+             Verify the printed path lies under the current checkout's src/.
              If the import fails, fix the offending import path before
              moving on.
 
@@ -432,7 +433,7 @@ stages:
         Run per-domain discovery using the test directory found above
         (substitute the actual resolved path, e.g. tests/<domain>/ or the
         flat top-level file glob — do NOT assume tests/<domain>_tests/):
-          python3 -m unittest discover -s <resolved_test_dir> -t . -p "test_*.py" -q 2>&1
+          PYTHONPATH="$PWD/src" python3 -m unittest discover -s <resolved_test_dir> -t . -p "test_*.py" -q 2>&1
 
         Fix failures up to 3 cycles per domain:
           - Import error: an importer still points at the old module path.
@@ -447,7 +448,15 @@ stages:
             document the blocker — do not abort other domains.
 
       Step 3 — run the full suite to catch cross-domain regressions:
-        python3 -m unittest discover -q 2>&1 | tail -10
+        make test > /tmp/decompose-verify.log 2>&1; echo "EXIT=$?"
+        grep -E "^Ran [0-9]+ tests" /tmp/decompose-verify.log
+        grep -E "^OK$|^FAILED" /tmp/decompose-verify.log
+        The 2>&1 is required — unittest writes "Ran N tests", OK, and FAILED
+        to stderr. Piping to tail returns tail's exit code, not unittest's,
+        hiding a failing suite. No "Ran N tests" line means the suite never
+        ran — re-run rather than recording a pass.
+        Confirm the count matches the pre-split baseline recorded in
+        test-results.md.
 
       Step 4 — write {workspace}/validation/test-results.md:
         | Domain | Test Dir | Tests Run | Status | Notes |
@@ -500,7 +509,10 @@ stages:
 
       Step 2 — smoke-import each new module:
         For each new sibling file created:
-          python3 -c "import <module_path>" 2>&1
+          PYTHONPATH="$PWD/src" python3 -c "import <module_path> as _m; print(_m.__file__)" 2>&1
+        Verify the printed path lies under the current checkout's src/ — an
+        inherited PYTHONPATH can silently resolve the import to a different
+        checkout, making this check a false green.
         Then verify every symbol survived the move — do NOT rely on plan.md's
         top-level symbol list, since discover-candidates only captured the
         first 40 class/def names as a planning hint, not a complete inventory:
@@ -517,16 +529,42 @@ stages:
 
       Step 2b — confirm NO re-export shim was left behind:
         The original file should either be deleted or contain only symbols
-        that genuinely still belong to it. Flag any file whose body is now
-        just import statements:
-          grep -c "# noqa: F401" <each modified file>
-        A file consisting of re-exports violates CLAUDE.md's no-wrapper rule
+        that genuinely still belong to it. Use a structural AST check —
+        a module whose body has only imports, __all__, and docstrings but no
+        function or class definitions is a shim. Run for each modified file:
+
+          python3 - <<'PYEOF'
+          import ast, sys
+          target = "<each modified file>"
+          tree = ast.parse(open(target).read())
+          # Inspect tree.body (TOP LEVEL) only — never ast.walk. ast.walk
+          # descends into nested scopes, so an assignment tucked inside an
+          # `if TYPE_CHECKING:` guard makes a genuine re-export facade report
+          # "ok". Verified: on a guarded facade, ast.walk says not-a-shim
+          # while tree.body correctly says SHIM.
+          is_shim = not any(
+              isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+              or (isinstance(n, ast.Assign)
+                  and any(isinstance(t, ast.Name) and t.id != "__all__"
+                          for t in n.targets))
+              for n in tree.body
+          )
+          print(target, "SHIM" if is_shim else "ok")
+          PYEOF
+
+        Any file that prints SHIM violates CLAUDE.md's no-wrapper rule
         and must be deleted with its importers repointed.
+        Note: grepping for "# noqa: F401" misses re-export modules that use
+        __all__ or omit the suppression comment — the AST check is authoritative.
 
       Step 2c — sweep string references, which imports cannot catch:
         For each moved symbol and each module that was split or deleted:
-          grep -rn 'patch("[^"]*<name>\|assertLogs("[^"]*<name>\|getLogger("[^"]*<name>' \
+          grep -rn 'patch(['"'"'"][^'"'"'"]*<name>\|assertLogs(['"'"'"][^'"'"'"]*<name>\|getLogger(['"'"'"][^'"'"'"]*<name>' \
             src tests --include="*.py"
+        This pattern matches both single-quoted and double-quoted forms, e.g.
+        patch('module.Symbol') and patch("module.Symbol") — single-quoted
+        targets survive a double-quote-only grep and leave stale references
+        that silently patch nothing at runtime.
         Also grep .llm/ and workflows/ for the old module path.
         A stale mock.patch() target raises no error — it patches a module
         attribute that no longer exists there, or silently patches nothing,
@@ -591,7 +629,12 @@ stages:
           zero means dropped, two or more means copied instead of moved
         - shims_detected is empty — no file left behind as pure re-exports
         - stale_string_refs are all fixed (mock.patch / assertLogs / getLogger)
-        - All importers were repointed and resolve against the new module paths
+        - "Step 2c stale-string sweep was performed: grep for old module paths
+          in workflows/ and .llm/ produced zero unaddressed hits, and all
+          stale_string_refs in import-check.json are marked fixed"
+        - "All importers were repointed and resolve against the new module
+          paths; every downstream_importers entry in import-check.json has
+          resolves:true"
         - No critical qlty issues on modified files
       max_revisions: 1
     required: true
@@ -624,7 +667,8 @@ stages:
           - Read the importer and the module that now owns the symbol.
           - Repoint the import (or the patch string) at the new owner. Never
             resolve this by adding a re-export to the old path.
-          - Re-run: python3 -c "import <module_path>" 2>&1
+          - Re-run: PYTHONPATH="$PWD/src" python3 -c "import <module_path> as _m; print(_m.__file__)" 2>&1
+          - Verify the printed path lies under the current checkout's src/.
           - Confirm green before moving on.
 
       Step 3 — fix test failures:
@@ -636,7 +680,7 @@ stages:
             test-results.md (do NOT assume tests/<domain>_tests/ — reuse the
             exact path verify-tests resolved, e.g. tests/<domain>/ or a flat
             top-level file glob):
-              python3 -m unittest discover -s <test_dir_from_table> -t . -q 2>&1
+              PYTHONPATH="$PWD/src" python3 -m unittest discover -s <test_dir_from_table> -t . -q 2>&1
           - Up to 2 additional fix cycles per domain.
 
       Step 4 — update telemetry:
@@ -736,7 +780,9 @@ stages:
     validation:
       strategy: unit
       criteria:
-        - python3 -m unittest discover exits 0
+        - make test log contains a "Ran N tests" line and "OK" — exit code 0
+          alone is not evidence the suite ran; confirm the count matches the
+          pre-split baseline
         - qlty check exits 0 on all modified files
         - No unresolved import errors remain
       max_revisions: 1
