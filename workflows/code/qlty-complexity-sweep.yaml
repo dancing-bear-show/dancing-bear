@@ -56,8 +56,11 @@ description: >
           |
     plan-splits  [human gate]
           |
-    decompose-groups × N  (parallel fan-out per directory group)
-          |
+    decompose-groups × N  (parallel fan-out per directory group,
+          |                isolation:worktree — edits land on
+          |                worktree-agent-* branches, NOT here)
+    merge-worktrees       (merges those branches; without it every
+          |                gate below runs against unchanged source)
     verify-tests
           |
     validate-imports
@@ -301,23 +304,38 @@ stages:
         `~/.qlty/bin/qlty`, not to the wrapper.)
 
         Check the JSON's own fields instead:
-          a. "counts_by_rule" is the authority, NOT "total" and NOT any exit
-             code. Sum the entries for the four candidate rules; that sum is
-             exactly how many rows you should have extracted. A shortfall is
-             a parse bug. Equality with zero is a genuine clean result.
+          a. Compare LIKE WITH LIKE, in two separate checks. The raw
+             counts_by_rule sum is NOT comparable to your final candidate
+             rows, because extraction legitimately shrinks the set twice:
+             the {complexity_floor} predicate drops file-complexity rows
+             below the floor, and the (path, line) dedup collapses each
+             function-complexity / python:S3776 pair into one entry. Comparing
+             the raw sum against the post-dedup count therefore ALWAYS shows a
+             shortfall and would record a false scan_errors, aborting
+             plan-splits on a correct extraction.
 
-             Judge the subset, never the whole scan. "total" > 0 with zero
-             extracted rows is NOT by itself an error: a scan can legitimately
-             contain only unrelated rows (ripgrep NOTE markers,
-             function-parameters, python:S5655) and no complexity finding at
-             all. Flagging that as a parse bug would push discovery into
-             scan_errors on a healthy tree every time any unrelated lint
-             finding exists. The error condition is a MISMATCH between
-             counts_by_rule for the four rules and what you extracted — not
-             the presence of other rules, and not a non-zero total.
-          b. If counts_by_rule shows a candidate rule you extracted nothing
-             for, you are selecting on the wrong field (see the rule-key note
-             in Step 3). Record it in "scan_errors" and say so plainly.
+             Check 1 — SELECTION, before any floor filter or dedup. For each
+             of the four rules separately, the rows you selected for that rule
+             must equal counts_by_rule[rule]. A per-rule shortfall here means
+             you are selecting on the wrong field (see the rule-key note in
+             Step 3) — record it in "scan_errors" and say so plainly. This is
+             the check that catches a parse bug.
+
+             Check 2 — REDUCTION, after filtering and dedup. Every row you
+             dropped must be attributable: a file-complexity row below
+             {complexity_floor}, or the second member of a matched
+             (path, line) pair. Report the counts
+             (selected -> after-floor -> after-dedup) so the reduction is
+             auditable. An unexplained drop is a bug; an explained one is not.
+
+          b. Judge the subset, never the whole scan. "total" > 0 with zero
+             candidate rows is NOT an error: a scan can legitimately contain
+             only unrelated rows (ripgrep NOTE markers, function-parameters,
+             python:S5655) and no complexity finding at all. Flagging that
+             would push discovery into scan_errors on a healthy tree every
+             time any unrelated lint finding exists. Likewise, a
+             counts_by_rule sum of zero for all four rules is a genuine clean
+             result, not a failure.
           c. "degradations" — a non-empty array means a wire-format fallback
              occurred. Record it; the run may be missing rules entirely.
           d. Unparseable output, or a missing "findings" key, is an ERROR.
@@ -584,12 +602,27 @@ stages:
       worktree; without this override you can silently import stale modules
       from another checkout and chase false failures.
 
-      Step 1 — read the approved plan:
-        Read {workspace}/outputs/design/plan.md for the group's section.
-        Read {workspace}/outputs/design/domain-groups.json for the file list
-        and strategies for this group. Handle ONLY entries whose strategy is
-        "reduce-in-place" or "split-by-responsibility". Skip any entry marked
-        "defer" — the justification explains why; do not second-guess it.
+      Step 1 — read the approved plan FROM YOUR OWN INPUTS DIRECTORY:
+        You run in an isolated worktree and CANNOT read {workspace} — the
+        isolation boundary applies in both directions. The orchestrator
+        copies every upstream artifact under your own cwd, preserving its
+        relative path, before dispatching you:
+
+          <your-cwd>/inputs/outputs/design/plan.md
+          <your-cwd>/inputs/outputs/design/domain-groups.json
+
+        Use those absolute own-cwd paths. A bare relative path resolves
+        against the orchestrator's cwd (the shared repo tree), and
+        {workspace}/... is a directory you have no access to — following
+        either would leave you reading nothing and unable to plan your group.
+        If `inputs/` is empty or either file is missing, STOP and report it
+        rather than guessing at the plan.
+
+        Read plan.md for the group's section; read domain-groups.json for the
+        file list and strategies for this group. Handle ONLY entries whose
+        strategy is "reduce-in-place" or "split-by-responsibility". Skip any
+        entry marked "defer" — the justification explains why; do not
+        second-guess it.
 
       Step 2 — for each "reduce-in-place" file (the expected majority):
 
@@ -659,14 +692,29 @@ stages:
            Derive module_path from the path relative to src/: strip the src/
            prefix, replace / with ., strip .py.
 
-        e. Re-score:
-             ./bin/qlty-assistant scan --smells-only --rule file-complexity \
-               --format csv <path>
-           Judge by exit code: nonzero is a scan failure and must be
-           reported. Exit 0 with only a header row means the file is no
-           longer flagged — a "cleared" result, not a failure. Record before
-           and after. An honest "complexity is irreducible without behavior
-           change" beats a contrived refactor.
+        e. Re-score ALL FOUR rules, not just the file score:
+             ./bin/qlty-assistant scan --rescan-until-stable --format json \
+               --rule file-complexity --rule function-complexity \
+               --rule nested-control-flow --rule python:S3776 \
+               <path>
+
+           Do NOT use `--smells-only --rule file-complexity` here. Two
+           reasons it reports a false "cleared":
+             - `--smells-only` drops python:S3776 entirely, since that rule
+               comes from `qlty check`, not `smells`.
+             - Your candidate may have file_complexity: null and exist in the
+               plan ONLY because of a per-function finding. A file-complexity
+               scan of such a file returns nothing at all, which reads as
+               cleared while the finding that caused your work still stands.
+
+           Judge by the findings, not by an empty result: for each finding
+           this file was flagged for in domain-groups.json, confirm it is
+           gone or its value dropped. An empty result is "cleared" only when
+           the baseline findings for this file are accounted for. A nonzero
+           exit is a scan failure and must be reported.
+
+           Record before and after per finding. An honest "complexity is
+           irreducible without behavior change" beats a contrived refactor.
 
       Step 3 — for each "split-by-responsibility" file (expected to be rare):
 
@@ -674,13 +722,39 @@ stages:
            and it is not a post-hoc check. With no re-export shim, a missed
            call site is a hard runtime failure with no safety net.
 
-           i. Import statements:
+           i. Import statements — resolve with the AST, NOT a string grep.
+              A grep for `from <dotted.module> import` is RELATIVE-IMPORT
+              BLIND: `from .text_utils import x` inside
+              src/calendars/importer/ targets calendars.importer.text_utils
+              and shares no substring with it. It also misses lazy imports
+              nested inside function bodies, which live deeper than
+              tree.body.
+
+              This is not hypothetical in this repo. facade-elimination.yaml
+              records that on its first run a grep-based caller count
+              labelled 7 facades "zero callers — safe to delete outright";
+              every one had real callers, and deleting on that signal would
+              have broken the build in 7 places. A missed relative import in
+              a module no test imports fails silently.
+
+              `workflows/code/scripts/detect_facades.py` already implements
+              the resolver — `_resolve_relative_import()` handles
+              ImportFrom.level, and it walks with ast.walk rather than
+              tree.body. Reuse it (see facade-elimination.yaml:115-140 for
+              the three binding forms it covers) rather than writing a
+              resolver here: embedded Python in workflow YAML is a ratified
+              project concern, and a second implementation drifts.
+
+              Use grep ONLY as a cross-check, never as the inventory:
                 grep -rn "from <module_path> import\|import <module_path>" \
                   --include="*.py" \
                   --exclude-dir=.venv \
                   --exclude-dir=.claude \
                   --exclude-dir=personal_assistants.egg-info \
                   src/ tests/ bin/
+              A hit the AST pass missed means your resolution is wrong. The
+              reverse — an AST caller the grep missed — is the expected case
+              and exactly why the grep alone is insufficient.
 
            ii. mock.patch TARGET STRINGS — the single most common failure
                mode for this refactor in this repo. These are string
@@ -848,6 +922,25 @@ stages:
           downstream stages read it. Contains files touched, techniques
           applied, before/after scores, strategy downgrades, and the
           call-site update ledger for any split entries.
+    # KNOWN ENGINE LIMITATION, not a typo. `writes_to` is stored literally --
+    # compiler.resolve_params() is applied to `description` and
+    # `cli_commands`, never to this field -- so `{group}` is NOT substituted
+    # per fan-out item. The orchestrator cannot derive the concrete filenames
+    # from this contract alone.
+    #
+    # This is the repo-wide convention for fan-out artifacts, not a quirk of
+    # this workflow: facade-elimination.yaml's eliminate-domains declares
+    # `outputs/{domain}-elimination.md` identically. Fixing it properly means
+    # extending the engine to substitute the fan-out key here, which belongs
+    # in its own change with its own tests rather than inside a workflow PR.
+    #
+    # Until then, downstream stages must DISCOVER these files by glob rather
+    # than trusting the declared contract:
+    #     ls {workspace}/outputs/*-splits.md
+    # merge-worktrees does exactly that, and cross-checks the result against
+    # domain-groups.json so a worker whose artifact never arrived fails the
+    # run instead of being silently skipped. verify-tests derives its group
+    # list the same way.
     writes_to:
       - outputs/{group}-splits.md
 
@@ -855,13 +948,107 @@ stages:
   # G3: Verify tests — run test suite per touched group, fix failures up to 3 cycles
   # ===========================================================================
 
-  - name: verify-tests
+  - name: merge-worktrees
     kind: execute
     depends_on: [decompose-groups]
     reads_from: [decompose-groups]
     description: >
+      Merge every isolated worker's commits into this branch BEFORE anything
+      is verified. Without this stage the whole verification chain is
+      theatre: decompose-groups runs with isolation:worktree, so each worker
+      commits to its own `worktree-agent-<id>` branch and those edits are NOT
+      in this checkout. verify-tests, validate-imports and recheck would all
+      run against UNCHANGED source and pass without ever testing a single
+      reduction.
+
+      Step 1 — confirm the per-group artifacts arrived:
+        Every group in {workspace}/outputs/design/domain-groups.json must
+        have a corresponding {workspace}/outputs/<group>-splits.md. The
+        orchestrator copies these back from each worker's own cwd at stage
+        completion, so a missing one means that worker failed or wrote to the
+        wrong path. FAIL this stage and name the group — do not proceed, and
+        do not merge a branch whose report never arrived.
+
+      Step 2 — enumerate the worker branches:
+          git branch --list 'worktree-agent-*'
+        Expect one per group that was dispatched. A dispatched group with no
+        branch is a failed worker: record it and FAIL.
+
+      Step 3 — verify each branch actually has commits, before merging:
+          git log --oneline HEAD..worktree-agent-<id>
+        An EMPTY range means the agent edited its worktree and returned
+        without committing. `git merge` moves commits, not uncommitted files,
+        so merging an empty branch succeeds and reports success while no code
+        lands — the exact false green this stage exists to prevent. Treat an
+        empty range as a stage FAILURE naming that group.
+
+      Step 4 — merge, one branch at a time:
+          git merge --no-ff worktree-agent-<id> -m "merge group <group>"
+        Merge sequentially, never in parallel, so a genuine conflict surfaces
+        as a conflict with markers rather than a silent overwrite. Resolve any
+        conflict explicitly and record it; two groups touching a shared
+        module is plausible when a call site crossed a directory boundary.
+
+      Step 5 — prove the code actually landed:
+          git diff --name-only HEAD@{N}..HEAD   # N = merges performed
+        Establish the true file set from GIT, not from the workers' reports —
+        a report's file list is the worker's unverified self-claim. Compare
+        the two: a file git shows that no report mentions, or a file a report
+        claims that git does not show, is a discrepancy to record rather than
+        ignore.
+
+        Then confirm at least one source file changed. Zero changed files
+        after a sweep that reported reductions is a FAILURE, not a clean run.
+
+      Step 6 — write {workspace}/outputs/merge-report.md:
+        ## Worktree Merge
+        | Group | Branch | Commits | Merged | Conflicts | Files |
+        |-------|--------|---------|--------|-----------|-------|
+        | resume | worktree-agent-a1b2 | 3 | YES | none | 4 |
+
+        ## Discrepancies
+        | Group | Report Claimed | Git Shows | Note |
+
+        ## Totals
+        Groups dispatched: N   Branches merged: N   Source files changed: N
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    required: true
+    # Required for agent dispatch — see the note on verify-tests' outputs.
+    outputs:
+      - name: merge-report
+        mode: generate
+        description: >
+          Per-group merge ledger written to
+          {workspace}/outputs/merge-report.md: branch, commit count, merge
+          result, conflicts, and the git-derived file set compared against
+          each worker's self-reported list.
+    writes_to:
+      - outputs/merge-report.md
+
+  # ===========================================================================
+  # G3b: Verify tests — run test suite per touched group, post-merge
+  # ===========================================================================
+
+  - name: verify-tests
+    kind: execute
+    depends_on: [merge-worktrees]
+    reads_from: [merge-worktrees, decompose-groups]
+    description: >
       Run the test suite for every group touched in decompose-groups and
       confirm all tests still pass after the reductions.
+
+      PRECONDITION — merge-worktrees must have merged the workers' commits
+      into this branch. Confirm before testing anything:
+        git log --oneline -5
+        git diff --name-only HEAD~1
+      If no reduction commits are present, the isolated edits never landed and
+      a green suite here would prove nothing. Read
+      {workspace}/outputs/merge-report.md and FAIL if it reports zero source
+      files changed.
 
       IMPORTANT — set PYTHONPATH explicitly before running any test command:
         export PYTHONPATH="$(pwd)/src"
@@ -1269,8 +1456,15 @@ stages:
           ./bin/qlty-assistant scan --rescan-until-stable --format json \
             --rule file-complexity --rule function-complexity \
             --rule nested-control-flow --rule python:S3776 \
-            <every touched path, plus every new sibling> \
+            <EXISTING touched paths, plus every new sibling> \
             > {workspace}/validation/recheck-scan.json
+
+        Filter the path list to files that still exist before running it:
+          for p in <touched paths>; do test -f "$p" && echo "$p"; done
+        A full split deletes the original module under the no-facade rule, so
+        the touched list can name a path that is gone — and a path-scoped
+        qlty command hard-errors on a missing file, failing this gate on the
+        cleanest possible outcome.
 
         Use --format JSON, never csv. The CSV renderer emits finding rows
         ONLY — it carries no "stable", "degraded", "degradations" or
@@ -1300,16 +1494,37 @@ stages:
              enclosing function and allow the small cross-tool line offset
              documented in discover-candidates — do not demand exact line
              equality, since a reduce-in-place edit moves lines.
-          b. GONE -> resolved. Present with a LOWER value -> improved.
-             Present with an UNCHANGED or HIGHER value -> NOT improved, even
-             if the file's file-complexity score fell.
-          c. A file whose file-complexity dropped while a per-function
+          b. ABSENCE IS NOT PROOF OF RESOLUTION. discover-candidates
+             establishes that a stable qlty result is best-effort, never
+             complete — the per-run cap can hide a finding on every
+             iteration. A batched scan over many touched paths makes that
+             MORE likely, so reading "not in the output" as GONE would let an
+             unresolved function pass this gate.
+
+             To claim GONE, the finding's absence must come from a scan that
+             could actually have seen it: re-scan THAT ONE FILE for THAT ONE
+             rule, stable, and confirm the file was in scope:
+               ./bin/qlty-assistant scan --rescan-until-stable --format json \
+                 --rule <rule> <that file>
+             A per-file per-rule scan has almost no cap pressure, so absence
+             there is meaningful. Absent from the batch AND absent from the
+             confirming scan -> resolved. Absent from the batch but present
+             in the confirming scan -> NOT resolved; the batch hid it.
+
+             If the confirming scan reports "stable": false or "degraded":
+             true, treat the finding as UNVERIFIED and BLOCK — do not record
+             it as resolved and do not record it as failed; say the gate
+             could not verify it.
+          c. Present with a LOWER value -> improved. Present with an
+             UNCHANGED or HIGHER value -> NOT improved, even if the file's
+             file-complexity score fell.
+          d. A file whose file-complexity dropped while a per-function
              finding it was flagged for still stands is NOT improved. This is
              the symmetrical hole to the discovery one: candidates can
              qualify on a per-function finding with file_complexity null, so
              a gate that only compares file scores never checks the finding
              that caused the work.
-          d. Any per-function finding that is NEW relative to baseline is a
+          e. Any per-function finding that is NEW relative to baseline is a
              regression, regardless of file score.
 
         For split files, also check the SUM of file-complexity across the
@@ -1544,8 +1759,15 @@ stages:
           ./bin/qlty-assistant scan --rescan-until-stable --format json \
             --rule file-complexity --rule function-complexity \
             --rule nested-control-flow --rule python:S3776 \
-            <every touched path, plus every new sibling> \
+            <EXISTING touched paths, plus every new sibling> \
             > {workspace}/validation/final-scan.json
+
+        FILTER THE PATH LIST TO FILES THAT STILL EXIST first:
+          for p in <touched paths>; do test -f "$p" && echo "$p"; done
+        A full split legitimately DELETES the original module (the no-facade
+        rule leaves nothing behind), so the touched-file list can name a path
+        that is gone. Passing it to a path-scoped qlty command is a hard scan
+        error, which would fail this gate on the cleanest possible outcome.
 
         JSON, not csv — this is the LAST gate before the human sees a
         commit recommendation, and CSV carries no "stable"/"degraded"/
@@ -1571,6 +1793,18 @@ stages:
         for still stands at an unchanged value is NOT improved. Also confirm
         no file exceeds its pre-change value on any of the four rules, and
         that no NEW per-function finding appeared.
+
+        ABSENCE IS NOT RESOLUTION here either. This batched scan covers many
+        paths at once, so the per-run cap can hide an unresolved finding on
+        every iteration — and a stable result is best-effort, not complete.
+        Before recording any baseline finding as resolved because it is
+        missing from this output, confirm it with a per-file per-rule scan:
+          ./bin/qlty-assistant scan --rescan-until-stable --format json \
+            --rule <rule> <that file>
+        Absent from both -> resolved. Present in the narrow scan -> the batch
+        hid it, so NOT resolved. Narrow scan unstable or degraded -> the gate
+        could not verify it: report UNVERIFIED and block, rather than writing
+        IMPROVED off an unproven absence.
         For split files, compare the SUM across the original path and all
         new siblings against the original score: if the sum is unchanged,
         complexity was relocated, not reduced — record that verdict honestly.
