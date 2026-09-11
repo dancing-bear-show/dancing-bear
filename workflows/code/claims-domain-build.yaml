@@ -78,6 +78,22 @@ stages:
     description: >
       Confirm the receipts foundation is present before doing any work.
 
+      Step 0 -- install the [pdf] extra in THIS worktree, before anything
+        imports fitz.
+        `make venv` installs ".[dev]", which does NOT include PyMuPDF --
+        core.pdf_forms and core.pdf_read import fitz lazily precisely so the
+        core CLIs stay dependency-light.  migrate-font-sizes imports fitz
+        directly (blank-template check, equivalence proof), so without this a
+        clean worktree dies with ModuleNotFoundError before it can accept or
+        reject anything.
+
+          .venv/bin/python -m pip install -e ".[pdf,ocr]" 2>&1 | tail -2
+          .venv/bin/python -c "import fitz; print('fitz', fitz.__doc__)" 2>&1
+
+        Use that same interpreter for every python invocation in this
+        workflow.  If the install fails, STOP and report status failed -- do
+        not continue into stages that will fail more confusingly later.
+
       Step 1 -- confirm the packages exist and import:
         PYTHONPATH="$(pwd)/src" python3 -c \
           "from core.pdf_read import PdfDocument, PdfParser; \
@@ -100,12 +116,12 @@ stages:
            print([f.name for f in dataclasses.fields(m.Receipt)])" 2>&1
 
       Step 4 -- write {workspace}/outputs/preflight.json:
-        {{
+        {
           "receipts_importable": true,
           "pdf_forms_tests_passing": 0,
           "receipt_fields": [],
           "ready": true
-        }}
+        }
     agent:
       role: researcher
       model: sonnet
@@ -129,6 +145,17 @@ stages:
       Migrate insurer-specific font-size constants from core.pdf_forms into
       claims/forms.py, where they belong.
 
+      Step 0 -- ensure fitz is importable in this worktree.
+        preflight-check installed ".[pdf,ocr]", but stages run as separate
+        agents and a venv may not be shared.  This is idempotent, so just
+        confirm and install if needed:
+
+          .venv/bin/python -c "import fitz" 2>/dev/null \
+            || .venv/bin/python -m pip install -e ".[pdf,ocr]" 2>&1 | tail -2
+
+        Every python invocation below uses .venv/bin/python.  fitz is used
+        directly by the blank-template check and the equivalence proof.
+
       Step 1 -- read the current state.
         Read src/core/pdf_forms.py in full.
         Confirm DEFAULT_FONT_SIZES contains these insurer-specific prefixes:
@@ -138,7 +165,7 @@ stages:
         Record every call site.
 
       Step 2 -- determine the safe residual.
-        DEFAULT_FONT_SIZES in core can be EMPTIED ({{}} or a clearly commented
+        DEFAULT_FONT_SIZES in core can be EMPTIED ({} or a clearly commented
         generic default dict), since all five prefixes are Sun Life specific.
         FALLBACK_FONT_SIZE (9) stays in core -- it is the mechanism default,
         not insurer-specific.
@@ -171,7 +198,7 @@ stages:
           # Generic mechanism default.  Insurer-specific sizes belong in the
           # caller's own sizes map (e.g. claims/forms.py:CLAIM_FONT_SIZES),
           # passed as the sizes= argument to font_size_for().
-          DEFAULT_FONT_SIZES: dict[str, int] = {{}}
+          DEFAULT_FONT_SIZES: dict[str, int] = {}
         Use the Edit tool.
 
       Step 4 -- verify the import smoke check passes.
@@ -179,7 +206,7 @@ stages:
           "from core.pdf_forms import DEFAULT_FONT_SIZES, font_size_for, \
            format_da, pdf_string, set_text_field, fill_text_fields, set_checkbox; \
            print('import ok'); \
-           print('DEFAULT_FONT_SIZES empty:', DEFAULT_FONT_SIZES == {{}})"
+           print('DEFAULT_FONT_SIZES empty:', DEFAULT_FONT_SIZES == {})"
 
       Step 5 -- re-run the EXISTING test suite for the file you just edited.
         src/core/pdf_forms.py shipped in PR #349 with 30 passing unit tests and
@@ -203,8 +230,8 @@ stages:
         to pass an explicit local sizes map rather than relying on the removed
         default:
 
-          SUNLIFE_SIZES = {{"dateOfBirth": 7, "2.day_phone.": 7, "4.DOB.": 7,
-                            "5.date.": 7, "3.total_claimed": 8}}
+          SUNLIFE_SIZES = {"dateOfBirth": 7, "2.day_phone.": 7, "4.DOB.": 7,
+                            "5.date.": 7, "3.total_claimed": 8}
           self.assertEqual(font_size_for("2.day_phone.area", SUNLIFE_SIZES), 7)
 
         This keeps the mechanism under test in core where it belongs (core owns
@@ -224,10 +251,10 @@ stages:
         importable here.  Define the map inline in your throwaway verification
         script, using the exact prefixes you just removed from core:
 
-          CLAIM_FONT_SIZES = {{
+          CLAIM_FONT_SIZES = {
               "dateOfBirth": 7, "2.day_phone.": 7, "4.DOB.": 7,
               "5.date.": 7, "3.total_claimed": 8,
-          }}
+          }
 
         These same five entries are what implement-claims will later write into
         claims/forms.py; defining them here is not duplication of shipped code,
@@ -280,8 +307,8 @@ stages:
                if filled:
                    raise SystemExit(f'REJECT: {len(filled)} filled field(s)')
                # Belt and braces: a blank form carries labels, not data.
-               if re.search(r'\\b\\d{3}-\\d{3}-\\d{4}\\b', page_text) or \\
-                  re.search(r'\\b(19|20)\\d{2}-\\d{2}-\\d{2}\\b', page_text):
+               if re.search(r'\b\d{3}-\d{3}-\d{4}\b', page_text) or \
+                  re.search(r'\b(19|20)\d{2}-\d{2}-\d{2}\b', page_text):
                    raise SystemExit('REJECT: page text contains phone/date '
                                     'data -- not a blank template')
                print('BLANK OK')"
@@ -350,7 +377,7 @@ stages:
         let implement-claims build on an unproven edit to a merged module --
         the precise failure this stage exists to prevent.
 
-          {{
+          {
             "call_sites_found": [],
             "call_sites_outside_claims": [],
             "migration_safe": false,
@@ -360,7 +387,7 @@ stages:
             "tests_rewritten_in_core": [],
             "shipped_form_equivalence": "PASS|FAIL|SKIPPED -- <reason>",
             "da_mismatches": []
-          }}
+          }
 
         If migration_safe is false, report this stage's status as "failed" so
         the run halts here rather than proceeding into implement-claims.  A
@@ -447,13 +474,13 @@ stages:
           return RuleResult(eligible=True, reason=None)
 
       Step 6 -- write src/claims/forms.py.
-        CLAIM_FONT_SIZES = {{
+        CLAIM_FONT_SIZES = {
           "2.day_phone.": 7,
           "4.DOB.": 7,
           "5.date.": 7,
           "3.total_claimed": 8,
           "dateOfBirth": 7,
-        }}
+        }
         # These were previously in core.pdf_forms.DEFAULT_FONT_SIZES.
         # They are Sun Life EHC-specific and belong here, not in core.
 
@@ -483,7 +510,7 @@ stages:
           shutil.copy(template_path, out_path)   # never mutate the template
           doc = fitz.open(out_path)
           try:
-              fields = {{...}}  # build from Receipt + claimant
+              fields = {...}  # build from Receipt + claimant
               fill_text_fields(doc, fields, sizes=CLAIM_FONT_SIZES)
               # checkboxes: one call per field name, per-xref internally
               doc.save(out_path, incremental=True,
@@ -524,7 +551,7 @@ stages:
       Step 9 -- write src/claims/__main__.py (mirror wifi pattern).
 
       Step 10 -- register in bin/_wrappers.yaml:
-          claims: {{module: claims, doc: "Insurance claim pipeline (EHC/HSA form fill, ledger, rules)."}}
+          claims: {module: claims, doc: "Insurance claim pipeline (EHC/HSA form fill, ledger, rules)."}
         Run: make bin-wrappers
         Verify: ls -la bin/claims
 
@@ -536,7 +563,7 @@ stages:
            print('ok')" 2>&1
 
       Step 12 -- write {workspace}/outputs/claims-manifest.json:
-        {{
+        {
           "files_written": [
             "src/claims/__init__.py", "src/claims/models.py",
             "src/claims/ledger.py", "src/claims/rules.py",
@@ -548,7 +575,7 @@ stages:
           "font_sizes_in_core": false,
           "render_verification_in_packet": true,
           "import_smoke_check": "PASS|FAIL"
-        }}
+        }
     agent:
       role: code-writer
       model: sonnet
@@ -636,7 +663,7 @@ stages:
         grep -n "run_with_assistant\|agentic" src/receipts/cli.py src/claims/cli.py
 
       Step 10 -- write {workspace}/outputs/integration-review.json:
-        {{
+        {
           "dependency_direction_violations": [],
           "font_size_migration_verified": true,
           "lazy_fitz_violations": [],
@@ -644,10 +671,10 @@ stages:
           "zero_dollar_rule_present": true,
           "render_verification_present": true,
           "sidecar_last_resort_verified": true,
-          "agentic_wired": {{"receipts": true, "claims": true}},
+          "agentic_wired": {"receipts": true, "claims": true},
           "blocking_count": 0,
           "overall": "PASS|ISSUES"
-        }}
+        }
 
       Write {workspace}/outputs/integration-review.md with a human-readable
       summary of any issues and recommended fixes.
@@ -694,7 +721,7 @@ stages:
 
       Step 3 -- fix font-size migration issues.
         If font_size_migration_verified == false:
-          Ensure DEFAULT_FONT_SIZES is {{}} in src/core/pdf_forms.py.
+          Ensure DEFAULT_FONT_SIZES is {} in src/core/pdf_forms.py.
           Ensure CLAIM_FONT_SIZES exists in src/claims/forms.py.
           Ensure fill_text_fields is called with sizes=CLAIM_FONT_SIZES.
 
@@ -713,11 +740,11 @@ stages:
            from claims.forms import fill_claim_form; print('all ok')" 2>&1
 
       Step 7 -- write {workspace}/outputs/fix-integration-results.json:
-        {{
+        {
           "fixes_applied": [],
           "sentinel": false,
           "import_smoke_check": "PASS|FAIL"
-        }}
+        }
     agent:
       role: code-writer
       model: sonnet
@@ -833,7 +860,7 @@ stages:
           - CLAIM_FONT_SIZES["2.day_phone."] == 7.
           - CLAIM_FONT_SIZES["3.total_claimed"] == 8.
           SAD (migration regression guard):
-          - core.pdf_forms.DEFAULT_FONT_SIZES is empty (== {{}}). This test fails
+          - core.pdf_forms.DEFAULT_FONT_SIZES is empty (== {}). This test fails
             if someone accidentally re-adds Sun Life prefixes to core.
           - CLAIM_FONT_SIZES is NOT the same object as
             core.pdf_forms.DEFAULT_FONT_SIZES (import both and assert they are
@@ -901,21 +928,21 @@ stages:
         field values.
 
       Step 7 -- write {workspace}/outputs/verify-results.json:
-        {{
+        {
           "new_tests_written": [],
           "new_tests_passed": "PASS|FAIL",
           "full_suite": "PASS|FAIL",
           "full_suite_ran_count": 0,
-          "cli_smoke": {{
+          "cli_smoke": {
             "receipts_help": "PASS|FAIL",
             "receipts_agentic": "PASS|FAIL",
             "claims_help": "PASS|FAIL",
             "claims_agentic": "PASS|FAIL"
-          }},
+          },
           "qlty_status": "PASS|ISSUES|SKIPPED",
           "render_smoke": "PASS|FAIL|SKIPPED",
           "all_green": true
-        }}
+        }
     agent:
       role: code-writer
       model: sonnet
@@ -985,7 +1012,7 @@ stages:
         - Field values escaped with pdf_string() before writing
 
         ### Font-Size Migration
-        (confirm CLAIM_FONT_SIZES in claims/forms.py; DEFAULT_FONT_SIZES = {{}} in core)
+        (confirm CLAIM_FONT_SIZES in claims/forms.py; DEFAULT_FONT_SIZES = {} in core)
 
         ### Test / Lint Status
         (from verify-results.json)

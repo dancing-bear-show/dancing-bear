@@ -188,8 +188,8 @@ stages:
           File: sidecar.py
             load_sidecar(path: str | Path) -> Receipt | None
               Reads <path>.amount.json.  Returns None if file absent.
-              Schema: {{"vendor": str, "date": str|null, "total": float,
-                        "patient": str|null, "invoice_id": str|null}}
+              Schema: {"vendor": str, "date": str|null, "total": float,
+                        "patient": str|null, "invoice_id": str|null}
 
           File: parsers/jane.py
             JaneParser(PdfParser):
@@ -267,13 +267,13 @@ stages:
               reason: str | None
 
           File: forms.py
-            CLAIM_FONT_SIZES: dict[str, int] = {{
+            CLAIM_FONT_SIZES: dict[str, int] = {
               "2.day_phone.": 7,
               "4.DOB.": 7,
               "5.date.": 7,
               "3.total_claimed": 8,
               "dateOfBirth": 7,
-            }}
+            }
             # Migration note: these were previously in core.pdf_forms.DEFAULT_FONT_SIZES.
             # core.pdf_forms keeps only a generic default; insurer-specific sizes live here.
             # font_size_for() accepts a sizes= override; pass CLAIM_FONT_SIZES explicitly.
@@ -590,12 +590,12 @@ stages:
         If fail, fix and retry.
 
       Step 4 -- write {workspace}/outputs/pdf-read-manifest.json:
-        {{
+        {
           "files_written": ["src/core/pdf_read.py"],
           "pyproject_ocr_extra_requested": true,
           "import_smoke_check": "PASS|FAIL",
           "import_error": null
-        }}
+        }
     agent:
       role: code-writer
       model: sonnet
@@ -686,8 +686,8 @@ stages:
         load_sidecar(path: str | Path) -> Receipt | None
         Returns None if <path>.amount.json absent.
         Reading rules: the JSON file schema is
-          {{"vendor": str, "date": str|null, "total": float,
-            "patient": str|null, "invoice_id": str|null}}.
+          {"vendor": str, "date": str|null, "total": float,
+            "patient": str|null, "invoice_id": str|null}.
         Constructs and returns a Receipt; line_items=[], source_path=str(path).
         Does NOT raise on a missing sidecar file -- that is the normal case.
 
@@ -697,7 +697,7 @@ stages:
            from receipts.sidecar import load_sidecar; print('ok')" 2>&1
 
       Step 6 -- write {workspace}/outputs/receipts-models-manifest.json:
-        {{
+        {
           "files_written": [
             "src/receipts/__init__.py",
             "src/receipts/models.py",
@@ -706,7 +706,7 @@ stages:
           "pyproject_receipts_registered": true,
           "import_smoke_check": "PASS|FAIL",
           "import_error": null
-        }}
+        }
     agent:
       role: code-writer
       model: sonnet
@@ -751,10 +751,15 @@ stages:
       Step 2 -- write src/receipts/parsers/jane.py.
         class JaneParser(PdfParser):
           # Real invoice numbers vary in length (4-5 digits observed), so
-          # anchor on the shape, not a fixed width.  A \d{{5}} regex silently
+          # anchor on the shape, not a fixed width.  A \d{5} regex silently
           # fails to match a 4-digit id -- and matches(), returning False,
           # looks identical to "not a Jane receipt".
-          INVOICE_RE = re.compile(r"Invoice\s+#(\d{{3,6}}-P\d{{2}})")
+          INVOICE_RE = re.compile(r"Invoice\s+#(\d{3,6}-P\d{2})")
+          # NOTE: single braces.  This is source code you COPY, not a
+          # format string -- resolve_params() in compiler.py does plain
+          # str.replace on declared parameter names and never unescapes
+          # { to {, so a doubled brace reaches you literally and the
+          # regex matches nothing at all.
           # Jane-family clinics do NOT all use the same total label.  Observed
           # in real receipts from the same practice software:
           #   "Payer Total"  receipts       "Total"        invoices
@@ -788,7 +793,7 @@ stages:
           "from receipts.parsers.jane import JaneParser; print('ok')" 2>&1
 
       Step 4 -- write {workspace}/outputs/parser-jane-manifest.json:
-        {{"file": "src/receipts/parsers/jane.py", "import_smoke_check": "PASS|FAIL"}}
+        {"file": "src/receipts/parsers/jane.py", "import_smoke_check": "PASS|FAIL"}
     agent:
       role: code-writer
       model: sonnet
@@ -851,7 +856,7 @@ stages:
           "from receipts.parsers.costco import CostcoParser; print('ok')" 2>&1
 
       Step 4 -- write {workspace}/outputs/parser-costco-manifest.json:
-        {{"file": "src/receipts/parsers/costco.py", "import_smoke_check": "PASS|FAIL"}}
+        {"file": "src/receipts/parsers/costco.py", "import_smoke_check": "PASS|FAIL"}
     agent:
       role: code-writer
       model: sonnet
@@ -903,7 +908,7 @@ stages:
           "from receipts.parsers.generic import GenericParser; print('ok')" 2>&1
 
       Step 4 -- write {workspace}/outputs/parser-generic-manifest.json:
-        {{"file": "src/receipts/parsers/generic.py", "import_smoke_check": "PASS|FAIL"}}
+        {"file": "src/receipts/parsers/generic.py", "import_smoke_check": "PASS|FAIL"}
     agent:
       role: code-writer
       model: sonnet
@@ -981,7 +986,9 @@ stages:
             result = load_sidecar(path)
             if result is not None:
               return result
-          raise ValueError(f"no parser extracted a total: {{path}}")
+          # NB: the braces below are a Python f-string placeholder for the
+          # local variable `path`, not a workflow parameter.  Copy it exactly.
+          raise ValueError(f"no parser extracted a total: " + str(path))
 
         CRITICAL -- why the RuntimeError guard lives HERE and not in each
         parser:  extract_text() raises RuntimeError when a document has no
@@ -1018,7 +1025,7 @@ stages:
 
       Step 5 -- register in bin/_wrappers.yaml.
         Add under python: section:
-          receipts: {{module: receipts, doc: "Parse receipts from PDF (Jane, Costco, generic)."}}
+          receipts: {module: receipts, doc: "Parse receipts from PDF (Jane, Costco, generic)."}
         Run: make bin-wrappers
         Verify: ls -la bin/receipts
 
@@ -1027,7 +1034,7 @@ stages:
           "from receipts.extract import extract; print('ok')" 2>&1
 
       Step 7 -- write {workspace}/outputs/receipts-dispatch-manifest.json:
-        {{
+        {
           "files_written": [
             "src/receipts/extract.py",
             "src/receipts/cli.py",
@@ -1035,7 +1042,7 @@ stages:
           ],
           "bin_wrapper": "bin/receipts",
           "import_smoke_check": "PASS|FAIL"
-        }}
+        }
     agent:
       role: code-writer
       model: sonnet
@@ -1127,7 +1134,7 @@ stages:
           "from receipts.extract import extract; \
            r = extract('tests/receipts_fixtures/jane_zero.pdf'); \
            print('total:', r.total); \
-           assert r.total == 0.0, f'expected 0.0, got {{r.total!r}}'"
+           assert r.total == 0.0, f'expected 0.0, got {r.total!r}'"
         (Eligibility rules for a $0 receipt belong to the claims workflow.)
 
       Step 8 -- verify sidecar is last resort in extract.py.
@@ -1138,7 +1145,7 @@ stages:
         grep -n "run_with_assistant\|agentic" src/receipts/cli.py
 
       Step 10 -- write {workspace}/outputs/integration-review.json:
-        {{
+        {
           "dependency_direction_violations": [],
           "font_size_migration_verified": true,
           "lazy_fitz_violations": [],
@@ -1146,10 +1153,10 @@ stages:
           "zero_dollar_rule_present": true,
           "render_verification_present": true,
           "sidecar_last_resort_verified": true,
-          "agentic_wired": {{"receipts": true}},
+          "agentic_wired": {"receipts": true},
           "blocking_count": 0,
           "overall": "PASS|ISSUES"
-        }}
+        }
 
       Write {workspace}/outputs/integration-review.md with a human-readable
       summary of any issues and recommended fixes.
@@ -1216,11 +1223,11 @@ stages:
         Do NOT import claims.* here -- this workflow does not create it.
 
       Step 7 -- write {workspace}/outputs/fix-integration-results.json:
-        {{
+        {
           "fixes_applied": [],
           "sentinel": false,
           "import_smoke_check": "PASS|FAIL"
-        }}
+        }
     agent:
       role: code-writer
       model: sonnet
@@ -1428,29 +1435,29 @@ stages:
           from core.pdf_read import PdfDocument
           doc = PdfDocument('tests/receipts_fixtures/jane_clinic.pdf')
           png = doc.render_png(page=0, dpi=72)
-          assert len(png) > 1000, f'suspiciously small render: {{len(png)}}'
-          print(f'render_png returned {{len(png)}} bytes')
+          assert len(png) > 1000, f'suspiciously small render: {len(png)}'
+          print(f'render_png returned {len(png)} bytes')
           doc.close()
           " 2>&1
 
         Report the byte count only -- never log PDF content or field values.
 
       Step 7 -- write {workspace}/outputs/verify-results.json:
-        {{
+        {
           "new_tests_written": [],
           "new_tests_passed": "PASS|FAIL",
           "full_suite": "PASS|FAIL",
           "full_suite_ran_count": 0,
-          "cli_smoke": {{
+          "cli_smoke": {
             "receipts_help": "PASS|FAIL",
             "receipts_agentic": "PASS|FAIL",
             "claims_help": "PASS|FAIL",
             "claims_agentic": "PASS|FAIL"
-          }},
+          },
           "qlty_status": "PASS|ISSUES|SKIPPED",
           "render_smoke": "PASS|FAIL|SKIPPED",
           "all_green": true
-        }}
+        }
     agent:
       role: code-writer
       model: sonnet
