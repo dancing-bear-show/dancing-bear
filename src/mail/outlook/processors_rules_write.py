@@ -237,17 +237,33 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
             # just after a folder was created, deleted or recreated would use a
             # stale path→id map and disagree with the sync it previews.
             #
-            # Two traps in how the bypass is spelled:
-            #   ttl=0 is NOT "no cache" — `cfg_get_json` reads it as "no expiry
-            #     check" and returns an entry of any age (core/cache.py:53),
-            #     which would make staleness worse rather than better.
-            #   clear_cache=True calls `cfg_clear()`, which rmtree's the whole
-            #     provider cache directory (core/cache.py:86) — including the
-            #     rules cache this processor relies on as its outage fallback.
-            #     Far too blunt for a read-only plan.
-            # A minimal positive ttl expires any stale entry by age and forces a
-            # live refetch, without deleting anything else.
-            folder_ttl = payload.cache_ttl if payload.use_cache else 1
+            # Match the folder-map policy sync uses, so the preview resolves
+            # destinations the same way the apply will.
+            #
+            # Sync (line 83) calls `get_folder_path_map()` with its 600s default
+            # and has no `use_cache` field at all, and `_build_rule_action`
+            # consults that cached map *before* falling back to
+            # `ensure_folder_path` (processors_rules_helpers.py:86). So sync is
+            # itself cache-backed: a plan that reads fresher folders than sync
+            # does would disagree with it, which is the opposite of the goal.
+            #
+            # There is no clean per-key bypass to reach for instead. Verified
+            # against core/cache.py rather than assumed:
+            #   ttl=0  — the `ttl > 0` guard is skipped, so an entry of ANY age
+            #            is served.
+            #   ttl<0  — same guard, same outcome; not a bypass either.
+            #   ttl=1  — only expires entries older than a second, leaving a
+            #            sub-second race, and diverging from sync the rest of
+            #            the time.
+            #   clear_cache=True — `cfg_clear()` rmtree's the whole provider
+            #            cache directory (core/cache.py:86), including the rules
+            #            cache this processor uses as its outage fallback.
+            #
+            # `use_cache=False` therefore means "do not reuse the *rules* cache"
+            # (honoured at line 213); the residual folder-cache staleness is
+            # shared with sync by construction, and `--clear-cache` on sweep is
+            # the existing escape hatch when folders have just changed.
+            folder_ttl = payload.cache_ttl
             need_folders = payload.move_to_folders or _has_explicit_destination(desired)
             folder_map = client.get_folder_path_map(ttl=folder_ttl) if need_folders else {}
 

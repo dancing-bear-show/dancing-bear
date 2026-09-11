@@ -903,26 +903,25 @@ class TestPlanNestedExplicitDestination(unittest.TestCase):
         self.assertEqual(envelope.status, "success")
         client.get_folder_path_map.assert_not_called()
 
-    def test_plan_folder_map_follows_the_payload_cache_policy(self):
-        """The folder map must not silently become cache-backed.
+    def test_plan_folder_map_matches_syncs_cache_policy(self):
+        """The plan must resolve folders the same way the apply will.
 
-        Regression: `get_folder_id_map` read folders live, but
-        `get_folder_path_map` is backed by the `folders_all` cache with a 600s
-        default TTL. Swapping to it made the plan cache-backed while ignoring
-        `payload.use_cache`, so a plan run just after a folder was created,
-        deleted or recreated could use a stale path→id map and disagree with the
-        sync it previews.
+        Sync calls `get_folder_path_map()` with its 600s default and has no
+        `use_cache` field, and `_build_rule_action` consults that cached map
+        before falling back to `ensure_folder_path`
+        (processors_rules_helpers.py:86). Sync is therefore cache-backed, so a
+        plan reading *fresher* folders than sync would disagree with the apply
+        it previews — the opposite of what a preview is for.
 
-        `use_cache` defaults to False, and the rules fetch already honours it,
-        so the folder map has to as well.
-
-        The bypass is a minimal positive ttl, not ttl=0 and not clear_cache:
-        `cfg_get_json` reads ttl=0 as "no expiry check" and serves an entry of
-        any age (core/cache.py:53), and clear_cache rmtree's the whole provider
-        cache directory (core/cache.py:86) — including the rules cache this
-        processor uses as its outage fallback.
+        An earlier attempt passed `ttl=1` to force freshness. That both left a
+        sub-second race and diverged from sync the rest of the time. Verified
+        against core/cache.py: `ttl=0` and any negative ttl skip the `ttl > 0`
+        guard and serve an entry of any age, and `clear_cache=True` rmtree's the
+        whole provider cache directory including the rules cache this processor
+        relies on as its outage fallback. There is no clean per-key bypass, so
+        matching sync is the correct target rather than out-freshing it.
         """
-        for use_cache, expected_ttl in ((False, 1), (True, 600)):
+        for use_cache in (False, True):
             with self.subTest(use_cache=use_cache):
                 client = _make_client(folder_path_map={"Security/Alerts": "real-sec-id"})
                 payload = OutlookRulesPlanPayload(
@@ -941,7 +940,7 @@ class TestPlanNestedExplicitDestination(unittest.TestCase):
 
                 self.assertEqual(envelope.status, "success")
                 kwargs = client.get_folder_path_map.call_args.kwargs
-                self.assertEqual(expected_ttl, kwargs.get("ttl"))
+                self.assertEqual(600, kwargs.get("ttl"), "must match sync's default")
                 # Never the blunt bypass: it would wipe the rules cache too.
                 self.assertFalse(kwargs.get("clear_cache", False))
 
