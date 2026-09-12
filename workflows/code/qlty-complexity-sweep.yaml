@@ -1022,7 +1022,17 @@ stages:
         module is plausible when a call site crossed a directory boundary.
 
       Step 5 — prove the code actually landed:
-          git diff --name-only HEAD@{N}..HEAD   # N = merges performed
+          git diff --name-only "$PRE_SWEEP"...HEAD
+        Use the ref recorded in Step 0, not a reflog- or offset-relative form
+        like HEAD@{N} or HEAD~N: the number of merge commits varies with the
+        group count, and a reflog reference is fragile across the stage's own
+        git operations.
+
+        Note this list can include DELETED paths — a full split removes the
+        original module under the no-facade rule. That is correct here, since
+        the point is the landed change set, but any downstream consumer that
+        passes these paths to a tool must filter to existing files first.
+
         Establish the true file set from GIT, not from the workers' reports —
         a report's file list is the worker's unverified self-claim. Compare
         the two: a file git shows that no report mentions, or a file a report
@@ -1080,8 +1090,11 @@ stages:
 
       PRECONDITION — merge-worktrees must have merged the workers' commits
       into this branch. Confirm before testing anything:
-        git log --oneline -5
-        git diff --name-only HEAD~1
+        PRE_SWEEP=$(cat {workspace}/outputs/pre-sweep-ref.txt)
+        git log --oneline "$PRE_SWEEP"..HEAD
+        git diff --name-only "$PRE_SWEEP"...HEAD
+      Use the recorded ref, not HEAD~1 — one merge commit per group means the
+      offset is wrong for any run with more than one group.
       If no reduction commits are present, the isolated edits never landed and
       a green suite here would prove nothing. Read
       {workspace}/outputs/merge-report.md and FAIL if it reports zero source
