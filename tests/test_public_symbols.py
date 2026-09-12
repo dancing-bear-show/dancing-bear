@@ -205,8 +205,8 @@ class FromModuleTests(unittest.TestCase):
         self.assertEqual(public_symbols.from_module(mod), ["Foo", "bar"])
 
     def test_decorated_function_still_counted(self):
-        # The alias filter compares __name__ to the binding name, so it must
-        # not exclude a decorated function: functools.wraps copies __name__.
+        # functools.wraps copies __name__, so this case survived even the
+        # metadata-based predicate. Kept as the control for the no-wraps test.
         mod = self._make_module(
             "decormod",
             """
@@ -223,6 +223,65 @@ class FromModuleTests(unittest.TestCase):
             """,
         )
         self.assertIn("wrapped", public_symbols.from_module(mod))
+
+    def test_decorator_without_wraps_still_counted(self):
+        # A decorator that does NOT use functools.wraps binds a wrapper whose
+        # __name__ is "wrapper", so a __name__-matching predicate dropped the
+        # name entirely and reported a false export loss on unchanged code.
+        # Deriving the set from source rather than runtime metadata fixes it.
+        mod = self._make_module(
+            "nowrapsmod",
+            """
+            def deco(fn):
+                def wrapper(*a, **k):
+                    return fn(*a, **k)
+                return wrapper
+
+            @deco
+            def public_thing(): pass
+            """,
+        )
+        self.assertEqual(
+            public_symbols.from_module(mod), ["deco", "public_thing"]
+        )
+
+    def test_no_wraps_decorator_matches_source_side(self):
+        source = """
+            def deco(fn):
+                def wrapper(*a, **k):
+                    return fn(*a, **k)
+                return wrapper
+
+            @deco
+            def public_thing(): pass
+            """
+        mod = self._make_module("nowrapsparity", source)
+        self.assertEqual(
+            public_symbols.from_source(self._module_path(mod)),
+            public_symbols.from_module(mod),
+        )
+
+    def test_overload_declarations_are_deduplicated(self):
+        # @overload declares the same name several times at module level.
+        # src/mail/config_resolver.py declares expand_path three times plus
+        # its implementation; a per-node list reported it four times while
+        # runtime sees it once, so an unchanged module looked like it had lost
+        # exports.
+        mod = self._make_module(
+            "overloadmod",
+            """
+            from typing import overload
+
+            @overload
+            def widen(x: int) -> int: ...
+            @overload
+            def widen(x: str) -> str: ...
+            def widen(x): return x
+            """,
+        )
+        path = self._module_path(mod)
+        self.assertEqual(public_symbols.from_source(path), ["widen"])
+        self.assertEqual(public_symbols.from_module(mod), ["widen"])
 
     def test_alias_matches_source_side(self):
         # The two sides must agree on the alias case, which is the property

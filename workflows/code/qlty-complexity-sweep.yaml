@@ -328,14 +328,26 @@ stages:
              (selected -> after-floor -> after-dedup) so the reduction is
              auditable. An unexplained drop is a bug; an explained one is not.
 
-          b. Judge the subset, never the whole scan. "total" > 0 with zero
-             candidate rows is NOT an error: a scan can legitimately contain
-             only unrelated rows (ripgrep NOTE markers, function-parameters,
-             python:S5655) and no complexity finding at all. Flagging that
-             would push discovery into scan_errors on a healthy tree every
-             time any unrelated lint finding exists. Likewise, a
-             counts_by_rule sum of zero for all four rules is a genuine clean
-             result, not a failure.
+          b. Every Step 1 invocation passes the four --rule filters, so the
+             merged file contains ONLY candidate-rule rows. Therefore:
+               - A row whose rule is not one of the four is an ERROR, not
+                 noise to skip. It means the command was altered, the merge
+                 pulled in an unfiltered source, or you are reading the wrong
+                 file. Record it in "scan_errors".
+               - "total" > 0 with zero candidate rows is likewise an ERROR:
+                 with the filters applied, every counted row must be a
+                 candidate. Treating it as a legitimate "unrelated rows only"
+                 scan would let an omitted or misspelled --rule flag read as
+                 a clean candidate list — the exact false clean this stage
+                 exists to prevent.
+             The only clean result is total == 0 AND a counts_by_rule sum of
+             zero across the four rules. That is a genuine clean tree, not a
+             failure.
+
+             (This corrects an earlier, looser version of this clause that
+             allowed unrelated rows. It was written for the raw unfiltered
+             scans, which are now only an optional cross-check — the
+             authoritative input is filtered.)
           c. "degradations" — a non-empty array means a wire-format fallback
              occurred. Record it; the run may be missing rules entirely.
           d. Unparseable output, or a missing "findings" key, is an ERROR.
@@ -965,6 +977,22 @@ stages:
       run against UNCHANGED source and pass without ever testing a single
       reduction.
 
+      Step 0 — RECORD THE PRE-SWEEP COMMIT, before merging anything:
+          git rev-parse HEAD > {workspace}/outputs/pre-sweep-ref.txt
+          cat {workspace}/outputs/pre-sweep-ref.txt
+
+        Every downstream baseline comparison depends on this ref, and it must
+        be captured BEFORE the merges in Step 4. Once those land, HEAD is the
+        POST-refactor tree: `git show HEAD:<path>` returns the already-reduced
+        file (so a survivor is compared against itself and any lost export
+        passes), and a deleted original reads as "never existed in HEAD"
+        rather than as a file whose symbols must be accounted for.
+
+        Downstream stages refer to this ref as $PRE_SWEEP and must read it
+        from this file — never assume HEAD or HEAD~1, since the number of
+        merge commits varies with the number of groups:
+          PRE_SWEEP=$(cat {workspace}/outputs/pre-sweep-ref.txt)
+
       Step 1 — confirm the per-group artifacts arrived:
         Every group in {workspace}/outputs/design/domain-groups.json must
         have a corresponding {workspace}/outputs/<group>-splits.md. The
@@ -1032,6 +1060,11 @@ stages:
           each worker's self-reported list.
     writes_to:
       - outputs/merge-report.md
+      # The immutable pre-merge ref. Declared so downstream stages have it as
+      # a contract rather than a convention: validate-imports' export parity
+      # and verify-tests' test-constraint check are both vacuous against HEAD
+      # (post-merge) and only meaningful against this ref.
+      - outputs/pre-sweep-ref.txt
 
   # ===========================================================================
   # G3b: Verify tests — run test suite per touched group, post-merge
@@ -1119,10 +1152,23 @@ stages:
         A refactor in one directory can break another directory's mocks, so
         the full suite is required.
 
-        Confirm you honored the test constraint. BOTH commands are required:
+        Confirm the test constraint was honored. Compare against the
+        PRE-SWEEP commit, not the working tree:
 
-          git diff --name-only -- tests/
+          PRE_SWEEP=$(cat {workspace}/outputs/pre-sweep-ref.txt)
+          git diff --name-only "$PRE_SWEEP"...HEAD -- tests/
+          git diff -U0 "$PRE_SWEEP"...HEAD -- tests/
           git status --short --untracked-files=all -- tests/
+
+        A bare `git diff -- tests/` is useless here. The workers were
+        REQUIRED to commit before handing off, and merge-worktrees has merged
+        those commits, so the working tree is clean and a plain diff shows
+        nothing — including a forbidden assertion change that is now sitting
+        in a merged commit. Diffing against $PRE_SWEEP is what makes
+        committed test edits visible.
+
+        The `git status` line is still needed on top: it catches an untracked
+        file created after the merge, which no commit-range diff would show.
 
         The second is not redundant. `git diff` does not list untracked
         files, so a newly ADDED test file is invisible to it — an agent could
@@ -1134,15 +1180,18 @@ stages:
         Reject any `??` path under tests/ outright: creating a test file is a
         violation of this stage's constraint regardless of content.
 
-        For groups with NO split entries the first command MUST print nothing
-        and the second MUST show no tests/ entries at all. For split entries,
-        the only acceptable change is a file whose sole edit is a mock.patch
-        target string — confirm with:
-          git diff -U0 -- tests/
-        Every changed line must be a dotted path inside patch(...). Any
-        assertion, fixture, or test-logic change is a violation: revert those
-        files with `git checkout -- tests/`, delete any created file, re-run,
-        and record it.
+        For groups with NO split entries the range diff MUST print nothing
+        and `git status` MUST show no tests/ entries at all. For split
+        entries, the only acceptable change is a file whose sole edit is a
+        mock.patch target string — read the -U0 range diff above and confirm
+        every changed line is a dotted path inside patch(...).
+
+        Any assertion, fixture, or test-logic change is a violation. Because
+        the edit is already committed and merged, reverting it means a new
+        commit against the offending paths — `git checkout -- tests/` will
+        NOT undo it:
+          git checkout "$PRE_SWEEP" -- tests/<path>
+        Then delete any created file, re-run, and record it.
 
       Step 4 — write {workspace}/validation/test-results.md:
         | Group | Test Dir | Tests Run | Status | Notes |
@@ -1156,10 +1205,15 @@ stages:
           "Ran N tests" summary line
         - All per-group test runs pass, or each failure is documented with
           its blocker
-        - No test file was created, deleted, or had its logic changed. For
-          groups with no split entries, git diff --name-only -- tests/ prints
-          nothing; for split entries the only permitted test change is a
-          mock.patch target string (verify with git diff -U0 -- tests/)
+        - No test file was created, deleted, or had its logic changed,
+          measured against the PRE-SWEEP ref rather than the working tree
+          (the workers committed and those commits are merged, so a bare
+          `git diff -- tests/` is clean even when a test was edited). For
+          groups with no split entries,
+          git diff --name-only "$PRE_SWEEP"...HEAD -- tests/ prints nothing
+          and git status --short -uall -- tests/ shows no entries; for split
+          entries the only permitted change is a mock.patch target string
+          (verify with git diff -U0 "$PRE_SWEEP"...HEAD -- tests/)
         - No import error was resolved by adding a re-export shim to an
           emptied module; every fix updated the call site instead
         - No behavior change was introduced by the refactor
@@ -1189,10 +1243,15 @@ stages:
       criteria:
         - Full unittest discover (with PYTHONPATH=src) exits 0
         - All per-group test runs pass or failures are documented with blockers
-        - No test file was created, deleted, or had its logic changed. For
-          groups with no split entries, git diff --name-only -- tests/ prints
-          nothing; for split entries the only permitted test change is a
-          mock.patch target string (verify with git diff -U0 -- tests/)
+        - No test file was created, deleted, or had its logic changed,
+          measured against the PRE-SWEEP ref rather than the working tree
+          (the workers committed and those commits are merged, so a bare
+          `git diff -- tests/` is clean even when a test was edited). For
+          groups with no split entries,
+          git diff --name-only "$PRE_SWEEP"...HEAD -- tests/ prints nothing
+          and git status --short -uall -- tests/ shows no entries; for split
+          entries the only permitted change is a mock.patch target string
+          (verify with git diff -U0 "$PRE_SWEEP"...HEAD -- tests/)
         - No import error was resolved by adding a re-export shim to an
           emptied module; every fix updated the call site instead
         - No behavior changes introduced by the refactor
@@ -1244,17 +1303,28 @@ stages:
         For each modified or created .py file:
           python3 -c "import <module_path>" 2>&1
 
-      Step 3 — export parity against git HEAD:
+      Step 3 — export parity against the PRE-SWEEP commit (never HEAD):
         Confirm no public symbol silently vanished. Do NOT rely on plan.md's
         symbol list (candidates.json captured only the first 40 class/def
         names as a planning hint).
 
-        Compare against HEAD ONLY for files that EXISTED in HEAD. A sibling
-        created by a split has no HEAD blob, so `git show HEAD:<new-path>`
-        fails with "does not exist in HEAD" — running it over every touched
-        file turns any valid split into a false validation failure. Partition
-        first:
-          git ls-tree -r --name-only HEAD -- <path>   # non-empty => pre-existing
+        Read the baseline ref first:
+          PRE_SWEEP=$(cat {workspace}/outputs/pre-sweep-ref.txt)
+
+        Use $PRE_SWEEP, NOT HEAD, for every baseline lookup. merge-worktrees
+        has already merged the workers' commits, so HEAD is the POST-refactor
+        tree. Against HEAD this whole step is vacuous: `git show HEAD:<path>`
+        returns the already-reduced file, so a survivor is compared against
+        itself and a genuinely lost export passes; and a deleted original
+        looks like it never existed rather than like a file whose symbols must
+        all be accounted for.
+
+        Compare against $PRE_SWEEP ONLY for files that existed there. A
+        sibling created by a split has no blob at that ref, so
+        `git show $PRE_SWEEP:<new-path>` fails with "does not exist" —
+        running it over every touched file turns any valid split into a false
+        validation failure. Partition first:
+          git ls-tree -r --name-only "$PRE_SWEEP" -- <path>   # non-empty => pre-existing
 
         a. For each PRE-EXISTING touched file, extract the SAME symbol set on
            both sides. The two sides must agree on what counts, or the
@@ -1269,10 +1339,10 @@ stages:
            (public top-level classes and functions, async included, that the
            module itself defines), so the sets are directly comparable:
 
-           The HEAD baseline, for every pre-existing touched file:
-             git show HEAD:<path> > /tmp/head-version.py
+           The baseline, for every file that existed at $PRE_SWEEP:
+             git show "$PRE_SWEEP:<path>" > /tmp/pre-sweep-version.py
              python3 workflows/code/scripts/public_symbols.py \
-               --source /tmp/head-version.py > /tmp/before.txt
+               --source /tmp/pre-sweep-version.py > /tmp/before.txt
 
            Then branch on whether the file SURVIVED the refactor. Check first:
              test -f <path> && echo SURVIVED || echo DELETED

@@ -37,49 +37,74 @@ import types
 _DEF_KINDS = (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 
 
-def from_source(path: str) -> list[str]:
-    """Public top-level classes/functions defined in the file at *path*."""
-    with open(path, encoding="utf-8") as fh:
-        tree = ast.parse(fh.read())
-    return sorted(
+def _public_defs(tree: ast.Module) -> set[str]:
+    """Public top-level class/function names in *tree*, DEDUPLICATED.
+
+    A set, not a list: ``@overload`` declares the same name several times at
+    module level (``src/mail/config_resolver.py`` declares ``expand_path``
+    three times plus its implementation), and a per-node list would report
+    that name four times while any runtime view sees it once — an unchanged
+    module then looks like it lost exports.
+    """
+    return {
         node.name
         for node in tree.body
         if isinstance(node, _DEF_KINDS) and not node.name.startswith("_")
-    )
+    }
+
+
+def from_source(path: str) -> list[str]:
+    """Public top-level classes/functions defined in the file at *path*."""
+    with open(path, encoding="utf-8") as fh:
+        return sorted(_public_defs(ast.parse(fh.read())))
 
 
 def from_module(dotted: str) -> list[str]:
-    """Public classes/functions *defined by* the module named *dotted*.
+    """Public classes/functions defined by the module named *dotted*.
 
-    Mirrors :func:`from_source`, which reports only top-level classes and
-    functions, so the two can be compared directly. Four exclusions make that
-    equivalence hold:
+    Derived from the module's OWN SOURCE, then confirmed against the imported
+    module — not inferred from runtime metadata. Runtime attributes cannot
+    answer "what did this module define" reliably, and two cases prove it:
 
-    - ``__module__ != dotted`` drops names imported from elsewhere and merely
-      re-exported, which a bare ``dir()`` would count as the module's own.
-    - module objects are dropped explicitly. ``import json.decoder`` binds a
-      submodule as an attribute of ``json``, and a module has no
-      ``__module__``, so an attribute-defaulting check misattributes it.
-    - non-callable, non-class values (constants) are dropped, because
-      :func:`from_source` does not report assignments either.
-    - an ALIAS of a local definition is dropped: ``class Foo: ...`` followed by
-      ``PublicAlias = Foo`` binds two names to one object, and the object's
-      ``__module__`` matches for both, so an attribute-only check reports a
-      name :func:`from_source` never sees. Requiring ``value.__name__`` to
-      equal the binding name keeps the two sides symmetric. (A decorated
-      function still passes: ``functools.wraps`` copies ``__name__``, and an
-      undecorated rename is genuinely an alias.)
+    - **Decorators without ``functools.wraps``.** ``@deco def public_thing()``
+      binds a wrapper whose ``__name__`` is ``wrapper``, so a
+      ``__name__``-matching predicate drops the name entirely. Verified: a
+      no-wraps module reported ``public_thing`` from source and nothing from
+      a metadata-based runtime pass.
+    - **Aliases of local definitions.** ``class Foo`` plus ``PublicAlias =
+      Foo`` binds two names to one object whose ``__module__`` matches both,
+      so an attribute-only pass invents a name the source never declares.
+
+    Parsing the source settles both, because the question is about
+    definitions rather than bindings. The import still happens, for two
+    reasons: an unimportable module must fail loudly (a missing export is
+    indistinguishable from a broken module otherwise), and a name the source
+    defines but the module does not expose at runtime is a real defect worth
+    surfacing.
     """
     mod = importlib.import_module(dotted)
-    return sorted(
-        name
-        for name, value in vars(mod).items()
-        if not name.startswith("_")
-        and not isinstance(value, types.ModuleType)
-        and (isinstance(value, type) or callable(value))
-        and getattr(value, "__module__", None) == dotted
-        and getattr(value, "__name__", name) == name
-    )
+
+    source_file = getattr(mod, "__file__", None)
+    if not source_file or not source_file.endswith(".py"):
+        # Namespace package, C extension, or frozen module: no source to
+        # parse. Fall back to runtime attributes, accepting the decorator and
+        # alias caveats above rather than silently returning nothing.
+        return sorted(
+            name
+            for name, value in vars(mod).items()
+            if not name.startswith("_")
+            and not isinstance(value, types.ModuleType)
+            and (isinstance(value, type) or callable(value))
+            and getattr(value, "__module__", None) == dotted
+        )
+
+    with open(source_file, encoding="utf-8") as fh:
+        defined = _public_defs(ast.parse(fh.read()))
+
+    # A defined name absent at runtime is a genuine finding, not noise to
+    # hide: report only what the module actually exposes, so the caller's
+    # diff shows the gap.
+    return sorted(name for name in defined if hasattr(mod, name))
 
 
 def main(argv: list[str] | None = None) -> int:
