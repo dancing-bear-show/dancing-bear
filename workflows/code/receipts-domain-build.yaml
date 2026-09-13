@@ -576,7 +576,14 @@ stages:
                    - name: Install Tesseract for OCR-path tests
                      run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
                    - name: Generate receipt fixtures
-                     run: .venv/bin/python tests/receipts_fixtures/build_fixtures.py
+                     run: python tests/receipts_fixtures/build_fixtures.py
+
+                 Note the bare `python` here, NOT `.venv/bin/python`.  The CI
+                 job uses actions/setup-python and installs into the runner
+                 interpreter; it never creates a .venv, so a .venv path fails
+                 on a clean runner.  Inside an AGENT WORKTREE the opposite
+                 holds -- there `make venv` has created .venv and that is the
+                 interpreter carrying the [pdf] extra.
 
                  AND widen the install step in that same job.  It currently
                  reads `pip install -e ".[tui,slides]"` (ci.yml:90), which does
@@ -1336,6 +1343,9 @@ stages:
         [pdf] extra -- so running the builder first fails with
         ModuleNotFoundError.  The CI install does not help an agent worktree.
 
+          test -x .venv/bin/python || make venv > /tmp/venv-create.log 2>&1
+          test -x .venv/bin/python || { tail -20 /tmp/venv-create.log; \
+            echo "FATAL: no .venv"; exit 1; }
           .venv/bin/python -m pip install -e ".[pdf,ocr]" > /tmp/pdf-install.log 2>&1
           status=$?; tail -2 /tmp/pdf-install.log; echo "INSTALL_EXIT=$status"
 
@@ -1460,6 +1470,14 @@ stages:
           - extract("costco_pharmacy.pdf") -> total 88.21 from OCR-garbled
             "!Patient Pays: 88.21 j", which has no "$" sigil at all
           SAD:
+          - extract("image_only.pdf") with Tesseract UNAVAILABLE does not
+            propagate the error: patch PdfDocument.extract_text to raise
+            OcrUnavailableError, and assert extract() either returns the
+            sidecar Receipt (when one is present) or raises ValueError --
+            never OcrUnavailableError.  This is the dispatch-level guard, and
+            it is distinct from CostcoParser's own catch: Jane runs FIRST and
+            calls extract_text() in matches(), so without the loop guard the
+            error escapes before Costco is ever reached.
           - extract("costco_optical.pdf") with NO sidecar raises ValueError.
             Its text layer has no label and no amount, so every parser must
             decline -- this is the case proving the sidecar branch is
@@ -1490,10 +1508,19 @@ stages:
         explicitly or a red test run reaches the human gate looking green.
 
       Step 3 -- run the FULL test suite (regression guard):
-        make test > /tmp/receipt-claims-verify.log 2>&1; echo "EXIT=$?"
-        grep -E "^Ran [0-9]+ tests" /tmp/receipt-claims-verify.log
-        CRITICAL: verify the "Ran N tests" line exists.  No such line means the
-        suite did not run -- do not report PASS in that case.
+        make test > /tmp/receipt-claims-verify.log 2>&1; suite=$?
+        grep -E "^Ran [0-9]+ tests" /tmp/receipt-claims-verify.log; ran=$?
+        echo "SUITE_EXIT=$suite RAN_LINE=$ran"
+
+        BOTH conditions are required for full_suite: "PASS":
+          SUITE_EXIT must be 0  -- a suite with failing tests STILL prints
+            "Ran N tests", so the line's presence alone proves only that the
+            suite executed, not that it passed.
+          RAN_LINE must be 0    -- no such line means the suite did not run
+            at all, which a zero exit can also accompany (see CLAUDE.md on
+            the make venv race).
+
+        Neither alone is sufficient.  If either fails, full_suite is "FAIL".
 
       Step 4 -- CLI --help smoke tests.
         Capture each status; `cmd | head` reports head's exit, not the CLI's,
@@ -1550,8 +1577,19 @@ stages:
           },
           "qlty_status": "PASS|ISSUES|SKIPPED",
           "render_smoke": "PASS|FAIL|SKIPPED",
-          "all_green": true
+          "all_green": false
         }
+
+        all_green is DERIVED, never a literal.  Set it true only when every
+        one of these holds:
+          new_tests_passed == "PASS"  (UNITTEST_EXIT was 0)
+          full_suite       == "PASS"  (SUITE_EXIT 0 AND the Ran line present)
+          every cli_smoke field       == "PASS"
+          qlty_status      in ("PASS", "SKIPPED")
+          render/packet check         != "FAIL"
+        If any is false, set all_green false AND report this stage's status as
+        "failed".  The completion template pre-fills "success", so a red run
+        reaches the human gate looking green unless you override it.
     agent:
       role: code-writer
       model: sonnet

@@ -87,6 +87,9 @@ stages:
         clean worktree dies with ModuleNotFoundError before it can accept or
         reject anything.
 
+          test -x .venv/bin/python || make venv > /tmp/venv-create.log 2>&1
+          test -x .venv/bin/python || { tail -20 /tmp/venv-create.log; \
+            echo "FATAL: no .venv"; exit 1; }
           .venv/bin/python -m pip install -e ".[pdf,ocr]" > /tmp/pdf-install.log 2>&1
           status=$?; tail -2 /tmp/pdf-install.log; echo "INSTALL_EXIT=$status"
           .venv/bin/python -c "import fitz; print('fitz ok')" 2>&1
@@ -134,8 +137,14 @@ stages:
           "receipts_importable": true,
           "pdf_forms_tests_passing": 0,
           "receipt_fields": [],
-          "ready": true
+          "ready": false
         }
+
+        ready is DERIVED, never a literal.  Set it true only when the venv
+        exists, INSTALL_EXIT was 0, the fitz import succeeded, the receipts
+        imports succeeded, and BASELINE_EXIT was 0.  If any failed, write
+        ready: false AND report this stage's status as "failed" -- otherwise
+        migrate-font-sizes proceeds on a foundation that was never verified.
     agent:
       role: researcher
       model: sonnet
@@ -164,6 +173,9 @@ stages:
         agents and a venv may not be shared.  This is idempotent, so just
         confirm and install if needed:
 
+          test -x .venv/bin/python || make venv > /tmp/venv-create.log 2>&1
+          test -x .venv/bin/python || { tail -20 /tmp/venv-create.log; \
+            echo "FATAL: no .venv"; exit 1; }
           if ! .venv/bin/python -c "import fitz" 2>/dev/null; then
             .venv/bin/python -m pip install -e ".[pdf,ocr]" > /tmp/pdf-install.log 2>&1
             status=$?; tail -2 /tmp/pdf-install.log; echo "INSTALL_EXIT=$status"
@@ -491,9 +503,26 @@ stages:
             "da_mismatches": []
           }
 
-        If migration_safe is false, report this stage's status as "failed" so
-        the run halts here rather than proceeding into implement-claims.  A
-        skip is a legitimate reason to stop and ask a human, not to continue.
+        If migration_safe is false, report this stage's status as "failed".
+
+        Be clear about what that does, because it is NOT a pause at the human
+        gate: _any_required_failed in src/workflow/orchestrator.py:220-222
+        returns immediately when a required stage fails, so the run STOPS
+        here.  implement-claims, verify and human-gate never execute, and
+        there is no gate report.
+
+        That is the intended outcome, and it is the right one -- continuing
+        would build the claims package on an edit to a merged, tested module
+        that was never shown to preserve rendering.  But it means this
+        manifest IS the record: a human reads
+        {workspace}/outputs/font-size-migration.json to see why the run
+        stopped, so shipped_form_equivalence must carry a specific reason
+        ("SKIPPED -- no approved blank template", "FAIL -- 3 /DA mismatches")
+        rather than a bare status.  Nothing downstream will summarise it for
+        them.
+
+        Resuming: a human supplies an approved blank template and re-runs.
+        Do not weaken this to a warning so the pipeline can continue.
     agent:
       role: code-writer
       model: sonnet
@@ -538,8 +567,15 @@ stages:
         @dataclass Claim:
           receipt: Receipt
           claimant: str
-          plan_year: int
+          plan_year: int              # the year the window STARTS in
+          plan_year_start_month: int = 1   # 1-12; not every plan runs Jan-Dec
           submitted: bool = False
+
+        plan_year_start_month is a field rather than a lookup because this
+        workflow introduces no claims configuration file, and inventing an
+        implicit config source would be a hidden dependency.  The caller
+        already knows which plan it is filing against.  Default 1 keeps the
+        common calendar-year case ergonomic.
         from receipts.models import Receipt  (import at module level is fine here --
         receipts is a declared dependency of claims, not core).
 
@@ -573,18 +609,28 @@ stages:
             return RuleResult(eligible=False, reason="no amount parsed")
           if claim.receipt.total == 0.0:
             return RuleResult(eligible=False, reason="$0 patient-pays: provider direct-billed")
-          if not in_plan_year(claim.receipt.date, claim.plan_year):
+          if not in_plan_year(claim.receipt.date, claim.plan_year,
+                              claim.plan_year_start_month):
             return RuleResult(eligible=False, reason="outside plan year")
           if claim.receipt.invoice_id and ledger.is_duplicate(claim.receipt.invoice_id):
             return RuleResult(eligible=False, reason="duplicate: already submitted")
           return RuleResult(eligible=True, reason=None)
 
-        in_plan_year(service_date: str | None, plan_year: int) -> bool:
-          A plan year does NOT necessarily start in January.  Take the start
-          month from config rather than hard-coding it, and treat the window
-          as [start, start + 1 year).  Return True when service_date is None
-          -- an unparsed date is not evidence the receipt is out of window,
-          and the $0/None checks above already catch unusable receipts.
+        in_plan_year(service_date: str | None, plan_year: int,
+                     start_month: int = 1) -> bool:
+          The window is [start, start + 1 year), where start is
+          date(plan_year, start_month, 1).  start_month comes from
+          Claim.plan_year_start_month -- an explicit argument, NOT a config
+          lookup, since no claims config file exists and introducing one
+          implicitly would be a hidden dependency.
+
+          Call it as:
+            in_plan_year(claim.receipt.date, claim.plan_year,
+                         claim.plan_year_start_month)
+
+          Return True when service_date is None -- an unparsed date is not
+          evidence the receipt is out of window, and the $0/None checks above
+          already catch unusable receipts.
 
           Required because a service date can fall outside the plan whose
           form it is being submitted on, and a receipt claimed against the
@@ -935,6 +981,9 @@ stages:
         [pdf] extra -- so running the builder first fails with
         ModuleNotFoundError.  The CI install does not help an agent worktree.
 
+          test -x .venv/bin/python || make venv > /tmp/venv-create.log 2>&1
+          test -x .venv/bin/python || { tail -20 /tmp/venv-create.log; \
+            echo "FATAL: no .venv"; exit 1; }
           .venv/bin/python -m pip install -e ".[pdf,ocr]" > /tmp/pdf-install.log 2>&1
           status=$?; tail -2 /tmp/pdf-install.log; echo "INSTALL_EXIT=$status"
 
@@ -1004,6 +1053,10 @@ stages:
             plan year returns eligible=True (the window is inclusive at the
             start), and the day before the next window starts is also
             eligible.
+          - a NON-January plan year works: with plan_year=2026 and
+            plan_year_start_month=8, a 2026-08-01 service date is eligible,
+            2026-07-31 is not, 2027-07-31 is eligible, and 2027-08-01 is not.
+            This is the case a Jan-Dec assumption silently gets wrong.
           - apply_rules on a claim whose receipt.date is None returns
             eligible=True on that basis alone: an unparsed date must not be
             treated as out-of-window.
@@ -1052,10 +1105,19 @@ stages:
         explicitly or a red test run reaches the human gate looking green.
 
       Step 3 -- run the FULL test suite (regression guard):
-        make test > /tmp/receipt-claims-verify.log 2>&1; echo "EXIT=$?"
-        grep -E "^Ran [0-9]+ tests" /tmp/receipt-claims-verify.log
-        CRITICAL: verify the "Ran N tests" line exists.  No such line means the
-        suite did not run -- do not report PASS in that case.
+        make test > /tmp/receipt-claims-verify.log 2>&1; suite=$?
+        grep -E "^Ran [0-9]+ tests" /tmp/receipt-claims-verify.log; ran=$?
+        echo "SUITE_EXIT=$suite RAN_LINE=$ran"
+
+        BOTH conditions are required for full_suite: "PASS":
+          SUITE_EXIT must be 0  -- a suite with failing tests STILL prints
+            "Ran N tests", so the line's presence alone proves only that the
+            suite executed, not that it passed.
+          RAN_LINE must be 0    -- no such line means the suite did not run
+            at all, which a zero exit can also accompany (see CLAUDE.md on
+            the make venv race).
+
+        Neither alone is sufficient.  If either fails, full_suite is "FAIL".
 
       Step 4 -- CLI --help smoke tests:
         Capture each status; `cmd | head` reports head's exit, not the CLI's,
@@ -1141,8 +1203,19 @@ stages:
           },
           "qlty_status": "PASS|ISSUES|SKIPPED",
           "render_smoke": "PASS|FAIL|SKIPPED",
-          "all_green": true
+          "all_green": false
         }
+
+        all_green is DERIVED, never a literal.  Set it true only when every
+        one of these holds:
+          new_tests_passed == "PASS"  (UNITTEST_EXIT was 0)
+          full_suite       == "PASS"  (SUITE_EXIT 0 AND the Ran line present)
+          every cli_smoke field       == "PASS"
+          qlty_status      in ("PASS", "SKIPPED")
+          render/packet check         != "FAIL"
+        If any is false, set all_green false AND report this stage's status as
+        "failed".  The completion template pre-fills "success", so a red run
+        reaches the human gate looking green unless you override it.
     agent:
       role: code-writer
       model: sonnet
