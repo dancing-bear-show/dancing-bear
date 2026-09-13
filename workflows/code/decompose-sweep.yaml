@@ -368,7 +368,7 @@ stages:
 
         After splitting each file:
           c. Run a quick import smoke-check:
-               PYTHONPATH="$PWD/src" python3 -c "import <module_path>; import <module_path> as _m; print(_m.__file__)" 2>&1
+               PYTHONPATH="$PWD/src" python3 -c "import <module_path> as _m; print(_m.__file__)" 2>&1
              (Derive module_path from the file path: replace / with . and
              strip .py. For nested packages prefix with the package name.)
              Verify the printed path lies under the current checkout's src/.
@@ -605,8 +605,12 @@ stages:
             --exclude-dir=.claude \
             --exclude-dir=personal_assistants.egg-info
         For each found importer: confirm it still resolves correctly by
-        running:
-          python3 -c "from <module_path> import <SymbolName>" 2>&1
+        running — pinned, like every other import check in this workflow, since
+        an inherited PYTHONPATH would otherwise import <module_path> from a
+        DIFFERENT checkout and pass without testing the split made here:
+          PYTHONPATH="$PWD/src" python3 -c \
+            "import <module_path> as _m; print(_m.__file__); from <module_path> import <SymbolName>" 2>&1
+        The printed path must lie under the current checkout.
 
       Step 4 — run qlty on all modified files:
         ~/.qlty/bin/qlty check <list of modified .py files>
