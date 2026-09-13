@@ -160,6 +160,53 @@ class ResolvePathsTests(_ConfigResolverTestBase):
         self.assertTrue(creds.endswith("credentials.json"))
         self.assertTrue(token.endswith("token.json"))
 
+    def _write_raw_ini(self, body: str) -> None:
+        """Write *body* verbatim; _write_ini only emits [mail] sections."""
+        with open(self.ini_path, "w", encoding="utf-8") as fh:
+            fh.write(body)
+
+    def test_falls_back_to_alias_section(self):
+        # No [mail] at all -- the legacy [mail_assistant] section must be used.
+        self._write_raw_ini(
+            "[mail_assistant]\n"
+            "credentials = /alias/creds.json\n"
+            "token = /alias/token.json\n"  # nosec B105 - test fixture path
+        )
+        creds, token = resolve_paths(arg_credentials=None, arg_token=None)
+        self.assertEqual(creds, "/alias/creds.json")
+        self.assertEqual(token, "/alias/token.json")
+
+    def test_alias_fills_keys_missing_from_default_section(self):
+        # [mail] exists but only defines credentials; token must fall through
+        # to the alias rather than silently landing on the global default.
+        self._write_raw_ini(
+            "[mail]\n"
+            "credentials = /default/creds.json\n"
+            "\n"
+            "[mail_assistant]\n"
+            "credentials = /alias/creds.json\n"
+            "token = /alias/token.json\n"  # nosec B105 - test fixture path
+        )
+        creds, token = resolve_paths(arg_credentials=None, arg_token=None)
+        self.assertEqual(creds, "/default/creds.json")
+        self.assertEqual(token, "/alias/token.json")
+
+    def test_default_section_wins_over_alias(self):
+        # A fully-populated [mail] stays authoritative; the alias is a fallback,
+        # not an override.
+        self._write_raw_ini(
+            "[mail]\n"
+            "credentials = /default/creds.json\n"
+            "token = /default/token.json\n"  # nosec B105 - test fixture path
+            "\n"
+            "[mail_assistant]\n"
+            "credentials = /alias/creds.json\n"
+            "token = /alias/token.json\n"  # nosec B105 - test fixture path
+        )
+        creds, token = resolve_paths(arg_credentials=None, arg_token=None)
+        self.assertEqual(creds, "/default/creds.json")
+        self.assertEqual(token, "/default/token.json")
+
 
 class ResolvePathsProfileTests(_ConfigResolverTestBase):
     def test_with_profile(self):
