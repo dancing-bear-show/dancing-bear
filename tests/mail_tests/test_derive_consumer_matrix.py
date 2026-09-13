@@ -361,12 +361,21 @@ class OutlookDeriveConsumerMatrixTests(TempDirMixin, TestCase):
 # ---------------------------------------------------------------------------
 # Proof-of-teeth: verify the matrix catches two real regressions.
 #
-# These tests monkeypatch the two fixes back to their broken state without
-# touching any file in src/, so git diff is empty when they are done.
-# They are expected to FAIL under normal conditions — they exist only for
-# demonstration during development and would need `@unittest.skip` in CI.
-# They are therefore placed in a separate class that is never imported by
-# the full suite (it is invoked manually via the class name).
+# `OutlookMatrixTeethProofTests` below is an ordinary TestCase: discovery loads
+# it, it runs in `make test` and in CI, and it PASSES. Each of its tests
+# monkeypatches one fix back to its pre-fix state, runs the 64-cell matrix with
+# failures captured rather than raised, and asserts at least one cell failed —
+# so a green run means the matrix still has teeth for that regression. Nothing
+# in src/ is touched, so `git diff src/` stays empty.
+#
+# It subclasses the matrix case to reuse the fixtures, which means the 64-cell
+# test runs a second time here against the real code. That is a few hundred
+# milliseconds and a genuine second execution, not a skipped one.
+#
+# Monkeypatching proves the matrix catches a *reimplementation* of each bug. The
+# stronger check — reverting the real guard in src/ and confirming the matrix
+# fails naming the affected cells — was done by hand before this file landed;
+# it cannot live in the suite without a test that edits source.
 # ---------------------------------------------------------------------------
 
 def _broken_apply_archive_without_keepinbox_guard(

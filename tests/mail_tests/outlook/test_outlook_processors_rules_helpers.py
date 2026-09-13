@@ -355,8 +355,20 @@ class TestResolveDestinationFolderMoveToFolder(unittest.TestCase):
         client.ensure_folder_path.assert_called_once_with("Archive/Deep")
         self.assertEqual(result, "live-fid")
 
-    def test_dry_run_missing_path_returns_none(self):
-        """Dry-run with no matching folder_paths entry returns None."""
+    def test_dry_run_missing_path_falls_back_to_the_path(self):
+        """Dry-run with no matching folder_paths entry returns the path itself.
+
+        This asserted None until the dry-run/live divergence was found. The live
+        branch calls `ensure_folder_path`, which resolves — and creates — the
+        folder, so a destination missing from the cached snapshot made dry-run
+        report zero moves while the real run moved mail.
+
+        The fallback keeps the two in agreement. It is not a Graph id, but the
+        sweep loop only tests truthiness to decide whether a move happens, and
+        the dry-run path never sends the value anywhere. Crucially
+        `ensure_folder_path` is still not called: a preview must not create
+        folders.
+        """
         client = MagicMock()
 
         result = _resolve_destination_folder(
@@ -367,7 +379,7 @@ class TestResolveDestinationFolderMoveToFolder(unittest.TestCase):
             dry_run=True,
         )
 
-        self.assertIsNone(result)
+        self.assertEqual("Nonexistent", result)
         client.ensure_folder_path.assert_not_called()
 
 

@@ -377,7 +377,7 @@ class TestBuildPlanItemsSkipNoCriteria(unittest.TestCase):
         mock_load.return_value = {"filters": []}
         mock_norm.return_value = [
             {"match": {}, "action": {}},                              # empty — skipped
-            {"match": {"from": "ok@example.com"}, "action": {}},      # valid
+            {"match": {"from": "ok@example.com"}, "action": {"forward": "x@example.com"}},  # valid
         ]
 
         client = _make_client(list_filters=[])
@@ -1179,6 +1179,50 @@ class TestSyncNeverCreatesAnActionlessRule(unittest.TestCase):
         self.assertEqual(envelope.status, "success")
         client.create_filter.assert_not_called()
 
+    def test_plan_does_not_predict_a_rule_sync_will_skip(self):
+        """Plan must apply the same actionless guard sync does.
+
+        Regression: the guard went into `_create_rule_if_new` (sync) only, so a
+        raw `keepInInbox` + `remove: [INBOX]` config made plan emit
+        `Would create ... action={}` while sync created nothing. A plan that
+        predicts a rule the apply will not create is the same class of defect as
+        a dry-run that under-reports — the preview disagreeing with the apply.
+
+        Both routes to an empty action are covered: no category at all, and an
+        `add` list that coerces to empty.
+        """
+        cases = {
+            "no category": {"keepInInbox": True, "remove": ["INBOX"]},
+            "add coerces to empty": {"add": ["", None], "keepInInbox": True},
+        }
+        for label, action in cases.items():
+            with self.subTest(case=label):
+                filters = [{"match": {"from": "grafana.com"}, "action": action}]
+
+                plan_client = _make_client()
+                plan_payload = OutlookRulesPlanPayload(
+                    client=plan_client, config_path="/t.yaml", move_to_folders=True
+                )
+                with patch("core.yamlio.load_config", return_value={"filters": filters}):
+                    plan_env = OutlookRulesPlanProcessor().process(plan_payload)
+
+                sync_client = _make_client()
+                sync_payload = OutlookRulesSyncPayload(
+                    client=sync_client, config_path="/t.yaml", dry_run=False,
+                    move_to_folders=True,
+                )
+                with patch("core.yamlio.load_config", return_value={"filters": filters}):
+                    sync_env = OutlookRulesSyncProcessor().process(sync_payload)
+
+                plan_result = plan_env.payload
+                self.assertIsNotNone(plan_result)
+                items = cast(OutlookRulesPlanResult, plan_result).plan_items
+                self.assertEqual([], items, "plan must not predict a skipped rule")
+                sync_client.create_filter.assert_not_called()
+                sync_result = sync_env.payload
+                self.assertIsNotNone(sync_result)
+                self.assertEqual(0, cast(OutlookRulesSyncResult, sync_result).created)
+
     def test_sync_still_creates_a_rule_with_a_real_action(self):
         """Contrast: the guard must not suppress rules that do something."""
         client = _make_client(name_to_id={"Tech/Grafana": "cat-graf"})
@@ -1248,6 +1292,53 @@ class TestSweepCategoriesOnlyExplicitDestination(unittest.TestCase):
         moved, client = self._sweep(self.NO_DEST, dry_run=True)
         self.assertEqual(0, moved)
         client.get_folder_path_map.assert_not_called()
+
+    def test_dry_run_matches_live_for_a_folder_missing_from_the_cache(self):
+        """A folder absent from the cached snapshot must not zero the dry-run.
+
+        Regression: dry-run resolved through the cached `folders_all` map while
+        the live branch calls `ensure_folder_path`, a fresh Graph lookup that
+        also creates the folder. A newly created or renamed destination was
+        therefore absent from the snapshot, so dry-run returned None and
+        reported zero moves while the live run resolved it and moved mail.
+
+        A cache miss now falls back to the path itself. That is not a Graph id,
+        but the sweep loop only tests truthiness to decide whether a move
+        happens, and nothing in the dry-run path sends the value anywhere — the
+        preview must not call `ensure_folder_path`, because previews must not
+        create folders.
+        """
+        filters = [{
+            "match": {"from": "sec.example.net"},
+            "action": {"add": ["Security/Alerts"], "moveToFolder": "Brand/New"},
+        }]
+
+        def run(dry_run: bool):
+            client = MagicMock()
+            # The cached snapshot predates the folder's creation.
+            client.get_folder_path_map.return_value = {"Security/Alerts": "old-id"}
+            client.ensure_folder_path.side_effect = lambda p: f"fresh:{p}"
+            client.search_inbox_messages.return_value = ["m1", "m2"]
+            payload = OutlookRulesSweepPayload(
+                client=client, config_path="/t.yaml", dry_run=dry_run,
+                move_to_folders=False,
+            )
+            with patch("core.yamlio.load_config", return_value={"filters": filters}):
+                envelope = OutlookRulesSweepProcessor().process(payload)
+            self.assertEqual(envelope.status, "success")
+            result = envelope.payload
+            self.assertIsNotNone(result)
+            return cast(OutlookRulesSweepResult, result).moved, client
+
+        dry_moved, dry_client = run(True)
+        live_moved, live_client = run(False)
+
+        self.assertEqual(2, dry_moved)
+        self.assertEqual(dry_moved, live_moved, "dry-run must not under-report")
+        # Still a preview: no move, and crucially no folder created.
+        dry_client.move_message.assert_not_called()
+        dry_client.ensure_folder_path.assert_not_called()
+        self.assertEqual(2, live_client.move_message.call_count)
 
 
 if __name__ == "__main__":

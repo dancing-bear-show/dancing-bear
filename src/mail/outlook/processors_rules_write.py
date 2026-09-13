@@ -306,6 +306,13 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
                 continue
 
             action = _build_plan_action(a_act, ctx)
+            # Mirror the sync guard (`_create_rule_if_new`): an empty built
+            # action is skipped there, so predicting it here would promise a
+            # rule the apply will not create. Reached by a raw
+            # `keepInInbox` + `remove: [INBOX]` config with no category, and by
+            # an `add` list that coerces to empty.
+            if not action:
+                continue
             key = _create_rule_key(criteria, action)
 
             if key not in existing_keys:

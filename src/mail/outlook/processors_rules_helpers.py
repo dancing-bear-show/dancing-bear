@@ -220,11 +220,20 @@ def _resolve_destination_folder(
     internal marker set by the derive step for rules that had ``keepInInbox``
     in the unified config.  Returning None causes the sweep loop to skip the
     move step, leaving the message in the inbox.
+
+    Dry-run resolves through the cached ``folder_paths`` snapshot because the
+    live call, ``ensure_folder_path``, *creates* missing folders — a preview
+    must not mutate the mailbox.  A cache miss therefore falls back to the path
+    itself rather than None: the sweep loop only tests truthiness to decide
+    whether a move happens, and returning None for a folder the live run would
+    resolve made ``sweep --dry-run`` report zero moves while the real run moved
+    mail.  The returned value is not a Graph id, but nothing in the dry-run path
+    sends it anywhere.
     """
     if action_spec.get("moveToFolder"):
         pth = str(action_spec.get("moveToFolder"))
         if dry_run:
-            return folder_paths.get(pth)
+            return folder_paths.get(pth) or pth
         return client.ensure_folder_path(pth)
 
     # noMoveToFolder is the internal marker for keepInInbox rules: no move wanted.
@@ -234,7 +243,7 @@ def _resolve_destination_folder(
     if move_to_folders and (action_spec.get("add") or []):
         pth = str((action_spec.get("add") or ["Inbox"])[0])
         if dry_run:
-            return folder_paths.get(pth)
+            return folder_paths.get(pth) or pth
         return client.ensure_folder_path(pth)
 
     return None
