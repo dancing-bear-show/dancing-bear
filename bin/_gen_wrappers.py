@@ -81,6 +81,99 @@ from pathlib import Path
 # Path.resolve()), so _REPO_ROOT is always the real repo root regardless of
 # which symlink was used to invoke the router.
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+_PROJECT_MARKER = 'name = "personal-assistants"'
+
+
+def _is_foreign_repo_src(entry: str, own_src: str) -> bool:
+    """True when *entry* is the ``src/`` of a DIFFERENT checkout of THIS repo.
+
+    The marker is a sibling ``pyproject.toml`` that names *this* project. A
+    pyproject.toml alone is far too broad — most third-party checkouts have one,
+    so matching on its mere presence would strip unrelated PYTHONPATH entries
+    and break setups this router knows nothing about.
+    """
+    try:
+        resolved = Path(entry).resolve()
+        if resolved.name != "src" or str(resolved) == own_src:
+            return False
+        proj = resolved.parent / "pyproject.toml"
+        if not proj.is_file():
+            return False
+        return _PROJECT_MARKER in proj.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False  # unreadable path: keep it rather than guess
+
+
+def _strip_foreign_src_paths(repo_root: Path) -> list[str]:
+    """Drop PYTHONPATH entries that are another checkout's ``src/``.
+
+    A checkout of this repo other than ``repo_root`` must never win the import
+    race, because the module names are identical and the loser is silent: the
+    command runs, exits 0, and reports behaviour from source you are not
+    editing.
+
+    How the wrong path gets there: ``.envrc`` exports ``PYTHONPATH="$PWD/src"``,
+    and direnv loads the ``.envrc`` of whichever checkout the shell started in.
+    Launch a shell in the main checkout, cd into ``.claude/worktrees/<wt>``, and
+    ``PYTHONPATH`` still points at the main ``src/`` — the worktree's own
+    ``.envrc`` is a different file and is not on direnv's allow list. Worse, a
+    ``PYTHONPATH`` entry outranks the editable install's ``.pth``, so even the
+    worktree's OWN ``.venv`` interpreter resolves ``mail``/``resume``/``core``
+    to the other tree.
+
+    An entry is foreign when it is a ``src`` directory that is not
+    ``repo_root/src`` and sits beside a ``pyproject.toml`` naming THIS project.
+    That test is deliberately narrow: it removes other checkouts of this repo
+    and leaves unrelated third-party ``PYTHONPATH`` entries alone, since
+    stripping those would break setups this router knows nothing about.
+
+    Returns the entries that were removed. The router itself does not bind the
+    result — DANCING_BEAR_PATH_DEBUG=1 is how a human sees what was dropped —
+    but the return value is what tests assert against.
+    """
+    raw = os.environ.get("PYTHONPATH", "")
+    if not raw:
+        return []
+
+    own_src = str(repo_root / "src")
+    kept: list[str] = []
+    dropped: list[str] = []
+    for entry in filter(None, raw.split(os.pathsep)):
+        target = dropped if _is_foreign_repo_src(entry, own_src) else kept
+        target.append(entry)
+
+    if not dropped:
+        return []
+
+    # Rewrite the variable so the re-exec below and any subprocess this command
+    # spawns inherit the corrected value. Setting it to our own src/ (rather
+    # than deleting it) keeps `python3 -m <pkg>` working for child processes
+    # that rely on it.
+    kept.insert(0, own_src)
+    os.environ["PYTHONPATH"] = os.pathsep.join(dict.fromkeys(kept))
+
+    # Repair the CURRENT interpreter too: PYTHONPATH was already expanded into
+    # sys.path at startup, so editing the environment alone does not help a
+    # process that does not re-exec. Both spellings are removed because
+    # sys.path may hold either the literal entry or its resolved form.
+    stale = set()
+    for entry in dropped:
+        stale.add(entry)
+        stale.add(str(Path(entry).resolve()))
+    sys.path[:] = [p for p in sys.path if p not in stale]
+
+    if os.environ.get("DANCING_BEAR_PATH_DEBUG"):
+        print(
+            f"[router] dropped foreign PYTHONPATH entries: {{dropped}}",
+            file=sys.stderr,
+        )
+    return dropped
+
+
+_strip_foreign_src_paths(_REPO_ROOT)
+
 _VENV_PY = _REPO_ROOT / ".venv" / "bin" / "python3"
 _VENV_PY_REAL = os.path.realpath(str(_VENV_PY)) if _VENV_PY.exists() else ""
 if (
@@ -99,8 +192,14 @@ if (
     os.execv(str(_VENV_PY), [str(_VENV_PY)] + sys.argv)  # nosec B606
 
 SRC_ROOT = _REPO_ROOT / "src"
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
+# Force our src/ to the FRONT, rather than only appending when absent. A
+# membership test is not enough: if this checkout's src/ is already on sys.path
+# but sits behind another entry that also provides `mail`/`resume`/`core`, the
+# earlier entry wins and the guard silently does nothing.
+_src = str(SRC_ROOT)
+while _src in sys.path:
+    sys.path.remove(_src)
+sys.path.insert(0, _src)
 
 {generated_section}
 
