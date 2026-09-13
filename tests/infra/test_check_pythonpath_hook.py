@@ -154,6 +154,41 @@ class TestCheckPythonpathHook(unittest.TestCase):
             # The warning itself must still be emitted.
             self.assertIn("systemMessage", json.loads(proc.stdout))
 
+    def test_every_sessionstart_python_hook_is_interpreter_isolated(self) -> None:
+        """No SessionStart hook may start a bare `python3`.
+
+        SessionStart hooks run with the session's environment, which is exactly
+        when PYTHONPATH may name a foreign checkout. Python imports
+        sitecustomize/usercustomize from PYTHONPATH entries during startup, so a
+        bare `python3 -c ...` hook executes code from that checkout before any
+        warning is emitted — including before this file's own hook runs.
+
+        Hardening this one shell script was not enough: the pre-existing
+        worktree-marker hook is ordered FIRST and launched a bare interpreter,
+        so the exposure survived a fix that claimed to close it. `-I` ignores
+        PYTHONPATH and the user site directory; `-S` skips site.py, which is what
+        imports sitecustomize.
+        """
+        settings = json.loads(
+            (REPO_ROOT / ".claude" / "settings.json").read_text()
+        )
+        offenders = []
+        for group in settings.get("hooks", {}).get("SessionStart", []):
+            for hook in group.get("hooks", []):
+                cmd = hook.get("command", "")
+                if not cmd.startswith("python3"):
+                    continue  # shell hooks start no interpreter
+                if "-I" not in cmd.split('"')[0] or "-S" not in cmd.split('"')[0]:
+                    offenders.append(cmd[:80])
+
+        self.assertEqual(
+            offenders,
+            [],
+            "SessionStart hook(s) start python3 without -I -S, so a "
+            "sitecustomize.py on a foreign PYTHONPATH would execute first: "
+            f"{offenders}",
+        )
+
     def test_output_is_a_single_json_object(self) -> None:
         """The hook contract is one JSON object on stdout — not prose."""
         with tempfile.TemporaryDirectory() as td:

@@ -324,6 +324,18 @@ Until you do, a `SessionStart` hook (`.claude/scripts/check-pythonpath.sh`)
 warns whenever `PYTHONPATH` names another checkout of this project, and the
 router and Makefile keep `./bin/*` and `make` correct regardless.
 
+**Any `SessionStart` hook that runs Python MUST use `python3 -I -S`.** These
+hooks execute with the session's environment, which is exactly when `PYTHONPATH`
+may name a foreign checkout — and Python imports `sitecustomize`/`usercustomize`
+from `PYTHONPATH` entries during interpreter startup. A bare `python3 -c` hook
+therefore runs code from that checkout before any warning is emitted. `-I`
+ignores `PYTHONPATH` and the user site directory; `-S` skips `site.py`, which is
+what performs those imports. Demonstrated with a planted `sitecustomize.py`, and
+pinned by `tests/infra/test_check_pythonpath_hook.py`, which fails if any
+SessionStart hook starts an unisolated interpreter. Prefer a pure-shell hook
+where the work is trivial — `check-pythonpath.sh` builds its JSON with parameter
+expansion for exactly this reason.
+
 What still redirects the import:
 
 - **An inherited `PYTHONPATH` used by anything the router does not run** — a
