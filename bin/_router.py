@@ -35,22 +35,27 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _is_foreign_repo_src(entry: str, own_src: str) -> bool:
-    """True when *entry* is the ``src/`` of a DIFFERENT checkout of this repo.
+_PROJECT_MARKER = 'name = "personal-assistants"'
 
-    The sibling ``pyproject.toml`` is the marker. Requiring it keeps the test
-    narrow: another checkout of this project is removed, while an unrelated
-    third-party ``src`` on PYTHONPATH is left alone.
+
+def _is_foreign_repo_src(entry: str, own_src: str) -> bool:
+    """True when *entry* is the ``src/`` of a DIFFERENT checkout of THIS repo.
+
+    The marker is a sibling ``pyproject.toml`` that names *this* project. A
+    pyproject.toml alone is far too broad — most third-party checkouts have one,
+    so matching on its mere presence would strip unrelated PYTHONPATH entries
+    and break setups this router knows nothing about.
     """
     try:
         resolved = Path(entry).resolve()
+        if resolved.name != "src" or str(resolved) == own_src:
+            return False
+        proj = resolved.parent / "pyproject.toml"
+        if not proj.is_file():
+            return False
+        return _PROJECT_MARKER in proj.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return False  # unreadable path: keep it rather than guess
-    return (
-        resolved.name == "src"
-        and str(resolved) != own_src
-        and (resolved.parent / "pyproject.toml").is_file()
-    )
 
 
 def _strip_foreign_src_paths(repo_root: Path) -> list[str]:
@@ -71,11 +76,10 @@ def _strip_foreign_src_paths(repo_root: Path) -> list[str]:
     to the other tree.
 
     An entry is foreign when it is a ``src`` directory that is not
-    ``repo_root/src`` and sits beside a sibling marker of this project
-    (``pyproject.toml``). That test is deliberately narrow: it removes other
-    checkouts of THIS repo and leaves unrelated third-party ``PYTHONPATH``
-    entries alone, since stripping those would break setups this router knows
-    nothing about.
+    ``repo_root/src`` and sits beside a ``pyproject.toml`` naming THIS project.
+    That test is deliberately narrow: it removes other checkouts of this repo
+    and leaves unrelated third-party ``PYTHONPATH`` entries alone, since
+    stripping those would break setups this router knows nothing about.
 
     Returns the entries that were removed. The router itself does not bind the
     result — DANCING_BEAR_PATH_DEBUG=1 is how a human sees what was dropped —

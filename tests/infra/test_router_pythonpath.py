@@ -31,16 +31,26 @@ ROUTER = REPO_ROOT / "bin" / "_router.py"
 
 
 def _make_fake_checkout(root: Path, package: str) -> Path:
-    """Create a decoy checkout: pyproject.toml plus src/<package>/__init__.py.
+    """A decoy checkout of THIS project: matching pyproject.toml plus src/<pkg>/.
 
-    The marker file matters — the router only strips a ``src`` entry that has a
-    sibling ``pyproject.toml``, so an unrelated third-party PYTHONPATH entry is
-    left alone.
+    The marker must NAME this project. The router only strips a ``src`` entry
+    whose sibling pyproject.toml says ``name = "personal-assistants"``, so an
+    unrelated third-party entry — which very likely ships a pyproject.toml of
+    its own — is left alone.
     """
     pkg = root / "src" / package
     pkg.mkdir(parents=True)
-    (root / "pyproject.toml").write_text('[project]\nname = "decoy"\n')
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "personal-assistants"\nversion = "0.1.0"\n'
+    )
     (pkg / "__init__.py").write_text('ORIGIN = "decoy"\n')
+    return root / "src"
+
+
+def _make_third_party_checkout(root: Path) -> Path:
+    """A DIFFERENT project that also has src/ and its own pyproject.toml."""
+    (root / "src").mkdir(parents=True)
+    (root / "pyproject.toml").write_text('[project]\nname = "some-other-lib"\n')
     return root / "src"
 
 
@@ -143,6 +153,25 @@ class TestRouterStripsForeignCheckouts(unittest.TestCase):
                 state["pythonpath"],
                 "an unrelated src/ was stripped; the check must require a "
                 "sibling pyproject.toml",
+            )
+
+    def test_third_party_checkout_with_its_own_pyproject_is_preserved(self) -> None:
+        """A pyproject.toml is not the marker — one naming THIS project is.
+
+        Most third-party checkouts ship a pyproject.toml. Stripping on its mere
+        presence would silently remove entries the router has no business
+        touching and break setups it knows nothing about.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            other = _make_third_party_checkout(Path(td, "some-other-lib"))
+
+            state = _run_prologue(str(other), REPO_ROOT)
+
+            self.assertIn(
+                str(other),
+                state["pythonpath"],
+                "a third-party src/ was stripped; the marker must name this "
+                "project, not merely be a pyproject.toml",
             )
 
     def test_empty_pythonpath_is_left_alone(self) -> None:

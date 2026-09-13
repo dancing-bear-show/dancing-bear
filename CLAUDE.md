@@ -307,10 +307,22 @@ present but ordered behind the foreign entry.
 The root cause is direnv, not the wrappers: `.envrc` exports
 `PYTHONPATH="$PWD/src"`, and direnv loads the `.envrc` of whichever checkout the
 shell *started* in. A worktree's `.envrc` is a different file and is not on
-direnv's allow list, so it never runs. `.claude/scripts/name-worktree.sh` now
-runs `direnv allow` on each new worktree, and a `SessionStart` hook
-(`.claude/scripts/check-pythonpath.sh`) warns when `PYTHONPATH` names another
-checkout. For an existing worktree, fix the shell with `direnv allow .`.
+direnv's allow list, so it never runs.
+
+**Nothing auto-approves that `.envrc`, deliberately.** `.envrc` is a tracked,
+branch-controlled file, so a hook that ran `direnv allow` for you would trust
+and execute shell code from whatever branch it just checked out — including an
+untrusted PR's — before anyone read it. `.claude/scripts/name-worktree.sh`
+therefore only prints a reminder on stderr; approving it is your call, after
+reading the file:
+
+```bash
+cd .claude/worktrees/<wt> && direnv allow .
+```
+
+Until you do, a `SessionStart` hook (`.claude/scripts/check-pythonpath.sh`)
+warns whenever `PYTHONPATH` names another checkout of this project, and the
+router and Makefile keep `./bin/*` and `make` correct regardless.
 
 What still redirects the import:
 

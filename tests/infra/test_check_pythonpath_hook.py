@@ -39,9 +39,23 @@ def _run_hook(pythonpath: str | None) -> subprocess.CompletedProcess[str]:
 
 
 def _make_fake_checkout(root: Path) -> Path:
-    """A decoy checkout: src/ plus the sibling pyproject.toml marker."""
+    """A decoy checkout of THIS project: src/ plus a matching pyproject.toml."""
     (root / "src").mkdir(parents=True)
-    (root / "pyproject.toml").write_text('[project]\nname = "decoy"\n')
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "personal-assistants"\nversion = "0.1.0"\n'
+    )
+    return root / "src"
+
+
+def _make_third_party_checkout(root: Path) -> Path:
+    """A DIFFERENT project that happens to have src/ and a pyproject.toml.
+
+    This is the case a bare "has a pyproject.toml" heuristic gets wrong: most
+    third-party checkouts have one, so matching on its presence alone would warn
+    about paths we have no business touching.
+    """
+    (root / "src").mkdir(parents=True)
+    (root / "pyproject.toml").write_text('[project]\nname = "some-other-lib"\n')
     return root / "src"
 
 
@@ -102,6 +116,43 @@ class TestCheckPythonpathHook(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, proc.stderr)
             payload = json.loads(proc.stdout)
             self.assertIn(str(foreign), payload["systemMessage"])
+
+    def test_silent_for_a_third_party_checkout_with_its_own_pyproject(self) -> None:
+        """A pyproject.toml is not enough — it must name THIS project.
+
+        Most third-party checkouts ship a pyproject.toml, so a presence-only
+        marker would warn about unrelated paths and train the reader to ignore
+        the warning.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            other = _make_third_party_checkout(Path(td, "some-other-lib"))
+
+            proc = _run_hook(str(other))
+
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(proc.stdout.strip(), "")
+
+    def test_no_interpreter_runs_with_the_foreign_path_still_set(self) -> None:
+        """The hook must not start Python while the foreign PYTHONPATH is live.
+
+        Python imports sitecustomize/usercustomize from PYTHONPATH entries during
+        startup, so an interpreter launched here would execute code from the very
+        checkout being warned about. Planting a sitecustomize.py proves whether
+        the hook is exposed.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            foreign = _make_fake_checkout(Path(td, "other-checkout"))
+            (foreign / "sitecustomize.py").write_text(
+                'import sys; sys.stderr.write("PWNED\\n")\n'
+            )
+
+            proc = _run_hook(str(foreign))
+
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertNotIn("PWNED", proc.stderr)
+            self.assertNotIn("PWNED", proc.stdout)
+            # The warning itself must still be emitted.
+            self.assertIn("systemMessage", json.loads(proc.stdout))
 
     def test_output_is_a_single_json_object(self) -> None:
         """The hook contract is one JSON object on stdout — not prose."""

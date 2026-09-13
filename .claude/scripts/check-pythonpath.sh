@@ -22,7 +22,25 @@
 # correctness hazard, not a reason to refuse to start.
 set -uo pipefail
 
-emit() { python3 -c 'import json,sys; print(json.dumps({"systemMessage": sys.argv[1]}))' "$1"; }
+# Emit the hook's JSON with pure shell — no Python.
+#
+# Starting a Python interpreter here would run code from the very checkout we
+# are about to warn about: PYTHONPATH is still set at this point, and Python
+# imports sitecustomize/usercustomize from its entries during startup.
+# Demonstrated, not theorised — a sitecustomize.py planted on a foreign
+# PYTHONPATH entry printed before the warning did.
+#
+# Clearing PYTHONPATH and passing -I -S would also close it, but the payload is
+# one string in one field, so shell escaping is less machinery than hardening an
+# interpreter we do not need. Escapes backslash, double-quote, and newline —
+# the three that can break JSON here. Paths are the only interpolated values.
+emit() {
+  local msg=$1
+  msg=${msg//\\/\\\\}
+  msg=${msg//\"/\\\"}
+  msg=${msg//$'\n'/\\n}
+  printf '{"systemMessage": "%s"}\n' "$msg"
+}
 
 cwd_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 [ -n "$cwd_root" ] || exit 0
@@ -39,7 +57,13 @@ for entry in "${entries[@]}"; do
   # project (a sibling pyproject.toml). Unrelated PYTHONPATH entries are none
   # of our business.
   case "$(basename "$entry")" in src) ;; *) continue ;; esac
-  [ -f "$(dirname "$entry")/pyproject.toml" ] || continue
+  # The marker must identify THIS project, not merely "some Python project".
+  # A sibling pyproject.toml alone is far too broad — most third-party checkouts
+  # have one, so that would warn about paths we have no business touching and
+  # train the reader to ignore the warning.
+  proj="$(dirname "$entry")/pyproject.toml"
+  [ -f "$proj" ] || continue
+  grep -qE '^name *= *"personal-assistants"' "$proj" 2>/dev/null || continue
   resolved=$(cd "$entry" 2>/dev/null && pwd) || continue
   [ "$resolved" = "$own_src" ] && continue
   foreign="$foreign $resolved"
