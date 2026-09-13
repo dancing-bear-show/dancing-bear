@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TypeGuard
+
 from ._base import (
     Any,
     dataclass,
@@ -16,6 +18,11 @@ from ._base import (
 )
 from ._context import EventProcessingContext
 from ..outlook_service import EventCreationParams, RecurringEventCreationParams
+
+
+def _nonempty_str(value: object) -> TypeGuard[str]:
+    """Return True if value is a non-empty string."""
+    return isinstance(value, str) and bool(value)
 
 
 @dataclass
@@ -89,9 +96,11 @@ class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
             start_time = ctx.nev.get("start_time")
             end_time = ctx.nev.get("end_time")
             repeat = ctx.nev.get("repeat")
-            if not (isinstance(start_time, str) and start_time
-                    and isinstance(end_time, str) and end_time
-                    and isinstance(repeat, str) and repeat):
+            if not (
+                _nonempty_str(start_time)
+                and _nonempty_str(end_time)
+                and _nonempty_str(repeat)
+            ):
                 ctx.logs.append(
                     f"[{ctx.idx}] Skipping recurring event '{ctx.subj}': "
                     f"start_time, end_time, and repeat must be non-empty strings "
