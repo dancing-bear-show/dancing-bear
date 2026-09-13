@@ -331,7 +331,21 @@ stages:
         values:
 
           1. Locate a BLANK claim template.  Candidate is
-             {reference_claim_pdf} if set, otherwise a template you find.
+             {reference_claim_pdf} if the run supplied it, or a synthetic
+             blank template committed to this repo.  Those are the ONLY two
+             approved sources.
+
+             Do NOT search the filesystem -- not ~/Downloads, not
+             ~/Documents/sunlife-claims/, nowhere -- and do not OPEN a
+             discovered file "just to check whether it is blank".  Opening is
+             the disclosure: the check below reads page text, so a filled
+             claim form would have been read before it was rejected.  The
+             source rule comes FIRST, not after.
+
+             If neither approved source exists, record
+             shipped_form_equivalence: "SKIPPED -- no approved blank template"
+             and go to step 4.  That is the expected outcome here (see below)
+             and is not a reason to go looking.
 
              VERIFY IT IS BLANK EITHER WAY, with the same check -- a supplied
              parameter is not a trusted source.  Pointing it at a filled claim
@@ -1156,13 +1170,23 @@ stages:
 
         Build a synthetic claim end to end and inspect the result:
 
-          1. Construct a Receipt in memory with synthetic values
-             (vendor "Northside Therapy", total 190.00, patient "Pat Doe",
-             invoice_id "8254-P01") -- no file, no real data.
-          2. Call build_packet() with it against a blank template if one was
-             found in migrate-font-sizes (reuse that stage's verdict; do NOT
-             re-search, and never fall back to a personalised form).
-          3. Assert on the produced packet:
+          1. Build the Receipt from a FIXTURE FILE, not from thin air:
+               extract("tests/receipts_fixtures/jane_clinic.pdf")
+             build_packet() merges the receipt's PAGES into the packet, so a
+             Receipt with source_path=None has nothing to merge and the page
+             assertion in step 3 cannot mean anything.  The fixture is
+             synthetic, so this stays within the privacy boundary.
+
+          2. Wrap it in a Claim -- build_packet(claim, template_path, out_dir)
+             takes a Claim, not a Receipt:
+               Claim(receipt=<from step 1>, claimant="Pat Doe",
+                     plan_year=2026, plan_year_start_month=1)
+
+          3. Call build_packet() against blank_template_path from
+             {workspace}/outputs/font-size-migration.json -- the template
+             migrate-font-sizes already approved.  Do NOT re-search, and never
+             fall back to a personalised form.
+          4. Assert on the produced packet:
              - page_count == form pages + receipt pages
              - the claimant-row region renders non-blank:
                  pix.color_topusage() returns a (ratio, colour) tuple;
@@ -1212,7 +1236,12 @@ stages:
           full_suite       == "PASS"  (SUITE_EXIT 0 AND the Ran line present)
           every cli_smoke field       == "PASS"
           qlty_status      in ("PASS", "SKIPPED")
-          render/packet check         != "FAIL"
+          packet_render_check         == "PASS"
+        SKIPPED does NOT count as green here.  qlty may be skipped by a
+        parameter, but a skipped packet render means this workflow's own
+        merge-and-render path was never exercised -- the one thing it adds.
+        A resumed run that still has no approved template must not reach the
+        human gate claiming a green verification.
         If any is false, set all_green false AND report this stage's status as
         "failed".  The completion template pre-fills "success", so a red run
         reaches the human gate looking green unless you override it.

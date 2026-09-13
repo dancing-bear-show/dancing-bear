@@ -22,6 +22,12 @@ Shapes encoded here, all confirmed against real files:
                         exact gap once understated a claim by $190 because the
                         parser only knew the "Payer Total" label.
 
+  subtotal_trap.pdf     Subtotal $250.00, a -$25.00 credit, Total $225.00.
+                        The figures DIFFER, so a substring search for "Total"
+                        that hits "Subtotal" returns 250.00 and is caught.
+                        invoice_total.pdf cannot catch that -- both of its
+                        figures are $250.00.
+
   speech_aim.pdf        "Total Amount  $150.00" -- a third spelling.
 
   costco_pharmacy.pdf   OCR-degraded text: "!Patient Pays: 88.21 j", no dollar
@@ -44,6 +50,7 @@ Which parser claims which fixture, given the order jane -> costco -> generic
 
   jane_clinic       -> Jane    yields 190.00
   jane_zero         -> Jane    yields 0.00   (success, not failure)
+  subtotal_trap     -> Jane    yields 225.00, NOT the 250.00 subtotal
   invoice_total     -> Jane    yields 250.00 -- carries a Jane invoice id but a
                                "Total" label.  This is why JaneParser carries
                                AMOUNT_LABELS ["Payer Total", "Total Amount",
@@ -75,6 +82,9 @@ HERE = pathlib.Path(__file__).parent
 # patient names, addresses and prescribing physicians; none of that may enter
 # the repo, so every fixture uses this placeholder.
 PATIENT = "Pat Doe"
+# Shared so invoice_total and subtotal_trap stay comparable: both print this
+# as the SUBTOTAL, and only subtotal_trap gives Total a different value.
+SUBTOTAL = "$250.00"
 # Costco pharmacy prints the patient surname-first, so it needs its own form.
 PATIENT_SURNAME_FIRST = "Doe, Pat"
 
@@ -148,9 +158,38 @@ def invoice_total(path: pathlib.Path) -> None:
         "C. Pathologist MS, SLP, License #000000",
         "Invoice #7037-P01",
         "Subtotal",
-        "$250.00",
+        SUBTOTAL,
         "Total",
-        "$250.00",
+        SUBTOTAL,
+    ])
+    doc.save(path)
+    doc.close()
+
+
+def subtotal_trap(path: pathlib.Path) -> None:
+    """Subtotal and Total DIFFER, so a substring match returns the wrong one.
+
+    invoice_total.pdf cannot catch this: both of its figures are $250.00, so a
+    parser that matches "Subtotal" instead of "Total" still reports the right
+    number. Here a credit makes them differ, and only correct line-anchored
+    matching yields 225.00.
+    """
+    doc = fitz.open()
+    _page(doc, [
+        "Springfield Speech Services",
+        "300 Example Blvd, Springfield, ON, X0X 0X0",
+        "",
+        PATIENT,
+        "Invoice",
+        "",
+        "July 15, 2026 - 12:00pm, Speech-Language Pathology (60 minutes)",
+        "Invoice #7099-P01",
+        "Subtotal",
+        SUBTOTAL,
+        "Courtesy credit",
+        "-$25.00",
+        "Total",
+        "$225.00",
     ])
     doc.save(path)
     doc.close()
@@ -248,6 +287,7 @@ BUILDERS = {
     "jane_clinic.pdf": jane_clinic,
     "jane_zero.pdf": jane_zero,
     "invoice_total.pdf": invoice_total,
+    "subtotal_trap.pdf": subtotal_trap,
     "speech_aim.pdf": speech_aim,
     "costco_pharmacy.pdf": costco_pharmacy,
     "costco_optical.pdf": costco_optical,

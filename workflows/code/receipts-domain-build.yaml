@@ -201,6 +201,30 @@ stages:
               Schema: {"vendor": str, "date": str|null, "total": float,
                         "patient": str|null, "invoice_id": str|null}
 
+          AMOUNT LABEL MATCHING -- shared by every parser below.
+            A raw substring search is WRONG.  "Subtotal" contains "Total", so
+            a naive search returns the SUBTOTAL, which differs from the total
+            on any receipt carrying tax or a credit.  Verified against
+            realistic inputs: a substring search returns the subtotal every
+            time.  The invoice_total fixture does not catch this, because
+            both of its figures are $250.00 -- the parser would be wrong on
+            real receipts while the fixture passed.
+
+            Anchor the label to the start of a line, allow leading
+            punctuation and whitespace (OCR emits "!Patient Pays: 88.21 j"),
+            and require a word boundary after it:
+
+              LABEL_RE = lambda label: re.compile(
+                  r"^[^A-Za-z0-9]*" + re.escape(label) +
+                  r"\b[^0-9\-]*(-?[\d,]+\.\d{2})", re.I | re.M)
+
+            Rejects "Subtotal", "SUBTOTAL" and "Sub Total" as matches for
+            "Total"; still accepts "Payer Total", "Total Amount", a missing
+            "$" sigil, and "$0.00".  The optional leading minus matters: a
+            credit line prints "-$96.00".
+
+            Try AMOUNT_LABELS in the declared order and take the first hit.
+
           File: parsers/jane.py
             JaneParser(PdfParser):
               Marker: text contains "Invoice #" followed by a 3-6 digit
@@ -210,14 +234,15 @@ stages:
                 Chiropractic, Oak Ridges Physiotherapy, Massage Addict.
               AMOUNT_LABELS, tried in this order:
                 ["Payer Total", "Total Amount", "Total"]
+
                 NOT just "Payer Total": the same practice software prints
                 "Payer Total" on receipts and "Total" on invoices, and some
                 clinics use "Total Amount".  A single-label contract is the
                 bug that once understated a real claim by $190, and it makes
                 the invoice_total and speech_aim fixtures fall through to
                 GenericParser instead of Jane.
-                Order matters -- "Payer Total" must be tried before the bare
-                "Total" or a substring match claims the wrong line.
+                Order matters -- "Payer Total" before the bare "Total".
+                Use the shared AMOUNT LABEL MATCHING rule above.
               matches() -> True when Invoice # pattern present in page 0 text.
               parse() extracts: invoice_id from "Invoice #NNNNN-PNN", vendor
                 from clinic name on first page, date from receipt header, total
@@ -238,9 +263,9 @@ stages:
                 line at all, so a contract of just Total/Total Amount makes
                 CostcoParser decline its own pharmacy fixture and hands it to
                 GenericParser.  Amounts may have NO "$" sigil and may sit in
-                OCR garble ("!Patient Pays: 88.21 j"), so match the label and
-                take the first decimal number after it rather than requiring
-                a currency symbol.
+                OCR garble ("!Patient Pays: 88.21 j").  Use the shared
+                AMOUNT LABEL MATCHING rule above, which already handles the
+                missing "$" and the leading punctuation.
               invoice_id=None always (Costco receipts have none).
 
           File: parsers/generic.py
@@ -1354,7 +1379,7 @@ stages:
 
           .venv/bin/python tests/receipts_fixtures/build_fixtures.py
 
-        This writes seven synthetic PDFs under tests/receipts_fixtures/, each
+        This writes eight synthetic PDFs under tests/receipts_fixtures/, each
         reproducing one real-world parsing hazard confirmed against actual
         receipts.  They are synthetic on purpose: real receipts carry patient
         names, addresses and prescribing physicians and must never enter the
@@ -1466,6 +1491,12 @@ stages:
             direct-billed receipt is a SUCCESSFUL parse; `assert not total`
             would wrongly read it as a failure.
           - extract("invoice_total.pdf")   -> total 250.00 from a "Total" label
+          - extract("subtotal_trap.pdf")   -> total 225.00, NOT 250.00.  This
+            is the regression test for label matching: the file has
+            Subtotal $250.00, a -$25.00 credit, and Total $225.00, so a
+            substring search that hits "Subtotal" returns 250.00 and fails
+            here.  invoice_total.pdf cannot catch that -- both of its figures
+            are $250.00.
           - extract("speech_aim.pdf")      -> total 150.00 from "Total Amount"
           - extract("costco_pharmacy.pdf") -> total 88.21 from OCR-garbled
             "!Patient Pays: 88.21 j", which has no "$" sigil at all
