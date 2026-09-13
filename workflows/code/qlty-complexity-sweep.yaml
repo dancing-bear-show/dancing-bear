@@ -373,6 +373,13 @@ stages:
         flag these for extra caution since bin/ entries are public CLI
         wrappers (see plan-splits DEFER guidance).
 
+        Mark any candidate under src/maker/ as deferred here, with the reason
+        "outside no-facade gate coverage", rather than carrying it forward.
+        detect_facades.py prunes "maker" unconditionally, so the gate that
+        enforces this workflow's central rule is blind to that directory —
+        surfacing the candidate and deferring it at plan time is honest;
+        letting it reach a worker is not.
+
       Step 6 — gather per-file responsibility hints:
         For each candidate, run:
           grep -n "^class \|^def " <file> | head -40
@@ -491,6 +498,14 @@ stages:
         DEFER  — real blockers only.
           — Path is under bin/ (public CLI entry point — never split or
             rename per project rules).
+          — Path is under src/maker/. CLAUDE.md lists it as a skip path, and
+            more importantly the no-facade gate CANNOT SEE IT:
+            detect_facades.py prunes "maker" unconditionally in iter_py()
+            (SKIP_PARTS, line 20). A split there could leave a re-export
+            facade while facades.json stays empty and the gate reports clean
+            — a silent violation of this workflow's central rule. Defer
+            rather than weakening the detector, which is excluded by project
+            policy, not by oversight.
           — Tight coupling through shared mutable state that cannot be
             untangled safely without a broad refactor.
           — Note what DEFER is NOT for: "a single monolithic function holds
@@ -576,22 +591,35 @@ stages:
     # This stage was already kind:propose before the compliance rewrite, so it
     # has always taken the local no-op path under `./bin/workflow run`; the
     # plan and the human gate were never produced there.
+    # ORDER MATTERS: domain-groups.json is listed FIRST in both lists because
+    # it is the fan_out source for decompose-groups. The skill resolves the
+    # fan-out source as "the output file from the fan_out.source stage"
+    # (.claude/skills/workflow/SKILL.md:741) — singular — and the dispatcher
+    # maps outputs/writes_to positionally, so a stage declaring two paths
+    # hands over whichever is first. With plan.md first the fan-out would
+    # parse MARKDOWN looking for a top-level "items" array, find none, and
+    # spawn zero workers.
+    #
+    # coverage-uplift.yaml carries the same note on prioritize-targets for
+    # the same reason. facade-elimination.yaml's classify-and-plan has
+    # plan.md first and is likely to have this bug.
     outputs:
+      - name: domain-groups
+        mode: generate
+        description: >
+          Fan-out index written to
+          {workspace}/outputs/design/domain-groups.json, one entry per
+          directory group with its files and chosen strategies. Its top-level
+          "items" array is what fan_out `field: items` resolves against.
       - name: plan
         mode: generate
         description: >
           Execution plan written to {workspace}/outputs/design/plan.md —
           per-file strategy, target functions, deferrals with reasons, and
           call-site risk notes.
-      - name: domain-groups
-        mode: generate
-        description: >
-          Fan-out index written to
-          {workspace}/outputs/design/domain-groups.json, one entry per
-          directory group with its files and chosen strategies.
     writes_to:
-      - outputs/design/plan.md
       - outputs/design/domain-groups.json
+      - outputs/design/plan.md
 
   # ===========================================================================
   # G2: Decompose groups — parallel fan-out, one code-writer per directory group
@@ -761,13 +789,36 @@ stages:
               have broken the build in 7 places. A missed relative import in
               a module no test imports fails silently.
 
-              `workflows/code/scripts/detect_facades.py` already implements
-              the resolver — `_resolve_relative_import()` handles
-              ImportFrom.level, and it walks with ast.walk rather than
-              tree.body. Reuse it (see facade-elimination.yaml:115-140 for
-              the three binding forms it covers) rather than writing a
-              resolver here: embedded Python in workflow YAML is a ratified
-              project concern, and a second implementation drifts.
+              `detect_facades.py` CANNOT do this inventory, despite
+              implementing the right resolver. Its `_record_import_from_node`
+              records a caller only when the resolved target is already a key
+              in its `facades` map (`if tgt in facades`), and that map holds
+              only modules that are ALREADY pure facades. A complex split
+              candidate is not a facade before the move and does not exist
+              after it, so it is never a key and the caller set comes back
+              empty — an empty result that looks exactly like "no callers".
+              Do not point at that script for this step.
+
+              What it does provide is the resolution logic to model:
+              `_resolve_relative_import(level, module, pkg)` for
+              ImportFrom.level, and `ast.walk` rather than `tree.body` so
+              lazy in-function imports are reached.
+
+              REQUIRED: produce an AST caller inventory for the target
+              module, or DO NOT SPLIT IT. Acceptable ways to get one:
+                - a reusable script under workflows/code/scripts/ that takes
+                  a target module and reports its callers, applying the same
+                  relative-import resolution and ast.walk (the right home for
+                  this — embedded Python in workflow YAML is a ratified
+                  project concern);
+                - an existing caller-inventory tool if one is added later.
+
+              If no AST inventory is available, DOWNGRADE the file to
+              reduce-in-place and record the downgrade. That is a correct
+              outcome: reduce-in-place moves nothing, so it has no call sites
+              to update and no import risk at all. Splitting on a
+              grep-derived inventory is the failure mode below, and a
+              downgrade is strictly better than a silent break.
 
               Use grep ONLY as a cross-check, never as the inventory:
                 grep -rn "from <module_path> import\|import <module_path>" \
@@ -779,6 +830,10 @@ stages:
               A hit the AST pass missed means your resolution is wrong. The
               reverse — an AST caller the grep missed — is the expected case
               and exactly why the grep alone is insufficient.
+
+              This is not hypothetical: facade-elimination.yaml records that
+              a grep-based count once labelled 7 facades "zero callers — safe
+              to delete outright", and every one had real callers.
 
            ii. mock.patch TARGET STRINGS — the single most common failure
                mode for this refactor in this repo. These are string
@@ -905,6 +960,17 @@ stages:
         not uncommitted files: an isolated agent that edits and returns
         without committing leaves nothing to merge, and the stage reports
         success while no code lands.
+
+        Then PROVE your worktree is clean before you report:
+          git status --porcelain
+        Empty output is required. A non-empty result means at least one edit
+        is uncommitted and will be DISCARDED when this worktree is torn down
+        — partially committed work is worse than none, because downstream
+        stages then test a tree missing part of your change and report green.
+        Commit the remainder (or revert it deliberately and say so in your
+        summary), then re-run the check. Do not report success with a dirty
+        worktree; merge-worktrees FAILS the run when a file your summary
+        claims does not appear in git.
 
         Content of <your-cwd>/outputs/{group}-splits.md:
 
@@ -1083,9 +1149,24 @@ stages:
 
         Establish the true file set from GIT, not from the workers' reports —
         a report's file list is the worker's unverified self-claim. Compare
-        the two: a file git shows that no report mentions, or a file a report
-        claims that git does not show, is a discrepancy to record rather than
-        ignore.
+        the two, and treat one direction as FATAL:
+
+          - A file a report CLAIMS that git does not show is a FAILURE, not a
+            note. It means the worker edited that file and never committed
+            it, so the change is stranded in an ephemeral worktree that is
+            about to be discarded. Every downstream stage would then test and
+            recheck a tree missing that edit — a false green on work that no
+            longer exists anywhere. FAIL this stage, naming the group and the
+            files.
+          - A file git shows that NO report mentions is recorded as a
+            discrepancy and reported to the human gate. It is suspicious (a
+            worker touched something it did not disclose) but the change did
+            land, so downstream verification still covers it.
+
+        Do not try to recover a stranded edit by copying it out of the
+        worker's worktree: the worker is gone, and the orchestrator only
+        merges commits. Failing loudly is the correct outcome — the run can
+        be retried, a silently missing reduction cannot be detected later.
 
         Then confirm at least one source file changed. Zero changed files
         after a sweep that reported reductions is a FAILURE, not a clean run.
@@ -1143,10 +1224,28 @@ stages:
         git diff --name-only "$PRE_SWEEP"...HEAD
       Use the recorded ref, not HEAD~1 — one merge commit per group means the
       offset is wrong for any run with more than one group.
-      If no reduction commits are present, the isolated edits never landed and
-      a green suite here would prove nothing. Read
-      {workspace}/outputs/merge-report.md and FAIL if it reports zero source
-      files changed.
+
+      Branch on whether this run had any work to do. Read
+      {workspace}/outputs/design/domain-groups.json first:
+
+        NO-OP RUN — "items" is empty (a clean repo, or every candidate
+        deferred). Zero commits and zero changed files are the CORRECT
+        outcome, not a failure. Write test-results.md recording
+        "no-op: no groups dispatched, nothing to verify", set status success,
+        and skip the per-group runs. Do NOT fail: discover-candidates and
+        plan-splits both treat an empty candidate list with no scan_errors as
+        a successful no-op, and failing here would make a clean repo
+        impossible to sweep.
+
+        REAL RUN — "items" is non-empty. Zero reduction commits or zero
+        changed source files now means the isolated edits never landed, and a
+        green suite would prove nothing. Cross-check
+        {workspace}/outputs/merge-report.md and FAIL, naming the groups that
+        produced no commits.
+
+      Still run the FULL suite in the no-op case if any commit exists at all
+      (an earlier stage may have touched something); the skip applies only to
+      the per-group loop, which has no groups to loop over.
 
       IMPORTANT — set PYTHONPATH explicitly before running any test command:
         export PYTHONPATH="$(pwd)/src"
@@ -1617,7 +1716,11 @@ stages:
         qlty command hard-errors on a missing file, failing this gate on the
         cleanest possible outcome.
 
-        Use --format JSON, never csv. The CSV renderer emits finding rows
+        Use `--format json`, never `csv` — lowercase, as the commands above
+        and below spell it. argparse rejects `--format JSON` with
+        "invalid choice: 'JSON' (choose from 'text', 'json', 'md', 'csv')",
+        so a literal copy of an uppercase spelling fails before the scan
+        runs. The CSV renderer emits finding rows
         ONLY — it carries no "stable", "degraded", "degradations" or
         "iterations" field (verified: a `--rescan-until-stable --format csv`
         run contains zero occurrences of either word). Since the wrapper
@@ -1717,19 +1820,39 @@ stages:
         "stale_references" and "facades_detected" MUST both be empty arrays
         for this stage to pass. Any entry in either is a blocking failure.
 
-      Acceptance criteria — this stage is not done until all hold:
-        - Every touched module imports without error
-        - No public symbol was lost; any symbol that moved has its new home
-          verified and all call sites updated
-        - stale_references is empty — zero dangling imports of a moved module
-          anywhere in src/, tests/ or bin/
-        - Zero stale mock.patch target strings naming an old module path
-        - Zero stale dotted module paths in string-keyed dispatch tables,
-          YAML/JSON config, or docs
-        - facades_detected is empty — no emptied module was rewritten as a
-          backward-compatible re-export shim
-        - Dispatcher CLIs and bin/ entry points for touched groups start
-          without traceback
+      REPORTING CONTRACT — this stage REPORTS findings; it does not block on
+      them. Set status "success" whenever the audit itself completed, even
+      when it found stale references or facades, and record every finding in
+      import-check.json with "overall": "ISSUES".
+
+      This is not leniency. The orchestrator halts the run before dependent
+      stages when a REQUIRED stage reports failed
+      (src/workflow/orchestrator.py:220-222), and this stage is required. If
+      it failed on the findings it exists to surface, apply-corrections — the
+      stage whose entire job is fixing dangling call sites and import errors
+      — would never run, and recheck would never confirm the repair. The gate
+      that must not be passed is recheck, after corrections; this stage's job
+      is to produce an accurate, complete finding list for that repair to act
+      on.
+
+      Report status "failed" ONLY when the audit could not be performed: an
+      unreadable upstream artifact, a scan that errored, a missing
+      pre-sweep-ref.txt. An audit that ran and found problems is a successful
+      audit.
+
+      Completion criteria — the AUDIT is not done until all hold:
+        - Every touched module was import-checked and the result recorded
+        - Export parity was computed for every pre-existing touched file, and
+          every moved symbol was checked at its destination
+        - The three stale-reference searches ran over src/, tests/ and bin/:
+          import statements (AST-resolved), mock.patch target strings, and
+          string-keyed dispatch tables
+        - The facade detector ran with INCLUDE_INIT=true and its result was
+          compared against the recorded baseline
+        - Dispatcher CLIs and bin/ entry points for touched groups were
+          started and their exit recorded
+        - import-check.json lists every finding, with "overall" set to PASS
+          only when stale_references and facades_detected are both empty
         - No critical qlty issues on modified files
         - Complexity genuinely decreased; a split whose sibling sum is
           unchanged is reported as RELOCATED, not REDUCED
@@ -1738,21 +1861,28 @@ stages:
       model: sonnet
       tools: [Bash, Read, Write]
       access: read-only
+    # These criteria describe a COMPLETE AUDIT, not a clean result. A stale
+    # reference or facade is a finding to record and hand to
+    # apply-corrections, never a reason to report this required stage failed
+    # — that would halt the run before the correction stage could act. The
+    # blocking gate is `recheck`, after corrections.
     validation:
       strategy: unit
       criteria:
-        - Every touched module imports without error
-        - No public symbol was lost; any symbol that moved has its new home
-          verified and all call sites updated
-        - stale_references is empty — zero dangling imports of a moved
-          module anywhere in src/, tests/ or bin/
-        - Zero stale mock.patch target strings naming an old module path
-        - Zero stale dotted module paths in string-keyed dispatch tables,
-          YAML/JSON config, or docs
-        - facades_detected is empty — no emptied module was rewritten as a
-          backward-compatible re-export shim
-        - Dispatcher CLIs and bin/ entry points for touched groups start
-          without traceback
+        - Every touched module was import-checked and the outcome recorded
+        - Export parity was computed for every pre-existing touched file, and
+          every moved symbol checked at its destination
+        - All three stale-reference searches ran (AST-resolved imports,
+          mock.patch target strings, string-keyed dispatch tables) over src/,
+          tests/ and bin/, with every hit recorded in stale_references
+        - The facade detector ran with INCLUDE_INIT=true and its output was
+          compared against the recorded baseline, with any new entry recorded
+          in facades_detected
+        - Dispatcher CLIs and bin/ entry points for touched groups were
+          started and their exit status recorded
+        - The overall field is PASS only when stale_references and
+          facades_detected are both empty; otherwise ISSUES, with the stage
+          still reporting success because the audit completed
         - No critical qlty issues on modified files
         - Complexity genuinely decreased; a split whose sibling sum is
           unchanged is reported as RELOCATED, not REDUCED
