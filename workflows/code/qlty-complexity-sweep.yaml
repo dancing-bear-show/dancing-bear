@@ -701,8 +701,20 @@ stages:
 
         d. Confirm the file still imports:
              python3 -c "import <module_path>" 2>&1
+
            Derive module_path from the path relative to src/: strip the src/
-           prefix, replace / with ., strip .py.
+           prefix, replace / with ., strip .py — then SPECIAL-CASE
+           `__init__.py`, which must map to the PACKAGE, not to a
+           `.__init__` submodule:
+             src/mail/config_resolver.py  -> mail.config_resolver
+             src/mail/providers/__init__.py -> mail.providers   (NOT
+                                               mail.providers.__init__)
+           A definition inside a package's `__init__.py` has
+           `__module__ == "mail.providers"`, so addressing it as
+           `mail.providers.__init__` binds a second module object whose
+           contents can be attributed elsewhere — export parity would then
+           report every local definition as missing. Strip the trailing
+           `.__init__` after the mechanical conversion.
 
         e. Re-score ALL FOUR rules, not just the file score:
              ./bin/qlty-assistant scan --rescan-until-stable --format json \
@@ -897,6 +909,16 @@ stages:
         Content of <your-cwd>/outputs/{group}-splits.md:
 
           ## {group} Complexity Reduction
+
+          Branch: <output of `git rev-parse --abbrev-ref HEAD` in your worktree>
+          Head:   <output of `git rev-parse HEAD` after your final commit>
+
+          Record BOTH before anything else. merge-worktrees merges only
+          branches a group actually claims — `worktree-agent-*` refs are not
+          cleaned up between runs, so the wildcard alone would sweep in stale
+          branches from earlier runs. If you do not report your branch here,
+          your work is treated as an unclaimed ref and is NOT merged.
+
           | File | Strategy | Techniques / Siblings | Before | After | Import |
           |------|----------|----------------------|--------|-------|--------|
           | src/resume/parsing_experience.py | reduce-in-place | dispatch table, 3x guard clause | 208 | 54 | PASS |
@@ -938,25 +960,33 @@ stages:
           downstream stages read it. Contains files touched, techniques
           applied, before/after scores, strategy downgrades, and the
           call-site update ledger for any split entries.
-    # KNOWN ENGINE LIMITATION, not a typo. `writes_to` is stored literally --
-    # compiler.resolve_params() is applied to `description` and
-    # `cli_commands`, never to this field -- so `{group}` is NOT substituted
-    # per fan-out item. The orchestrator cannot derive the concrete filenames
-    # from this contract alone.
+    # `{group}` IS substituted per fan-out item — this is the documented
+    # contract, not a workaround:
+    #   - FanOutSpec (src/workflow/models.py:242-245): the key is "substituted
+    #     into the stage description and output filenames".
+    #   - The /workflow skill (.claude/skills/workflow/SKILL.md:750-754)
+    #     builds each fan-out agent's prompt by substituting {fan_out.key}
+    #     into description AND writes_to.
     #
-    # This is the repo-wide convention for fan-out artifacts, not a quirk of
-    # this workflow: facade-elimination.yaml's eliminate-domains declares
-    # `outputs/{domain}-elimination.md` identically. Fixing it properly means
-    # extending the engine to substitute the fan-out key here, which belongs
-    # in its own change with its own tests rather than inside a workflow PR.
+    # Substitution happens in the SKILL orchestrator at dispatch time, not in
+    # `compile`: the compiler stores writes_to verbatim and does not expand a
+    # fan-out stage into N stages at all (verified — `decompose-groups`
+    # appears once in the compiled manifest). Reading only the compiled output
+    # therefore makes the field look literal; it is not, at the point that
+    # matters.
     #
-    # Until then, downstream stages must DISCOVER these files by glob rather
-    # than trusting the declared contract:
+    # Same declaration as facade-elimination.yaml's eliminate-domains
+    # (`outputs/{domain}-elimination.md`), which is the established repo
+    # pattern for per-item fan-out artifacts.
+    #
+    # Downstream stages still DISCOVER these by glob rather than reconstructing
+    # filenames from domain-groups.json:
     #     ls {workspace}/outputs/*-splits.md
-    # merge-worktrees does exactly that, and cross-checks the result against
-    # domain-groups.json so a worker whose artifact never arrived fails the
-    # run instead of being silently skipped. verify-tests derives its group
-    # list the same way.
+    # That is belt-and-braces, not a substitute for the contract: a glob finds
+    # whatever actually landed, and merge-worktrees cross-checks that set
+    # against domain-groups.json so a worker whose artifact never arrived
+    # FAILS the run by name instead of being silently skipped. verify-tests
+    # derives its group list the same way.
     writes_to:
       - outputs/{group}-splits.md
 
@@ -1001,13 +1031,31 @@ stages:
         wrong path. FAIL this stage and name the group — do not proceed, and
         do not merge a branch whose report never arrived.
 
-      Step 2 — enumerate the worker branches:
-          git branch --list 'worktree-agent-*'
-        Expect one per group that was dispatched. A dispatched group with no
-        branch is a failed worker: record it and FAIL.
+      Step 2 — identify THIS RUN's worker branches, not every matching name:
+        `git branch --list 'worktree-agent-*'` is NOT a safe branch set. Those
+        refs are not cleaned up automatically, so the wildcard also matches
+        branches left behind by earlier runs of this or any other isolated
+        workflow. Merging one of those would pull unrelated commits into this
+        branch — and it would pass the Step 3 empty-range check, because a
+        stale branch genuinely does have commits.
+
+        Build the set from what THIS run dispatched:
+          a. Each worker records its own branch in its group summary. Read
+             `<group>-splits.md` for every group in domain-groups.json and
+             take the branch name from there.
+          b. Cross-check against the wildcard listing. A branch matching
+             `worktree-agent-*` that NO group claims is stale or foreign:
+             report it and leave it alone. Never merge an unclaimed branch.
+          c. Restrict further by ancestry — every branch you merge must
+             descend from the pre-sweep ref recorded in Step 0:
+               git merge-base --is-ancestor "$PRE_SWEEP" worktree-agent-<id>
+             A branch that fails this predates the sweep and is not ours.
+
+        Expect exactly one claimed branch per dispatched group. A dispatched
+        group with no branch is a failed worker: record it and FAIL.
 
       Step 3 — verify each branch actually has commits, before merging:
-          git log --oneline HEAD..worktree-agent-<id>
+          git log --oneline "$PRE_SWEEP"..worktree-agent-<id>
         An EMPTY range means the agent edited its worktree and returned
         without committing. `git merge` moves commits, not uncommitted files,
         so merging an empty branch succeeds and reports success while no code
@@ -1308,9 +1356,21 @@ stages:
         modified, or deleted.
         Read {workspace}/outputs/design/domain-groups.json for the planned
         file list, strategies, and proposed siblings.
-        Run: git diff --name-only
-        Cross-reference: every file in the diff should be accounted for in a
-        group summary. Flag anything unexpected.
+        Run, against the PRE-SWEEP ref rather than the worktree:
+          PRE_SWEEP=$(cat {workspace}/outputs/pre-sweep-ref.txt)
+          git diff --name-only "$PRE_SWEEP"...HEAD
+
+        A bare `git diff --name-only` returns NOTHING here. The workers
+        committed, merge-worktrees merged those commits, and the worktree is
+        therefore clean — so the command that claims to "establish the file
+        set from Git" would establish an empty set and this cross-reference
+        would validate nothing.
+
+        Cross-reference: every file in the range diff should be accounted for
+        in a group summary. Flag anything unexpected. Note the range includes
+        DELETED paths, which is correct — a full split removes the original
+        under the no-facade rule — but filter to existing files before
+        passing any of them to a tool.
 
       Step 2 — import every touched module:
         For each modified or created .py file:
@@ -1830,8 +1890,16 @@ stages:
 
       Step 2 — qlty lint on all files touched by decompose-groups:
         Enumerate modified files by reading {workspace}/outputs/*-splits.md
-        plus `git diff --name-only`.
-        ~/.qlty/bin/qlty check <space-separated list of .py files>
+        plus the pre-sweep range diff — NOT a bare `git diff --name-only`,
+        which returns nothing once the worker commits are merged and the
+        worktree is clean:
+          PRE_SWEEP=$(cat {workspace}/outputs/pre-sweep-ref.txt)
+          git diff --name-only "$PRE_SWEEP"...HEAD
+        Then filter to files that still exist, since the range lists deleted
+        originals and a path-scoped qlty command hard-errors on a missing
+        file:
+          for p in <the enumerated paths>; do test -f "$p" && echo "$p"; done
+        ~/.qlty/bin/qlty check <the surviving .py files>
 
         If qlty reports critical issues, attempt auto-fix:
           ~/.qlty/bin/qlty check --fix <file>

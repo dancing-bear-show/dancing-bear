@@ -114,15 +114,33 @@ def main(argv: list[str] | None = None) -> int:
     group.add_argument("--module", help="importable dotted module path")
     args = parser.parse_args(argv)
 
+    # Select on `is not None`, never truthiness. With `if args.source`, an
+    # empty --source silently falls through to from_module(None) and raises an
+    # uncaught TypeError; an empty --module reaches importlib and raises
+    # ValueError, which the ImportError handler does not catch. Both leaked a
+    # traceback instead of the documented exit-1 contract.
+    use_source = args.source is not None
+
+    if use_source and not args.source.strip():
+        print("error: --source requires a path", file=sys.stderr)
+        return 1
+    if not use_source and not (args.module or "").strip():
+        print("error: --module requires a dotted module name", file=sys.stderr)
+        return 1
+
     try:
-        names = from_source(args.source) if args.source else from_module(args.module)
+        names = from_source(args.source) if use_source else from_module(args.module)
     # UnicodeError covers UnicodeDecodeError from a non-UTF-8 source file:
     # without it the CLI emits a traceback instead of the documented exit-1
     # contract, and a caller parsing stderr cannot tell the two apart.
     except (OSError, SyntaxError, UnicodeError) as exc:
         print(f"error: cannot read or parse source: {exc}", file=sys.stderr)
         return 1
-    except ImportError as exc:
+    # ValueError and TypeError join ImportError because importlib raises them
+    # for malformed names rather than ImportError: an empty segment raises
+    # ValueError, and a RELATIVE name (".bad") raises TypeError complaining
+    # that the 'package' argument is required. Verified both.
+    except (ImportError, ValueError, TypeError) as exc:
         print(f"error: cannot import module: {exc}", file=sys.stderr)
         return 1
 

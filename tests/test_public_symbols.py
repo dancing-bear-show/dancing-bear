@@ -337,6 +337,26 @@ class CliTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             public_symbols.main([])
 
+    def test_empty_source_exits_nonzero(self):
+        # Selecting the mode by truthiness sent an empty --source through to
+        # from_module(None), raising an uncaught TypeError. The switch is now
+        # `args.source is not None`.
+        self.assertEqual(public_symbols.main(["--source", ""]), 1)
+
+    def test_empty_module_exits_nonzero(self):
+        # An empty --module reached importlib and raised ValueError, which the
+        # ImportError handler did not catch.
+        self.assertEqual(public_symbols.main(["--module", ""]), 1)
+
+    def test_relative_module_name_exits_nonzero(self):
+        # importlib raises TypeError (not ImportError) for a relative name,
+        # complaining the 'package' argument is required. Found by probing
+        # malformed names while fixing the empty-string cases.
+        self.assertEqual(public_symbols.main(["--module", ".bad"]), 1)
+
+    def test_malformed_module_name_exits_nonzero(self):
+        self.assertEqual(public_symbols.main(["--module", "a..b"]), 1)
+
 
 class ParityTests(unittest.TestCase):
     """The two modes must agree on a real module — the script's whole point."""
