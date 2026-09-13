@@ -197,8 +197,9 @@ class TestRulesCommand(unittest.TestCase):
         errors = ["avoidable.bash-as-grep: enabled must be boolean"]
         with patch("telemetry.rules.load_rules", return_value=DEFAULT_RULES):
             with patch("telemetry.rules.validate_rules", return_value=errors):
-                rc, _ = _run_main(["rules", "--validate"])
+                rc, out = _run_main(["rules", "--validate"])
         self.assertNotEqual(rc, 0)
+        self.assertIn("avoidable.bash-as-grep: enabled must be boolean", out)
 
 
 # ---------------------------------------------------------------------------
@@ -218,8 +219,9 @@ class TestHistoryCommand(unittest.TestCase):
         s = _make_session_summary()
         with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
             MockProvider.return_value.get_sessions.return_value = [s]
-            rc, _ = _run_main(["history", "--days", "3"])
+            rc, out = _run_main(["history", "--days", "3"])
         self.assertEqual(rc, 0)
+        self.assertIn("Sessions", out)
 
     def test_model_split_on_slash(self):
         s = _make_session_summary(model="anthropic/claude-sonnet-4-6")
@@ -289,8 +291,9 @@ class TestSessionsCommand(unittest.TestCase):
         s = _make_session_summary()
         with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
             MockProvider.return_value.get_sessions.return_value = [s]
-            rc, _ = _run_main(["sessions", "--since", "7d", "--format", "table"])
+            rc, out = _run_main(["sessions", "--since", "7d", "--format", "table"])
         self.assertEqual(rc, 0)
+        self.assertIn("Sessions", out)
 
     def test_projects_dir_passed_to_provider(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -335,8 +338,9 @@ class TestAgentsCommand(unittest.TestCase):
         rows = [_make_agent_token_row()]
         with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
             MockProvider.return_value.aggregate_agents.return_value = rows
-            rc, _ = _run_main(["agents", "--since", "7d", "--format", "table"])
+            rc, out = _run_main(["agents", "--since", "7d", "--format", "table"])
         self.assertEqual(rc, 0)
+        self.assertIn("Agent usage", out)
 
     def test_model_filter(self):
         rows = [
@@ -467,8 +471,9 @@ class TestCostBreakdownCommand(unittest.TestCase):
         rows = [_make_agent_token_row()]
         with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
             MockProvider.return_value.aggregate_agents.return_value = rows
-            rc, _ = _run_main(["cost-breakdown", "--since", "7d", "--format", "table", "--group-by", "agent"])
+            rc, out = _run_main(["cost-breakdown", "--since", "7d", "--format", "table", "--group-by", "agent"])
         self.assertEqual(rc, 0)
+        self.assertIn("Cost breakdown by agent", out)
 
     def test_group_by_day_table(self):
         now = datetime.now(tz=timezone.utc)
@@ -476,8 +481,9 @@ class TestCostBreakdownCommand(unittest.TestCase):
         s.start_time = now
         with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
             MockProvider.return_value.get_sessions.return_value = [s]
-            rc, _ = _run_main(["cost-breakdown", "--since", "7d", "--format", "table", "--group-by", "day"])
+            rc, out = _run_main(["cost-breakdown", "--since", "7d", "--format", "table", "--group-by", "day"])
         self.assertEqual(rc, 0)
+        self.assertIn("Cost breakdown by day", out)
 
     def test_limit_applied(self):
         rows = [

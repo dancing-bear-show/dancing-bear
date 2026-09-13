@@ -1085,13 +1085,15 @@ class TestParseTranscriptsCli(unittest.TestCase):
         self._write_jsonl("proj/s3.jsonl", [
             {"message": {"role": "user", "content": "Force me"}}
         ])
-        rc, _ = _run_main([
+        rc, out = _run_main([
             "parse-transcripts",
             "--projects-dir", str(self.projects_dir),
             "--index-dir", str(self.index_dir),
             "--force",
         ])
         self.assertEqual(rc, 0)
+        self.assertIn("s3", out)
+        self.assertIn("ok", out)
 
     def test_cli_limit_flag(self):
         self._write_jsonl("proj/s4.jsonl", [
@@ -1112,13 +1114,15 @@ class TestParseTranscriptsCli(unittest.TestCase):
         self.assertEqual(len(data), 1)
 
     def test_cli_since_7d(self):
-        rc, _ = _run_main([
+        rc, out = _run_main([
             "parse-transcripts",
             "--projects-dir", str(self.projects_dir),
             "--index-dir", str(self.index_dir),
             "--since", "7d",
         ])
         self.assertEqual(rc, 0)
+        # This test writes no fixture, so the projects dir is empty.
+        self.assertIn("No sessions processed", out)
 
 
 if __name__ == "__main__":
