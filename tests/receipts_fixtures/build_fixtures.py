@@ -22,19 +22,51 @@ Shapes encoded here, all confirmed against real files:
                         exact gap once understated a claim by $190 because the
                         parser only knew the "Payer Total" label.
 
+  subtotal_trap.pdf     Subtotal $250.00, a -$25.00 credit, Total $225.00.
+                        The figures DIFFER, so a substring search for "Total"
+                        that hits "Subtotal" returns 250.00 and is caught.
+                        invoice_total.pdf cannot catch that -- both of its
+                        figures are $250.00.
+
   speech_aim.pdf        "Total Amount  $150.00" -- a third spelling.
 
   costco_pharmacy.pdf   OCR-degraded text: "!Patient Pays: 88.21 j", no dollar
-                        sign, surrounding garble ("0/A ewe Pharmacies"). Real
-                        Costco receipts are scans carrying a dirty OCR layer,
-                        NOT clean text and NOT blank.
+                        sign, stray punctuation around the amount. Real Costco
+                        receipts are scans carrying a dirty OCR layer, NOT
+                        clean text and NOT blank. Keeps the literal "Costco"
+                        because CostcoParser.matches() keys on it.
 
   costco_optical.pdf    Text layer present but carrying NO total label and NO
                         "$"-prefixed amount. Nothing to extract: this is the
-                        genuine sidecar case, and the only one.
+                        genuine sidecar case, and the only one. Also keeps the
+                        "Costco" marker so it reaches CostcoParser and is
+                        declined on the AMOUNT, not on the match.
 
   image_only.pdf        A page with no text layer at all -- the OCR-fallback
                         trigger.
+
+Which parser claims which fixture, given the order jane -> costco -> generic
+-> sidecar (verified, not assumed):
+
+  jane_clinic       -> Jane    yields 190.00
+  jane_zero         -> Jane    yields 0.00   (success, not failure)
+  subtotal_trap     -> Jane    yields 225.00, NOT the 250.00 subtotal
+  invoice_total     -> Jane    yields 250.00 -- carries a Jane invoice id but a
+                               "Total" label.  This is why JaneParser carries
+                               AMOUNT_LABELS ["Payer Total", "Total Amount",
+                               "Total"] rather than a single label: with only
+                               "Payer Total" it matches, extracts nothing, and
+                               falls through to Generic.
+  speech_aim        -> Jane    yields 150.00 -- likewise, "Total Amount"
+  costco_pharmacy   -> Costco  yields 88.21 from OCR-garbled text, no "$".
+                               Matching is case-INSENSITIVE: this file says
+                               "Costco Pharmacies", optical says "COSTCO".
+  costco_optical    -> Costco  MATCHES but must DECLINE: no label, no amount.
+                               This is what forces the sidecar fallback, so a
+                               dispatcher that returns on first match rather
+                               than first successful EXTRACTION makes the
+                               sidecar unreachable.
+  image_only        -> OCR fallback (empty text layer)
 
 Run: python3 tests/receipts_fixtures/build_fixtures.py
 """
@@ -50,6 +82,9 @@ HERE = pathlib.Path(__file__).parent
 # patient names, addresses and prescribing physicians; none of that may enter
 # the repo, so every fixture uses this placeholder.
 PATIENT = "Pat Doe"
+# Shared so invoice_total and subtotal_trap stay comparable: both print this
+# as the SUBTOTAL, and only subtotal_trap gives Total a different value.
+SUBTOTAL = "$250.00"
 # Costco pharmacy prints the patient surname-first, so it needs its own form.
 PATIENT_SURNAME_FIRST = "Doe, Pat"
 
@@ -123,9 +158,38 @@ def invoice_total(path: pathlib.Path) -> None:
         "C. Pathologist MS, SLP, License #000000",
         "Invoice #7037-P01",
         "Subtotal",
-        "$250.00",
+        SUBTOTAL,
         "Total",
-        "$250.00",
+        SUBTOTAL,
+    ])
+    doc.save(path)
+    doc.close()
+
+
+def subtotal_trap(path: pathlib.Path) -> None:
+    """Subtotal and Total DIFFER, so a substring match returns the wrong one.
+
+    invoice_total.pdf cannot catch this: both of its figures are $250.00, so a
+    parser that matches "Subtotal" instead of "Total" still reports the right
+    number. Here a credit makes them differ, and only correct line-anchored
+    matching yields 225.00.
+    """
+    doc = fitz.open()
+    _page(doc, [
+        "Springfield Speech Services",
+        "300 Example Blvd, Springfield, ON, X0X 0X0",
+        "",
+        PATIENT,
+        "Invoice",
+        "",
+        "July 15, 2026 - 12:00pm, Speech-Language Pathology (60 minutes)",
+        "Invoice #7099-P01",
+        "Subtotal",
+        SUBTOTAL,
+        "Courtesy credit",
+        "-$25.00",
+        "Total",
+        "$225.00",
     ])
     doc.save(path)
     doc.close()
@@ -159,7 +223,10 @@ def costco_pharmacy(path: pathlib.Path) -> None:
     """
     doc = fitz.open()
     _page(doc, [
-        "0/A ewe Pharmacies (Ontario) Ltd.",
+        # The vendor name is retained deliberately: CostcoParser.matches()
+        # keys on this literal, and a retailer name is not personal data.
+        # Everything identifying a PATIENT is invented.
+        "Costco Pharmacies (Ontario) Ltd.",
         "35 Example Rd. Springfield",
         "9os-1eo-21os",
         "Rx:0000000",
@@ -171,6 +238,8 @@ def costco_pharmacy(path: pathlib.Path) -> None:
         "Cost:",
         "253. 70",
         "Example Insurer Limited [EI] 169. 98",
+        # OCR garble around the amount is faithful to real scans: the stray
+        # "!" and "j", and no "$" sigil anywhere on the line.
         "!Patient Pays: 88.21 j",
         "OFFICIAL PRESCRIPTION RECEIPT",
     ])
@@ -186,7 +255,9 @@ def costco_optical(path: pathlib.Path) -> None:
     """
     doc = fitz.open()
     _page(doc, [
-        "EXAMPLE OPTICAL DEPARTMENT",
+        # "Costco" retained so this reaches CostcoParser: the fixture must be
+        # declined for having no extractable amount, not for failing to match.
+        "COSTCO OPTICAL DEPARTMENT",
         "500 Example Pkwy, Springfield ON",
         "MEMBER 000000000000",
         "",
@@ -216,6 +287,7 @@ BUILDERS = {
     "jane_clinic.pdf": jane_clinic,
     "jane_zero.pdf": jane_zero,
     "invoice_total.pdf": invoice_total,
+    "subtotal_trap.pdf": subtotal_trap,
     "speech_aim.pdf": speech_aim,
     "costco_pharmacy.pdf": costco_pharmacy,
     "costco_optical.pdf": costco_optical,
