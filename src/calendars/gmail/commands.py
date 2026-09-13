@@ -6,17 +6,23 @@ from pathlib import Path
 
 from core.pipeline import run_pipeline
 
-from ..gmail_pipelines import (
-    GmailAuth,
+from ..pipeline_base import GmailAuth
+from ..gmail_pipeline_receipts import (
     GmailScanProducer,
     GmailReceiptsProcessor,
     GmailReceiptsRequest,
+)
+from ..gmail_pipeline_scan_classes import (
     GmailScanClassesProcessor,
     GmailScanClassesProducer,
     GmailScanClassesRequest,
+)
+from ..gmail_pipeline_mail_list import (
     GmailMailListProcessor,
     GmailMailListProducer,
     GmailMailListRequest,
+)
+from ..gmail_pipeline_sweep_top import (
     GmailSweepTopProcessor,
     GmailSweepTopProducer,
     GmailSweepTopRequest,

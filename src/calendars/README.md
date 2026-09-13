@@ -29,7 +29,7 @@ flowchart TB
     end
     subgraph pipelines["Pipelines"]
         o_pipelines["outlook_pipelines/\n(add.py, locations.py\nreminders.py, schedule_import.py\ndedup.py, settings.py, …)"]
-        g_pipelines["gmail_pipelines.py\nGmailScanProducer"]
+        g_pipelines["gmail_pipeline_*.py\nGmailScanProducer"]
     end
     subgraph importer["Schedule Importer"]
         i_base["importer/base.py\nScheduleParser ABC\nCalendarProvider Protocol"]
@@ -66,13 +66,13 @@ Key modules:
 - `outlook_service.py` — `OutlookService` wrapping `OutlookContext` + Graph API `HttpClient`
 - `gmail_service.py` — Gmail API wrapper (lazy import)
 - `outlook_pipelines/` — one file per Outlook operation (add, locations, reminders, dedup, settings, schedule_import, …)
-- `gmail_pipelines.py` — `GmailScanProducer`; shared scan output for Gmail-based commands
+- `gmail_pipeline_receipts.py`, `gmail_pipeline_scan_classes.py`, `gmail_pipeline_mail_list.py`, `gmail_pipeline_sweep_top.py` — one module per Gmail scan pipeline; each pairs a `SafeProcessor` with its `BaseProducer` (`GmailScanProducer` lives in `gmail_pipeline_receipts.py`)
 - `importer/base.py` — `ScheduleParser(ABC)`, plus `CalendarProvider(Protocol)`; provider-agnostic event model
 - `importer/outlook_provider.py` — `OutlookCalendarProvider`, a production implementor backed by Microsoft Graph.
 - `importer/google_provider.py` — `GoogleCalendarProvider`, a production implementor backed by Google Calendar API (calendar/v3). Requires the `https://www.googleapis.com/auth/calendar` scope (shared with the Gmail token in `mail.gmail_api.SCOPES`).
 - `google_calendar_service.py` — thin `GoogleCalendarService` wrapper over calendar/v3; lazy-imports googleapiclient.
 - `importer/csv_parser.py`, `xlsx_parser.py`, `web_parser_vendors.py` — concrete parsers for schedule-import sources
-- `gmail_pipelines.py` — `CalendarEvent` dataclass (shared event model; widened with optional recurrence fields: tz, location, repeat, interval, byday, range, start_time, end_time, exdates, count)
+- `gmail_types.py` — `CalendarEvent` dataclass (shared event model; widened with optional recurrence fields: tz, location, repeat, interval, byday, range, start_time, end_time, exdates, count)
 
  Key Commands
 - Add single: `./bin/calendar --profile outlook_personal outlook add --subject "Soccer" --calendar "Your Family" --start 2025-10-10T17:00 --end 2025-10-10T18:00 --location "Venue (street, city, ST POSTAL)"`

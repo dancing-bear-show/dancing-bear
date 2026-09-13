@@ -32,7 +32,7 @@ import re
 from dataclasses import dataclass, field, replace
 from typing import Any, cast
 
-from calendars.gmail_pipelines import CalendarEvent
+from calendars.gmail_types import CalendarEvent
 
 
 # ---------------------------------------------------------------------------

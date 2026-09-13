@@ -26,22 +26,28 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from calendars.gmail_pipelines import (
+from calendars.gmail_pipeline_receipts import (
     GmailReceiptsProcessor,
     GmailReceiptsRequest,
+    GmailReceiptsRequestConsumer,
+)
+from calendars.gmail_pipeline_scan_classes import (
     GmailScanClassesProcessor,
     GmailScanClassesProducer,
     GmailScanClassesRequest,
     GmailScanClassesRequestConsumer,
+)
+from calendars.gmail_pipeline_mail_list import (
     GmailMailListProcessor,
     GmailMailListProducer,
     GmailMailListRequest,
     GmailMailListRequestConsumer,
+)
+from calendars.gmail_pipeline_sweep_top import (
     GmailSweepTopProcessor,
     GmailSweepTopProducer,
     GmailSweepTopRequest,
     GmailSweepTopRequestConsumer,
-    GmailReceiptsRequestConsumer,
 )
 from calendars.pipeline_base import GmailAuth
 from core.pipeline import ResultEnvelope
@@ -505,7 +511,7 @@ class TestGmailScanClassesProducerBranches(unittest.TestCase):
 
     def test_no_events_no_messages_prints_no_matching(self):
         """Zero events and zero messages: 'No matching messages found.' output."""
-        from calendars.gmail_pipelines import GmailScanClassesResult
+        from calendars.gmail_pipeline_scan_classes import GmailScanClassesResult
         payload = GmailScanClassesResult(events=[], message_count=0, out_path=None)
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -514,7 +520,7 @@ class TestGmailScanClassesProducerBranches(unittest.TestCase):
 
     def test_no_events_with_messages_prints_no_schedule_lines(self):
         """Zero events but some messages scanned: 'No schedule-like lines' output."""
-        from calendars.gmail_pipelines import GmailScanClassesResult
+        from calendars.gmail_pipeline_scan_classes import GmailScanClassesResult
         payload = GmailScanClassesResult(events=[], message_count=3, out_path=None)
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -525,7 +531,7 @@ class TestGmailScanClassesProducerBranches(unittest.TestCase):
 
     def test_events_without_out_path_prints_per_event_lines(self):
         """Events present, no out_path: prints per-event byday/time lines."""
-        from calendars.gmail_pipelines import GmailScanClassesResult
+        from calendars.gmail_pipeline_scan_classes import GmailScanClassesResult
         events = [
             {"byday": ["MO"], "start_time": "17:00", "end_time": "17:30", "calendar": "Sports"},
         ]
@@ -539,7 +545,7 @@ class TestGmailScanClassesProducerBranches(unittest.TestCase):
 
     def test_events_with_out_path_writes_yaml_and_prints(self):
         """Events present, out_path set: YAML is written and path is printed."""
-        from calendars.gmail_pipelines import GmailScanClassesResult
+        from calendars.gmail_pipeline_scan_classes import GmailScanClassesResult
         events = [{"byday": ["TU"], "start_time": "18:00", "end_time": "18:30", "calendar": None}]
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "classes.yaml"
@@ -613,7 +619,7 @@ class TestGmailMailListProducerBranches(unittest.TestCase):
 
     def test_no_messages_prints_no_match(self):
         """Empty messages list prints 'No messages matched.' (lines 440-442)"""
-        from calendars.gmail_pipelines import GmailMailListResult
+        from calendars.gmail_pipeline_mail_list import GmailMailListResult
         payload = GmailMailListResult(messages=[])
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -622,7 +628,7 @@ class TestGmailMailListProducerBranches(unittest.TestCase):
 
     def test_messages_listed_prints_each_and_count(self):
         """Non-empty messages: each is printed with id|snippet, count shown. (lines 452-453)"""
-        from calendars.gmail_pipelines import GmailMailListResult
+        from calendars.gmail_pipeline_mail_list import GmailMailListResult
         messages = [
             {"id": "m1", "snippet": "Hello"},
             {"id": "m2", "snippet": "World"},
@@ -700,7 +706,7 @@ class TestGmailSweepTopProducerBranches(unittest.TestCase):
 
     def test_no_senders_prints_no_stats(self):
         """Empty top_senders prints 'No sender stats available.' (lines 519->517)"""
-        from calendars.gmail_pipelines import GmailSweepTopResult
+        from calendars.gmail_pipeline_sweep_top import GmailSweepTopResult
         payload = GmailSweepTopResult(
             top_senders=[], freq_days=7, inbox_only=False, out_path=None
         )
@@ -711,7 +717,7 @@ class TestGmailSweepTopProducerBranches(unittest.TestCase):
 
     def test_senders_without_out_path_prints_per_sender(self):
         """Senders present, no out_path: each sender and count is printed. (lines 527-528)"""
-        from calendars.gmail_pipelines import GmailSweepTopResult
+        from calendars.gmail_pipeline_sweep_top import GmailSweepTopResult
         payload = GmailSweepTopResult(
             top_senders=[("alice@example.com", 5), ("bob@example.com", 3)],
             freq_days=30,
@@ -729,7 +735,7 @@ class TestGmailSweepTopProducerBranches(unittest.TestCase):
 
     def test_senders_with_out_path_writes_yaml_filters(self):
         """Senders + out_path: YAML filter file is written. (lines 536->535, 541)"""
-        from calendars.gmail_pipelines import GmailSweepTopResult
+        from calendars.gmail_pipeline_sweep_top import GmailSweepTopResult
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "filters.yaml"
             payload = GmailSweepTopResult(
@@ -750,7 +756,7 @@ class TestGmailSweepTopProducerBranches(unittest.TestCase):
 
     def test_senders_with_out_path_output_includes_sender_lines(self):
         """With out_path, sender summary is printed before YAML is written."""
-        from calendars.gmail_pipelines import GmailSweepTopResult
+        from calendars.gmail_pipeline_sweep_top import GmailSweepTopResult
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "out.yaml"
             payload = GmailSweepTopResult(

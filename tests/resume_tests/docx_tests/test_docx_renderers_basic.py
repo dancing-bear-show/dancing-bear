@@ -11,7 +11,7 @@ class TestBulletRenderer(unittest.TestCase):
     """Tests for BulletRenderer class."""
 
     def _get_renderer(self):
-        from resume.docx_renderers import BulletRenderer
+        from resume.docx_bullets import BulletRenderer
         return make_fake_renderer(BulletRenderer)
 
     def test_resolve_glyph_defaults(self):
@@ -37,7 +37,7 @@ class TestBulletRenderer(unittest.TestCase):
 
     def test_resolve_glyph_prefers_section_over_page(self):
         """Section config wins over the constructor-level page config."""
-        from resume.docx_renderers import BulletRenderer
+        from resume.docx_bullets import BulletRenderer
         from tests.resume_tests.fixtures import FakeDocument
         renderer = BulletRenderer(FakeDocument(), {"bullets": {"glyph": "★"}})
         self.assertEqual(renderer.resolve_glyph({"bullets": {"glyph": "→"}}), "→")
@@ -94,7 +94,7 @@ class TestBulletRenderer(unittest.TestCase):
 
     def test_resolve_glyph_page_cfg_fallback(self):
         """Constructor-level page_cfg supplies the glyph when sec is None."""
-        from resume.docx_renderers import BulletRenderer
+        from resume.docx_bullets import BulletRenderer
         from tests.resume_tests.fixtures import FakeDocument
         renderer = BulletRenderer(FakeDocument(), {"bullets": {"glyph": "★"}})
         self.assertEqual(renderer.resolve_glyph(None), "★")
@@ -179,7 +179,7 @@ class TestHeaderRenderer(unittest.TestCase):
     """Tests for HeaderRenderer class."""
 
     def _get_renderer(self):
-        from resume.docx_renderers import HeaderRenderer
+        from resume.docx_header import HeaderRenderer
         return make_fake_renderer(HeaderRenderer)
 
     def test_add_header_line_title_only(self):
@@ -302,7 +302,7 @@ class TestListSectionRenderer(unittest.TestCase):
     """Tests for ListSectionRenderer class."""
 
     def _get_renderer(self):
-        from resume.docx_renderers import ListSectionRenderer
+        from resume.docx_list_sections import ListSectionRenderer
         return make_fake_renderer(ListSectionRenderer)
 
     def test_extract_item_text_string(self):
@@ -462,14 +462,14 @@ class TestListSectionRenderer(unittest.TestCase):
     def test_render_simple_list_warns_on_bullets_false(self):
         """The dropped flag warns rather than changing layout silently."""
         renderer, _ = self._get_renderer()
-        with self.assertLogs("resume.docx_renderers", level="WARNING") as logs:
+        with self.assertLogs("resume.docx_list_sections", level="WARNING") as logs:
             renderer.render_simple_list(["A", "B"], {"bullets": False})
         self.assertIn("bullets: false", "".join(logs.output))
 
     def test_render_simple_list_does_not_warn_by_default(self):
         """A section that never set the flag must render without a warning."""
         renderer, _ = self._get_renderer()
-        with self.assertNoLogs("resume.docx_renderers", level="WARNING"):
+        with self.assertNoLogs("resume.docx_list_sections", level="WARNING"):
             renderer.render_simple_list(["A", "B"], {"bullets": True})
 
     def test_render_simple_list_skips_empty_items(self):
