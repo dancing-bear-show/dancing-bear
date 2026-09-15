@@ -177,7 +177,14 @@ class DeriveFiltersTests(TestCase):
             self.assertEqual("Tech/Nintendo", action["moveToFolder"])
 
     def test_derive_filters_keep_in_inbox_suppresses_move_to_folder(self):
-        """keepInInbox blocks the derived Outlook moveToFolder so mail stays in the inbox."""
+        """keepInInbox blocks the derived Outlook moveToFolder so mail stays in the inbox.
+
+        The user-facing ``keepInInbox`` input marker is converted to the internal
+        ``noMoveToFolder: true`` marker in the derived Outlook config.  This marker
+        is consumed by the plan and sweep stages to suppress folder derivation even
+        when ``move_to_folders`` is True; it is never forwarded to the Graph API
+        payload (the action builders create a fresh dict and only copy known keys).
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             _, outlook = self._derive(
                 tmpdir,
@@ -191,11 +198,32 @@ class DeriveFiltersTests(TestCase):
             action = outlook["filters"][0]["action"]
             self.assertNotIn("moveToFolder", action)
             self.assertEqual(["Tech/Grafana"], action["add"])
-            # The marker is an input directive, not part of the provider payload.
+            # The user-facing input marker is never in the derived output.
             self.assertNotIn("keepInInbox", action)
+            # The internal marker IS present so the plan/sweep stage can honour it.
+            self.assertTrue(action.get("noMoveToFolder"))
 
-    def test_derive_filters_keep_in_inbox_stripped_on_archive_path(self):
-        """The archive branch also strips the keepInInbox marker from output."""
+    def test_derive_filters_keep_in_inbox_beats_archive_on_remove_inbox(self):
+        """keepInInbox wins over the derived Archive destination.
+
+        `remove: [INBOX]` is required for this to reach the branch at all:
+        `_apply_archive_on_remove_inbox` only rewrites specs whose *original*
+        filter removes INBOX. Without it the branch was invoked but mutated
+        nothing (verified by instrumentation: 0 specs changed), so this test was
+        inert and asserted nothing about the archive path.
+
+        With the directive present it caught a real defect. The two sibling
+        derive branches disagreed: `_apply_move_to_folders` skips marked rules,
+        while this branch archived them regardless. A rule carrying both
+        `remove: [INBOX]` and `keepInInbox: true` therefore left the inbox
+        through all three consumers (sync, plan and sweep all resolved
+        Archive) even though `noMoveToFolder` was set.
+
+        Archive is a *derived* destination, so the marker suppresses it — the
+        documented contract is "suppress the derived Outlook moveToFolder"
+        (config/filters_unified.example.yaml:30). An explicitly authored
+        `moveToFolder` is a different case and still overrides the marker.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             in_path = Path(tmpdir) / "filters.yaml"
             in_path.write_text(
@@ -205,6 +233,7 @@ class DeriveFiltersTests(TestCase):
                 "    action:\n"
                 "      add: [Tech/Grafana]\n"
                 "      keepInInbox: true\n"
+                "      remove: [INBOX]\n"
             )
             out_gmail = Path(tmpdir) / "gmail.yaml"
             out_outlook = Path(tmpdir) / "outlook.yaml"
@@ -223,13 +252,281 @@ class DeriveFiltersTests(TestCase):
 
             action = yaml.safe_load(out_outlook.read_text())["filters"][0]["action"]
             self.assertNotIn("keepInInbox", action)
+            self.assertTrue(action.get("noMoveToFolder"))
+            # No Archive destination: the marker suppressed it.
+            self.assertNotIn("moveToFolder", action)
+            # `add` survives because the archive branch never rewrote this spec.
+            self.assertEqual(["Tech/Grafana"], action["add"])
+
+    def test_derive_filters_keep_in_inbox_honoured_without_a_category(self):
+        """An archive-only rule — `remove: [INBOX]` + `keepInInbox`, no `add`.
+
+        Regression: `normalize_filter_for_outlook` carries `keepInInbox` only
+        when add/forward/moveToFolder has content, so this form normalizes to
+        `action: {}` and the marker is gone by the time the archive branch runs.
+        A spec-only check therefore missed it and archived the rule — exactly
+        what the directive forbids. The marker is now read from either the
+        source or the normalized spec, and the source always has it.
+
+        The pairing is meaningful rather than malformed: under
+        `--outlook-archive-on-remove-inbox` it is `remove: [INBOX]` itself that
+        produces the moveToFolder there is to suppress.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            in_path = Path(tmpdir) / "filters.yaml"
+            in_path.write_text(
+                "filters:\n"
+                "  - match:\n"
+                "      from: grafana.com\n"
+                "    action:\n"
+                "      keepInInbox: true\n"
+                "      remove: [INBOX]\n"
+            )
+            out_gmail = Path(tmpdir) / "gmail.yaml"
+            out_outlook = Path(tmpdir) / "outlook.yaml"
+
+            result = DeriveFiltersProcessor().process(
+                DeriveFiltersRequest(
+                    in_path=str(in_path),
+                    out_gmail=str(out_gmail),
+                    out_outlook=str(out_outlook),
+                    outlook_archive_on_remove_inbox=True,
+                )
+            )
+            self.assertTrue(result.ok())
+
+            import yaml
+
+            # No Archive destination is derived. With no other action to keep,
+            # the rule is omitted entirely rather than emitted with an empty
+            # action — see
+            # test_derive_filters_omits_an_actionless_archive_only_rule for why
+            # an actionless spec must not reach sync. Asserting on the whole
+            # list keeps this test honest about that outcome instead of indexing
+            # a spec that is correctly no longer there.
+            outlook = yaml.safe_load(out_outlook.read_text())["filters"]
+            self.assertEqual([], outlook)
+
+    def test_derive_filters_omits_an_actionless_archive_only_rule(self):
+        """Suppressing the only action must omit the rule, not emit an empty one.
+
+        Regression: an archive-only `keepInInbox` rule has its Archive move
+        suppressed and nothing else to keep, leaving `action: {}`. The spec still
+        carried criteria, so `OutlookRulesSyncProcessor` treated it as a rule and
+        called `create_filter(criteria, {})` — and `create_filter` sets
+        `stopProcessingRules: True` unconditionally
+        (`core/outlook/_mail_labels.py:202`). That is a rule which matches mail,
+        does nothing, and halts every later inbox rule.
+
+        Omitting it is what the directive asks for: the mail stays in the inbox
+        untouched, identical to having no rule at all.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            in_path = Path(tmpdir) / "filters.yaml"
+            in_path.write_text(
+                "filters:\n"
+                "  - match:\n"
+                "      from: grafana.com\n"
+                "    action:\n"
+                "      keepInInbox: true\n"
+                "      remove: [INBOX]\n"
+                "  - match:\n"
+                "      from: shop.example.com\n"
+                "    action:\n"
+                "      add: [Lists/Commercial]\n"
+                "      remove: [INBOX]\n"
+            )
+            out_gmail = Path(tmpdir) / "gmail.yaml"
+            out_outlook = Path(tmpdir) / "outlook.yaml"
+
+            result = DeriveFiltersProcessor().process(
+                DeriveFiltersRequest(
+                    in_path=str(in_path),
+                    out_gmail=str(out_gmail),
+                    out_outlook=str(out_outlook),
+                    outlook_archive_on_remove_inbox=True,
+                )
+            )
+            self.assertTrue(result.ok())
+
+            import yaml
+
+            outlook = yaml.safe_load(out_outlook.read_text())["filters"]
+            senders = [f["match"]["from"] for f in outlook]
+            self.assertNotIn("grafana.com", senders, "actionless rule must be omitted")
+            # The rule that still has an action survives — this is a targeted
+            # drop, not "keepInInbox removes rules".
+            self.assertIn("shop.example.com", senders)
+            self.assertEqual(1, len(outlook))
+
+            # Gmail is a pass-through, so the source rule is untouched there and
+            # its `remove: [INBOX]` is still honoured.
+            gmail = yaml.safe_load(out_gmail.read_text())["filters"]
+            self.assertEqual(2, len(gmail))
+
+    def test_derive_filters_omits_a_spec_whose_add_coerced_to_empty(self):
+        """`add: ["", null]` is actionless too, and must be dropped.
+
+        Regression: `_drop_actionless_specs` tested the action dict's
+        truthiness. `_coerce_label_list` turns `["", null]` into `[]`, so the
+        action is `{"add": []}` — truthy as a dict while carrying nothing. It
+        survived the drop, and sync's own re-normalization then discarded the
+        empty list, leaving `{}` and creating exactly the stop-processing no-op
+        rule the drop exists to prevent.
+
+        The check now tests the meaningful values. The keepInInbox /
+        noMoveToFolder markers are excluded from that set on purpose: they
+        modify an action rather than being one.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            in_path = Path(tmpdir) / "filters.yaml"
+            in_path.write_text(
+                "filters:\n"
+                "  - match:\n"
+                "      from: grafana.com\n"
+                "    action:\n"
+                '      add: ["", null]\n'
+                "      keepInInbox: true\n"
+                "      remove: [INBOX]\n"
+                "  - match:\n"
+                "      from: shop.example.com\n"
+                "    action:\n"
+                "      add: [Lists/Commercial]\n"
+                "      remove: [INBOX]\n"
+            )
+            out_gmail = Path(tmpdir) / "gmail.yaml"
+            out_outlook = Path(tmpdir) / "outlook.yaml"
+
+            result = DeriveFiltersProcessor().process(
+                DeriveFiltersRequest(
+                    in_path=str(in_path),
+                    out_gmail=str(out_gmail),
+                    out_outlook=str(out_outlook),
+                    outlook_archive_on_remove_inbox=True,
+                )
+            )
+            self.assertTrue(result.ok())
+
+            import yaml
+
+            outlook = yaml.safe_load(out_outlook.read_text())["filters"]
+            senders = [f["match"]["from"] for f in outlook]
+            self.assertNotIn("grafana.com", senders, "empty add is still actionless")
+            # The real rule beside it survives: this is a targeted drop.
+            self.assertEqual(["shop.example.com"], senders)
+
+    def test_derive_filters_keep_in_inbox_survives_a_dropped_entry(self):
+        """A dropped entry ahead of a marked rule must not misalign the lookup.
+
+        Regression: `_apply_archive_on_remove_inbox` read `filters[i]`, but
+        `normalize_filters_for_outlook` drops entries that normalize to None, so
+        `out_specs` is not positionally aligned with `filters`. With a dropped
+        entry first, the guard inspected the *wrong* source rule, missed the
+        marker, and archived the marked rule anyway.
+
+        Verified before the fix: a leading non-dict entry gives len(filters)=2,
+        len(out_specs)=1, and filters[0] is the malformed entry rather than the
+        rule that survived normalization.
+
+        The second rule is here on purpose: it proves the pairing stays exact
+        past the drop instead of merely being off-by-one in a harmless way.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            in_path = Path(tmpdir) / "filters.yaml"
+            in_path.write_text(
+                "filters:\n"
+                # Dropped by normalization: no criteria and no action.
+                "  - match: {}\n"
+                "    action: {}\n"
+                "  - match:\n"
+                "      from: grafana.com\n"
+                "    action:\n"
+                "      add: [Tech/Grafana]\n"
+                "      keepInInbox: true\n"
+                "      remove: [INBOX]\n"
+                "  - match:\n"
+                "      from: shop.example.com\n"
+                "    action:\n"
+                "      add: [Lists/Commercial]\n"
+                "      remove: [INBOX]\n"
+            )
+            out_gmail = Path(tmpdir) / "gmail.yaml"
+            out_outlook = Path(tmpdir) / "outlook.yaml"
+
+            result = DeriveFiltersProcessor().process(
+                DeriveFiltersRequest(
+                    in_path=str(in_path),
+                    out_gmail=str(out_gmail),
+                    out_outlook=str(out_outlook),
+                    outlook_archive_on_remove_inbox=True,
+                )
+            )
+            self.assertTrue(result.ok())
+
+            import yaml
+
+            derived = yaml.safe_load(out_outlook.read_text())["filters"]
+            self.assertEqual(2, len(derived), "the malformed entry should be dropped")
+
+            by_sender = {f["match"]["from"]: f["action"] for f in derived}
+
+            # The marked rule kept its label and was NOT archived.
+            grafana = by_sender["grafana.com"]
+            self.assertTrue(grafana.get("noMoveToFolder"))
+            self.assertNotIn("moveToFolder", grafana)
+            self.assertEqual(["Tech/Grafana"], grafana["add"])
+
+            # The unmarked rule after it still archives — pairing stayed exact.
+            commercial = by_sender["shop.example.com"]
+            self.assertEqual("Archive", commercial.get("moveToFolder"))
+            self.assertNotIn("add", commercial)
+
+    def test_derive_filters_archive_on_remove_inbox_still_archives_unmarked(self):
+        """Contrast: without the marker, remove:[INBOX] must still derive Archive.
+
+        Guards the fix above from becoming "keepInInbox disables archiving for
+        everyone", which would stop commercial and newsletter mail being filed.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            in_path = Path(tmpdir) / "filters.yaml"
+            in_path.write_text(
+                "filters:\n"
+                "  - match:\n"
+                "      from: shop.example.com\n"
+                "    action:\n"
+                "      add: [Lists/Commercial]\n"
+                "      remove: [INBOX]\n"
+            )
+            out_gmail = Path(tmpdir) / "gmail.yaml"
+            out_outlook = Path(tmpdir) / "outlook.yaml"
+
+            result = DeriveFiltersProcessor().process(
+                DeriveFiltersRequest(
+                    in_path=str(in_path),
+                    out_gmail=str(out_gmail),
+                    out_outlook=str(out_outlook),
+                    outlook_archive_on_remove_inbox=True,
+                )
+            )
+            self.assertTrue(result.ok())
+
+            import yaml
+
+            action = yaml.safe_load(out_outlook.read_text())["filters"][0]["action"]
+            self.assertEqual("Archive", action.get("moveToFolder"))
+            self.assertNotIn("add", action)
+            self.assertNotIn("noMoveToFolder", action)
 
     def test_derive_filters_keep_in_inbox_stripped_with_all_flags_off(self):
-        """Both flags off means neither branch runs — the marker must still be stripped.
+        """Both flags off means neither branch runs — the marker must still be converted.
 
         Regression: stripping used to live inside the move/archive branches, which
         are mutually exclusive and both skipped under --no-outlook-move-to-folders,
         so keepInInbox leaked into the derived Outlook config.
+
+        Now the conversion (_strip_keep_in_inbox) happens unconditionally and
+        produces noMoveToFolder: true so the plan/sweep stage can honour it
+        regardless of which flags were active at derive time.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             in_path = Path(tmpdir) / "filters.yaml"
@@ -262,6 +559,8 @@ class DeriveFiltersTests(TestCase):
             # No folder move was requested, so none should have been derived.
             self.assertNotIn("moveToFolder", action)
             self.assertEqual(["Tech/Grafana"], action["add"])
+            # The internal marker is present so later stages can honour keepInInbox.
+            self.assertTrue(action.get("noMoveToFolder"))
 
     def test_derive_filters_processor_empty_filters(self):
         """DeriveFiltersProcessor handles empty filters list."""
@@ -486,3 +785,168 @@ class AuditFiltersTests(TestCase):
         output = buf.getvalue()
         self.assertIn("Missing examples", output)
         self.assertIn("missing@example.com", output)
+
+
+class DeriveToRuleActionSeamTests(TestCase):
+    """End-to-end seam tests: derive step output fed into the rule-action builder.
+
+    These tests cover the boundary between the derive pipeline and the Outlook
+    rule/sweep processors.  Each module was individually correct:
+
+    - The derive tests confirmed that keepInInbox suppresses moveToFolder in the
+      derived YAML and that the keepInInbox marker is stripped from the output.
+    - The rule-action tests confirmed that _build_rule_action honours move_to_folders.
+
+    Neither set of tests covered the seam — whether the derived output, after
+    stripping the marker, still resulted in no folder move at the plan/sweep stage.
+    The answer was: it did NOT, because _build_rule_action fell through to the
+    ``elif ctx.move_to_folders and add_labs`` branch and re-derived a folder.
+
+    This class is the test that would have caught the original bug.
+    """
+
+    def _derive_outlook(self, tmpdir: str, yaml_text: str) -> list[dict]:
+        """Run the derive processor and return the derived Outlook filter list."""
+        import yaml
+
+        in_path = Path(tmpdir) / "filters.yaml"
+        in_path.write_text(yaml_text)
+        out_gmail = Path(tmpdir) / "gmail.yaml"
+        out_outlook = Path(tmpdir) / "outlook.yaml"
+
+        result = DeriveFiltersProcessor().process(
+            DeriveFiltersRequest(
+                in_path=str(in_path),
+                out_gmail=str(out_gmail),
+                out_outlook=str(out_outlook),
+                outlook_move_to_folders=True,
+            )
+        )
+        self.assertTrue(result.ok(), "derive step failed")
+        return yaml.safe_load(out_outlook.read_text())["filters"]
+
+    def test_keep_in_inbox_rule_produces_no_folder_move_in_rule_action(self):
+        """keepInInbox rule: derive → _build_rule_action produces addLabelIds, no moveToFolderId.
+
+        This is the regression test for the bug.  move_to_folders is True (the
+        CLI default), so without the noMoveToFolder guard the builder fires the
+        ``elif ctx.move_to_folders and add_labs`` branch and re-derives a folder
+        from the first add label — moving the mail out of the inbox.
+        """
+        from unittest.mock import MagicMock
+        from mail.outlook.processors_rules_helpers import RuleContext, _build_rule_action
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filters = self._derive_outlook(
+                tmpdir,
+                "filters:\n"
+                "  - match:\n"
+                "      from: grafana.com\n"
+                "    action:\n"
+                "      add: [Tech/Grafana]\n"
+                "      keepInInbox: true\n",
+            )
+
+            client = MagicMock()
+            ctx = RuleContext(
+                client=client,
+                name_to_id={"Tech/Grafana": "label-id-grafana"},
+                folder_map={"Tech/Grafana": "folder-id-grafana"},
+                move_to_folders=True,
+            )
+
+            rule_action = _build_rule_action(filters[0]["action"], ctx)
+
+            # The rule must NOT move mail to a folder.
+            self.assertNotIn(
+                "moveToFolderId",
+                rule_action,
+                "keepInInbox rule must not produce moveToFolderId (inbox move regression)",
+            )
+            client.ensure_folder_path.assert_not_called()
+            # The rule must categorise with label IDs.
+            self.assertIn("addLabelIds", rule_action)
+
+    def test_normal_rule_still_gets_folder_in_rule_action(self):
+        """Normal rule (no keepInInbox): derive → _build_rule_action still produces moveToFolderId.
+
+        Contrast test: the fix must not disable folder derivation for every rule.
+        """
+        from unittest.mock import MagicMock
+        from mail.outlook.processors_rules_helpers import RuleContext, _build_rule_action
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filters = self._derive_outlook(
+                tmpdir,
+                "filters:\n"
+                "  - match:\n"
+                "      from: nintendo.net\n"
+                "    action:\n"
+                "      add: [Tech/Nintendo]\n",
+            )
+
+            client = MagicMock()
+            client.ensure_folder_path.return_value = "folder-id-nintendo"
+            ctx = RuleContext(
+                client=client,
+                name_to_id={},
+                folder_map={},
+                move_to_folders=True,
+            )
+
+            rule_action = _build_rule_action(filters[0]["action"], ctx)
+
+            self.assertIn("moveToFolderId", rule_action)
+            self.assertNotIn("addLabelIds", rule_action)
+
+    def test_mixed_rules_seam_both_paths_correct(self):
+        """One keepInInbox rule and one normal rule: each takes its correct path.
+
+        This is the definitive end-to-end regression test.  Both rules go through
+        the same derive step and the same _build_rule_action call; one must stay
+        in the inbox and one must be moved to a folder.
+        """
+        from unittest.mock import MagicMock
+        from mail.outlook.processors_rules_helpers import RuleContext, _build_rule_action
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filters = self._derive_outlook(
+                tmpdir,
+                "filters:\n"
+                "  - match:\n"
+                "      from: grafana.com\n"
+                "    action:\n"
+                "      add: [Tech/Grafana]\n"
+                "      keepInInbox: true\n"
+                "  - match:\n"
+                "      from: nintendo.net\n"
+                "    action:\n"
+                "      add: [Tech/Nintendo]\n",
+            )
+            self.assertEqual(2, len(filters), "expected 2 derived filters")
+
+            client = MagicMock()
+            client.ensure_folder_path.return_value = "folder-id-nintendo"
+            ctx = RuleContext(
+                client=client,
+                name_to_id={"Tech/Grafana": "label-id-grafana"},
+                folder_map={},
+                move_to_folders=True,
+            )
+
+            grafana_action = _build_rule_action(
+                next(f["action"] for f in filters if "grafana" in str(f.get("match", {}))),
+                ctx,
+            )
+            nintendo_action = _build_rule_action(
+                next(f["action"] for f in filters if "nintendo" in str(f.get("match", {}))),
+                ctx,
+            )
+
+            # keepInInbox rule: categorise only, no move.
+            self.assertNotIn("moveToFolderId", grafana_action)
+            self.assertIn("addLabelIds", grafana_action)
+
+            # Normal rule: folder move.
+            self.assertIn("moveToFolderId", nintendo_action)
+            self.assertNotIn("addLabelIds", nintendo_action)

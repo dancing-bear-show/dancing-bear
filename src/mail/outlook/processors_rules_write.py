@@ -111,8 +111,10 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
     ) -> tuple[str, bool] | None:
         """Build criteria/action/key for one spec and create it if missing.
 
-        Returns (key, was_created) for specs with valid criteria, or None to skip
-        (invalid criteria, so no key is contributed to the desired-keys set).
+        Returns (key, was_created) for specs with valid criteria and a real
+        action, or None to skip — no key is contributed to the desired-keys set
+        in that case, so `--delete-missing` does not treat a skipped spec as
+        something to preserve.
         """
         m = spec.get("match") or {}
         a_act = spec.get("action") or {}
@@ -121,6 +123,19 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
             return None
 
         action = _build_rule_action(a_act, ctx)
+        # Guard the BUILT action, not the source spec. `create_filter` sets
+        # `stopProcessingRules: True` unconditionally
+        # (core/outlook/_mail_labels.py:202), so an empty action becomes a rule
+        # that matches mail, does nothing, and halts every later inbox rule.
+        #
+        # Derive drops such specs (`_drop_actionless_specs`), but `rules.sync`
+        # also accepts the RAW unified config directly, where nothing has run
+        # that filter — a `keepInInbox` + `remove: [INBOX]` rule with no
+        # category normalizes to `action: {}` and arrived here intact. Checking
+        # the built action covers both config shapes, and anything else that
+        # empties an action on the way in.
+        if not action:
+            return None
         key = _create_rule_key(criteria, action)
         if key in existing:
             return key, False
@@ -188,6 +203,15 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         )
 
 
+def _has_explicit_destination(desired: list[dict[str, Any]]) -> bool:
+    """True when any spec names a ``moveToFolder`` outright.
+
+    Such a destination is honoured regardless of ``move_to_folders``, so its id
+    has to be resolvable even under ``--categories-only``.
+    """
+    return any((spec.get("action") or {}).get("moveToFolder") for spec in desired)
+
+
 class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelope[OutlookRulesPlanResult]]):
     """Plan Outlook inbox rules sync (dry-run)."""
 
@@ -205,7 +229,47 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
             )
             existing_keys = {_canon_rule(r) for r in existing}
             name_to_id = client.get_label_id_map()
-            folder_map = client.get_folder_id_map() if payload.move_to_folders else {}
+            # Path-keyed, matching sync (line 83) and sweep (line 285). Plan used
+            # get_folder_id_map, which keys displayName only, so an explicit
+            # nested destination like `Security/Alerts` resolved to no id here
+            # while sync resolved it through ensure_folder_path() — the plan's
+            # rule key diverged from apply's and reported an existing rule as
+            # "Would create". A path map also reverses correctly for display in
+            # _format_plan_action.
+            #
+            # Loaded whenever a destination needs resolving, not only when
+            # automatic derivation is on: `_build_plan_action` honours an
+            # explicit `moveToFolder` regardless of move_to_folders, and
+            # `_build_rule_action` resolves it through ensure_folder_path()
+            # either way. Gating solely on move_to_folders left the map empty
+            # under --categories-only, so plan fell back to the literal path
+            # while apply used the Graph id.
+            # Call it exactly as sync does (line 83) — no ttl argument — so the
+            # preview resolves destinations the same way the apply will.
+            #
+            # `--use-cache` / `--cache-ttl` exist on plan but not on sync, and
+            # they are about the *rules* fetch (honoured at line 213). Threading
+            # them into the folder map made `rules.plan --cache-ttl 1` read a
+            # fresher map than the apply, which reintroduces the plan/sync rule
+            # key divergence those flags have nothing to do with.
+            #
+            # Sync is itself cache-backed: `get_folder_path_map()` defaults to a
+            # 600s TTL on the `folders_all` cache, and `_build_rule_action`
+            # consults that map *before* falling back to `ensure_folder_path`
+            # (processors_rules_helpers.py:86). Matching it is the goal; reading
+            # fresher than it is the bug.
+            #
+            # There is no clean per-key bypass to reach for instead — verified
+            # against core/cache.py rather than assumed: `ttl=0` and any
+            # negative ttl skip the `ttl > 0` guard and serve an entry of any
+            # age, and `clear_cache=True` rmtree's the whole provider cache
+            # directory (core/cache.py:86) including the rules cache used here
+            # as an outage fallback. The residual folder staleness is therefore
+            # shared with sync by construction; closing it needs identical
+            # folder-cache controls plumbed through both commands, which is a
+            # CLI change beyond this fix.
+            need_folders = payload.move_to_folders or _has_explicit_destination(desired)
+            folder_map = client.get_folder_path_map() if need_folders else {}
 
             plan_items = self._build_plan_items(
                 desired, existing_keys, name_to_id, folder_map, payload.move_to_folders
@@ -242,6 +306,13 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
                 continue
 
             action = _build_plan_action(a_act, ctx)
+            # Mirror the sync guard (`_create_rule_if_new`): an empty built
+            # action is skipped there, so predicting it here would promise a
+            # rule the apply will not create. Reached by a raw
+            # `keepInInbox` + `remove: [INBOX]` config with no category, and by
+            # an `add` list that coerces to empty.
+            if not action:
+                continue
             key = _create_rule_key(criteria, action)
 
             if key not in existing_keys:
@@ -282,7 +353,19 @@ class OutlookRulesSweepProcessor(Processor[OutlookRulesSweepPayload, ResultEnvel
 
             doc = load_config(payload.config_path)
             desired = normalize_filters_for_outlook(doc.get("filters") or [])
-            folder_paths = client.get_folder_path_map(clear_cache=payload.clear_cache) if payload.move_to_folders else {}
+            # Same condition as the plan processor, and for a sharper reason:
+            # `_resolve_destination_folder` reads the map only on the dry-run
+            # branch and calls ensure_folder_path() on the live one. Gating on
+            # move_to_folders alone left the map empty under --categories-only,
+            # so a rule with an explicit `moveToFolder` resolved None in dry-run
+            # and a real id live — `sweep --dry-run` reported zero moves while
+            # the real run moved mail. A dry run that under-reports is worse
+            # than no dry run at all.
+            folder_paths = (
+                client.get_folder_path_map(clear_cache=payload.clear_cache)
+                if payload.move_to_folders or _has_explicit_destination(desired)
+                else {}
+            )
 
             total_moves = self._process_sweep_rules(desired, folder_paths, client, payload)
 

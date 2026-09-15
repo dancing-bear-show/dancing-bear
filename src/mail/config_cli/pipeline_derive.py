@@ -102,26 +102,78 @@ DeriveFiltersRequestConsumer = RequestConsumer[DeriveFiltersRequest]
 
 
 def _strip_keep_in_inbox(out_specs: list[dict]) -> None:
-    """Remove the ``keepInInbox`` marker from every derived Outlook spec.
+    """Convert the ``keepInInbox`` input marker to the internal ``noMoveToFolder`` marker.
 
-    ``keepInInbox`` is an input directive that suppresses the derived
-    ``moveToFolder``; it is not part of the provider payload. Stripping happens
-    here, unconditionally, rather than inside the move/archive branches: those
-    are mutually exclusive and both are skipped under
-    ``--no-outlook-move-to-folders``, which previously let the marker leak into
-    the derived Outlook config.
+    ``keepInInbox`` is a user-facing input directive that must never appear in the
+    provider payload.  When present it is replaced with ``noMoveToFolder: true``,
+    which the plan and sweep stages read to suppress folder derivation even when
+    ``move_to_folders`` is True.  When absent the key is removed so normal rules
+    are unaffected.
+
+    The conversion happens unconditionally — outside the move/archive branches —
+    so the marker is always handled regardless of which flags are active.  Without
+    this conversion the plan/sweep stage cannot distinguish a keepInInbox rule
+    (no folder wanted) from a rule where no folder was specified.
     """
     for spec in out_specs:
         action = spec.get("action")
-        if isinstance(action, dict):
-            action.pop("keepInInbox", None)
+        if isinstance(action, dict) and action.pop("keepInInbox", None):
+            action["noMoveToFolder"] = True
+
+
+def _pair_specs_with_sources(
+    out_specs: list[dict], filters: list[dict]
+) -> list[tuple[dict, dict]]:
+    """Pair each normalized spec with the source filter it came from.
+
+    ``normalize_filters_for_outlook`` drops entries that normalize to ``None``
+    (non-dicts, and specs carrying neither criteria nor action), so ``out_specs``
+    is **not** positionally aligned with ``filters``. Indexing ``filters[i]``
+    therefore reads the wrong source rule once anything ahead of it is dropped —
+    verified with a leading non-dict entry: ``len(filters)=2``,
+    ``len(out_specs)=1``, and ``filters[0]`` is the malformed entry rather than
+    the rule that survived.
+
+    Re-normalizing each source filter and keeping only those that survive
+    reproduces the same skip decisions, so the pairing is exact rather than
+    positional. Consumers need the source because Gmail-side directives such as
+    ``remove`` are not carried onto the normalized spec.
+    """
+    from ..dsl import normalize_filter_for_outlook
+
+    sources = [f for f in (filters or []) if normalize_filter_for_outlook(f)]
+    return list(zip(out_specs, sources))
 
 
 def _apply_archive_on_remove_inbox(out_specs: list[dict], filters: list[dict]) -> None:
-    """Mutate out_specs: replace 'add' with 'moveToFolder=Archive' when original removes INBOX."""
-    for i, spec in enumerate(out_specs):
-        orig = filters[i] if i < len(filters) else {}
-        remove_list = ((orig or {}).get("action") or {}).get("remove") or []
+    """Mutate out_specs: replace 'add' with 'moveToFolder=Archive' when original removes INBOX.
+
+    ``keepInInbox`` wins over this branch, matching ``_apply_move_to_folders``:
+    Archive is a destination *derived* from ``remove: [INBOX]``, and the marker's
+    documented job is to suppress a derived move ("suppress the derived Outlook
+    moveToFolder", config/filters_unified.example.yaml:30). An explicitly
+    authored ``moveToFolder`` is untouched here and still overrides the marker
+    downstream.
+
+    Without this check the two sibling derive branches disagreed: the
+    move-to-folders branch skipped marked rules while this one archived them
+    anyway, so a rule carrying both `remove: [INBOX]` and `keepInInbox: true`
+    left the inbox through all three consumers despite the marker being present.
+    """
+    for spec, orig in _pair_specs_with_sources(out_specs, filters):
+        orig_action = (orig or {}).get("action") or {}
+        spec_action = spec.get("action") or {}
+        # Read the marker from EITHER side. The source always carries it, and is
+        # the only side that does for an archive-only rule: normalization keeps
+        # `keepInInbox` solely when add/forward/moveToFolder has content, so
+        # `remove: [INBOX]` + `keepInInbox` with no category normalizes to
+        # `action: {}` and a spec-only check missed it — then archived the rule,
+        # which is precisely what the directive forbids. `remove` pairs with the
+        # marker legitimately here because, under this flag, it is what produces
+        # the moveToFolder there is to suppress.
+        if orig_action.get("keepInInbox") or spec_action.get("keepInInbox"):
+            continue
+        remove_list = orig_action.get("remove") or []
         if isinstance(remove_list, list) and any(str(x).upper() == "INBOX" for x in remove_list):
             a = spec.get("action") or {}
             a["moveToFolder"] = "Archive"
@@ -145,6 +197,44 @@ def _apply_move_to_folders(out_specs: list[dict]) -> None:
         if adds and not a.get("moveToFolder"):
             a["moveToFolder"] = str(adds[0])
             spec["action"] = a
+
+
+# Keys that make a derived Outlook spec worth creating as a rule. The
+# keepInInbox / noMoveToFolder markers are deliberately absent: they are
+# modifiers on an action, never actions themselves, so a spec carrying only a
+# marker has nothing for the rule to do.
+_ACTIONABLE_KEYS = ("add", "forward", "moveToFolder")
+
+
+def _drop_actionless_specs(out_specs: list[dict]) -> list[dict]:
+    """Drop derived specs whose action ended up empty.
+
+    Suppressing a derived destination can leave nothing behind: an archive-only
+    ``keepInInbox`` rule (``remove: [INBOX]`` and the marker, no category or
+    forward) has its Archive move suppressed and no other action to keep. The
+    spec still carries criteria, so ``OutlookRulesSyncProcessor`` would treat it
+    as a rule and call ``create_filter(criteria, {})`` — and ``create_filter``
+    sets ``stopProcessingRules: True`` unconditionally
+    (``core/outlook/_mail_labels.py:202``). That creates a rule which matches
+    mail, does nothing, and halts every later inbox rule.
+
+    Omitting the rule is what the directive actually asks for: the mail stays in
+    the inbox untouched, which is the same outcome with no rule at all. Gmail is
+    unaffected — its output is a pass-through of the source filters, and the
+    ``remove`` directive there is still honoured.
+    """
+    kept = []
+    for spec in out_specs:
+        action = spec.get("action") or {}
+        # Test the meaningful VALUES, not the dict's truthiness. `add: ["", null]`
+        # coerces to `add: []`, so `action` is `{"add": []}` — truthy as a dict
+        # while carrying no action. That slipped through, and sync's own
+        # re-normalization then dropped the empty list, leaving `{}` and creating
+        # the stop-processing no-op rule this function exists to prevent.
+        if not any(action.get(k) for k in _ACTIONABLE_KEYS):
+            continue
+        kept.append(spec)
+    return kept
 
 
 class DeriveFiltersProcessor(SafeProcessor[DeriveFiltersRequest, DeriveFiltersResult]):
@@ -171,6 +261,7 @@ class DeriveFiltersProcessor(SafeProcessor[DeriveFiltersRequest, DeriveFiltersRe
         # Unconditional: neither branch above runs when both flags are off, and
         # keepInInbox is an input directive that must never reach the provider.
         _strip_keep_in_inbox(out_specs)
+        out_specs = _drop_actionless_specs(out_specs)
 
         out_o = Path(payload.out_outlook)
         out_o.parent.mkdir(parents=True, exist_ok=True)
