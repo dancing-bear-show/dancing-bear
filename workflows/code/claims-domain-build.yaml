@@ -58,7 +58,6 @@ trigger:
   source: manual
   params:
     run_qlty: "true"
-    reference_claim_pdf: ""   # optional override for the equivalence check
 
 workspace_dir: "{work_dir}/claims-domain-build"
 
@@ -330,20 +329,34 @@ stages:
         twice through two code paths.  Build both sides yourself from invented
         values:
 
-          1. Locate a BLANK claim template.  Candidate is
-             {reference_claim_pdf} if the run supplied it, or a synthetic
-             blank template committed to this repo.  Those are the ONLY two
-             approved sources.
+          1. Generate the approved BLANK template.  There is exactly one,
+             and it is generated rather than found:
 
-             Do NOT search the filesystem -- not ~/Downloads, not
-             ~/Documents/sunlife-claims/, nowhere -- and do not OPEN a
-             discovered file "just to check whether it is blank".  Opening is
-             the disclosure: the check below reads page text, so a filled
-             claim form would have been read before it was rejected.  The
-             source rule comes FIRST, not after.
+               .venv/bin/python tests/receipts_fixtures/build_claim_template.py
+               -> tests/receipts_fixtures/blank_claim_template.pdf
 
-             If neither approved source exists, record
-             shipped_form_equivalence: "SKIPPED -- no approved blank template"
+             It is a real AcroForm carrying the same field NAMES the size map
+             keys on, every widget empty, no personal data.  Field names are
+             the form's schema, not personal data.
+
+             Do NOT accept a caller-supplied path, and do NOT search the
+             filesystem.  Both were tried in earlier revisions of this stage
+             and both are unsound for the same reason: deciding whether a PDF
+             is blank means READING ITS PAGE TEXT, so a filled claim form
+             would already have been read by the time it was rejected.
+             Opening is the disclosure.  A check cannot be the safeguard when
+             performing the check is itself the exposure -- the only safe
+             input is one that was never a real claim form.
+
+             This also removes the reason a real template was ever wanted:
+             the insurer-supplied file on this machine is NOT blank (it
+             arrives pre-populated with member ID, name, date of birth and
+             address), so it could never have served as a baseline anyway.
+
+             The blank check below still runs on the generated template.  It
+             is cheap, and it now catches a broken generator rather than
+             vetting an untrusted input.  If it rejects, record
+             shipped_form_equivalence: "SKIPPED -- template generator failed"
              and CONTINUE TO STEP 7 to write the manifest.  Do not jump back
              to an earlier step: the skip is recorded here, in Step 6, while
              Step 7 is the only step that writes font-size-migration.json --
@@ -368,27 +381,19 @@ stages:
                b. page text that contains none of the identifying tokens a
                   filled claim would carry.
 
-               Write the candidate path to a FILE with the Write tool --
-               never onto a shell command line.  `TEMPLATE="<path>"` is still
-               shell source: a path containing a quote, $() or a backtick
-               executes, and resolve_params does a plain str.replace with no
-               shell quoting.  Reading it from a file removes the shell from
-               the path entirely.
-
-                 Write {workspace}/outputs/candidate-template.txt
-                   <- the candidate path, one line, nothing else
-
-               Use the WORKSPACE, never a fixed /tmp name.  {workspace} is
-               per-run, so concurrent claims runs cannot overwrite each
-               other's candidate, and it is not a world-writable directory
-               where another process can swap the file (or replace it with a
-               symlink) between the write and the read.
+               The template path is now a FIXED, repo-relative constant, so
+               nothing needs to hand a path to this program: no environment
+               variable, no workspace file, no shell interpolation.  That
+               closes the injection surface rather than trying to quote it --
+               {workspace} itself is derived from a user-overridable
+               --workspace/work_dir, so interpolating it into a `python -c`
+               string would be shell source too.
 
                PYTHONPATH="$(pwd)/src" .venv/bin/python -c "
                import pathlib, re, fitz
-               cand = pathlib.Path('{workspace}/outputs/candidate-template.txt').read_text().strip()
-               if not cand or not pathlib.Path(cand).is_file():
-                   raise SystemExit(f'REJECT: not a file: {cand!r}')
+               cand = 'tests/receipts_fixtures/blank_claim_template.pdf'
+               if not pathlib.Path(cand).is_file():
+                   raise SystemExit('REJECT: generator did not produce ' + cand)
                d = fitz.open(cand)
                widgets = [w for pno in range(d.page_count)
                           for w in (d[pno].widgets() or [])]
@@ -423,8 +428,9 @@ stages:
                                     'data pattern(s) -- not a blank template')
                print('BLANK OK')"
 
-             On BLANK OK, record that exact path as blank_template_path in
-             your manifest.  verify reads it from there rather than searching
+             On BLANK OK, record the path as blank_template_path in your
+             manifest (it is the fixed generated path, but recording it keeps
+             verify from having to know the convention).  verify reads it from there rather than searching
              again -- re-discovering a template in a later stage could pick a
              different file than the one validated here, which would make the
              approval meaningless.
@@ -458,21 +464,24 @@ stages:
              loop indefinitely without ever reaching the manifest.
 
              Never search under ~/Documents/sunlife-claims/ or any directory
-             holding real claims; a blank template is a blank form, not a
-             generated claim.
+             holding real claims.  The template is generated, so there is
+             nothing to look for.
 
-             EXPECT TO FIND NOTHING, AND SKIP CLEANLY.  Verified on the
-             author's machine: the insurer-supplied template in ~/Downloads is
-             NOT blank -- Sun Life pre-populates it with member ID, full name,
-             date of birth and home address, so it carries PII before anyone
-             fills a claim.  The check above correctly rejects it.  There may
-             be no blank template anywhere on the machine.
+             THE PROOF IS NOW EXPECTED TO RUN, not to skip.  Earlier
+             revisions of this stage searched for a template and were told to
+             expect nothing -- verified on the author's machine, the
+             insurer-supplied file in ~/Downloads is NOT blank (Sun Life
+             pre-populates member ID, full name, date of birth and home
+             address), so it carries PII before anyone fills a claim and the
+             check correctly rejects it.
 
-             That is a normal outcome, not a failure to work around.  Record
-             shipped_form_equivalence: "SKIPPED -- no blank template", which
-             makes migration_safe false, which halts the run for a human.
+             Generating a synthetic template removes that dead end: the
+             equivalence proof should normally produce PASS or FAIL.  A SKIP
+             now means the GENERATOR failed, which is a defect worth
+             reporting rather than a normal outcome.
+
              Do NOT relax the check, strip fields to manufacture a blank, or
-             fall back to a personalised form because nothing else was found.
+             fall back to a real insurer form under any circumstances.
 
           2. Fill a copy using SYNTHETIC values only -- the same "Pat Doe"
              placeholder style as tests/receipts_fixtures/build_fixtures.py:
@@ -541,11 +550,11 @@ stages:
         manifest IS the record: a human reads
         {workspace}/outputs/font-size-migration.json to see why the run
         stopped, so shipped_form_equivalence must carry a specific reason
-        ("SKIPPED -- no approved blank template", "FAIL -- 3 /DA mismatches")
+        ("SKIPPED -- template generator failed", "FAIL -- 3 /DA mismatches")
         rather than a bare status.  Nothing downstream will summarise it for
         them.
 
-        Resuming: a human supplies an approved blank template and re-runs.
+        Resuming: a human fixes whatever made the proof fail and re-runs.
         Do not weaken this to a warning so the pipeline can continue.
     agent:
       role: code-writer
@@ -876,8 +885,8 @@ stages:
 
         migration_safe is itself derived in migrate-font-sizes from three
         checks, and is false whenever the equivalence proof was SKIPPED --
-        which is the EXPECTED outcome when no approved blank template is
-        available.  "Unverified" is not "verified": report it as a blocking
+        which now indicates the template generator failed -- the proof is
+        expected to run and produce PASS or FAIL.  "Unverified" is not "verified": report it as a blocking
         finding here rather than letting fix-integration branch on a
         hard-coded true.
 
@@ -955,12 +964,11 @@ stages:
              fill_text_fields is called with sizes=CLAIM_FONT_SIZES.
 
         b. shipped_form_equivalence startswith "SKIPPED"
-             There was no approved blank template, so the proof could not
-             run.  This is NOT a code defect and there is nothing here to
+             The template generator failed, so the proof could not run.  This is NOT a code defect and there is nothing here to
              fix.  Do NOT edit files to make the flag flip, and do NOT
              re-run the check against a non-approved template.  Leave the
              finding standing, record it in your results as
-             "unverified -- no approved blank template", and let the human
+             "unverified -- template generator failed", and let the human
              gate decide.  Silently converting an unverified migration into
              a verified one is the exact failure this chain exists to
              prevent.
@@ -1225,7 +1233,7 @@ stages:
         the substitution this step exists to prevent.
 
         If blank_template_path is null, record
-        packet_render_check: "SKIPPED -- no approved blank template".
+        packet_render_check: "SKIPPED -- no template from migrate-font-sizes".
 
         In practice that branch is rare: migrate-font-sizes reports status
         failed when no approved template is found, and the orchestrator skips
