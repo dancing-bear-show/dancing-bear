@@ -1168,8 +1168,25 @@ stages:
         merges commits. Failing loudly is the correct outcome — the run can
         be retried, a silently missing reduction cannot be detected later.
 
-        Then confirm at least one source file changed. Zero changed files
-        after a sweep that reported reductions is a FAILURE, not a clean run.
+        Then check the changed-file count CONDITIONALLY, against whether
+        this run had work to do. Read
+        {workspace}/outputs/design/domain-groups.json first:
+
+          - "items" NON-EMPTY: at least one source file must have changed.
+            Zero changed files after a sweep that dispatched groups is a
+            FAILURE — the isolated edits never landed.
+          - "items" EMPTY (clean repo, or every candidate deferred): zero
+            commits and zero changed files are the CORRECT outcome. Write
+            merge-report.md recording "no-op: no groups dispatched", set
+            status success, and skip Steps 2-5 — there are no branches to
+            enumerate or merge.
+
+        An unconditional assertion here would fail the run BEFORE
+        verify-tests could reach its own no-op branch, making a clean repo
+        impossible to sweep. discover-candidates and plan-splits both treat
+        an empty candidate list with no scan_errors as a successful no-op;
+        this stage and verify-tests must agree with them, or the three
+        contradict each other and the agreeable outcome is unreachable.
 
       Step 6 — write {workspace}/outputs/merge-report.md:
         ## Worktree Merge
@@ -2101,6 +2118,51 @@ stages:
         at 55-60) as long as it is a clear improvement and in line with the
         rest of the codebase — do not chase zero.
 
+      Step 3b — RE-RUN the import and facade validation. This is required,
+      not optional, and it is the only fresh evidence for the import/facade
+      acceptance criterion below.
+
+        validate-imports ran BEFORE apply-corrections, and
+        apply-corrections is permitted to edit imports, rewrite call sites
+        and delete modules. Its output is therefore stale by the time this
+        stage runs: a partial correction, or a re-export shim introduced
+        while fixing an import error, would leave import-check.json green
+        while the tree is broken. Tests, lint and complexity do not cover
+        this — a shim makes imports work, which is exactly why the project
+        forbids it, so a green suite is evidence FOR the defect, not against.
+
+        Re-run the three checks that can regress under correction:
+
+          a. Export parity for every pre-existing touched file, against the
+             pre-sweep ref (not HEAD):
+               PRE_SWEEP=$(cat {workspace}/outputs/pre-sweep-ref.txt)
+             Same procedure as validate-imports Step 3, including the
+             survived/deleted branch.
+
+          b. The three stale-reference searches over src/, tests/ and bin/:
+             AST-resolved imports, mock.patch target strings, and
+             string-keyed dispatch tables. Every one must return zero hits on
+             an old module path.
+
+          c. The facade detector, with the override and baseline comparison:
+               INCLUDE_INIT=true PYTHONPATH="$PWD/src" \
+                 python3 workflows/code/scripts/detect_facades.py \
+                 > {workspace}/validation/facades-final.json
+             Compare against the recorded baseline exactly as
+             validate-imports does. A facade that is new relative to baseline
+             and touched by this sweep is a blocking failure here — unlike in
+             validate-imports, which reports rather than blocks.
+
+        Write the outcome to {workspace}/validation/import-check-final.json
+        in the same shape as import-check.json. THIS file, not the pre-
+        correction one, is what the acceptance criterion and
+        `ready_for_commit` consume.
+
+        If apply-corrections did not run (import-check.json reported
+        "overall": "PASS" and no test failures), say so and reuse its result
+        — but state explicitly that no corrections were applied, rather than
+        silently skipping the re-validation.
+
       Step 4 — write {workspace}/validation/recheck.json:
         {
           "test_exit": 0,
@@ -2110,6 +2172,8 @@ stages:
           "qlty_status": "PASS|ISSUES",
           "qlty_issues": [],
           "complexity_status": "IMPROVED|RELOCATED|REGRESSED",
+          "import_check_final": "PASS|ISSUES",
+          "corrections_applied": true,
           "unresolved_failures": [],
           "ready_for_commit": false
         }
@@ -2120,6 +2184,9 @@ stages:
           qlty_status == "PASS"
           complexity_status == "IMPROVED"   (RELOCATED and REGRESSED both
                                              block — relocation is not a fix)
+          import_check_final == "PASS"      (from Step 3b's FRESH run, never
+                                             from the pre-correction
+                                             import-check.json)
           unresolved_failures == []
         The example above shows false deliberately: an agent that copies the
         schema verbatim must hand the human gate a NON-commit-ready result,
@@ -2135,7 +2202,10 @@ stages:
         - Split files report the sibling-sum verdict, not just the original
           path's new score
         - No unresolved import errors, dangling call sites, or re-export
-          facades remain
+          facades remain — evidenced by Step 3b's FRESH import-and-facade
+          re-run written to import-check-final.json, never by the
+          pre-correction import-check.json, which apply-corrections may have
+          invalidated
     agent:
       role: unit-validator
       model: sonnet
@@ -2150,7 +2220,10 @@ stages:
         - Split files report the sibling-sum verdict, not just the original
           path's new score
         - No unresolved import errors, dangling call sites, or re-export
-          facades remain
+          facades remain — evidenced by Step 3b's FRESH import-and-facade
+          re-run written to import-check-final.json, never by the
+          pre-correction import-check.json, which apply-corrections may have
+          invalidated
       max_revisions: 1
     required: true
     # Required for agent dispatch — see the note on verify-tests' outputs.
