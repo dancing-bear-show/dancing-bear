@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess  # nosec B404 - runs this repo's own hook script, no user input
 import tempfile
 import unittest
@@ -57,6 +58,74 @@ def _make_third_party_checkout(root: Path) -> Path:
     (root / "src").mkdir(parents=True)
     (root / "pyproject.toml").write_text('[project]\nname = "some-other-lib"\n')
     return root / "src"
+
+
+# A python invocation is an executable FOLLOWED BY flags and then -c / -m / a
+# script path. Requiring that tail is what separates a real launch from a
+# `python3 -c` named inside a comment or a quoted warning message.
+_PY_INVOCATION = re.compile(
+    r"(?:^|[\s;&|(`$])"            # start, or a shell boundary
+    r"(?:env\s+(?:-\S+\s+)*)?"     # optional `env [-flags]`
+    r"(?:/\S*/)?"                  # optional absolute/relative dir
+    r"python(?:3(?:\.\d+)?)?"      # python | python3 | python3.11
+    r"((?:\s+-\S+)*)"              # captured: the flag run
+    r"\s+(?:-c|-m\b|\S+\.py\b)"    # the payload that proves a launch
+)
+
+
+def _code_lines(text: str) -> list[str]:
+    """Lines that can execute — comments and quoted blocks removed.
+
+    Tracking shell quoting exactly would mean writing a parser. The cheap,
+    reliable approximation: drop comment lines, then drop everything between an
+    odd double-quote and its partner. That is what excludes
+    check-pythonpath.sh, whose multi-line ``emit "..."`` warning names
+    ``python3 -c`` twice in prose.
+    """
+    out: list[str] = []
+    in_string = False
+    for line in text.splitlines():
+        if not in_string and line.lstrip().startswith("#"):
+            continue
+        quotes = line.count('"') - line.count('\\"')
+        if in_string:
+            if quotes % 2 == 1:
+                in_string = False
+            continue  # the whole line sits inside a string
+        if quotes % 2 == 1:
+            in_string = True
+            line = line.split('"', 1)[0]  # keep only the code before it
+        out.append(line.split(" #", 1)[0])
+    return out
+
+
+def _launches_unisolated_python(text: str) -> bool:
+    """True if *text* launches python without both -I and -S.
+
+    Checked statically rather than by running the hook. Executing hooks is not
+    viable: WorktreeCreate creates a real git worktree and branch as a side
+    effect, and name-worktree.sh sends its interpreter's stderr to /dev/null —
+    so a planted payload executes while leaving no trace to observe. A probe
+    blind to the defect it exists to catch is worse than no probe, and that
+    exact blindness let an earlier version of this audit report OK with the
+    WorktreeCreate hole open.
+    """
+    for line in _code_lines(text):
+        for m in _PY_INVOCATION.finditer(line):
+            flags = (m.group(1) or "").split()
+            if "-I" not in flags or "-S" not in flags:
+                return True
+    return False
+
+
+def _hook_sources(command: str) -> list[tuple[str, str]]:
+    """The command itself, plus any in-repo shell script it invokes."""
+    out = [(command[:70], command)]
+    for m in re.finditer(r"(?:bash|sh|zsh)\s+(\S+\.sh)", command):
+        script = REPO_ROOT / m.group(1)
+        if script.is_file():
+            out.append((m.group(1), script.read_text()))
+    return out
 
 
 class TestCheckPythonpathHook(unittest.TestCase):
@@ -154,37 +223,43 @@ class TestCheckPythonpathHook(unittest.TestCase):
             # The warning itself must still be emitted.
             self.assertIn("systemMessage", json.loads(proc.stdout))
 
-    def test_every_sessionstart_python_hook_is_interpreter_isolated(self) -> None:
-        """No SessionStart hook may start a bare `python3`.
+    def test_no_configured_hook_starts_an_unisolated_interpreter(self) -> None:
+        """NO hook of ANY type may start a Python interpreter without -I -S.
 
-        SessionStart hooks run with the session's environment, which is exactly
-        when PYTHONPATH may name a foreign checkout. Python imports
+        Hook processes inherit the session's environment, which is exactly when
+        PYTHONPATH may name a foreign checkout. Python imports
         sitecustomize/usercustomize from PYTHONPATH entries during startup, so a
-        bare `python3 -c ...` hook executes code from that checkout before any
-        warning is emitted — including before this file's own hook runs.
+        bare interpreter in a hook executes code from that checkout before the
+        hook does anything.
 
-        Hardening this one shell script was not enough: the pre-existing
-        worktree-marker hook is ordered FIRST and launched a bare interpreter,
-        so the exposure survived a fix that claimed to close it. `-I` ignores
-        PYTHONPATH and the user site directory; `-S` skips site.py, which is what
-        imports sitecustomize.
+        This audit has been widened twice, each time because it was scoped to
+        what had just been fixed rather than to the property it defends:
+
+          - v1 tested only check-pythonpath.sh, so the SessionStart hook ordered
+            AHEAD of it kept the exposure open.
+          - v2 covered SessionStart only and matched commands that literally
+            START with "python3", so the WorktreeCreate hook — and any
+            ``/usr/bin/python3``, ``env python3``, or interpreter appearing
+            mid-command — sailed through.
+
+        It now walks every hook type in settings.json and follows ``bash
+        <script>`` references into the repo.
         """
-        settings = json.loads(
-            (REPO_ROOT / ".claude" / "settings.json").read_text()
-        )
-        offenders = []
-        for group in settings.get("hooks", {}).get("SessionStart", []):
-            for hook in group.get("hooks", []):
-                cmd = hook.get("command", "")
-                if not cmd.startswith("python3"):
-                    continue  # shell hooks start no interpreter
-                if "-I" not in cmd.split('"')[0] or "-S" not in cmd.split('"')[0]:
-                    offenders.append(cmd[:80])
+        settings = json.loads((REPO_ROOT / ".claude" / "settings.json").read_text())
+
+        offenders = [
+            f"{hook_type}: {label}"
+            for hook_type, groups in settings.get("hooks", {}).items()
+            for group in groups
+            for hook in group.get("hooks", [])
+            for label, text in _hook_sources(hook.get("command", ""))
+            if _launches_unisolated_python(text)
+        ]
 
         self.assertEqual(
             offenders,
             [],
-            "SessionStart hook(s) start python3 without -I -S, so a "
+            "hook(s) start a Python interpreter without -I -S, so a "
             "sitecustomize.py on a foreign PYTHONPATH would execute first: "
             f"{offenders}",
         )

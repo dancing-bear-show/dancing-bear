@@ -11,7 +11,13 @@ INPUT=$(cat)
 NAME_IN=$(echo "$INPUT" | jq -r '.name // empty' 2>/dev/null)
 [ -z "$NAME_IN" ] && exit 1
 
-NAME=$(python3 -c "
+# -I -S: hook processes inherit the session's environment, so PYTHONPATH may
+# name a foreign checkout here just as it can at SessionStart. Python imports
+# sitecustomize/usercustomize from PYTHONPATH entries during startup, which
+# would execute code from that checkout before this script does anything. -I
+# ignores PYTHONPATH and the user site dir; -S skips site.py, which performs
+# those imports. This snippet is stdlib-only, so isolation costs nothing.
+NAME=$(python3 -I -S -c "
 import random
 with open('/usr/share/dict/words') as f:
     words = [w.strip() for w in f if w.strip().isalpha() and 4 <= len(w.strip()) <= 7 and w.strip().islower()]
