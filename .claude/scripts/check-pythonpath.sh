@@ -89,6 +89,13 @@ tree, so a bare 'python3 -c ...' or 'python3 -m unittest' reports behaviour from
 source you are not editing — it exits 0 and looks like a pass.
 
 Use 'make test' and './bin/<tool>' (both pin the path correctly). Before
-concluding a change did not take effect, print where the module actually loaded
-from: python3 -c \"import resume; print(resume.__file__)\". To fix the shell
-itself, run: direnv allow ."
+concluding a change did not take effect, print where a module WOULD load from:
+
+  python3 -I -S -c \"import importlib.util as u, os, sys; sys.path[:0] = os.environ.get('PYTHONPATH','').split(os.pathsep); s = u.find_spec('resume'); print(s.origin if s else 'not found')\"
+
+That is deliberately not 'python3 -c \"import resume; print(resume.__file__)\"'.
+Importing runs code from whichever checkout wins — the package's __init__, and
+sitecustomize from the PYTHONPATH entry before that — which is the hazard this
+warning is about. -I -S skips both, PYTHONPATH is re-applied explicitly so the
+answer still reflects real resolution order, and find_spec locates the module
+without executing it. To fix the shell itself, run: direnv allow ."

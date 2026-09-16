@@ -338,6 +338,62 @@ class TestCheckPythonpathHook(unittest.TestCase):
                     f"false positive on: {cmd}",
                 )
 
+    def test_the_advised_diagnostic_is_itself_safe(self) -> None:
+        """The command the warning suggests must not run foreign code.
+
+        The warning fires precisely WHILE a foreign PYTHONPATH is active, so
+        advising `python3 -c "import resume; print(resume.__file__)"` tells the
+        reader to run the exact hazard being reported: the interpreter imports
+        sitecustomize from the foreign entry at startup, then executes that
+        checkout's package __init__ on import. Two separate payloads, before it
+        prints anything.
+
+        This runs the advised command verbatim, as a user copying it would, and
+        asserts it stays silent while still naming the foreign path — a
+        diagnostic that is safe but wrong would be no better.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            foreign = _make_fake_checkout(Path(td, "other-checkout"))
+            (foreign / "sitecustomize.py").write_text(
+                'import sys; sys.stderr.write("PWNED_STARTUP\\n")\n'
+            )
+            pkg = foreign / "resume"
+            pkg.mkdir()
+            (pkg / "__init__.py").write_text(
+                'import sys; sys.stderr.write("PWNED_IMPORT\\n")\n'
+            )
+
+            message = json.loads(_run_hook(str(foreign)).stdout)["systemMessage"]
+            advised = next(
+                (ln.strip() for ln in message.splitlines() if "find_spec" in ln),
+                "",
+            )
+            self.assertTrue(advised, f"no diagnostic found in:\n{message}")
+            # The unsafe form may appear as a named counter-example ("that is
+            # deliberately NOT ..."), so assert on the ADVISED line rather than
+            # on the whole message — an earlier version of this check could not
+            # tell "advises this" from "warns against this".
+            self.assertNotIn(
+                "import resume",
+                advised,
+                "the advised diagnostic imports the module, which executes "
+                "code from whichever checkout wins",
+            )
+
+            proc = subprocess.run(  # nosec B603 B602 - the repo's own advised command
+                advised,
+                shell=True,  # nosec B602 - run exactly as a user would paste it
+                capture_output=True,
+                text=True,
+                env={**os.environ, "PYTHONPATH": str(foreign)},
+                timeout=60,
+            )
+            combined = proc.stdout + proc.stderr
+            self.assertNotIn("PWNED_STARTUP", combined)
+            self.assertNotIn("PWNED_IMPORT", combined)
+            # Safe is not enough — it must still give the right answer.
+            self.assertIn(str(foreign / "resume"), proc.stdout)
+
     def test_output_is_a_single_json_object(self) -> None:
         """The hook contract is one JSON object on stdout — not prose."""
         with tempfile.TemporaryDirectory() as td:
