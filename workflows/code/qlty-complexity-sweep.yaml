@@ -529,7 +529,9 @@ stages:
           — Do not split so granularly that modules become trivially small.
             A new sibling under ~80 lines is a sign of over-fragmentation.
 
-        DEFER  — real blockers only.
+        DEFER — real blockers only.
+          — Path is under tests/ (test logic is immutable in this workflow;
+            only mock.patch target strings may be edited).
           — Path is under bin/ (public CLI entry point — never split or
             rename per project rules).
           — Path is under src/maker/. CLAUDE.md lists it as a skip path, and
