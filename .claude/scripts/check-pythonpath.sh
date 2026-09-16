@@ -48,23 +48,35 @@ cwd_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 # No PYTHONPATH at all is fine: the editable install resolves correctly.
 [ -n "${PYTHONPATH:-}" ] || exit 0
 
-own_src="$cwd_root/src"
+# Physical, to match the `pwd -P` resolution applied to each entry below.
+# Comparing a physical entry against a logical own_src would fail to recognise
+# our own src/ when the checkout itself sits behind a symlink, and we would warn
+# about ourselves.
+own_src=$(cd "$cwd_root/src" 2>/dev/null && pwd -P) || own_src="$cwd_root/src"
 foreign=""
 IFS=':' read -r -a entries <<< "$PYTHONPATH"
 for entry in "${entries[@]}"; do
   [ -n "$entry" ] || continue
+  # Canonicalize FIRST, then inspect. Testing the raw string would miss a
+  # symlink such as `/tmp/current-src -> /other-checkout/src`: its basename is
+  # `current-src`, so a name check on the unresolved path skips it. The router
+  # resolves before testing and strips that entry, so checking the raw string
+  # here would leave the two layers disagreeing — the import gets fixed for
+  # ./bin/* while the user is never warned about their bare-python3 hazard.
+  # `pwd -P` (physical), not bare `pwd`: bare pwd reports the LOGICAL path, so
+  # cd'ing into a symlink returns the symlink's own path and the basename check
+  # below still sees `current-src` rather than `src`.
+  resolved=$(cd "$entry" 2>/dev/null && pwd -P) || continue
   # Only care about entries that are a `src/` dir of some checkout of THIS
-  # project (a sibling pyproject.toml). Unrelated PYTHONPATH entries are none
-  # of our business.
-  case "$(basename "$entry")" in src) ;; *) continue ;; esac
+  # project. Unrelated PYTHONPATH entries are none of our business.
+  case "$(basename "$resolved")" in src) ;; *) continue ;; esac
   # The marker must identify THIS project, not merely "some Python project".
   # A sibling pyproject.toml alone is far too broad — most third-party checkouts
   # have one, so that would warn about paths we have no business touching and
   # train the reader to ignore the warning.
-  proj="$(dirname "$entry")/pyproject.toml"
+  proj="$(dirname "$resolved")/pyproject.toml"
   [ -f "$proj" ] || continue
   grep -qE '^name *= *"personal-assistants"' "$proj" 2>/dev/null || continue
-  resolved=$(cd "$entry" 2>/dev/null && pwd) || continue
   [ "$resolved" = "$own_src" ] && continue
   foreign="$foreign $resolved"
 done

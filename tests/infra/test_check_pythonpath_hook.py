@@ -66,7 +66,7 @@ def _make_third_party_checkout(root: Path) -> Path:
 _PY_INVOCATION = re.compile(
     r"(?:^|[\s;&|(`$])"            # start, or a shell boundary
     r"(?:env\s+(?:-\S+\s+)*)?"     # optional `env [-flags]`
-    r"(?:/\S*/)?"                  # optional absolute/relative dir
+    r"(?:\.{0,2}[\w./-]*/)?"       # optional dir: /usr/bin/, ./.venv/bin/, ../x/
     r"python(?:3(?:\.\d+)?)?"      # python | python3 | python3.11
     r"((?:\s+-\S+)*)"              # captured: the flag run
     r"\s+(?:-c|-m\b|\S+\.py\b)"    # the payload that proves a launch
@@ -95,6 +95,13 @@ def _code_lines(text: str) -> list[str]:
         if quotes % 2 == 1:
             in_string = True
             line = line.split('"', 1)[0]  # keep only the code before it
+        else:
+            # Balanced quotes on this line: blank out each "..." span, so an
+            # interpreter named inside `echo "run python3 -c ..."` is not read
+            # as a launch. Done per line because a span that opens and closes
+            # here cannot be part of the multi-line state above.
+            line = re.sub(r'"[^"]*"', '""', line)
+            line = re.sub(r"'[^']*'", "''", line)
         out.append(line.split(" #", 1)[0])
     return out
 
@@ -263,6 +270,73 @@ class TestCheckPythonpathHook(unittest.TestCase):
             "sitecustomize.py on a foreign PYTHONPATH would execute first: "
             f"{offenders}",
         )
+
+    def test_warns_for_a_symlink_whose_basename_is_not_src(self) -> None:
+        """Canonicalize before inspecting, as the router does.
+
+        `/tmp/current-src -> /other-checkout/src` has basename `current-src`, so
+        a name check on the RAW entry skips it. The router resolves first and
+        strips that entry, so a raw check here leaves the layers disagreeing:
+        ./bin/* gets fixed while the user is never warned about the bare-python3
+        hazard that remains.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            real = Path(td, "real")
+            _make_fake_checkout(real)
+            link = Path(td, "current-src")
+            link.symlink_to(real / "src")
+
+            proc = _run_hook(str(link))
+
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertNotEqual(
+                proc.stdout.strip(),
+                "",
+                "a symlinked foreign src/ produced no warning; the detector "
+                "inspected the unresolved path",
+            )
+            self.assertIn(
+                str((real / "src").resolve()),
+                json.loads(proc.stdout)["systemMessage"],
+            )
+
+    def test_audit_matches_relative_interpreter_paths(self) -> None:
+        """`./.venv/bin/python3 -c ...` must count as an invocation.
+
+        An earlier pattern only accepted an ABSOLUTE interpreter directory, so
+        the relative form this repo actually uses would have executed with a
+        foreign PYTHONPATH while the audit reported no offenders.
+        """
+        unisolated = [
+            'python3 -c "x"',
+            "/usr/bin/python3 -c 'x'",
+            "env python3 -c 'x'",
+            "./.venv/bin/python3 -c 'x'",
+            ".venv/bin/python -m foo",
+            "../other/bin/python3 script.py",
+            "python3.11 -m unittest",
+        ]
+        for cmd in unisolated:
+            with self.subTest(cmd=cmd):
+                self.assertTrue(
+                    _launches_unisolated_python(cmd),
+                    f"missed an unisolated interpreter: {cmd}",
+                )
+
+        isolated_or_prose = [
+            'python3 -I -S -c "x"',
+            "./.venv/bin/python3 -I -S -c 'x'",
+            "env python3 -I -S -m foo",
+            '# python3 -c "in a comment"',
+            'echo "run python3 -c to check"',
+            "bash script.sh",
+        ]
+        for cmd in isolated_or_prose:
+            with self.subTest(cmd=cmd):
+                self.assertFalse(
+                    _launches_unisolated_python(cmd),
+                    f"false positive on: {cmd}",
+                )
 
     def test_output_is_a_single_json_object(self) -> None:
         """The hook contract is one JSON object on stdout — not prose."""
