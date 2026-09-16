@@ -304,22 +304,51 @@ stages:
         `~/.qlty/bin/qlty`, not to the wrapper.)
 
         Check the JSON's own fields instead:
-          a. Compare LIKE WITH LIKE, in two separate checks. The raw
-             counts_by_rule sum is NOT comparable to your final candidate
-             rows, because extraction legitimately shrinks the set twice:
-             the {complexity_floor} predicate drops file-complexity rows
-             below the floor, and the (path, line) dedup collapses each
+          a0. FIRST: validate the rule names, before trusting any empty
+             result. `--rule` silently yields zero findings for an unknown
+             name rather than erroring — `ScanResult.filter_by_rules()`
+             documents it ("An unknown rule name yields zero findings for
+             that rule rather than an error") and src/qlty/README.md repeats
+             it. So a typo in a --rule flag produces total 0, empty
+             counts_by_rule and "stable": true — byte-identical to a clean
+             tree. Verified: mistyping the four rules against src/telemetry/,
+             which really has 4 findings, returned exactly that.
+
+             Confirm every requested rule name is real before accepting an
+             empty scan:
+               ./bin/qlty-assistant rules
+             Every name you passed to --rule must appear in that table. A
+             name that does not is a COMMAND ERROR — record it in
+             "scan_errors" and stop. Never interpret an empty result from an
+             unvalidated rule set as a clean tree.
+
+          a. Compare LIKE WITH LIKE, in two separate checks, and use
+             INDEPENDENT counts — not numbers recomputed from the rows you
+             are validating. Step 1b recomputes counts_by_rule from the
+             merged set, so comparing your extraction against THAT is
+             circular: drop every finding during the merge, recompute, and
+             the two agree at zero with no scan_errors. Compare against each
+             SOURCE scan's own counts_by_rule (the "sources" array records
+             them per contributor), and confirm the merged identity set is a
+             superset of every source's rows before recomputing anything.
+
+             The raw per-rule counts are NOT comparable to your final
+             candidate rows, because extraction legitimately shrinks the set
+             twice: the {complexity_floor} predicate drops file-complexity
+             rows below the floor, and the (path, line) dedup collapses each
              function-complexity / python:S3776 pair into one entry. Comparing
-             the raw sum against the post-dedup count therefore ALWAYS shows a
+             a raw sum against the post-dedup count therefore ALWAYS shows a
              shortfall and would record a false scan_errors, aborting
              plan-splits on a correct extraction.
 
              Check 1 — SELECTION, before any floor filter or dedup. For each
              of the four rules separately, the rows you selected for that rule
-             must equal counts_by_rule[rule]. A per-rule shortfall here means
-             you are selecting on the wrong field (see the rule-key note in
-             Step 3) — record it in "scan_errors" and say so plainly. This is
-             the check that catches a parse bug.
+             must equal the SUM of that rule's counts across the source scans
+             (deduplicated by (file, line, rule) across sources, since the
+             repo-wide and scoped scans overlap). A per-rule shortfall here
+             means you are selecting on the wrong field (see the rule-key note
+             in Step 3) — record it in "scan_errors" and say so plainly. This
+             is the check that catches a parse bug.
 
              Check 2 — REDUCTION, after filtering and dedup. Every row you
              dropped must be attributable: a file-complexity row below
@@ -340,9 +369,14 @@ stages:
                  scan would let an omitted or misspelled --rule flag read as
                  a clean candidate list — the exact false clean this stage
                  exists to prevent.
-             The only clean result is total == 0 AND a counts_by_rule sum of
-             zero across the four rules. That is a genuine clean tree, not a
-             failure.
+             A clean result requires ALL THREE of: every requested rule name
+             validated against `qlty-assistant rules` (step a0), total == 0,
+             and a counts_by_rule sum of zero across the four rules. Only
+             then is it a genuine clean tree rather than a failure.
+
+             The rule-name validation is load-bearing, not ceremony: without
+             it a mistyped --rule produces exactly the other two conditions
+             and this branch would declare a repo clean that is not.
 
              (This corrects an earlier, looser version of this clause that
              allowed unrelated rows. It was written for the raw unfiltered
@@ -581,9 +615,18 @@ stages:
         B) Adjust — specify files to exclude or strategy overrides
         C) Abort — stop without modifying anything
     agent:
+      # Grep and Bash are REQUIRED, not conveniences. The split test above
+      # cannot be performed without them: "before proposing a split, check
+      # whether a test imports a symbol you plan to move" needs a search
+      # across tests/, and validating the requested --rule names needs
+      # `./bin/qlty-assistant rules`. With only [Read, Write] the planner
+      # would have to approve the one strategy that rewrites imports while
+      # unable to check whether a test imports what it is about to move —
+      # silently skipping the gate that keeps splits out of test-coupled
+      # files.
       role: doc-writer
       model: sonnet
-      tools: [Read, Write]
+      tools: [Read, Write, Grep, Bash]
       access: read-write
     human_gate: true
     required: true
@@ -961,16 +1004,26 @@ stages:
         without committing leaves nothing to merge, and the stage reports
         success while no code lands.
 
-        Then PROVE your worktree is clean before you report:
-          git status --porcelain
-        Empty output is required. A non-empty result means at least one edit
-        is uncommitted and will be DISCARDED when this worktree is torn down
-        — partially committed work is worse than none, because downstream
+        Then PROVE no SOURCE edit is left uncommitted before you report:
+          git status --porcelain -- src/ bin/ tests/
+        Empty output is required for those paths.
+
+        Scope it to src/, bin/ and tests/ deliberately. A bare
+        `git status --porcelain` also reports your own
+        `outputs/{group}-splits.md`, which is UNTRACKED — `outputs/` is not
+        gitignored, and that summary is a workspace artifact the
+        orchestrator copies back rather than something you commit. Requiring
+        a globally clean tree would therefore fail every successful worker
+        before its source commit could be merged.
+
+        A non-empty result for those paths means at least one code edit is
+        uncommitted and will be DISCARDED when this worktree is torn down —
+        partially committed work is worse than none, because downstream
         stages then test a tree missing part of your change and report green.
         Commit the remainder (or revert it deliberately and say so in your
-        summary), then re-run the check. Do not report success with a dirty
-        worktree; merge-worktrees FAILS the run when a file your summary
-        claims does not appear in git.
+        summary), then re-run the check. Do not report success with
+        uncommitted source; merge-worktrees FAILS the run when a file your
+        summary claims does not appear in git.
 
         Content of <your-cwd>/outputs/{group}-splits.md:
 
@@ -1536,10 +1589,27 @@ stages:
            Then branch on whether the file SURVIVED the refactor. Check first:
              test -f <path> && echo SURVIVED || echo DELETED
 
-           SURVIVED — compare in place:
+           SURVIVED — compare only the symbols the original still OWNS, then
+           verify the moved ones separately:
              PYTHONPATH="$PWD/src" python3 workflows/code/scripts/public_symbols.py \
                --module <m> > /tmp/after.txt
-             diff /tmp/before.txt /tmp/after.txt
+
+             # Subtract the planned moved symbols (from domain-groups.json's
+             # proposed_siblings for this file) before diffing:
+             comm -23 /tmp/before.txt /tmp/moved.txt > /tmp/expected.txt
+             diff /tmp/expected.txt /tmp/after.txt
+
+           A bare `diff /tmp/before.txt /tmp/after.txt` is WRONG for any
+           partial split: every symbol moved to a sibling is legitimately
+           absent from after.txt, so the diff reports a difference and the
+           step fails before reaching the moved-symbol exception below. That
+           would make a valid split unprovable. Subtract the planned moves
+           first; each subtracted symbol must then be confirmed at its
+           destination in Step 3b — absence from the original is only
+           acceptable when presence at the new home is demonstrated.
+
+           If a symbol is missing from after.txt and NOT in the planned
+           moves, that is the real regression this step exists to catch.
 
            DELETED — do NOT run `--module <m>` on it. The module no longer
            exists, so the script exits 1 by design (it must not report "no
@@ -1573,15 +1643,25 @@ stages:
         b. For each MOVED symbol, verify it at its destination instead of at
            the original path:
              python3 -c "from <new_module> import <Symbol>; print('ok')"
-           The union of symbols across the original path (whatever it still
-           holds) and its new siblings must cover HEAD's public set. An
-           original file deleted outright is fine provided every one of its
-           symbols resolves from a new home and no call site still names the
-           old path (Step 4).
 
-        c. NEWLY CREATED files have no HEAD baseline, so there is nothing to
-           compare — only the Step 2 import check and Step 3b destination
-           checks apply. Do not report them as missing exports.
+           The union of symbols across the original path (whatever it still
+           holds) and its new siblings must cover **/tmp/before.txt — the
+           PRE-SWEEP baseline**, never HEAD's public set. Covering HEAD is
+           circular: HEAD is the post-refactor tree, so a symbol deleted by
+           the refactor is absent from the target by definition and the
+           check passes on exactly the loss it should catch.
+
+           Concretely, every name in /tmp/before.txt must resolve from either
+           the original module or one of its siblings:
+             comm -23 /tmp/before.txt /tmp/resolved-anywhere.txt
+           Non-empty output is a lost export. An original file deleted
+           outright is fine provided every one of ITS baseline symbols
+           resolves from a new home and no call site still names the old path
+           (Step 4).
+
+        c. NEWLY CREATED files have no PRE-SWEEP baseline, so there is
+           nothing to compare — only the Step 2 import check and the Step 3b
+           destination checks apply. Do not report them as missing exports.
 
         If a pre-existing file declared __all__, confirm every name still
         resolves from whichever module now owns it.
@@ -1590,8 +1670,22 @@ stages:
         For every symbol that changed modules, all three of these must
         return ZERO hits on the OLD path.
 
-        a. Import statements:
-             grep -rn "from <old_module> import\|import <old_module>" \
+        USE FIXED-STRING SEARCHES (`grep -F`) FOR ALL THREE. A module path
+        interpolated into a regex makes every dot a wildcard, so checking
+        `mail.foo` also matches `mailXfoo`. Verified: `grep "import mail.foo"`
+        matches the line `import mailXfoo`, while `grep -F` correctly does
+        not. A false hit here either blocks a valid run or triggers a rewrite
+        of a reference that does not exist. Where an alternation is needed,
+        run two fixed-string passes rather than one regex.
+
+        a. Import statements — two fixed-string passes, not one alternation:
+             grep -rFn "from <old_module> import" \
+               --include="*.py" \
+               --exclude-dir=.venv \
+               --exclude-dir=.claude \
+               --exclude-dir=personal_assistants.egg-info \
+               src/ tests/ bin/
+             grep -rFn "import <old_module>" \
                --include="*.py" \
                --exclude-dir=.venv \
                --exclude-dir=.claude \
@@ -1601,14 +1695,21 @@ stages:
         b. mock.patch target strings — the failure mode import checks
            structurally cannot catch, because they are string literals
            resolved at TEST RUNTIME:
-             grep -rn "patch(" --include="*.py" tests/ | grep "<old_module>"
-           A stale patch target passes every import check and fails only
-           when that one test runs.
+             grep -rn "patch(" --include="*.py" tests/ | grep -F "<old_module>"
+           The second grep is `-F`: the module path's dots would otherwise be
+           wildcards. A stale patch target passes every import check and
+           fails only when that one test runs.
 
         c. String-keyed dispatch tables and config references — no import
            statement exists to find, and the table's own module imports
-           fine, so every other check passes while the CLI path is broken:
-             grep -rn "['\"]<old_module>" \
+           fine, so every other check passes while the CLI path is broken.
+           Two fixed-string passes, one per quote style, rather than a
+           character class around a regex-interpolated path:
+             grep -rFn "'<old_module>" \
+               --include="*.py" --include="*.yaml" --include="*.yml" \
+               --include="*.json" --include="*.toml" \
+               src/ tests/ bin/ .llm/ pyproject.toml 2>/dev/null
+             grep -rFn '"<old_module>' \
                --include="*.py" --include="*.yaml" --include="*.yml" \
                --include="*.json" --include="*.toml" \
                src/ tests/ bin/ .llm/ pyproject.toml 2>/dev/null
@@ -2234,10 +2335,26 @@ stages:
         mode: generate
         description: >
           Final verification written to {workspace}/validation/recheck.json:
-          test and lint status, and the per-rule before/after complexity
-          comparison with REDUCED / RELOCATED / REGRESSED per file.
+          test and lint status, the per-rule before/after complexity
+          comparison with REDUCED / RELOCATED / REGRESSED per file, and the
+          derived ready_for_commit flag.
+      # Declared as a real output, not just described in Step 3b. Without it
+      # the completion contract does not require the post-correction audit to
+      # exist, so an agent could omit the file while the stage still reports
+      # success — and ready_for_commit consumes it, so its absence would be
+      # indistinguishable from a passing audit.
+      - name: import-check-final
+        mode: generate
+        description: >
+          Post-correction import and facade audit written to
+          {workspace}/validation/import-check-final.json — export parity,
+          stale_references, and facades_detected re-run AFTER
+          apply-corrections. This is the only trustworthy import/facade
+          result at this point; the pre-correction import-check.json may have
+          been invalidated by the corrections themselves.
     writes_to:
       - validation/recheck.json
+      - validation/import-check-final.json
 
   # ===========================================================================
   # G7: Human gate — present results and ask to commit / open PR
@@ -2260,11 +2377,23 @@ stages:
       to proceed.
 
       Read and display:
+        {workspace}/outputs/merge-report.md                 — branches merged, per group
         {workspace}/outputs/design/plan.md                  — approved plan
         {workspace}/validation/test-results.md              — per-group test outcomes
-        {workspace}/validation/import-check.json            — call-site + complexity validation
         {workspace}/validation/corrections-applied.md       — what was fixed
+        {workspace}/validation/import-check-final.json      — POST-correction call-site + facade audit
         {workspace}/validation/recheck.json                 — final lint + test + complexity status
+
+      Display import-check-final.json, NOT the pre-correction
+      import-check.json. apply-corrections runs after that earlier audit and
+      may edit call sites or introduce a facade while fixing an import error,
+      so presenting the old green result would show the human an audit that
+      no longer describes the tree. recheck Step 3b re-runs the export
+      parity, stale-reference and facade checks specifically to produce the
+      final file; this gate must consume it.
+
+      If you want the earlier audit for contrast, label it explicitly as
+      pre-correction rather than listing the two interchangeably.
 
       Surface:
         - Groups reduced successfully vs. failed
