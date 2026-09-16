@@ -3,12 +3,18 @@ version: "1.0"
 description: >
   Sweep the codebase for oversized Python source files, group them by domain,
   fan out parallel code-writer agents to split each into smaller focused modules
-  with backward-compatible re-exports, verify tests pass, validate no broken
+  and update every call site directly, verify tests pass, validate no broken
   imports, apply corrections if needed, recheck, then present a human gate.
 
   Never touches bin/* public entry points or renames existing public CLI-facing
   modules. Only splits large files into siblings within the same domain directory.
-  Original files become thin re-export layers so external imports never break.
+
+  Call sites are updated in place — no re-export facades. CLAUDE.md forbids
+  backwards-compatible wrappers for internal APIs: "Internal APIs can be
+  refactored freely — update all call sites atomically without
+  backwards-compatible wrappers." A shim left behind is a second, diverging
+  import path for the same symbol, and it hides the very coupling the split
+  was meant to expose. If a file is empty after its symbols move out, delete it.
 
   Seeds a telemetry record at {workspace}/telemetry/run-metrics.json for a
   future calibration pass.
@@ -145,15 +151,18 @@ stages:
         extract-submodules
           — 3+ distinguishable responsibility clusters visible in top-level
             symbols (e.g. a CLI file with separate data, formatting, and
-            dispatch logic). Extract each cluster to a sibling module.
-            Original file becomes a thin re-export layer.
+            dispatch logic). Extract each cluster to a sibling module and
+            repoint every importer at the new module. Delete the original
+            file if nothing is left in it.
 
         extract-package
           — File is large enough that extract-submodules would produce 4+
             siblings, OR the module is already referenced as a package
             boundary in other imports. Convert the file into a package
-            directory: create <module>/__init__.py with re-exports and
-            move split modules inside.
+            directory: create <module>/ with one submodule per cluster.
+            Keep <module>/__init__.py minimal — it declares the package, it
+            is not a re-export surface. Importers point at the specific
+            submodule that owns the symbol they need.
 
         split-tests-by-class
           — Test file: each TestCase class goes to its own file. Shared
@@ -177,12 +186,29 @@ stages:
               - File is a generated artifact (e.g. migration, auto-gen).
             Record the reason; do not attempt the split.
 
-      Backward-compat rule (always applies):
-        The original file must remain as a thin re-export shim:
-          from .submodule import X, Y  # noqa: F401
-        Never rename classes or functions — only move them.
+      Call-site rule (always applies):
+        Update every importer to point at the module that now owns the
+        symbol. Do NOT leave a re-export shim behind — CLAUDE.md forbids
+        backwards-compatible wrappers for internal APIs. Delete the original
+        file once it is empty.
+
+        Never rename classes or functions — only move them. A move plus a
+        rename makes the call-site update unverifiable by grep.
+
+        String references do not move with the code. Before declaring a
+        file done, grep for the module name and every moved symbol in:
+          - mock.patch("...") / patch.object targets
+          - assertLogs("...") / assertNoLogs("...") logger names
+          - logging.getLogger("...") names
+          - workflow YAML and .llm/ capsule references
+        These fail at RUNTIME, not at import time: a stale patch target
+        patches nothing and the test still passes, which is worse than a
+        crash. An import smoke-check cannot detect any of them.
+
         Do not split so granularly that modules become trivially small
-        (< ~100 lines after splitting is a warning sign).
+        (< ~100 lines after splitting is a warning sign), unless the pieces
+        are genuinely independent units (e.g. four sibling pipelines that
+        share nothing but a types import).
 
       Domain grouping:
         Collect all non-DEFER files into domain buckets. Each bucket becomes
@@ -297,26 +323,25 @@ stages:
         For extract-submodules:
           - Create sibling files in the same directory as the original file.
           - Move each cluster's classes/functions to the appropriate sibling.
-          - Rewrite the original file as a thin re-export shim:
-              from .<sibling> import ClassName, function_name  # noqa: F401
-            Do NOT rename anything. Do NOT change function signatures.
+          - Repoint every importer at the sibling that now owns the symbol,
+            then delete the original file if nothing remains in it. Do NOT
+            leave a re-export shim. Do NOT rename anything. Do NOT change
+            function signatures.
           - Preserve all module-level docstrings and __all__ declarations.
 
         For extract-package:
           - A directory and a file of the same name cannot coexist, so the
-            original file must be removed as part of this conversion (this is
-            the one strategy that does not keep the original filename as a
-            sibling shim — parent-package imports are preserved instead).
+            original file must be removed as part of this conversion.
           - Create package directory <module>/ (same name as the original
             file, minus .py) in place of the original file.
-          - Move the original file's content into <module>/__init__.py,
-            then split out submodules inside <module>/ per the proposed
+          - Split the original file's content directly into submodules inside
+            <module>/ per the proposed
             siblings.
           - Delete the original <module>.py file.
-          - <module>/__init__.py re-exports every symbol the original file
-            exposed: from .<sibling> import ClassName, function_name  # noqa: F401
-            This makes `from <parent_package>.<module> import X` continue to
-            resolve exactly as it did before, since <module> is now a package.
+          - Keep <module>/__init__.py minimal — a docstring, nothing more.
+            It is not a re-export surface. Repoint every importer at
+            <parent_package>.<module>.<submodule> so the owning module is
+            explicit at each call site.
 
         For split-tests-by-class:
           - Create one test file per TestCase class in the same test directory
@@ -324,20 +349,35 @@ stages:
           - Move shared setUp / class-level fixtures to
             <test_dir>/shared_fixtures.py and import from there explicitly
             (this repo uses unittest, not pytest — no conftest.py autodiscovery).
-          - Keep the original test file but replace its body with imports of
-            all the split classes so `python3 -m unittest <original>` still works.
+          - Delete the original test file. Do NOT replace its body with
+            imports of the split classes — that re-collects every test under
+            two module paths, so unittest runs each one twice and the suite
+            count silently doubles. Discovery finds the new files on its own.
+          - Confirm the "Ran N tests" count is IDENTICAL before and after.
+            A changed count means tests were duplicated or dropped.
 
         For extract-helpers:
           - Extract non-test helper functions and fixtures to
             <test_dir>/helpers.py (the domain's actual test directory).
-          - Add `from .helpers import *` at the top of the original test file.
+          - Import the specific helpers each test file uses, by name. Never
+            `from .helpers import *` — a star import hides which helpers a
+            file depends on and trips ruff F403/F405.
+          - Check whether the test directory ALREADY has a fixtures.py or
+            helpers.py before creating one, and extend that instead of
+            adding a second helper module beside it.
 
         After splitting each file:
           c. Run a quick import smoke-check:
-               python3 -c "import <module_path>" 2>&1
+               PYTHONPATH="$PWD/src" python3 -c "import <module_path> as _m; print(_m.__file__)" 2>&1
              (Derive module_path from the file path: replace / with . and
              strip .py. For nested packages prefix with the package name.)
-             If the import fails, fix the re-export shim before moving on.
+             Verify the printed path lies under the current checkout's src/.
+             If the import fails, fix the offending import path before
+             moving on.
+
+             An import check is necessary but NOT sufficient: it cannot see
+             a stale mock.patch() / assertLogs() string. Grep for those too
+             (see the call-site rule in plan-splits).
 
       Step 3 — write per-domain split summary to
         {workspace}/outputs/<domain>-splits.md:
@@ -393,20 +433,48 @@ stages:
         Run per-domain discovery using the test directory found above
         (substitute the actual resolved path, e.g. tests/<domain>/ or the
         flat top-level file glob — do NOT assume tests/<domain>_tests/):
-          python3 -m unittest discover -s <resolved_test_dir> -t . -p "test_*.py" -q 2>&1
+          PYTHONPATH="$PWD/src" python3 -m unittest discover -s <resolved_test_dir> -t . -p "test_*.py" -q 2>&1
 
         Fix failures up to 3 cycles per domain:
-          - Import error: the re-export shim is missing an import or has a
-            wrong path. Fix the shim, re-run.
-          - AttributeError / NameError: a symbol was moved but not re-exported.
-            Add it to the shim's import list.
+          - Import error: an importer still points at the old module path.
+            Repoint it at the module that now owns the symbol, re-run. Do not
+            "fix" it by adding a re-export to the old path.
+          - AttributeError / NameError: a symbol was moved but a caller — or a
+            mock.patch() string — still references its old location. Update
+            the reference.
           - Other failures: read the relevant source and test files to diagnose.
           - After each fix: re-run the per-domain test command.
           - If still failing after 3 fix cycles: mark domain as FAIL and
             document the blocker — do not abort other domains.
 
-      Step 3 — run the full suite to catch cross-domain regressions:
-        python3 -m unittest discover -q 2>&1 | tail -10
+      Step 3 — run the full suite to catch cross-domain regressions.
+
+        Write it as ONE command whose own exit status is the verdict, so a
+        failing suite cannot be recorded as a pass:
+
+          make test > /tmp/decompose-verify.log 2>&1 \
+            && grep -qE "^Ran [0-9]+ tests" /tmp/decompose-verify.log \
+            && grep -qE "^OK" /tmp/decompose-verify.log \
+            && echo VERIFY_PASS || echo VERIFY_FAIL
+
+        Record the stage as passing only when the output is VERIFY_PASS.
+
+        Do NOT write this as `make test ...; echo "EXIT=$?"` followed by bare
+        greps. Separating with `;` makes the sequence's final status that of the
+        LAST grep, and `echo "EXIT=$?"` only prints the value — nothing asserts
+        it. A failing suite still emits a "Ran N tests" line, so the greps
+        succeed and the whole sequence looks green unless an agent happens to
+        read the printed number.
+
+        The 2>&1 is required — unittest writes "Ran N tests", OK, and FAILED to
+        stderr. Never pipe the suite through tail/head: a pipeline's status is
+        the last command's, which hides the failure. No "Ran N tests" line means
+        the suite never ran — re-run rather than recording a pass.
+
+        Then confirm the count matches the pre-split baseline recorded in
+        test-results.md. An equal count is part of the pass condition, not a
+        separate nicety: a changed count means tests were dropped or
+        double-collected.
 
       Step 4 — write {workspace}/validation/test-results.md:
         | Domain | Test Dir | Tests Run | Status | Notes |
@@ -423,7 +491,14 @@ stages:
     validation:
       strategy: deliverable
       criteria:
-        - python3 -m unittest discover exits 0 (full suite)
+        - The full suite printed a "Ran N tests" line and OK. Exit code 0
+          alone is NOT evidence the suite ran — a failed venv build can
+          report EXIT=0 having run zero tests. Capture with
+          `make test > /tmp/t.log 2>&1; grep -E "^Ran [0-9]+ tests" /tmp/t.log`
+          (the 2>&1 is required — unittest writes the verdict to stderr).
+        - Post-split "Ran N tests" equals the pre-split count. A higher count
+          means a split file is being collected twice; a lower one means tests
+          were dropped.
         - All per-domain test runs pass or failures are documented with blockers
         - No new import errors introduced by splits
       max_revisions: 3
@@ -440,9 +515,9 @@ stages:
     depends_on: [verify-tests]
     reads_from: [verify-tests, decompose-domains]
     description: >
-      Confirm that every new sibling module and every rewritten re-export shim
-      is importable, and that no existing importer of the original module is
-      broken.
+      Confirm that every new sibling module is importable, that every importer
+      of a moved symbol was repointed, and that no re-export shim was left
+      behind.
 
       Step 1 — collect all split artifacts:
         Read {workspace}/outputs/*-splits.md to enumerate every file that was
@@ -452,23 +527,74 @@ stages:
 
       Step 2 — smoke-import each new module:
         For each new sibling file created:
-          python3 -c "import <module_path>" 2>&1
-        For each rewritten re-export shim, verify full export parity — do NOT
-        rely on plan.md's top-level symbol list, since discover-candidates
-        only captured the first 40 class/def names as a planning hint, not a
-        complete export inventory:
+          PYTHONPATH="$PWD/src" python3 -c "import <module_path> as _m; print(_m.__file__)" 2>&1
+        Verify the printed path lies under the current checkout's src/ — an
+        inherited PYTHONPATH can silently resolve the import to a different
+        checkout, making this check a false green.
+        Then verify every symbol survived the move — do NOT rely on plan.md's
+        top-level symbol list, since discover-candidates only captured the
+        first 40 class/def names as a planning hint, not a complete inventory:
           a. Get the complete pre-split symbol set from git history (the
              original file content before decompose-domains touched it):
                git show HEAD:<module_path> | grep -n "^class \|^def "
              This lists every top-level class/function, not just the first 40.
-          b. Get the shim's actual exported symbols:
-               python3 -c "import <module_path>; print([n for n in dir(<module_path>) if not n.startswith('_')])"
-          c. Diff the two sets. Any pre-split symbol missing from the shim's
-             dir() output is a broken export — fix the shim's import list.
+          b. For each symbol, confirm exactly one module now defines it:
+               grep -rn "^class <Symbol>\|^def <Symbol>" src/
+             Zero hits means the symbol was dropped. Two or more means it was
+             copied rather than moved — a silent duplicate that will drift.
+          c. Confirm it imports from its new home. Pin PYTHONPATH here too —
+             the smoke-import above does, and an unpinned symbol import can
+             resolve the PRE-SPLIT module from another checkout and report
+             success even when the symbol is missing from the module this run
+             created:
+               PYTHONPATH="$PWD/src" python3 -c \
+                 "import <new_module> as _m; print(_m.__file__); from <new_module> import <Symbol>"
+             The printed path must lie under the current checkout.
 
-      Step 2b — also verify __all__ if the original file declared one:
-        If the pre-split file defined __all__, confirm the shim's __all__
-        (or its transitively re-exported __all__) contains the same names.
+      Step 2b — confirm NO re-export shim was left behind:
+        The original file should either be deleted or contain only symbols
+        that genuinely still belong to it.
+
+        Use the repo's existing detector rather than an inline AST snippet:
+
+          python3 workflows/code/scripts/detect_facades.py
+
+        It emits JSON with a "facades" array; each entry names a module whose
+        top level is imports and __all__ only. Any module this split created or
+        touched that appears there violates CLAUDE.md's no-wrapper rule and must
+        be deleted with its importers repointed.
+
+        Note that `mail.llm_cli` is a KNOWN entry and is not a defect: it is a
+        live `llm --app mail` dispatch target referenced by string literal, so
+        it is reported but must not be removed. Compare the output against the
+        files this run modified rather than treating every entry as new.
+
+        Why a utility and not an inline snippet: a heredoc embedded in this
+        description is covered by no test, so it drifts silently and any bug in
+        it is discovered by an agent acting on a wrong answer. Two real bugs
+        proved that — an earlier version used `ast.walk`, which descends into
+        nested scopes and so reported a `TYPE_CHECKING`-guarded facade as "ok";
+        its replacement counted only `ast.Assign`, so a real module holding
+        `VERSION: str = "1.2.3"` (an `ast.AnnAssign`) was reported as a SHIM and
+        would have been DELETED. detect_facades.py handles both — it checks
+        `ast.Assign` and `ast.AnnAssign`, and it is covered by
+        tests/test_detect_facades.py.
+        Note: grepping for "# noqa: F401" misses re-export modules that use
+        __all__ or omit the suppression comment — the AST check is authoritative.
+
+      Step 2c — sweep string references, which imports cannot catch:
+        For each moved symbol and each module that was split or deleted:
+          grep -rn 'patch(['"'"'"][^'"'"'"]*<name>\|assertLogs(['"'"'"][^'"'"'"]*<name>\|getLogger(['"'"'"][^'"'"'"]*<name>' \
+            src tests --include="*.py"
+        This pattern matches both single-quoted and double-quoted forms, e.g.
+        patch('module.Symbol') and patch("module.Symbol") — single-quoted
+        targets survive a double-quote-only grep and leave stale references
+        that silently patch nothing at runtime.
+        Also grep .llm/ and workflows/ for the old module path.
+        A stale mock.patch() target raises no error — it patches a module
+        attribute that no longer exists there, or silently patches nothing,
+        and the test still reports PASS. This step is the only thing in the
+        workflow that detects it.
 
       Step 3 — check downstream importers:
         For each original file that was split, grep the codebase for existing
@@ -479,8 +605,12 @@ stages:
             --exclude-dir=.claude \
             --exclude-dir=personal_assistants.egg-info
         For each found importer: confirm it still resolves correctly by
-        running:
-          python3 -c "from <module_path> import <SymbolName>" 2>&1
+        running — pinned, like every other import check in this workflow, since
+        an inherited PYTHONPATH would otherwise import <module_path> from a
+        DIFFERENT checkout and pass without testing the split made here:
+          PYTHONPATH="$PWD/src" python3 -c \
+            "import <module_path> as _m; print(_m.__file__); from <module_path> import <SymbolName>" 2>&1
+        The printed path must lie under the current checkout.
 
       Step 4 — run qlty on all modified files:
         ~/.qlty/bin/qlty check <list of modified .py files>
@@ -491,14 +621,19 @@ stages:
           "new_modules": [
             { "path": "mail/cli/dispatch.py", "importable": true, "issues": [] }
           ],
-          "shims": [
+          "relocated_symbols": [
             {
-              "path": "mail/cli/main.py",
-              "importable": true,
-              "symbols_exported": ["MailCLI", "build_parser"],
-              "symbols_expected": ["MailCLI", "build_parser"],
-              "match": true
+              "symbol": "MailCLI",
+              "was": "mail/cli/main.py",
+              "now": "mail/cli/dispatch.py",
+              "definitions_found": 1,
+              "importable": true
             }
+          ],
+          "shims_detected": [],
+          "stale_string_refs": [
+            { "file": "tests/mail_tests/test_cli.py", "line": 42,
+              "ref": "patch(\"mail.cli.main.MailCLI\")", "fixed": true }
           ],
           "downstream_importers": [
             {
@@ -519,8 +654,16 @@ stages:
       strategy: unit
       criteria:
         - All new sibling modules import without error
-        - All re-export shims export the same symbol set as the original files
-        - All downstream importers of original module paths still resolve
+        - Every pre-split symbol has exactly one definition after the split —
+          zero means dropped, two or more means copied instead of moved
+        - shims_detected is empty — no file left behind as pure re-exports
+        - stale_string_refs are all fixed (mock.patch / assertLogs / getLogger)
+        - "Step 2c stale-string sweep was performed: grep for old module paths
+          in workflows/ and .llm/ produced zero unaddressed hits, and all
+          stale_string_refs in import-check.json are marked fixed"
+        - "All importers were repointed and resolve against the new module
+          paths; every downstream_importers entry in import-check.json has
+          resolves:true"
         - No critical qlty issues on modified files
       max_revisions: 1
     required: true
@@ -547,22 +690,26 @@ stages:
         {workspace}/validation/corrections-applied.md and exit.
 
       Step 2 — fix import issues:
-        For each entry in import-check.json where importable == false or
-        match == false:
-          - Read the shim file and the sibling it should re-export from.
-          - Fix the import statement.
-          - Re-run: python3 -c "import <module_path>" 2>&1
+        For each entry in import-check.json where importable == false, or
+        definitions_found != 1, or a shim was detected, or a stale string
+        reference remains:
+          - Read the importer and the module that now owns the symbol.
+          - Repoint the import (or the patch string) at the new owner. Never
+            resolve this by adding a re-export to the old path.
+          - Re-run: PYTHONPATH="$PWD/src" python3 -c "import <module_path> as _m; print(_m.__file__)" 2>&1
+          - Verify the printed path lies under the current checkout's src/.
           - Confirm green before moving on.
 
       Step 3 — fix test failures:
         For each domain marked FAIL in test-results.md:
           - Read the failure output and the relevant source/test files.
-          - Apply the minimal fix (usually a missing re-export or wrong import path).
+          - Apply the minimal fix (usually a wrong import path or a stale
+            mock.patch() / assertLogs() string).
           - Re-run using the "Test Dir" column recorded for this domain in
             test-results.md (do NOT assume tests/<domain>_tests/ — reuse the
             exact path verify-tests resolved, e.g. tests/<domain>/ or a flat
             top-level file glob):
-              python3 -m unittest discover -s <test_dir_from_table> -t . -q 2>&1
+              PYTHONPATH="$PWD/src" python3 -m unittest discover -s <test_dir_from_table> -t . -q 2>&1
           - Up to 2 additional fix cycles per domain.
 
       Step 4 — update telemetry:
@@ -613,20 +760,41 @@ stages:
       Run the full test suite and qlty lint on all modified files one final
       time. Escalate to code-writer-opus if either check is still failing.
 
-      Step 1 — full test suite:
-        python3 -m unittest discover -q 2>&1
+      Step 1 — full test suite. Use make test, never a bare
+        `python3 -m unittest`: an inherited PYTHONPATH resolves packages to a
+        DIFFERENT checkout, so the suite passes against unmodified code.
+          make test > /tmp/decompose-recheck.log 2>&1 \
+            && grep -qE "^Ran [0-9]+ tests" /tmp/decompose-recheck.log \
+            && grep -qE "^OK" /tmp/decompose-recheck.log \
+            && echo RECHECK_PASS || echo RECHECK_FAIL
 
-        If exit != 0:
+        Record the stage as passing only on RECHECK_PASS. Chain with && so the
+        command's own status is the verdict — `make test ...; echo "EXIT=$?"`
+        followed by bare greps makes the final status that of the last grep, and
+        a failing suite still prints a "Ran N tests" line, so the sequence looks
+        green unless someone reads the printed number.
+
+        The 2>&1 is required — unittest writes "Ran N tests", OK, and FAILED
+        to stderr. No "Ran N tests" line means the suite never ran; re-run it
+        rather than recording a pass.
+
+        Confirm the count matches the pre-split baseline.
+
+        If the suite failed, or the count moved, or the line is absent:
           Record failure output to {workspace}/validation/recheck-test-failure.txt.
           Attempt one targeted fix: read the failure output, identify the failing
-          test, fix the underlying import or re-export issue.
+          test, fix the underlying import or stale string reference.
           Re-run once. If still failing: set test_status "FAIL" and document
           the blocker. The human gate will decide whether to proceed.
 
       Step 2 — qlty lint on all files touched by decompose-domains:
         Enumerate modified files by reading {workspace}/outputs/*-splits.md
-        for all sibling paths and original shim paths.
+        for all new sibling paths and every repointed call site.
         ~/.qlty/bin/qlty check <space-separated list of .py files>
+
+        qlty caps findings per run nondeterministically, so a single clean
+        result proves nothing. Re-run until two consecutive runs agree, and do
+        not use --filter to confirm a finding is gone.
 
         If qlty reports critical issues: attempt auto-fix:
           ~/.qlty/bin/qlty check --fix <file>
@@ -650,7 +818,9 @@ stages:
     validation:
       strategy: unit
       criteria:
-        - python3 -m unittest discover exits 0
+        - make test log contains a "Ran N tests" line and "OK" — exit code 0
+          alone is not evidence the suite ran; confirm the count matches the
+          pre-split baseline
         - qlty check exits 0 on all modified files
         - No unresolved import errors remain
       max_revisions: 1

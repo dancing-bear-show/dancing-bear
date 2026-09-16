@@ -16,7 +16,7 @@ import unittest
 
 from docx import Document
 
-from resume.docx_renderers import BulletRenderer
+from resume.docx_bullets import BulletRenderer
 
 
 def _render(text: str, keywords: list[str]):

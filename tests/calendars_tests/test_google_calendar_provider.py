@@ -394,7 +394,7 @@ class TestAddEvent(unittest.TestCase):
         return GoogleCalendarProvider(svc=svc, calendar_id="primary"), svc
 
     def test_add_single_timed_event(self) -> None:
-        from calendars.gmail_pipelines import CalendarEvent
+        from calendars.gmail_types import CalendarEvent
         provider, svc = self._provider()
         event = CalendarEvent(
             id="",
@@ -423,7 +423,7 @@ class TestAddEvent(unittest.TestCase):
         self.assertEqual(result.location, "Cafe")
 
     def test_add_recurring_weekly_emits_rrule(self) -> None:
-        from calendars.gmail_pipelines import CalendarEvent
+        from calendars.gmail_types import CalendarEvent
         provider, svc = self._provider()
         event = CalendarEvent(
             id="",
@@ -459,7 +459,7 @@ class TestAddEvent(unittest.TestCase):
         self.assertIn("UNTIL=20261231", rrule_line)
 
     def test_add_recurring_daily_with_count(self) -> None:
-        from calendars.gmail_pipelines import CalendarEvent
+        from calendars.gmail_types import CalendarEvent
         provider, svc = self._provider()
         event = CalendarEvent(
             id="",
@@ -479,7 +479,7 @@ class TestAddEvent(unittest.TestCase):
         self.assertNotIn("UNTIL", rrule_line)
 
     def test_add_event_with_interval_gt_1(self) -> None:
-        from calendars.gmail_pipelines import CalendarEvent
+        from calendars.gmail_types import CalendarEvent
         provider, svc = self._provider()
         event = CalendarEvent(
             id="",
@@ -507,7 +507,7 @@ class TestBuildRruleRefusesUnknownRepeat(unittest.TestCase):
     """
 
     def test_unknown_repeat_raises(self) -> None:
-        from calendars.gmail_pipelines import CalendarEvent
+        from calendars.gmail_types import CalendarEvent
         from calendars.importer.google_provider import _build_rrule
 
         event = CalendarEvent(
@@ -519,7 +519,7 @@ class TestBuildRruleRefusesUnknownRepeat(unittest.TestCase):
         self.assertIn("yearly", str(ctx.exception))
 
     def test_known_repeats_still_build(self) -> None:
-        from calendars.gmail_pipelines import CalendarEvent
+        from calendars.gmail_types import CalendarEvent
         from calendars.importer.google_provider import _build_rrule
 
         for repeat, freq in (("daily", "DAILY"), ("weekly", "WEEKLY"), ("monthly", "MONTHLY")):
@@ -550,7 +550,7 @@ class TestTimezoneResolution(unittest.TestCase):
 
     def test_explicit_event_tz_is_used(self) -> None:
         """event.tz, when set, takes priority over any calendar lookup."""
-        from calendars.gmail_pipelines import CalendarEvent
+        from calendars.gmail_types import CalendarEvent
         provider, svc = self._provider(calendar_tz="America/Vancouver")
         event = CalendarEvent(
             id="", subject="Meeting",
@@ -564,7 +564,7 @@ class TestTimezoneResolution(unittest.TestCase):
 
     def test_explicit_event_tz_is_used_even_when_calendar_api_differs(self) -> None:
         """Caller's tz is not overridden by the calendar API result."""
-        from calendars.gmail_pipelines import CalendarEvent
+        from calendars.gmail_types import CalendarEvent
         provider, svc = self._provider(calendar_tz="Europe/London")
         event = CalendarEvent(
             id="", subject="Standup",
@@ -581,7 +581,7 @@ class TestTimezoneResolution(unittest.TestCase):
 
     def test_absent_tz_resolves_calendar_api(self) -> None:
         """When event.tz is None the calendar's own timezone is used."""
-        from calendars.gmail_pipelines import CalendarEvent
+        from calendars.gmail_types import CalendarEvent
         provider, svc = self._provider(calendar_tz="America/Vancouver")
         event = CalendarEvent(
             id="", subject="Yoga",
@@ -595,7 +595,7 @@ class TestTimezoneResolution(unittest.TestCase):
 
     def test_calendar_api_is_called_only_once(self) -> None:
         """The calendar timezone lookup is cached — not repeated per event."""
-        from calendars.gmail_pipelines import CalendarEvent
+        from calendars.gmail_types import CalendarEvent
         provider, _svc = self._provider(calendar_tz="America/Chicago")
         call_count = [0]
         original = _svc.get_calendar_timezone
@@ -622,7 +622,7 @@ class TestTimezoneResolution(unittest.TestCase):
 
     def test_fallback_when_calendar_api_returns_none(self) -> None:
         """When the API returns None, fall back to America/Toronto — not UTC."""
-        from calendars.gmail_pipelines import CalendarEvent
+        from calendars.gmail_types import CalendarEvent
         provider, svc = self._provider(calendar_tz=None)
         event = CalendarEvent(
             id="", subject="Fallback Event",
@@ -644,7 +644,7 @@ class TestTimezoneResolution(unittest.TestCase):
         This is the exact defect from PR #254: ``event.tz or "UTC"`` shifted a
         5:00 pm America/Toronto event to 9:00 pm UTC in the stored calendar.
         """
-        from calendars.gmail_pipelines import CalendarEvent
+        from calendars.gmail_types import CalendarEvent
         provider, svc = self._provider(calendar_tz="America/Toronto")
         event = CalendarEvent(
             id="", subject="Doctor Appointment",
@@ -666,7 +666,7 @@ class TestTimezoneResolution(unittest.TestCase):
 
     def test_all_day_event_has_no_timezone(self) -> None:
         """All-day events use date (not dateTime) and must have no timeZone field."""
-        from calendars.gmail_pipelines import CalendarEvent
+        from calendars.gmail_types import CalendarEvent
         provider, svc = self._provider(calendar_tz="America/Toronto")
         event = CalendarEvent(
             id="", subject="Holiday",

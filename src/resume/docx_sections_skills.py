@@ -10,7 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .docx_renderers import HeaderRenderer, ListSectionRenderer
+from .docx_header import HeaderRenderer
+from .docx_list_sections import ListSectionRenderer
 from .schema import PriorityItem, Resume, SkillGroup, SkillGroupItem
 
 

@@ -9,6 +9,7 @@ from pptx.util import Pt
 
 from slides._styling import StylingMixin, TextStyle
 from slides.constants import HIGHLIGHT_THEME_COLOR, LINK_BLUE
+from slides.generator import SlideGenerator
 
 
 def _make_run():
@@ -319,3 +320,67 @@ class TestStyleHighlightedRun(unittest.TestCase):
             run, "other", ["key"], None, MSO_THEME_COLOR.LIGHT_1, False
         )
         self.assertEqual(run.font.color.theme_color, MSO_THEME_COLOR.LIGHT_1)
+
+
+# ---------------------------------------------------------------------------
+# Tests via SlideGenerator (integration-level; mixin called through unified class)
+# ---------------------------------------------------------------------------
+
+
+class TestSuppressBulletNoPPr(unittest.TestCase):
+    """Cover _suppress_bullet when paragraph._p has no pPr element (lines 350-351)."""
+
+    def setUp(self) -> None:
+        self.generator = SlideGenerator(template_path="/fake/template.pptx")
+        self.nsmap = {"a": "http://schemas.openxmlformats.org/drawingml/2006/main"}
+        self.ns = self.nsmap["a"]
+
+    def test_creates_ppr_when_missing(self) -> None:
+        """When paragraph._p has no pPr child, one is created and inserted."""
+        p_elem = etree.Element(f"{{{self.ns}}}p")
+        etree.SubElement(p_elem, f"{{{self.ns}}}r")
+
+        paragraph = MagicMock()
+        paragraph._p = p_elem
+
+        self.generator._suppress_bullet(paragraph)
+
+        p_pr = p_elem.find("a:pPr", self.nsmap)
+        self.assertIsNotNone(p_pr)
+        self.assertEqual(list(p_elem)[0].tag, f"{{{self.ns}}}pPr")
+        bu_none = p_pr.find("a:buNone", self.nsmap)
+        self.assertIsNotNone(bu_none)
+
+    def test_adds_bunone_when_ppr_exists_but_no_bunone(self) -> None:
+        """When pPr exists but has no buNone, buNone is added (line 362)."""
+        p_elem = etree.Element(f"{{{self.ns}}}p")
+        p_pr = etree.SubElement(p_elem, f"{{{self.ns}}}pPr")
+        etree.SubElement(p_pr, f"{{{self.ns}}}buChar")
+
+        paragraph = MagicMock()
+        paragraph._p = p_elem
+
+        self.generator._suppress_bullet(paragraph)
+
+        bu_char = p_pr.find("a:buChar", self.nsmap)
+        self.assertIsNone(bu_char)
+        bu_none = p_pr.find("a:buNone", self.nsmap)
+        self.assertIsNotNone(bu_none)
+
+    def test_does_not_duplicate_bunone(self) -> None:
+        """When buNone already exists, it is not added again."""
+        p_elem = etree.Element(f"{{{self.ns}}}p")
+        p_pr = etree.SubElement(p_elem, f"{{{self.ns}}}pPr")
+        etree.SubElement(p_pr, f"{{{self.ns}}}buNone")
+
+        paragraph = MagicMock()
+        paragraph._p = p_elem
+
+        self.generator._suppress_bullet(paragraph)
+
+        bu_nones = p_pr.findall("a:buNone", self.nsmap)
+        self.assertEqual(len(bu_nones), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

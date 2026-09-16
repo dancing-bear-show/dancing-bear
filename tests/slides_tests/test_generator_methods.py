@@ -1,306 +1,36 @@
-"""Comprehensive unit tests for the slides generator module.
+"""Tests for SlideGenerator method delegation — testing via the unified SlideGenerator class.
 
-Tests cover:
-- YAML loading and parsing
-- SlideGenerator class methods:
-  - Section header detection
-  - Bullet text formatting
-  - Theme color mapping
-  - Paragraph text addition with highlights
-- PPTX generation
-- Dataclass schema objects
+These classes use names that conflict with the per-module mixin test files
+(test__table.py, test__styling.py, test__shape_utils.py), which test the same
+underlying methods via their mixin interfaces. These tests exercise the same
+methods as exposed through SlideGenerator.
 """
 
-import tempfile
 import unittest
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from lxml import etree
 from pptx.enum.dml import MSO_THEME_COLOR
 from pptx.enum.shapes import MSO_SHAPE_TYPE
+from pptx.util import Inches, Pt
 
+from slides._styling import TextStyle
 from slides.constants import (
     DEFAULT_SECTION_HEADER_MAX_LENGTH,
+    FONT_SIZE_HEADER,
     HIGHLIGHT_THEME_COLOR,
     LINK_BLUE,
+    SPACING_AFTER_BULLET,
+    SPACING_AFTER_HEADER,
+    SPACING_BEFORE_BULLET,
+    SPACING_BEFORE_HEADER,
     TABLE_HEADER_BG,
     TABLE_ROW_EVEN_BG,
     TABLE_ROW_ODD_BG,
     VERTICAL_ANCHOR_MIDDLE,
 )
-from slides._styling import TextStyle
-from slides.generator import (
-    SlideGenerator,
-    generate_from_yaml,
-    generate_pptx,
-    load_deck_from_yaml,
-)
-from slides.schema import (
-    BulletItem,
-    DeckMetadata,
-    SlideContent,
-    SlideDeck,
-    TableSlide,
-)
-
-
-class TestLoadDeckFromYaml(unittest.TestCase):
-    """Tests for load_deck_from_yaml function."""
-
-    def test_load_minimal_yaml(self):
-        """Load YAML with minimal required fields."""
-        yaml_content = """
-title: Test Deck
-slides: []
-"""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
-            f.write(yaml_content)
-            f.flush()
-
-            deck = load_deck_from_yaml(f.name)
-
-            self.assertEqual(deck.metadata.title, "Test Deck")
-            self.assertEqual(deck.slides, [])
-            self.assertIsNone(deck.metadata.author)
-            self.assertIsNone(deck.metadata.date)
-            self.assertEqual(deck.metadata.template_slide_index, 0)
-            self.assertEqual(deck.metadata.theme_color, "LIGHT_2")
-
-            Path(f.name).unlink()
-
-    def test_load_with_all_metadata(self):
-        """Load YAML with all metadata fields populated."""
-        yaml_content = """
-title: Complete Deck
-author: Test Author
-date: 2024-01-15
-template_slide_index: 5
-theme_color: ACCENT_1
-template_path: /path/to/template.pptx
-slides: []
-"""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
-            f.write(yaml_content)
-            f.flush()
-
-            deck = load_deck_from_yaml(f.name)
-
-            self.assertEqual(deck.metadata.title, "Complete Deck")
-            self.assertEqual(deck.metadata.author, "Test Author")
-            # YAML date is coerced to string
-            self.assertEqual(deck.metadata.date, "2024-01-15")
-            self.assertEqual(deck.metadata.template_slide_index, 5)
-            self.assertEqual(deck.metadata.theme_color, "ACCENT_1")
-            self.assertEqual(deck.template_path, "/path/to/template.pptx")
-
-            Path(f.name).unlink()
-
-    def test_load_bullet_slides(self):
-        """Load YAML with bullet-style slides."""
-        yaml_content = """
-title: Bullet Deck
-slides:
-  - title: Slide 1
-    bullets:
-      - First bullet
-      - Second bullet
-      - Third bullet
-  - title: Slide 2
-    layout: bullet
-    bullets:
-      - Another bullet
-"""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
-            f.write(yaml_content)
-            f.flush()
-
-            deck = load_deck_from_yaml(f.name)
-
-            self.assertEqual(len(deck.slides), 2)
-
-            slide1 = deck.slides[0]
-            self.assertIsInstance(slide1, SlideContent)
-            self.assertEqual(slide1.title, "Slide 1")
-            self.assertEqual(len(slide1.bullets), 3)
-            self.assertEqual(slide1.bullets[0].text, "First bullet")
-            self.assertEqual(slide1.bullets[1].text, "Second bullet")
-            self.assertEqual(slide1.bullets[2].text, "Third bullet")
-
-            slide2 = deck.slides[1]
-            self.assertEqual(slide2.layout, "bullet")
-            self.assertEqual(len(slide2.bullets), 1)
-
-            Path(f.name).unlink()
-
-    def test_load_table_slides(self):
-        """Load YAML with table-style slides."""
-        yaml_content = """
-title: Table Deck
-slides:
-  - title: Data Table
-    layout: table
-    headers:
-      - Name
-      - Value
-      - Status
-    rows:
-      - [Item 1, 100, Active]
-      - [Item 2, 200, Inactive]
-    first_col_width: 2.5
-"""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
-            f.write(yaml_content)
-            f.flush()
-
-            deck = load_deck_from_yaml(f.name)
-
-            self.assertEqual(len(deck.slides), 1)
-
-            table_slide = deck.slides[0]
-            self.assertIsInstance(table_slide, TableSlide)
-            self.assertEqual(table_slide.title, "Data Table")
-            self.assertEqual(table_slide.layout, "table")
-            self.assertEqual(table_slide.headers, ["Name", "Value", "Status"])
-            self.assertEqual(len(table_slide.rows), 2)
-            self.assertEqual(table_slide.rows[0], ["Item 1", 100, "Active"])
-            self.assertEqual(table_slide.first_col_width, 2.5)
-
-            Path(f.name).unlink()
-
-    def test_load_mixed_bullets_strings_and_dicts(self):
-        """Load YAML with bullets that are both strings and dicts."""
-        yaml_content = """
-title: Mixed Bullets
-slides:
-  - title: Mixed Slide
-    bullets:
-      - Simple string bullet
-      - text: Dict-style bullet
-        level: 1
-      - text: Highlighted bullet
-        level: 0
-        highlight:
-          - important
-"""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
-            f.write(yaml_content)
-            f.flush()
-
-            deck = load_deck_from_yaml(f.name)
-
-            slide = deck.slides[0]
-            self.assertEqual(len(slide.bullets), 3)
-
-            # String bullet (now wrapped in BulletItem)
-            self.assertIsInstance(slide.bullets[0], BulletItem)
-            self.assertEqual(slide.bullets[0].text, "Simple string bullet")
-
-            # Dict bullet with level
-            self.assertIsInstance(slide.bullets[1], BulletItem)
-            self.assertEqual(slide.bullets[1].text, "Dict-style bullet")
-            self.assertEqual(slide.bullets[1].level, 1)
-
-            # Dict bullet with highlight
-            self.assertIsInstance(slide.bullets[2], BulletItem)
-            self.assertEqual(slide.bullets[2].text, "Highlighted bullet")
-            self.assertEqual(slide.bullets[2].highlight, ["important"])
-
-            Path(f.name).unlink()
-
-    def test_load_highlights_as_string(self):
-        """Load YAML with highlights specified as a single string."""
-        yaml_content = """
-title: Single Highlight
-slides:
-  - title: Highlight Slide
-    bullets:
-      - text: This is a test bullet
-        highlight: test
-"""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
-            f.write(yaml_content)
-            f.flush()
-
-            deck = load_deck_from_yaml(f.name)
-
-            bullet = deck.slides[0].bullets[0]
-            self.assertIsInstance(bullet, BulletItem)
-            # Single string highlight should be converted to list
-            self.assertEqual(bullet.highlight, ["test"])
-
-            Path(f.name).unlink()
-
-    def test_load_highlights_as_list(self):
-        """Load YAML with highlights specified as a list."""
-        yaml_content = """
-title: Multiple Highlights
-slides:
-  - title: Multi Highlight Slide
-    bullets:
-      - text: Multiple words highlighted here
-        highlight:
-          - Multiple
-          - highlighted
-"""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
-            f.write(yaml_content)
-            f.flush()
-
-            deck = load_deck_from_yaml(f.name)
-
-            bullet = deck.slides[0].bullets[0]
-            self.assertIsInstance(bullet, BulletItem)
-            self.assertEqual(bullet.highlight, ["Multiple", "highlighted"])
-
-            Path(f.name).unlink()
-
-    def test_default_values_applied(self):
-        """Verify default values are applied when fields are missing."""
-        yaml_content = """
-slides:
-  - bullets:
-      - text: Minimal bullet
-"""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
-            f.write(yaml_content)
-            f.flush()
-
-            deck = load_deck_from_yaml(f.name)
-
-            # Metadata defaults
-            self.assertEqual(deck.metadata.title, "Untitled")
-            self.assertIsNone(deck.metadata.author)
-            self.assertEqual(deck.metadata.template_slide_index, 0)
-            self.assertEqual(deck.metadata.theme_color, "LIGHT_2")
-
-            # Slide defaults
-            slide = deck.slides[0]
-            self.assertEqual(slide.title, "")
-            self.assertEqual(slide.layout, "bullet")
-
-            # Bullet defaults
-            bullet = slide.bullets[0]
-            self.assertIsInstance(bullet, BulletItem)
-            self.assertEqual(bullet.level, 0)
-            self.assertEqual(bullet.highlight, [])
-
-            Path(f.name).unlink()
+from slides.generator import SlideGenerator
+from slides.schema import BulletItem
 
 
 class TestSlideGeneratorIsSectionHeader(unittest.TestCase):
@@ -497,7 +227,6 @@ class TestSlideGeneratorAddTextToParagraph(unittest.TestCase):
     def test_simple_text_no_highlights(self):
         """Simple text without highlights creates single run."""
         mock_para, runs = self._create_mock_paragraph()
-        from pptx.util import Pt
 
         self.generator._add_text_to_paragraph(
             mock_para,
@@ -518,7 +247,6 @@ class TestSlideGeneratorAddTextToParagraph(unittest.TestCase):
     def test_text_with_single_highlight(self):
         """Text with single highlight creates multiple runs."""
         mock_para, runs = self._create_mock_paragraph()
-        from pptx.util import Pt
 
         self.generator._add_text_to_paragraph(
             mock_para,
@@ -549,7 +277,6 @@ class TestSlideGeneratorAddTextToParagraph(unittest.TestCase):
     def test_text_with_multiple_highlights(self):
         """Text with multiple highlights creates correct runs."""
         mock_para, runs = self._create_mock_paragraph()
-        from pptx.util import Pt
 
         self.generator._add_text_to_paragraph(
             mock_para,
@@ -574,7 +301,6 @@ class TestSlideGeneratorAddTextToParagraph(unittest.TestCase):
     def test_header_is_bold(self):
         """Header text without highlights is bold."""
         mock_para, runs = self._create_mock_paragraph()
-        from pptx.util import Pt
 
         self.generator._add_text_to_paragraph(
             mock_para,
@@ -593,7 +319,6 @@ class TestSlideGeneratorAddTextToParagraph(unittest.TestCase):
     def test_highlight_is_bold_and_accent(self):
         """Highlighted text is both bold and accent colored."""
         mock_para, runs = self._create_mock_paragraph()
-        from pptx.util import Pt
 
         self.generator._add_text_to_paragraph(
             mock_para,
@@ -614,7 +339,6 @@ class TestSlideGeneratorAddTextToParagraph(unittest.TestCase):
     def test_empty_highlights_list(self):
         """Empty highlights list treated same as None."""
         mock_para, runs = self._create_mock_paragraph()
-        from pptx.util import Pt
 
         self.generator._add_text_to_paragraph(
             mock_para,
@@ -633,7 +357,6 @@ class TestSlideGeneratorAddTextToParagraph(unittest.TestCase):
     def test_url_sets_hyperlink_on_simple_run(self):
         """When url is provided, the run gets hyperlink address, blue color, and underline."""
         mock_para, runs = self._create_mock_paragraph()
-        from pptx.util import Pt
 
         self.generator._add_text_to_paragraph(
             mock_para,
@@ -656,7 +379,6 @@ class TestSlideGeneratorAddTextToParagraph(unittest.TestCase):
     def test_url_with_highlights_sets_hyperlink_on_all_runs(self):
         """When url is provided with highlights, all runs get hyperlink; highlighted runs keep their color."""
         mock_para, runs = self._create_mock_paragraph()
-        from pptx.util import Pt
 
         self.generator._add_text_to_paragraph(
             mock_para,
@@ -679,7 +401,6 @@ class TestSlideGeneratorAddTextToParagraph(unittest.TestCase):
     def test_no_url_does_not_set_hyperlink(self):
         """When url is None, hyperlink is not set on the run."""
         mock_para, runs = self._create_mock_paragraph()
-        from pptx.util import Pt
 
         self.generator._add_text_to_paragraph(
             mock_para,
@@ -704,424 +425,6 @@ class TestSlideGeneratorAddTextToParagraph(unittest.TestCase):
                 self.assertIsNone(run.hyperlink.address)
 
 
-class TestSlideGeneratorGenerate(unittest.TestCase):
-    """Tests for SlideGenerator.generate method."""
-
-    def test_raises_without_template(self):
-        """Raises ValueError when no template path provided."""
-        # Create generator with None template path
-        generator = SlideGenerator(template_path=None)
-
-        deck = SlideDeck(
-            metadata=DeckMetadata(title="Test"),
-            slides=[],
-            template_path=None,
-        )
-
-        with self.assertRaises(ValueError) as ctx:
-            generator.generate(deck, "/tmp/output.pptx")  # nosec B108 - mock path arg, Presentation is patched
-
-        self.assertIn("No template path provided", str(ctx.exception))
-
-    @patch("slides.generator.Presentation")
-    def test_generates_file(self, mock_presentation_class):
-        """Generates PPTX file with mocked Presentation."""
-        mock_prs = MagicMock()
-        mock_presentation_class.return_value = mock_prs
-
-        # Setup mock slides
-        mock_slide = MagicMock()
-        mock_slides_list = MagicMock()
-        mock_slides_list.__len__ = MagicMock(return_value=1)
-        mock_slides_list.__getitem__ = MagicMock(return_value=mock_slide)
-        mock_slides_list._sldIdLst = [MagicMock(rId="rId1")]
-        mock_prs.slides = mock_slides_list
-        mock_prs.part = MagicMock()
-
-        # Setup mock shapes
-        mock_shape = MagicMock()
-        mock_shape.is_placeholder = True
-        mock_shape.has_text_frame = True
-        mock_shape.text_frame = MagicMock()
-        mock_shape.text_frame.paragraphs = [MagicMock()]
-        mock_shape.text_frame.paragraphs[0].runs = []
-        mock_slide.shapes = [mock_shape]
-        mock_slide.slide_layout = MagicMock()
-
-        generator = SlideGenerator(template_path="/path/to/template.pptx")
-        deck = SlideDeck(
-            metadata=DeckMetadata(title="Test Deck", template_slide_index=0),
-            slides=[],
-            template_path=None,  # Use generator's template
-        )
-
-        with tempfile.NamedTemporaryFile(suffix=".pptx", delete=False) as f:
-            output_path = f.name
-
-        result = generator.generate(deck, output_path)
-
-        self.assertEqual(result, output_path)
-        mock_presentation_class.assert_called_once_with("/path/to/template.pptx")
-        mock_prs.save.assert_called_once_with(output_path)
-
-        Path(output_path).unlink(missing_ok=True)
-
-    @patch("slides.generator.Presentation")
-    def test_bullet_slide_generation(self, mock_presentation_class):
-        """Generates slide with bullet content."""
-        mock_prs = MagicMock()
-        mock_presentation_class.return_value = mock_prs
-
-        # Create mock slide with proper structure
-        mock_slide = MagicMock()
-        mock_text_box = MagicMock()
-        mock_text_box.is_placeholder = False
-        mock_text_box.shape_type = MSO_SHAPE_TYPE.TEXT_BOX
-        mock_text_box.has_text_frame = True
-        mock_text_frame = MagicMock()
-        mock_text_box.text_frame = mock_text_frame
-
-        mock_title = MagicMock()
-        mock_title.is_placeholder = True
-        mock_title.has_text_frame = True
-        mock_title.placeholder_format.idx = 0
-        mock_title.text_frame = MagicMock()
-        mock_title_para = MagicMock()
-        mock_title_para.text = ""
-        mock_title.text_frame.paragraphs = [mock_title_para]
-        mock_title_para.runs = []
-
-        mock_slide.shapes = [mock_title, mock_text_box]
-        mock_slide.slide_layout = MagicMock()
-
-        mock_slides_list = MagicMock()
-        mock_slides_list.__len__ = MagicMock(return_value=12)
-        mock_slides_list.__getitem__ = MagicMock(return_value=mock_slide)
-        mock_slides_list._sldIdLst = [MagicMock(rId=f"rId{i}") for i in range(12)]
-        mock_prs.slides = mock_slides_list
-        mock_prs.part = MagicMock()
-
-        generator = SlideGenerator(template_path="/path/to/template.pptx")
-        deck = SlideDeck(
-            metadata=DeckMetadata(title="Bullet Deck"),
-            slides=[
-                SlideContent(
-                    title="Test Slide",
-                    bullets=["First bullet", "Second bullet"],
-                )
-            ],
-        )
-
-        with tempfile.NamedTemporaryFile(suffix=".pptx", delete=False) as f:
-            output_path = f.name
-
-        generator.generate(deck, output_path)
-
-        # Verify template was loaded and file was saved
-        mock_presentation_class.assert_called_once()
-        mock_prs.save.assert_called_once()
-
-        Path(output_path).unlink(missing_ok=True)
-
-    @patch("slides.generator.Presentation")
-    def test_table_slide_generation(self, mock_presentation_class):
-        """Generates slide with table content."""
-        mock_prs = MagicMock()
-        mock_presentation_class.return_value = mock_prs
-
-        # Create mock slide
-        mock_slide = MagicMock()
-        mock_title = MagicMock()
-        mock_title.is_placeholder = True
-        mock_title.has_text_frame = True
-        mock_title.placeholder_format.idx = 0
-        mock_title.text_frame = MagicMock()
-        mock_title_para = MagicMock()
-        mock_title_para.text = ""
-        mock_title.text_frame.paragraphs = [mock_title_para]
-        mock_title_para.runs = []
-
-        mock_text_box = MagicMock()
-        mock_text_box.is_placeholder = False
-        mock_text_box.shape_type = MSO_SHAPE_TYPE.TEXT_BOX
-        mock_text_box._element = MagicMock()
-
-        mock_slide.shapes = MagicMock()
-        mock_slide.shapes.__iter__ = MagicMock(return_value=iter([mock_title, mock_text_box]))
-        mock_slide.shapes.add_table = MagicMock()
-        mock_table_shape = MagicMock()
-        mock_table = MagicMock()
-        mock_table_shape.table = mock_table
-        mock_slide.shapes.add_table.return_value = mock_table_shape
-        mock_slide.slide_layout = MagicMock()
-
-        # Mock table cells
-        mock_cell = MagicMock()
-        mock_cell.text_frame = MagicMock()
-        mock_cell.text_frame.paragraphs = [MagicMock()]
-        mock_table.cell = MagicMock(return_value=mock_cell)
-        mock_table.columns = [MagicMock() for _ in range(3)]
-
-        mock_slides_list = MagicMock()
-        mock_slides_list.__len__ = MagicMock(return_value=12)
-        mock_slides_list.__getitem__ = MagicMock(return_value=mock_slide)
-        mock_slides_list._sldIdLst = [MagicMock(rId=f"rId{i}") for i in range(12)]
-        mock_prs.slides = mock_slides_list
-        mock_prs.part = MagicMock()
-
-        generator = SlideGenerator(template_path="/path/to/template.pptx")
-        deck = SlideDeck(
-            metadata=DeckMetadata(title="Table Deck"),
-            slides=[
-                TableSlide(
-                    title="Data Table",
-                    headers=["Col1", "Col2", "Col3"],
-                    rows=[["A", "B", "C"], ["D", "E", "F"]],
-                )
-            ],
-        )
-
-        with tempfile.NamedTemporaryFile(suffix=".pptx", delete=False) as f:
-            output_path = f.name
-
-        generator.generate(deck, output_path)
-
-        mock_presentation_class.assert_called_once()
-        mock_prs.save.assert_called_once()
-
-        Path(output_path).unlink(missing_ok=True)
-
-
-class TestGeneratePptx(unittest.TestCase):
-    """Tests for backward-compatible generate_pptx function."""
-
-    def test_raises_without_template(self):
-        """Raises ValueError when no template path provided."""
-        deck = SlideDeck(
-            metadata=DeckMetadata(title="Test"),
-            slides=[],
-            template_path=None,
-        )
-
-        with self.assertRaises(ValueError) as ctx:
-            generate_pptx(deck, "/tmp/output.pptx")  # nosec B108 - mock path arg, no file created
-
-        self.assertIn("No template path provided", str(ctx.exception))
-
-    def test_template_path_override(self):
-        """Template path parameter overrides deck template_path."""
-        deck = SlideDeck(
-            metadata=DeckMetadata(title="Test"),
-            slides=[],
-            template_path="/original/template.pptx",
-        )
-
-        with patch("slides.generator.SlideGenerator") as mock_gen_class:
-            mock_gen = MagicMock()
-            mock_gen_class.return_value = mock_gen
-            mock_gen.generate.return_value = "/tmp/output.pptx"  # nosec B108 - mock return value, no file created
-
-            with tempfile.NamedTemporaryFile(suffix=".pptx", delete=False) as f:
-                generate_pptx(deck, f.name, template_path="/override/template.pptx")
-
-            # Check that SlideGenerator was created with override template
-            mock_gen_class.assert_called_once()
-            call_kwargs = mock_gen_class.call_args
-            self.assertEqual(call_kwargs[1]["template_path"], "/override/template.pptx")
-
-            Path(f.name).unlink(missing_ok=True)
-
-
-class TestGenerateFromYaml(unittest.TestCase):
-    """Tests for generate_from_yaml convenience function."""
-
-    @patch("slides.generator.SlideGenerator")
-    @patch("slides.generator.load_deck_from_yaml")
-    def test_loads_yaml_and_generates(self, mock_load, mock_gen_class):
-        """Loads YAML and calls generate."""
-        mock_deck = MagicMock()
-        mock_deck.template_path = "/template.pptx"
-        mock_deck.metadata = MagicMock()
-        mock_deck.metadata.theme_color = "LIGHT_2"
-        mock_load.return_value = mock_deck
-
-        mock_gen = MagicMock()
-        mock_gen_class.return_value = mock_gen
-        mock_gen.generate.return_value = "/output/file.pptx"
-
-        result = generate_from_yaml(
-            "/input/deck.yaml",
-            "/output/file.pptx",
-        )
-
-        mock_load.assert_called_once_with("/input/deck.yaml")
-        mock_gen.generate.assert_called_once_with(mock_deck, "/output/file.pptx")
-        self.assertEqual(result, "/output/file.pptx")
-
-    def test_raises_without_template(self):
-        """Raises ValueError when no template available."""
-        yaml_content = """
-title: No Template
-slides: []
-"""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
-            f.write(yaml_content)
-            f.flush()
-
-            with self.assertRaises(ValueError) as ctx:
-                generate_from_yaml(f.name, "/output.pptx")
-
-            self.assertIn("No template path provided", str(ctx.exception))
-
-            Path(f.name).unlink()
-
-
-class TestBulletItemDataclass(unittest.TestCase):
-    """Tests for BulletItem dataclass defaults and usage."""
-
-    def test_default_values(self):
-        """BulletItem has correct default values."""
-        item = BulletItem(text="Test")
-        self.assertEqual(item.text, "Test")
-        self.assertEqual(item.level, 0)
-        self.assertEqual(item.highlight, [])
-
-    def test_with_all_values(self):
-        """BulletItem accepts all values."""
-        item = BulletItem(
-            text="Highlighted text",
-            level=2,
-            highlight=["Highlighted"],
-        )
-        self.assertEqual(item.text, "Highlighted text")
-        self.assertEqual(item.level, 2)
-        self.assertEqual(item.highlight, ["Highlighted"])
-
-
-class TestSlideContentDataclass(unittest.TestCase):
-    """Tests for SlideContent dataclass."""
-
-    def test_default_values(self):
-        """SlideContent has correct default values."""
-        slide = SlideContent(title="Test Slide")
-        self.assertEqual(slide.title, "Test Slide")
-        self.assertEqual(slide.bullets, [])
-        self.assertIsNone(slide.notes)
-        self.assertEqual(slide.layout, "bullet")
-
-    def test_with_bullets(self):
-        """SlideContent accepts bullet list."""
-        slide = SlideContent(
-            title="With Bullets",
-            bullets=["One", "Two", BulletItem(text="Three", level=1)],
-        )
-        self.assertEqual(len(slide.bullets), 3)
-
-
-class TestTableSlideDataclass(unittest.TestCase):
-    """Tests for TableSlide dataclass."""
-
-    def test_default_layout(self):
-        """TableSlide has 'table' as default layout."""
-        table = TableSlide(title="Table")
-        self.assertEqual(table.layout, "table")
-
-    def test_with_data(self):
-        """TableSlide accepts headers, rows, and first_col_width."""
-        table = TableSlide(
-            title="Data Table",
-            headers=["A", "B"],
-            rows=[["1", "2"], ["3", "4"]],
-            first_col_width=3.0,
-        )
-        self.assertEqual(table.headers, ["A", "B"])
-        self.assertEqual(len(table.rows), 2)
-        self.assertEqual(table.first_col_width, 3.0)
-
-
-class TestDeckMetadataDataclass(unittest.TestCase):
-    """Tests for DeckMetadata dataclass."""
-
-    def test_default_values(self):
-        """DeckMetadata has correct default values."""
-        metadata = DeckMetadata(title="Test")
-        self.assertEqual(metadata.title, "Test")
-        self.assertIsNone(metadata.author)
-        self.assertIsNone(metadata.date)
-        self.assertEqual(metadata.template_slide_index, 0)
-        self.assertEqual(metadata.theme_color, "LIGHT_2")
-
-    def test_with_all_values(self):
-        """DeckMetadata accepts all values."""
-        metadata = DeckMetadata(
-            title="Full Deck",
-            author="Author",
-            date="2024-01-15",
-            template_slide_index=5,
-            theme_color="ACCENT_1",
-        )
-        self.assertEqual(metadata.author, "Author")
-        self.assertEqual(metadata.date, "2024-01-15")
-        self.assertEqual(metadata.template_slide_index, 5)
-        self.assertEqual(metadata.theme_color, "ACCENT_1")
-
-
-class TestSlideDeckDataclass(unittest.TestCase):
-    """Tests for SlideDeck dataclass."""
-
-    def test_default_values(self):
-        """SlideDeck has correct default values."""
-        deck = SlideDeck(metadata=DeckMetadata(title="Test"))
-        self.assertIsNotNone(deck.metadata)
-        self.assertEqual(deck.slides, [])
-        self.assertIsNone(deck.template_path)
-
-    def test_with_slides(self):
-        """SlideDeck accepts slides list."""
-        deck = SlideDeck(
-            metadata=DeckMetadata(title="Test"),
-            slides=[SlideContent(title="Slide 1")],
-            template_path="/path/to/template.pptx",
-        )
-        self.assertEqual(len(deck.slides), 1)
-        self.assertEqual(deck.template_path, "/path/to/template.pptx")
-
-
-class TestSlideGeneratorInit(unittest.TestCase):
-    """Tests for SlideGenerator initialization."""
-
-    def test_init_with_template_path(self):
-        """SlideGenerator initializes with template path."""
-        generator = SlideGenerator(template_path="/path/to/template.pptx")
-        self.assertEqual(generator.template_path, "/path/to/template.pptx")
-
-    def test_init_none_template_path(self):
-        """SlideGenerator accepts None template_path."""
-        generator = SlideGenerator(template_path=None)
-        self.assertIsNone(generator.template_path)
-
-
-class TestSlideGeneratorGenerateFromYaml(unittest.TestCase):
-    """Tests for SlideGenerator.generate_from_yaml instance method."""
-
-    @patch.object(SlideGenerator, 'generate')
-    @patch('slides.generator.load_deck_from_yaml')
-    def test_generate_from_yaml_instance_method(self, mock_load, mock_generate):
-        """Test the instance method generate_from_yaml."""
-        mock_deck = MagicMock()
-        mock_load.return_value = mock_deck
-        mock_generate.return_value = "/output/slides.pptx"
-
-        generator = SlideGenerator(template_path="/template.pptx")
-        result = generator.generate_from_yaml("/input/deck.yaml", "/output/slides.pptx")
-
-        mock_load.assert_called_once_with("/input/deck.yaml")
-        mock_generate.assert_called_once_with(mock_deck, "/output/slides.pptx")
-        self.assertEqual(result, "/output/slides.pptx")
-
-
 class TestSlideGeneratorFindShape(unittest.TestCase):
     """Tests for _find_shape helper method."""
 
@@ -1142,8 +445,6 @@ class TestSlideGeneratorFindShape(unittest.TestCase):
 
     def test_find_non_placeholder_shape(self):
         """Test finding a non-placeholder shape."""
-        from pptx.enum.shapes import MSO_SHAPE_TYPE
-
         generator = SlideGenerator(template_path="/template.pptx")
 
         mock_slide = MagicMock()
@@ -1174,8 +475,6 @@ class TestSlideGeneratorFindShape(unittest.TestCase):
 
     def test_find_shape_skips_wrong_shape_type(self):
         """Test that _find_shape skips shapes with wrong shape_type."""
-        from pptx.enum.shapes import MSO_SHAPE_TYPE
-
         generator = SlideGenerator(template_path="/template.pptx")
 
         mock_slide = MagicMock()
@@ -1191,8 +490,6 @@ class TestSlideGeneratorFindShape(unittest.TestCase):
 
     def test_find_shape_skips_no_text_frame(self):
         """Test that _find_shape skips shapes without text frame when required."""
-        from pptx.enum.shapes import MSO_SHAPE_TYPE
-
         generator = SlideGenerator(template_path="/template.pptx")
 
         mock_slide = MagicMock()
@@ -1216,8 +513,6 @@ class TestSlideGeneratorStyleRun(unittest.TestCase):
 
     def test_style_run_sets_all_properties(self):
         """Test that _style_run sets font size, color, and bold."""
-        from pptx.util import Pt
-
         generator = SlideGenerator(template_path="/template.pptx")
         mock_run = MagicMock()
 
@@ -1246,8 +541,6 @@ class TestSlideGeneratorStyleRun(unittest.TestCase):
 
     def test_style_run_handles_partial_styling(self):
         """Test styling with only font_size."""
-        from pptx.util import Pt
-
         generator = SlideGenerator(template_path="/template.pptx")
         mock_run = MagicMock()
 
@@ -1285,9 +578,6 @@ class TestSlideGeneratorRepositionTextbox(unittest.TestCase):
 
     def test_reposition_textbox_finds_and_moves_textbox(self):
         """Test that _reposition_textbox repositions non-placeholder text boxes."""
-        from pptx.enum.shapes import MSO_SHAPE_TYPE
-        from pptx.util import Inches
-
         generator = SlideGenerator(template_path="/template.pptx")
 
         mock_slide = MagicMock()
@@ -1342,8 +632,6 @@ class TestSlideGeneratorSetSlideContent(unittest.TestCase):
 
     def test_set_slide_content_with_bullet_items(self):
         """Test _set_slide_content handles BulletItem objects."""
-        from pptx.enum.shapes import MSO_SHAPE_TYPE
-
         generator = SlideGenerator(template_path="/template.pptx")
 
         # Create mock slide with title and text box
@@ -1392,14 +680,6 @@ class TestSlideGeneratorSetSlideContent(unittest.TestCase):
 
     def test_set_slide_content_with_section_header(self):
         """Test _set_slide_content applies header formatting for section headers."""
-        from pptx.enum.shapes import MSO_SHAPE_TYPE
-        from pptx.util import Pt
-
-        from slides.constants import (
-            SPACING_AFTER_HEADER,
-            SPACING_BEFORE_HEADER,
-        )
-
         generator = SlideGenerator(template_path="/template.pptx")
 
         mock_slide = MagicMock()
@@ -1474,8 +754,6 @@ class TestSlideGeneratorAddTableToSlide(unittest.TestCase):
 
     def test_add_table_with_first_col_width(self):
         """Test _add_table_to_slide applies first column width when specified."""
-        from pptx.util import Inches
-
         generator = SlideGenerator(template_path="/template.pptx")
 
         mock_slide = MagicMock()
@@ -1538,243 +816,6 @@ class TestSlideGeneratorAddTableToSlide(unittest.TestCase):
 
         # Verify _style_run was called on header runs (bold=True)
         self.assertTrue(mock_run.font.bold)
-
-
-class TestSlideGeneratorMultipleSlides(unittest.TestCase):
-    """Tests for generating decks with multiple slides."""
-
-    @patch('slides.generator.Presentation')
-    @patch('slides.generator.copy.deepcopy')
-    def test_generate_multiple_bullet_slides(self, mock_deepcopy, mock_prs_class):
-        """Test generating deck with multiple bullet slides."""
-        # Set up mock presentation
-        mock_prs = MagicMock()
-        mock_prs_class.return_value = mock_prs
-
-        mock_layout = MagicMock()
-        mock_prs.slides.__getitem__.return_value.slide_layout = mock_layout
-
-        # First slide mock
-        mock_first_slide = MagicMock()
-        mock_first_shape = MagicMock()
-        mock_first_shape.is_placeholder = False
-
-        from pptx.enum.shapes import MSO_SHAPE_TYPE
-        mock_first_shape.shape_type = MSO_SHAPE_TYPE.TEXT_BOX
-        mock_first_shape.element = MagicMock()
-        mock_first_slide.shapes = [mock_first_shape]
-
-        # New slide mock
-        mock_new_slide = MagicMock()
-        mock_new_slide.shapes._spTree = MagicMock()
-        mock_new_slide.shapes = []
-
-        mock_prs.slides.add_slide.return_value = mock_new_slide
-
-        # Setup slides with proper len - needed for template_slide_index validation
-        mock_prs.slides.__len__ = MagicMock(return_value=1)
-        mock_prs.slides.__iter__.return_value = iter([mock_first_slide])
-
-        # Mock deepcopy to return an element
-        mock_deepcopy.return_value = MagicMock()
-
-        generator = SlideGenerator(template_path="/template.pptx")
-
-        deck = SlideDeck(
-            metadata=DeckMetadata(title="Multi-Slide", template_slide_index=0),
-            slides=[
-                SlideContent(title="Slide 1", bullets=["Bullet 1"]),
-                SlideContent(title="Slide 2", bullets=["Bullet 2"]),
-            ],
-        )
-
-        with patch.object(generator, '_set_slide_content'):
-            with patch.object(generator, '_set_slide_title'):
-                with patch.object(generator, '_reposition_textbox'):
-                    generator.generate(deck, "/output.pptx")
-
-        # Verify add_slide was called for second slide
-        mock_prs.slides.add_slide.assert_called()
-        mock_prs.save.assert_called_once_with("/output.pptx")
-
-    @patch('slides.generator.Presentation')
-    def test_generate_table_slide(self, mock_prs_class):
-        """Test generating a table slide."""
-        mock_prs = MagicMock()
-        mock_prs_class.return_value = mock_prs
-
-        mock_first_slide = MagicMock()
-        mock_layout = MagicMock()
-        mock_first_slide.slide_layout = mock_layout
-
-        # Setup mock slides list with proper len - needed for template_slide_index validation
-        mock_slides_list = MagicMock()
-        mock_slides_list.__len__ = MagicMock(return_value=1)
-        mock_slides_list.__getitem__ = MagicMock(return_value=mock_first_slide)
-        mock_slides_list.__iter__ = MagicMock(return_value=iter([mock_first_slide]))
-        mock_slides_list._sldIdLst = [MagicMock(rId="rId1")]
-        mock_prs.slides = mock_slides_list
-        mock_prs.part = MagicMock()
-
-        mock_new_slide = MagicMock()
-        mock_prs.slides.add_slide.return_value = mock_new_slide
-
-        generator = SlideGenerator(template_path="/template.pptx")
-
-        deck = SlideDeck(
-            metadata=DeckMetadata(title="Table Deck", template_slide_index=0),
-            slides=[
-                SlideContent(title="First Slide", bullets=["Intro"]),
-                TableSlide(
-                    title="Data Table",
-                    headers=["Col A", "Col B"],
-                    rows=[["1", "2"], ["3", "4"]],
-                    first_col_width=2.5,
-                ),
-            ],
-        )
-
-        with patch.object(generator, '_set_slide_content'):
-            with patch.object(generator, '_set_slide_title'):
-                with patch.object(generator, '_add_table_to_slide') as mock_add_table:
-                    generator.generate(deck, "/output.pptx")
-
-        # Verify _add_table_to_slide was called
-        mock_add_table.assert_called_once()
-        call_args = mock_add_table.call_args
-        self.assertEqual(call_args[0][1], ["Col A", "Col B"])  # headers
-        self.assertEqual(call_args[0][2], [["1", "2"], ["3", "4"]])  # rows
-
-    @patch('slides.generator.Presentation')
-    @patch('slides.generator.copy.deepcopy')
-    def test_generate_clones_textbox_for_bullet_slides(self, mock_deepcopy, mock_prs_class):
-        """Test that generating multiple bullet slides clones the text box."""
-        from pptx.enum.shapes import MSO_SHAPE_TYPE
-
-        mock_prs = MagicMock()
-        mock_prs_class.return_value = mock_prs
-
-        # First slide with text box shape and title placeholder
-        mock_first_slide = MagicMock()
-        mock_title = MagicMock()
-        mock_title.is_placeholder = True
-        mock_title.has_text_frame = True
-        mock_title.placeholder_format.idx = 0
-        mock_title.text_frame = MagicMock()
-        mock_title_para = MagicMock()
-        mock_title_para.text = ""
-        mock_title_para.runs = []
-        mock_title.text_frame.paragraphs = [mock_title_para]
-
-        mock_textbox = MagicMock()
-        mock_textbox.is_placeholder = False
-        mock_textbox.shape_type = MSO_SHAPE_TYPE.TEXT_BOX
-        mock_textbox.has_text_frame = True
-        mock_textbox_element = MagicMock()
-        mock_textbox.element = mock_textbox_element
-        mock_textbox.text_frame = MagicMock()
-        mock_textbox.text_frame.paragraphs = [MagicMock()]
-
-        mock_first_slide.shapes = [mock_title, mock_textbox]
-        mock_first_slide.slide_layout = MagicMock()
-
-        # Setup slides collection
-        mock_prs.slides.__getitem__.return_value = mock_first_slide
-        mock_prs.slides.__len__ = MagicMock(return_value=1)
-        mock_prs.slides._sldIdLst = [MagicMock(rId="rId1")]
-
-        # New slide mock - shapes is MagicMock with _spTree attribute
-        mock_new_slide = MagicMock()
-        mock_sp_tree = MagicMock()
-        mock_new_slide.shapes._spTree = mock_sp_tree
-        # Make shapes iterable (returns empty for _find_shape)
-        mock_new_slide.shapes.__iter__ = MagicMock(return_value=iter([]))
-        mock_prs.slides.add_slide.return_value = mock_new_slide
-
-        # Set up deepcopy to return an element
-        mock_cloned_element = MagicMock()
-        mock_deepcopy.return_value = mock_cloned_element
-
-        generator = SlideGenerator(template_path="/template.pptx")
-
-        deck = SlideDeck(
-            metadata=DeckMetadata(title="Multi-Bullet", template_slide_index=0),
-            slides=[
-                SlideContent(title="Slide 1", bullets=["Bullet 1"]),
-                SlideContent(title="Slide 2", bullets=["Bullet 2"]),  # Second bullet slide
-            ],
-        )
-
-        # Generate without patching internal methods to trigger cloning logic
-        generator.generate(deck, "/output.pptx")
-
-        # Verify deepcopy was called: first to save template, then to clone per slide
-        # First call saves the text box element as template
-        calls = mock_deepcopy.call_args_list
-        assert any(  # nosec B101 - real test assertion
-            c.args == (mock_textbox_element,) for c in calls
-        ), f"Expected deepcopy to be called with text box element. Calls: {calls}"
-        # Verify insert_element_before was called on the new slide
-        mock_sp_tree.insert_element_before.assert_called_with(
-            mock_cloned_element, "p:extLst"
-        )
-
-
-class TestSlideGeneratorFirstSlideHandling(unittest.TestCase):
-    """Tests for first slide handling in generate method."""
-
-    @patch('slides.generator.Presentation')
-    def test_first_table_slide_removes_textbox(self, mock_prs_class):
-        """Test that first table slide removes the text box shape."""
-        from pptx.enum.shapes import MSO_SHAPE_TYPE
-
-        mock_prs = MagicMock()
-        mock_prs_class.return_value = mock_prs
-
-        # First slide mock with text box that should be removed
-        mock_first_slide = MagicMock()
-        mock_title = MagicMock()
-        mock_title.is_placeholder = True
-        mock_title.has_text_frame = True
-        mock_title.placeholder_format.idx = 0
-        mock_title.text_frame = MagicMock()
-        mock_title_para = MagicMock()
-        mock_title_para.text = ""
-        mock_title_para.runs = []
-        mock_title.text_frame.paragraphs = [mock_title_para]
-
-        mock_textbox = MagicMock()
-        mock_textbox.is_placeholder = False
-        mock_textbox.shape_type = MSO_SHAPE_TYPE.TEXT_BOX
-        mock_textbox._element = MagicMock()
-
-        # Setup list() iteration - return fresh iterator each time
-        mock_first_slide.shapes.__iter__ = lambda self: iter([mock_title, mock_textbox])
-
-        mock_prs.slides.__getitem__.return_value = mock_first_slide
-        mock_prs.slides.__len__ = MagicMock(return_value=1)
-        mock_prs.slides._sldIdLst = [MagicMock(rId="rId1")]
-        mock_first_slide.slide_layout = MagicMock()
-
-        generator = SlideGenerator(template_path="/template.pptx")
-
-        deck = SlideDeck(
-            metadata=DeckMetadata(title="Table First", template_slide_index=0),
-            slides=[
-                TableSlide(
-                    title="Data Table",
-                    headers=["Col1", "Col2"],
-                    rows=[["A", "B"]],
-                ),
-            ],
-        )
-
-        with patch.object(generator, '_set_slide_title'):
-            with patch.object(generator, '_add_table_to_slide'):
-                generator.generate(deck, "/output.pptx")
-
-        # Verify the text box element was removed
-        mock_textbox._element.getparent().remove.assert_called_with(mock_textbox._element)
 
 
 class TestNormalizeTableRows(unittest.TestCase):
@@ -1850,8 +891,6 @@ class TestSetTableColumnWidths(unittest.TestCase):
 
     def test_first_col_width_set(self):
         """With first_col_width, first column gets specified width, rest share remainder."""
-        from pptx.util import Inches
-
         generator = SlideGenerator(template_path="/template.pptx")
         num_cols = 3
         total_width = 9144000  # EMU (approximately 10 inches)
@@ -2137,200 +1176,305 @@ class TestStyleTableDataRows(unittest.TestCase):
         mock_style_run.assert_not_called()
 
 
-# ---------------------------------------------------------------------------
-# infer_layout_map_from_template
-# ---------------------------------------------------------------------------
+class TestAddBulletsBelow(unittest.TestCase):
+    """Cover _add_bullets_below method fully (lines 564-591)."""
 
-class TestInferLayoutMapFromTemplate(unittest.TestCase):
-    """Tests for SlideGenerator.infer_layout_map_from_template."""
+    def setUp(self) -> None:
+        self.generator = SlideGenerator(template_path="/fake/template.pptx")
 
-    def _make_mock_slide(self, layout_name: str) -> MagicMock:
-        slide = MagicMock()
-        slide.slide_layout.name = layout_name
-        return slide
+    def _make_mock_slide(self) -> tuple:
+        """Return (mock_slide, mock_text_frame) with paragraph tracking."""
+        mock_slide = MagicMock()
+        mock_tf = MagicMock()
+        mock_tf.paragraphs = [MagicMock()]
 
-    @patch("slides.generator.Presentation")
-    def test_breaker_and_object(self, mock_prs_cls):
-        prs = MagicMock()
-        prs.slides = [
-            self._make_mock_slide("Breaker_Denim"),
-            self._make_mock_slide("OBJECT"),
-        ]
-        mock_prs_cls.return_value = prs
+        mock_textbox = MagicMock()
+        mock_textbox.text_frame = mock_tf
+        mock_slide.shapes.add_textbox = MagicMock(return_value=mock_textbox)
 
-        result = SlideGenerator.infer_layout_map_from_template("/fake.pptx")
-        # breaker is the canonical key; section is aliased for backward compat
-        self.assertEqual(result, {"breaker": 0, "section": 0, "bullet": 1, "table": 1})
+        return mock_slide, mock_tf
 
-    @patch("slides.generator.Presentation")
-    def test_first_occurrence_wins(self, mock_prs_cls):
-        prs = MagicMock()
-        prs.slides = [
-            self._make_mock_slide("Breaker_Denim"),
-            self._make_mock_slide("OBJECT"),
-            self._make_mock_slide("Breaker_Powder"),  # second breaker — ignored
-            self._make_mock_slide("TITLE_AND_BODY"),  # second bullet — ignored
-        ]
-        mock_prs_cls.return_value = prs
+    def test_adds_string_bullets(self) -> None:
+        """String bullets are formatted as level-0 bullets."""
+        mock_slide, mock_tf = self._make_mock_slide()
 
-        result = SlideGenerator.infer_layout_map_from_template("/fake.pptx")
-        self.assertEqual(result["breaker"], 0)
-        self.assertEqual(result["section"], 0)  # aliased from breaker
-        self.assertEqual(result["bullet"], 1)
-
-    @patch("slides.generator.Presentation")
-    def test_section_not_aliased_when_section_header_present(self, mock_prs_cls):
-        # slide-index path: SECTION_HEADER at index 2 should win over the breaker alias.
-        prs = MagicMock()
-        prs.slides = [
-            self._make_mock_slide("Breaker_Denim"),
-            self._make_mock_slide("OBJECT"),
-            self._make_mock_slide("SECTION_HEADER"),
-        ]
-        mock_prs_cls.return_value = prs
-
-        result = SlideGenerator.infer_layout_map_from_template("/fake.pptx")
-        self.assertEqual(result["breaker"], 0)
-        self.assertEqual(result["section"], 2)  # SECTION_HEADER wins, not aliased
-        self.assertEqual(result["bullet"], 1)
-
-    @patch("slides.generator.Presentation")
-    def test_section_alias_applied_for_master_path(self, mock_prs_cls):
-        # Master-based inference: alias fires so callers can pass section in layout_map.
-        # _resolve_layouts_from_master maps section to the actual breaker layout object
-        # at resolution time, so the placeholder index (0) is never used as a real index.
-        prs = MagicMock()
-        prs.slides = []
-
-        mock_layout_breaker = MagicMock()
-        mock_layout_breaker.name = "Breaker_Denim"
-        mock_layout_bullet = MagicMock()
-        mock_layout_bullet.name = "OBJECT"
-        mock_master = MagicMock()
-        mock_master.slide_layouts = [mock_layout_breaker, mock_layout_bullet]
-        prs.slide_masters = [mock_master]
-
-        mock_prs_cls.return_value = prs
-
-        result = SlideGenerator.infer_layout_map_from_template("/fake.pptx")
-        self.assertIn("breaker", result)
-        self.assertIn("bullet", result)
-        # section alias IS present — resolution uses layout object, not placeholder index
-        self.assertIn("section", result)
-        self.assertEqual(result["section"], result["breaker"])
-
-    def test_resolve_layouts_aliases_section_to_breaker_object(self):
-        # _resolve_layouts_from_master maps section → breaker layout object when
-        # SECTION_HEADER is absent, so layout: section decks render with Breaker_*.
-        breaker_layout = MagicMock()
-        breaker_layout.name = "Breaker_Denim"
-        bullet_layout = MagicMock()
-        bullet_layout.name = "OBJECT"
-
-        mock_master = MagicMock()
-        mock_master.slide_layouts = [breaker_layout, bullet_layout]
-
-        prs = MagicMock()
-        prs.slide_masters = [mock_master]
-        prs.slides = []
-
-        layout_map = {"breaker": 0, "section": 0, "bullet": 0}
-        resolved = SlideGenerator._resolve_layouts_from_master(prs, layout_map)
-
-        # Both section and breaker resolve to the same breaker layout object
-        self.assertIs(resolved["section"], breaker_layout)
-        self.assertIs(resolved["breaker"], breaker_layout)
-        self.assertIs(resolved["bullet"], bullet_layout)
-
-    @patch("slides.generator.Presentation")
-    def test_unrecognized_layouts_returns_none(self, mock_prs_cls):
-        prs = MagicMock()
-        prs.slides = [
-            self._make_mock_slide("Some_Custom_Layout"),
-            self._make_mock_slide("Another_Unknown"),
-        ]
-        mock_prs_cls.return_value = prs
-
-        result = SlideGenerator.infer_layout_map_from_template("/fake.pptx")
-        self.assertIsNone(result)
-
-    @patch("slides.generator.Presentation")
-    def test_table_aliases_bullet(self, mock_prs_cls):
-        prs = MagicMock()
-        prs.slides = [self._make_mock_slide("OBJECT")]
-        mock_prs_cls.return_value = prs
-
-        result = SlideGenerator.infer_layout_map_from_template("/fake.pptx")
-        self.assertIn("table", result)
-        self.assertEqual(result["table"], result["bullet"])
-
-    @patch("slides.generator.Presentation")
-    def test_title_only_mapping(self, mock_prs_cls):
-        prs = MagicMock()
-        prs.slides = [
-            self._make_mock_slide("Title Slide with Streams"),
-            self._make_mock_slide("OBJECT"),
-        ]
-        mock_prs_cls.return_value = prs
-
-        result = SlideGenerator.infer_layout_map_from_template("/fake.pptx")
-        self.assertEqual(result["title_only"], 0)
-
-    @patch("slides.generator.Presentation")
-    def test_empty_slides(self, mock_prs_cls):
-        prs = MagicMock()
-        prs.slides = []
-        mock_prs_cls.return_value = prs
-
-        result = SlideGenerator.infer_layout_map_from_template("/fake.pptx")
-        self.assertIsNone(result)
-
-
-class TestPopulateSlideTableRejection(unittest.TestCase):
-    """Tests for _populate_slide rejecting TableSlide with rows but no headers."""
-
-    def setUp(self):
-        self.generator = SlideGenerator(template_path=None)
-
-    def test_table_slide_no_headers_raises(self):
-        """_populate_slide raises ValueError for a TableSlide with rows but no headers."""
-        slide = MagicMock()
-        content = TableSlide(
-            title="Missing Headers",
-            headers=[],
-            rows=[["cell1", "cell2"]],
+        self.generator._add_bullets_below(
+            mock_slide,
+            ["First note", "Second note"],
+            MSO_THEME_COLOR.LIGHT_2,
+            top_inches=3.0,
         )
-        theme_color = MagicMock()
-        with self.assertRaises(ValueError) as ctx:
-            self.generator._populate_slide(slide, content, theme_color)
-        msg = str(ctx.exception)
-        self.assertIn("Missing Headers", msg)
-        self.assertIn("no headers", msg)
 
-    def test_table_slide_with_headers_does_not_raise(self):
-        """_populate_slide does not raise when a TableSlide has both headers and rows."""
-        slide = MagicMock()
-        content = TableSlide(
-            title="Good Table",
-            headers=["Col A", "Col B"],
-            rows=[["a", "b"]],
+        # Textbox should be added to slide
+        mock_slide.shapes.add_textbox.assert_called_once()
+        # Should have word_wrap enabled
+        self.assertTrue(mock_tf.word_wrap)
+
+    def test_adds_bullet_item_objects(self) -> None:
+        """BulletItem objects are formatted with their level and highlights."""
+        mock_slide, _ = self._make_mock_slide()
+
+        bullets = [
+            BulletItem(text="Highlighted item", level=1, highlight=["Highlighted"]),
+        ]
+
+        with patch.object(self.generator, "_add_text_to_paragraph") as mock_add_text:
+            self.generator._add_bullets_below(
+                mock_slide,
+                bullets,
+                MSO_THEME_COLOR.LIGHT_2,
+                top_inches=2.5,
+            )
+            mock_add_text.assert_called_once()
+            style = mock_add_text.call_args.args[2]
+            # Check highlights were passed through
+            self.assertFalse(style.bold)
+            self.assertEqual(style.highlights, ["Highlighted"])
+
+    def test_section_header_bullet_gets_header_font_size(self) -> None:
+        """A bullet ending with ':' is treated as a section header."""
+        mock_slide, _ = self._make_mock_slide()
+
+        bullets = [BulletItem(text="Details:", level=0)]
+
+        with patch.object(self.generator, "_add_text_to_paragraph") as mock_add_text:
+            self.generator._add_bullets_below(
+                mock_slide,
+                bullets,
+                MSO_THEME_COLOR.LIGHT_2,
+                top_inches=2.0,
+            )
+            mock_add_text.assert_called_once()
+            style = mock_add_text.call_args.args[2]
+            # Font size should be header size
+            self.assertEqual(style.font_size, Pt(FONT_SIZE_HEADER))
+            # bold should be True
+            self.assertTrue(style.bold)
+
+    def test_mixed_string_and_bullet_items(self) -> None:
+        """Mix of strings and BulletItem objects processes correctly."""
+        mock_slide, _ = self._make_mock_slide()
+
+        bullets = [
+            "Plain string",
+            BulletItem(text="Level 2 item", level=2),
+        ]
+
+        with patch.object(self.generator, "_add_text_to_paragraph") as mock_add_text:
+            self.generator._add_bullets_below(
+                mock_slide,
+                bullets,
+                MSO_THEME_COLOR.LIGHT_2,
+                top_inches=3.5,
+            )
+            self.assertEqual(mock_add_text.call_count, 2)
+
+    def test_remaining_height_minimum(self) -> None:
+        """When top_inches is very high, remaining height is clamped to 0.5."""
+        mock_slide, _ = self._make_mock_slide()
+
+        self.generator._add_bullets_below(
+            mock_slide,
+            ["A note"],
+            MSO_THEME_COLOR.LIGHT_2,
+            top_inches=6.0,  # > 5.0, so remaining = max(5.0 - 6.0, 0.5) = 0.5
         )
-        theme_color = MagicMock()
-        with patch.object(self.generator, "_populate_table_slide") as mock_table:
-            with patch.object(self.generator, "_apply_notes"):
-                self.generator._populate_slide(slide, content, theme_color)
-        mock_table.assert_called_once()
 
-    def test_table_slide_no_rows_no_headers_does_not_raise(self):
-        """An empty TableSlide (no rows, no headers) is not an error — no data is lost."""
-        slide = MagicMock()
-        content = TableSlide(title="Empty Table", headers=[], rows=[])
-        theme_color = MagicMock()
-        # No rows → no data loss → falls through to bullet renderer without raising
-        with patch.object(self.generator, "_populate_bullet_slide") as mock_bullet:
-            with patch.object(self.generator, "_apply_notes"):
-                self.generator._populate_slide(slide, content, theme_color)
-        mock_bullet.assert_called_once()
+        mock_slide.shapes.add_textbox.assert_called_once()
+
+    def test_spacing_set_on_paragraphs(self) -> None:
+        """Space before/after is set for each bullet paragraph."""
+        mock_slide, mock_tf = self._make_mock_slide()
+        mock_para = mock_tf.paragraphs[0]
+
+        self.generator._add_bullets_below(
+            mock_slide,
+            ["Single bullet"],
+            MSO_THEME_COLOR.LIGHT_2,
+            top_inches=2.0,
+        )
+
+        self.assertEqual(mock_para.space_before, Pt(SPACING_BEFORE_BULLET))
+        self.assertEqual(mock_para.space_after, Pt(SPACING_AFTER_BULLET))
+
+
+class TestApplyNativeBullet(unittest.TestCase):
+    """Cover _apply_native_bullet method (lines 369-396)."""
+
+    def setUp(self) -> None:
+        self.generator = SlideGenerator(template_path="/fake/template.pptx")
+        self.nsmap = {"a": "http://schemas.openxmlformats.org/drawingml/2006/main"}
+        self.ns = self.nsmap["a"]
+
+    def test_creates_ppr_and_applies_level0_bullet(self) -> None:
+        """Creates pPr when missing and applies level-0 bullet character."""
+        p_elem = etree.Element(f"{{{self.ns}}}p")
+        etree.SubElement(p_elem, f"{{{self.ns}}}r")
+
+        paragraph = MagicMock()
+        paragraph._p = p_elem
+
+        self.generator._apply_native_bullet(paragraph, level=0)
+
+        p_pr = p_elem.find("a:pPr", self.nsmap)
+        self.assertIsNotNone(p_pr)
+        # pPr should be inserted as first child
+        self.assertEqual(list(p_elem)[0].tag, f"{{{self.ns}}}pPr")
+        # Level attribute
+        self.assertEqual(p_pr.get("lvl"), "0")
+        # Indent and margin
+        self.assertEqual(p_pr.get("indent"), str(-457200))
+        self.assertEqual(p_pr.get("marL"), str(457200))
+        # Bullet character
+        bu_char = p_pr.find("a:buChar", self.nsmap)
+        self.assertIsNotNone(bu_char)
+        self.assertEqual(bu_char.get("char"), "•")  # •
+
+    def test_applies_level1_bullet(self) -> None:
+        """Level-1 bullet uses open circle and correct margin."""
+        p_elem = etree.Element(f"{{{self.ns}}}p")
+        paragraph = MagicMock()
+        paragraph._p = p_elem
+
+        self.generator._apply_native_bullet(paragraph, level=1)
+
+        p_pr = p_elem.find("a:pPr", self.nsmap)
+        self.assertEqual(p_pr.get("lvl"), "1")
+        self.assertEqual(p_pr.get("marL"), str(914400))
+        bu_char = p_pr.find("a:buChar", self.nsmap)
+        self.assertEqual(bu_char.get("char"), "◦")  # ◦
+
+    def test_applies_level2_bullet(self) -> None:
+        """Level-2 bullet uses small square and correct margin."""
+        p_elem = etree.Element(f"{{{self.ns}}}p")
+        paragraph = MagicMock()
+        paragraph._p = p_elem
+
+        self.generator._apply_native_bullet(paragraph, level=2)
+
+        p_pr = p_elem.find("a:pPr", self.nsmap)
+        self.assertEqual(p_pr.get("lvl"), "2")
+        self.assertEqual(p_pr.get("marL"), str(1371600))
+        bu_char = p_pr.find("a:buChar", self.nsmap)
+        self.assertEqual(bu_char.get("char"), "▪")  # ▪
+
+    def test_uses_existing_ppr(self) -> None:
+        """When pPr already exists, reuses it instead of creating new one."""
+        p_elem = etree.Element(f"{{{self.ns}}}p")
+        existing_ppr = etree.SubElement(p_elem, f"{{{self.ns}}}pPr")
+
+        paragraph = MagicMock()
+        paragraph._p = p_elem
+
+        self.generator._apply_native_bullet(paragraph, level=0)
+
+        # Should still be only one pPr
+        pprs = p_elem.findall("a:pPr", self.nsmap)
+        self.assertEqual(len(pprs), 1)
+        self.assertIs(pprs[0], existing_ppr)
+
+    def test_removes_existing_bunone_before_adding_buchar(self) -> None:
+        """Existing buNone is removed before adding buChar."""
+        p_elem = etree.Element(f"{{{self.ns}}}p")
+        p_pr = etree.SubElement(p_elem, f"{{{self.ns}}}pPr")
+        etree.SubElement(p_pr, f"{{{self.ns}}}buNone")
+
+        paragraph = MagicMock()
+        paragraph._p = p_elem
+
+        self.generator._apply_native_bullet(paragraph, level=0)
+
+        bu_none = p_pr.find("a:buNone", self.nsmap)
+        self.assertIsNone(bu_none)
+        bu_char = p_pr.find("a:buChar", self.nsmap)
+        self.assertIsNotNone(bu_char)
+
+    def test_replaces_existing_buchar(self) -> None:
+        """Existing buChar is removed and replaced with new one."""
+        p_elem = etree.Element(f"{{{self.ns}}}p")
+        p_pr = etree.SubElement(p_elem, f"{{{self.ns}}}pPr")
+        old_bu = etree.SubElement(p_pr, f"{{{self.ns}}}buChar")
+        old_bu.set("char", "X")
+
+        paragraph = MagicMock()
+        paragraph._p = p_elem
+
+        self.generator._apply_native_bullet(paragraph, level=1)
+
+        bu_chars = p_pr.findall("a:buChar", self.nsmap)
+        self.assertEqual(len(bu_chars), 1)
+        self.assertEqual(bu_chars[0].get("char"), "◦")
+
+    def test_fallback_bullet_for_unknown_level(self) -> None:
+        """Unknown level falls back to default bullet and indent."""
+        p_elem = etree.Element(f"{{{self.ns}}}p")
+        paragraph = MagicMock()
+        paragraph._p = p_elem
+
+        self.generator._apply_native_bullet(paragraph, level=5)
+
+        p_pr = p_elem.find("a:pPr", self.nsmap)
+        self.assertEqual(p_pr.get("lvl"), "5")
+        # Falls back to default 457200
+        self.assertEqual(p_pr.get("indent"), str(-457200))
+        self.assertEqual(p_pr.get("marL"), str(457200))
+        bu_char = p_pr.find("a:buChar", self.nsmap)
+        self.assertEqual(bu_char.get("char"), "•")  # default •
+
+
+class TestSetSlideTitleInheritStyle(unittest.TestCase):
+    """Cover _set_slide_title with inherit_style=True (lines 271-273, 276-317)."""
+
+    def setUp(self) -> None:
+        self.generator = SlideGenerator(template_path="/fake/template.pptx")
+
+    def _make_title_shape(self) -> MagicMock:
+        """Return a mock title placeholder with paragraphs and runs."""
+        shape = MagicMock()
+        shape.is_placeholder = True
+        shape.has_text_frame = True
+        shape.placeholder_format.idx = 0
+        shape.top = "SENTINEL_TOP"
+        shape.left = "SENTINEL_LEFT"
+        shape.width = "SENTINEL_WIDTH"
+        shape.height = "SENTINEL_HEIGHT"
+
+        para = MagicMock()
+        para.text = ""
+        para.runs = [MagicMock()]
+        shape.text_frame.paragraphs = [para]
+        return shape
+
+    def test_inherit_style_skips_alignment_and_positioning(self) -> None:
+        """inherit_style=True skips alignment override and does not reposition."""
+        title_shape = self._make_title_shape()
+        shapes = [title_shape]
+        mock_slide = MagicMock()
+        mock_slide.shapes.__iter__ = MagicMock(side_effect=lambda: iter(shapes))
+
+        self.generator._set_slide_title(
+            mock_slide, "Title", MSO_THEME_COLOR.LIGHT_2, inherit_style=True
+        )
+
+        # Title text is set
+        self.assertEqual(title_shape.text_frame.paragraphs[0].text, "Title")
+        # Positioning sentinel values are NOT overwritten
+        self.assertEqual(title_shape.top, "SENTINEL_TOP")
+        self.assertEqual(title_shape.left, "SENTINEL_LEFT")
+
+    def test_inherit_style_false_does_reposition(self) -> None:
+        """inherit_style=False (default) overwrites positioning."""
+        title_shape = self._make_title_shape()
+        shapes = [title_shape]
+        mock_slide = MagicMock()
+        mock_slide.shapes.__iter__ = MagicMock(side_effect=lambda: iter(shapes))
+
+        self.generator._set_slide_title(
+            mock_slide, "Title", MSO_THEME_COLOR.LIGHT_2, inherit_style=False
+        )
+
+        # Positioning was overwritten
+        self.assertNotEqual(title_shape.top, "SENTINEL_TOP")
 
 
 if __name__ == "__main__":

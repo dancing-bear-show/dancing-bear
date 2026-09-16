@@ -414,7 +414,7 @@ class TestAddEventSingle(unittest.TestCase):
 
     def setUp(self):
         from calendars.importer.outlook_provider import OutlookCalendarProvider
-        from calendars.gmail_pipelines import CalendarEvent
+        from calendars.gmail_types import CalendarEvent
 
         self.svc = _FakeSvc()
         self.provider = OutlookCalendarProvider(svc=self.svc, calendar_name="Work")
@@ -435,7 +435,7 @@ class TestAddEventSingle(unittest.TestCase):
         self.assertEqual(kind, "single")
 
     def test_returns_calendar_event(self):
-        from calendars.gmail_pipelines import CalendarEvent
+        from calendars.gmail_types import CalendarEvent
         result = self.provider.add_event(self.event)
         self.assertIsInstance(result, CalendarEvent)
 
@@ -463,7 +463,7 @@ class TestAddEventRecurring(unittest.TestCase):
 
     def setUp(self):
         from calendars.importer.outlook_provider import OutlookCalendarProvider
-        from calendars.gmail_pipelines import CalendarEvent
+        from calendars.gmail_types import CalendarEvent
 
         self.svc = _FakeSvc()
         self.provider = OutlookCalendarProvider(svc=self.svc, calendar_name="Activities")
@@ -489,7 +489,7 @@ class TestAddEventRecurring(unittest.TestCase):
         self.assertEqual(kind, "recurring")
 
     def test_returns_calendar_event(self):
-        from calendars.gmail_pipelines import CalendarEvent
+        from calendars.gmail_types import CalendarEvent
         result = self.provider.add_event(self.event)
         self.assertIsInstance(result, CalendarEvent)
 
