@@ -15,6 +15,7 @@ from .consumers import (
 from .processors_rules_helpers import (
     RuleContext,
     _canon_rule,
+    _criteria_key,
     _fetch_rules_with_resilience,
     _build_rule_criteria,
     _build_rule_action,
@@ -33,6 +34,7 @@ class OutlookRulesSyncResult:
     """Result of rules sync."""
     created: int = 0
     deleted: int = 0
+    reconciled: int = 0
 
 
 @dataclass
@@ -88,16 +90,20 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
                 folder_map=folder_path_map,
                 move_to_folders=payload.move_to_folders,
             )
-            created, desired_keys = self._create_desired_rules(
-                desired, existing, ctx, payload.dry_run
+            created, reconciled, desired_keys, reconciled_rule_ids = self._create_desired_rules(
+                desired, existing, ctx, payload.dry_run, payload.reconcile
             )
             deleted = (
-                self._delete_missing_rules(existing, desired_keys, payload) if payload.delete_missing else 0
+                self._delete_missing_rules(
+                    existing, desired_keys, payload, reconciled_rule_ids
+                ) if payload.delete_missing else 0
             )
 
             return ResultEnvelope(
                 status="success",
-                payload=OutlookRulesSyncResult(created=created, deleted=deleted),
+                payload=OutlookRulesSyncResult(
+                    created=created, deleted=deleted, reconciled=reconciled
+                ),
             )
         except Exception as exc:
             return ResultEnvelope(
@@ -106,15 +112,72 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
                 diagnostics={"error": str(exc), "code": 1},
             )
 
+    def _apply_reconcile_update(
+        self,
+        criteria: dict[str, Any],
+        action: dict[str, Any],
+        reconcile_index: dict[str, Any],
+        ctx: RuleContext,
+        dry_run: bool,
+    ) -> bool:
+        """Apply a reconcile update when a criteria match exists with a different action.
+
+        Returns True if a reconcile match was found and handled, False if the
+        criteria key was not in the index.
+
+        Pops the matched entry from ``reconcile_index`` so the same live rule
+        cannot be reconciled twice (duplicate criteria case).
+        """
+        crit_k = _criteria_key(criteria)
+        if crit_k not in reconcile_index:
+            return False
+        live_rule = reconcile_index.pop(crit_k)
+        if not dry_run:
+            try:
+                ctx.client.delete_filter(live_rule.get("id"))
+            except Exception:  # nosec B110 - stale rule deletion failure; proceed to create
+                pass
+            try:
+                ctx.client.create_filter(criteria, action)
+            except Exception:  # nosec B110 - reconcile create failure logged elsewhere
+                pass
+        return True
+
+    def _find_live_rule_id(self, spec: dict[str, Any], existing: dict[str, Any]) -> str | None:
+        """Find the id of the live rule whose criteria match a spec's criteria.
+
+        Used after a reconcile to record which live rule was deleted, so
+        ``_delete_missing_rules`` can skip it and avoid a double-delete attempt.
+        """
+        desired_crit = _build_rule_criteria(spec.get("match") or {})
+        target_ck = _criteria_key(desired_crit)
+        for live_rule in existing.values():
+            if _criteria_key(live_rule.get("criteria") or {}) == target_ck:
+                return live_rule.get("id")
+        return None
+
     def _create_rule_if_new(
-        self, spec: dict[str, Any], existing: dict[str, Any], ctx: RuleContext, dry_run: bool
-    ) -> tuple[str, bool] | None:
+        self,
+        spec: dict[str, Any],
+        existing: dict[str, Any],
+        ctx: RuleContext,
+        dry_run: bool,
+        reconcile_index: dict[str, Any] | None = None,
+    ) -> tuple[str, bool, bool] | None:
         """Build criteria/action/key for one spec and create it if missing.
 
-        Returns (key, was_created) for specs with valid criteria and a real
-        action, or None to skip — no key is contributed to the desired-keys set
-        in that case, so `--delete-missing` does not treat a skipped spec as
-        something to preserve.
+        Returns (key, was_created, was_reconciled) for specs with valid criteria
+        and a real action, or None to skip — no key is contributed to the
+        desired-keys set in that case, so `--delete-missing` does not treat a
+        skipped spec as something to preserve.
+
+        reconcile_index: when provided (``--reconcile`` mode), maps a
+        criteria-only key to the live rule it came from. When a desired rule's
+        criteria key matches an entry in this index but the full key (criteria +
+        action) does not match, the live rule is deleted and a fresh one created
+        with the desired action. The entry is removed from the index after use so
+        the same live rule cannot be reconciled twice (handles duplicate criteria
+        among live rules — first desired spec wins).
         """
         m = spec.get("match") or {}
         a_act = spec.get("action") or {}
@@ -138,14 +201,38 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
             return None
         key = _create_rule_key(criteria, action)
         if key in existing:
-            return key, False
+            return key, False, False
+
+        # Reconcile path: check whether criteria match a live rule with a
+        # different action (action-change case). When reconcile_index is None
+        # this branch is never entered and behaviour is identical to pre-reconcile.
+        if reconcile_index is not None:
+            if self._apply_reconcile_update(criteria, action, reconcile_index, ctx, dry_run):
+                return key, False, True
 
         if not dry_run:
             try:
                 ctx.client.create_filter(criteria, action)
             except Exception:  # nosec B110 - filter creation failure logged elsewhere
                 pass
-        return key, True
+        return key, True, False
+
+    def _build_reconcile_index(
+        self, existing: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Build a criteria-only index of live rules for reconciliation.
+
+        The first live rule for each criteria key wins; later duplicates are
+        skipped (their canon keys remain in ``existing`` and are eligible for
+        ``--delete-missing``).  Entries are popped as they are matched, so the
+        same live rule cannot be reconciled twice.
+        """
+        index: dict[str, Any] = {}
+        for live_rule in existing.values():
+            ck = _criteria_key(live_rule.get("criteria") or {})
+            if ck not in index:
+                index[ck] = live_rule
+        return index
 
     def _create_desired_rules(
         self,
@@ -153,25 +240,40 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         existing: dict[str, Any],
         ctx: RuleContext,
         dry_run: bool,
-    ) -> tuple[int, set]:
+        reconcile: bool = False,
+    ) -> tuple[int, int, set[str], set[str]]:
         """Create rules from desired specs that don't exist.
 
+        When ``reconcile`` is True, rules that match an existing rule by criteria
+        but differ in action are handled as an in-place update (delete old,
+        create new) rather than as a fresh creation. The reconcile count reflects
+        the number of rules updated this way; the created count reflects only
+        genuinely new rules.
+
         Returns:
-            Tuple of (created_count, desired_keys_set)
+            Tuple of (created_count, reconciled_count, desired_keys_set, reconciled_rule_ids_set)
         """
         created = 0
-        desired_keys: set = set()
+        reconciled = 0
+        desired_keys: set[str] = set()
+        reconciled_rule_ids_set: set[str] = set()
+        reconcile_index = self._build_reconcile_index(existing) if reconcile else None
 
         for spec in desired:
-            result = self._create_rule_if_new(spec, existing, ctx, dry_run)
+            result = self._create_rule_if_new(spec, existing, ctx, dry_run, reconcile_index)
             if result is None:
                 continue
-            key, was_created = result
+            key, was_created, was_reconciled = result
             desired_keys.add(key)
             if was_created:
                 created += 1
+            elif was_reconciled:
+                reconciled += 1
+                rid = self._find_live_rule_id(spec, existing)
+                if rid:
+                    reconciled_rule_ids_set.add(rid)
 
-        return created, desired_keys
+        return created, reconciled, desired_keys, reconciled_rule_ids_set
 
     def _delete_one_rule(self, client: Any, rid: str | None, dry_run: bool) -> bool:
         """Delete a single rule by id; return True if it counted as deleted."""
@@ -184,19 +286,33 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
             return False
 
     def _delete_missing_rules(
-        self, existing: dict[str, Any], desired_keys: set, payload: OutlookRulesSyncPayload
+        self,
+        existing: dict[str, Any],
+        desired_keys: set,
+        payload: OutlookRulesSyncPayload,
+        reconciled_rule_ids: set[str] | None = None,
     ) -> int:
         """Delete rules that are not in desired set.
+
+        ``reconciled_rule_ids``: IDs of live rules that were already deleted
+        during reconciliation.  Excluded here to avoid a double-delete attempt
+        (the rule no longer exists; the API call would 404 and count as 0, but
+        the extra round-trip is unnecessary and noisy in logs).
 
         Args:
             existing: Map of canonical rule keys to rule objects
             desired_keys: Set of canonical keys for desired rules
             payload: Sync request payload
+            reconciled_rule_ids: Set of rule IDs already deleted during reconcile
 
         Returns:
             Number of rules deleted
         """
-        to_delete = [rule for k, rule in existing.items() if k not in desired_keys]
+        skip_ids = reconciled_rule_ids or set()
+        to_delete = [
+            rule for k, rule in existing.items()
+            if k not in desired_keys and rule.get("id") not in skip_ids
+        ]
         return sum(
             1 for rule in to_delete
             if self._delete_one_rule(payload.client, rule.get("id"), payload.dry_run)

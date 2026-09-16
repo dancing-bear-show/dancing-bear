@@ -133,6 +133,7 @@ def register_outlook_commands(app: CLIApp) -> object:
             _ACCOUNTS_CONFIG,
             _ACCOUNT,
             (("--delete-missing",), {"action": "store_true", "help": "Delete rules not in YAML"}),
+            (("--reconcile",), {"action": "store_true", "help": "Match rules by criteria only; update action when it differs"}),
         ]),
         ("rules.delete", "Delete an Outlook rule by ID", run_outlook_rules_delete, [
             *_OUTLOOK_AUTH_ARGS,

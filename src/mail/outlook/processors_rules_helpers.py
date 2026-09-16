@@ -37,6 +37,44 @@ def _canon_rule(rule: dict) -> str:
     })
 
 
+
+def _norm_criteria_field(value: str | None) -> tuple[str, ...] | None:
+    """Normalise one criteria field for case-insensitive, order-insensitive comparison.
+
+    Live rules store criteria in UPPERCASE; desired rules use lowercase from the
+    derive step. Outlook also permits inconsistent whitespace around the OR
+    separator. This function returns a sorted tuple of case-folded tokens so
+    both sides compare equal regardless of case or token order.
+
+    Returns None when value is None so the outer key stays None-comparable.
+    """
+    if value is None:
+        return None
+    return tuple(sorted(tok.strip().casefold() for tok in value.split(" OR ")))
+
+
+def _criteria_key(criteria: dict[str, Any]) -> str:
+    """Create a criteria-only key for reconciliation matching.
+
+    Used alongside ``_canon_rule`` / ``_create_rule_key`` for the
+    ``--reconcile`` path only.  Matching by criteria alone lets a rule whose
+    action changed be recognised as the same rule rather than a new one.
+
+    Case-insensitive: live rules store criteria in UPPERCASE; desired rules use
+    lowercase from the derive step.  ``_norm_criteria_field`` case-folds and
+    sorts the OR-joined token list so both sides compare equal.
+
+    Do NOT use this for the non-reconcile path — it intentionally ignores the
+    action, which is incorrect for the default behaviour where an action change
+    is treated as a new rule.
+    """
+    return str({
+        "from": _norm_criteria_field(criteria.get("from")),
+        "to": _norm_criteria_field(criteria.get("to")),
+        "subject": _norm_criteria_field(criteria.get("subject")),
+    })
+
+
 def _fetch_rules_with_resilience(
     client: Any,
     use_cache: bool = False,
