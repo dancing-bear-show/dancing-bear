@@ -4,7 +4,9 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import tempfile
+import time
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1113,7 +1115,18 @@ class TestParseTranscriptsCli(unittest.TestCase):
         data = json.loads(out)
         self.assertEqual(len(data), 1)
 
-    def test_cli_since_7d(self):
+    def test_cli_since_7d_excludes_files_older_than_window(self):
+        recent = self._write_jsonl("proj/recent.jsonl", [
+            {"message": {"role": "user", "content": "In window"}}
+        ])
+        stale = self._write_jsonl("proj/stale.jsonl", [
+            {"message": {"role": "user", "content": "Out of window"}}
+        ])
+        now = time.time()
+        os.utime(recent, (now, now))
+        old = now - (30 * 86400)
+        os.utime(stale, (old, old))
+
         rc, out = _run_main([
             "parse-transcripts",
             "--projects-dir", str(self.projects_dir),
@@ -1121,7 +1134,23 @@ class TestParseTranscriptsCli(unittest.TestCase):
             "--since", "7d",
         ])
         self.assertEqual(rc, 0)
-        # This test writes no fixture, so the projects dir is empty.
+        self.assertIn("recent", out)
+        self.assertNotIn("stale", out)
+
+    def test_cli_since_reports_nothing_when_all_files_are_stale(self):
+        stale = self._write_jsonl("proj/stale_only.jsonl", [
+            {"message": {"role": "user", "content": "Out of window"}}
+        ])
+        old = time.time() - (30 * 86400)
+        os.utime(stale, (old, old))
+
+        rc, out = _run_main([
+            "parse-transcripts",
+            "--projects-dir", str(self.projects_dir),
+            "--index-dir", str(self.index_dir),
+            "--since", "7d",
+        ])
+        self.assertEqual(rc, 0)
         self.assertIn("No sessions processed", out)
 
 
