@@ -331,6 +331,65 @@ Tuesday from 6:00 pm to 6:30 pm"""
             OutlookAddProducer().produce(env)
         self.assertIn("Planned 2 events", buf.getvalue())
 
+    def _run_outlook_add(self, events: list[dict]) -> tuple[object, MagicMock]:
+        """Run OutlookAddProcessor over events with dry_run off and a mock service."""
+        import yaml
+        with tempfile.NamedTemporaryFile("w+", delete=False, suffix=".yaml") as tf:
+            yaml.safe_dump({"events": events}, tf)
+            tf_path = Path(tf.name)
+        svc = MagicMock()
+        svc.create_event.return_value = {"id": "1"}
+        svc.create_recurring_event.return_value = {"id": "2"}
+        request = OutlookAddRequest(
+            config_path=tf_path,
+            dry_run=False,
+            force_no_reminder=False,
+            service=svc,
+        )
+        env = OutlookAddProcessor().process(OutlookAddRequestConsumer(request).consume())
+        return env, svc
+
+    def test_outlook_add_skips_recurring_with_missing_time_fields(self):
+        """A recurring event missing start_time or end_time never reaches the service.
+
+        normalize_event runs every field through _coerce_str first, so by the time
+        the guard sees them they are `str` or `None` -- never another type. What the
+        guard actually defends against is `None`, which is what an absent or empty
+        value normalizes to.
+        """
+        base = {"subject": "Series", "repeat": "weekly", "byday": ["MO"],
+                "start_time": "10:00", "end_time": "11:00",
+                "range": {"start_date": "2025-01-01", "until": "2025-02-01"}}
+        cases = [
+            ("missing start_time", "start_time"),
+            ("missing end_time", "end_time"),
+            ("empty start_time", "start_time"),
+            ("empty end_time", "end_time"),
+        ]
+        for label, field in cases:
+            with self.subTest(case=label):
+                ev = {**base}
+                if label.startswith("missing"):
+                    ev.pop(field)
+                else:
+                    ev[field] = ""
+                env, svc = self._run_outlook_add([ev])
+                self.assertTrue(env.ok())
+                self.assertEqual(env.payload.created, 0)
+                svc.create_recurring_event.assert_not_called()
+                joined = " ".join(env.payload.logs)
+                self.assertIn("must be non-empty strings", joined)
+
+    def test_outlook_add_creates_recurring_with_valid_time_fields(self):
+        """The same path with valid values still reaches the service."""
+        ev = {"subject": "Series", "repeat": "weekly", "byday": ["MO"],
+              "start_time": "10:00", "end_time": "11:00",
+              "range": {"start_date": "2025-01-01", "until": "2025-02-01"}}
+        env, svc = self._run_outlook_add([ev])
+        self.assertTrue(env.ok())
+        self.assertEqual(env.payload.created, 1)
+        svc.create_recurring_event.assert_called_once()
+
     def test_outlook_dedup_processor_plan_and_producer(self):
         svc = MagicMock()
         svc.find_calendar_id.return_value = "cal-1"
