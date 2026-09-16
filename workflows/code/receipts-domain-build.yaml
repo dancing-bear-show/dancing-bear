@@ -201,6 +201,15 @@ stages:
               Schema: {"vendor": str, "date": str|null, "total": float,
                         "patient": str|null, "invoice_id": str|null}
 
+          INTERPRETER FOR SMOKE CHECKS -- "${PY:-python3}", not .venv.
+            The import smoke checks in the implementation stages are
+            dependency-free: they import from src/ with PYTHONPATH set and
+            touch no optional package.  Requiring .venv/bin/python there
+            would fail on a clean worktree, because only the fixture and
+            verify stages bootstrap the venv -- and those run later.
+            Stages that genuinely need fitz (fixtures, verify, and the whole
+            claims migration) bootstrap .venv first and use it explicitly.
+
           AMOUNT LABEL MATCHING -- shared by every parser below.
             A raw substring search is WRONG.  "Subtotal" contains "Total", so
             a naive search returns the SUBTOTAL, which differs from the total
@@ -216,7 +225,23 @@ stages:
 
               LABEL_RE = lambda label: re.compile(
                   r"^[^A-Za-z0-9]*" + re.escape(label) +
-                  r"\b[^0-9\-]*(-?[\d,]+\.\d{2})", re.I | re.M)
+                  r"\b[^0-9\-]*?(-?)\s*\$?\s*(-?)([\d,]+\.\d{2})",
+                  re.I | re.M)
+
+              def amount_for(label, text):
+                  m = LABEL_RE(label).search(text)
+                  if not m:
+                      return None
+                  sign = "-" if (m.group(1) or m.group(2)) else ""
+                  return float((sign + m.group(3)).replace(",", ""))
+
+            The sign is captured in TWO places on purpose, because a minus can
+            fall either side of the currency symbol ("-$96.00" and "$-96.00"
+            both occur), and the filler class is non-greedy so it cannot run
+            past the sign.  A single "(-?[\d,]+\.\d{2})" after a
+            "[^0-9\-]*" filler CANNOT match a negative at all: the class
+            excludes "-", so matching stops before the minus and the optional
+            sign never fires.  Verified on "-$96.00".
 
             Rejects "Subtotal", "SUBTOTAL" and "Sub Total" as matches for
             "Total"; still accepts "Payer Total", "Total Amount", a missing
@@ -246,7 +271,9 @@ stages:
               matches() -> True when Invoice # pattern present in page 0 text.
               parse() extracts: invoice_id from "Invoice #NNNNN-PNN", vendor
                 from clinic name on first page, date from receipt header, total
-                from "Payer Total" line.  total=0.00 is a valid result.
+                via AMOUNT_LABELS above using the shared AMOUNT LABEL
+                MATCHING rule -- NOT "Payer Total" alone.  total=0.00 is a
+                valid result.
 
           File: parsers/costco.py
             CostcoParser(PdfParser):
@@ -295,15 +322,19 @@ stages:
             @dataclass Claim:
               receipt: Receipt         (from receipts.models)
               claimant: str            (person name)
-              plan_year: int
+              plan_year: int           (year the window STARTS in)
+              plan_year_start_month: int = 1   (1-12; not every plan is Jan-Dec)
               submitted: bool = False
 
           File: ledger.py
             ClaimLedger:
               __init__(self, ledger_path: str | Path)
-              is_duplicate(invoice_id: str) -> bool
-              record(invoice_id: str, claimant: str, amount: float,
+              is_duplicate(invoice_id: str | None) -> bool
+              record(invoice_id: str | None, claimant: str, amount: float,
                      submitted_at: str) -> None
+              Optional on both: Costco receipts have no invoice number, and
+              the contract requires passing None for them.  A bare `str`
+              makes the documented call invalid at the type boundary.
               load() -> list[dict]  (read ledger JSON)
               save() -> None
               The ledger is a JSON list of submission records.
@@ -314,7 +345,11 @@ stages:
             RULES applying to a Claim before submission:
               - $0 patient-pays exclusion: total==0.00 -> skip (provider
                 direct-billed, no patient claim needed).
-              - Plan-year window: submitted_at date must fall in plan_year.
+              - Plan-year window: the SERVICE date must fall in
+                [start, start + 1 year) where start is
+                date(plan_year, plan_year_start_month, 1).  Note this bounds
+                the service date, not submitted_at -- the ledger separately
+                bounds resubmission across ALL prior years.
               - Duplicate detection: invoice_id already in ledger -> skip.
             apply_rules(claim: Claim, ledger: ClaimLedger) -> RuleResult
             @dataclass RuleResult:
@@ -647,7 +682,7 @@ stages:
           - Type hints: PEP 585/604 style.  No bare except: pass.
 
       Step 3 -- import smoke check:
-        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
+        PYTHONPATH="$(pwd)/src" "${PY:-python3}" -c \
           "from core.pdf_read import PdfDocument, PdfParser; print('ok')" 2>&1
         If fail, fix and retry.
 
@@ -761,7 +796,7 @@ stages:
         Does NOT raise on a missing sidecar file -- that is the normal case.
 
       Step 5 -- import smoke check:
-        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
+        PYTHONPATH="$(pwd)/src" "${PY:-python3}" -c \
           "from receipts.models import Receipt, LineItem; \
            from receipts.sidecar import load_sidecar; print('ok')" 2>&1
 
@@ -858,7 +893,7 @@ stages:
         Store line_items=[] (Jane receipts have no itemised table; total suffices).
 
       Step 3 -- import smoke check:
-        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
+        PYTHONPATH="$(pwd)/src" "${PY:-python3}" -c \
           "from receipts.parsers.jane import JaneParser; print('ok')" 2>&1
 
       Step 4 -- write {workspace}/outputs/parser-jane-manifest.json:
@@ -931,7 +966,7 @@ stages:
         This prevents a hard crash when Tesseract is absent.
 
       Step 3 -- import smoke check:
-        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
+        PYTHONPATH="$(pwd)/src" "${PY:-python3}" -c \
           "from receipts.parsers.costco import CostcoParser; print('ok')" 2>&1
 
       Step 4 -- write {workspace}/outputs/parser-costco-manifest.json:
@@ -983,7 +1018,7 @@ stages:
             # Unknown fields -> None.
 
       Step 3 -- import smoke check:
-        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
+        PYTHONPATH="$(pwd)/src" "${PY:-python3}" -c \
           "from receipts.parsers.generic import GenericParser; print('ok')" 2>&1
 
       Step 4 -- write {workspace}/outputs/parser-generic-manifest.json:
@@ -1071,6 +1106,12 @@ stages:
             from receipts.sidecar import load_sidecar
             result = load_sidecar(path)
             if result is not None:
+              # Same as the parser path: the caller needs to know which file
+              # this came from.  claims packet assembly merges the receipt's
+              # PAGES via source_path, so a sidecar receipt with source_path
+              # None silently contributes an amount but no pages -- the
+              # packet page count would then disagree with the claim.
+              result.source_path = str(path)
               return result
           # NB: the braces below are a Python f-string placeholder for the
           # local variable `path`, not a workflow parameter.  Copy it exactly.
@@ -1116,7 +1157,7 @@ stages:
         Verify: ls -la bin/receipts
 
       Step 6 -- import smoke check:
-        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
+        PYTHONPATH="$(pwd)/src" "${PY:-python3}" -c \
           "from receipts.extract import extract; print('ok')" 2>&1
 
       Step 7 -- write {workspace}/outputs/receipts-dispatch-manifest.json:
@@ -1216,6 +1257,9 @@ stages:
       Step 6 -- verify $0 parses as a VALUE, not a failure.
         A "$0.00 Payer Total" receipt means the provider direct-billed the
         insurer.  It must parse as total=0.00, never as None.
+        This one OPENS a PDF, so it needs fitz and therefore the venv --
+        unlike the dependency-free import checks elsewhere.  It runs in
+        integration-review, after the fixture stage bootstrapped .venv.
         PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
           "from receipts.extract import extract; \
            r = extract('tests/receipts_fixtures/jane_zero.pdf'); \
@@ -1308,8 +1352,20 @@ stages:
 
       Step 3 -- confirm core/pdf_forms.py was NOT modified.
         This workflow must not touch it; the font-size migration belongs to
-        claims-domain-build.yaml.  If the reviewer reported a diff, REVERT it:
-          git checkout main -- src/core/pdf_forms.py
+        claims-domain-build.yaml.
+
+        If the reviewer reported a diff, STOP AND REPORT IT.  Do NOT run
+        `git checkout main -- src/core/pdf_forms.py`: that discards whatever
+        is actually there, which may be a legitimate change already on the
+        branch or unrelated uncommitted work, and the loss is silent.  An
+        unexpected edit to a merged, tested module is a finding for a human,
+        not something to paper over automatically.
+
+          git diff main...HEAD -- src/core/pdf_forms.py
+          git diff -- src/core/pdf_forms.py
+
+        Record both outputs in your results and report this stage as failed.
+
         Do not create src/claims/ to satisfy any finding.
 
       Step 4 -- fix lazy fitz violations.
@@ -1320,7 +1376,7 @@ stages:
         Remove any abstract methods beyond matches() and parse().
 
       Step 6 -- re-run import smoke checks after fixes:
-        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
+        PYTHONPATH="$(pwd)/src" "${PY:-python3}" -c \
           "from core.pdf_read import PdfDocument, PdfParser; \
            from receipts.models import Receipt, LineItem; \
            from receipts.sidecar import load_sidecar; \
@@ -1617,7 +1673,11 @@ stages:
           full_suite       == "PASS"  (SUITE_EXIT 0 AND the Ran line present)
           every cli_smoke field       == "PASS"
           qlty_status      in ("PASS", "SKIPPED")
-          render/packet check         != "FAIL"
+          render_smoke                == "PASS"
+        SKIPPED does NOT count as green.  This render check is unconditional
+        and is the only render verification in this workflow -- the lesson
+        that a null-/DA bug is invisible to value inspection is precisely
+        what it exists to catch.
         If any is false, set all_green false AND report this stage's status as
         "failed".  The completion template pre-fills "success", so a red run
         reaches the human gate looking green unless you override it.

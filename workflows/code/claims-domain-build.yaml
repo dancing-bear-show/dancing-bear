@@ -344,8 +344,15 @@ stages:
 
              If neither approved source exists, record
              shipped_form_equivalence: "SKIPPED -- no approved blank template"
-             and go to step 4.  That is the expected outcome here (see below)
-             and is not a reason to go looking.
+             and CONTINUE TO STEP 7 to write the manifest.  Do not jump back
+             to an earlier step: the skip is recorded here, in Step 6, while
+             Step 7 is the only step that writes font-size-migration.json --
+             going backwards re-runs the equivalence checks, reaches this
+             same branch again, and loops without ever producing the manifest
+             a human needs to see why the run stopped.
+
+             A skip is the expected outcome here (see below) and is not a
+             reason to go looking for another template.
 
              VERIFY IT IS BLANK EITHER WAY, with the same check -- a supplied
              parameter is not a trusted source.  Pointing it at a filled claim
@@ -445,7 +452,10 @@ stages:
 
              On ANY reject, STOP -- do not open it further, do not copy it, do
              not quote its contents.  Record shipped_form_equivalence:
-             "SKIPPED -- candidate template was not blank" and go to step 4.
+             "SKIPPED -- candidate template was not blank" and CONTINUE TO
+             STEP 7 to write the manifest.  Do not jump back: Step 4 precedes
+             the equivalence proof, so returning there repeats it and can
+             loop indefinitely without ever reaching the manifest.
 
              Never search under ~/Documents/sunlife-claims/ or any directory
              holding real claims; a blank template is a blank form, not a
@@ -566,8 +576,23 @@ stages:
       Implement src/claims/ -- ledger, rules, forms, packet, CLI, and bin wrapper.
 
       Step 1 -- read:
-        Read {workspace}/outputs/design/interfaces.md (section: Package: src/claims/).
-        Read {workspace}/outputs/design/dataclasses.md (Claim, RuleResult).
+        There is no design/ directory in THIS workspace: design-interfaces
+        belongs to receipts-domain-build.yaml and wrote into its own,
+        separate workspace.  Do not read those paths -- they do not exist
+        here, and a stage that blocks on a missing required input fails
+        confusingly.
+
+        The consumer contract for src/claims/ is in the merged receipts
+        workflow instead.  Read it from the repo:
+
+          grep -n "Consumer contract" -A 60 \
+            workflows/code/receipts-domain-build.yaml
+
+        That section pins Claim (including plan_year_start_month), the
+        ClaimLedger signatures (invoice_id is str | None), RuleResult, and
+        the rules this package must implement.  The concrete specifications
+        below are authoritative where the two differ -- report any conflict
+        rather than silently choosing one.
         Read src/core/pdf_forms.py (fill_text_fields, set_checkbox, font_size_for).
         Read src/core/pdf_read.py (PdfDocument.render_png for packet.py).
         Read src/receipts/models.py (Receipt for claims/models.py).
@@ -1226,7 +1251,7 @@ stages:
             "claims_agentic": "PASS|FAIL"
           },
           "qlty_status": "PASS|ISSUES|SKIPPED",
-          "render_smoke": "PASS|FAIL|SKIPPED",
+          "packet_render_check": "PASS|FAIL|SKIPPED",
           "all_green": false
         }
 
