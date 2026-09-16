@@ -364,13 +364,16 @@ stages:
              same branch again, and loops without ever producing the manifest
              a human needs to see why the run stopped.
 
-             A skip is the expected outcome here (see below) and is not a
-             reason to go looking for another template.
+             A SKIP IS NOT EXPECTED.  The template is generated, so the
+             proof should normally run and report PASS or FAIL.  A skip means
+             the generator or the blank check failed, which is a defect to
+             report -- not a normal outcome, and never a reason to go looking
+             for another template.  Step 7 treats any skip as unverified and
+             halts the run.
 
-             VERIFY IT IS BLANK EITHER WAY, with the same check -- a supplied
-             parameter is not a trusted source.  Pointing it at a filled claim
-             form would reopen exactly the PII exposure this section exists to
-             close.
+             VERIFY THE GENERATED TEMPLATE IS BLANK.  The check is cheap and
+             now guards against a broken generator rather than vetting an
+             untrusted input -- there is no caller-supplied path any more.
 
              Counting filled WIDGETS is not sufficient on its own: a flattened
              or scanned PDF has no AcroForm widgets at all, so it reports zero

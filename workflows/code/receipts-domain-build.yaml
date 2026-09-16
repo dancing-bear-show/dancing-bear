@@ -223,17 +223,26 @@ stages:
             punctuation and whitespace (OCR emits "!Patient Pays: 88.21 j"),
             and require a word boundary after it:
 
-              LABEL_RE = lambda label: re.compile(
-                  r"^[^A-Za-z0-9]*" + re.escape(label) +
-                  r"\b[^0-9\-]*?(-?)\s*\$?\s*(-?)([\d,]+\.\d{2})",
-                  re.I | re.M)
+              _NUM = r"\b[^0-9\-]*?(-?)\s*\$?\s*(-?)([\d,]+\.\d{2})"
 
-              def amount_for(label, text):
-                  m = LABEL_RE(label).search(text)
+              def _label_re(label: str) -> re.Pattern[str]:
+                  """Line-anchored matcher for an amount label."""
+                  return re.compile(
+                      r"^[^A-Za-z0-9]*" + re.escape(label) + _NUM, re.I | re.M)
+
+              def amount_for(label: str, text: str) -> float | None:
+                  m = _label_re(label).search(text)
                   if not m:
                       return None
                   sign = "-" if (m.group(1) or m.group(2)) else ""
                   return float((sign + m.group(3)).replace(",", ""))
+
+            A named def, NOT `LABEL_RE = lambda label: ...`.  Ruff's E731
+            ("do not assign a lambda expression") is enabled by this repo's
+            lint gate, so the lambda form fails `make lint` and qlty -- an
+            implementation following a contract that cannot pass CI is worse
+            than no contract.  Verified: the lambda form is flagged, the def
+            form passes clean with identical behaviour.
 
             The sign is captured in TWO places on purpose, because a minus can
             fall either side of the currency symbol ("-$96.00" and "$-96.00"
