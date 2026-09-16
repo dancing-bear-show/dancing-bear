@@ -139,11 +139,13 @@ class OutlookRulesSyncProducer(BaseProducer):
         self,
         dry_run: bool = False,
         delete_missing: bool = False,
+        reconcile: bool = False,
         writer: OutputWriter | None = None,
     ) -> None:
         super().__init__(writer)
         self._dry_run = dry_run
         self._delete_missing = delete_missing
+        self._reconcile = reconcile
 
     def produce(self, result: ResultEnvelope) -> None:
         """Override to also surface the hint diagnostic."""
@@ -159,10 +161,17 @@ class OutlookRulesSyncProducer(BaseProducer):
 
     def _produce_success(self, payload: OutlookRulesSyncResult, diagnostics: dict | None) -> None:
         msg = f"Sync complete. Created: {payload.created}"
+        if self._reconcile and payload.reconciled:
+            msg += f", Reconciled: {payload.reconciled}"
         if self._delete_missing:
             msg += f", Deleted: {payload.deleted}"
         if self._dry_run:
-            self._writer.print_dry_run(f"sync. Created: {payload.created}" + (f", Deleted: {payload.deleted}" if self._delete_missing else ""))
+            dry_parts = [f"Created: {payload.created}"]
+            if self._reconcile and payload.reconciled:
+                dry_parts.append(f"Reconciled: {payload.reconciled}")
+            if self._delete_missing:
+                dry_parts.append(f"Deleted: {payload.deleted}")
+            self._writer.print_dry_run(f"sync. {', '.join(dry_parts)}")
         else:
             self._writer.print(msg)
 
