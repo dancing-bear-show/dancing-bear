@@ -39,21 +39,13 @@ class GmailService:
 
     def query_and_list_ids(
         self,
+        params: QueryParams,
         *,
-        explicit: str | None,
-        from_text: str | None,
-        days: int | None,
-        inbox_only: bool,
         max_pages: int,
         page_size: int,
     ) -> list[str]:
         """Build a query from params and list matching message ids in one call."""
-        query = self.build_query_from_params(QueryParams(
-            explicit=explicit,
-            from_text=from_text,
-            days=days,
-            inbox_only=inbox_only,
-        ))
+        query = self.build_query_from_params(params)
         return self.list_message_ids(query=query, max_pages=max_pages, page_size=page_size)
 
     def get_message_text(self, message_id: str) -> str:

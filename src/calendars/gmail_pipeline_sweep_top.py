@@ -9,6 +9,7 @@ from typing import Any
 from core.pipeline import SafeProcessor
 from core.text_utils import extract_email_address
 
+from .gmail_service import QueryParams
 from .pipeline_base import (
     BaseProducer,
     GmailAuth,
@@ -51,10 +52,12 @@ class GmailSweepTopProcessor(
     def _process_safe(self, payload: GmailSweepTopRequest) -> GmailSweepTopResult:
         svc = self._service_builder(payload.auth)
         ids = svc.query_and_list_ids(
-            explicit=payload.query,
-            from_text=payload.from_text,
-            days=payload.days,
-            inbox_only=payload.inbox_only,
+            QueryParams(
+                explicit=payload.query,
+                from_text=payload.from_text,
+                days=payload.days,
+                inbox_only=payload.inbox_only,
+            ),
             max_pages=payload.pages,
             page_size=payload.page_size,
         )

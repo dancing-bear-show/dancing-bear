@@ -8,6 +8,7 @@ from typing import Any
 from core.pipeline import SafeProcessor
 from core.text_utils import html_to_text
 
+from .gmail_service import QueryParams
 from .scan_common import RANGE_PAT, MONTH_MAP, norm_time as _norm_time_common, infer_meta_from_text
 from .pipeline_base import (
     BaseProducer,
@@ -61,10 +62,12 @@ class GmailScanClassesProcessor(
     def _process_safe(self, payload: GmailScanClassesRequest) -> GmailScanClassesResult:
         svc = self._service_builder(payload.auth)
         ids = svc.query_and_list_ids(
-            explicit=payload.query,
-            from_text=payload.from_text,
-            days=payload.days,
-            inbox_only=payload.inbox_only,
+            QueryParams(
+                explicit=payload.query,
+                from_text=payload.from_text,
+                days=payload.days,
+                inbox_only=payload.inbox_only,
+            ),
             max_pages=payload.pages,
             page_size=payload.page_size,
         )
