@@ -58,8 +58,6 @@ trigger:
   source: manual
   params:
     run_qlty: "true"
-    reference_claim_pdf: ""   # optional override for the equivalence check
-    real_pdf: ""              # optional: real receipt PDF for the CLI smoke test
 
 workspace_dir: "{work_dir}/claims-domain-build"
 
@@ -79,11 +77,36 @@ stages:
     description: >
       Confirm the receipts foundation is present before doing any work.
 
+      Step 0 -- install the [pdf] extra in THIS worktree, before anything
+        imports fitz.
+        `make venv` installs ".[dev]", which does NOT include PyMuPDF --
+        core.pdf_forms and core.pdf_read import fitz lazily precisely so the
+        core CLIs stay dependency-light.  migrate-font-sizes imports fitz
+        directly (blank-template check, equivalence proof), so without this a
+        clean worktree dies with ModuleNotFoundError before it can accept or
+        reject anything.
+
+          test -x .venv/bin/python || make venv > /tmp/venv-create.log 2>&1
+          test -x .venv/bin/python || { tail -20 /tmp/venv-create.log; \
+            echo "FATAL: no .venv"; exit 1; }
+          .venv/bin/python -m pip install -e ".[pdf,ocr]" > /tmp/pdf-install.log 2>&1
+          status=$?; tail -2 /tmp/pdf-install.log; echo "INSTALL_EXIT=$status"
+          .venv/bin/python -c "import fitz; print('fitz ok')" 2>&1
+
+        Do not pipe the install into tail: a pipeline reports the LAST
+        command's status, so a failed install would hide behind tail's zero
+        exit and the STOP below would never trigger.
+
+        Use that same interpreter for every python invocation in this
+        workflow.  If INSTALL_EXIT is non-zero, or the fitz import fails,
+        STOP and report status failed -- do not continue into stages that
+        will fail more confusingly later.
+
       Step 1 -- confirm the packages exist and import:
-        PYTHONPATH="$(pwd)/src" python3 -c \
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
           "from core.pdf_read import PdfDocument, PdfParser; \
            from receipts.models import Receipt; \
-           from receipts.extract import extract_receipt; \
+           from receipts.extract import extract; \
            print('receipts foundation present')" 2>&1
 
         If this fails, STOP.  Report status failed with the import error.
@@ -91,22 +114,36 @@ stages:
         receipts-domain-build.yaml, which must merge first.
 
       Step 2 -- confirm core.pdf_forms is intact (this workflow will edit it):
-        PYTHONPATH="$(pwd)/src" python3 -m unittest \
-          tests.core_tests.test_core_pdf_forms 2>&1 | tail -3
-        Record the passing test count as the pre-migration baseline.
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -m unittest \
+          tests.core_tests.test_core_pdf_forms > /tmp/claims-baseline.log 2>&1
+        status=$?; tail -3 /tmp/claims-baseline.log; echo "BASELINE_EXIT=$status"
+
+        Do NOT pipe straight into tail: a pipeline reports the LAST command's
+        status, so tail's zero exit hides a failing baseline.
+
+        If BASELINE_EXIT is not 0, STOP.  Write ready: false and report this
+        stage's status as "failed".  A broken baseline means the migration
+        cannot be shown to preserve anything, so proceeding is worse than
+        halting.  Record the passing test count only when the exit was 0.
 
       Step 3 -- record the Receipt surface claims must build against:
-        PYTHONPATH="$(pwd)/src" python3 -c \
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
           "import dataclasses, receipts.models as m; \
            print([f.name for f in dataclasses.fields(m.Receipt)])" 2>&1
 
       Step 4 -- write {workspace}/outputs/preflight.json:
-        {{
+        {
           "receipts_importable": true,
           "pdf_forms_tests_passing": 0,
           "receipt_fields": [],
-          "ready": true
-        }}
+          "ready": false
+        }
+
+        ready is DERIVED, never a literal.  Set it true only when the venv
+        exists, INSTALL_EXIT was 0, the fitz import succeeded, the receipts
+        imports succeeded, and BASELINE_EXIT was 0.  If any failed, write
+        ready: false AND report this stage's status as "failed" -- otherwise
+        migrate-font-sizes proceeds on a foundation that was never verified.
     agent:
       role: researcher
       model: sonnet
@@ -130,6 +167,27 @@ stages:
       Migrate insurer-specific font-size constants from core.pdf_forms into
       claims/forms.py, where they belong.
 
+      Step 0 -- ensure fitz is importable in this worktree.
+        preflight-check installed ".[pdf,ocr]", but stages run as separate
+        agents and a venv may not be shared.  This is idempotent, so just
+        confirm and install if needed:
+
+          test -x .venv/bin/python || make venv > /tmp/venv-create.log 2>&1
+          test -x .venv/bin/python || { tail -20 /tmp/venv-create.log; \
+            echo "FATAL: no .venv"; exit 1; }
+          if ! .venv/bin/python -c "import fitz" 2>/dev/null; then
+            .venv/bin/python -m pip install -e ".[pdf,ocr]" > /tmp/pdf-install.log 2>&1
+            status=$?; tail -2 /tmp/pdf-install.log; echo "INSTALL_EXIT=$status"
+          fi
+          .venv/bin/python -c "import fitz; print('fitz ok')" 2>&1
+
+        The trailing import is the check that matters -- it must succeed
+        before this stage does any work.  Piping the install into tail would
+        report success regardless of whether it worked.
+
+        Every python invocation below uses .venv/bin/python.  fitz is used
+        directly by the blank-template check and the equivalence proof.
+
       Step 1 -- read the current state.
         Read src/core/pdf_forms.py in full.
         Confirm DEFAULT_FONT_SIZES contains these insurer-specific prefixes:
@@ -139,7 +197,7 @@ stages:
         Record every call site.
 
       Step 2 -- determine the safe residual.
-        DEFAULT_FONT_SIZES in core can be EMPTIED ({{}} or a clearly commented
+        DEFAULT_FONT_SIZES in core can be EMPTIED ({} or a clearly commented
         generic default dict), since all five prefixes are Sun Life specific.
         FALLBACK_FONT_SIZE (9) stays in core -- it is the mechanism default,
         not insurer-specific.
@@ -172,15 +230,15 @@ stages:
           # Generic mechanism default.  Insurer-specific sizes belong in the
           # caller's own sizes map (e.g. claims/forms.py:CLAIM_FONT_SIZES),
           # passed as the sizes= argument to font_size_for().
-          DEFAULT_FONT_SIZES: dict[str, int] = {{}}
+          DEFAULT_FONT_SIZES: dict[str, int] = {}
         Use the Edit tool.
 
       Step 4 -- verify the import smoke check passes.
-        PYTHONPATH="$(pwd)/src" python3 -c \
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
           "from core.pdf_forms import DEFAULT_FONT_SIZES, font_size_for, \
            format_da, pdf_string, set_text_field, fill_text_fields, set_checkbox; \
            print('import ok'); \
-           print('DEFAULT_FONT_SIZES empty:', DEFAULT_FONT_SIZES == {{}})"
+           print('DEFAULT_FONT_SIZES empty:', DEFAULT_FONT_SIZES == {})"
 
       Step 5 -- re-run the EXISTING test suite for the file you just edited.
         src/core/pdf_forms.py shipped in PR #349 with 30 passing unit tests and
@@ -188,10 +246,35 @@ stages:
         returns for every unmatched field, so those tests are the guard against
         breaking a merged, working module.
 
-        PYTHONPATH="$(pwd)/src" python3 -m unittest \
-          tests.core_tests.test_core_pdf_forms 2>&1 | tail -5
-        PYTHONPATH="$(pwd)/src" python3 -m doctest src/core/pdf_forms.py -v \
-          2>&1 | tail -3
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -m unittest \
+          tests.core_tests.test_core_pdf_forms > /tmp/pdf-forms-tests.log 2>&1
+        unit_status=$?; tail -5 /tmp/pdf-forms-tests.log
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -m doctest src/core/pdf_forms.py -v \
+          > /tmp/pdf-forms-doctest.log 2>&1
+        doc_status=$?; tail -3 /tmp/pdf-forms-doctest.log
+        echo "UNIT_EXIT=$unit_status DOCTEST_EXIT=$doc_status"
+
+        Neither may be piped into tail directly -- tail's zero exit would mask
+        a failure and let existing_pdf_forms_tests record PASS on a red run,
+        which is exactly what the migration_safe gate depends on.
+
+        existing_pdf_forms_tests is "PASS" only when BOTH exits are 0.
+
+        THE DOCTEST WILL FAIL UNTIL YOU FIX IT, and that is expected: the
+        docstring of font_size_for() in src/core/pdf_forms.py contains
+
+            >>> font_size_for("2.day_phone.area")
+            7
+
+        which asserts the very default this migration removes.  Update that
+        doctest in the same edit -- pass an explicit sizes map so it still
+        demonstrates longest-prefix matching:
+
+            >>> font_size_for("2.day_phone.area", {"2.day_phone.": 7})
+            7
+
+        Do not delete the doctest and do not weaken it to assert 9; the point
+        of the example is the prefix mechanism, which core still owns.
 
         Tests asserting the OLD Sun Life prefixes (e.g. font_size_for(
         "2.day_phone.area") == 7) will now fail, because that knowledge has
@@ -204,8 +287,8 @@ stages:
         to pass an explicit local sizes map rather than relying on the removed
         default:
 
-          SUNLIFE_SIZES = {{"dateOfBirth": 7, "2.day_phone.": 7, "4.DOB.": 7,
-                            "5.date.": 7, "3.total_claimed": 8}}
+          SUNLIFE_SIZES = {"dateOfBirth": 7, "2.day_phone.": 7, "4.DOB.": 7,
+                            "5.date.": 7, "3.total_claimed": 8}
           self.assertEqual(font_size_for("2.day_phone.area", SUNLIFE_SIZES), 7)
 
         This keeps the mechanism under test in core where it belongs (core owns
@@ -225,10 +308,10 @@ stages:
         importable here.  Define the map inline in your throwaway verification
         script, using the exact prefixes you just removed from core:
 
-          CLAIM_FONT_SIZES = {{
+          CLAIM_FONT_SIZES = {
               "dateOfBirth": 7, "2.day_phone.": 7, "4.DOB.": 7,
               "5.date.": 7, "3.total_claimed": 8,
-          }}
+          }
 
         These same five entries are what implement-claims will later write into
         claims/forms.py; defining them here is not duplication of shipped code,
@@ -236,38 +319,257 @@ stages:
         src/claims/forms.py from this stage -- implement-claims owns that file,
         and writing it early would collide.
 
-        Pick any previously generated claim PDF under
-        ~/Documents/sunlife-claims/ (e.g. 2026-submission-4/
-        claim_2026_sunlife_ehc_brian_bruce.pdf).  Rebuild the same form from
-        its blank template (~/Downloads/pdfFormClaimIBM.pdf) through the
-        post-migration code path, passing that inline map as sizes=, then
-        compare field-by-field:
+        PRIVACY BOUNDARY -- do NOT read real claim PDFs.  Files under
+        ~/Documents/sunlife-claims/ contain real names, dates of birth, a home
+        address, a member ID and claim amounts.  Never open one, never copy one
+        into the workspace, and never quote its contents.  The same rule that
+        makes the receipt fixtures synthetic applies here.
 
-          for each text widget in both PDFs:
-              assert field_value matches
-              assert the /DA string matches EXACTLY (same font, same point size)
+        The check does not need real data -- it needs the SAME VALUES written
+        twice through two code paths.  Build both sides yourself from invented
+        values:
 
-        A /DA mismatch means the migration changed rendering even though the
+          1. Generate the approved BLANK template.  There is exactly one,
+             and it is generated rather than found:
+
+               .venv/bin/python tests/receipts_fixtures/build_claim_template.py
+               -> tests/receipts_fixtures/blank_claim_template.pdf
+
+             It is a real AcroForm carrying the same field NAMES the size map
+             keys on, every widget empty, no personal data.  Field names are
+             the form's schema, not personal data.
+
+             Do NOT accept a caller-supplied path, and do NOT search the
+             filesystem.  Both were tried in earlier revisions of this stage
+             and both are unsound for the same reason: deciding whether a PDF
+             is blank means READING ITS PAGE TEXT, so a filled claim form
+             would already have been read by the time it was rejected.
+             Opening is the disclosure.  A check cannot be the safeguard when
+             performing the check is itself the exposure -- the only safe
+             input is one that was never a real claim form.
+
+             This also removes the reason a real template was ever wanted:
+             the insurer-supplied file on this machine is NOT blank (it
+             arrives pre-populated with member ID, name, date of birth and
+             address), so it could never have served as a baseline anyway.
+
+             The blank check below still runs on the generated template.  It
+             is cheap, and it now catches a broken generator rather than
+             vetting an untrusted input.  If it rejects, record
+             shipped_form_equivalence: "SKIPPED -- template generator failed"
+             and CONTINUE TO STEP 7 to write the manifest.  Do not jump back
+             to an earlier step: the skip is recorded here, in Step 6, while
+             Step 7 is the only step that writes font-size-migration.json --
+             going backwards re-runs the equivalence checks, reaches this
+             same branch again, and loops without ever producing the manifest
+             a human needs to see why the run stopped.
+
+             A SKIP IS NOT EXPECTED.  The template is generated, so the
+             proof should normally run and report PASS or FAIL.  A skip means
+             the generator or the blank check failed, which is a defect to
+             report -- not a normal outcome, and never a reason to go looking
+             for another template.  Step 7 treats any skip as unverified and
+             halts the run.
+
+             VERIFY THE GENERATED TEMPLATE IS BLANK.  The check is cheap and
+             now guards against a broken generator rather than vetting an
+             untrusted input -- there is no caller-supplied path any more.
+
+             Counting filled WIDGETS is not sufficient on its own: a flattened
+             or scanned PDF has no AcroForm widgets at all, so it reports zero
+             filled fields while its page text still carries every name and
+             amount.  Require BOTH:
+
+               a. an intact AcroForm with every text widget empty, AND
+               b. page text that contains none of the identifying tokens a
+                  filled claim would carry.
+
+               The template path is now a FIXED, repo-relative constant, so
+               nothing needs to hand a path to this program: no environment
+               variable, no workspace file, no shell interpolation.  That
+               closes the injection surface rather than trying to quote it --
+               {workspace} itself is derived from a user-overridable
+               --workspace/work_dir, so interpolating it into a `python -c`
+               string would be shell source too.
+
+               PYTHONPATH="$(pwd)/src" .venv/bin/python -c "
+               import pathlib, re, fitz
+               cand = 'tests/receipts_fixtures/blank_claim_template.pdf'
+               if not pathlib.Path(cand).is_file():
+                   raise SystemExit('REJECT: generator did not produce ' + cand)
+               d = fitz.open(cand)
+               widgets = [w for pno in range(d.page_count)
+                          for w in (d[pno].widgets() or [])]
+               text_widgets = [w for w in widgets
+                               if w.field_type_string in ('Text','ComboBox')]
+               filled = [w.field_name for w in text_widgets
+                         if (w.field_value or '').strip()]
+               page_text = ' '.join(p.get_text() for p in d)
+               d.close()
+               # A blank template is a FORM: it must have text widgets.
+               if not text_widgets:
+                   raise SystemExit('REJECT: no AcroForm text widgets -- '
+                                    'flattened or scanned, not a blank template')
+               if filled:
+                   raise SystemExit(f'REJECT: {len(filled)} filled field(s)')
+               # Belt and braces: a blank form carries LABELS, not data.
+               # These patterns are a backstop, NOT a proof of blankness --
+               # they cannot enumerate every way a name or amount can appear.
+               # The real guarantee is the widget check above plus the
+               # approved-source rule below.
+               import itertools
+               PATTERNS = [
+                   r'\b\d{3}[-. ]\d{3}[-. ]\d{4}\b',      # phone, any sep
+                   r'\b(19|20)\d{2}-\d{2}-\d{2}\b',        # ISO date
+                   r'\b\d{1,2}/\d{1,2}/(19|20)\d{2}\b',    # slashed date
+                   r'\$\s?\d[\d,]*\.\d{2}',                # currency amount
+                   r'\b[A-Z]\d[A-Z]\s?\d[A-Z]\d\b',        # CA postal code
+               ]
+               hits = [pat for pat in PATTERNS if re.search(pat, page_text)]
+               if hits:
+                   raise SystemExit(f'REJECT: page text matches {len(hits)} '
+                                    'data pattern(s) -- not a blank template')
+               print('BLANK OK')"
+
+             On BLANK OK, record the path as blank_template_path in your
+             manifest (it is the fixed generated path, but recording it keeps
+             verify from having to know the convention).  verify reads it from there rather than searching
+             again -- re-discovering a template in a later stage could pick a
+             different file than the one validated here, which would make the
+             approval meaningless.
+
+             The path reaches Python through that workspace file only.  Do
+             not pass it via a TEMPLATE environment variable and do not
+             interpolate it into the command text: resolve_params does a
+             plain str.replace with no shell quoting, so a path containing a
+             quote, $() or a backtick would execute.
+
+             THE PATTERNS ARE A BACKSTOP, NOT A GUARANTEE.  They cannot
+             enumerate every way personal data can appear -- a form whose
+             static text carries a name, a member ID, or a space-separated
+             phone number can still slip past.  So the rule is source-based
+             first and pattern-based second:
+
+               ACCEPT exactly ONE path, hard-coded:
+
+                 tests/receipts_fixtures/blank_claim_template.pdf
+
+               produced by build_claim_template.py in this same step.  There
+               is no second approved source and no override.  A
+               user-identified path reopens the untrusted-input problem this
+               section exists to close -- the blank check cannot vet it,
+               because running the check means reading the page text, and a
+               filled claim would be read before it was rejected.
+
+               Note the file is NOT committed: *.pdf is gitignored, so the
+               generator is the source of truth and the PDF is rebuilt each
+               run.  "A fixture committed to this repo" would be the wrong
+               rule to write down, because no such file exists.
+
+             Anything else -- a caller-supplied path, a filesystem search
+             result, a file that merely looks clean -- is rejected without
+             being opened.
+
+             On ANY reject, STOP -- do not open it further, do not copy it, do
+             not quote its contents.  Record shipped_form_equivalence:
+             "SKIPPED -- candidate template was not blank" and CONTINUE TO
+             STEP 7 to write the manifest.  Do not jump back: Step 4 precedes
+             the equivalence proof, so returning there repeats it and can
+             loop indefinitely without ever reaching the manifest.
+
+             Never search under ~/Documents/sunlife-claims/ or any directory
+             holding real claims.  The template is generated, so there is
+             nothing to look for.
+
+             THE PROOF IS NOW EXPECTED TO RUN, not to skip.  Earlier
+             revisions of this stage searched for a template and were told to
+             expect nothing -- verified on the author's machine, the
+             insurer-supplied file in ~/Downloads is NOT blank (Sun Life
+             pre-populates member ID, full name, date of birth and home
+             address), so it carries PII before anyone fills a claim and the
+             check correctly rejects it.
+
+             Generating a synthetic template removes that dead end: the
+             equivalence proof should normally produce PASS or FAIL.  A SKIP
+             now means the GENERATOR failed, which is a defect worth
+             reporting rather than a normal outcome.
+
+             Do NOT relax the check, strip fields to manufacture a blank, or
+             fall back to a real insurer form under any circumstances.
+
+          2. Fill a copy using SYNTHETIC values only -- the same "Pat Doe"
+             placeholder style as tests/receipts_fixtures/build_fixtures.py:
+               lastName "Doe", firstName "Pat", dateOfBirth 1990-01-01,
+               phone 555 555 0100, address "1 Test Street", amounts 45.00 /
+               200.00 / 245.00, member id "000000000".
+             Path A: the PRE-migration code path (git stash your edit, or use
+             `git show HEAD:src/core/pdf_forms.py` in a scratch module) with no
+             sizes= argument.
+             Path B: the POST-migration path passing the inline map as sizes=.
+
+          3. Compare the two generated PDFs field-by-field:
+
+               for each text widget in both PDFs:
+                   assert field_value matches
+                   assert the /DA string matches EXACTLY (font and point size)
+
+        A /DA mismatch means the migration changed RENDERING even though the
         values are right -- exactly the class of bug that reading values back
         cannot see.  Any mismatch is BLOCKING: report it and stop rather than
-        proceeding to the parallel fan-out.
+        proceeding.
 
-        If no prior claim PDF is available, say so explicitly in the manifest
-        (shipped_form_equivalence: "SKIPPED -- no reference PDF") rather than
-        silently recording a pass.
+        This is strictly stronger than diffing against a shipped form: it
+        controls both sides, so a difference can only come from the migration
+        itself rather than from a form that was generated months ago under
+        different inputs.
 
-      Step 7 -- write {workspace}/outputs/font-size-migration.json:
-        {{
-          "call_sites_found": [],
-          "call_sites_outside_claims": [],
-          "migration_safe": true,
-          "core_pdf_forms_edited": true,
-          "import_smoke_check": "PASS|FAIL",
-          "existing_pdf_forms_tests": "PASS|FAIL",
-          "tests_moved_to_claims": [],
-          "shipped_form_equivalence": "PASS|FAIL|SKIPPED -- no reference PDF",
-          "da_mismatches": []
-        }}
+      Step 7 -- write {workspace}/outputs/font-size-migration.json.
+
+        migration_safe is a DERIVED value, not a default.  Set it true ONLY
+        when the equivalence proof actually ran and passed:
+
+          migration_safe = (existing_pdf_forms_tests == "PASS"
+                            and import_smoke_check   == "PASS"
+                            and shipped_form_equivalence == "PASS")
+
+        A SKIPPED equivalence check means the migration is UNVERIFIED, which
+        is not the same as safe.  Writing migration_safe: true on a skip would
+        let implement-claims build on an unproven edit to a merged module --
+        the precise failure this stage exists to prevent.
+
+          {
+            "call_sites_found": [],
+            "call_sites_outside_claims": [],
+            "migration_safe": false,
+            "core_pdf_forms_edited": true,
+            "import_smoke_check": "PASS|FAIL",
+            "existing_pdf_forms_tests": "PASS|FAIL",
+            "tests_rewritten_in_core": [],
+            "shipped_form_equivalence": "PASS|FAIL|SKIPPED -- <reason>",
+            "blank_template_path": null,
+            "da_mismatches": []
+          }
+
+        If migration_safe is false, report this stage's status as "failed".
+
+        Be clear about what that does, because it is NOT a pause at the human
+        gate: _any_required_failed in src/workflow/orchestrator.py:220-222
+        returns immediately when a required stage fails, so the run STOPS
+        here.  implement-claims, verify and human-gate never execute, and
+        there is no gate report.
+
+        That is the intended outcome, and it is the right one -- continuing
+        would build the claims package on an edit to a merged, tested module
+        that was never shown to preserve rendering.  But it means this
+        manifest IS the record: a human reads
+        {workspace}/outputs/font-size-migration.json to see why the run
+        stopped, so shipped_form_equivalence must carry a specific reason
+        ("SKIPPED -- template generator failed", "FAIL -- 3 /DA mismatches")
+        rather than a bare status.  Nothing downstream will summarise it for
+        them.
+
+        Resuming: a human fixes whatever made the proof fail and re-runs.
+        Do not weaken this to a warning so the pipeline can continue.
     agent:
       role: code-writer
       model: sonnet
@@ -297,8 +599,23 @@ stages:
       Implement src/claims/ -- ledger, rules, forms, packet, CLI, and bin wrapper.
 
       Step 1 -- read:
-        Read {workspace}/outputs/design/interfaces.md (section: Package: src/claims/).
-        Read {workspace}/outputs/design/dataclasses.md (Claim, RuleResult).
+        There is no design/ directory in THIS workspace: design-interfaces
+        belongs to receipts-domain-build.yaml and wrote into its own,
+        separate workspace.  Do not read those paths -- they do not exist
+        here, and a stage that blocks on a missing required input fails
+        confusingly.
+
+        The consumer contract for src/claims/ is in the merged receipts
+        workflow instead.  Read it from the repo:
+
+          grep -n "Consumer contract" -A 60 \
+            workflows/code/receipts-domain-build.yaml
+
+        That section pins Claim (including plan_year_start_month), the
+        ClaimLedger signatures (invoice_id is str | None), RuleResult, and
+        the rules this package must implement.  The concrete specifications
+        below are authoritative where the two differ -- report any conflict
+        rather than silently choosing one.
         Read src/core/pdf_forms.py (fill_text_fields, set_checkbox, font_size_for).
         Read src/core/pdf_read.py (PdfDocument.render_png for packet.py).
         Read src/receipts/models.py (Receipt for claims/models.py).
@@ -312,42 +629,92 @@ stages:
         @dataclass Claim:
           receipt: Receipt
           claimant: str
-          plan_year: int
+          plan_year: int              # the year the window STARTS in
+          plan_year_start_month: int = 1   # 1-12; not every plan runs Jan-Dec
           submitted: bool = False
+
+        plan_year_start_month is a field rather than a lookup because this
+        workflow introduces no claims configuration file, and inventing an
+        implicit config source would be a hidden dependency.  The caller
+        already knows which plan it is filing against.  Default 1 keeps the
+        common calendar-year case ergonomic.
         from receipts.models import Receipt  (import at module level is fine here --
         receipts is a declared dependency of claims, not core).
 
       Step 4 -- write src/claims/ledger.py.
-        ClaimLedger with __init__(ledger_path), is_duplicate(invoice_id),
-        record(invoice_id, claimant, amount, submitted_at), load(), save().
+        ClaimLedger with these exact signatures -- note invoice_id is
+        OPTIONAL on both, because Costco receipts have no invoice number and
+        the contract below explicitly requires passing None:
+
+          def __init__(self, ledger_path: str | Path) -> None: ...
+          def is_duplicate(self, invoice_id: str | None) -> bool: ...
+          def record(self, invoice_id: str | None, claimant: str,
+                     amount: float, submitted_at: str) -> None: ...
+          def load(self) -> list[dict]: ...
+          def save(self) -> None: ...
+
+        Typing invoice_id as bare `str` while documenting is_duplicate(None)
+        makes the documented call invalid at the type boundary and would show
+        up as a mypy regression under make typecheck-changed.
+
         Ledger file: JSON list of dicts.
-        is_duplicate checks ALL entries, not just current plan_year.
-        Costco receipts (invoice_id=None): is_duplicate(None) returns False always
-        (cannot deduplicate what has no id).
+        is_duplicate checks ALL entries, not just the current plan_year --
+        a receipt claimed in submission 2 must still be caught in submission 5.
+        Costco receipts (invoice_id=None): is_duplicate(None) returns False
+        always (cannot deduplicate what has no id).
         record() is a no-op if invoice_id is None (no ledger entry for Costco).
 
       Step 5 -- write src/claims/rules.py.
         @dataclass RuleResult: eligible: bool; reason: str | None
         apply_rules(claim: Claim, ledger: ClaimLedger) -> RuleResult:
+          if claim.receipt.total is None:
+            return RuleResult(eligible=False, reason="no amount parsed")
           if claim.receipt.total == 0.0:
             return RuleResult(eligible=False, reason="$0 patient-pays: provider direct-billed")
+          if not in_plan_year(claim.receipt.date, claim.plan_year,
+                              claim.plan_year_start_month):
+            return RuleResult(eligible=False, reason="outside plan year")
           if claim.receipt.invoice_id and ledger.is_duplicate(claim.receipt.invoice_id):
             return RuleResult(eligible=False, reason="duplicate: already submitted")
           return RuleResult(eligible=True, reason=None)
 
+        in_plan_year(service_date: str | None, plan_year: int,
+                     start_month: int = 1) -> bool:
+          The window is [start, start + 1 year), where start is
+          date(plan_year, start_month, 1).  start_month comes from
+          Claim.plan_year_start_month -- an explicit argument, NOT a config
+          lookup, since no claims config file exists and introducing one
+          implicitly would be a hidden dependency.
+
+          Call it as:
+            in_plan_year(claim.receipt.date, claim.plan_year,
+                         claim.plan_year_start_month)
+
+          Return True when service_date is None -- an unparsed date is not
+          evidence the receipt is out of window, and the $0/None checks above
+          already catch unusable receipts.
+
+          Required because a service date can fall outside the plan whose
+          form it is being submitted on, and a receipt claimed against the
+          wrong plan year is rejected by the insurer rather than silently
+          ignored.  Note the ledger deliberately checks ALL prior
+          submissions, not just the current plan year, so the two rules are
+          independent: this one bounds the SERVICE date, the ledger bounds
+          resubmission.
+
       Step 6 -- write src/claims/forms.py.
-        CLAIM_FONT_SIZES = {{
+        CLAIM_FONT_SIZES = {
           "2.day_phone.": 7,
           "4.DOB.": 7,
           "5.date.": 7,
           "3.total_claimed": 8,
           "dateOfBirth": 7,
-        }}
+        }
         # These were previously in core.pdf_forms.DEFAULT_FONT_SIZES.
         # They are Sun Life EHC-specific and belong here, not in core.
 
         VERIFY THE REAL SIGNATURE BEFORE WRITING THIS.  Run:
-          PYTHONPATH="$(pwd)/src" python3 -c \
+          PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
             "import inspect, core.pdf_forms as f; \
              print(inspect.signature(f.fill_text_fields)); \
              print(inspect.signature(f.set_checkbox))"
@@ -372,7 +739,7 @@ stages:
           shutil.copy(template_path, out_path)   # never mutate the template
           doc = fitz.open(out_path)
           try:
-              fields = {{...}}  # build from Receipt + claimant
+              fields = {...}  # build from Receipt + claimant
               fill_text_fields(doc, fields, sizes=CLAIM_FONT_SIZES)
               # checkboxes: one call per field name, per-xref internally
               doc.save(out_path, incremental=True,
@@ -413,19 +780,19 @@ stages:
       Step 9 -- write src/claims/__main__.py (mirror wifi pattern).
 
       Step 10 -- register in bin/_wrappers.yaml:
-          claims: {{module: claims, doc: "Insurance claim pipeline (EHC/HSA form fill, ledger, rules)."}}
+          claims: {module: claims, doc: "Insurance claim pipeline (EHC/HSA form fill, ledger, rules)."}
         Run: make bin-wrappers
         Verify: ls -la bin/claims
 
       Step 11 -- import smoke check:
-        PYTHONPATH="$(pwd)/src" python3 -c \
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
           "from claims.ledger import ClaimLedger; \
            from claims.rules import apply_rules; \
            from claims.forms import fill_claim_form, CLAIM_FONT_SIZES; \
            print('ok')" 2>&1
 
       Step 12 -- write {workspace}/outputs/claims-manifest.json:
-        {{
+        {
           "files_written": [
             "src/claims/__init__.py", "src/claims/models.py",
             "src/claims/ledger.py", "src/claims/rules.py",
@@ -437,7 +804,7 @@ stages:
           "font_sizes_in_core": false,
           "render_verification_in_packet": true,
           "import_smoke_check": "PASS|FAIL"
-        }}
+        }
     agent:
       role: code-writer
       model: sonnet
@@ -521,22 +888,41 @@ stages:
         grep -n "sidecar\|load_sidecar" src/receipts/extract.py
         Confirm sidecar is only invoked AFTER all PARSERS have declined.
 
-      Step 9 -- verify agentic schema in both CLIs.
-        grep -n "run_with_assistant\|agentic" src/receipts/cli.py src/claims/cli.py
+      Step 9 -- verify agentic schema in the claims CLI.
+        grep -n "run_with_assistant\|agentic" src/claims/cli.py
+        (src/receipts/cli.py shipped with receipts-domain-build and is not
+        modified here; the full-suite run is its regression guard.)
+
+      Step 9b -- read the migration verdict.  Do NOT assume it.
+        Read {workspace}/outputs/font-size-migration.json and take
+        migration_safe and shipped_form_equivalence from it verbatim.
+
+        migration_safe is itself derived in migrate-font-sizes from three
+        checks, and is false whenever the equivalence proof was SKIPPED --
+        which now indicates the template generator failed -- the proof is
+        expected to run and produce PASS or FAIL.  "Unverified" is not "verified": report it as a blocking
+        finding here rather than letting fix-integration branch on a
+        hard-coded true.
 
       Step 10 -- write {workspace}/outputs/integration-review.json:
-        {{
+        {
           "dependency_direction_violations": [],
-          "font_size_migration_verified": true,
+          "font_size_migration_verified": false,
+          "migration_safe": false,
+          "shipped_form_equivalence": "PASS|FAIL|SKIPPED",
           "lazy_fitz_violations": [],
           "pdfparser_abc_method_count": 2,
           "zero_dollar_rule_present": true,
           "render_verification_present": true,
           "sidecar_last_resort_verified": true,
-          "agentic_wired": {{"receipts": true, "claims": true}},
+          "agentic_wired": {"claims": true},
           "blocking_count": 0,
           "overall": "PASS|ISSUES"
-        }}
+        }
+
+        font_size_migration_verified MUST equal migration_safe as read in
+        Step 9b -- never a literal.  If it is false, count it in
+        blocking_count and set overall to "ISSUES".
 
       Write {workspace}/outputs/integration-review.md with a human-readable
       summary of any issues and recommended fixes.
@@ -581,11 +967,25 @@ stages:
           Remove the cross-layer import.
           Refactor to pass the data as a parameter instead.
 
-      Step 3 -- fix font-size migration issues.
-        If font_size_migration_verified == false:
-          Ensure DEFAULT_FONT_SIZES is {{}} in src/core/pdf_forms.py.
-          Ensure CLAIM_FONT_SIZES exists in src/claims/forms.py.
-          Ensure fill_text_fields is called with sizes=CLAIM_FONT_SIZES.
+      Step 3 -- font-size migration: distinguish BROKEN from UNVERIFIED.
+        If font_size_migration_verified == false, read
+        shipped_form_equivalence before changing anything.
+
+        a. shipped_form_equivalence == "FAIL"
+             The migration genuinely changed rendering.  Fix it:
+             ensure DEFAULT_FONT_SIZES is {} in src/core/pdf_forms.py,
+             CLAIM_FONT_SIZES exists in src/claims/forms.py, and
+             fill_text_fields is called with sizes=CLAIM_FONT_SIZES.
+
+        b. shipped_form_equivalence startswith "SKIPPED"
+             The template generator failed, so the proof could not run.  This is NOT a code defect and there is nothing here to
+             fix.  Do NOT edit files to make the flag flip, and do NOT
+             re-run the check against a non-approved template.  Leave the
+             finding standing, record it in your results as
+             "unverified -- template generator failed", and let the human
+             gate decide.  Silently converting an unverified migration into
+             a verified one is the exact failure this chain exists to
+             prevent.
 
       Step 4 -- fix lazy fitz violations.
         For each hit in lazy_fitz_violations:
@@ -595,18 +995,18 @@ stages:
         Remove any abstract methods beyond matches() and parse().
 
       Step 6 -- re-run import smoke checks after fixes:
-        PYTHONPATH="$(pwd)/src" python3 -c \
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -c \
           "from core.pdf_read import PdfDocument, PdfParser; \
            from receipts.extract import extract; \
            from claims.ledger import ClaimLedger; \
            from claims.forms import fill_claim_form; print('all ok')" 2>&1
 
       Step 7 -- write {workspace}/outputs/fix-integration-results.json:
-        {{
+        {
           "fixes_applied": [],
           "sentinel": false,
           "import_smoke_check": "PASS|FAIL"
-        }}
+        }
     agent:
       role: code-writer
       model: sonnet
@@ -636,14 +1036,30 @@ stages:
       Full verification pass: RUNS the code (tests, CLI smoke, render check).
       Do not skip execution in favour of reading.
 
-      Step 0 -- build the shared fixtures FIRST.
-        Run: python3 tests/receipts_fixtures/build_fixtures.py
-        This writes seven synthetic PDFs under tests/receipts_fixtures/, each
-        reproducing one real-world parsing hazard confirmed against actual
-        receipts.  They are synthetic on purpose: real receipts carry patient
-        names, addresses and prescribing physicians and must never enter the
-        repo.  Read the module docstring before writing parser tests -- it
-        documents what each fixture is for.
+      Step 0 -- install, then regenerate the shared fixtures.
+        Install the [pdf] extra BEFORE generating anything.  `make venv`
+        installs ".[dev]", which does not include PyMuPDF -- fitz lives in the
+        [pdf] extra -- so running the builder first fails with
+        ModuleNotFoundError.  The CI install does not help an agent worktree.
+
+          test -x .venv/bin/python || make venv > /tmp/venv-create.log 2>&1
+          test -x .venv/bin/python || { tail -20 /tmp/venv-create.log; \
+            echo "FATAL: no .venv"; exit 1; }
+          .venv/bin/python -m pip install -e ".[pdf,ocr]" > /tmp/pdf-install.log 2>&1
+          status=$?; tail -2 /tmp/pdf-install.log; echo "INSTALL_EXIT=$status"
+
+        INSTALL_EXIT must be 0 before continuing -- do not pipe straight into
+        tail, which would hide a failed install behind its own zero exit.
+
+          .venv/bin/python tests/receipts_fixtures/build_fixtures.py
+
+        The generated PDFs are gitignored (*.pdf), so a fresh checkout has the
+        builder but not its output.  The full-suite run in Step 3 re-executes
+        the receipts tests, which read these files -- without this step they
+        fail with FileNotFoundError and it looks like a receipts regression.
+
+        This workflow does not WRITE receipts tests (they merged with
+        receipts-domain-build.yaml); it only needs their fixtures present.
 
           jane_clinic.pdf      "Invoice #NNNNN-PNN" + "Payer Total  $190.00"
           jane_zero.pdf        same shape, "$0.00" -- direct-billed; MUST parse
@@ -672,84 +1088,16 @@ stages:
         receipt it was written alongside proves nothing about the label
         variance that actually breaks parsing.
 
-        Write tests/core_tests/test_pdf_read.py:
-          HAPPY:
-          - PdfDocument opens a synthetic in-memory PDF (build with fitz in setUp).
-          - extract_text() returns a non-empty string for a PDF with text layer.
-          - lines() returns a list with at least one element for a text PDF.
-          - render_png() returns bytes with len > 1000 (not just non-zero).
-          - render_png() output decodes as a real image of the expected size:
-            open it with fitz.Pixmap(io.BytesIO(png)) and assert width/height
-            match the requested clip at the requested dpi (within 2px).
-            A byte count proves a pixmap was produced, not that it depicts
-            anything -- the null-/DA bug produced perfectly valid PNG bytes of
-            text rendered at the WRONG SIZE.
-          - a render of a filled field is not blank: rasterise the field's clip
-            rect and assert the pixmap is not uniformly the background colour
-            (pix.color_topusage() returns a (ratio, colour) TUPLE -- assert
-            ratio < 0.99; a blank page returns exactly 1.0).  This is the cheapest
-            automated proxy for "the value actually appears on the page";
-            catching a wrong FONT SIZE still requires human inspection, which
-            is what the human-gate stage is for.
-          - context manager (__enter__/__exit__) closes without error.
-          - merge() returns a new PdfDocument whose page_count equals the sum of
-            both input documents.
-          SAD:
-          - PdfDocument("does_not_exist.pdf") raises FileNotFoundError (or fitz
-            equivalent).
-          - extract_text() on a page index out of range raises IndexError or
-            ValueError (document the expected exception in the test).
-          - If tesseract is not on PATH: mock shutil.which to return None, then
-            confirm extract_text() raises RuntimeError on an empty-text-layer page
-            (not a silent empty string).
+        Do NOT write tests/core_tests/test_pdf_read.py -- core.pdf_read and
+        its tests ship with receipts-domain-build.yaml, already merged.
 
-        Write tests/receipts_tests/__init__.py (empty).
-        Write tests/receipts_tests/test_models.py:
-          HAPPY:
-          - Receipt with total=0.00 constructs without error.
-          - Receipt with total=None constructs without error.
-          - LineItem with amount=None constructs without error.
-          SAD:
-          - Receipt is a dataclass (assert dataclasses.is_dataclass(Receipt)).
-          - All required fields (vendor, date, total, etc.) are present on the class.
-
-        Write tests/receipts_tests/test_sidecar.py:
-          HAPPY:
-          - load_sidecar for a valid .amount.json returns a Receipt with correct
-            total and vendor (write a temp file in setUp).
-          - load_sidecar where total=0 in the JSON returns Receipt(total=0.0),
-            not None or an error.
-          SAD:
-          - load_sidecar for a non-existent file returns None (no exception).
-          - load_sidecar for a malformed JSON file raises ValueError or json.JSONDecodeError.
-
-        Write tests/receipts_tests/test_parsers.py:
-          HAPPY:
-          - JaneParser.matches() returns True for a synthetic PDF whose text
-            contains "Invoice #12345-P01" (build synthetic PDF in setUp with fitz).
-          - JaneParser.parse() extracts invoice_id "12345-P01" from that same PDF.
-          - JaneParser.parse() extracts total=0.00 from a PDF with "Payer Total: $0.00".
-          - CostcoParser.matches() returns False for a Jane-style PDF.
-          - GenericParser.matches() always returns True (any PDF).
-          - GenericParser.parse() extracts total=42.50 from a PDF with "Total: $42.50".
-          - GenericParser.parse() extracts total=0.00 from a PDF with "Total: $0.00".
-          SAD:
-          - JaneParser.matches() returns False for a PDF with no Invoice # pattern.
-          - JaneParser.parse() sets invoice_id=None for a PDF with no matching pattern
-            (should not raise).
-          - CostcoParser.matches() returns False (not raises) when extract_text()
-            raises RuntimeError (mock PdfDocument.extract_text to raise RuntimeError).
-          - GenericParser.parse() sets total=None for a PDF with no dollar amounts.
-
-        Write tests/receipts_tests/test_extract.py:
-          HAPPY:
-          - extract() on a Jane-style synthetic PDF returns a Receipt with invoice_id.
-          - extract() on a "$0.00 Payer Total" PDF returns Receipt(total=0.00).
-          SAD:
-          - extract() on a PDF no parser can match AND sidecar absent raises ValueError.
-          - extract() on a PDF no parser can match BUT .amount.json sidecar present
-            returns the sidecar Receipt (confirms last-resort path).
-          - extract(path, sidecar=False) raises ValueError even if a sidecar exists.
+        Do NOT write or rewrite tests under tests/receipts_tests/.  The
+        receipts package and its parser/extract/sidecar tests ship with
+        receipts-domain-build.yaml, which has already merged by the time this
+        workflow runs.  Re-creating them here would duplicate coverage and
+        risk overwriting the fixture-driven versions with weaker inline ones.
+        The full-suite run in a later step re-executes them as a regression
+        guard, which is the only coverage this workflow needs of them.
 
         Write tests/claims_tests/__init__.py (empty).
         Write tests/claims_tests/test_rules.py:
@@ -758,6 +1106,21 @@ stages:
           SAD:
           - apply_rules on a $0.00 claim returns eligible=False with reason
             containing "$0".
+          - apply_rules on a claim whose service date falls OUTSIDE the plan
+            year returns eligible=False with reason containing "plan year"
+            (use a date one day before the window start, and one day after
+            the window end -- both must be rejected).
+          - apply_rules on a claim whose service date is the FIRST day of the
+            plan year returns eligible=True (the window is inclusive at the
+            start), and the day before the next window starts is also
+            eligible.
+          - a NON-January plan year works: with plan_year=2026 and
+            plan_year_start_month=8, a 2026-08-01 service date is eligible,
+            2026-07-31 is not, 2027-07-31 is eligible, and 2027-08-01 is not.
+            This is the case a Jan-Dec assumption silently gets wrong.
+          - apply_rules on a claim whose receipt.date is None returns
+            eligible=True on that basis alone: an unparsed date must not be
+            treated as out-of-window.
           - apply_rules on a claim whose invoice_id is already in the ledger
             returns eligible=False with reason containing "duplicate".
           - apply_rules on a claim with invoice_id=None and total>0 returns
@@ -779,31 +1142,60 @@ stages:
           - CLAIM_FONT_SIZES["2.day_phone."] == 7.
           - CLAIM_FONT_SIZES["3.total_claimed"] == 8.
           SAD (migration regression guard):
-          - core.pdf_forms.DEFAULT_FONT_SIZES is empty (== {{}}). This test fails
+          - core.pdf_forms.DEFAULT_FONT_SIZES is empty (== {}). This test fails
             if someone accidentally re-adds Sun Life prefixes to core.
           - CLAIM_FONT_SIZES is NOT the same object as
             core.pdf_forms.DEFAULT_FONT_SIZES (import both and assert they are
             distinct dicts).
 
       Step 2 -- run the new tests:
-        PYTHONPATH="$(pwd)/src" python3 -m unittest discover \
-          -s tests -t . -p "test_*.py" -v 2>&1 | grep -E "test_pdf_read|test_models|test_extract|test_rules|test_ledger|test_forms|OK|FAIL|ERROR" | head -60
-        Record results.
+        A pipeline reports the LAST command's status, so
+        `unittest ... | grep | head` returns 0 even when the tests fail --
+        a red suite would be recorded as a pass.  Capture the status first:
+
+        PYTHONPATH="$(pwd)/src" .venv/bin/python -m unittest discover \
+          -s tests -t . -p "test_*.py" -v > /tmp/claims-new-tests.log 2>&1; status=$?
+        grep -E "test_rules|test_ledger|test_forms|test_packet|OK|FAIL|ERROR" \
+          /tmp/claims-new-tests.log | head -60
+        echo "UNITTEST_EXIT=$status"
+
+        UNITTEST_EXIT must be 0.  Any other value means this stage FAILED:
+        set "status": "failed" in your completion JSON and set all_green to
+        false.  Recording the number while reporting success is not enough --
+        the completion template pre-fills "success", so you must override it
+        explicitly or a red test run reaches the human gate looking green.
 
       Step 3 -- run the FULL test suite (regression guard):
-        make test > /tmp/receipt-claims-verify.log 2>&1; echo "EXIT=$?"
-        grep -E "^Ran [0-9]+ tests" /tmp/receipt-claims-verify.log
-        CRITICAL: verify the "Ran N tests" line exists.  No such line means the
-        suite did not run -- do not report PASS in that case.
+        make test > /tmp/receipt-claims-verify.log 2>&1; suite=$?
+        grep -E "^Ran [0-9]+ tests" /tmp/receipt-claims-verify.log; ran=$?
+        echo "SUITE_EXIT=$suite RAN_LINE=$ran"
+
+        BOTH conditions are required for full_suite: "PASS":
+          SUITE_EXIT must be 0  -- a suite with failing tests STILL prints
+            "Ran N tests", so the line's presence alone proves only that the
+            suite executed, not that it passed.
+          RAN_LINE must be 0    -- no such line means the suite did not run
+            at all, which a zero exit can also accompany (see CLAUDE.md on
+            the make venv race).
+
+        Neither alone is sufficient.  If either fails, full_suite is "FAIL".
 
       Step 4 -- CLI --help smoke tests:
-        ./bin/receipts --help          2>&1 | head -3
-        ./bin/receipts parse --help    2>&1 | head -3
-        ./bin/receipts --agentic --agentic-format json --agentic-compact 2>&1 | python3 -c "import sys,json; json.load(sys.stdin); print('agentic JSON ok')"
-        ./bin/claims --help            2>&1 | head -3
-        ./bin/claims fill --help       2>&1 | head -3
-        ./bin/claims --agentic --agentic-format json --agentic-compact 2>&1 | python3 -c "import sys,json; json.load(sys.stdin); print('agentic JSON ok')"
-        Record exit codes and any failures.
+        Capture each status; `cmd | head` reports head's exit, not the CLI's,
+        so a broken CLI would smoke green.
+
+          ./bin/claims --help > /tmp/c1.log 2>&1; c1=$?; head -3 /tmp/c1.log
+          ./bin/claims fill --help > /tmp/c2.log 2>&1; c2=$?; head -3 /tmp/c2.log
+          ./bin/claims --agentic --agentic-format json --agentic-compact \
+            > /tmp/c3.log 2>&1; c3=$?
+          python3 -c "import sys,json; json.load(open('/tmp/c3.log')); print('agentic JSON ok')"; c4=$?
+          echo "CLAIMS_HELP_EXITS=$c1,$c2,$c3,$c4"
+
+        All four must be 0.  Any non-zero is a FAIL: set cli_smoke fields to
+        "FAIL", all_green to false, and this stage's status to "failed".
+
+        ./bin/receipts shipped with receipts-domain-build; the full-suite run
+        is its regression guard, so it is not re-smoked here.
 
       Step 5 -- qlty lint (if run_qlty == "true"):
         ~/.qlty/bin/qlty check \
@@ -817,33 +1209,101 @@ stages:
         If auto-fixable issues, run: ~/.qlty/bin/qlty check --fix <file>
         Re-run once to confirm clean.
 
-      Step 6 -- render-verification smoke test.
-        If real_pdf is non-empty AND the file exists:
-          PYTHONPATH="$(pwd)/src" python3 -c "
-          from core.pdf_read import PdfDocument
-          doc = PdfDocument('{real_pdf}')
-          png = doc.render_png(page=0, dpi=72)
-          print(f'render_png returned {{len(png)}} bytes')
-          doc.close()
-          " 2>&1
-          Report byte count only (never log PDF content or field values).
+      Step 6 -- render-verification of a FILLED CLAIM, not just a receipt.
+        Rendering a receipt fixture only exercises PdfDocument.render_png; it
+        proves nothing about fill_claim_form() or build_packet(), which are
+        what this workflow actually adds.  A broken fill/merge/render path
+        would sail through such a check.
+
+        Build a synthetic claim end to end and inspect the result:
+
+          1. Build the Receipt from a FIXTURE FILE, not from thin air:
+               extract("tests/receipts_fixtures/jane_clinic.pdf")
+             build_packet() merges the receipt's PAGES into the packet, so a
+             Receipt with source_path=None has nothing to merge and the page
+             assertion in step 3 cannot mean anything.  The fixture is
+             synthetic, so this stays within the privacy boundary.
+
+          2. Wrap it in a Claim -- build_packet(claim, template_path, out_dir)
+             takes a Claim, not a Receipt:
+               Claim(receipt=<from step 1>, claimant="Pat Doe",
+                     plan_year=2026, plan_year_start_month=1)
+
+          3. Call build_packet() against the fixed generated template
+             (tests/receipts_fixtures/blank_claim_template.pdf), NOT against
+             a path read from the manifest -- see the note below.  Do NOT
+             re-search, and never fall back to a personalised form.
+          4. Assert on the produced packet:
+             - page_count == form pages + receipt pages
+             - the claimant-row region renders non-blank:
+                 pix.color_topusage() returns a (ratio, colour) tuple;
+                 assert ratio < 0.99 (a blank region returns exactly 1.0)
+             - the PNG decodes and its dimensions match the requested clip
+
+        Use the fixed generated template directly:
+
+          tests/receipts_fixtures/blank_claim_template.pdf
+
+        Regenerate it first if absent (build_claim_template.py is idempotent).
+
+        Do NOT take the path from blank_template_path in the manifest and
+        pass it to build_packet() unchecked.  A stale or wrong manifest would
+        then send this stage at an arbitrary PDF -- possibly a real
+        prefilled claim -- with no blank check in front of it, which is the
+        privacy boundary reopened through a data channel rather than a
+        parameter.  The manifest value is useful only as a cross-check:
+
+          if manifest["blank_template_path"] not in
+             (None, "tests/receipts_fixtures/blank_claim_template.pdf"):
+              record packet_render_check: "FAIL -- manifest names an
+              unexpected template" and do not open it.
+
+        Do NOT search for a template, and do NOT substitute a receipt render
+        and call it a packet check; that is the substitution this step exists
+        to prevent.
+
+        If the generator cannot produce the template, record
+        packet_render_check: "SKIPPED -- template generator failed".  That is
+        a defect worth reporting, not a normal outcome: migrate-font-sizes
+        reports status failed in the same situation, and the orchestrator
+        skips downstream stages of a failed required stage, so this branch is
+        reached mainly when a human resumes a halted run.
+
+        Report byte counts and page counts only -- never log PDF content or
+        field values.
 
       Step 7 -- write {workspace}/outputs/verify-results.json:
-        {{
+        {
           "new_tests_written": [],
           "new_tests_passed": "PASS|FAIL",
           "full_suite": "PASS|FAIL",
           "full_suite_ran_count": 0,
-          "cli_smoke": {{
+          "cli_smoke": {
             "receipts_help": "PASS|FAIL",
             "receipts_agentic": "PASS|FAIL",
             "claims_help": "PASS|FAIL",
             "claims_agentic": "PASS|FAIL"
-          }},
+          },
           "qlty_status": "PASS|ISSUES|SKIPPED",
-          "render_smoke": "PASS|FAIL|SKIPPED",
-          "all_green": true
-        }}
+          "packet_render_check": "PASS|FAIL|SKIPPED",
+          "all_green": false
+        }
+
+        all_green is DERIVED, never a literal.  Set it true only when every
+        one of these holds:
+          new_tests_passed == "PASS"  (UNITTEST_EXIT was 0)
+          full_suite       == "PASS"  (SUITE_EXIT 0 AND the Ran line present)
+          every cli_smoke field       == "PASS"
+          qlty_status      in ("PASS", "SKIPPED")
+          packet_render_check         == "PASS"
+        SKIPPED does NOT count as green here.  qlty may be skipped by a
+        parameter, but a skipped packet render means this workflow's own
+        merge-and-render path was never exercised -- the one thing it adds.
+        A resumed run that still has no approved template must not reach the
+        human gate claiming a green verification.
+        If any is false, set all_green false AND report this stage's status as
+        "failed".  The completion template pre-fills "success", so a red run
+        reaches the human gate looking green unless you override it.
     agent:
       role: code-writer
       model: sonnet
@@ -875,7 +1335,13 @@ stages:
         Read {workspace}/outputs/verify-results.json.
         Read {workspace}/outputs/integration-review.json.
         Read {workspace}/outputs/claims-manifest.json.
-        Read {workspace}/validation/critique.md.
+        Read {workspace}/outputs/preflight.json.
+        Read {workspace}/outputs/font-size-migration.json -- in particular
+        migration_safe and shipped_form_equivalence, so the gate reports
+        whether the migration was PROVEN or merely unverified.
+
+        (There is no validation/critique.md in this workflow: the interface
+        critique belongs to receipts-domain-build, which has already merged.)
 
       Step 2 -- identify branch and worktree:
         git worktree list 2>&1
@@ -907,7 +1373,7 @@ stages:
         - Field values escaped with pdf_string() before writing
 
         ### Font-Size Migration
-        (confirm CLAIM_FONT_SIZES in claims/forms.py; DEFAULT_FONT_SIZES = {{}} in core)
+        (confirm CLAIM_FONT_SIZES in claims/forms.py; DEFAULT_FONT_SIZES = {} in core)
 
         ### Test / Lint Status
         (from verify-results.json)
