@@ -450,14 +450,25 @@ stages:
              phone number can still slip past.  So the rule is source-based
              first and pattern-based second:
 
-               ACCEPT only a template from an approved blank source: one
-               committed to this repo as a synthetic fixture, or one the user
-               has explicitly identified as blank in this run.  Anything
-               discovered by searching the filesystem is NOT an approved
-               source, however clean it looks.
+               ACCEPT exactly ONE path, hard-coded:
 
-             If you cannot name the approved source, treat the candidate as
-             rejected even when every pattern check passes.
+                 tests/receipts_fixtures/blank_claim_template.pdf
+
+               produced by build_claim_template.py in this same step.  There
+               is no second approved source and no override.  A
+               user-identified path reopens the untrusted-input problem this
+               section exists to close -- the blank check cannot vet it,
+               because running the check means reading the page text, and a
+               filled claim would be read before it was rejected.
+
+               Note the file is NOT committed: *.pdf is gitignored, so the
+               generator is the source of truth and the PDF is rebuilt each
+               run.  "A fixture committed to this repo" would be the wrong
+               rule to write down, because no such file exists.
+
+             Anything else -- a caller-supplied path, a filesystem search
+             result, a file that merely looks clean -- is rejected without
+             being opened.
 
              On ANY reject, STOP -- do not open it further, do not copy it, do
              not quote its contents.  Record shipped_form_equivalence:
@@ -1218,10 +1229,10 @@ stages:
                Claim(receipt=<from step 1>, claimant="Pat Doe",
                      plan_year=2026, plan_year_start_month=1)
 
-          3. Call build_packet() against blank_template_path from
-             {workspace}/outputs/font-size-migration.json -- the template
-             migrate-font-sizes already approved.  Do NOT re-search, and never
-             fall back to a personalised form.
+          3. Call build_packet() against the fixed generated template
+             (tests/receipts_fixtures/blank_claim_template.pdf), NOT against
+             a path read from the manifest -- see the note below.  Do NOT
+             re-search, and never fall back to a personalised form.
           4. Assert on the produced packet:
              - page_count == form pages + receipt pages
              - the claimant-row region renders non-blank:
@@ -1229,22 +1240,34 @@ stages:
                  assert ratio < 0.99 (a blank region returns exactly 1.0)
              - the PNG decodes and its dimensions match the requested clip
 
-        Take the template from blank_template_path in
-        {workspace}/outputs/font-size-migration.json -- the SAME approved
-        template migrate-font-sizes validated.  Do NOT search for one, and do
-        NOT substitute a receipt render and call it a packet check; that is
-        the substitution this step exists to prevent.
+        Use the fixed generated template directly:
 
-        If blank_template_path is null, record
-        packet_render_check: "SKIPPED -- no template from migrate-font-sizes".
+          tests/receipts_fixtures/blank_claim_template.pdf
 
-        In practice that branch is rare: migrate-font-sizes reports status
-        failed when no approved template is found, and the orchestrator skips
-        downstream stages of a failed required stage, so verify usually will
-        not run at all in that case.  The branch stays because a human can
-        resume a halted run after supplying a template, and because a stage
-        that silently assumes its input exists is how a null path becomes a
-        confusing traceback three steps later.
+        Regenerate it first if absent (build_claim_template.py is idempotent).
+
+        Do NOT take the path from blank_template_path in the manifest and
+        pass it to build_packet() unchecked.  A stale or wrong manifest would
+        then send this stage at an arbitrary PDF -- possibly a real
+        prefilled claim -- with no blank check in front of it, which is the
+        privacy boundary reopened through a data channel rather than a
+        parameter.  The manifest value is useful only as a cross-check:
+
+          if manifest["blank_template_path"] not in
+             (None, "tests/receipts_fixtures/blank_claim_template.pdf"):
+              record packet_render_check: "FAIL -- manifest names an
+              unexpected template" and do not open it.
+
+        Do NOT search for a template, and do NOT substitute a receipt render
+        and call it a packet check; that is the substitution this step exists
+        to prevent.
+
+        If the generator cannot produce the template, record
+        packet_render_check: "SKIPPED -- template generator failed".  That is
+        a defect worth reporting, not a normal outcome: migrate-font-sizes
+        reports status failed in the same situation, and the orchestrator
+        skips downstream stages of a failed required stage, so this branch is
+        reached mainly when a human resumes a halted run.
 
         Report byte counts and page counts only -- never log PDF content or
         field values.
