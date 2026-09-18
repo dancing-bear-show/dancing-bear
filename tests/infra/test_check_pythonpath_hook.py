@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess  # nosec B404 - runs this repo's own hook script, no user input
 import tempfile
 import unittest
@@ -380,9 +381,34 @@ class TestCheckPythonpathHook(unittest.TestCase):
                 "code from whichever checkout wins",
             )
 
-            proc = subprocess.run(  # nosec B603 B602 - the repo's own advised command
-                advised,
-                shell=True,  # nosec B602 - run exactly as a user would paste it
+            # Tokenize and run WITHOUT a shell. `advised` comes from a tracked,
+            # branch-controlled file, so `shell=True` made this test a
+            # code-execution sink: a PR could append `; <anything>` to that line
+            # and CI would run it. Demonstrated before fixing — an injected
+            # `touch` fired and the test still reported OK, which is the worst
+            # combination.
+            #
+            # The argv is validated before execution rather than trusted, so a
+            # rewritten line fails the assertions instead of running.
+            argv = shlex.split(advised)
+            self.assertTrue(argv, f"advised line did not tokenize: {advised!r}")
+            self.assertRegex(
+                argv[0],
+                r"(^|/)python(3(\.\d+)?)?$",
+                f"advised command does not invoke python: {argv[0]!r}",
+            )
+            self.assertIn("-I", argv, "advised diagnostic is not isolated")
+            self.assertIn("-S", argv, "advised diagnostic is not isolated")
+            self.assertIn("-c", argv, "advised diagnostic is not a -c one-liner")
+            # Exactly one argument after -c: a shell would have split further.
+            self.assertEqual(
+                len(argv) - argv.index("-c"),
+                2,
+                f"unexpected trailing arguments after -c: {argv!r}",
+            )
+
+            proc = subprocess.run(  # nosec B603 - argv validated above, no shell
+                argv,
                 capture_output=True,
                 text=True,
                 env={**os.environ, "PYTHONPATH": str(foreign)},
