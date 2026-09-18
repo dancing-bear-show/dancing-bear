@@ -15,10 +15,12 @@ from .consumers import (
 from .processors_rules_helpers import (
     RuleContext,
     _canon_rule,
+    _criteria_key,
     _fetch_rules_with_resilience,
     _build_rule_criteria,
     _build_rule_action,
     _create_rule_key,
+    _norm_create_rule_key,
     _build_plan_action,
     _format_plan_action,
     _build_search_query,
@@ -33,6 +35,16 @@ class OutlookRulesSyncResult:
     """Result of rules sync."""
     created: int = 0
     deleted: int = 0
+    reconciled: int = 0
+    failed: int = 0
+    """Number of reconcile attempts that failed (delete or create raised).
+
+    A failed delete is not followed by a create (no duplicate created).  A
+    failed create after a successful delete means the rule is lost; the user
+    must re-run after the transient error clears.  In both cases the operation
+    is counted here rather than in reconciled so the caller always sees an
+    accurate tally.
+    """
 
 
 @dataclass
@@ -88,16 +100,20 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
                 folder_map=folder_path_map,
                 move_to_folders=payload.move_to_folders,
             )
-            created, desired_keys = self._create_desired_rules(
-                desired, existing, ctx, payload.dry_run
+            created, reconciled, failed, desired_keys, reconciled_rule_ids = self._create_desired_rules(
+                desired, existing, ctx, payload.dry_run, payload.reconcile
             )
             deleted = (
-                self._delete_missing_rules(existing, desired_keys, payload) if payload.delete_missing else 0
+                self._delete_missing_rules(
+                    existing, desired_keys, payload, reconciled_rule_ids
+                ) if payload.delete_missing else 0
             )
 
             return ResultEnvelope(
                 status="success",
-                payload=OutlookRulesSyncResult(created=created, deleted=deleted),
+                payload=OutlookRulesSyncResult(
+                    created=created, deleted=deleted, reconciled=reconciled, failed=failed
+                ),
             )
         except Exception as exc:
             return ResultEnvelope(
@@ -106,13 +122,114 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
                 diagnostics={"error": str(exc), "code": 1},
             )
 
+    def _apply_reconcile_update(
+        self,
+        criteria: dict[str, Any],
+        action: dict[str, Any],
+        reconcile_index: dict[str, Any],
+        ctx: RuleContext,
+        dry_run: bool,
+    ) -> str:
+        """Apply a reconcile update when a criteria match exists with a different action.
+
+        Returns a status string:
+        - ``"no_match"``     : criteria key not in index; caller should treat as new.
+        - ``"ok"``           : delete and create both succeeded (or dry_run).
+        - ``"delete_failed"``: delete raised; create was NOT attempted (no duplicate).
+        - ``"create_failed"``: delete succeeded but create raised; rule is now lost.
+
+        Failure semantics:
+        - A failed delete must not be followed by a create.  Proceeding after a
+          failed delete creates a duplicate rule for the same criteria; the stale
+          rule survives alongside the new one and both are matched by the Graph
+          API.  The caller counts this as ``failed``, not ``reconciled``.
+        - A failed create after a successful delete means the rule is gone and
+          the replacement was never created.  This is the most severe path: the
+          user must re-run after the transient error clears.  The caller counts
+          this as ``failed``, not ``reconciled``, so the loss is never silent.
+        - Retry / re-create from the stale live copy is intentionally NOT done
+          here.  Re-creating from the stale action would resurrect an outdated
+          rule; the caller has no access to the original live rule at this point
+          (it was already popped from the index).  The right recovery is a
+          subsequent ``rules.sync --reconcile`` after the API error resolves.
+
+        Pops the matched entry from ``reconcile_index`` so the same live rule
+        cannot be reconciled twice (duplicate criteria case).
+        """
+        crit_k = _criteria_key(criteria)
+        if crit_k not in reconcile_index:
+            return "no_match"
+        live_rule = reconcile_index.pop(crit_k)
+        if dry_run:
+            return "ok"
+        try:
+            ctx.client.delete_filter(live_rule.get("id"))
+        except Exception:  # nosec B110 - delete failed; abort to prevent duplicate creation
+            return "delete_failed"
+        try:
+            ctx.client.create_filter(criteria, action)
+        except Exception:  # nosec B110 - create failed after delete; rule is lost, surfaced as failed
+            return "create_failed"
+        return "ok"
+
+    def _find_live_rule_id(self, spec: dict[str, Any], existing: dict[str, Any]) -> str | None:
+        """Find the id of the live rule whose criteria match a spec's criteria.
+
+        Used after a reconcile to record which live rule was deleted, so
+        ``_delete_missing_rules`` can skip it and avoid a double-delete attempt.
+        """
+        desired_crit = _build_rule_criteria(spec.get("match") or {})
+        target_ck = _criteria_key(desired_crit)
+        for live_rule in existing.values():
+            if _criteria_key(live_rule.get("criteria") or {}) == target_ck:
+                return live_rule.get("id")
+        return None
+
+    def _reconcile_result(
+        self,
+        key: str,
+        criteria: dict[str, Any],
+        action: dict[str, Any],
+        reconcile_index: dict[str, Any],
+        ctx: RuleContext,
+        dry_run: bool,
+    ) -> tuple[str, bool, bool, bool] | None:
+        """Map a reconcile-update status to its (key, created, reconciled, failed) tuple.
+
+        Returns None when there is no criteria match in the index ("no_match"),
+        signalling the caller to fall through to fresh creation.  A non-None
+        result should be returned directly by the caller.
+        """
+        status = self._apply_reconcile_update(criteria, action, reconcile_index, ctx, dry_run)
+        if status == "ok":
+            return key, False, True, False
+        if status in ("delete_failed", "create_failed"):
+            return key, False, False, True
+        return None  # "no_match"
+
     def _create_rule_if_new(
-        self, spec: dict[str, Any], existing: dict[str, Any], ctx: RuleContext, dry_run: bool
-    ) -> tuple[str, bool] | None:
+        self,
+        spec: dict[str, Any],
+        existing: dict[str, Any],
+        ctx: RuleContext,
+        dry_run: bool,
+        reconcile_index: dict[str, Any] | None = None,
+        norm_existing_keys: set[str] | None = None,
+    ) -> tuple[str, bool, bool, bool] | None:
         """Build criteria/action/key for one spec and create it if missing.
 
-        Returns (key, was_created) for specs with valid criteria, or None to skip
-        (invalid criteria, so no key is contributed to the desired-keys set).
+        Returns (key, was_created, was_reconciled, was_failed) for specs with valid criteria
+        and a real action, or None to skip — no key is contributed to the
+        desired-keys set in that case, so `--delete-missing` does not treat a
+        skipped spec as something to preserve.
+
+        reconcile_index: when provided (``--reconcile`` mode), maps a
+        criteria-only key to the live rule it came from. When a desired rule's
+        criteria key matches an entry in this index but the full key (criteria +
+        action) does not match, the live rule is deleted and a fresh one created
+        with the desired action. The entry is removed from the index after use so
+        the same live rule cannot be reconciled twice (handles duplicate criteria
+        among live rules — first desired spec wins).
         """
         m = spec.get("match") or {}
         a_act = spec.get("action") or {}
@@ -121,16 +238,82 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
             return None
 
         action = _build_rule_action(a_act, ctx)
+        # Guard the BUILT action, not the source spec. `create_filter` sets
+        # `stopProcessingRules: True` unconditionally
+        # (core/outlook/_mail_labels.py:202), so an empty action becomes a rule
+        # that matches mail, does nothing, and halts every later inbox rule.
+        #
+        # Derive drops such specs (`_drop_actionless_specs`), but `rules.sync`
+        # also accepts the RAW unified config directly, where nothing has run
+        # that filter — a `keepInInbox` + `remove: [INBOX]` rule with no
+        # category normalizes to `action: {}` and arrived here intact. Checking
+        # the built action covers both config shapes, and anything else that
+        # empties an action on the way in.
+        if not action:
+            return None
         key = _create_rule_key(criteria, action)
         if key in existing:
-            return key, False
+            return key, False, False, False
+
+        # Case-normalised no-op check (reconcile mode only): if the desired
+        # rule's normalised key already exists among live rules, the action is
+        # already correct -- only the criteria case differs. Treat as matching.
+        if norm_existing_keys is not None:
+            norm_key = _norm_create_rule_key(criteria, action)
+            if norm_key in norm_existing_keys:
+                return key, False, False, False
+
+        # Reconcile path: check whether criteria match a live rule with a
+        # different action (action-change case). When reconcile_index is None
+        # this branch is never entered and behaviour is identical to pre-reconcile.
+        if reconcile_index is not None:
+            reconcile_result = self._reconcile_result(
+                key, criteria, action, reconcile_index, ctx, dry_run
+            )
+            if reconcile_result is not None:
+                return reconcile_result
+            # None: no criteria match; fall through to fresh creation below
 
         if not dry_run:
             try:
                 ctx.client.create_filter(criteria, action)
             except Exception:  # nosec B110 - filter creation failure logged elsewhere
                 pass
-        return key, True
+        return key, True, False, False
+
+    def _build_reconcile_index(
+        self, existing: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Build a criteria-only index of live rules for reconciliation.
+
+        The first live rule for each criteria key wins; later duplicates are
+        skipped (their canon keys remain in ``existing`` and are eligible for
+        ``--delete-missing``).  Entries are popped as they are matched, so the
+        same live rule cannot be reconciled twice.
+        """
+        index: dict[str, Any] = {}
+        for live_rule in existing.values():
+            ck = _criteria_key(live_rule.get("criteria") or {})
+            if ck not in index:
+                index[ck] = live_rule
+        return index
+
+    def _build_norm_existing_keys(self, existing: dict[str, Any]) -> set[str]:
+        """Build a set of case-normalised rule keys from existing live rules.
+
+        Used in reconcile mode to detect a desired rule that already matches a
+        live rule modulo criteria case.  Each live rule contributes one entry
+        keyed by ``_norm_create_rule_key`` (case-folded criteria, raw action
+        fields).  A desired rule whose normalised key is in this set already has
+        the correct action and must be left alone -- no delete, no create.
+        """
+        return {
+            _norm_create_rule_key(
+                r.get("criteria") or {},
+                r.get("action") or {},
+            )
+            for r in existing.values()
+        }
 
     def _create_desired_rules(
         self,
@@ -138,25 +321,49 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         existing: dict[str, Any],
         ctx: RuleContext,
         dry_run: bool,
-    ) -> tuple[int, set]:
+        reconcile: bool = False,
+    ) -> tuple[int, int, int, set[str], set[str]]:
         """Create rules from desired specs that don't exist.
 
+        When ``reconcile`` is True, rules that match an existing rule by criteria
+        but differ in action are handled as an in-place update (delete old,
+        create new) rather than as a fresh creation. The reconcile count reflects
+        the number of rules updated this way; the created count reflects only
+        genuinely new rules.  The failed count reflects reconcile attempts where
+        either the delete or the create raised -- these are never counted as
+        reconciled so the caller always sees an accurate tally.
+
         Returns:
-            Tuple of (created_count, desired_keys_set)
+            Tuple of (created_count, reconciled_count, failed_count,
+                      desired_keys_set, reconciled_rule_ids_set)
         """
         created = 0
-        desired_keys: set = set()
+        reconciled = 0
+        failed = 0
+        desired_keys: set[str] = set()
+        reconciled_rule_ids_set: set[str] = set()
+        reconcile_index = self._build_reconcile_index(existing) if reconcile else None
+        norm_existing_keys = self._build_norm_existing_keys(existing) if reconcile else None
 
         for spec in desired:
-            result = self._create_rule_if_new(spec, existing, ctx, dry_run)
+            result = self._create_rule_if_new(
+                spec, existing, ctx, dry_run, reconcile_index, norm_existing_keys
+            )
             if result is None:
                 continue
-            key, was_created = result
+            key, was_created, was_reconciled, was_failed = result
             desired_keys.add(key)
             if was_created:
                 created += 1
+            elif was_reconciled:
+                reconciled += 1
+                rid = self._find_live_rule_id(spec, existing)
+                if rid:
+                    reconciled_rule_ids_set.add(rid)
+            elif was_failed:
+                failed += 1
 
-        return created, desired_keys
+        return created, reconciled, failed, desired_keys, reconciled_rule_ids_set
 
     def _delete_one_rule(self, client: Any, rid: str | None, dry_run: bool) -> bool:
         """Delete a single rule by id; return True if it counted as deleted."""
@@ -169,23 +376,46 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
             return False
 
     def _delete_missing_rules(
-        self, existing: dict[str, Any], desired_keys: set, payload: OutlookRulesSyncPayload
+        self,
+        existing: dict[str, Any],
+        desired_keys: set,
+        payload: OutlookRulesSyncPayload,
+        reconciled_rule_ids: set[str] | None = None,
     ) -> int:
         """Delete rules that are not in desired set.
+
+        ``reconciled_rule_ids``: IDs of live rules that were already deleted
+        during reconciliation.  Excluded here to avoid a double-delete attempt
+        (the rule no longer exists; the API call would 404 and count as 0, but
+        the extra round-trip is unnecessary and noisy in logs).
 
         Args:
             existing: Map of canonical rule keys to rule objects
             desired_keys: Set of canonical keys for desired rules
             payload: Sync request payload
+            reconciled_rule_ids: Set of rule IDs already deleted during reconcile
 
         Returns:
             Number of rules deleted
         """
-        to_delete = [rule for k, rule in existing.items() if k not in desired_keys]
+        skip_ids = reconciled_rule_ids or set()
+        to_delete = [
+            rule for k, rule in existing.items()
+            if k not in desired_keys and rule.get("id") not in skip_ids
+        ]
         return sum(
             1 for rule in to_delete
             if self._delete_one_rule(payload.client, rule.get("id"), payload.dry_run)
         )
+
+
+def _has_explicit_destination(desired: list[dict[str, Any]]) -> bool:
+    """True when any spec names a ``moveToFolder`` outright.
+
+    Such a destination is honoured regardless of ``move_to_folders``, so its id
+    has to be resolvable even under ``--categories-only``.
+    """
+    return any((spec.get("action") or {}).get("moveToFolder") for spec in desired)
 
 
 class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelope[OutlookRulesPlanResult]]):
@@ -205,7 +435,47 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
             )
             existing_keys = {_canon_rule(r) for r in existing}
             name_to_id = client.get_label_id_map()
-            folder_map = client.get_folder_id_map() if payload.move_to_folders else {}
+            # Path-keyed, matching sync (line 83) and sweep (line 285). Plan used
+            # get_folder_id_map, which keys displayName only, so an explicit
+            # nested destination like `Security/Alerts` resolved to no id here
+            # while sync resolved it through ensure_folder_path() — the plan's
+            # rule key diverged from apply's and reported an existing rule as
+            # "Would create". A path map also reverses correctly for display in
+            # _format_plan_action.
+            #
+            # Loaded whenever a destination needs resolving, not only when
+            # automatic derivation is on: `_build_plan_action` honours an
+            # explicit `moveToFolder` regardless of move_to_folders, and
+            # `_build_rule_action` resolves it through ensure_folder_path()
+            # either way. Gating solely on move_to_folders left the map empty
+            # under --categories-only, so plan fell back to the literal path
+            # while apply used the Graph id.
+            # Call it exactly as sync does (line 83) — no ttl argument — so the
+            # preview resolves destinations the same way the apply will.
+            #
+            # `--use-cache` / `--cache-ttl` exist on plan but not on sync, and
+            # they are about the *rules* fetch (honoured at line 213). Threading
+            # them into the folder map made `rules.plan --cache-ttl 1` read a
+            # fresher map than the apply, which reintroduces the plan/sync rule
+            # key divergence those flags have nothing to do with.
+            #
+            # Sync is itself cache-backed: `get_folder_path_map()` defaults to a
+            # 600s TTL on the `folders_all` cache, and `_build_rule_action`
+            # consults that map *before* falling back to `ensure_folder_path`
+            # (processors_rules_helpers.py:86). Matching it is the goal; reading
+            # fresher than it is the bug.
+            #
+            # There is no clean per-key bypass to reach for instead — verified
+            # against core/cache.py rather than assumed: `ttl=0` and any
+            # negative ttl skip the `ttl > 0` guard and serve an entry of any
+            # age, and `clear_cache=True` rmtree's the whole provider cache
+            # directory (core/cache.py:86) including the rules cache used here
+            # as an outage fallback. The residual folder staleness is therefore
+            # shared with sync by construction; closing it needs identical
+            # folder-cache controls plumbed through both commands, which is a
+            # CLI change beyond this fix.
+            need_folders = payload.move_to_folders or _has_explicit_destination(desired)
+            folder_map = client.get_folder_path_map() if need_folders else {}
 
             plan_items = self._build_plan_items(
                 desired, existing_keys, name_to_id, folder_map, payload.move_to_folders
@@ -242,6 +512,13 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
                 continue
 
             action = _build_plan_action(a_act, ctx)
+            # Mirror the sync guard (`_create_rule_if_new`): an empty built
+            # action is skipped there, so predicting it here would promise a
+            # rule the apply will not create. Reached by a raw
+            # `keepInInbox` + `remove: [INBOX]` config with no category, and by
+            # an `add` list that coerces to empty.
+            if not action:
+                continue
             key = _create_rule_key(criteria, action)
 
             if key not in existing_keys:
@@ -282,7 +559,19 @@ class OutlookRulesSweepProcessor(Processor[OutlookRulesSweepPayload, ResultEnvel
 
             doc = load_config(payload.config_path)
             desired = normalize_filters_for_outlook(doc.get("filters") or [])
-            folder_paths = client.get_folder_path_map(clear_cache=payload.clear_cache) if payload.move_to_folders else {}
+            # Same condition as the plan processor, and for a sharper reason:
+            # `_resolve_destination_folder` reads the map only on the dry-run
+            # branch and calls ensure_folder_path() on the live one. Gating on
+            # move_to_folders alone left the map empty under --categories-only,
+            # so a rule with an explicit `moveToFolder` resolved None in dry-run
+            # and a real id live — `sweep --dry-run` reported zero moves while
+            # the real run moved mail. A dry run that under-reports is worse
+            # than no dry run at all.
+            folder_paths = (
+                client.get_folder_path_map(clear_cache=payload.clear_cache)
+                if payload.move_to_folders or _has_explicit_destination(desired)
+                else {}
+            )
 
             total_moves = self._process_sweep_rules(desired, folder_paths, client, payload)
 

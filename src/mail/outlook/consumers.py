@@ -33,6 +33,7 @@ class OutlookRulesSyncPayload:
     delete_missing: bool = False
     move_to_folders: bool = False
     verbose: bool = False
+    reconcile: bool = False
 
 
 @dataclass
