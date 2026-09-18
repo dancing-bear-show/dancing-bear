@@ -26,8 +26,14 @@ Usage:
     PYTHONPATH=src python3 module_callers.py --module mail.foo --roots src tests bin
 
 Exit codes:
-    0  scan completed (callers may be zero — that is a real answer)
+    0  scan completed and covered every file (callers may be zero — that is a
+       real answer)
     1  bad arguments, or a root that does not exist
+    2  scan completed but one or more files could not be read or parsed, so
+       the caller list is INCOMPLETE. A stale import inside an unparseable
+       file would be missed, and acting on a zero count here could delete a
+       module that still has callers. The unreadable paths are listed on
+       stderr, and in the "unscannable" key with --format json.
 
 Prints one caller path per line, sorted, or a JSON object with --format json.
 A file is reported once however many times it imports the target.
@@ -90,16 +96,21 @@ def resolve_relative(level: int, module: str | None, pkg: str) -> str:
     return f"{base}.{module}" if module else base
 
 
-def _parse(path: str) -> ast.Module | None:
+def _parse(path: str, unscannable: list[str] | None = None) -> ast.Module | None:
     """Parse a file, or None if it cannot be read or parsed.
 
-    An unreadable file is skipped rather than fatal: one broken file in the
-    tree must not stop the caller inventory for every other.
+    A failure is RECORDED in *unscannable*, never silently absorbed. One
+    broken file must not abort the inventory for every other file, but it
+    also must not read as "this file imports nothing": that would turn a
+    skipped file into evidence of zero callers, which is the false-clean this
+    script exists to prevent.
     """
     try:
         with open(path, encoding="utf-8") as fh:
             return ast.parse(fh.read())
     except (OSError, SyntaxError, UnicodeError):
+        if unscannable is not None:
+            unscannable.append(path)
         return None
 
 
@@ -114,9 +125,14 @@ def _from_targets(node: ast.ImportFrom, pkg: str) -> set[str]:
     return {target} | {f"{target}.{alias.name}" for alias in node.names}
 
 
-def _targets_in(path: str, src_root: str) -> set[str]:
-    """Every module this file imports, absolute, including lazy imports."""
-    tree = _parse(path)
+def _targets_in(path: str, src_root: str,
+                unscannable: list[str] | None = None) -> set[str]:
+    """Every module this file imports, absolute, including lazy imports.
+
+    Files that cannot be parsed are appended to *unscannable* by ``_parse``;
+    the empty set returned for them means "unknown", not "none".
+    """
+    tree = _parse(path, unscannable)
     if tree is None:
         return set()
 
@@ -134,11 +150,20 @@ def _targets_in(path: str, src_root: str) -> set[str]:
     return found
 
 
-def callers_of(target: str, roots: list[str], src_root: str = "src") -> list[str]:
-    """Files under *roots* that import *target*, resolved via AST."""
-    return sorted(
-        path for path in iter_py(roots) if target in _targets_in(path, src_root)
+def callers_of(target: str, roots: list[str],
+               src_root: str = "src") -> tuple[list[str], list[str]]:
+    """Files under *roots* that import *target*, resolved via AST.
+
+    Returns ``(callers, unscannable)``. A non-empty *unscannable* makes the
+    caller list incomplete — the second element is not advisory, and the CLI
+    exits non-zero on it.
+    """
+    unscannable: list[str] = []
+    callers = sorted(
+        path for path in iter_py(roots)
+        if target in _targets_in(path, src_root, unscannable)
     )
+    return callers, sorted(unscannable)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -165,15 +190,27 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: root(s) not found: {', '.join(missing)}", file=sys.stderr)
         return 1
 
-    found = callers_of(args.module, args.roots, args.src_root)
+    found, unscannable = callers_of(args.module, args.roots, args.src_root)
 
     if args.format == "json":
-        json.dump({"module": args.module, "callers": found, "count": len(found)},
+        json.dump({"module": args.module, "callers": found, "count": len(found),
+                   "unscannable": unscannable, "complete": not unscannable},
                   sys.stdout, indent=1)
         print()
     else:
         for path in found:
             print(path)
+
+    if unscannable:
+        print(
+            f"error: {len(unscannable)} file(s) could not be read or parsed; "
+            "the caller list is INCOMPLETE and must not be treated as a zero "
+            "count:",
+            file=sys.stderr,
+        )
+        for path in unscannable:
+            print(f"  {path}", file=sys.stderr)
+        return 2
     return 0
 
 

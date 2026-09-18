@@ -884,8 +884,11 @@ stages:
               tests/test_module_callers.py.
 
               Record the full list before moving anything; every path it
-              prints must be rewritten in step (d). If the command fails for
-              any reason, DOWNGRADE the file to reduce-in-place and record
+              prints must be rewritten in step (d). CHECK THE EXIT CODE: 0
+              means the scan covered every file, 2 means one or more files
+              could not be parsed so the inventory is INCOMPLETE — it names
+              them on stderr. If the command exits non-zero for any reason,
+              including 2, DOWNGRADE the file to reduce-in-place and record
               the downgrade rather than proceeding on a partial inventory.
               That is a correct outcome: reduce-in-place moves nothing, so it
               has no call sites to update and no import risk at all.
@@ -1705,8 +1708,14 @@ stages:
                workflows/code/scripts/module_callers.py \
                --module <old_module> --roots src tests bin
 
-           Zero output is required. Any path listed is a live caller of a
-           module that no longer holds the symbol.
+           Zero output AND exit code 0 are both required. Any path listed
+           is a live caller of a module that no longer holds the symbol.
+
+           Exit 2 means files could not be parsed, so zero output is an
+           INCOMPLETE answer rather than a clean one — a stale import inside
+           an unparseable file would not appear. Treat it as a blocking
+           failure, not as zero hits. `$?` is the only thing that separates
+           the two, since both print nothing.
 
            A grep — even `grep -F` — CANNOT answer this. It misses two forms
            that are real callers:
@@ -2213,9 +2222,11 @@ stages:
         and lets a false-clean lint result reach the human gate.
 
         Confirm "stable": true and "degraded": false before accepting the
-        result. If either says otherwise, record it and treat the lint status
-        as UNVERIFIED rather than PASS — the same rule the complexity recheck
-        applies.
+        result. If either says otherwise, write qlty_status: UNVERIFIED in
+        recheck.json with the reason in qlty_unverified_reason — not PASS,
+        and not ISSUES, which would claim the gate ran and found something.
+        UNVERIFIED blocks ready_for_commit exactly as ISSUES does, and is the
+        same rule the complexity recheck applies.
 
         If the scan reports critical issues, attempt auto-fix:
           ~/.qlty/bin/qlty check --fix <file>
@@ -2276,8 +2287,9 @@ stages:
             --rule <rule> <that file>
         Absent from both -> resolved. Present in the narrow scan -> the batch
         hid it, so NOT resolved. Narrow scan unstable or degraded -> the gate
-        could not verify it: report UNVERIFIED and block, rather than writing
-        IMPROVED off an unproven absence.
+        could not verify it: write complexity_status: UNVERIFIED with the
+        reason in complexity_unverified_reason, rather than writing IMPROVED
+        off an unproven absence. UNVERIFIED blocks ready_for_commit.
         For split files, compare the SUM across the original path and all
         new siblings against the original score: if the sum is unchanged,
         complexity was relocated, not reduced — record that verdict honestly.
@@ -2311,6 +2323,10 @@ stages:
                PYTHONPATH="$PWD/src" python3 \
                  workflows/code/scripts/module_callers.py \
                  --module <old_module> --roots src tests bin
+             Require exit 0, not merely empty output: exit 2 means some
+             files could not be parsed, so an empty result is unproven
+             rather than clean. Block on it.
+
              plus the fixed-string searches for mock.patch target strings and
              string-keyed dispatch tables. Use the script for imports, not a
              grep — a grep cannot see relative or lazy imports, so it would
@@ -2341,21 +2357,35 @@ stages:
           "test_status": "PASS|FAIL",
           "tests_ran": 1203,
           "qlty_exit": 0,
-          "qlty_status": "PASS|ISSUES",
+          "qlty_status": "PASS|ISSUES|UNVERIFIED",
           "qlty_issues": [],
-          "complexity_status": "IMPROVED|RELOCATED|REGRESSED",
+          "qlty_unverified_reason": "",
+          "complexity_status": "IMPROVED|RELOCATED|REGRESSED|UNVERIFIED",
+          "complexity_unverified_reason": "",
           "import_check_final": "PASS|ISSUES",
           "corrections_applied": true,
           "unresolved_failures": [],
           "ready_for_commit": false
         }
 
+        UNVERIFIED is a third outcome, distinct from both PASS and ISSUES.
+        Record it whenever a gate could not be trusted rather than when it
+        found problems: a scan reporting "stable": false or "degraded": true,
+        per Step 2 for lint and Step 3 for complexity. Put the reason in the
+        matching `*_unverified_reason` field. Collapsing it into ISSUES would
+        say the gate ran and found something, and collapsing it into PASS
+        would be the false-clean this whole stage exists to prevent.
+
         `ready_for_commit` is DERIVED, never asserted. It may be true only
         when ALL of these hold, and it is false the moment any one does not:
           test_status == "PASS"
-          qlty_status == "PASS"
-          complexity_status == "IMPROVED"   (RELOCATED and REGRESSED both
-                                             block — relocation is not a fix)
+          qlty_status == "PASS"              (ISSUES and UNVERIFIED both
+                                              block)
+          complexity_status == "IMPROVED"   (RELOCATED, REGRESSED and
+                                             UNVERIFIED all block —
+                                             relocation is not a fix, and an
+                                             untrustworthy scan is not
+                                             evidence of one)
           import_check_final == "PASS"      (from Step 3b's FRESH run, never
                                              from the pre-correction
                                              import-check.json)

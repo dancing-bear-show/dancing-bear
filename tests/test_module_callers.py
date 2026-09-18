@@ -17,7 +17,10 @@ caller that a split would break:
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
+import json
 import sys
 import textwrap
 from pathlib import Path
@@ -68,12 +71,23 @@ class TreeMixin(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(textwrap.dedent(body))
 
+    def _callers(self, target: str, roots: list[str]) -> list[str]:
+        """Caller list, asserting the scan covered every file.
+
+        Every assertion in this class routes through here, so a regression
+        that starts silently skipping files fails the whole suite rather than
+        only the one test that looks at `unscannable` directly.
+        """
+        callers, unscannable = module_callers.callers_of(target, roots)
+        self.assertEqual(unscannable, [], "scan was incomplete")
+        return callers
+
 
 class CallerDetectionTests(TreeMixin):
     def test_absolute_import_found(self):
         self._write("tests/abs_caller.py", "from pkg.sub.target import thing\n")
         self.assertEqual(
-            module_callers.callers_of("pkg.sub.target", ["src", "tests"]),
+            self._callers("pkg.sub.target", ["src", "tests"]),
             ["tests/abs_caller.py"],
         )
 
@@ -82,7 +96,7 @@ class CallerDetectionTests(TreeMixin):
         # pkg.sub.target and shares no substring with it — invisible to grep.
         self._write("src/pkg/sub/rel_caller.py", "from .target import thing\n")
         self.assertEqual(
-            module_callers.callers_of("pkg.sub.target", ["src"]),
+            self._callers("pkg.sub.target", ["src"]),
             ["src/pkg/sub/rel_caller.py"],
         )
 
@@ -91,7 +105,7 @@ class CallerDetectionTests(TreeMixin):
         self._write("src/pkg/sub/deep/caller.py", "from ..target import thing\n")
         self.assertIn(
             "src/pkg/sub/deep/caller.py",
-            module_callers.callers_of("pkg.sub.target", ["src"]),
+            self._callers("pkg.sub.target", ["src"]),
         )
 
     def test_lazy_in_function_import_found(self):
@@ -105,7 +119,7 @@ class CallerDetectionTests(TreeMixin):
             """,
         )
         self.assertEqual(
-            module_callers.callers_of("pkg.sub.target", ["src"]),
+            self._callers("pkg.sub.target", ["src"]),
             ["src/pkg/lazy_caller.py"],
         )
 
@@ -115,26 +129,26 @@ class CallerDetectionTests(TreeMixin):
         self._write("tests/sub_caller.py", "from pkg.sub import target\n")
         self.assertIn(
             "tests/sub_caller.py",
-            module_callers.callers_of("pkg.sub.target", ["src", "tests"]),
+            self._callers("pkg.sub.target", ["src", "tests"]),
         )
 
     def test_plain_import_found(self):
         self._write("tests/plain.py", "import pkg.sub.target\n")
         self.assertIn(
-            "tests/plain.py", module_callers.callers_of("pkg.sub.target", ["src", "tests"])
+            "tests/plain.py", self._callers("pkg.sub.target", ["src", "tests"])
         )
 
     def test_unrelated_module_not_reported(self):
         self._write("tests/other.py", "import pkg.sub\n")
-        self.assertEqual(module_callers.callers_of("pkg.sub.target", ["tests"]), [])
+        self.assertEqual(self._callers("pkg.sub.target", ["tests"]), [])
 
     def test_substring_lookalike_not_reported(self):
         # The wildcard-dot false positive a bare grep produces.
         self._write("tests/looks.py", "import pkgXsubXtarget\n")
-        self.assertEqual(module_callers.callers_of("pkg.sub.target", ["tests"]), [])
+        self.assertEqual(self._callers("pkg.sub.target", ["tests"]), [])
 
     def test_no_callers_is_a_real_answer(self):
-        self.assertEqual(module_callers.callers_of("pkg.sub.target", ["src", "tests"]), [])
+        self.assertEqual(self._callers("pkg.sub.target", ["src", "tests"]), [])
 
     def test_each_caller_listed_once(self):
         self._write(
@@ -148,15 +162,30 @@ class CallerDetectionTests(TreeMixin):
             """,
         )
         self.assertEqual(
-            module_callers.callers_of("pkg.sub.target", ["tests"]), ["tests/twice.py"]
+            self._callers("pkg.sub.target", ["tests"]), ["tests/twice.py"]
         )
 
-    def test_unparseable_file_is_skipped_not_fatal(self):
+    def test_unparseable_file_is_reported_not_silently_skipped(self):
+        # The scan continues past a broken file — one bad file must not abort
+        # the inventory — but the file is REPORTED. Returning ["tests/ok.py"]
+        # with no signal would present a partial scan as a complete one.
         self._write("tests/broken.py", "def unterminated(\n")
         self._write("tests/ok.py", "from pkg.sub.target import thing\n")
-        self.assertEqual(
-            module_callers.callers_of("pkg.sub.target", ["tests"]), ["tests/ok.py"]
+        callers, unscannable = module_callers.callers_of("pkg.sub.target", ["tests"])
+        self.assertEqual(callers, ["tests/ok.py"])
+        self.assertEqual(unscannable, ["tests/broken.py"])
+
+    def test_unparseable_file_does_not_masquerade_as_zero_callers(self):
+        # The defect this guards: the ONLY caller is unparseable. A scan that
+        # swallows the parse error reports zero callers, and acting on that
+        # deletes a module that still has one.
+        self._write(
+            "tests/broken_caller.py",
+            "from pkg.sub.target import thing\ndef unterminated(\n",
         )
+        callers, unscannable = module_callers.callers_of("pkg.sub.target", ["tests"])
+        self.assertEqual(callers, [])
+        self.assertEqual(unscannable, ["tests/broken_caller.py"])
 
 
 class ModulePathTests(unittest.TestCase):
@@ -205,6 +234,48 @@ class CliTests(TreeMixin):
         self.assertEqual(
             module_callers.main(["--module", "pkg.sub.target", "--roots", "src"]), 0
         )
+
+    def test_unparseable_file_exits_two(self):
+        # Distinct from 0: a workflow reading the exit code must be able to
+        # tell "zero callers, scan complete" from "zero callers, scan partial".
+        self._write("tests/broken.py", "def unterminated(\n")
+        self.assertEqual(
+            module_callers.main(["--module", "pkg.sub.target", "--roots", "tests"]), 2
+        )
+
+    def test_unparseable_paths_named_on_stderr(self):
+        self._write("tests/broken.py", "def unterminated(\n")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            module_callers.main(["--module", "pkg.sub.target", "--roots", "tests"])
+        self.assertIn("tests/broken.py", err.getvalue())
+        self.assertIn("INCOMPLETE", err.getvalue())
+
+    def test_json_reports_completeness(self):
+        self._write("tests/broken.py", "def unterminated(\n")
+        self._write("tests/ok.py", "from pkg.sub.target import thing\n")
+        out = io.StringIO()
+        with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(out):
+            rc = module_callers.main(
+                ["--module", "pkg.sub.target", "--roots", "tests", "--format", "json"]
+            )
+        payload = json.loads(out.getvalue())
+        self.assertEqual(rc, 2)
+        self.assertIs(payload["complete"], False)
+        self.assertEqual(payload["unscannable"], ["tests/broken.py"])
+        self.assertEqual(payload["callers"], ["tests/ok.py"])
+
+    def test_json_complete_true_on_a_clean_scan(self):
+        self._write("tests/ok.py", "from pkg.sub.target import thing\n")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = module_callers.main(
+                ["--module", "pkg.sub.target", "--roots", "tests", "--format", "json"]
+            )
+        payload = json.loads(out.getvalue())
+        self.assertEqual(rc, 0)
+        self.assertIs(payload["complete"], True)
+        self.assertEqual(payload["unscannable"], [])
 
 
 if __name__ == "__main__":
