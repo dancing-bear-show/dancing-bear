@@ -163,6 +163,8 @@ class OutlookRulesSyncProducer(BaseProducer):
         msg = f"Sync complete. Created: {payload.created}"
         if self._reconcile and payload.reconciled:
             msg += f", Reconciled: {payload.reconciled}"
+        if self._reconcile and payload.failed:
+            msg += f", Failed: {payload.failed}"
         if self._delete_missing:
             msg += f", Deleted: {payload.deleted}"
         if self._dry_run:

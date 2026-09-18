@@ -148,6 +148,28 @@ def _create_rule_key(criteria: dict[str, Any], action: dict[str, Any]) -> str:
     })
 
 
+def _norm_create_rule_key(criteria: dict[str, Any], action: dict[str, Any]) -> str:
+    """Create a case-normalised canonical key for a rule.
+
+    Identical to ``_create_rule_key`` except that the criteria fields are passed
+    through ``_norm_criteria_field`` for case-insensitive, order-insensitive
+    comparison.  Used to detect a live rule that already satisfies a desired spec
+    where the only difference is criteria case (e.g. live stores UPPERCASE
+    criteria, desired emits lowercase from the derive step).
+
+    Action fields (addLabelIds, moveToFolderId, forward) are Graph ids or email
+    addresses and are kept as-is; the case mismatch is criteria-specific.
+    """
+    return str({
+        "from": _norm_criteria_field(criteria.get("from")),
+        "to": _norm_criteria_field(criteria.get("to")),
+        "subject": _norm_criteria_field(criteria.get("subject")),
+        "add": tuple(sorted(action.get("addLabelIds", []) or [])),
+        "forward": action.get("forward"),
+        "move": action.get("moveToFolderId"),
+    })
+
+
 def _resolve_folder_id(path: str, folder_map: dict[str, str]) -> str:
     """Resolve a folder path to an id for planning, by raw path only.
 
