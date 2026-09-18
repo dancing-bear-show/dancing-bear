@@ -212,7 +212,8 @@ class TestGmailScanCommandsEndToEnd(unittest.TestCase):
 
     def test_scan_classes_extracts_schedule_lines(self):
         body = "\n".join([
-            "Subject: Schedule",
+            "Student: Bruce Sherwin",
+            "Schedule: lesson",
             "Monday 5:00 pm to 5:30 pm",
             "Wednesday 6:00 pm to 6:30 pm",
         ])
