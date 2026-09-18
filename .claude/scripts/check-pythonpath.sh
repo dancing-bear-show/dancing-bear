@@ -1,0 +1,101 @@
+#!/bin/bash
+# SessionStart hook: warn when PYTHONPATH points at a DIFFERENT checkout of this
+# repo than the one we are working in.
+#
+# Why this exists. `.envrc` exports PYTHONPATH="$PWD/src", and direnv loads the
+# `.envrc` belonging to whichever checkout the shell started in. Start a shell
+# in the main checkout, move into `.claude/worktrees/<wt>`, and PYTHONPATH still
+# names the MAIN `src/` — the worktree's `.envrc` is a different file and is not
+# on direnv's allow list. A PYTHONPATH entry also outranks the editable
+# install's `.pth`, so even the worktree's own `.venv` interpreter imports
+# `mail`/`resume`/`core` from the other tree.
+#
+# The failure is silent and looks exactly like success: a command runs, exits 0,
+# and reports behaviour from source you are not editing; a test suite passes
+# against unmodified code. It cost three separate misdiagnoses in one session
+# before anyone noticed the cause.
+#
+# Two other layers handle the mechanics — `bin/_router.py` strips foreign
+# entries so every `./bin/*` command is correct, and the Makefile pins
+# PYTHONPATH for `make test`. Neither covers an ad-hoc `python3 -c`, which is
+# what this warning is for. Print, never block: a wrong PYTHONPATH is a
+# correctness hazard, not a reason to refuse to start.
+set -uo pipefail
+
+# Emit the hook's JSON with pure shell — no Python.
+#
+# Starting a Python interpreter here would run code from the very checkout we
+# are about to warn about: PYTHONPATH is still set at this point, and Python
+# imports sitecustomize/usercustomize from its entries during startup.
+# Demonstrated, not theorised — a sitecustomize.py planted on a foreign
+# PYTHONPATH entry printed before the warning did.
+#
+# Clearing PYTHONPATH and passing -I -S would also close it, but the payload is
+# one string in one field, so shell escaping is less machinery than hardening an
+# interpreter we do not need. Escapes backslash, double-quote, and newline —
+# the three that can break JSON here. Paths are the only interpolated values.
+emit() {
+  local msg=$1
+  msg=${msg//\\/\\\\}
+  msg=${msg//\"/\\\"}
+  msg=${msg//$'\n'/\\n}
+  printf '{"systemMessage": "%s"}\n' "$msg"
+}
+
+cwd_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+[ -n "$cwd_root" ] || exit 0
+
+# No PYTHONPATH at all is fine: the editable install resolves correctly.
+[ -n "${PYTHONPATH:-}" ] || exit 0
+
+# Physical, to match the `pwd -P` resolution applied to each entry below.
+# Comparing a physical entry against a logical own_src would fail to recognise
+# our own src/ when the checkout itself sits behind a symlink, and we would warn
+# about ourselves.
+own_src=$(cd "$cwd_root/src" 2>/dev/null && pwd -P) || own_src="$cwd_root/src"
+foreign=""
+IFS=':' read -r -a entries <<< "$PYTHONPATH"
+for entry in "${entries[@]}"; do
+  [ -n "$entry" ] || continue
+  # Canonicalize FIRST, then inspect. Testing the raw string would miss a
+  # symlink such as `/tmp/current-src -> /other-checkout/src`: its basename is
+  # `current-src`, so a name check on the unresolved path skips it. The router
+  # resolves before testing and strips that entry, so checking the raw string
+  # here would leave the two layers disagreeing — the import gets fixed for
+  # ./bin/* while the user is never warned about their bare-python3 hazard.
+  # `pwd -P` (physical), not bare `pwd`: bare pwd reports the LOGICAL path, so
+  # cd'ing into a symlink returns the symlink's own path and the basename check
+  # below still sees `current-src` rather than `src`.
+  resolved=$(cd "$entry" 2>/dev/null && pwd -P) || continue
+  # Only care about entries that are a `src/` dir of some checkout of THIS
+  # project. Unrelated PYTHONPATH entries are none of our business.
+  case "$(basename "$resolved")" in src) ;; *) continue ;; esac
+  # The marker must identify THIS project, not merely "some Python project".
+  # A sibling pyproject.toml alone is far too broad — most third-party checkouts
+  # have one, so that would warn about paths we have no business touching and
+  # train the reader to ignore the warning.
+  proj="$(dirname "$resolved")/pyproject.toml"
+  [ -f "$proj" ] || continue
+  grep -qE '^name *= *"personal-assistants"' "$proj" 2>/dev/null || continue
+  [ "$resolved" = "$own_src" ] && continue
+  foreign="$foreign $resolved"
+done
+
+[ -n "$foreign" ] || exit 0
+
+emit "WARNING — PYTHONPATH points at another checkout of this repo:${foreign}
+This checkout is $cwd_root. Python will import mail/resume/core from the OTHER
+tree, so a bare 'python3 -c ...' or 'python3 -m unittest' reports behaviour from
+source you are not editing — it exits 0 and looks like a pass.
+
+Use 'make test' and './bin/<tool>' (both pin the path correctly). Before
+concluding a change did not take effect, print where a module WOULD load from:
+
+  python3 -I -S -c \"import importlib.util as u, os, sys; sys.path[:0] = os.environ.get('PYTHONPATH','').split(os.pathsep); s = u.find_spec('resume'); print(s.origin if s else 'not found')\"
+
+That is deliberately not 'python3 -c \"import resume; print(resume.__file__)\"'.
+Importing runs code from whichever checkout wins — the package's __init__, and
+sitecustomize from the PYTHONPATH entry before that — which is the hazard this
+warning is about. -I -S skips both, PYTHONPATH is re-applied explicitly so the
+answer still reflects real resolution order, and find_spec locates the module
+without executing it. To fix the shell itself, run: direnv allow ."

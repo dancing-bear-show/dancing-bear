@@ -286,19 +286,66 @@ make test > /tmp/t.log 2>&1; echo "EXIT=$?"; grep -E "^Ran [0-9]+ tests" /tmp/t.
 editing.** The symptom is a command that shows the old output while your edit is
 plainly in the file, which looks exactly like "the fix didn't work."
 
-The `bin/*` wrappers are **not** at fault. Each is a symlink to `bin/_router.py`,
-which resolves `_REPO_ROOT` through the symlink (`bin/_router.py:35`), inserts
-that repo's `src/` on `sys.path` (`bin/_router.py:53-55`), and re-execs under
-`_REPO_ROOT/.venv/bin/python3` when one exists (`bin/_router.py:36-51`). Run
-`./bin/<tool>` from a worktree and the router does point at that worktree.
+**`./bin/*` and `make` are now both safe. A bare `python3` is not.**
 
-What actually redirects the import:
+`bin/_router.py` self-heals: before it re-execs, it drops any `PYTHONPATH` entry
+that is a *different* checkout's `src/` (identified by a sibling
+`pyproject.toml`), rewrites the variable so the re-exec and any child process
+inherit the correction, and forces its own `src/` to the front of `sys.path`.
+Set `DANCING_BEAR_PATH_DEBUG=1` to see what it dropped. `tests/infra/
+test_router_pythonpath.py` pins this; 4 of its 5 cases fail if the repair is
+removed.
 
-- **An inherited `PYTHONPATH`** — the same root cause as the `unittest` trap
-  above, and the common one. `PYTHONPATH` entries land ahead of both the
-  editable install's `.pth` and the router's own insert (which is guarded by an
-  `if not in sys.path` check), so another checkout's `src/` wins on `sys.path`
-  and the wrapper loads that tree's code
+This previously read "the `bin/*` wrappers are **not** at fault." That was
+wrong, and measurably so: with `PYTHONPATH` pointing at the main checkout, a
+wrapper run from a worktree imported `calendars` and `resume` from the **main**
+tree. A `PYTHONPATH` entry outranks the editable install's `.pth`, so even the
+worktree's own `.venv` interpreter resolved to the other checkout. The old
+`if str(SRC_ROOT) not in sys.path` guard was a no-op whenever our `src/` was
+present but ordered behind the foreign entry.
+
+The root cause is direnv, not the wrappers: `.envrc` exports
+`PYTHONPATH="$PWD/src"`, and direnv loads the `.envrc` of whichever checkout the
+shell *started* in. A worktree's `.envrc` is a different file and is not on
+direnv's allow list, so it never runs.
+
+**Nothing auto-approves that `.envrc`, deliberately.** `.envrc` is a tracked,
+branch-controlled file, so a hook that ran `direnv allow` for you would trust
+and execute shell code from whatever branch it just checked out — including an
+untrusted PR's — before anyone read it. `.claude/scripts/name-worktree.sh`
+therefore only prints a reminder on stderr; approving it is your call, after
+reading the file:
+
+```bash
+cd .claude/worktrees/<wt> && direnv allow .
+```
+
+Until you do, a `SessionStart` hook (`.claude/scripts/check-pythonpath.sh`)
+warns whenever `PYTHONPATH` names another checkout of this project, and the
+router and Makefile keep `./bin/*` and `make` correct regardless.
+
+**Any `SessionStart` hook that runs Python MUST use `python3 -I -S`.** These
+hooks execute with the session's environment, which is exactly when `PYTHONPATH`
+may name a foreign checkout — and Python imports `sitecustomize`/`usercustomize`
+from `PYTHONPATH` entries during interpreter startup. A bare `python3 -c` hook
+therefore runs code from that checkout before any warning is emitted. `-I`
+ignores `PYTHONPATH` and the user site directory; `-S` skips `site.py`, which is
+what performs those imports. Demonstrated with a planted `sitecustomize.py`, and
+pinned by `tests/infra/test_check_pythonpath_hook.py`, which fails if any
+SessionStart hook starts an unisolated interpreter. Prefer a pure-shell hook
+where the work is trivial — `check-pythonpath.sh` builds its JSON with parameter
+expansion for exactly this reason.
+
+What still redirects the import:
+
+- **An inherited `PYTHONPATH` used by anything the router does not run** — a
+  bare `python3 -c ...`, `python3 -m unittest`, or an ad-hoc probe. `PYTHONPATH`
+  entries land ahead of the editable install's `.pth`, so another checkout's
+  `src/` wins and the command reports behaviour from source you are not editing.
+  `./bin/*` and `make` are immune (see above); nothing else is. This is the one
+  that keeps biting — it caused three separate misdiagnoses in a single session,
+  including one probe that returned a confident wrong answer about whether a
+  guard was load-bearing
 - **Invoking a wrapper by absolute path** from another checkout — that runs
   *that* checkout's source, correctly and by design
 - **A `.venv` whose editable install points elsewhere** — each worktree's
