@@ -13,7 +13,7 @@ from .gmail_service import GmailService
 from .pipeline_base import (
     BaseProducer,
     GmailAuth,
-    GmailServiceBuilder,
+    GmailServiceBuilderMixin,
     RequestConsumer,
     dedupe_events,
     parse_month,
@@ -79,12 +79,10 @@ class GmailScanResult:
     out_path: Path
 
 
-class GmailReceiptsProcessor(SafeProcessor[GmailReceiptsRequest, GmailScanResult]):
-    def __init__(self, service_builder=None) -> None:
-        self._service_builder = service_builder or self._default_service_builder
-
-    def _default_service_builder(self, auth: GmailAuth):
-        return GmailServiceBuilder.build(auth, service_cls=GmailService)
+class GmailReceiptsProcessor(
+    GmailServiceBuilderMixin, SafeProcessor[GmailReceiptsRequest, GmailScanResult]
+):
+    _service_cls = GmailService
 
     def _process_safe(self, payload: GmailReceiptsRequest) -> GmailScanResult:
         svc = self._service_builder(payload.auth)
@@ -214,8 +212,3 @@ class GmailScanProducer(BaseProducer):
         dump_config(str(payload.out_path), payload.document)
         events = payload.document.get("events", [])
         self._writer.print(f"Wrote {len(events)} events to {payload.out_path}")
-
-
-# Backwards-compatible alias for existing call sites and tests
-GmailPlanResult = GmailScanResult
-GmailPlanProducer = GmailScanProducer

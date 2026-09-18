@@ -29,13 +29,17 @@ from ..gmail_pipeline_sweep_top import (
 )
 
 
-def run_gmail_mail_list(args: argparse.Namespace) -> int:
-    auth = GmailAuth(
+def _auth_from_args(args: argparse.Namespace) -> GmailAuth:
+    return GmailAuth(
         profile=getattr(args, "profile", None),
         credentials=getattr(args, "credentials", None),
         token=getattr(args, "token", None),
         cache_dir=getattr(args, "cache", None),
     )
+
+
+def run_gmail_mail_list(args: argparse.Namespace) -> int:
+    auth = _auth_from_args(args)
     request = GmailMailListRequest(
         auth=auth,
         query=getattr(args, "query", None),
@@ -49,12 +53,7 @@ def run_gmail_mail_list(args: argparse.Namespace) -> int:
 
 
 def run_gmail_sweep_top(args: argparse.Namespace) -> int:
-    auth = GmailAuth(
-        profile=getattr(args, "profile", None),
-        credentials=getattr(args, "credentials", None),
-        token=getattr(args, "token", None),
-        cache_dir=getattr(args, "cache", None),
-    )
+    auth = _auth_from_args(args)
     request = GmailSweepTopRequest(
         auth=auth,
         query=getattr(args, "query", None),
@@ -70,12 +69,7 @@ def run_gmail_sweep_top(args: argparse.Namespace) -> int:
 
 
 def run_gmail_scan_classes(args: argparse.Namespace) -> int:
-    auth = GmailAuth(
-        profile=getattr(args, "profile", None),
-        credentials=getattr(args, "credentials", None),
-        token=getattr(args, "token", None),
-        cache_dir=getattr(args, "cache", None),
-    )
+    auth = _auth_from_args(args)
     request = GmailScanClassesRequest(
         auth=auth,
         query=getattr(args, "query", None),
@@ -91,12 +85,7 @@ def run_gmail_scan_classes(args: argparse.Namespace) -> int:
 
 
 def run_gmail_scan_receipts(args: argparse.Namespace) -> int:
-    auth = GmailAuth(
-        profile=getattr(args, "profile", None),
-        credentials=getattr(args, "credentials", None),
-        token=getattr(args, "token", None),
-        cache_dir=getattr(args, "cache", None),
-    )
+    auth = _auth_from_args(args)
     request = GmailReceiptsRequest(
         auth=auth,
         query=getattr(args, "query", None),
