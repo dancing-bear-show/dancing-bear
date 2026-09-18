@@ -6,11 +6,10 @@ from typing import Any
 
 from core.pipeline import SafeProcessor
 
-from .gmail_service import GmailService, QueryParams
 from .pipeline_base import (
     BaseProducer,
     GmailAuth,
-    GmailServiceBuilder,
+    GmailServiceBuilderMixin,
     RequestConsumer,
 )
 
@@ -38,22 +37,19 @@ class GmailMailListResult:
     messages: list[dict[str, str]]
 
 
-class GmailMailListProcessor(SafeProcessor[GmailMailListRequest, GmailMailListResult]):
-    def __init__(self, service_builder=None) -> None:
-        self._service_builder = service_builder or self._default_service_builder
-
-    def _default_service_builder(self, auth: GmailAuth):
-        return GmailServiceBuilder.build(auth)
-
+class GmailMailListProcessor(
+    GmailServiceBuilderMixin, SafeProcessor[GmailMailListRequest, GmailMailListResult]
+):
     def _process_safe(self, payload: GmailMailListRequest) -> GmailMailListResult:
         svc = self._service_builder(payload.auth)
-        query = GmailService.build_query_from_params(QueryParams(
+        ids = svc.query_and_list_ids(
             explicit=payload.query,
             from_text=payload.from_text,
             days=payload.days,
             inbox_only=payload.inbox_only,
-        ))
-        ids = svc.list_message_ids(query=query, max_pages=payload.pages, page_size=payload.page_size)
+            max_pages=payload.pages,
+            page_size=payload.page_size,
+        )
         if not ids:
             return GmailMailListResult(messages=[])
         messages: list[dict[str, str]] = []
