@@ -873,20 +873,27 @@ stages:
               lazy in-function imports are reached.
 
               REQUIRED: produce an AST caller inventory for the target
-              module, or DO NOT SPLIT IT. Acceptable ways to get one:
-                - a reusable script under workflows/code/scripts/ that takes
-                  a target module and reports its callers, applying the same
-                  relative-import resolution and ast.walk (the right home for
-                  this — embedded Python in workflow YAML is a ratified
-                  project concern);
-                - an existing caller-inventory tool if one is added later.
+              module, or DO NOT SPLIT IT. The tool exists — use it:
 
-              If no AST inventory is available, DOWNGRADE the file to
-              reduce-in-place and record the downgrade. That is a correct
-              outcome: reduce-in-place moves nothing, so it has no call sites
-              to update and no import risk at all. Splitting on a
-              grep-derived inventory is the failure mode below, and a
-              downgrade is strictly better than a silent break.
+                PYTHONPATH="$PWD/src" python3 \
+                  workflows/code/scripts/module_callers.py \
+                  --module <module_path> --roots src tests bin
+
+              It resolves relative imports and walks with ast.walk, so it
+              reports the callers a grep cannot see. Covered by
+              tests/test_module_callers.py.
+
+              Record the full list before moving anything; every path it
+              prints must be rewritten in step (d). CHECK THE EXIT CODE: 0
+              means the scan covered every file, 2 means one or more files
+              could not be parsed so the inventory is INCOMPLETE — it names
+              them on stderr. If the command exits non-zero for any reason,
+              including 2, DOWNGRADE the file to reduce-in-place and record
+              the downgrade rather than proceeding on a partial inventory.
+              That is a correct outcome: reduce-in-place moves nothing, so it
+              has no call sites to update and no import risk at all.
+              Splitting on a grep-derived inventory is the failure mode
+              below, and a downgrade is strictly better than a silent break.
 
               Use grep ONLY as a cross-check, never as the inventory:
                 grep -rn "from <module_path> import\|import <module_path>" \
@@ -1695,27 +1702,51 @@ stages:
         For every symbol that changed modules, all three of these must
         return ZERO hits on the OLD path.
 
-        USE FIXED-STRING SEARCHES (`grep -F`) FOR ALL THREE. A module path
-        interpolated into a regex makes every dot a wildcard, so checking
-        `mail.foo` also matches `mailXfoo`. Verified: `grep "import mail.foo"`
-        matches the line `import mailXfoo`, while `grep -F` correctly does
-        not. A false hit here either blocks a valid run or triggers a rewrite
-        of a reference that does not exist. Where an alternation is needed,
-        run two fixed-string passes rather than one regex.
+        a. Import statements — AST, NOT grep. Use the dedicated script:
 
-        a. Import statements — two fixed-string passes, not one alternation:
-             grep -rFn "from <old_module> import" \
-               --include="*.py" \
-               --exclude-dir=.venv \
-               --exclude-dir=.claude \
-               --exclude-dir=personal_assistants.egg-info \
-               src/ tests/ bin/
-             grep -rFn "import <old_module>" \
-               --include="*.py" \
-               --exclude-dir=.venv \
-               --exclude-dir=.claude \
-               --exclude-dir=personal_assistants.egg-info \
-               src/ tests/ bin/
+             PYTHONPATH="$PWD/src" python3 \
+               workflows/code/scripts/module_callers.py \
+               --module <old_module> --roots src tests bin
+
+           Zero output AND exit code 0 are both required. Any path listed
+           is a live caller of a module that no longer holds the symbol.
+
+           Exit 2 means files could not be parsed, so zero output is an
+           INCOMPLETE answer rather than a clean one — a stale import inside
+           an unparseable file would not appear. Treat it as a blocking
+           failure, not as zero hits. `$?` is the only thing that separates
+           the two, since both print nothing.
+
+           A grep — even `grep -F` — CANNOT answer this. It misses two forms
+           that are real callers:
+             - RELATIVE imports. `from .target import thing` inside
+               src/pkg/sub/ targets pkg.sub.target and shares no substring
+               with it.
+             - LAZY imports nested in function bodies, which live below
+               tree.body and are only reached by ast.walk.
+
+           Measured on this repo: for `qlty.strategies`, the AST scan finds
+           3 callers (src/qlty/cli.py, src/qlty/report.py,
+           tests/qlty_tests/test_qlty_report.py) while `grep -rlF` finds 1 —
+           it misses both `from .strategies import ...` sites. A split guided
+           by that grep would have broken two of three call sites.
+
+           facade-elimination.yaml records the same failure from a real run:
+           a grep-based caller count labelled 7 facades "zero callers — safe
+           to delete outright", and every one had real callers.
+
+           `detect_facades.py` cannot substitute for this: its caller map is
+           keyed on modules that are ALREADY pure facades (`if tgt in
+           facades`), so a module being split is never a key and the answer
+           comes back empty — indistinguishable from "no callers".
+
+        The two searches below (b and c) look for STRING LITERALS, not
+        imports, so grep is the right tool there. Use FIXED-STRING matching
+        (`grep -F`) for both: a module path interpolated into a regex makes
+        every dot a wildcard, so checking `mail.foo` also matches `mailXfoo`.
+        Verified: `grep "import mail.foo"` matches the line `import mailXfoo`,
+        while `grep -F` correctly does not. Where an alternation is needed,
+        run two fixed-string passes rather than one regex.
 
         b. mock.patch target strings — the failure mode import checks
            structurally cannot catch, because they are string literals
@@ -2015,9 +2046,11 @@ stages:
         - Every touched module was import-checked and the outcome recorded
         - Export parity was computed for every pre-existing touched file, and
           every moved symbol checked at its destination
-        - All three stale-reference searches ran (AST-resolved imports,
-          mock.patch target strings, string-keyed dispatch tables) over src/,
-          tests/ and bin/, with every hit recorded in stale_references
+        - All three stale-reference searches ran over src/, tests/ and bin/,
+          with every hit recorded in stale_references — imports resolved by
+          `workflows/code/scripts/module_callers.py` (NOT grep, which cannot
+          see relative or lazy imports), plus fixed-string searches for
+          mock.patch target strings and string-keyed dispatch tables
         - The facade detector ran with INCLUDE_INIT=true and its output was
           compared against the recorded baseline, with any new entry recorded
           in facades_detected
@@ -2172,14 +2205,33 @@ stages:
         originals and a path-scoped qlty command hard-errors on a missing
         file:
           for p in <the enumerated paths>; do test -f "$p" && echo "$p"; done
-        ~/.qlty/bin/qlty check <the surviving .py files>
 
-        If qlty reports critical issues, attempt auto-fix:
+        Run the STABLE wrapper scan, not a single raw `qlty check`. This is
+        the gate whose result becomes `qlty_status` in recheck.json and feeds
+        `ready_for_commit`, so it must not pass on a capped run:
+
+          ./bin/qlty-assistant scan --rescan-until-stable --check-only \
+            --format json <the surviving .py files> \
+            > {workspace}/validation/final-lint.json
+
+        A bare `~/.qlty/bin/qlty check` reports only what one run happened to
+        surface. This repo's cap is nondeterministic — the same tree has
+        yielded different findings across identical runs, which is why the
+        complexity recheck two steps down already uses
+        --rescan-until-stable. Using a single raw run here contradicts that
+        and lets a false-clean lint result reach the human gate.
+
+        Confirm "stable": true and "degraded": false before accepting the
+        result. If either says otherwise, write qlty_status: UNVERIFIED in
+        recheck.json with the reason in qlty_unverified_reason — not PASS,
+        and not ISSUES, which would claim the gate ran and found something.
+        UNVERIFIED blocks ready_for_commit exactly as ISSUES does, and is the
+        same rule the complexity recheck applies.
+
+        If the scan reports critical issues, attempt auto-fix:
           ~/.qlty/bin/qlty check --fix <file>
-        Re-run to confirm clean. Remember the per-run cap is
-        nondeterministic — prefer
-        ./bin/qlty-assistant scan --rescan-until-stable over trusting a
-        single clean result.
+        then re-run the STABLE scan above to confirm. A clean raw `check`
+        after a fix is not evidence the issue is gone.
 
       Step 3 — qlty complexity recheck:
         Re-scan ALL FOUR candidate rules — a file can clear the
@@ -2235,8 +2287,9 @@ stages:
             --rule <rule> <that file>
         Absent from both -> resolved. Present in the narrow scan -> the batch
         hid it, so NOT resolved. Narrow scan unstable or degraded -> the gate
-        could not verify it: report UNVERIFIED and block, rather than writing
-        IMPROVED off an unproven absence.
+        could not verify it: write complexity_status: UNVERIFIED with the
+        reason in complexity_unverified_reason, rather than writing IMPROVED
+        off an unproven absence. UNVERIFIED blocks ready_for_commit.
         For split files, compare the SUM across the original path and all
         new siblings against the original score: if the sum is unchanged,
         complexity was relocated, not reduced — record that verdict honestly.
@@ -2265,10 +2318,19 @@ stages:
              Same procedure as validate-imports Step 3, including the
              survived/deleted branch.
 
-          b. The three stale-reference searches over src/, tests/ and bin/:
-             AST-resolved imports, mock.patch target strings, and
-             string-keyed dispatch tables. Every one must return zero hits on
-             an old module path.
+          b. The three stale-reference searches over src/, tests/ and bin/,
+             all of which must return zero hits on an old module path:
+               PYTHONPATH="$PWD/src" python3 \
+                 workflows/code/scripts/module_callers.py \
+                 --module <old_module> --roots src tests bin
+             Require exit 0, not merely empty output: exit 2 means some
+             files could not be parsed, so an empty result is unproven
+             rather than clean. Block on it.
+
+             plus the fixed-string searches for mock.patch target strings and
+             string-keyed dispatch tables. Use the script for imports, not a
+             grep — a grep cannot see relative or lazy imports, so it would
+             report clean on a module that still has callers.
 
           c. The facade detector, with the override and baseline comparison:
                INCLUDE_INIT=true PYTHONPATH="$PWD/src" \
@@ -2295,21 +2357,35 @@ stages:
           "test_status": "PASS|FAIL",
           "tests_ran": 1203,
           "qlty_exit": 0,
-          "qlty_status": "PASS|ISSUES",
+          "qlty_status": "PASS|ISSUES|UNVERIFIED",
           "qlty_issues": [],
-          "complexity_status": "IMPROVED|RELOCATED|REGRESSED",
+          "qlty_unverified_reason": "",
+          "complexity_status": "IMPROVED|RELOCATED|REGRESSED|UNVERIFIED",
+          "complexity_unverified_reason": "",
           "import_check_final": "PASS|ISSUES",
           "corrections_applied": true,
           "unresolved_failures": [],
           "ready_for_commit": false
         }
 
+        UNVERIFIED is a third outcome, distinct from both PASS and ISSUES.
+        Record it whenever a gate could not be trusted rather than when it
+        found problems: a scan reporting "stable": false or "degraded": true,
+        per Step 2 for lint and Step 3 for complexity. Put the reason in the
+        matching `*_unverified_reason` field. Collapsing it into ISSUES would
+        say the gate ran and found something, and collapsing it into PASS
+        would be the false-clean this whole stage exists to prevent.
+
         `ready_for_commit` is DERIVED, never asserted. It may be true only
         when ALL of these hold, and it is false the moment any one does not:
           test_status == "PASS"
-          qlty_status == "PASS"
-          complexity_status == "IMPROVED"   (RELOCATED and REGRESSED both
-                                             block — relocation is not a fix)
+          qlty_status == "PASS"              (ISSUES and UNVERIFIED both
+                                              block)
+          complexity_status == "IMPROVED"   (RELOCATED, REGRESSED and
+                                             UNVERIFIED all block —
+                                             relocation is not a fix, and an
+                                             untrustworthy scan is not
+                                             evidence of one)
           import_check_final == "PASS"      (from Step 3b's FRESH run, never
                                              from the pre-correction
                                              import-check.json)
