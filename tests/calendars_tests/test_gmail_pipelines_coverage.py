@@ -390,7 +390,7 @@ class TestGmailScanClassesProcessorCoverageGaps(unittest.TestCase):
 
     def test_get_message_text_exception_skips_message(self):
         """Exception during get_message_text is skipped; remaining messages process. (lines 324-325)"""
-        good = "Monday from 5:00 pm to 5:30 pm"
+        good = "Student: Bruce Sherwin Schedule: lesson Monday from 5:00 pm to 5:30 pm"
         svc = MagicMock()
         svc.list_message_ids.return_value = ["m-bad", "m-good"]
         svc.get_message_text.side_effect = [RuntimeError("timeout"), good]
@@ -421,7 +421,7 @@ class TestGmailScanClassesProcessorCoverageGaps(unittest.TestCase):
         svc = MagicMock()
         svc.list_message_ids.return_value = ["m1", "m2"]
         svc.get_message_text.side_effect = [
-            "Monday from 5:00 pm to 5:30 pm",
+            "Student: Bruce Sherwin Schedule: lesson Monday from 5:00 pm to 5:30 pm",
             "Tuesday from 6:00 pm to 6:30 pm",
         ]
         request = _make_classes_request()
@@ -450,7 +450,10 @@ class TestExtractEventsMetaBranches(unittest.TestCase):
         CLASS_PAT matches patterns like 'swimmer 2a', 'swim kids 3', 'preschool a'.
         Use a known pattern to guarantee meta['subject'] is populated.
         """
-        text = "Swimmer 2A\nMonday from 5:00 pm to 5:30 pm"
+        text = (
+            "Student: Bruce Sherwin\nSchedule: Swimmer 2A\n"
+            "Monday from 5:00 pm to 5:30 pm"
+        )
         events = self.processor._extract_events(text, None)
         self.assertGreater(len(events), 0)
         # subject must have been overridden from 'Class' to the detected class name
@@ -464,7 +467,10 @@ class TestExtractEventsMetaBranches(unittest.TestCase):
         The exact string captured may vary with how html_to_text joins lines,
         so we assert the location key is present and starts with the venue name.
         """
-        text = "Location: Elgin West\nWednesday from 3:00 pm to 4:00 pm"
+        text = (
+            "Student: Bruce Sherwin\nSchedule: lesson\n"
+            "Location: Elgin West\nWednesday from 3:00 pm to 4:00 pm"
+        )
         events = self.processor._extract_events(text, None)
         self.assertGreater(len(events), 0)
         self.assertIn("location", events[0])
@@ -476,6 +482,7 @@ class TestExtractEventsMetaBranches(unittest.TestCase):
         The range pattern matches 'From <Month> <D>, <Y> to <Month> <D>, <Y>'.
         """
         text = (
+            "Student: Bruce Sherwin\nSchedule: lesson\n"
             "From January 1, 2026 to March 1, 2026\n"
             "Tuesday from 4:00 pm to 5:00 pm"
         )
@@ -489,7 +496,10 @@ class TestExtractEventsMetaBranches(unittest.TestCase):
 
     def test_html_to_text_strips_tags(self):
         """_html_to_text removes HTML tags before regex matching."""
-        html = "<p>Monday from 5:00 pm to 5:30 pm</p>"
+        html = (
+            "<p>Student: Bruce Sherwin</p><p>Schedule: lesson</p>"
+            "<p>Monday from 5:00 pm to 5:30 pm</p>"
+        )
         events = self.processor._extract_events(html, None)
         self.assertGreater(len(events), 0)
 

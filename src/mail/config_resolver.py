@@ -113,16 +113,29 @@ def _write_ini(settings: ProfileSettings) -> None:
     _write_ini_from_settings(settings)
 
 
+def _lookup_default_key(ini: dict[str, dict[str, str]], key: str) -> str | None:
+    """Return *key* from the first unprofiled section that defines it.
+
+    Falls through ``_SECTION`` then ``_SECTION_ALIASES`` per key rather than
+    per section: a ``[mail]`` section that exists but omits (or half-fills)
+    these keys must not shadow the credentials in ``[mail_assistant]``.
+    """
+    for prefix in (_SECTION, *_SECTION_ALIASES):
+        value = ini.get(prefix, {}).get(key)
+        if value:
+            return value
+    return None
+
+
 def resolve_paths(
     *,
     arg_credentials: str | None,
     arg_token: str | None,
 ) -> tuple[str, str]:
     ini = _read_ini()
-    # Use default section; profile-aware variant below
-    sec = ini.get(_SECTION, {})
-    creds = arg_credentials or sec.get("credentials") or DEFAULT_GMAIL_CREDENTIALS
-    token = arg_token or sec.get("token") or DEFAULT_GMAIL_TOKEN
+    # Unprofiled lookup; profile-aware variant below.
+    creds = arg_credentials or _lookup_default_key(ini, "credentials") or DEFAULT_GMAIL_CREDENTIALS
+    token = arg_token or _lookup_default_key(ini, "token") or DEFAULT_GMAIL_TOKEN
     return expand_path(creds), expand_path(token)
 
 

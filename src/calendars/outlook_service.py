@@ -58,6 +58,14 @@ class OutlookService:
         """List events in a date range using parameter object."""
         return self.client.list_events_in_range(params)
 
+    def get_event(self, event_id: str) -> dict[str, Any] | None:
+        """Fetch a single event (including series masters) by ID."""
+        return self.client.get_event(event_id)
+
+    def get_mailbox_timezone(self) -> str | None:
+        """Return the mailbox's default timezone name, if known."""
+        return self.client.get_mailbox_timezone()
+
     # Mail/message helpers (inbox search)
     def search_inbox_messages(self, query: str, *, days: int = 60, top: int = 25, pages: int = 2) -> list[str]:
         from core.outlook.models import SearchParams
