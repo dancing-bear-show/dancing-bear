@@ -169,13 +169,30 @@ stages:
     depends_on: [triage-findings]
     reads_from: [triage-findings, fetch-pr-context]
     description: >
-      Fix each item in the "code" group of {workspace}/outputs/fix-manifest.json.
+      ISOLATED STAGE — you run in your OWN git worktree on a
+      `worktree-agent-*` branch, not in the shared tree.
+
+        - Read inputs from `<your-cwd>/inputs/`, NOT from {workspace}. The
+          orchestrator stages every upstream output there before spawning you;
+          the manifest below arrives as
+          `<your-cwd>/inputs/outputs/fix-manifest.json`.
+        - Write outputs to absolute paths under `<your-cwd>/outputs/`. Never
+          write to {workspace} and never use a bare relative path — it would
+          resolve against the orchestrator's cwd, outside your worktree.
+        - COMMIT your code edits on your worktree branch before you finish.
+          The parent transfers them with `git merge`, which moves COMMITS, not
+          uncommitted files: an uncommitted edit is invisible to the merge and
+          will silently not land, while this stage still reports success.
+          Stage files by name (never `git add -A`), then commit.
+
+      Fix each item in the "code" group of the fix manifest.
 
       For each item in fix-manifest.json["code"]:
 
         1. Use the Read tool on the file at item["file"].
         2. Locate the issue at item["line"] using the summary in item["summary"]
-           and the original finding detail in consolidated.json (read by index
+           and the original finding detail in consolidated.json (staged at
+           `<your-cwd>/inputs/outputs/consolidated.json`, read by index
            item["finding_id"]).
         3. Apply the fix using the Edit tool. Keep the change minimal — fix only
            what the finding identifies; do not refactor surrounding code.
@@ -184,12 +201,18 @@ stages:
            Substitute the actual path — this is not a workflow parameter.
            If ruff reports new errors unrelated to the fix, leave them — do not
            introduce scope creep.
-        5. If item["finding_id"] maps to a test file in outputs/changed-files.txt,
-           run the corresponding test:
-             Bash tool: {test_cmd}
-           Record pass/fail.
+        5. If item["finding_id"] maps to a test file in inputs/outputs/changed-files.txt,
+           run the test suite. Pin PYTHONPATH to THIS worktree — a bare
+           `python3 -m unittest` can resolve imports from an inherited
+           main-checkout PYTHONPATH and pass without ever executing your code:
+             Bash tool: PYTHONPATH="$PWD/src" {test_cmd}
+           Confirm the `Ran N tests` line; an exit code alone is not evidence
+           the suite ran. Record pass/fail.
+        6. Commit your edits on the worktree branch (see the isolation note
+           above). If you made no code edits, say so explicitly in your result
+           JSON so the orchestrator does not attempt an empty merge.
 
-      Write {workspace}/outputs/fix/fix-code-results.json:
+      Write <your-cwd>/outputs/fix/fix-code-results.json:
         {
           "fixed": [
             {
@@ -230,7 +253,20 @@ stages:
     depends_on: [triage-findings]
     reads_from: [triage-findings, fetch-pr-context]
     description: >
-      Fix each item in the "test" group of {workspace}/outputs/fix-manifest.json.
+      ISOLATED STAGE — you run in your OWN git worktree on a
+      `worktree-agent-*` branch, not in the shared tree.
+
+        - Read inputs from `<your-cwd>/inputs/`, NOT from {workspace}. The
+          manifest below arrives as
+          `<your-cwd>/inputs/outputs/fix-manifest.json`.
+        - Write outputs to absolute paths under `<your-cwd>/outputs/`. Never
+          write to {workspace} and never use a bare relative path.
+        - COMMIT your test edits on your worktree branch before you finish.
+          `git merge` moves COMMITS, not uncommitted files: an uncommitted edit
+          is invisible to the merge and will silently not land while this stage
+          still reports success. Stage files by name (never `git add -A`).
+
+      Fix each item in the "test" group of the fix manifest.
 
       For each item in fix-manifest.json["test"]:
 
@@ -242,11 +278,17 @@ stages:
            specific assertEqual/assertIn, or add a new test function if coverage
            is missing entirely. Use the Edit tool for modifications; use the
            Write tool only when creating a new test file.
-        4. After each edit, run the test to confirm it is green:
-             Bash tool: python3 -m unittest {item["file"]} -f -q
+        4. After each edit, run the test to confirm it is green. Pin PYTHONPATH
+           to THIS worktree — a bare `python3 -m unittest` can resolve imports
+           from an inherited main-checkout PYTHONPATH and pass against code you
+           did not change, which is indistinguishable from a real pass:
+             Bash tool: PYTHONPATH="$PWD/src" python3 -m unittest <item["file"]> -f -q
+           Confirm the `Ran N tests` line rather than trusting the exit code.
            If the test fails, re-read and fix before moving on.
+        5. Commit your edits on the worktree branch (see the isolation note
+           above). If you made no edits, say so explicitly in your result JSON.
 
-      Write {workspace}/outputs/fix/fix-tests-results.json:
+      Write <your-cwd>/outputs/fix/fix-tests-results.json:
         {
           "fixed": [
             {
@@ -280,13 +322,28 @@ stages:
     depends_on: [triage-findings]
     reads_from: [triage-findings]
     description: >
-      Fix new-code qlty issues from {workspace}/outputs/fix-manifest.json
-      ["qlty"]. Only address issues in files changed by this PR (new-code
-      scope — do not touch pre-existing issues).
+      ISOLATED STAGE — you run in your OWN git worktree on a
+      `worktree-agent-*` branch, not in the shared tree.
+
+        - Read inputs from `<your-cwd>/inputs/`, NOT from {workspace}. The
+          manifest arrives as `<your-cwd>/inputs/outputs/fix-manifest.json`
+          and the issue list as
+          `<your-cwd>/inputs/outputs/fix/qlty-issues.json`.
+        - Write outputs to absolute paths under `<your-cwd>/outputs/`. Never
+          write to {workspace} and never use a bare relative path.
+        - COMMIT your edits on your worktree branch before you finish.
+          `git merge` moves COMMITS, not uncommitted files: an uncommitted edit
+          is invisible to the merge and will silently not land while this stage
+          still reports success. Stage files by name (never `git add -A`).
+
+      Fix new-code qlty issues from the fix manifest's ["qlty"] group. Only
+      address issues in files changed by this PR (new-code scope — do not touch
+      pre-existing issues).
 
       Step 1 — load issues:
-        Use the Read tool on {workspace}/outputs/fix/qlty-issues.json.
-        Filter to items where the file appears in outputs/changed-files.txt.
+        Use the Read tool on <your-cwd>/inputs/outputs/fix/qlty-issues.json.
+        Filter to items where the file appears in
+        <your-cwd>/inputs/outputs/changed-files.txt.
 
       Step 2 — fix each issue:
         For each issue:
@@ -299,11 +356,14 @@ stages:
               S1481 (unused variable): remove or use it
           - Use the Edit tool for each change.
 
-      Step 3 — verify qlty gate:
+      Step 3 — verify qlty gate (run from YOUR worktree so it scans your edits):
         Bash tool: ~/.qlty/bin/qlty check {source_root} --format json
-        Write result to {workspace}/outputs/fix/qlty-post-fix.json.
+        Write result to <your-cwd>/outputs/fix/qlty-post-fix.json.
 
-      Write {workspace}/outputs/fix/fix-sq-results.json:
+      Step 4 — commit your edits on the worktree branch (see the isolation note
+        above). If you made no edits, say so explicitly in your result JSON.
+
+      Write <your-cwd>/outputs/fix/fix-sq-results.json:
         {
           "fixed": [
             {
@@ -333,13 +393,88 @@ stages:
   # Phase 2: Verify all fixes are green
   # ===========================================================================
 
-  - name: verify-fixes
-    kind: validate
+  - name: merge-fix-worktrees
+    kind: execute
+    executor: inline
     depends_on: [fix-code, fix-tests, fix-qlty]
     reads_from: [fix-code, fix-tests, fix-qlty]
     description: >
+      Land the isolated fix stages' commits on the PR branch before anything
+      verifies them.
+
+      fix-code, fix-tests and fix-qlty each run in their own git worktree, so
+      their edits live on `worktree-agent-*` branches and are NOT present in
+      the shared tree. Without this stage verify-fixes runs against an
+      unchanged checkout and can report success while no fix landed — a green
+      result that means nothing.
+
+      For each of the three fix stages, in a deterministic order
+      (fix-code, then fix-qlty, then fix-tests):
+
+        1. Identify the stage's worktree branch. The orchestrator records it
+           when it spawns the agent; it has the form `worktree-agent-<id>`.
+
+        2. Confirm the branch has commits before merging — an agent that
+           edited without committing leaves an empty branch, and merging it
+           succeeds while landing nothing:
+             Bash tool: git log --oneline <pr-branch>..worktree-agent-<id>
+           An empty result is a STAGE FAILURE for that fixer, not a no-op.
+           Cross-check it against that stage's result JSON: a fixer reporting
+           entries under "fixed" with an empty branch means its edits were
+           never committed. Record the discrepancy and fail this stage.
+
+        3. Merge:
+             Bash tool: git merge --no-ff worktree-agent-<id> -m "merge fix stage <name>"
+           On a conflict, abort the merge (`git merge --abort`), record the
+           conflicting paths, and fail this stage. Do NOT resolve conflicts
+           here — a conflict means two fixers changed the same lines and a
+           human needs to see that.
+
+        4. After all merges, confirm the expected files actually changed:
+             Bash tool: git diff --name-only <merge-base>..HEAD
+
+      Write {workspace}/outputs/fix/merge-results.json:
+        {
+          "merged": [
+            {"stage": "fix-code", "branch": "worktree-agent-...",
+             "commits": 2, "files": ["src/foo.py"]}
+          ],
+          "empty_branches": [
+            {"stage": "fix-tests", "reported_fixed": 3,
+             "detail": "branch had no commits — edits were not committed"}
+          ],
+          "conflicts": [],
+          "all_merged": true
+        }
+
+      Set "all_merged" false if any branch was empty while its stage reported
+      fixes, or if any merge conflicted. verify-fixes reads this field.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/fix/merge-results.json
+
+  # ===========================================================================
+  # Phase 2: Verify all fixes are green
+  # ===========================================================================
+
+  - name: verify-fixes
+    kind: validate
+    depends_on: [merge-fix-worktrees]
+    reads_from: [fix-code, fix-tests, fix-qlty, merge-fix-worktrees]
+    description: >
       Confirm all fix rounds left the codebase in a green state. This stage
       does not apply fixes — it only reads and runs.
+
+      Step 0 — confirm the fixes are actually present in this tree:
+        Use the Read tool on {workspace}/outputs/fix/merge-results.json.
+        If "all_merged" is false, or the file is missing or unparseable, STOP
+        and report this stage failed. Every check below would otherwise run
+        against a tree that does not contain the fixes, and pass.
 
       Step 1 — linting:
         Bash tool: bin/ruff-resolve.sh check {source_root}
@@ -348,9 +483,14 @@ stages:
 
       Step 2 — tests:
         Bash tool: {test_cmd}
-        Record pass/fail. If test_cmd is blank, run:
-          python3 -m unittest {test_path} -f -q
+        Record pass/fail. If test_cmd is blank, run, with PYTHONPATH pinned to
+        this checkout so an inherited one cannot resolve imports to a different
+        tree and pass without exercising these fixes:
+          PYTHONPATH="$PWD/src" python3 -m unittest {test_path} -f -q
         If test_path is also blank, skip and mark as "no test_cmd provided".
+        Confirm the `Ran N tests` line in the output — unittest writes it to
+        stderr, and an exit code of 0 from a suite that executed nothing is
+        indistinguishable from a real pass.
 
       Step 3 — qlty gate:
         Bash tool: ~/.qlty/bin/qlty check {source_root} --format json
