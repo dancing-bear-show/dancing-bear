@@ -1,0 +1,523 @@
+name: qwen-admin
+version: "1.0"
+description: >
+  Day-to-day administration of the local Qwen stack: health, model inventory,
+  queue lane hygiene, telemetry spend, and a bounded set of safe remediations.
+
+  This is the operate half of the pair. workflows/code/qwen-local-handler.yaml
+  builds and installs the stack; this one answers "is it healthy, what is it
+  costing me in time and disk, and what should I clean up". Run it on demand
+  or on a schedule.
+
+  Stage dependency graph:
+
+    health          models          queue-lane      spend     (G0 — 4 parallel read-only probes)
+        |              |                |             |
+        +--------------+----------------+-------------+
+        |
+    triage                                   (G1 — rank findings, propose bounded actions)
+        |
+    remediate  [human gate]                  (G2 — apply only approved, allowlisted actions)
+        |
+    report                                   (G3 — state, what changed, what to watch)
+
+  Two hard rules, because this workflow touches a running system:
+
+  1. EVERY G0 STAGE IS READ-ONLY. They observe and record. Nothing is started,
+     stopped, pulled, purged or deleted before the human gate at G2 — a probe
+     that "helpfully" restarts a daemon makes the diagnosis unreproducible and
+     can interrupt a job mid-flight.
+
+  2. REMEDIATION IS ALLOWLISTED, NOT OPEN-ENDED. G2 may only take actions from
+     the fixed list in its description. Anything else — deleting a model,
+     killing a job, editing a plist, touching another project's container —
+     is reported as a manual step for the user to perform, never performed
+     here. Destructive-adjacent actions are gated on explicit approval even
+     when they appear in the allowlist.
+
+  Deliberately NOT in scope: tuning the handler's prompt or retry policy
+  (that is a design change — run qwen-local-handler.yaml), and installing
+  anything that is missing (that is the install stage of the same workflow).
+  This workflow assumes the stack exists and reports plainly when it does not.
+
+metadata:
+  author: dancing-bear
+  created: "2026-09-21"
+
+trigger:
+  source: manual
+  params:
+    model_tag: "qwen2.5-coder:14b"
+    ollama_host: "http://localhost:11434"
+    job_type: "qwen_patch"
+    spend_days: "7"
+    purge_older_than: "30d"
+    stale_job_hours: "6"
+
+workspace_dir: "{work_dir}/qwen-admin"
+
+stages:
+  # ===========================================================================
+  # G0a: Health — is the stack up, end to end
+  # ===========================================================================
+  - name: health
+    kind: gather
+    depends_on: []
+    reads_from: []
+    description: >
+      READ-ONLY. Probe every layer and stop nothing. Record what you find,
+      including "down" — a down layer is a finding, not a thing to fix here.
+
+      File access rules: Read for file contents, Glob for discovery. Bash is
+      for live system state only.
+
+      Probe each layer independently — do not short-circuit, since knowing
+      that three of four layers are healthy narrows the diagnosis:
+
+        1. Ollama binary:   command -v ollama
+        2. Ollama server:   curl -sS -m 5 -f -o /dev/null {ollama_host}/api/tags
+                            (-f makes a non-2xx a non-zero exit; exit 0 = up)
+        3. Model loaded:    ollama ps
+                            (distinguishes "installed" from "resident in
+                            memory" — a cold model means a slow first job,
+                            which is normal, not a fault)
+        4. Worker daemon:   launchctl list | grep -F com.dancing-bear.worker
+                            and confirm the process is actually alive, not
+                            merely a loaded-but-exited agent with a failure
+                            exit status. Record the exit status if present.
+        5. Queue reachable: ./bin/worker list
+        6. Collector:       ./bin/telemetry otel health
+        7. Round trip:      a minimal generate call against {ollama_host}
+                            with a trivial prompt and a short timeout, to
+                            prove the server answers rather than merely
+                            accepting connections. Keep it tiny — this is a
+                            liveness probe, not a benchmark.
+
+      Record the machine's memory pressure too (vm_stat, sysctl -n hw.memsize):
+      a 14B model on a loaded machine is the usual cause of slow generations,
+      and it is worth distinguishing from a broken stack.
+
+      Write {workspace}/analysis/health.json:
+        {
+          "layers": [
+            {"layer": "ollama_binary",  "up": true|false, "detail": "..."},
+            {"layer": "ollama_server",  "up": true|false, "detail": "..."},
+            {"layer": "model_resident", "up": true|false, "detail": "..."},
+            {"layer": "worker_daemon",  "up": true|false, "detail": "...", "exit_status": "..." | null},
+            {"layer": "queue",          "up": true|false, "detail": "..."},
+            {"layer": "collector",      "up": true|false, "detail": "..."},
+            {"layer": "round_trip",     "up": true|false, "detail": "...", "latency_ms": N | null}
+          ],
+          "memory": {"total_gb": N, "pressure": "..."},
+          "all_up": true|false,
+          "first_down_layer": "..." | null
+        }
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Glob, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: health
+        mode: generate
+        description: >
+          health.json recording up/down state for all seven layers, memory
+          pressure, and the first layer that is down.
+    writes_to:
+      - analysis/health.json
+    validates_output:
+      - path: analysis/health.json
+        checks: [is_json, has_key:layers, has_key:all_up]
+
+  # ===========================================================================
+  # G0b: Models — what is installed, what it costs in disk
+  # ===========================================================================
+  - name: models
+    kind: gather
+    depends_on: []
+    reads_from: []
+    description: >
+      READ-ONLY. Inventory installed models. Pull nothing, delete nothing.
+
+      Collect:
+        ollama list                     (names, sizes, modified dates)
+        du -sh ~/.ollama/models 2>/dev/null || true
+        df -h ~                          (headroom — a full disk is why a
+                                          pull will fail next time)
+
+      Then assess, without acting:
+        - Is {model_tag} present? This is the tag the handler is configured
+          to use; its absence means every qwen job fails terminally.
+        - Which models have not been modified in a long time? Candidates for
+          reclaiming disk — CANDIDATES ONLY. You cannot tell from mtime alone
+          whether a model is someone's daily driver, and deleting a multi-GB
+          model to reclaim space the user did not ask you to reclaim is a bad
+          trade. Record them; never propose deletion as a default.
+        - Are there near-duplicate tags (same family, several quantizations)?
+          Worth surfacing, since they are often accidental.
+        - Total disk used by models vs free space on the volume.
+
+      Write {workspace}/analysis/models.json:
+        {
+          "installed": [{"name": "...", "size_gb": N, "modified": "...", "is_configured_tag": true|false}],
+          "configured_tag_present": true|false,
+          "total_models_gb": N,
+          "free_disk_gb": N,
+          "unused_candidates": [{"name": "...", "size_gb": N, "last_modified": "...", "why_candidate": "..."}],
+          "duplicate_families": [{"family": "...", "tags": ["..."]}]
+        }
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: models
+        mode: generate
+        description: >
+          models.json inventorying installed models, disk use, headroom, and
+          reclaim candidates (candidates only — no deletion proposed).
+    writes_to:
+      - analysis/models.json
+    validates_output:
+      - path: analysis/models.json
+        checks: [is_json, has_key:installed, has_key:configured_tag_present]
+
+  # ===========================================================================
+  # G0c: Queue lane — how the qwen job type is actually behaving
+  # ===========================================================================
+  - name: queue-lane
+    kind: gather
+    depends_on: []
+    reads_from: []
+    description: >
+      READ-ONLY. Examine the queue with attention to the "{job_type}" lane.
+      Requeue nothing, purge nothing, retry nothing.
+
+      Collect:
+        ./bin/worker list
+        ./bin/worker status --with-throughput
+      Then read the queue directories directly (the survey in
+      qwen-local-handler.yaml recorded the root under get_worker_state_dir;
+      resolve it the same way) and classify by job type.
+
+      For the "{job_type}" lane specifically, answer:
+        - Counts in pending / processing / done / error.
+        - STUCK JOBS: anything in processing/ older than {stale_job_hours}
+          hours. Distinguish two cases, because they need opposite responses:
+          a job whose heartbeat is recent is ALIVE and slow (leave it alone —
+          reaping it is the exact bug the heartbeat was added to prevent), and
+          one whose heartbeat is stale or absent is genuinely stuck.
+        - ERROR CLUSTERING: group error/ jobs by their error text. Report the
+          top failure modes with counts. A cluster of identical errors is a
+          systemic problem; scattered singletons are usually not.
+        - RETRY EXHAUSTION: jobs that hit max_attempts. Note which retry
+          classification they went through — a job retrying a condition the
+          design marked "terminal" means the handler is misclassifying, which
+          is a code bug to report, not a queue state to clean up.
+        - THROUGHPUT: from the perf JSONL logs, typical duration for this job
+          type, and how it compares to run_cli/run_shell jobs.
+        - PATCH ARTIFACTS: if the design stored patches as files, check the
+          output directory's size and count. Orphaned patches from purged
+          jobs accumulate silently.
+
+      Write {workspace}/analysis/queue.json:
+        {
+          "counts": {"pending": N, "processing": N, "done": N, "error": N},
+          "qwen_lane": {"pending": N, "processing": N, "done": N, "error": N},
+          "stuck_jobs": [{"id": "...", "age_hours": N, "heartbeat_fresh": true|false, "verdict": "alive-slow|genuinely-stuck"}],
+          "error_clusters": [{"error_signature": "...", "count": N, "example_id": "...", "looks_systemic": true|false}],
+          "retry_exhausted": [{"id": "...", "attempts": N, "last_error": "...", "suggests_misclassification": true|false}],
+          "throughput": {"qwen_avg_ms": N, "other_avg_ms": N, "sample_size": N},
+          "patch_artifacts": {"dir": "...", "count": N, "total_mb": N, "orphaned": N},
+          "needs_attention": true|false
+        }
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Glob, Grep, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: queue
+        mode: generate
+        description: >
+          queue.json with per-lane counts, stuck jobs split by heartbeat
+          freshness, clustered error signatures, and throughput.
+    writes_to:
+      - analysis/queue.json
+    validates_output:
+      - path: analysis/queue.json
+        checks: [is_json, has_key:counts, has_key:qwen_lane, has_key:needs_attention]
+
+  # ===========================================================================
+  # G0d: Spend — time and tokens, from telemetry
+  # ===========================================================================
+  - name: spend
+    kind: gather
+    depends_on: []
+    reads_from: []
+    description: >
+      READ-ONLY. Report what local inference has actually consumed over the
+      last {spend_days} days, from the OTLP data the handler emits.
+
+      Run `./bin/telemetry otel health` first. If the collector is down or
+      there is no data, write a record saying exactly that and stop — do not
+      infer spend from queue counts as a substitute. An estimate presented
+      next to real telemetry numbers reads as measured and is worse than an
+      honest gap.
+
+      Otherwise, using ./bin/telemetry otel subcommands (check --help for the
+      real flags rather than guessing them), gather over {spend_days} days:
+        - Job count, total and by outcome (success / terminal / deferred /
+          retried), from the span attributes the handler emits.
+        - Total and median generation duration. Local inference costs wall
+          clock, not dollars — time is the number that matters here.
+        - Token counts where Ollama reported them.
+        - Trend: is median duration growing? That usually means memory
+          pressure or context growth, not a broken model.
+
+      Do NOT compute or present a dollar figure for local inference. The
+      handler deliberately emits no cost attribute; inventing one here would
+      contradict the design and corrupt any comparison against Claude Code
+      spend. If a comparison is useful, compare TIME.
+
+      Write {workspace}/analysis/spend.json:
+        {
+          "available": true|false,
+          "unavailable_reason": "..." | null,
+          "window_days": N,
+          "jobs": {"total": N, "by_outcome": {"success": N, "terminal": N, "deferred": N}},
+          "duration": {"total_minutes": N, "median_ms": N, "p95_ms": N, "trend": "growing|flat|shrinking|insufficient-data"},
+          "tokens": {"prompt": N, "completion": N} | null,
+          "notes": "..."
+        }
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: spend
+        mode: generate
+        description: >
+          spend.json with job counts by outcome, duration distribution and
+          trend over the window — or an explicit unavailable record.
+    writes_to:
+      - analysis/spend.json
+    validates_output:
+      - path: analysis/spend.json
+        checks: [is_json, has_key:available, has_key:jobs]
+
+  # ===========================================================================
+  # G1: Triage — rank findings, propose only allowlisted actions
+  # ===========================================================================
+  - name: triage
+    kind: propose
+    depends_on: [health, models, queue-lane, spend]
+    reads_from: [health, models, queue-lane, spend]
+    description: >
+      Read all four analysis files and produce a ranked action list. Cite the
+      source file for every finding — a proposal with no citation is a guess.
+
+      Rank by real impact, in this order:
+        1. Stack down — any layer in health.json that is down and blocks work.
+           The configured model being absent belongs here: every qwen job
+           fails terminally without it.
+        2. Systemic errors — an error_cluster with looks_systemic true, or any
+           retry_exhausted entry with suggests_misclassification true. These
+           are code bugs; they are reported, never "fixed" by requeuing.
+        3. Genuinely stuck jobs — stuck_jobs with verdict genuinely-stuck.
+           Never propose action on an alive-slow job.
+        4. Disk pressure — only when free_disk_gb is genuinely low. Do not
+           propose reclaiming disk that is not scarce.
+        5. Hygiene — old done/error jobs, orphaned patch artifacts.
+
+      PROPOSE ONLY FROM THIS ALLOWLIST. Anything else is a manual step:
+        a) Start the Ollama server (only if health says it is down).
+        b) Pull {model_tag} (only if models.json says it is absent).
+        c) Load the worker launchd agent (only if it is absent — never
+           reload or restart a loaded, healthy one).
+        d) Requeue error jobs whose cluster is NOT systemic, bounded and
+           once: ./bin/worker requeue-errors with --limit and --match.
+           Never requeue a systemic cluster — it will fail identically and
+           burn the queue. Never requeue without a --match filter.
+        e) Purge done/error jobs older than {purge_older_than}:
+           ./bin/worker purge. Never purge pending or processing.
+        f) Delete orphaned patch artifacts whose job no longer exists.
+
+      Explicitly NOT allowlisted, and always reported as manual steps:
+        deleting any model; killing or editing a job in processing/; editing
+        or reloading a plist; restarting a healthy daemon; changing handler
+        configuration; anything touching another project's containers.
+
+      For each proposed action give: the exact command, which finding it
+      addresses with its source file, whether it is reversible, and what it
+      would affect if the diagnosis is wrong. Mark anything that deletes or
+      discards data as destructive: true.
+
+      Write {workspace}/analysis/triage.json:
+        {
+          "findings": [{"rank": N, "severity": "blocking|degraded|hygiene", "finding": "...", "source": "health.json|models.json|queue.json|spend.json", "evidence": "..."}],
+          "proposed_actions": [{"id": "a1", "action": "...", "command": "...", "addresses_finding": N, "allowlist_item": "a|b|c|d|e|f", "destructive": true|false, "reversible": true|false, "if_diagnosis_wrong": "..."}],
+          "manual_steps": [{"step": "...", "why_not_automated": "..."}],
+          "nothing_to_do": true|false
+        }
+
+      and {workspace}/design/triage.md — a readable summary with the findings
+      ranked, the proposed commands, and the manual steps.
+
+      If everything is healthy, set nothing_to_do true and say so plainly.
+      Do not manufacture busywork to justify the run.
+    agent:
+      role: Plan
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: triage
+        mode: generate
+        description: >
+          triage.json and triage.md ranking findings and proposing only
+          allowlisted, cited, reversibility-labelled actions.
+    writes_to:
+      - analysis/triage.json
+      - design/triage.md
+    validates_output:
+      - path: analysis/triage.json
+        checks: [is_json, has_key:findings, has_key:proposed_actions, has_key:nothing_to_do]
+
+  # ===========================================================================
+  # G2: Remediate — apply only what the human approved
+  # ===========================================================================
+  - name: remediate
+    kind: execute
+    human_gate: true
+    depends_on: [triage]
+    reads_from: [triage, health, models, queue-lane]
+    description: >
+      Read {workspace}/analysis/triage.json. If nothing_to_do is true, write a
+      no-op record and stop.
+
+      Otherwise present the proposed actions to the user, grouped by severity,
+      with destructive ones called out explicitly and their reversibility
+      stated. Ask which to apply:
+
+        A) Apply all non-destructive actions
+        B) Apply specific action ids (user names them)
+        C) Apply nothing — report only
+
+      Then apply ONLY what was approved, with these constraints:
+
+        - Never apply an action absent from triage.json's proposed_actions,
+          even if it now seems obviously right. If the situation changed
+          since triage, record that and stop — re-run the workflow.
+        - Never apply anything in the manual_steps list.
+        - Re-check the precondition immediately before each action. State
+          drifts between triage and approval: a daemon may have come back, a
+          job may have finished. If the precondition no longer holds, skip the
+          action and record why. This is the check-then-act discipline the
+          install stage uses, for the same reason.
+        - Bound every requeue with --limit and --match exactly as proposed.
+          An unbounded requeue can flood the queue with jobs that will fail
+          identically.
+        - Never touch pending or processing jobs.
+        - Run actions one at a time and capture each command's exit code and
+          output. If one fails, stop and record it — do not continue down the
+          list hoping the rest work.
+
+      After applying, re-run the cheap health probes (layers 2, 4, 5 from the
+      health stage) to confirm nothing got worse. If a layer that was up is
+      now down, say so prominently — that is the worst outcome of this
+      workflow and must not be buried under a list of successful actions.
+
+      Write {workspace}/validation/remediation.json:
+        {
+          "approved": ["a1", "a3"] | [],
+          "applied": [{"id": "a1", "command": "...", "exit_code": N, "output": "...", "precondition_still_held": true|false, "ok": true|false}],
+          "skipped": [{"id": "...", "reason": "..."}],
+          "post_check": {"layers": [...], "anything_worse": true|false, "detail": "..."},
+          "all_ok": true|false
+        }
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    required: true
+    outputs:
+      - name: remediation
+        mode: generate
+        description: >
+          remediation.json recording approved vs applied actions, skipped
+          preconditions, and a post-action health re-check.
+    writes_to:
+      - validation/remediation.json
+    validates_output:
+      - path: validation/remediation.json
+        checks: [is_json, has_key:applied, has_key:post_check, has_key:all_ok]
+
+  # ===========================================================================
+  # G3: Report — current state, what changed, what to watch
+  # ===========================================================================
+  - name: report
+    kind: propose
+    depends_on: [remediate]
+    reads_from: [remediate, triage, health, models, queue-lane, spend]
+    description: >
+      Read every prior output and write {workspace}/validation/report.md.
+      Cite stage files; do not restate a proposed action as a completed one.
+
+      ## Qwen Admin Report — <date>
+
+      ### Stack health
+      | Layer | State |
+      |-------|-------|
+      One row per layer from health.json. Lead with the first down layer if
+      any, rather than listing six healthy rows before the problem.
+
+      ### Model inventory
+      Configured tag present or not, total disk, free headroom. Reclaim
+      candidates listed as candidates, with their sizes — not as
+      recommendations.
+
+      ### Queue lane ({job_type})
+      Counts, stuck jobs split into alive-slow vs genuinely-stuck, top error
+      clusters with counts, and throughput against other job types.
+
+      ### Spend ({spend_days} days)
+      Jobs by outcome, total and median duration, trend. If spend.json says
+      unavailable, print that reason — do not substitute an estimate.
+
+      ### Actions taken
+      From remediation.json: what was approved, what was applied with exit
+      codes, and what was skipped because its precondition no longer held. If
+      the post-check found anything worse, that goes FIRST in this section,
+      not last.
+
+      ### Manual steps for you
+      From triage.json's manual_steps, with the reason each was not automated.
+
+      ### What to watch
+      Concrete and few. A growing duration trend, an error cluster that
+      suggests handler misclassification, disk headroom shrinking toward a
+      failed pull. Only things the data actually supports — no generic
+      monitoring advice.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: final_report
+        mode: generate
+        description: >
+          report.md summarizing stack health, model inventory, queue lane
+          behaviour, spend, actions taken, and manual follow-ups.
+    writes_to:
+      - validation/report.md

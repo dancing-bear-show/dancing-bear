@@ -1,0 +1,996 @@
+name: qwen-local-handler
+version: "1.0"
+description: >
+  Add a local-LLM job handler (Qwen 2.5 Coder 14B via Ollama) to the existing
+  file-based worker queue, then install and verify the full stack end to end.
+
+  The design decision this workflow encodes, made before it was written: the
+  queue is NOT replaced. worker/handlers.py's REGISTRY is already the seam for
+  a new job type — a qwen handler registered there inherits priority ordering,
+  not_before scheduling, attempts/backoff, the deferred-/terminal- outcome
+  protocol (worker/job_runtime.py), max_inflight clamping, stale-job reaping,
+  and the whole `worker list/status/show/retry/purge` CLI for free. A message
+  broker (beanstalkd et al.) was considered and rejected: it adds a third
+  daemon, a dependency against a dependency-light repo, a rewrite of
+  queue_ops.py plus every worker_queue consumer in src/workflow/, and it
+  trades `cat error/job-123.json` inspectability for a binary protocol — all
+  to buy blocking reserve, cross-machine producers and million-job scale that
+  a single-machine single-daemon queue does not need.
+
+  The one real gap beanstalkd would have closed is long-job liveness: a 14B
+  patch job can run for minutes, and reap_stale_processing_jobs is a flat
+  timeout with no heartbeat, so a slow-but-healthy job can be reaped mid-flight
+  and retried while the first copy is still running. That is fixed here inside
+  the existing queue (stage impl-heartbeat), not by swapping the queue out.
+
+  Job contract (decided up front, not up for re-litigation in the design
+  stage): a qwen job produces a PATCH and never applies it. The model's
+  nondeterminism stays quarantined in a reviewable artifact — the handler
+  validates the patch with `git apply --check` and stores it; a human applies
+  it. No in-place edits.
+
+  Stage dependency graph:
+
+    survey                                   (G0 — read the real code, no assumptions)
+        |
+    design  [human gate]                     (G1 — contract + retry taxonomy, approved before any edit)
+        |
+        +----------------+----------------+
+        |                |                |
+    impl-handler    impl-heartbeat    impl-tests    (G2 — parallel, partitioned by file)
+        |                |                |
+        +----------------+----------------+
+        |
+    adversarial-test-review                  (G3 — Opus attacks the suite; teeth-tests it)
+        |
+    integrate                                (G4 — act on findings, then lint/typecheck/suite)
+        |
+    install                                  (G5 — idempotent: ollama, model, worker launchd)
+        |
+    verify                                   (G6 — real job through the real queue)
+        |
+    report                                   (G7 — summary + how to use it)
+
+  The adversarial review at G3 exists because a passing test suite is not
+  evidence of a working one. It asks the inverse question — what mutation of
+  the source would this test fail to catch — and proves its answer by breaking
+  the source and confirming the test goes red. Its findings are inputs to
+  integrate, which must fix every blocking one before the gates run.
+
+  Telemetry: the handler emits OTLP spans/metrics for every job, so local
+  inference shows up in `./bin/telemetry otel` alongside Claude Code usage.
+  That is specified in the design stage's contract and implemented by
+  impl-handler — see the "telemetry" section of contract.json.
+
+  Idempotence is a hard requirement of the install stage, not a nice-to-have:
+  every step is check-then-act, and a second consecutive run must change
+  nothing and still exit 0. Re-running must never re-pull a 9GB model that is
+  already present, never stack a second launchd agent, and never restart a
+  healthy daemon.
+
+metadata:
+  author: dancing-bear
+  created: "2026-09-21"
+
+trigger:
+  source: manual
+  params:
+    model_tag: "qwen2.5-coder:14b"
+    ollama_host: "http://localhost:11434"
+    job_type: "qwen_patch"
+
+workspace_dir: "{work_dir}/qwen-local-handler"
+
+stages:
+  # ===========================================================================
+  # G0: Survey — read what actually exists before designing against it
+  # ===========================================================================
+  - name: survey
+    kind: gather
+    depends_on: []
+    reads_from: []
+    description: >
+      Read the real code and record exact signatures. Do not infer the queue's
+      behaviour from this description — the point of this stage is to catch
+      drift between it and the tree.
+
+      File access rules: use Read for file contents (not cat/head/tail) and
+      Glob for file discovery (not find/ls). Bash is for querying live system
+      state only (which ollama, sw_vers, launchctl list).
+
+      Read and record:
+        1. src/worker/handlers.py — the HandlerFn type alias, the exact
+           (bool, object) return contract, how REGISTRY is populated, and how
+           ShellJobProcessor wraps SafeProcessor. Note the nosec comment
+           convention on subprocess calls.
+        2. src/worker/job_runtime.py — the outcome dispatch in _handle_outcome.
+           Record verbatim how a result string prefixed "deferred-" and
+           "terminal-" is treated differently from a plain failure, and where
+           attempts/max_attempts are read. This is the retry protocol the new
+           handler must speak.
+        3. src/worker/queue_ops.py — the Job dataclass fields (note
+           timeout_sec), enqueue/start_processing/finish/retry, and crucially
+           reap_stale_processing_jobs: record exactly how it decides a
+           processing job is stale, which timestamp field it reads, and what
+           it does to the job. This is what impl-heartbeat must change.
+        4. src/worker/cli.py — how `enqueue --type` derives its choices from
+           HANDLERS.keys(), so a new registry entry appears in the CLI
+           automatically.
+        5. src/worker/_helpers.py — get_worker_state_dir and get_repo_root.
+        6. configs/launchd/com.dancing-bear.worker.plist and
+           bin/worker-install-launchd — the template placeholders
+           (__REPO_ROOT__, __HOME__) and the unload-then-load install
+           sequence. Record whether the existing installer is idempotent.
+        7. src/core/paths.py — output_dir(), the resolution order for
+           generated artifacts. Patches are generated output and must go
+           through it, not to a relative path.
+        8. tests/worker_tests/ (Glob it) — the existing test layout, how
+           handlers are tested, and whether subprocess/network is mocked.
+        9. src/telemetry/otel/models.py — the EXACT record shape OTLPReader
+           parses: the resourceMetrics/resourceLogs/resourceSpans envelopes,
+           OTLPValue's stringValue/intValue/doubleValue/boolValue keys, and
+           how attributes are nested. A qwen span that does not match this
+           shape lands on disk and is silently skipped by every query, so
+           record the shape precisely enough to construct one by hand.
+        10. src/telemetry/otel/reader.py — OTLPDataDir.from_env (which env var
+           names the data dir) and the three filenames it reads.
+        11. src/telemetry/otel/health.py and configs/otel/collector-config.yaml
+           — the receiver ports (grpc/http), which env var overrides the host
+           port, and the pipeline that routes OTLP to the JSONL files.
+        12. src/telemetry/otel/cost_models.py — enough to confirm whether a
+           record lacking a cost attribute is handled gracefully by the cost
+           rollups, since local inference will emit tokens but no dollars.
+
+      Also probe the live machine (Bash, read-only — install nothing here):
+        command -v ollama || echo "ollama: absent"
+        ollama list 2>/dev/null || echo "ollama daemon: not responding"
+        curl -sS -m 3 -f -o /dev/null {ollama_host}/api/tags && echo "http: ok" || echo "http: unreachable"
+        launchctl list 2>/dev/null | grep -i dancing-bear || echo "no dancing-bear agents loaded"
+        sysctl -n hw.memsize
+
+      Write {workspace}/analysis/survey.json:
+        {
+          "handler_contract": {"signature": "...", "return": "...", "registry_line": "..."},
+          "retry_protocol": {"deferred_prefix": "...", "terminal_prefix": "...", "plain_failure": "..."},
+          "reaper": {"function": "...", "timestamp_field": "...", "staleness_rule": "...", "action": "..."},
+          "job_fields": ["id", "type", "..."],
+          "launchd": {"template": "...", "placeholders": ["..."], "installer_idempotent": true|false},
+          "output_dir_api": "...",
+          "test_layout": {"dir": "...", "mocking_style": "..."},
+          "telemetry": {"record_envelopes": ["..."], "value_keys": ["..."], "attribute_nesting": "...", "data_dir_env_var": "...", "collector_ports": {"grpc": N, "http": N}, "port_override_env_var": "...", "cost_absent_handling": "..."},
+          "machine": {"ollama_installed": true|false, "ollama_responding": true|false, "model_present": true|false, "worker_agent_loaded": true|false, "memory_gb": N}
+        }
+
+      Record what you actually found. If the reaper has no timestamp field at
+      all, say so — that is a real finding that changes the heartbeat design.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Glob, Grep, Bash, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: survey
+        mode: generate
+        description: >
+          survey.json written to {workspace}/analysis/ recording exact
+          handler/retry/reaper contracts read from source, plus live machine state.
+    writes_to:
+      - analysis/survey.json
+    validates_output:
+      - path: analysis/survey.json
+        checks: [is_json, has_key:handler_contract, has_key:retry_protocol, has_key:reaper, has_key:machine]
+
+  # ===========================================================================
+  # G1: Design — the contract, reviewed by a human before any file is written
+  # ===========================================================================
+  - name: design
+    kind: propose
+    human_gate: true
+    depends_on: [survey]
+    reads_from: [survey]
+    description: >
+      Read {workspace}/analysis/survey.json and write a concrete design. Cite
+      the survey for every claim about existing behaviour — do not restate this
+      YAML's description as if it were evidence.
+
+      Design these five things, and no more (scope is fixed; do not propose
+      replacing the queue, adding a broker, or an agent framework):
+
+      1. PAYLOAD AND RESULT SCHEMA for job type "{job_type}".
+         Payload must carry at minimum: files (list of repo-relative paths to
+         include as context), instruction (what to change), and optional
+         model/system/temperature/max_tokens overrides. Result must carry the
+         patch text, whether `git apply --check` passed, the model used, token
+         counts if Ollama returns them, and duration_ms. Decide and state:
+         where does the patch text live? Inline in the job JSON, or written to
+         a file under core.paths.output_dir(...) with the path in the result?
+         A multi-KB diff inline makes `worker show` unreadable — weigh that
+         against a second artifact to track. Pick one and justify it.
+
+      2. PROMPT CONSTRUCTION. How file contents become a prompt: delimiters,
+         whether line numbers are included, the instruction to emit a unified
+         diff and nothing else, and the total context budget. Note the model's
+         context window and what happens when the files exceed it — truncate,
+         or fail terminally with a clear message? Decide.
+
+      3. RETRY TAXONOMY, mapped onto the exact prefixes recorded in the
+         survey's retry_protocol. Classify at least: connection refused,
+         request timeout, HTTP 5xx, HTTP 404 model-not-found, a 200 response
+         whose body contains no diff, and a diff that fails `git apply --check`.
+         Each maps to exactly one of: plain failure (retries with backoff),
+         "terminal-..." (no retry), or "deferred-..." (re-queue without
+         consuming an attempt). State the rule you are applying — the
+         principle is that re-sampling can plausibly fix a bad generation but
+         cannot fix a missing model.
+
+      4. HEARTBEAT. Given the reaper's actual staleness rule from the survey,
+         specify the smallest change that stops a healthy long-running job from
+         being reaped: which field the handler writes while waiting, how often,
+         and how the reaper must read it. State explicitly what happens to
+         existing run_cli/run_shell jobs that never write that field — the
+         change must be backward compatible, since they are the queue's current
+         users.
+
+      5. OLLAMA TRANSPORT. Confirm stdlib urllib against {ollama_host} (no new
+         dependency — the repo is dependency-light). Specify the endpoint,
+         request body, how the timeout is derived from the job's timeout_sec,
+         and how a connection failure is distinguished from a slow generation.
+
+      6. TELEMETRY. Local inference must be visible in `./bin/telemetry otel`
+         alongside Claude Code usage, so a qwen job emits OTLP like any other
+         work. The survey recorded the existing pipeline; design against it:
+
+         - EXPORT PATH. The repo's collector (configs/otel/collector-config.yaml)
+           already receives OTLP on grpc 4317 / http 4318 and writes the same
+           metrics.jsonl / events.jsonl / spans.jsonl that OTLPReader consumes.
+           Prefer exporting OTLP/HTTP to the collector over writing those JSONL
+           files directly — a handler appending to a file the collector also
+           owns invites interleaved writes. Note that the host-side port may be
+           remapped (the health module's default mentions OTEL_GRPC_PORT 4327),
+           so resolve the endpoint from the same env var the rest of the repo
+           uses rather than hardcoding 4318.
+         - NO NEW DEPENDENCY. The opentelemetry SDK is not a dependency of this
+           repo and must not become one for this. Emit the OTLP JSON payload
+           over stdlib urllib, matching the record shape OTLPReader already
+           parses (models.py: resourceMetrics / resourceLogs / resourceSpans
+           with OTLPValue-shaped attributes). Read those dataclasses and match
+           them exactly — a shape mismatch means the data lands on disk and is
+           silently skipped by every query.
+         - WHAT TO EMIT. One span per job covering the whole handler
+           invocation, with attributes: job.id, job.type, model, outcome
+           (success / the terminal or deferred prefix), attempt number,
+           patch.valid, and duration. Metrics for prompt/completion tokens
+           when Ollama returns them, and generation duration. Attribute names
+           should sit under a stable prefix (e.g. qwen.*) so they are
+           filterable and never collide with claude_code.* attributes.
+         - COST. Local inference costs no API dollars, and a cost model that
+           invents a dollar figure for it would corrupt every existing cost
+           rollup. Emit tokens and duration; do NOT emit a cost attribute.
+           State this explicitly in the design so nobody adds one later.
+         - FAILURE IS NON-FATAL. If the collector is down, the job must still
+           succeed. Telemetry export is best-effort: swallow its errors,
+           never let an export failure change the job's outcome, and never
+           retry the job because telemetry failed.
+
+      Write {workspace}/design/design.md with one section per item above, and
+      {workspace}/design/contract.json:
+        {
+          "job_type": "{job_type}",
+          "payload_schema": {...},
+          "result_schema": {...},
+          "patch_storage": "inline" | "file",
+          "retry_map": [{"condition": "...", "outcome": "plain|terminal|deferred", "reason": "..."}],
+          "heartbeat": {"field": "...", "interval_sec": N, "reaper_change": "...", "backward_compatible": "..."},
+          "transport": {"endpoint": "...", "method": "...", "timeout_derivation": "..."},
+          "telemetry": {"endpoint_env_var": "...", "span_name": "...", "attributes": ["..."], "metrics": ["..."], "emits_cost": false, "failure_is_nonfatal": "..."},
+          "files_to_create": ["..."],
+          "files_to_modify": ["..."]
+        }
+
+      Then ask the user:
+        A) Approve — implement as designed
+        B) Approve with changes — state them, revise contract.json, then proceed
+        C) Stop — do not write any code
+
+      Do not create, edit, or install anything in this stage. The next three
+      stages are the first to touch the tree.
+    agent:
+      role: Plan
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: design_doc
+        mode: generate
+        description: >
+          design.md and contract.json written to {workspace}/design/ —
+          payload/result schema, prompt construction, retry taxonomy,
+          heartbeat change, and transport, each cited to survey.json.
+    writes_to:
+      - design/design.md
+      - design/contract.json
+    validates_output:
+      - path: design/contract.json
+        checks: [is_json, has_key:payload_schema, has_key:result_schema, has_key:retry_map, has_key:heartbeat, has_key:files_to_create]
+
+  # ===========================================================================
+  # G2a: Handler — the new job type. Owns src/worker/qwen.py + the registry line.
+  # ===========================================================================
+  - name: impl-handler
+    kind: execute
+    depends_on: [design]
+    reads_from: [design, survey]
+    description: >
+      Implement the "{job_type}" handler exactly as approved in
+      {workspace}/design/contract.json.
+
+      File ownership — this stage runs in parallel with impl-heartbeat and
+      impl-tests. Touch ONLY:
+        - src/worker/qwen.py                 (new — handler + Ollama transport)
+        - src/worker/qwen_telemetry.py       (new — OTLP emit, kept separate so
+                                              best-effort telemetry never
+                                              tangles with job control flow)
+        - src/worker/handlers.py             (the REGISTRY line and its import ONLY)
+      Do not touch queue_ops.py, job_runtime.py, anything under tests/, or
+      anything under src/telemetry/ — other stages own those, or they are
+      read-only dependencies here. Telemetry is EMITTED by the worker and READ
+      by src/telemetry; do not modify the reader to accommodate the writer.
+
+      Implementation requirements:
+        - Follow the SafeProcessor/BaseProducer pattern already used by
+          ShellJobProcessor in handlers.py, per the survey's handler_contract.
+        - Return (bool, object) matching the recorded contract. Speak the
+          retry protocol via the exact "terminal-"/"deferred-" prefixes from
+          the survey — a misspelled prefix silently degrades to a plain retry.
+        - stdlib urllib only. No requests, no ollama SDK. Import inside the
+          function if that matches the repo's lazy-import convention for
+          optional paths.
+        - Validate the generated patch by writing it to a temp file and
+          running `git apply --check`, honouring the nosec convention the
+          survey recorded on subprocess call sites.
+        - Write generated patches via core.paths.output_dir(), never to a
+          relative path (see the repo's generated-output rule).
+        - Never log or echo the prompt's file contents at INFO or above.
+        - Type-annotate everything: a new file must be clean under mypy, since
+          the ratchet blocks on any error in a file that was clean at baseline.
+        - Call the heartbeat helper from impl-heartbeat while waiting on the
+          model. That stage is running in parallel, so take the helper's name
+          and signature from contract.json's heartbeat section, not from the
+          other worktree. If integrate finds the signature drifted, it
+          reconciles — do not guess and do not silently skip the call.
+        - TELEMETRY (qwen_telemetry.py), per contract.json's telemetry section:
+          emit one OTLP span per job matching the record shape recorded in
+          survey.json, over stdlib urllib, to the endpoint resolved from the
+          documented env var. Emit tokens and duration; emit NO cost
+          attribute. Wrap every export in a best-effort guard so a collector
+          that is down, unreachable or slow cannot fail, delay or retry the
+          job — and carry the nosec comment the repo requires on a
+          deliberately broad except, explaining the intent.
+
+      Write {workspace}/outputs/handler-impl.json:
+        {"files_created": [...], "files_modified": [...], "registry_key": "{job_type}", "notes": "..."}
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash, Glob, Grep]
+      access: read-write
+      isolation: worktree
+    required: true
+    outputs:
+      - name: handler_impl
+        mode: generate
+        description: >
+          src/worker/qwen.py created and registered in handlers.py REGISTRY;
+          handler-impl.json records the files touched.
+    writes_to:
+      - outputs/handler-impl.json
+
+  # ===========================================================================
+  # G2b: Heartbeat — the reaper fix. Owns queue_ops.py + job_runtime.py.
+  # ===========================================================================
+  - name: impl-heartbeat
+    kind: execute
+    depends_on: [design]
+    reads_from: [design, survey]
+    description: >
+      Implement the heartbeat change from contract.json's "heartbeat" section,
+      so a healthy long-running job is not reaped mid-flight.
+
+      File ownership — parallel with impl-handler and impl-tests. Touch ONLY:
+        - src/worker/queue_ops.py
+        - src/worker/job_runtime.py
+      Do not create or edit src/worker/qwen.py, do not edit the REGISTRY, and
+      do not write tests — other stages own those.
+
+      Requirements:
+        - BACKWARD COMPATIBILITY IS THE WHOLE RISK HERE. run_cli, run_shell and
+          workflow_stage jobs are the queue's current users and will never
+          write a heartbeat field. A job with no heartbeat must behave exactly
+          as it does today — fall back to the existing timestamp the survey
+          recorded, with the same staleness rule. Do not make a missing
+          heartbeat mean "immediately stale" or "never stale".
+        - Expose a small public helper (e.g. a touch/heartbeat function in
+          queue_ops) that a handler can call while waiting. It must write
+          atomically using the existing atomic_write_json helper — a torn
+          write in processing/ would corrupt a live job record.
+        - A heartbeat write must not reset attempts, not_before, or any other
+          field. Read-modify-write only the heartbeat timestamp.
+        - Keep the existing nosec/logging conventions.
+
+      Write {workspace}/outputs/heartbeat-impl.json:
+        {"files_modified": [...], "helper_name": "...", "fallback_behaviour": "...", "notes": "..."}
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash, Glob, Grep]
+      access: read-write
+      isolation: worktree
+    required: true
+    outputs:
+      - name: heartbeat_impl
+        mode: generate
+        description: >
+          queue_ops.py/job_runtime.py updated with a backward-compatible
+          heartbeat; heartbeat-impl.json records the helper and fallback.
+    writes_to:
+      - outputs/heartbeat-impl.json
+
+  # ===========================================================================
+  # G2c: Tests — written against the approved contract, not against the code.
+  # ===========================================================================
+  - name: impl-tests
+    kind: execute
+    depends_on: [design]
+    reads_from: [design, survey]
+    description: >
+      Write tests against the contract in {workspace}/design/contract.json.
+      This stage runs in PARALLEL with the two implementation stages, so the
+      implementation does not exist yet in this worktree — that is intentional.
+      Write to the contract's signatures. The integrate stage reconciles any
+      drift; report a mismatch there rather than weakening an assertion here.
+
+      File ownership — touch ONLY files under tests/worker_tests/. Never edit
+      anything under src/.
+
+      Required coverage:
+        - HAPPY PATH: a mocked 200 response containing a valid unified diff →
+          handler returns success, result matches result_schema.
+        - Every row of contract.json's retry_map. One test per condition,
+          each asserting the EXACT outcome string prefix. A test that accepts
+          "any failure" would pass even if the handler mapped a missing model
+          to an infinite retry loop — assert the prefix.
+        - HEARTBEAT: the reaper does NOT reap a job whose heartbeat is fresh;
+          it DOES reap one whose heartbeat is stale.
+        - BACKWARD COMPATIBILITY: a job record with no heartbeat field is
+          treated exactly as before. Construct it as the existing handlers do,
+          with no heartbeat key at all.
+        - Patch validation: a response whose diff fails `git apply --check` is
+          reported as such and not silently treated as a success.
+        - TELEMETRY SHAPE: the emitted OTLP payload parses back through
+          src/telemetry/otel's own models (OTLPSpansRecord.from_dict and
+          friends) and yields the expected attributes. Assert round-trip
+          through the real reader dataclasses — not against a hand-written
+          expected dict, which would pass even if the shape were wrong for
+          the reader. Assert no cost attribute is present.
+        - TELEMETRY IS NON-FATAL: with the collector unreachable (mock the
+          export to raise), the job still returns success and its result is
+          unchanged. This is the test that stops a telemetry outage from
+          taking out the queue.
+        - HEARTBEAT IS ACTUALLY CALLED: assert the handler invokes the
+          heartbeat helper during a long generation — assert call_count on a
+          mock, not merely that the job succeeded. A job that never
+          heartbeats succeeds fine in a fast test and gets reaped in
+          production.
+
+      Mocking: no network and no real model in tests. Mock at the HTTP
+      boundary, matching the style recorded in the survey's test_layout.
+      Never call a real Ollama endpoint — the suite must pass on a machine
+      with no Ollama installed.
+
+      Assert behaviour, never import-only coverage. Do not write a test whose
+      sole purpose is to raise a coverage number.
+
+      Write {workspace}/outputs/tests-impl.json:
+        {"test_files": [...], "test_count": N, "retry_map_rows_covered": N, "notes": "..."}
+    agent:
+      role: tester
+      model: sonnet
+      tools: [Read, Write, Edit, Bash, Glob, Grep]
+      access: read-write
+      isolation: worktree
+    required: true
+    outputs:
+      - name: tests_impl
+        mode: generate
+        description: >
+          tests under tests/worker_tests/ covering the happy path, every
+          retry_map row, heartbeat freshness and backward compatibility.
+    writes_to:
+      - outputs/tests-impl.json
+
+  # ===========================================================================
+  # G3: Adversarial test review — attack the suite before trusting it
+  # ===========================================================================
+  - name: adversarial-test-review
+    kind: validate
+    depends_on: [impl-handler, impl-heartbeat, impl-tests]
+    reads_from: [impl-tests, impl-handler, impl-heartbeat, design, survey]
+    description: >
+      Adversarial review of the test suite. You are NOT checking that tests
+      pass — a suite of vacuous tests passes perfectly. You are looking for
+      tests that would stay green while the code is broken. Be hostile; a
+      balanced review is a failed review here.
+
+      The three impl stages ran in isolated worktrees, so read their files
+      from the paths recorded in handler-impl.json, heartbeat-impl.json and
+      tests-impl.json. If a file is unreadable from here, record it as
+      "could not review" rather than assuming it is fine.
+
+      For EVERY test, answer one question: what mutation of the source would
+      this test fail to catch? Then hunt specifically for these failure modes,
+      each of which has burned this repo before:
+
+      1. ASSERTING THE SYMPTOM AWAY. A test that forces the risky call to fail
+         (or mocks it into never happening) and then asserts the tally is
+         right pins the behaviour for the wrong reason. The test passes
+         whether or not the bug exists. Check: does the test assert
+         call_count / the actual invocation, or only the end state?
+
+      2. VACUOUS GUARDS. `if x: assert ...` where x is never true in the
+         fixture. `assertTrue(result)` on a truthy dict that would be truthy
+         when empty. try/except around the assertion. A loop over an empty
+         list — zero iterations, zero assertions, green.
+
+      3. RETRY PREFIX PRECISION. contract.json's retry_map maps each condition
+         to exactly one of plain / "terminal-" / "deferred-". A test asserting
+         merely "it failed" cannot tell a terminal failure from an infinite
+         retry loop — and mapping model-not-found to a plain retry means the
+         daemon retries a 404 forever. Every retry_map row needs a test
+         asserting the EXACT prefix. List any row lacking one.
+
+      4. MOCK-SHAPED-WRONG. The HTTP mock must return what Ollama actually
+         returns, per the transport section of contract.json. A mock returning
+         a bare string where the real API returns {"response": "..."} makes
+         the test pass against a handler that could never work live. Compare
+         the mock's shape to the documented response shape.
+
+      5. HEARTBEAT TESTS THAT CANNOT FAIL. The fresh-heartbeat test must fail
+         if the reaper ignores the field; the stale test must fail if the
+         reaper never reaps. If both would pass against an unchanged reaper,
+         they test nothing. Check the timestamps are actually on opposite
+         sides of the staleness threshold, not both trivially fresh.
+
+      6. BACKWARD-COMPAT THEATRE. The no-heartbeat test must build a job
+         record with NO heartbeat key — not one with the key set to None or
+         "", which may take a different code path than a record written by
+         the existing run_cli/run_shell handlers.
+
+      7. TELEMETRY TESTED AGAINST ITSELF. The shape test must round-trip the
+         emitted payload through src/telemetry/otel's real reader dataclasses.
+         A test comparing the payload to a hand-written expected dict proves
+         only that the code does what the code does — both can be wrong for
+         the reader in exactly the same way, and the data lands on disk and is
+         silently skipped by every query. Check which one was written. Also
+         confirm the non-fatal test actually raises from the export path,
+         rather than mocking it into a no-op that never exercises the guard.
+
+      8. SAD PATHS ABSENT ENTIRELY. Enumerate what is NOT tested: malformed
+         JSON from Ollama, an empty response body, a response with prose
+         around the diff, a patch touching a file outside the repo, a payload
+         with a files list naming a nonexistent path, timeout_sec of 0, an
+         oversized context, a collector that accepts the connection then hangs.
+         Missing coverage is a finding.
+
+      Then run the teeth test on the highest-value cases. For the two or three
+      tests that matter most (happy path, one terminal-prefix case, the
+      heartbeat freshness case): temporarily break the SOURCE in the obvious
+      way, run just that test, and confirm it goes red. Revert immediately —
+      use `git diff` to prove the tree is unchanged before finishing, and say
+      so in the record. A test that stays green against a deliberately broken
+      implementation is the single most important finding this stage can
+      produce.
+
+      Write {workspace}/validation/test-review.json:
+        {
+          "tests_reviewed": N,
+          "findings": [
+            {"test": "...", "file": "...", "failure_mode": "asserting-symptom-away|vacuous-guard|imprecise-prefix|mock-shape|toothless-heartbeat|compat-theatre|other",
+             "severity": "blocking|suggestion",
+             "detail": "...", "mutation_not_caught": "...", "fix": "..."}
+          ],
+          "retry_map_rows_without_exact_prefix_test": [...],
+          "sad_paths_missing": [...],
+          "teeth_test": [{"test": "...", "mutation": "...", "went_red": true|false, "tree_restored": true|false}],
+          "verdict": "sound|needs-work"
+        }
+
+      Set verdict "sound" only if there are no blocking findings, every
+      retry_map row has an exact-prefix test, and every teeth test went red.
+      Do not fix anything here — integrate acts on this. An empty findings
+      list on a suite this size is itself suspicious; if you truly found
+      nothing, say what you checked that makes you confident.
+    agent:
+      role: critic
+      model: opus
+      tools: [Read, Glob, Grep, Bash, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: test_review
+        mode: generate
+        description: >
+          test-review.json listing tests that would stay green against broken
+          code, uncovered retry_map rows and sad paths, and teeth-test results.
+    writes_to:
+      - validation/test-review.json
+    validates_output:
+      - path: validation/test-review.json
+        checks: [is_json, has_key:findings, has_key:teeth_test, has_key:verdict]
+
+  # ===========================================================================
+  # G4: Integrate — merge the three worktrees, then run the real gates
+  # ===========================================================================
+  - name: integrate
+    kind: validate
+    depends_on: [impl-handler, impl-heartbeat, impl-tests, adversarial-test-review]
+    reads_from: [impl-handler, impl-heartbeat, impl-tests, adversarial-test-review, design]
+    description: >
+      The three implementation stages ran in ISOLATED WORKTREES. Their edits do
+      NOT merge back automatically. Before anything else, copy each stage's
+      files into this branch's worktree and confirm with `git status` that all
+      of them landed. A stage that reports success but whose file is absent
+      here has produced nothing — say so rather than proceeding.
+
+      Then reconcile drift: impl-tests wrote against contract.json while the
+      implementation was being written in parallel. Where they disagree, fix
+      the side that departs from the approved contract. Do not weaken a test
+      to match a wrong implementation; do not bend the implementation to match
+      a test that misread the contract.
+
+      Then act on {workspace}/validation/test-review.json. Fix every BLOCKING
+      finding before running the gates, and add a test for every row in
+      retry_map_rows_without_exact_prefix_test and for each entry in
+      sad_paths_missing. If a teeth_test row has went_red false, that test is
+      toothless against a real bug — rewrite it so the same mutation fails it,
+      do not simply mark it reviewed. Record which findings you fixed and which
+      you are consciously deferring, with a reason; silently dropping a
+      blocking finding is not an option.
+
+      Then run the real gates, in this order, and record verbatim output:
+
+        1. Prove imports resolve to THIS checkout before trusting any result —
+           an inherited PYTHONPATH silently resolves worker/core to the main
+           checkout and yields a false green:
+             make check-env
+             python3 -c "import worker, core; print(worker.__file__); print(core.__file__)"
+           Both paths must be under this worktree. If not, stop and report —
+           nothing below this line means anything otherwise.
+
+        2. Full suite. Exit code alone is NOT evidence the suite ran; a
+           concurrent venv race can exit 0 having run nothing:
+             make test > /tmp/qwen-t.log 2>&1; echo "EXIT=$?"; grep -E "^Ran [0-9]+ tests" /tmp/qwen-t.log
+           The 2>&1 is required — unittest writes the summary to stderr. No
+           "Ran N tests" line means the suite did not run: re-run it, and do
+           not report a baseline from that output.
+
+        3. Lint the changed files with qlty, not make lint — CI runs qlty,
+           which adds bandit and radarlint on top of ruff, so make lint alone
+           can be green while CI fails. Include the working tree, since
+           main...HEAD omits uncommitted files. Write the path list to a file
+           first and pass the paths explicitly — the destructive-bash guard
+           rejects command substitution in a worktree session:
+             git diff --name-only main...HEAD > /tmp/qwen-changed.txt
+             git diff --name-only >> /tmp/qwen-changed.txt
+             sort -u /tmp/qwen-changed.txt
+           then run ~/.qlty/bin/qlty check with those paths listed out.
+           Use --rescan-until-stable: qlty caps findings per run and the cap is
+           nondeterministic, so a single clean scan proves nothing.
+
+        4. make typecheck-changed — blocks on any error in a file that was
+           clean at baseline. src/worker/qwen.py is new, so it is not
+           grandfathered: it must be clean. Never add a type: ignore to pass.
+
+      Fix what fails and re-run until clean, or report precisely what remains
+      broken. A partially-green result reported as success is worse than a
+      failure — state the actual state.
+
+      Write {workspace}/validation/integrate.json:
+        {
+          "files_landed": [...],
+          "import_paths_correct": true|false,
+          "tests": {"ran": N, "failures": N, "errors": N, "summary_line": "..."},
+          "qlty": {"clean": true|false, "findings": [...]},
+          "typecheck_changed": {"clean": true|false, "errors": [...]},
+          "drift_reconciled": [...],
+          "review_findings_fixed": [...],
+          "review_findings_deferred": [{"finding": "...", "reason": "..."}],
+          "all_gates_passed": true|false
+        }
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash, Glob, Grep]
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - Every file reported by the three impl stages is present in this worktree per git status
+        - worker and core import from this checkout, not the main checkout
+        - A literal "Ran N tests" line was captured from make test output
+        - Every blocking finding in test-review.json is either fixed or listed in review_findings_deferred with a reason
+        - The test count ran is no lower than impl-tests reported, since review findings only add tests
+        - all_gates_passed is true only if tests, qlty and typecheck-changed each actually passed
+      max_revisions: 2
+    required: true
+    outputs:
+      - name: integration
+        mode: generate
+        description: >
+          integrate.json recording landed files, verbatim gate results, and
+          any contract drift reconciled between tests and implementation.
+    writes_to:
+      - validation/integrate.json
+    validates_output:
+      - path: validation/integrate.json
+        checks: [is_json, has_key:files_landed, has_key:tests, has_key:all_gates_passed]
+
+  # ===========================================================================
+  # G5: Install — idempotent, check-then-act, full stack
+  # ===========================================================================
+  - name: install
+    kind: execute
+    depends_on: [integrate]
+    reads_from: [integrate, survey, design]
+    description: >
+      Install the full stack. EVERY step is check-then-act: check state first,
+      act only if the check fails, and report each step as "already satisfied"
+      or "changed". A second consecutive run of this stage must change nothing
+      and exit 0 — that is the acceptance criterion for the whole stage, and
+      the verify stage tests it by running the checks again.
+
+      Read {workspace}/validation/integrate.json first. If all_gates_passed is
+      false, do NOT install — write a skip record to
+      {workspace}/validation/install.json explaining which gate failed, and
+      stop. Installing on top of code that does not pass its own tests is how
+      a broken daemon ends up running at boot.
+
+      Step 1 — Ollama binary.
+        Check:  command -v ollama
+        Act:    brew install ollama
+        Never reinstall or upgrade an existing install — a working ollama is
+        already satisfied, whatever its version.
+
+      Step 2 — Ollama server reachable.
+        Check:  curl -sS -m 5 -f -o /dev/null {ollama_host}/api/tags
+                (-f turns a non-2xx status into a non-zero exit, so no curl
+                format string is needed — exit 0 means the server is up)
+        Act:    start the server in the background (`ollama serve`), then poll
+                the same check until it returns 200, up to ~30s.
+        If it already returns 200, do NOT start a second server and do NOT
+        restart the running one — something else may be using it.
+
+      Step 3 — Model present.
+        Check:  ollama list | grep -F '{model_tag}'
+        Act:    ollama pull {model_tag}
+        This is a multi-GB download. Never pull when the check already matches.
+        If the machine's memory_gb from survey.json is under 24, note in the
+        record that a 14B model will be tight and a 7B tag is the fallback —
+        but pull the requested tag regardless; sizing is the user's call.
+
+      Step 4 — Worker launchd agent.
+        Check:  launchctl list | grep -F com.dancing-bear.worker
+        Act:    ./bin/worker-install-launchd
+        The survey recorded whether that installer is itself idempotent (it
+        unloads before loading). If it is, running it again is safe but still
+        unnecessary — only run it when the check shows the agent is absent.
+        Never install a launchd agent pointing at THIS worktree: a temporary
+        worktree path in a plist becomes a permanently broken agent once the
+        worktree is removed. Resolve the main checkout path and use it; if the
+        agent is absent and you cannot determine the main checkout path,
+        record that as a manual step rather than installing a bad plist.
+
+      Step 5 — Queue directories.
+        Check:  the queue root from survey.json (get_worker_state_dir) exists
+                with pending/processing/done/error subdirectories.
+        Act:    the queue creates them on demand via _ensure_dirs — prefer
+                triggering that with a harmless `./bin/worker list` over
+                mkdir-ing by hand, so the layout stays owned by one place.
+
+      Write {workspace}/validation/install.json:
+        {
+          "skipped": true|false,
+          "skip_reason": "..." | null,
+          "steps": [
+            {"step": "ollama_binary",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false},
+            {"step": "ollama_server",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false},
+            {"step": "model_present",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false},
+            {"step": "worker_launchd", "already_satisfied": true|false, "action_taken": "...", "ok": true|false},
+            {"step": "queue_dirs",     "already_satisfied": true|false, "action_taken": "...", "ok": true|false}
+          ],
+          "all_ok": true|false,
+          "manual_steps_required": [...]
+        }
+
+      Report honestly: a step you skipped because it could not be done safely
+      is "manual_steps_required", not ok=true.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Bash, Read, Write, Edit]
+      access: read-write
+    required: true
+    outputs:
+      - name: install_record
+        mode: generate
+        description: >
+          install.json recording each check-then-act step, whether it was
+          already satisfied, and any step deferred to the user.
+    writes_to:
+      - validation/install.json
+    validates_output:
+      - path: validation/install.json
+        checks: [is_json, has_key:steps, has_key:all_ok]
+
+  # ===========================================================================
+  # G6: Verify — a real job through the real queue, plus an idempotence re-run
+  # ===========================================================================
+  - name: verify
+    kind: validate
+    depends_on: [install]
+    reads_from: [install, design, integrate]
+    description: >
+      Prove the stack works end to end, and prove the install is idempotent.
+
+      Read {workspace}/validation/install.json. If skipped or all_ok is false,
+      record what could not be verified and why — do not fabricate a pass.
+
+      Check A — IDEMPOTENCE. Re-run the five read-only CHECK commands from the
+      install stage (command -v ollama, the /api/tags curl, ollama list,
+      launchctl list, the queue dirs). Every one must now report
+      already-satisfied. Any check that still reports "needs action" means the
+      install did not converge — that is a real failure, report it as one.
+      Run only the checks; do not re-run the actions.
+
+      Check B — REAL JOB THROUGH THE REAL QUEUE. Use the actual CLI, not a
+      Python harness that imports the handler directly — the point is to prove
+      the wiring from CLI to registry to handler to result:
+
+        1. Confirm the new type is exposed:
+             ./bin/worker enqueue --help
+           "{job_type}" must appear in --type's choices, since they derive
+           from HANDLERS.keys(). If it does not, the registry line never
+           landed — stop and report that.
+        2. Enqueue a small, real job against a file that exists in this
+           checkout, with an instruction whose correct answer is obvious and
+           checkable (e.g. add a docstring to one small function). Capture the
+           job id.
+        3. Drain it with a single `./bin/worker run-once --max 1`. Do not
+           start a daemon and do not sleep-poll in a loop; if a wait is needed,
+           bound it.
+        4. Read the result: ./bin/worker show <job_id>
+        5. Assert against contract.json's result_schema: the job is in done/
+           (not error/), the result carries a patch, and the patch passes
+           `git apply --check`. Do NOT apply the patch — this workflow's whole
+           contract is that patches are produced for review, never applied.
+
+      Check C — NO REGRESSION IN EXISTING JOB TYPES. The heartbeat change
+      touched shared queue code. Enqueue and drain one trivial run_shell job
+      (something like `echo ok`) and confirm it still completes into done/.
+      A green qwen job with a broken run_shell path is a net loss.
+
+      Check D — TELEMETRY LANDED AND IS QUERYABLE. Run
+      `./bin/telemetry otel health` first. If the collector is not running,
+      record telemetry as "not verifiable — collector down" and do NOT treat
+      that as a failure of this workflow; the design makes export best-effort,
+      and Check B already proved the job succeeds regardless.
+
+      If the collector IS running, prove the span from Check B's job is both
+      on disk and visible through the CLI — these are different claims, and
+      only the second one matters to a user:
+        - Find the job id in the span data (`./bin/telemetry otel inspect`
+          or events-search, whichever the survey recorded as matching).
+        - Confirm the span's attributes include the model and outcome, and
+          that NO cost attribute is present.
+        - Confirm `./bin/telemetry otel sessions` / `cost` still run without
+          error with this record present. A malformed record that breaks an
+          existing query is a regression in the telemetry CLI, not a
+          telemetry success — report it as a failure.
+
+      Write {workspace}/validation/verify.json:
+        {
+          "idempotence": {"all_already_satisfied": true|false, "checks": [...]},
+          "job_flow": {"type_in_cli_choices": true|false, "job_id": "...", "final_state": "done|error|...", "patch_present": true|false, "git_apply_check_passed": true|false, "patch_path": "..."},
+          "regression": {"run_shell_ok": true|false, "detail": "..."},
+          "telemetry": {"collector_up": true|false, "span_found": true|false, "attributes_present": [...], "cost_attribute_absent": true|false, "existing_queries_ok": true|false, "detail": "..."},
+          "verified": true|false,
+          "failures": [...]
+        }
+    agent:
+      role: unit-validator
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    validation:
+      strategy: unit
+      criteria:
+        - Idempotence checks were re-run and each reported already-satisfied
+        - A real job was enqueued through ./bin/worker and its id recorded
+        - The resulting patch was validated with git apply --check and NOT applied
+        - An existing run_shell job still completes, proving no queue regression
+        - Telemetry was either confirmed queryable via ./bin/telemetry otel, or recorded as not-verifiable with the collector down — never assumed
+        - verified is true only if checks A, B and C genuinely passed (D may be not-verifiable)
+      max_revisions: 1
+    required: true
+    outputs:
+      - name: verification
+        mode: generate
+        description: >
+          verify.json recording idempotence re-checks, a real end-to-end job
+          through the CLI, and a no-regression check on existing job types.
+    writes_to:
+      - validation/verify.json
+    validates_output:
+      - path: validation/verify.json
+        checks: [is_json, has_key:idempotence, has_key:job_flow, has_key:verified]
+
+  # ===========================================================================
+  # G7: Report — what shipped, what it costs, how to use it
+  # ===========================================================================
+  - name: report
+    kind: propose
+    depends_on: [verify]
+    reads_from: [verify, install, integrate, design, survey]
+    description: >
+      Read every prior stage output and write {workspace}/validation/report.md.
+      Cite the stage files for each claim; do not restate intent as outcome.
+
+      ## Qwen Local Handler — Report
+
+      ### What shipped
+      Files created and modified, from integrate.json's files_landed.
+
+      ### Design decisions
+      One line each for the five contract.json sections, plus the standing
+      decision this workflow encoded: the queue was extended, not replaced,
+      and patches are produced for review rather than applied.
+
+      ### Gate results
+      | Gate | Result |
+      |------|--------|
+      Tests (with the literal "Ran N tests" line), qlty, typecheck-changed —
+      from integrate.json.
+
+      ### Install state
+      One row per install.json step: already-satisfied vs changed. List
+      manual_steps_required prominently if non-empty.
+
+      ### Verification
+      Idempotence, the end-to-end job (id, final state, patch path), and the
+      run_shell no-regression result, from verify.json.
+
+      ### How to use it
+      The exact enqueue command with a real payload, the command to read the
+      result, and the command to apply a patch once reviewed. Make clear the
+      workflow never applies patches itself.
+
+      ### Known limits and next steps
+      Honest list. Include anything verify.json put in "failures", the context
+      window ceiling from the design, and whatever was deferred — the model
+      sizing note if the machine is under 24GB, and any manual install step.
+      If any gate or check failed, lead with that rather than burying it.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: final_report
+        mode: generate
+        description: >
+          report.md summarizing shipped files, design decisions, gate results,
+          install state, verification, usage, and honest known limits.
+    writes_to:
+      - validation/report.md
