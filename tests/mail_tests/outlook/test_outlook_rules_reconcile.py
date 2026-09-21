@@ -567,7 +567,12 @@ class TestReconcileDeleteFails(unittest.TestCase):
         payload = _sync_payload(client, reconcile=True, dry_run=False)
         envelope = OutlookRulesSyncProcessor().process(payload)
 
-        self.assertEqual(envelope.status, "success")
+        # A reconcile failure must NOT report success: run_pipeline maps
+        # status="success" to exit code 0, so a scripted run would see a clean
+        # exit after a rule was lost. The payload is still attached so the tally
+        # (the recovery information) survives.
+        self.assertEqual(envelope.status, "error")
+        self.assertIsNotNone(envelope.payload, "tally must survive the failure")
         # Delete failed: must not be counted as reconciled
         self.assertEqual(envelope.payload.reconciled, 0)
         # Failed count must reflect the partial failure
@@ -621,7 +626,11 @@ class TestReconcileCreateFails(unittest.TestCase):
         payload = _sync_payload(client, reconcile=True, dry_run=False)
         envelope = OutlookRulesSyncProcessor().process(payload)
 
-        self.assertEqual(envelope.status, "success")
+        # The rule is GONE (delete succeeded, create raised). Exiting 0 here is
+        # what let a lost rule look like a clean run; status must be non-success
+        # while the payload keeps the tally for recovery.
+        self.assertEqual(envelope.status, "error")
+        self.assertIsNotNone(envelope.payload, "tally must survive the failure")
         self.assertEqual(envelope.payload.reconciled, 0)
         self.assertEqual(envelope.payload.failed, 1)
         # delete was attempted
@@ -1110,6 +1119,107 @@ class TestPlanSyncParity(unittest.TestCase):
 # SEQUENCE PRESERVATION
 # ---------------------------------------------------------------------------
 
+class TestReconcileFailureExitCode(unittest.TestCase):
+    """A reconcile failure must not exit 0.
+
+    ``run_pipeline`` (core/pipeline.py) computes the process exit code as
+    ``0 if envelope.ok() else diagnostics["code"]``.  The sync processor used to
+    return ``status="success"`` regardless of ``failed``, so a ``create_failed``
+    -- a rule deleted with its replacement never created -- exited 0, identical
+    to a clean run.  A cron job or workflow step saw success while a filter had
+    silently disappeared; the only signal was a ``Failed: N`` line in
+    human-readable text that nothing parses.
+
+    Raised in review on PR #359.  These tests assert the EXIT CODE expression
+    itself, not just the status field, because the status is one step removed
+    from the thing that actually matters to a caller.
+    """
+
+    LIVE = [{
+        "id": "bank-rule",
+        "criteria": {"from": "bank.example"},
+        "action": {"forward": "old@other.com"},
+    }]
+    DESIRED = [{
+        "match": {"from": "bank.example"},
+        "action": {"forward": "new@other.com"},
+    }]
+
+    @staticmethod
+    def _exit_code(envelope):
+        """Mirror run_pipeline's exit-code expression (core/pipeline.py)."""
+        if envelope.ok():
+            return 0
+        return int((envelope.diagnostics or {}).get("code", 2))
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_create_failed_exits_nonzero(self, mock_norm, mock_load):
+        """A lost rule exits nonzero, and the tally survives for recovery."""
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = list(self.DESIRED)
+        client = _make_client(list_filters=[dict(r) for r in self.LIVE])
+        client.create_filter.side_effect = Exception("graph 500")
+
+        envelope = OutlookRulesSyncProcessor().process(
+            _sync_payload(client, reconcile=True, dry_run=False)
+        )
+
+        self.assertNotEqual(
+            self._exit_code(envelope), 0,
+            "a reconcile that lost a rule exited 0, indistinguishable from success",
+        )
+        self.assertEqual(envelope.payload.failed, 1)
+        # The counts ARE the recovery information; a bare error would discard them.
+        self.assertIsNotNone(envelope.payload)
+        diag = envelope.diagnostics or {}
+        self.assertTrue(diag.get("hint"), "a failure the user must act on needs a hint")
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_successful_reconcile_exits_zero(self, mock_norm, mock_load):
+        """Contrast: a clean reconcile still exits 0.
+
+        Without this, making failures exit nonzero could regress into making
+        every reconcile exit nonzero, which no caller would tolerate.
+        """
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = list(self.DESIRED)
+        client = _make_client(list_filters=[dict(r) for r in self.LIVE])
+
+        envelope = OutlookRulesSyncProcessor().process(
+            _sync_payload(client, reconcile=True, dry_run=False)
+        )
+
+        self.assertEqual(self._exit_code(envelope), 0)
+        self.assertEqual(envelope.payload.reconciled, 1)
+        self.assertEqual(envelope.payload.failed, 0)
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_non_reconcile_create_failure_still_exits_zero(self, mock_norm, mock_load):
+        """The non-reconcile path is unchanged: a swallowed create still exits 0.
+
+        Deliberate scope limit. On the default path a create failure has always
+        been swallowed and counted as created, and changing that is a separate
+        behavioural decision from fixing reconcile's lost-rule case.
+        """
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = [{
+            "match": {"from": "brand-new@example.com"},
+            "action": {"forward": "x@other.com"},
+        }]
+        client = _make_client(list_filters=[])
+        client.create_filter.side_effect = Exception("graph 500")
+
+        envelope = OutlookRulesSyncProcessor().process(
+            _sync_payload(client, reconcile=False, dry_run=False)
+        )
+
+        self.assertEqual(self._exit_code(envelope), 0)
+        self.assertEqual(envelope.payload.failed, 0)
+
+
 class TestUnmappableConditionsAreNotRewritten(unittest.TestCase):
     """A live rule with Graph conditions this codebase cannot express is untouched.
 
@@ -1345,6 +1455,92 @@ class TestSequencePreservation(unittest.TestCase):
         self.assertIsNone(call_kwargs.kwargs.get("stop_processing_rules"))
 
 
+class TestIsEnabledPreservation(unittest.TestCase):
+    """A DISABLED rule must not come back enabled after reconcile.
+
+    ``create_filter`` hardcoded ``isEnabled: True`` and ``_map_rule`` never read
+    it, so reconciling a rule the user had switched off in the Outlook UI silently
+    re-enabled it -- it resumed acting on mail they had deliberately stopped.
+
+    The YAML has no enable/disable directive, so there is no way for the config to
+    express "keep this off"; the live rule's own state is the only source of
+    truth. Same defect class as the ``sequence`` reset, raised in review on #359.
+    """
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_disabled_rule_stays_disabled(self, mock_norm, mock_load):
+        """isEnabled=False is passed through to the replacement."""
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = [{
+            "match": {"from": "news@example.com"},
+            "action": {"forward": "new@other.com"},
+        }]
+        live_rule = {
+            "id": "disabled-rule",
+            "criteria": {"from": "news@example.com"},
+            "action": {"forward": "old@other.com"},
+            "sequence": 4,
+            "stopProcessingRules": True,
+            "isEnabled": False,
+        }
+        client = _make_client(list_filters=[live_rule])
+
+        envelope = OutlookRulesSyncProcessor().process(
+            _sync_payload(client, reconcile=True, dry_run=False)
+        )
+
+        self.assertEqual(envelope.payload.reconciled, 1)
+        client.create_filter.assert_called_once()
+        self.assertIs(
+            client.create_filter.call_args.kwargs.get("is_enabled"), False,
+            "a rule the user disabled was silently re-enabled",
+        )
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_enabled_rule_stays_enabled(self, mock_norm, mock_load):
+        """Contrast: an enabled rule is recreated enabled."""
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = [{
+            "match": {"from": "news@example.com"},
+            "action": {"forward": "new@other.com"},
+        }]
+        live_rule = {
+            "id": "enabled-rule",
+            "criteria": {"from": "news@example.com"},
+            "action": {"forward": "old@other.com"},
+            "isEnabled": True,
+        }
+        client = _make_client(list_filters=[live_rule])
+
+        OutlookRulesSyncProcessor().process(
+            _sync_payload(client, reconcile=True, dry_run=False)
+        )
+
+        self.assertIs(client.create_filter.call_args.kwargs.get("is_enabled"), True)
+
+    def test_create_filter_defaults_to_enabled(self):
+        """An ordinary create (no is_enabled passed) still produces an enabled rule.
+
+        Guards backwards compatibility: every non-reconcile caller omits the
+        argument, and a rule created disabled by default would silently do nothing.
+        """
+        from core.outlook._mail_labels import LabelsFiltersMixin
+
+        host = MagicMock()
+        host._build_rule_conditions.return_value = {"senderContains": ["a.example"]}
+        host._build_rule_actions.return_value = {"assignCategories": ["Cat"]}
+        with patch("core.outlook._mail_labels._requests") as mock_req:
+            mock_req.return_value.post.return_value.json.return_value = {"id": "new"}
+            LabelsFiltersMixin.create_filter(host, {"from": "a.example"}, {"addLabelIds": ["Cat"]})
+
+        sent = mock_req.return_value.post.call_args.kwargs["json"]
+        self.assertIs(sent["isEnabled"], True)
+        self.assertEqual(sent["sequence"], 1)
+        self.assertIs(sent["stopProcessingRules"], True)
+
+
 # ---------------------------------------------------------------------------
 # delete_failed + --delete-missing: the surviving rule must not be destroyed
 # ---------------------------------------------------------------------------
@@ -1400,7 +1596,8 @@ class TestDeleteFailedDeleteMissing(unittest.TestCase):
 
         envelope = OutlookRulesSyncProcessor().process(payload)
 
-        self.assertEqual(envelope.status, "success")
+        # Non-success so the command exits nonzero; payload keeps the tally.
+        self.assertEqual(envelope.status, "error")
         self.assertEqual(envelope.payload.failed, 1)
         self.assertEqual(envelope.payload.reconciled, 0)
         # The rule still exists and was NOT deleted.
@@ -1465,7 +1662,8 @@ class TestCreateFailedDeleteMissing(unittest.TestCase):
 
         envelope = OutlookRulesSyncProcessor().process(payload)
 
-        self.assertEqual(envelope.status, "success")
+        # Non-success so the command exits nonzero; payload keeps the tally.
+        self.assertEqual(envelope.status, "error")
         self.assertEqual(envelope.payload.failed, 1)
         self.assertEqual(envelope.payload.reconciled, 0)
         # The rule is already gone: no second delete, and no second tally.

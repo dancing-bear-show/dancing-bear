@@ -148,7 +148,17 @@ class OutlookRulesSyncProducer(BaseProducer):
         self._reconcile = reconcile
 
     def produce(self, result: ResultEnvelope) -> None:
-        """Override to also surface the hint diagnostic."""
+        """Override to also surface the hint diagnostic.
+
+        A reconcile failure returns status="error" WITH a payload, so the command
+        exits nonzero (a lost rule must not look like success). The tally is still
+        printed in that case: the counts are the recovery information, telling the
+        user what landed before the failure and what a re-run has left to do.
+        Printing only the error would discard exactly what they need.
+        """
+        if result.payload is not None and not result.ok():
+            self._produce_success(result.payload, result.diagnostics, complete=False)
+
         if not result.ok() or result.payload is None:
             msg = diagnostic_message(result.diagnostics) or self.failure_message
             if msg:
@@ -159,7 +169,9 @@ class OutlookRulesSyncProducer(BaseProducer):
             return
         self._produce_success(result.payload, result.diagnostics)
 
-    def _produce_success(self, payload: OutlookRulesSyncResult, diagnostics: dict | None) -> None:
+    def _produce_success(
+        self, payload: OutlookRulesSyncResult, diagnostics: dict | None, complete: bool = True
+    ) -> None:
         # ONE parts list for both branches. They were built independently, and
         # the duplication silently dropped a field twice: `Reconciled` before
         # f5b940a, then `Failed` — added to the live branch only, so a dry run
@@ -177,8 +189,13 @@ class OutlookRulesSyncProducer(BaseProducer):
 
         if self._dry_run:
             self._writer.print_dry_run(f"sync. {summary}")
-        else:
+        elif complete:
             self._writer.print(f"Sync complete. {summary}")
+        else:
+            # Never "Sync complete." on a run that lost a rule. The tally is
+            # still printed (it is the recovery information), but the headline
+            # must not claim completion.
+            self._writer.print(f"Sync incomplete. {summary}")
 
 
 class OutlookRulesPlanProducer(BaseProducer):

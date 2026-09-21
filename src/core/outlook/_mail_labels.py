@@ -183,6 +183,7 @@ class LabelsFiltersMixin:
             "action": action,
             "sequence": ru.get("sequence"),
             "stopProcessingRules": ru.get("stopProcessingRules"),
+            "isEnabled": ru.get("isEnabled"),
             "unmappedConditions": sorted(
                 set(ru.get("conditions") or {}) - _MAPPED_CONDITION_KEYS
             ),
@@ -231,14 +232,21 @@ class LabelsFiltersMixin:
         action: dict[str, Any],
         sequence: int | None = None,
         stop_processing_rules: bool | None = None,
+        is_enabled: bool | None = None,
     ) -> dict[str, Any]:
         """Create an inbox rule from criteria and action dicts.
 
-        ``sequence`` and ``stop_processing_rules`` default to today's behaviour
-        (1 and True) when not supplied, so existing callers are unaffected.
-        Pass explicit values when recreating a rule during reconciliation
-        (``rules.sync --reconcile``) to preserve the live rule's position in
-        the rule chain and its stop-processing setting.
+        ``sequence``, ``stop_processing_rules`` and ``is_enabled`` default to
+        today's behaviour (1, True, True) when not supplied, so existing callers
+        are unaffected.  Pass explicit values when recreating a rule during
+        reconciliation (``rules.sync --reconcile``) to preserve the live rule's
+        position in the rule chain, its stop-processing setting, and whether it
+        was enabled.
+
+        ``is_enabled`` matters because the YAML has no enable/disable directive:
+        a rule the user DISABLED in the Outlook UI would otherwise come back
+        enabled after any action change, silently resuming action on mail they had
+        deliberately switched off.
 
         Note: the Graph API has no PATCH endpoint for inbox rules.  Reconcile
         must delete the old rule and create a replacement.  If the live rule's
@@ -248,7 +256,7 @@ class LabelsFiltersMixin:
         payload = {
             "displayName": f"Rule {int(time.time())}",
             "sequence": sequence if sequence is not None else 1,
-            "isEnabled": True,
+            "isEnabled": is_enabled if is_enabled is not None else True,
             "conditions": self._build_rule_conditions(criteria),
             "actions": self._build_rule_actions(action),
             "stopProcessingRules": stop_processing_rules if stop_processing_rules is not None else True,

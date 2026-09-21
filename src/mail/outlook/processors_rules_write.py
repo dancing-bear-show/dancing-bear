@@ -174,12 +174,36 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
                 ) if payload.delete_missing else 0
             )
 
-            return ResultEnvelope(
-                status="success",
-                payload=OutlookRulesSyncResult(
-                    created=created, deleted=deleted, reconciled=reconciled, failed=failed
-                ),
+            result = OutlookRulesSyncResult(
+                created=created, deleted=deleted, reconciled=reconciled, failed=failed
             )
+            if failed:
+                # A reconcile failure must not exit 0. `create_failed` means a
+                # rule was deleted and its replacement never created -- the rule
+                # is GONE -- and `run_pipeline` maps status="success" straight to
+                # exit code 0 (core/pipeline.py:186). A cron job or workflow step
+                # would see success while a filter silently disappeared; the
+                # `Failed: N` line is human-readable text nothing parses.
+                #
+                # The payload is still attached so the producer can print the
+                # full tally: the counts ARE the recovery information, telling
+                # the user what landed before the failure and what to re-run.
+                return ResultEnvelope(
+                    status="error",
+                    payload=result,
+                    diagnostics={
+                        "error": (
+                            f"{failed} reconcile operation(s) failed. A failed create after a "
+                            "successful delete leaves the rule absent."
+                        ),
+                        "code": 1,
+                        "hint": (
+                            "re-run `rules.sync --reconcile` once the API error clears; "
+                            "a persistent failure indicates permissions or quota, not a transient error"
+                        ),
+                    },
+                )
+            return ResultEnvelope(status="success", payload=result)
         except Exception as exc:
             return ResultEnvelope(
                 status="error",
@@ -261,6 +285,7 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
                 action,
                 sequence=live_rule.get("sequence"),
                 stop_processing_rules=live_rule.get("stopProcessingRules"),
+                is_enabled=live_rule.get("isEnabled"),
             )
         except Exception:  # nosec B110 - create failed after delete; rule is lost, surfaced as failed
             return "create_failed", live_id

@@ -128,8 +128,8 @@ def register_outlook_commands(app: CLIApp) -> object:
                 "Preview reconcile: rules matching by criteria but with a changed action are shown as "
                 "'Would reconcile' (delete existing rule id, create replacement). "
                 "Without this flag only creates are shown. "
-                "Recovery: a 'Failed: N' line means a non-transient API error; "
-                "stop and diagnose rather than re-running in a loop."
+                "Read-only: makes no API changes, so it reports no failures -- "
+                "run 'rules.sync --reconcile' to apply."
             )}),
         ]),
         ("rules.sync", "Sync rules from filters YAML into Outlook Inbox", run_outlook_rules_sync, [
