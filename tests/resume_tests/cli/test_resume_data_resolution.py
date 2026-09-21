@@ -40,9 +40,11 @@ def _command_modules() -> list[Any]:
     with no commands in it, so it passes no matter what the commands do.
     """
     package = importlib.import_module("resume.cli")
-    modules = []
-    for path in sorted(Path(package.__file__).parent.glob("cmd_*.py")):
-        modules.append(importlib.import_module(f"resume.cli.{path.stem}"))
+    package_dir = Path(str(package.__file__)).parent
+    modules = [
+        importlib.import_module(f"resume.cli.{path.stem}")
+        for path in sorted(package_dir.glob("cmd_*.py"))
+    ]
     modules.append(importlib.import_module("resume.cli.helpers"))
     return modules
 
@@ -51,23 +53,20 @@ def _scan_command_modules() -> list[str]:
     """Return ``file:line`` for every offending call across the command modules."""
     offenders: list[str] = []
     for module in _command_modules():
-        name = Path(module.__file__).name
+        name = Path(str(module.__file__)).name
         for line in _direct_args_data_calls(inspect.getsource(module)):
             offenders.append(f"{name}:{line}")
     return offenders
 
 
-def _direct_args_data_calls(source: str | None = None) -> list[int]:
+def _direct_args_data_calls(source: str) -> list[int]:
     """Return line numbers of ``read_yaml_or_json(args.data)`` call nodes.
 
     Walks the AST rather than scanning text: a call split across lines is
     invisible to a substring search, and the same characters inside a comment
-    or docstring are not a call at all. With no ``source``, scans every command
-    module and returns ``file:line`` strings instead of bare line numbers.
+    or docstring are not a call at all. Takes one module's source; use
+    ``_scan_command_modules`` to sweep every command module.
     """
-    if source is None:
-        return _scan_command_modules()
-
     offenders: list[int] = []
     for node in ast.walk(ast.parse(source)):
         if not isinstance(node, ast.Call):
@@ -215,7 +214,7 @@ class TestEveryDataCommandUsesTheResolver(unittest.TestCase):
         across lines is missed entirely, and the same text inside a comment or
         docstring (this docstring, for instance) reads as a violation.
         """
-        offenders = _direct_args_data_calls()
+        offenders = _scan_command_modules()
         self.assertEqual(
             offenders,
             [],

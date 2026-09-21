@@ -8,7 +8,6 @@ from typing import Any
 
 from core.cli_errors import CLIError, ExitCode
 from core.cli_framework import CLIApp
-from core.cli_framework_types import Argument
 
 from .args import PROFILE_HELP_OUT, OUT_DIR_HELP
 from .helpers import _resolve_out
@@ -130,8 +129,7 @@ def register_docx_commands(app: CLIApp) -> None:
         (("--structure",), {"action": "store_true",
                             "help": "Report layout markup counts (tables/textboxes/columns) instead of text"}),
     ]
-    for flags, kwargs in reversed(_DOCX_TEXT_ARGS):
-        app._pending_arguments.append(Argument(flags, kwargs))
+    app.add_arguments(_DOCX_TEXT_ARGS)
     app.command("docx-text", help="Dump visible text from a .docx file (for verification)")(cmd_docx_text)
 
     _EXPORT_PDF_ARGS: list[tuple[tuple[str, ...], dict[str, Any]]] = [
@@ -140,6 +138,5 @@ def register_docx_commands(app: CLIApp) -> None:
         (("--profile",), {"help": PROFILE_HELP_OUT}),
         (("--out-dir",), {"help": OUT_DIR_HELP}),
     ]
-    for flags, kwargs in reversed(_EXPORT_PDF_ARGS):
-        app._pending_arguments.append(Argument(flags, kwargs))
+    app.add_arguments(_EXPORT_PDF_ARGS)
     app.command("export-pdf", help="Convert a .docx resume to PDF via LibreOffice")(cmd_export_pdf)

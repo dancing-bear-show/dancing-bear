@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from typing import Any, Callable, Sequence, TypeVar
+from typing import Any, Callable, Iterable, Sequence, TypeVar
 
 from .cli_errors import CLIError, ExitCode, handle_error
 from .cli_framework_group import CommandGroup
@@ -157,6 +157,20 @@ class CLIApp:
             self._pending_arguments.append(Argument(name_or_flags, kwargs))
             return func
         return decorator
+
+    def add_arguments(
+        self,
+        arguments: Iterable[tuple[tuple[str, ...], dict[str, Any]]],
+    ) -> None:
+        """Queue arguments for the next command, in the order given.
+
+        The list-driven counterpart to ``argument``. Stacked decorators apply
+        bottom-up, so ``command`` reverses the queue when it consumes it; this
+        pre-reverses to cancel that out, leaving callers to pass arguments in
+        the order they should appear.
+        """
+        for flags, kwargs in reversed(list(arguments)):
+            self._pending_arguments.append(Argument(flags, kwargs))
 
     def group(
         self,
