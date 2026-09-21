@@ -2221,12 +2221,46 @@ stages:
         --rescan-until-stable. Using a single raw run here contradicts that
         and lets a false-clean lint result reach the human gate.
 
-        Confirm "stable": true and "degraded": false before accepting the
-        result. If either says otherwise, write qlty_status: UNVERIFIED in
-        recheck.json with the reason in qlty_unverified_reason — not PASS,
-        and not ISSUES, which would claim the gate ran and found something.
-        UNVERIFIED blocks ready_for_commit exactly as ISSUES does, and is the
-        same rule the complexity recheck applies.
+        "stable": true and "degraded": false are NECESSARY but NOT
+        SUFFICIENT. Read the scanner contract before treating them as a
+        clean bill: src/qlty/scanner.py states that stable=True means the
+        identity set repeated dry_streak times and that "findings may still
+        be missing", and the comment above _MAX_RESCAN_ITERATIONS records
+        qlty returning the same EMPTY set on two consecutive runs while 22
+        real findings existed. A repeated capped subset is stable. Treating
+        stable as a completeness signal reinstates exactly the false-clean
+        this gate exists to prevent.
+
+        So a clean batched result is not yet a PASS. There is no flag that
+        makes a batch provably complete — the cap is per-run and
+        nondeterministic — but cap pressure scales with how much one
+        invocation is asked to report, so decomposing the scan removes it
+        rather than re-rolling the same dice. CONFIRM PER FILE before
+        writing PASS:
+
+          for p in <the surviving .py files>; do
+            ./bin/qlty-assistant scan --rescan-until-stable --check-only \
+              --format json "$p" \
+              > {workspace}/validation/final-lint-$(echo "$p" | tr '/' '_').json
+          done
+
+        This is the same discipline Step 3 already applies to complexity
+        findings ("ABSENCE IS NOT RESOLUTION"), applied to lint. Write PASS
+        only when the batch is clean AND every per-file scan is clean AND
+        every one of them reports stable true / degraded false.
+
+        Write qlty_status: UNVERIFIED, with the reason in
+        qlty_unverified_reason, whenever completeness cannot be established:
+        any scan reporting "stable": false or "degraded": true, or a per-file
+        scan that could not be run. Not PASS, which would assert a
+        completeness the tool never established, and not ISSUES, which would
+        claim the gate ran and found something. UNVERIFIED blocks
+        ready_for_commit exactly as ISSUES does.
+
+        If a per-file scan surfaces a finding the batch did not, the batch
+        was capped: record qlty_status ISSUES on the per-file evidence and
+        note the discrepancy in qlty_issues, since it also means the batched
+        result cannot be trusted for the files not yet confirmed.
 
         If the scan reports critical issues, attempt auto-fix:
           ~/.qlty/bin/qlty check --fix <file>
