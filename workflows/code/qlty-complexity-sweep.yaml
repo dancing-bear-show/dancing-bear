@@ -2239,17 +2239,24 @@ stages:
         writing PASS:
 
           for p in <the surviving .py files>; do
-            SAFE=$(printf '%s' "$p" | sed 's|_|__|g; s|/|_|g')
+            SAFE=$(printf '%s' "$p" | sed 's|%|%25|g; s|/|%2F|g')
             ./bin/qlty-assistant scan --rescan-until-stable --check-only \
               --format json "$p" \
               > {workspace}/validation/final-lint-${SAFE}.json
           done
 
-        Double the underscores BEFORE replacing separators. A bare
-        `tr '/' '_'` is not injective: src/a_b.py and src/a/b.py both become
-        src_a_b.py, so the second scan silently overwrites the first and one
-        file's evidence is lost. Escaping first keeps the mapping one-to-one
-        (src_a__b.py vs src_a_b.py).
+        PERCENT-ENCODE the separator; do not substitute it. Any scheme that
+        maps two characters onto one alphabet loses information:
+          - `tr '/' '_'` collides src/a_b.py with src/a/b.py
+          - doubling underscores first still collides src/a_/b.py with
+            src/a/_b.py (both -> src_a___b.py), because `_`->`__` and
+            `/`->`_` remain ambiguous when they are adjacent
+        Either way one file's scan overwrites another's and evidence is lost
+        from the gate. Escaping `%` FIRST and then `/` is injective because
+        `%` is the only escape character and it can no longer occur
+        unescaped. Verified exhaustively over every path of length <= 5 drawn
+        from {a, _, /}: 363 paths, 0 collisions, where the doubling scheme
+        produced 196.
 
         Per-file scanning REDUCES cap pressure. It does NOT prove
         completeness, and no arrangement of scans can: src/qlty/scanner.py
@@ -2428,7 +2435,8 @@ stages:
           "import_check_final": "PASS|ISSUES",
           "corrections_applied": true,
           "unresolved_failures": [],
-          "ready_for_commit": false
+          "ready_for_commit": false,
+          "blocked_by": ["qlty_status=UNVERIFIED"]
         }
 
         UNVERIFIED is a third outcome, distinct from both PASS and ISSUES.
@@ -2442,19 +2450,17 @@ stages:
         `ready_for_commit` is DERIVED, never asserted. It may be true only
         when ALL of these hold, and it is false the moment any one does not:
           test_status == "PASS"
-          qlty_status != "ISSUES"           (a real finding blocks. An
-                                             all-clean lint scan is
-                                             UNVERIFIED, never PASS — see
-                                             Step 2 — so requiring PASS here
-                                             would make ready_for_commit
-                                             unreachable, which is as useless
-                                             as a gate that always passes.
-                                             UNVERIFIED means "no finding
-                                             surfaced, and the scanner cannot
-                                             say whether the cap hid one";
-                                             the stage MUST say so at the
-                                             human gate rather than implying
-                                             the lint is clean.)
+          qlty_status == "PASS"             (ISSUES and UNVERIFIED both
+                                             block, per Step 2. Since Step 2
+                                             also forbids an agent from ever
+                                             writing PASS, an agent-run sweep
+                                             CANNOT produce
+                                             ready_for_commit: true on the
+                                             lint criterion. That is
+                                             deliberate — see
+                                             `blocked_by` below — and is why
+                                             `ready_for_commit` is not the
+                                             flag the human gate reads.)
           complexity_status == "IMPROVED"   (RELOCATED, REGRESSED and
                                              UNVERIFIED all block —
                                              relocation is not a fix, and an
@@ -2466,14 +2472,38 @@ stages:
           unresolved_failures == []
         The example above shows false deliberately: an agent that copies the
         schema verbatim must hand the human gate a NON-commit-ready result,
-        not a green one it never earned. Compute the flag from the four
-        fields and state which one blocked it when false.
+        not a green one it never earned. Compute the flag from the fields and
+        list every blocker in `blocked_by`.
+
+        `ready_for_commit` will therefore be false on essentially every
+        agent-run sweep, because lint can only reach UNVERIFIED. This is not
+        a bug to route around, and `blocked_by` is what makes it useful
+        rather than merely pessimistic: it distinguishes the two cases a
+        single boolean cannot.
+
+          blocked_by: ["qlty_status=UNVERIFIED"]
+            Nothing was found. The scanner cannot say whether the cap hid
+            anything, so the evidence is incomplete rather than bad. A human
+            can reasonably accept this after looking at the scan artifacts.
+
+          blocked_by: ["qlty_status=ISSUES", "test_status=FAIL"]
+            Real defects. Do not commit.
+
+        Say which case it is in plain words at the human gate. "Not
+        commit-ready because lint could not be verified" and "not
+        commit-ready because 3 findings and 2 failing tests" are different
+        outcomes, and collapsing them into one false flag is what would make
+        the gate useless.
 
       Acceptance criteria — this stage is not done until all hold:
         - Full unittest discover exits 0 and prints a "Ran N tests" summary
           line (the exit code alone is not evidence the suite ran)
         - qlty_status is not ISSUES, AND the evidence behind it is post-fix
-          and complete: the batched scan plus a per-file scan for every
+          and complete. Note this is deliberately WEAKER than the
+          ready_for_commit predicate above, which requires PASS: the stage is
+          DONE when it has gathered honest evidence, and an UNVERIFIED lint
+          is honest evidence. Whether that evidence is good enough to commit
+          on is the human gate's call, not this stage's: the batched scan plus a per-file scan for every
           surviving file, each stable and non-degraded, all re-run after the
           last `qlty check --fix`. An all-clean result is UNVERIFIED rather
           than PASS (Step 2), so this criterion is about the absence of

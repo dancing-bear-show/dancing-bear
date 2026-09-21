@@ -165,17 +165,36 @@ def _with_ancestors(dotted: str) -> set[str]:
     return {".".join(parts[: i + 1]) for i in range(len(parts))}
 
 
-def _from_targets(node: ast.ImportFrom, pkg: str) -> set[str]:
+def _is_module(dotted: str, src_root: str) -> bool:
+    """Whether *dotted* names a module or package file under *src_root*.
+
+    ``from pkg import name`` binds a submodule only when ``pkg/name.py`` or
+    ``pkg/name/__init__.py`` exists; otherwise *name* is a class, function or
+    value re-exported by ``pkg/__init__.py``. Recording ``pkg.name`` in the
+    second case invents a module and reports a false caller of it, which the
+    sweep then demands be rewritten.
+    """
+    rel = os.path.join(*dotted.split("."))
+    base = os.path.join(src_root, rel)
+    return os.path.isfile(base + ".py") or os.path.isfile(
+        os.path.join(base, "__init__.py")
+    )
+
+
+def _from_targets(node: ast.ImportFrom, pkg: str, src_root: str = "src") -> set[str]:
     """Modules referenced by one ``from x import y`` node."""
     target = resolve_relative(node.level, node.module, pkg) if node.level else node.module
     if not target:
         return set()
-    # `from pkg import submodule` binds a MODULE, not a symbol, so the real
-    # target is pkg.submodule — matching how detect_facades handles
-    # `from worker import queue as q`.
+    # `from pkg import submodule` binds a MODULE, so the real target is
+    # pkg.submodule — but ONLY when that submodule exists on disk. An alias
+    # that resolves to no file is a symbol, not a module; adding it anyway
+    # reported callers of modules that never existed.
     found = _with_ancestors(target)
     for alias in node.names:
-        found.add(f"{target}.{alias.name}")
+        candidate = f"{target}.{alias.name}"
+        if _is_module(candidate, src_root):
+            found |= _with_ancestors(candidate)
     return found
 
 
@@ -206,7 +225,7 @@ def _targets_in(path: str, src_root: str,
     # caller and a body-only walk undercounts it.
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
-            found |= _from_targets(node, pkg)
+            found |= _from_targets(node, pkg, src_root)
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 found |= _with_ancestors(alias.name)
@@ -251,6 +270,18 @@ def main(argv: list[str] | None = None) -> int:
         # Fail loudly: a mistyped root would silently report zero callers,
         # which is the exact false-clean this script exists to prevent.
         print(f"error: root(s) not found: {', '.join(missing)}", file=sys.stderr)
+        return 1
+
+    if not os.path.isdir(args.src_root):
+        # --src-root drives every relative-import resolution AND the
+        # submodule-vs-symbol check. A mistyped value makes module_path()
+        # fall back to the raw path, so relative callers disappear while the
+        # scan still exits 0 and calls itself complete — the same false clean
+        # a mistyped --roots would produce, which is already rejected above.
+        print(
+            f"error: --src-root not found or not a directory: {args.src_root}",
+            file=sys.stderr,
+        )
         return 1
 
     found, unscannable = callers_of(args.module, args.roots, args.src_root)

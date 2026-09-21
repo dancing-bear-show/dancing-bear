@@ -266,6 +266,45 @@ class WalkErrorTests(TreeMixin):
         self.assertIn("INCOMPLETE", err.getvalue())
 
 
+class AliasIsNotAlwaysAModuleTests(TreeMixin):
+    """`from pkg import name` binds a submodule only if pkg/name.py exists.
+
+    Otherwise *name* is a class, function or value re-exported by
+    pkg/__init__.py. Recording pkg.name unconditionally invented a module and
+    reported a false caller of it, which the sweep would then demand be
+    rewritten.
+    """
+
+    def test_imported_class_is_not_reported_as_a_module(self):
+        self._write("src/pkg/exports/__init__.py", "class Thing:\n    pass\n")
+        self._write("tests/uses_class.py", "from pkg.exports import Thing\n")
+        self.assertEqual(self._callers("pkg.exports.Thing", ["src", "tests"]), [])
+
+    def test_imported_class_still_counts_as_a_caller_of_the_package(self):
+        # The import DOES execute pkg/exports/__init__.py, so the package
+        # itself keeps its caller — only the phantom submodule goes away.
+        self._write("src/pkg/exports/__init__.py", "class Thing:\n    pass\n")
+        self._write("tests/uses_class.py", "from pkg.exports import Thing\n")
+        self.assertIn("tests/uses_class.py", self._callers("pkg.exports", ["src", "tests"]))
+
+    def test_real_submodule_alias_is_still_reported(self):
+        # The true-positive this line exists for must survive: target.py is a
+        # real file, so `from pkg.sub import target` is a caller of it.
+        self._write("tests/uses_submodule.py", "from pkg.sub import target\n")
+        self.assertIn(
+            "tests/uses_submodule.py", self._callers("pkg.sub.target", ["src", "tests"])
+        )
+
+    def test_package_submodule_alias_is_still_reported(self):
+        self._write("src/pkg/sub/deep/__init__.py", "")
+        self._write("tests/uses_pkg.py", "from pkg.sub import deep\n")
+        self.assertIn("tests/uses_pkg.py", self._callers("pkg.sub.deep", ["src", "tests"]))
+
+    def test_nonexistent_alias_does_not_fabricate_a_module(self):
+        self._write("tests/uses_missing.py", "from pkg.sub import NoSuchThing\n")
+        self.assertEqual(self._callers("pkg.sub.NoSuchThing", ["src", "tests"]), [])
+
+
 class AbsoluteRootTests(TreeMixin):
     """An absolute --roots must behave like a relative one.
 
@@ -354,6 +393,36 @@ class CliTests(TreeMixin):
         self._write("tests/abs_caller.py", "from pkg.sub.target import thing\n")
         self.assertEqual(
             module_callers.main(["--module", "pkg.sub.target", "--roots", "src", "tests"]), 0
+        )
+
+    def test_missing_src_root_exits_nonzero(self):
+        # --src-root drives relative-import resolution and the
+        # submodule-vs-symbol check. A mistyped value made module_path() fall
+        # back to the raw path, so relative callers vanished while the scan
+        # exited 0 and called itself complete.
+        self.assertEqual(
+            module_callers.main(
+                ["--module", "pkg.sub.target", "--roots", "src", "--src-root", "nosuchdir"]
+            ),
+            1,
+        )
+
+    def test_src_root_pointing_at_a_file_exits_nonzero(self):
+        self._write("src/notadir.py", "x = 1\n")
+        self.assertEqual(
+            module_callers.main(
+                ["--module", "pkg.sub.target", "--roots", "src", "--src-root", "src/notadir.py"]
+            ),
+            1,
+        )
+
+    def test_valid_src_root_still_scans(self):
+        self._write("tests/ok_root.py", "from pkg.sub.target import thing\n")
+        self.assertEqual(
+            module_callers.main(
+                ["--module", "pkg.sub.target", "--roots", "tests", "--src-root", "src"]
+            ),
+            0,
         )
 
     def test_zero_callers_still_exits_zero(self):
