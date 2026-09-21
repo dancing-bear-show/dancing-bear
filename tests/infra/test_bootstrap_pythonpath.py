@@ -22,7 +22,8 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess  # nosec B404 - runs this repo's own interpreter, fixed argv
+import shlex
+import subprocess  # nosec B404 - replays this repo's own bootstrap line
 import sys
 import tempfile
 import unittest
@@ -36,6 +37,25 @@ BOOTSTRAP = REPO_ROOT / "bin" / "bootstrap"
 #: The modules bootstrap's verify step imports.
 VERIFY_MODULES = ("mail", "calendars", "resume", "core")
 
+#: Splits the verify line into the parts the end-to-end replay may and may not
+#: touch. ``env`` is everything between ``if`` and the interpreter: the
+#: environment prefix that decides the import race, which is the thing under
+#: test and is replayed verbatim. It is allowed to match empty, so an unpinned
+#: line still parses and still runs — that is what gives the replay its teeth.
+#: ``interp`` is the venv interpreter, the only token substituted.
+_VERIFY_LINE_RE = re.compile(
+    r"^if\s+(?P<env>.*?)(?P<interp>\S*\.venv/bin/python)\s+-c\s+"
+    r"\"(?P<body>[^\"]*)\"(?P<tail>.*?);\s*then\s*$"
+)
+
+#: Replacement ``-c`` body: reports where each verified module resolved, as
+#: JSON, so a failure names the offending tree instead of only an exit status.
+_ORIGIN_REPORTER = (
+    "import json, importlib;"
+    "print(json.dumps({m: getattr(importlib.import_module(m), '__file__', '')"
+    f" for m in {list(VERIFY_MODULES)!r}}}))"
+)
+
 
 def _verify_line() -> str:
     """Return bootstrap's verify command, read from the script itself.
@@ -47,6 +67,31 @@ def _verify_line() -> str:
         if "import mail" in line and "-c" in line:
             return line.strip()
     raise AssertionError(f"no verify line found in {BOOTSTRAP}")
+
+
+def _replayable_verify_command(interpreter: str) -> str:
+    """Rebuild bootstrap's verify command so a test can execute it.
+
+    Exactly two substitutions are made, and no others:
+
+    * the ``.venv/bin/python`` interpreter, because a worktree that has not run
+      ``make venv`` has no venv to invoke;
+    * the ``-c`` body, replaced by :data:`_ORIGIN_REPORTER` so the caller can
+      read back where each module resolved.
+
+    The environment prefix is spliced through untouched — substituting it, or
+    reconstructing it from what the test *expects* bootstrap to contain, is how
+    the previous version of this test came to pass against a bootstrap with no
+    pin at all. ``2>/dev/null`` is dropped so a failure stays diagnosable.
+    """
+    line = _verify_line()
+    match = _VERIFY_LINE_RE.match(line)
+    if match is None:
+        raise AssertionError(f"verify line no longer parses: {line!r}")
+    return (
+        f"{match.group('env')}{shlex.quote(interpreter)} "
+        f"-c {shlex.quote(_ORIGIN_REPORTER)}"
+    )
 
 
 class BootstrapVerifyStepTests(unittest.TestCase):
@@ -66,53 +111,42 @@ class BootstrapVerifyStepTests(unittest.TestCase):
     def test_verify_imports_resolve_to_this_checkout(self) -> None:
         """End-to-end: a foreign PYTHONPATH must not capture the verify step.
 
-        Runs the same pinned invocation bootstrap runs, with a decoy checkout
-        ahead on PYTHONPATH, and asserts every module resolves under this
-        repo. Without the pin, ``mail`` comes back from the decoy.
+        Executes the verify command **as bootstrap writes it** — environment
+        prefix and all, parsed out of the script — through a shell, with a
+        decoy checkout as the sole ``PYTHONPATH`` entry and ``cwd`` at the repo
+        root (the pin is ``$(pwd)/src``, so the cwd is load-bearing).
+
+        Nothing here pre-seeds this checkout's ``src`` onto the path. If
+        bootstrap's line carries the pin, the pin is what wins; if the pin were
+        deleted, the decoy wins and this fails.
         """
+        command = _replayable_verify_command(sys.executable)
+
         with tempfile.TemporaryDirectory() as td:
             decoy_src = make_fake_checkout(Path(td, "other-checkout"), package="mail")
 
-            # Mirror bootstrap: cd to the repo root, pin PYTHONPATH to its own
-            # src/, then import. Reporting each module's origin so a failure
-            # names the offending tree instead of just the exit status.
-            code = (
-                "import json;"
-                f"mods={list(VERIFY_MODULES)!r};"
-                "import importlib;"
-                "print(json.dumps({m: getattr(importlib.import_module(m), '__file__', '')"
-                " for m in mods}))"
-            )
-            proc = subprocess.run(  # nosec B603 - fixed argv, repo's own interpreter
-                [sys.executable, "-c", code],
+            proc = subprocess.run(  # nosec B603 B607 - replays the repo's own line
+                ["bash", "-c", command],
                 capture_output=True,
                 text=True,
                 cwd=str(REPO_ROOT),
-                env={
-                    **os.environ,
-                    # The pin bootstrap applies. The decoy is appended AFTER it
-                    # to model the inherited entry the pin has to beat.
-                    "PYTHONPATH": os.pathsep.join(
-                        [str(REPO_ROOT / "src"), str(decoy_src)]
-                    ),
-                },
+                env={**os.environ, "PYTHONPATH": str(decoy_src)},
                 timeout=120,
             )
 
             self.assertEqual(
-                proc.returncode, 0, f"verify imports failed:\n{proc.stderr}"
+                proc.returncode,
+                0,
+                f"verify command {command!r} failed:\n{proc.stderr}",
             )
             origins = json.loads(proc.stdout)
+            self.assertEqual(sorted(origins), sorted(VERIFY_MODULES))
             for module, origin in origins.items():
                 self.assertTrue(
                     origin.startswith(str(REPO_ROOT) + os.sep),
                     f"{module} resolved to {origin!r}, outside this checkout "
-                    f"({REPO_ROOT}) — the verify step is describing another tree",
-                )
-                self.assertNotIn(
-                    str(decoy_src),
-                    origin,
-                    f"{module} resolved to the decoy checkout at {origin!r}",
+                    f"({REPO_ROOT}) — the verify step is describing another "
+                    f"tree. Command replayed from bin/bootstrap: {command!r}",
                 )
 
     def test_unpinned_verify_would_import_the_decoy(self) -> None:

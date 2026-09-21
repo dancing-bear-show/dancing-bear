@@ -77,9 +77,15 @@ Two independent ways in, and both import the same domain module directly.
 
 *Most* `bin/*` wrappers are **symlinks to `bin/_router.py`** — but not all. A few
 are standalone scripts with custom logic (`bin/llm`, `bin/path-guard`, the `ios-*`
-tools); `bin/_wrappers.yaml`'s `manual:` list is the inventory. The distinction
-matters whenever you change how entry points bootstrap, because the symlinks all
-inherit a fix for free and the standalone scripts do not.
+tools). The distinction matters whenever you change how entry points bootstrap,
+because the symlinks all inherit a fix for free and the standalone scripts do
+not.
+
+`bin/_wrappers.yaml`'s `manual:` list is **not** an inventory of those scripts —
+it is a generator exclusion list, and `bootstrap`, `bootstrap-otel`,
+`pr-assistant`, `worker-install-launchd` and `worker-wait` are all absent from
+it. The question that decides whether a script carries the import-path hazard is
+narrower: **does it import a repo module?** See CLAUDE.md for the full rule.
 
 The router:
 
