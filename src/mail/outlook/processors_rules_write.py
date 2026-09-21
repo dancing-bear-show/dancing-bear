@@ -227,6 +227,10 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
                 name_to_id=name_to_id,
                 folder_map=folder_path_map,
                 move_to_folders=payload.move_to_folders,
+                # Folder resolution can CREATE folders (ensure_folder_path), and
+                # it runs before the per-spec dry_run check, so a preview would
+                # otherwise mutate the mailbox.
+                dry_run=payload.dry_run,
             )
             created, reconciled, failed, desired_keys, reconciled_rule_ids = self._create_desired_rules(
                 desired, existing, ctx, payload.dry_run, payload.reconcile

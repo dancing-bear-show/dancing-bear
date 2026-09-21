@@ -1119,6 +1119,90 @@ class TestPlanSyncParity(unittest.TestCase):
 # SEQUENCE PRESERVATION
 # ---------------------------------------------------------------------------
 
+class TestDryRunNeverCreatesFolders(unittest.TestCase):
+    """``rules.sync --dry-run`` must not mutate the mailbox -- including folders.
+
+    Folder resolution is the trap: ``_build_rule_action``'s fallback is
+    ``ensure_folder_path``, which CREATES missing folders via Graph, and it runs
+    before the per-spec ``dry_run`` check. So a preview whose cached folder map
+    missed an ``add`` destination created a folder -- no rule was created, but the
+    mailbox changed. Raised in review on PR #359 and probed:
+
+        dry run -> ensure_folder_path called with ('Lists/News',)
+
+    Pre-existing rather than introduced by the reconcile work, and the same
+    preview-mutates class this PR has fixed repeatedly (see the sweep path, where
+    ``_resolve_destination_folder`` already made the map-only choice).
+
+    ``RuleContext.dry_run`` now carries the flag to the resolver, which falls back
+    to the cached map and then to the path itself. The returned value is not a
+    Graph id, which is correct for a preview: it only has to be stable and truthy
+    so the rule key matches what a live run would build, and nothing in the
+    dry-run path sends it to Graph. The parity test below pins that.
+    """
+
+    DESIRED = [{"match": {"from": "news.example"}, "action": {"add": ["Lists/News"]}}]
+    REAL_ID = "folder-real-id"
+
+    def _client(self, folder_map):
+        client = _make_client(
+            list_filters=[],
+            name_to_id={"Lists/News": "cat-news"},
+            folder_path_map=dict(folder_map),
+        )
+        client.ensure_folder_path.return_value = self.REAL_ID
+        return client
+
+    def _run(self, dry_run, folder_map):
+        client = self._client(folder_map)
+        payload = OutlookRulesSyncPayload(
+            client=client, config_path="/test.yaml", dry_run=dry_run,
+            move_to_folders=True, delete_missing=False, reconcile=True,
+        )
+        with patch("core.yamlio.load_config", return_value={"filters": []}), \
+                patch("mail.dsl.normalize_filters_for_outlook", return_value=list(self.DESIRED)):
+            envelope = OutlookRulesSyncProcessor().process(payload)
+        return envelope, client
+
+    def test_dry_run_does_not_call_ensure_folder_path(self):
+        """Cache miss under dry-run resolves map-only; no folder is created."""
+        envelope, client = self._run(dry_run=True, folder_map={})
+
+        self.assertEqual(
+            client.ensure_folder_path.call_count, 0,
+            "a dry run called ensure_folder_path, which creates folders via Graph",
+        )
+        self.assertEqual(client.create_filter.call_count, 0)
+        self.assertEqual(client.delete_filter.call_count, 0)
+        # The preview is still useful -- it reports the rule it would create.
+        self.assertEqual(envelope.payload.created, 1)
+
+    def test_live_run_still_resolves_the_folder(self):
+        """Contrast: the live path still creates/resolves the folder as before.
+
+        Without this, the guard could regress into never resolving folders at all,
+        which would silently stop moving mail.
+        """
+        _, client = self._run(dry_run=False, folder_map={})
+
+        self.assertEqual(client.ensure_folder_path.call_count, 1)
+        self.assertEqual(client.ensure_folder_path.call_args.args, ("Lists/News",))
+
+    def test_dry_run_and_live_agree_on_counts(self):
+        """The guard must not introduce a preview/apply divergence.
+
+        Dry-run now keys on the cached id (or the path on a miss) while live keys
+        on the Graph id. If those disagreed, `sync --dry-run` could promise a
+        create the live run treats as a no-op.
+        """
+        for label, fmap in (("cached", {"Lists/News": self.REAL_ID}), ("miss", {})):
+            with self.subTest(folder_map=label):
+                dry, _ = self._run(dry_run=True, folder_map=fmap)
+                live, _ = self._run(dry_run=False, folder_map=fmap)
+                self.assertEqual(dry.payload.created, live.payload.created)
+                self.assertEqual(dry.payload.reconciled, live.payload.reconciled)
+
+
 class _GraphOutage(Exception):
     """A non-auth Graph failure (e.g. 503), which triggers the cache fallback."""
     response = type("_Resp", (), {"status_code": 503})()

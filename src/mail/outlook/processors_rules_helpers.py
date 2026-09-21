@@ -11,16 +11,33 @@ from .helpers import norm_label_name_outlook
 
 @dataclass
 class RuleContext:
-    """Shared context for rule building operations."""
+    """Shared context for rule building operations.
+
+    ``dry_run`` exists because folder resolution can MUTATE: the fallback in
+    ``_build_rule_action`` is ``ensure_folder_path``, which creates missing
+    folders via Graph.  Without this flag the resolver had no way to know it was
+    running under a preview, so ``rules.sync --dry-run`` created folders whenever
+    the cached folder map missed an ``add`` destination -- no rule was created,
+    but the mailbox changed.  Defaults False so every existing construction keeps
+    today's behaviour; the sync processor passes its own ``dry_run`` through.
+    """
     client: Any
     name_to_id: dict[str, str]
     folder_map: dict[str, str]
     move_to_folders: bool
+    dry_run: bool = False
 
     @classmethod
     def for_plan(cls, name_to_id: dict[str, str], folder_map: dict[str, str], move_to_folders: bool) -> "RuleContext":
-        """Create context for plan operations (no client needed)."""
-        return cls(client=None, name_to_id=name_to_id, folder_map=folder_map, move_to_folders=move_to_folders)
+        """Create context for plan operations (no client needed).
+
+        ``dry_run=True``: plan is read-only by definition, and ``client`` is None
+        here, so a mutating resolver call would raise rather than merely be wrong.
+        """
+        return cls(
+            client=None, name_to_id=name_to_id, folder_map=folder_map,
+            move_to_folders=move_to_folders, dry_run=True,
+        )
 
 
 def _canon_rule(rule: dict) -> str:
@@ -134,6 +151,26 @@ def _build_rule_criteria(match_spec: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in match_spec.items() if k in ("from", "to", "subject") and v}
 
 
+def _resolve_folder_for_action(path: str, ctx: RuleContext) -> str:
+    """Resolve a folder path to an id, never creating a folder under dry-run.
+
+    The live resolver is ``ensure_folder_path``, which CREATES missing folders via
+    Graph.  ``_build_rule_action`` runs before the caller's ``dry_run`` check, so
+    without this guard ``rules.sync --dry-run`` created folders whenever the cached
+    folder map missed a destination: no rule was created, but the mailbox changed.
+    A preview that mutates is the failure mode this PR has fixed most often.
+
+    Under dry-run, falls back to the cached map and then to the path itself.  The
+    returned value is then not a Graph id, which is correct for a preview: it only
+    has to be stable and truthy so the rule key matches what the live run would
+    build, and nothing in the dry-run path sends it to Graph.  This mirrors
+    ``_resolve_destination_folder``, which already made the same choice for sweep.
+    """
+    if not ctx.dry_run:
+        return ctx.client.ensure_folder_path(path)
+    return ctx.folder_map.get(path) or path
+
+
 def _build_rule_action(action_spec: dict[str, Any], ctx: RuleContext) -> dict[str, Any]:
     """Build action dict from action spec.
 
@@ -147,12 +184,12 @@ def _build_rule_action(action_spec: dict[str, Any], ctx: RuleContext) -> dict[st
     add_labs = action_spec.get("add") or []
 
     if action_spec.get("moveToFolder"):
-        fid = ctx.client.ensure_folder_path(str(action_spec.get("moveToFolder")))
+        fid = _resolve_folder_for_action(str(action_spec.get("moveToFolder")), ctx)
         action["moveToFolderId"] = fid
     elif ctx.move_to_folders and add_labs and not action_spec.get("noMoveToFolder"):
         # Normal rule with move_to_folders: derive folder from first add label.
         lab_name = str(add_labs[0])
-        fid = ctx.folder_map.get(lab_name) or ctx.client.ensure_folder_path(lab_name)
+        fid = ctx.folder_map.get(lab_name) or _resolve_folder_for_action(lab_name, ctx)
         action["moveToFolderId"] = fid
     elif add_labs:
         # Categorise only: either noMoveToFolder (keepInInbox) or move_to_folders=False.
