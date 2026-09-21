@@ -141,13 +141,12 @@ def register_outlook_commands(app: CLIApp) -> object:
             _ACCOUNT,
             (("--delete-missing",), {"action": "store_true", "help": "Delete rules not in YAML"}),
             (("--reconcile",), {"action": "store_true", "help": (
-                "Match rules by criteria only: a rule whose action changed is deleted (losing its "
-                "original id and sequence position) and recreated with the desired action. "
-                "No Graph PATCH endpoint exists for inbox rules. "
-                "Recovery: a 'create_failed' means the old rule was deleted but the replacement "
-                "was not created; re-run after the error clears. "
-                "A persistent 'Failed: N' indicates a non-transient problem (permissions/quota); "
-                "stop rather than re-running in a loop."
+                "Match rules by criteria only; an action change is applied as delete+create "
+                "(no Graph PATCH for inbox rules). Sequence, stop-processing and enabled state "
+                "are preserved; the rule ID changes. Rules with conditions/actions/exceptions "
+                "this tool cannot express are skipped, not rewritten. 'Failed: N' means a rule "
+                "may be absent -- re-run once the error clears; if it persists, stop and check "
+                "permissions/quota."
             )}),
         ]),
         ("rules.delete", "Delete an Outlook rule by ID", run_outlook_rules_delete, [
