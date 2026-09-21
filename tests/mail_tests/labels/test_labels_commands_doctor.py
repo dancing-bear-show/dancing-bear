@@ -434,6 +434,29 @@ class TestRunLabelsPruneEmpty(unittest.TestCase):
         self.assertNotIn("Would delete label: Finance/TD", out)
         self.assertEqual(len(client.labels), 2)
 
+    def test_skips_filter_lookup_when_no_empty_labels(self):
+        """No empty labels means no prune work, so skip the list_filters call."""
+        from mail.labels.commands_doctor import _partition_prunable
+
+        client = FakeGmailClient(labels=[make_user_label("Full", "L1", messages=5)])
+        with patch.object(client, "list_filters",
+                          wraps=client.list_filters) as spy:
+            prunable, skipped = _partition_prunable(client, client.labels)
+        self.assertEqual(prunable, [])
+        self.assertEqual(skipped, {})
+        spy.assert_not_called()
+
+    def test_queries_filters_when_empty_labels_exist(self):
+        """Counterpart: with work to do, the filter lookup must still happen."""
+        from mail.labels.commands_doctor import _partition_prunable
+
+        client = FakeGmailClient(labels=[make_user_label("Dead", "L1", messages=0)])
+        with patch.object(client, "list_filters",
+                          wraps=client.list_filters) as spy:
+            prunable, _ = _partition_prunable(client, client.labels)
+        self.assertEqual([lab["name"] for lab in prunable], ["Dead"])
+        spy.assert_called_once()
+
     def test_unknown_label_id_in_filter_is_ignored(self):
         """A filter referencing a deleted label must not crash the prune."""
         labels = [make_user_label("Dead", "L2", messages=0)]

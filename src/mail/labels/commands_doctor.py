@@ -178,6 +178,9 @@ def _labels_with_protected_descendants(protected: set[str], labels: list) -> set
 def _partition_prunable(client, labels: list) -> tuple[list, dict[str, str]]:
     """Split empty labels into prunable ones and {name: reason} for the rest."""
     empty = _get_empty_user_labels(labels)
+    if not empty:
+        # Nothing to prune, so skip the list_filters() round-trip entirely.
+        return [], {}
 
     referenced = _labels_referenced_by_filters(client, labels)
     ancestors = _labels_with_protected_descendants(referenced, labels)
