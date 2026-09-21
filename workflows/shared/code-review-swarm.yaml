@@ -407,8 +407,6 @@ stages:
       tools: [Read, Grep, Bash, Write]
       access: read-write
     required: true
-    writes_to:
-      - outputs/concern-sweep/
 
   - name: concern-sweep-merge
     kind: gather
@@ -637,8 +635,6 @@ stages:
         - Detail explains what to fix, not just what is wrong
       max_revisions: 1
     required: true
-    writes_to:
-      - outputs/findings/
 
   - name: cross-unit-check
     kind: validate
