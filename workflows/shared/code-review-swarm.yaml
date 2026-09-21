@@ -6,7 +6,13 @@
 #       depends_on: [last-pre-review-stage]
 #       reads_from: [last-pre-review-stage]
 #
-# Caller must set trigger.params.pr_number.
+# This fragment declares pr_number (default "") and pr_size (default
+# "small"), and the include engine merges them UNDER the caller's own
+# trigger.params. So a caller need not redeclare pr_number — but it SHOULD
+# pass one at run time, since the default is blank and the review stages then
+# auto-detect the PR from the current branch. A caller that wants the fan-out
+# path MUST declare pr_size: "large" explicitly; omitting it inherits "small"
+# and selects the consolidated reviewer.
 # Stages injected (all prefixed):
 #   review-fetch-pr-context → review-concern-sweep → review-enumerate-targets
 #   → review-validate-concerns (native fan_out: one agent per manifest entry) + review-cross-unit-check
@@ -58,8 +64,15 @@ description: >
 
   Both paths converge at fact-check-findings.
 
-  Used by: code-review.yaml, implement-domain.yaml, and any future
-  feature or enhancement workflow that needs a structured review pass.
+  Used by (verified by parsing every workflow's include: list, not by
+  grepping for the filename — pr-open-and-wait-ci.yaml and
+  branch-hygiene-sweep.yaml mention this file in prose but do not include
+  it):
+    code-review.yaml       pr_size: "small"  — consolidated reviewer
+    coverage-uplift.yaml   pr_size: "large"  — fan-out (prefix: review)
+    review-and-fix.yaml    pr_size: "large"  — fan-out
+  Any future workflow needing a structured review pass can include it too;
+  declare pr_size explicitly rather than relying on the inherited default.
 
 # ---------------------------------------------------------------------------
 # Filename sanitization convention (used across multiple stages):
