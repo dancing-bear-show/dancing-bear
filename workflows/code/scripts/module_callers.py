@@ -123,10 +123,11 @@ def module_path(path: str, src_root: str = "src") -> str:
     # realpath, not abspath: abspath does not resolve symlinks, so a checkout
     # reached through one (/var -> /private/var on macOS, or a symlinked
     # worktree) compares unequal and falls through to the broken branch.
-    abs_path = os.path.realpath(path)
-    abs_root = os.path.realpath(src_root)
+    abs_cwd = os.path.realpath(os.curdir)
     if abs_path == abs_root or abs_path.startswith(abs_root + os.sep):
         rel = os.path.relpath(abs_path, abs_root)
+    elif abs_path == abs_cwd or abs_path.startswith(abs_cwd + os.sep):
+        rel = os.path.relpath(abs_path, abs_cwd)
     else:
         rel = path
     dotted = rel[:-3].replace(os.sep, ".") if rel.endswith(".py") else rel
