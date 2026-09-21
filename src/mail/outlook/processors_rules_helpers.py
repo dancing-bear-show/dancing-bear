@@ -75,6 +75,45 @@ def _criteria_key(criteria: dict[str, Any]) -> str:
     })
 
 
+def _fetch_rules_with_provenance(
+    client: Any,
+    use_cache: bool = False,
+    cache_ttl: int = 600,
+) -> tuple[list[dict[str, Any]], str]:
+    """Fetch existing rules, reporting where the data came from.
+
+    Returns ``(rules, source)`` where ``source`` is one of:
+
+    - ``"live"``     : the requested read succeeded.
+    - ``"fallback"`` : the read failed and a cached snapshot was served instead.
+    - ``"empty"``    : both reads failed; the list is ``[]`` and means "unknown",
+      NOT "the mailbox has no rules".
+
+    Auth failures (401/403) still propagate -- a credential problem must not be
+    papered over with cached data.
+
+    Callers that only display rules can ignore ``source``.  Callers that MUTATE
+    must not: ``--reconcile`` decides what to delete by comparing desired rules
+    against this list, so acting on ``"empty"`` creates a duplicate of every rule
+    beside live rules it cannot see, and acting on ``"fallback"`` can delete
+    against IDs that no longer exist.  Both were probed on PR #359:
+
+        total failure -> created=2, status=success, 0 rules ever read
+        stale cache   -> delete_filter('OLD-ID-no-longer-exists')
+    """
+    try:
+        return client.list_filters(use_cache=use_cache, ttl=cache_ttl), "live"
+    except Exception as e:
+        resp = getattr(e, 'response', None)
+        status = getattr(resp, 'status_code', None) if resp else None
+        if status in (401, 403):
+            raise
+        try:
+            return client.list_filters(use_cache=True, ttl=cache_ttl), "fallback"
+        except Exception:
+            return [], "empty"
+
+
 def _fetch_rules_with_resilience(
     client: Any,
     use_cache: bool = False,
@@ -82,20 +121,12 @@ def _fetch_rules_with_resilience(
 ) -> list[dict[str, Any]]:
     """Fetch existing rules with auth error handling and cache fallback.
 
-    Auth failures (401/403) propagate; any other error falls back to a cached
-    read so a transient outage does not look like an empty rule set.
+    Thin wrapper over ``_fetch_rules_with_provenance`` for read-only callers,
+    which cannot do harm with fallback data.  Anything that mutates the mailbox
+    should call ``_fetch_rules_with_provenance`` and refuse to act on a
+    non-``"live"`` source.
     """
-    try:
-        return client.list_filters(use_cache=use_cache, ttl=cache_ttl)
-    except Exception as e:
-        resp = getattr(e, 'response', None)
-        status = getattr(resp, 'status_code', None) if resp else None
-        if status in (401, 403):
-            raise
-        try:
-            return client.list_filters(use_cache=True, ttl=cache_ttl)
-        except Exception:
-            return []
+    return _fetch_rules_with_provenance(client, use_cache, cache_ttl)[0]
 
 
 def _build_rule_criteria(match_spec: dict[str, Any]) -> dict[str, Any]:

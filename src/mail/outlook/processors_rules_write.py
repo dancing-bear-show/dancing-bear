@@ -16,6 +16,7 @@ from .processors_rules_helpers import (
     RuleContext,
     _canon_rule,
     _criteria_key,
+    _fetch_rules_with_provenance,
     _fetch_rules_with_resilience,
     _build_rule_criteria,
     _build_rule_action,
@@ -161,14 +162,60 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
             doc = load_config(payload.config_path)
             desired = normalize_filters_for_outlook(doc.get("filters") or [])
 
-            # Fetch existing rules with resilience
+            # Fetch existing rules, and find out whether the data is trustworthy.
             try:
-                existing_rules = _fetch_rules_with_resilience(client)
+                existing_rules, rules_source = _fetch_rules_with_provenance(client)
             except Exception as e:
                 return ResultEnvelope(
                     status="error",
                     payload=None,
                     diagnostics={"error": f"Auth failed: {e}", "code": 2, "hint": "Run outlook auth.ensure"},
+                )
+
+            # Destructive modes must not run on data we did not actually read.
+            #
+            # `_fetch_rules_with_provenance` falls back to a cached snapshot, or to
+            # [] when even that fails -- and [] means "unknown", not "no rules".
+            # `--reconcile` and `--delete-missing` both decide what to DELETE by
+            # comparing desired rules against this list, so fallback data is
+            # actively dangerous. Probed on this PR:
+            #
+            #   total failure -> created=2, status=success, zero rules ever read
+            #                    (duplicates created beside live rules it cannot see)
+            #   stale cache   -> delete_filter('OLD-ID-no-longer-exists')
+            #
+            # Plain `rules.sync` is left alone: it only creates missing rules, so
+            # stale data costs a duplicate rather than a deletion, and blocking it
+            # would make a transient Graph error break the common path.
+            if rules_source != "live" and (payload.reconcile or payload.delete_missing):
+                flag = "--reconcile" if payload.reconcile else "--delete-missing"
+                detail = (
+                    "the live rule list could not be read at all"
+                    if rules_source == "empty"
+                    else "a cached rule snapshot was served instead of the live list"
+                )
+                return ResultEnvelope(
+                    status="error",
+                    payload=None,
+                    diagnostics={
+                        # Phrasing note: an earlier version read "deciding what to
+                        # delete from rules that were not actually read", which
+                        # tripped bandit:B608 (SQL-injection heuristic matching
+                        # "delete from"). There is no database here; reworded
+                        # rather than suppressed, since a nosec on a message
+                        # string would read as a real finding waived.
+                        "error": (
+                            f"Refusing to run {flag}: {detail}. Choosing which live rules to "
+                            "remove, based on a rule list that was never actually read, risks "
+                            "destroying live rules or duplicating every rule."
+                        ),
+                        "code": 1,
+                        "hint": (
+                            "retry once Graph is reachable; `rules.list` confirms the live rule "
+                            "list is readable, and plain `rules.sync` (no destructive flags) is "
+                            "still safe to run"
+                        ),
+                    },
                 )
 
             existing = {_canon_rule(r): r for r in existing_rules}

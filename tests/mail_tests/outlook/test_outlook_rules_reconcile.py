@@ -1119,6 +1119,146 @@ class TestPlanSyncParity(unittest.TestCase):
 # SEQUENCE PRESERVATION
 # ---------------------------------------------------------------------------
 
+class _GraphOutage(Exception):
+    """A non-auth Graph failure (e.g. 503), which triggers the cache fallback."""
+    response = type("_Resp", (), {"status_code": 503})()
+
+
+class TestDestructiveModesRefuseFallbackData(unittest.TestCase):
+    """``--reconcile`` / ``--delete-missing`` must not act on rules we never read.
+
+    ``_fetch_rules_with_provenance`` falls back to a cached snapshot when the live
+    read fails, and to ``[]`` when even that fails -- and ``[]`` means "unknown",
+    not "the mailbox has no rules". Both destructive flags decide what to DELETE
+    by comparing desired rules against that list, so fallback data is actively
+    dangerous. Raised in review on PR #359 and probed before fixing:
+
+        total failure -> created=2, status=success, zero rules ever read
+                         (a duplicate of every rule, beside live rules it cannot see)
+        stale cache   -> delete_filter('OLD-ID-no-longer-exists')
+
+    The block is deliberately narrow; the contrast tests below pin that.
+    """
+
+    DESIRED = [{"match": {"from": "a.example"}, "action": {"forward": "a@x.com"}}]
+
+    @staticmethod
+    def _client(mode):
+        client = MagicMock()
+        if mode == "empty":
+            client.list_filters.side_effect = _GraphOutage()
+        elif mode == "fallback":
+            def lf(use_cache=False, ttl=600):
+                if not use_cache:
+                    raise _GraphOutage()
+                return [{"id": "OLD-ID", "criteria": {"from": "a.example"},
+                         "action": {"forward": "stale@x.com"}}]
+            client.list_filters.side_effect = lf
+        else:
+            client.list_filters.return_value = [
+                {"id": "live-1", "criteria": {"from": "a.example"},
+                 "action": {"forward": "old@x.com"}}
+            ]
+        client.get_label_id_map.return_value = {}
+        client.get_folder_path_map.return_value = {}
+        return client
+
+    def _run(self, mode, **flags):
+        client = self._client(mode)
+        with patch("core.yamlio.load_config", return_value={"filters": []}), \
+                patch("mail.dsl.normalize_filters_for_outlook", return_value=list(self.DESIRED)):
+            envelope = OutlookRulesSyncProcessor().process(_sync_payload(client, **flags))
+        return envelope, client
+
+    def test_reconcile_refused_when_rules_unreadable(self):
+        """Total fetch failure: reconcile refuses rather than duplicating everything."""
+        envelope, client = self._run("empty", reconcile=True, dry_run=False)
+
+        self.assertEqual(envelope.status, "error")
+        self.assertEqual(client.create_filter.call_count, 0)
+        self.assertEqual(client.delete_filter.call_count, 0)
+        self.assertIn("--reconcile", (envelope.diagnostics or {}).get("error", ""))
+
+    def test_reconcile_refused_on_cached_snapshot(self):
+        """Stale cache: reconcile refuses rather than deleting against stale IDs."""
+        envelope, client = self._run("fallback", reconcile=True, dry_run=False)
+
+        self.assertEqual(envelope.status, "error")
+        self.assertEqual(client.delete_filter.call_count, 0)
+
+    def test_delete_missing_refused_on_cached_snapshot(self):
+        """--delete-missing is destructive on its own and is refused too."""
+        envelope, client = self._run("fallback", delete_missing=True, dry_run=False)
+
+        self.assertEqual(envelope.status, "error")
+        self.assertEqual(client.delete_filter.call_count, 0)
+        self.assertIn("--delete-missing", (envelope.diagnostics or {}).get("error", ""))
+
+    def test_plain_sync_still_runs_on_fallback_data(self):
+        """Contrast: plain sync is NOT blocked.
+
+        It only creates missing rules, so stale data costs a duplicate rather than
+        a deletion. Blocking it would make a transient Graph error break the common
+        path -- a cure worse than the disease.
+        """
+        envelope, client = self._run("fallback", dry_run=False)
+
+        self.assertEqual(envelope.status, "success")
+        self.assertEqual(client.create_filter.call_count, 1)
+
+    def test_live_read_is_not_blocked(self):
+        """Contrast: a successful live read reconciles normally.
+
+        Without this, the guard could regress into refusing every reconcile.
+        """
+        envelope, _ = self._run("live", reconcile=True, delete_missing=True, dry_run=False)
+
+        self.assertEqual(envelope.status, "success")
+        self.assertEqual(envelope.payload.reconciled, 1)
+
+    def test_auth_failure_still_propagates_as_auth_error(self):
+        """A 401/403 is not fallback territory -- it keeps its own diagnostic."""
+        client = MagicMock()
+        resp = type("_R", (), {"status_code": 401})()
+        exc = Exception("unauthorized")
+        exc.response = resp
+        client.list_filters.side_effect = exc
+        client.get_label_id_map.return_value = {}
+        client.get_folder_path_map.return_value = {}
+
+        with patch("core.yamlio.load_config", return_value={"filters": []}), \
+                patch("mail.dsl.normalize_filters_for_outlook", return_value=list(self.DESIRED)):
+            envelope = OutlookRulesSyncProcessor().process(
+                _sync_payload(client, reconcile=True, dry_run=False)
+            )
+
+        self.assertEqual(envelope.status, "error")
+        self.assertIn("Auth failed", (envelope.diagnostics or {}).get("error", ""))
+
+    def test_provenance_helper_reports_each_source(self):
+        """Unit-level: the three provenance values every caller branches on."""
+        from mail.outlook.processors_rules_helpers import _fetch_rules_with_provenance
+
+        live = MagicMock()
+        live.list_filters.return_value = [{"id": "x"}]
+        self.assertEqual(_fetch_rules_with_provenance(live)[1], "live")
+
+        empty = MagicMock()
+        empty.list_filters.side_effect = _GraphOutage()
+        rules, source = _fetch_rules_with_provenance(empty)
+        self.assertEqual((rules, source), ([], "empty"))
+
+        fb = MagicMock()
+
+        def lf(use_cache=False, ttl=600):
+            if not use_cache:
+                raise _GraphOutage()
+            return [{"id": "cached"}]
+
+        fb.list_filters.side_effect = lf
+        self.assertEqual(_fetch_rules_with_provenance(fb)[1], "fallback")
+
+
 class TestReconcileFailureExitCode(unittest.TestCase):
     """A reconcile failure must not exit 0.
 
