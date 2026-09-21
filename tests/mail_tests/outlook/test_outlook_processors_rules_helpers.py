@@ -18,6 +18,7 @@ from mail.outlook.processors_rules_helpers import (
     _export_rule_entry,
     _fetch_rules_with_resilience,
     _resolve_destination_folder,
+    _resolve_folder_id,
 )
 
 
@@ -354,8 +355,20 @@ class TestResolveDestinationFolderMoveToFolder(unittest.TestCase):
         client.ensure_folder_path.assert_called_once_with("Archive/Deep")
         self.assertEqual(result, "live-fid")
 
-    def test_dry_run_missing_path_returns_none(self):
-        """Dry-run with no matching folder_paths entry returns None."""
+    def test_dry_run_missing_path_falls_back_to_the_path(self):
+        """Dry-run with no matching folder_paths entry returns the path itself.
+
+        This asserted None until the dry-run/live divergence was found. The live
+        branch calls `ensure_folder_path`, which resolves — and creates — the
+        folder, so a destination missing from the cached snapshot made dry-run
+        report zero moves while the real run moved mail.
+
+        The fallback keeps the two in agreement. It is not a Graph id, but the
+        sweep loop only tests truthiness to decide whether a move happens, and
+        the dry-run path never sends the value anywhere. Crucially
+        `ensure_folder_path` is still not called: a preview must not create
+        folders.
+        """
         client = MagicMock()
 
         result = _resolve_destination_folder(
@@ -366,7 +379,7 @@ class TestResolveDestinationFolderMoveToFolder(unittest.TestCase):
             dry_run=True,
         )
 
-        self.assertIsNone(result)
+        self.assertEqual("Nonexistent", result)
         client.ensure_folder_path.assert_not_called()
 
 
@@ -539,6 +552,193 @@ class TestExportRuleEntry(unittest.TestCase):
 
         self.assertIsInstance(entry, dict)
         self.assertIn("match", entry)
+
+
+# ---------------------------------------------------------------------------
+# _build_rule_action — noMoveToFolder (keepInInbox) behaviour
+# ---------------------------------------------------------------------------
+
+class TestBuildRuleActionNoMoveToFolder(unittest.TestCase):
+    """noMoveToFolder: true suppresses folder derivation even with move_to_folders=True.
+
+    This is the fix for the keepInInbox regression: the derive step converts
+    ``keepInInbox: true`` to ``noMoveToFolder: true`` in the derived Outlook
+    config.  Without this guard, the ``elif ctx.move_to_folders and add_labs``
+    branch fired and re-derived a moveToFolderId from the first add label,
+    moving mail out of the inbox — the exact behaviour keepInInbox was written
+    to prevent.
+    """
+
+    def test_no_move_to_folder_marker_suppresses_folder_when_move_to_folders_true(self):
+        """noMoveToFolder with move_to_folders=True must produce addLabelIds, NOT moveToFolderId."""
+        client = MagicMock()
+        ctx = RuleContext(
+            client=client,
+            name_to_id={"Tech/Grafana": "label-id-grafana"},
+            folder_map={"Tech/Grafana": "folder-id-grafana"},
+            move_to_folders=True,
+        )
+        action_spec = {"add": ["Tech/Grafana"], "noMoveToFolder": True}
+
+        result = _build_rule_action(action_spec, ctx)
+
+        # Must NOT move to a folder
+        self.assertNotIn("moveToFolderId", result)
+        client.ensure_folder_path.assert_not_called()
+        # Must categorise with label IDs
+        self.assertEqual(result.get("addLabelIds"), ["label-id-grafana"])
+
+    def test_no_move_to_folder_marker_not_present_in_output(self):
+        """noMoveToFolder must never appear in the returned action dict (Graph API payload)."""
+        client = MagicMock()
+        ctx = RuleContext(
+            client=client,
+            name_to_id={"Tech/Grafana": "label-id-grafana"},
+            folder_map={},
+            move_to_folders=True,
+        )
+        action_spec = {"add": ["Tech/Grafana"], "noMoveToFolder": True}
+
+        result = _build_rule_action(action_spec, ctx)
+
+        self.assertNotIn("noMoveToFolder", result)
+
+    def test_normal_rule_still_moves_when_move_to_folders_true(self):
+        """Without noMoveToFolder, move_to_folders=True still derives a folder.
+
+        Contrast test: the fix must not disable folder derivation for rules
+        that did NOT have keepInInbox in the unified config.
+        """
+        client = MagicMock()
+        client.ensure_folder_path.return_value = "folder-id-nintendo"
+        ctx = RuleContext(
+            client=client,
+            name_to_id={},
+            folder_map={},
+            move_to_folders=True,
+        )
+        action_spec = {"add": ["Tech/Nintendo"]}
+
+        result = _build_rule_action(action_spec, ctx)
+
+        self.assertEqual(result["moveToFolderId"], "folder-id-nintendo")
+        self.assertNotIn("addLabelIds", result)
+
+
+# ---------------------------------------------------------------------------
+# _resolve_destination_folder — noMoveToFolder (keepInInbox) behaviour
+# ---------------------------------------------------------------------------
+
+class TestResolveFolderIdAliasCollision(unittest.TestCase):
+    """The normalized alias must not resolve a nested path to a different folder.
+
+    `norm_label_name_outlook` flattens `Security/Alerts` to `Security-Alerts`,
+    which can be a real, *separate* top-level folder. Falling back to it would
+    make the plan name a destination apply never touches — a wrong answer, where
+    an unresolved path is merely an incomplete one.
+
+    The alias is still useful for a flat name, where normalization is a no-op
+    and the two spellings are the same folder by definition.
+    """
+
+    def test_nested_path_does_not_fall_back_to_the_flattened_name(self):
+        """A top-level `Security-Alerts` must not satisfy `Security/Alerts`."""
+        folder_map = {"Security-Alerts": "TOPLEVEL-other-id"}
+        self.assertEqual(
+            "Security/Alerts",
+            _resolve_folder_id("Security/Alerts", folder_map),
+            "must not resolve to a different folder's id",
+        )
+
+    def test_nested_path_resolves_when_the_map_has_it(self):
+        """The raw path is matched first and exactly."""
+        folder_map = {"Security/Alerts": "NESTED-real-id", "Security-Alerts": "other"}
+        self.assertEqual(
+            "NESTED-real-id", _resolve_folder_id("Security/Alerts", folder_map)
+        )
+
+    def test_flat_name_still_uses_the_alias(self):
+        """For a flat name the alias is the same string, so the lookup is safe."""
+        self.assertEqual("flat-id", _resolve_folder_id("Archive", {"Archive": "flat-id"}))
+
+    def test_unknown_path_falls_back_to_itself(self):
+        """No entry: return the path, not an unrelated id."""
+        self.assertEqual("Nope/Missing", _resolve_folder_id("Nope/Missing", {}))
+
+
+class TestResolveDestinationFolderNoMoveToFolder(unittest.TestCase):
+    """noMoveToFolder: true returns None (no folder move) even with move_to_folders=True.
+
+    Same root cause as the _build_rule_action bug: without this guard the
+    ``elif move_to_folders and add`` branch fires and derives a folder ID,
+    causing the sweep to move messages that should stay in the inbox.
+    """
+
+    def test_dry_run_returns_none_for_no_move_to_folder_rule(self):
+        """dry_run=True: noMoveToFolder returns None, not a folder ID."""
+        client = MagicMock()
+        folder_paths = {"Tech/Grafana": "fid-grafana"}
+
+        result = _resolve_destination_folder(
+            action_spec={"add": ["Tech/Grafana"], "noMoveToFolder": True},
+            move_to_folders=True,
+            folder_paths=folder_paths,
+            client=client,
+            dry_run=True,
+        )
+
+        self.assertIsNone(result)
+        client.ensure_folder_path.assert_not_called()
+
+    def test_live_returns_none_for_no_move_to_folder_rule(self):
+        """dry_run=False: noMoveToFolder returns None, ensure_folder_path not called."""
+        client = MagicMock()
+        client.ensure_folder_path.return_value = "fid-grafana"
+
+        result = _resolve_destination_folder(
+            action_spec={"add": ["Tech/Grafana"], "noMoveToFolder": True},
+            move_to_folders=True,
+            folder_paths={},
+            client=client,
+            dry_run=False,
+        )
+
+        self.assertIsNone(result)
+        client.ensure_folder_path.assert_not_called()
+
+    def test_normal_rule_still_resolves_folder_dry_run(self):
+        """Without noMoveToFolder, move_to_folders=True still resolves a folder (dry_run).
+
+        Contrast test: the fix must not break normal folder resolution.
+        """
+        client = MagicMock()
+        folder_paths = {"Tech/Nintendo": "fid-nintendo"}
+
+        result = _resolve_destination_folder(
+            action_spec={"add": ["Tech/Nintendo"]},
+            move_to_folders=True,
+            folder_paths=folder_paths,
+            client=client,
+            dry_run=True,
+        )
+
+        self.assertEqual(result, "fid-nintendo")
+
+    def test_normal_rule_still_resolves_folder_live(self):
+        """Without noMoveToFolder, move_to_folders=True still resolves a folder (live)."""
+        client = MagicMock()
+        client.ensure_folder_path.return_value = "live-fid-nintendo"
+
+        result = _resolve_destination_folder(
+            action_spec={"add": ["Tech/Nintendo"]},
+            move_to_folders=True,
+            folder_paths={},
+            client=client,
+            dry_run=False,
+        )
+
+        client.ensure_folder_path.assert_called_once_with("Tech/Nintendo")
+        self.assertEqual(result, "live-fid-nintendo")
 
 
 if __name__ == "__main__":

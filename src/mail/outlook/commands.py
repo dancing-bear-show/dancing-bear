@@ -148,6 +148,7 @@ def run_outlook_rules_sync(args) -> int:
 
     dry_run = getattr(args, 'dry_run', False)
     delete_missing = getattr(args, 'delete_missing', False)
+    reconcile = getattr(args, 'reconcile', False)
     return _run_pipeline(
         'rules_sync',
         args,
@@ -157,20 +158,24 @@ def run_outlook_rules_sync(args) -> int:
             'delete_missing': delete_missing,
             'move_to_folders': getattr(args, 'move_to_folders', False),
             'verbose': getattr(args, 'verbose', False),
+            'reconcile': reconcile,
         },
-        {'dry_run': dry_run, 'delete_missing': delete_missing},
+        {'dry_run': dry_run, 'delete_missing': delete_missing, 'reconcile': reconcile},
     )
 
 
 def run_outlook_rules_plan(args) -> int:
+    reconcile = getattr(args, 'reconcile', False)
     return _run_pipeline(
         'rules_plan',
         args,
         {
             'config_path': args.config,
             'move_to_folders': getattr(args, 'move_to_folders', False),
+            'reconcile': reconcile,
             **_cache_kwargs(args),
         },
+        {'reconcile': reconcile},
     )
 
 

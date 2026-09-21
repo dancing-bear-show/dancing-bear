@@ -33,6 +33,7 @@ class OutlookRulesSyncPayload:
     delete_missing: bool = False
     move_to_folders: bool = False
     verbose: bool = False
+    reconcile: bool = False
 
 
 @dataclass
@@ -43,6 +44,7 @@ class OutlookRulesPlanPayload:
     move_to_folders: bool = False
     use_cache: bool = False
     cache_ttl: int = 600
+    reconcile: bool = False
 
 
 @dataclass
@@ -218,12 +220,14 @@ class OutlookRulesPlanConsumer(Consumer[OutlookRulesPlanPayload]):
         move_to_folders: bool = False,
         use_cache: bool = False,
         cache_ttl: int = 600,
+        reconcile: bool = False,
     ):
         self._client = client
         self._config_path = config_path
         self._move_to_folders = move_to_folders
         self._use_cache = use_cache
         self._cache_ttl = cache_ttl
+        self._reconcile = reconcile
 
     def consume(self) -> OutlookRulesPlanPayload:
         return OutlookRulesPlanPayload(
@@ -232,6 +236,7 @@ class OutlookRulesPlanConsumer(Consumer[OutlookRulesPlanPayload]):
             move_to_folders=self._move_to_folders,
             use_cache=self._use_cache,
             cache_ttl=self._cache_ttl,
+            reconcile=self._reconcile,
         )
 
 

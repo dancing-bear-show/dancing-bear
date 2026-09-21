@@ -139,14 +139,26 @@ class OutlookRulesSyncProducer(BaseProducer):
         self,
         dry_run: bool = False,
         delete_missing: bool = False,
+        reconcile: bool = False,
         writer: OutputWriter | None = None,
     ) -> None:
         super().__init__(writer)
         self._dry_run = dry_run
         self._delete_missing = delete_missing
+        self._reconcile = reconcile
 
     def produce(self, result: ResultEnvelope) -> None:
-        """Override to also surface the hint diagnostic."""
+        """Override to also surface the hint diagnostic.
+
+        A reconcile failure returns status="error" WITH a payload, so the command
+        exits nonzero (a lost rule must not look like success). The tally is still
+        printed in that case: the counts are the recovery information, telling the
+        user what landed before the failure and what a re-run has left to do.
+        Printing only the error would discard exactly what they need.
+        """
+        if result.payload is not None and not result.ok():
+            self._produce_success(result.payload, result.diagnostics, complete=False)
+
         if not result.ok() or result.payload is None:
             msg = diagnostic_message(result.diagnostics) or self.failure_message
             if msg:
@@ -157,14 +169,33 @@ class OutlookRulesSyncProducer(BaseProducer):
             return
         self._produce_success(result.payload, result.diagnostics)
 
-    def _produce_success(self, payload: OutlookRulesSyncResult, diagnostics: dict | None) -> None:
-        msg = f"Sync complete. Created: {payload.created}"
+    def _produce_success(
+        self, payload: OutlookRulesSyncResult, diagnostics: dict | None, complete: bool = True
+    ) -> None:
+        # ONE parts list for both branches. They were built independently, and
+        # the duplication silently dropped a field twice: `Reconciled` before
+        # f5b940a, then `Failed` — added to the live branch only, so a dry run
+        # reported nothing about a rule it would have failed to reconcile. A
+        # preview that omits a failure is worse than one that reports it, and
+        # this PR has already fixed five preview/apply divergences.
+        parts = [f"Created: {payload.created}"]
+        if self._reconcile and payload.reconciled:
+            parts.append(f"Reconciled: {payload.reconciled}")
+        if self._reconcile and payload.failed:
+            parts.append(f"Failed: {payload.failed}")
         if self._delete_missing:
-            msg += f", Deleted: {payload.deleted}"
+            parts.append(f"Deleted: {payload.deleted}")
+        summary = ", ".join(parts)
+
         if self._dry_run:
-            self._writer.print_dry_run(f"sync. Created: {payload.created}" + (f", Deleted: {payload.deleted}" if self._delete_missing else ""))
+            self._writer.print_dry_run(f"sync. {summary}")
+        elif complete:
+            self._writer.print(f"Sync complete. {summary}")
         else:
-            self._writer.print(msg)
+            # Never "Sync complete." on a run that lost a rule. The tally is
+            # still printed (it is the recovery information), but the headline
+            # must not claim completion.
+            self._writer.print(f"Sync incomplete. {summary}")
 
 
 class OutlookRulesPlanProducer(BaseProducer):
@@ -172,13 +203,19 @@ class OutlookRulesPlanProducer(BaseProducer):
 
     failure_message = "Failed to plan rules."
 
-    def __init__(self, writer: OutputWriter | None = None) -> None:
+    def __init__(self, reconcile: bool = False, writer: OutputWriter | None = None) -> None:
         super().__init__(writer)
+        self._reconcile = reconcile
 
     def _produce_success(self, payload: OutlookRulesPlanResult, diagnostics: dict | None) -> None:
         for item in payload.plan_items:
             self._writer.print(item)
-        self._writer.print(f"Plan summary: create={payload.would_create}")
+        if self._reconcile:
+            self._writer.print(
+                f"Plan summary: create={payload.would_create} reconcile={payload.would_reconcile}"
+            )
+        else:
+            self._writer.print(f"Plan summary: create={payload.would_create}")
 
 
 class OutlookRulesDeleteProducer(BaseProducer):

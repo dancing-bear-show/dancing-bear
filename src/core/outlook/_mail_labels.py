@@ -9,6 +9,28 @@ from .client import _requests
 from core.constants import GRAPH_API_URL
 
 
+#: Graph rule condition keys ``_map_rule`` can represent, and
+#: ``_build_rule_conditions`` can write back. Any other condition on a live rule
+#: is lost on a delete+create round trip, so ``_map_rule`` reports the remainder
+#: as ``unmappedConditions`` and reconcile refuses to rewrite those rules.
+_MAPPED_CONDITION_KEYS = frozenset({
+    "senderContains",
+    "recipientContains",
+    "subjectContains",
+})
+
+#: Graph rule ACTION keys ``_map_rule`` can represent, and
+#: ``_build_rule_actions`` can write back. The same hazard as conditions, and a
+#: sharper one: a rule that categorises AND deletes would be recreated as
+#: categorise-only, or a ``markAsRead`` silently lost. Reported alongside
+#: unmapped conditions so reconcile refuses those rules too.
+_MAPPED_ACTION_KEYS = frozenset({
+    "assignCategories",
+    "forwardTo",
+    "moveToFolder",
+})
+
+
 class _LabelsHost(Protocol):
     """Complete self-type for LabelsFiltersMixin methods that call sibling methods.
 
@@ -130,7 +152,39 @@ class LabelsFiltersMixin:
         return r.json().get("value", [])
 
     def _map_rule(self: "_LabelsHost", ru: dict[str, Any]) -> dict[str, Any]:
-        """Map a raw Graph rule to the internal filter format."""
+        """Map a raw Graph rule to the internal filter format.
+
+        Preserves ``sequence`` and ``stopProcessingRules`` from the Graph API
+        response so they can be carried over when a rule is recreated during
+        reconciliation (``rules.sync --reconcile``).  Without this, every
+        reconcile resets both fields to their hardcoded defaults (sequence=1,
+        stopProcessingRules=True), which silently reorders the rule chain.
+
+        Also records ``unmappedConditions``: every Graph key this format cannot
+        represent, across ``conditions``, ``actions`` AND ``exceptions``.  The
+        name is kept for the existing callers, but it covers all three -- the
+        hazard is identical and the consumers treat it as one "cannot round-trip
+        this rule" flag.
+
+        ``exceptions`` contributes EVERY key rather than a set difference, because
+        this format has no representation for exceptions at all: a rule reading
+        "categorise newsletters, except ones titled URGENT" loses the exception
+        entirely and comes back acting on URGENT mail too.
+
+        Graph supports many conditions (``bodyContains``, ``hasAttachments``,
+        ``importance``, ``sentToMe``, ...) and many actions (``markAsRead``,
+        ``delete``, ``copyToFolder``, ...), while ``_build_rule_conditions`` and
+        ``_build_rule_actions`` emit only sender/recipient/subject and
+        categories/forward/move.  A rule created in the Outlook UI can therefore
+        carry either kind of key, and neither survives a round trip.
+
+        Reconcile recreates rules by delete+create and MUST refuse to touch such
+        a rule.  Dropping a *condition* makes the replacement match more mail than
+        the original; dropping an *action* is sharper still -- a rule that
+        categorises and deletes would come back categorise-only.  Both are silent
+        changes to what the rule does.  Callers read this list; nothing else
+        depends on it.
+        """
         cond = ru.get("conditions", {}) or {}
         act = ru.get("actions", {}) or {}
         crit: dict[str, Any] = {}
@@ -149,7 +203,23 @@ class LabelsFiltersMixin:
             )
         if act.get("moveToFolder"):
             action["moveToFolderId"] = act.get("moveToFolder")
-        return {"id": ru.get("id"), "criteria": crit, "action": action}
+        return {
+            "id": ru.get("id"),
+            "criteria": crit,
+            "action": action,
+            "sequence": ru.get("sequence"),
+            "stopProcessingRules": ru.get("stopProcessingRules"),
+            "isEnabled": ru.get("isEnabled"),
+            "unmappedConditions": sorted(
+                (set(ru.get("conditions") or {}) - _MAPPED_CONDITION_KEYS)
+                | (set(ru.get("actions") or {}) - _MAPPED_ACTION_KEYS)
+                # EVERY exception key, not a set difference: this format has no
+                # representation for exceptions at all, so none of them round
+                # trip. Prefixed to stay readable in a diagnostic -- a bare
+                # "subjectContains" would be indistinguishable from a condition.
+                | {f"exceptions.{k}" for k in (ru.get("exceptions") or {})}
+            ),
+        }
 
     def list_filters(
         self: "_LabelsHost",
@@ -192,14 +262,36 @@ class LabelsFiltersMixin:
         self: "_LabelsHost",
         criteria: dict[str, Any],
         action: dict[str, Any],
+        sequence: int | None = None,
+        stop_processing_rules: bool | None = None,
+        is_enabled: bool | None = None,
     ) -> dict[str, Any]:
+        """Create an inbox rule from criteria and action dicts.
+
+        ``sequence``, ``stop_processing_rules`` and ``is_enabled`` default to
+        today's behaviour (1, True, True) when not supplied, so existing callers
+        are unaffected.  Pass explicit values when recreating a rule during
+        reconciliation (``rules.sync --reconcile``) to preserve the live rule's
+        position in the rule chain, its stop-processing setting, and whether it
+        was enabled.
+
+        ``is_enabled`` matters because the YAML has no enable/disable directive:
+        a rule the user DISABLED in the Outlook UI would otherwise come back
+        enabled after any action change, silently resuming action on mail they had
+        deliberately switched off.
+
+        Note: the Graph API has no PATCH endpoint for inbox rules.  Reconcile
+        must delete the old rule and create a replacement.  If the live rule's
+        sequence is not passed, the new rule will land at position 1 and may
+        alter the order of all subsequent rules for that mailbox.
+        """
         payload = {
             "displayName": f"Rule {int(time.time())}",
-            "sequence": 1,
-            "isEnabled": True,
+            "sequence": sequence if sequence is not None else 1,
+            "isEnabled": is_enabled if is_enabled is not None else True,
             "conditions": self._build_rule_conditions(criteria),
             "actions": self._build_rule_actions(action),
-            "stopProcessingRules": True,
+            "stopProcessingRules": stop_processing_rules if stop_processing_rules is not None else True,
         }
         r = _requests().post(
             f"{GRAPH_API_URL}/me/mailFolders/inbox/messageRules",

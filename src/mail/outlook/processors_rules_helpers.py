@@ -11,16 +11,33 @@ from .helpers import norm_label_name_outlook
 
 @dataclass
 class RuleContext:
-    """Shared context for rule building operations."""
+    """Shared context for rule building operations.
+
+    ``dry_run`` exists because folder resolution can MUTATE: the fallback in
+    ``_build_rule_action`` is ``ensure_folder_path``, which creates missing
+    folders via Graph.  Without this flag the resolver had no way to know it was
+    running under a preview, so ``rules.sync --dry-run`` created folders whenever
+    the cached folder map missed an ``add`` destination -- no rule was created,
+    but the mailbox changed.  Defaults False so every existing construction keeps
+    today's behaviour; the sync processor passes its own ``dry_run`` through.
+    """
     client: Any
     name_to_id: dict[str, str]
     folder_map: dict[str, str]
     move_to_folders: bool
+    dry_run: bool = False
 
     @classmethod
     def for_plan(cls, name_to_id: dict[str, str], folder_map: dict[str, str], move_to_folders: bool) -> "RuleContext":
-        """Create context for plan operations (no client needed)."""
-        return cls(client=None, name_to_id=name_to_id, folder_map=folder_map, move_to_folders=move_to_folders)
+        """Create context for plan operations (no client needed).
+
+        ``dry_run=True``: plan is read-only by definition, and ``client`` is None
+        here, so a mutating resolver call would raise rather than merely be wrong.
+        """
+        return cls(
+            client=None, name_to_id=name_to_id, folder_map=folder_map,
+            move_to_folders=move_to_folders, dry_run=True,
+        )
 
 
 def _canon_rule(rule: dict) -> str:
@@ -37,6 +54,83 @@ def _canon_rule(rule: dict) -> str:
     })
 
 
+
+def _norm_criteria_field(value: str | None) -> tuple[str, ...] | None:
+    """Normalise one criteria field for case-insensitive, order-insensitive comparison.
+
+    Live rules store criteria in UPPERCASE; desired rules use lowercase from the
+    derive step. Outlook also permits inconsistent whitespace around the OR
+    separator. This function returns a sorted tuple of case-folded tokens so
+    both sides compare equal regardless of case or token order.
+
+    Returns None when value is None so the outer key stays None-comparable.
+    """
+    if value is None:
+        return None
+    return tuple(sorted(tok.strip().casefold() for tok in value.split(" OR ")))
+
+
+def _criteria_key(criteria: dict[str, Any]) -> str:
+    """Create a criteria-only key for reconciliation matching.
+
+    Used alongside ``_canon_rule`` / ``_create_rule_key`` for the
+    ``--reconcile`` path only.  Matching by criteria alone lets a rule whose
+    action changed be recognised as the same rule rather than a new one.
+
+    Case-insensitive: live rules store criteria in UPPERCASE; desired rules use
+    lowercase from the derive step.  ``_norm_criteria_field`` case-folds and
+    sorts the OR-joined token list so both sides compare equal.
+
+    Do NOT use this for the non-reconcile path — it intentionally ignores the
+    action, which is incorrect for the default behaviour where an action change
+    is treated as a new rule.
+    """
+    return str({
+        "from": _norm_criteria_field(criteria.get("from")),
+        "to": _norm_criteria_field(criteria.get("to")),
+        "subject": _norm_criteria_field(criteria.get("subject")),
+    })
+
+
+def _fetch_rules_with_provenance(
+    client: Any,
+    use_cache: bool = False,
+    cache_ttl: int = 600,
+) -> tuple[list[dict[str, Any]], str]:
+    """Fetch existing rules, reporting where the data came from.
+
+    Returns ``(rules, source)`` where ``source`` is one of:
+
+    - ``"live"``     : the requested read succeeded.
+    - ``"fallback"`` : the read failed and a cached snapshot was served instead.
+    - ``"empty"``    : both reads failed; the list is ``[]`` and means "unknown",
+      NOT "the mailbox has no rules".
+
+    Auth failures (401/403) still propagate -- a credential problem must not be
+    papered over with cached data.
+
+    Callers that only display rules can ignore ``source``.  Callers that MUTATE
+    must not: ``--reconcile`` decides what to delete by comparing desired rules
+    against this list, so acting on ``"empty"`` creates a duplicate of every rule
+    beside live rules it cannot see, and acting on ``"fallback"`` can delete
+    against IDs that no longer exist.  Both were probed on PR #359:
+
+        total failure -> created=2, status=success, 0 rules ever read
+        stale cache   -> delete_filter('OLD-ID-no-longer-exists')
+    """
+    try:
+        return client.list_filters(use_cache=use_cache, ttl=cache_ttl), "live"
+    except Exception as e:
+        resp = getattr(e, 'response', None)
+        status = getattr(resp, 'status_code', None) if resp else None
+        if status in (401, 403):
+            raise
+        try:
+            return client.list_filters(use_cache=True, ttl=cache_ttl), "fallback"
+        except Exception:
+            return [], "empty"
+
+
 def _fetch_rules_with_resilience(
     client: Any,
     use_cache: bool = False,
@@ -44,20 +138,12 @@ def _fetch_rules_with_resilience(
 ) -> list[dict[str, Any]]:
     """Fetch existing rules with auth error handling and cache fallback.
 
-    Auth failures (401/403) propagate; any other error falls back to a cached
-    read so a transient outage does not look like an empty rule set.
+    Thin wrapper over ``_fetch_rules_with_provenance`` for read-only callers,
+    which cannot do harm with fallback data.  Anything that mutates the mailbox
+    should call ``_fetch_rules_with_provenance`` and refuse to act on a
+    non-``"live"`` source.
     """
-    try:
-        return client.list_filters(use_cache=use_cache, ttl=cache_ttl)
-    except Exception as e:
-        resp = getattr(e, 'response', None)
-        status = getattr(resp, 'status_code', None) if resp else None
-        if status in (401, 403):
-            raise
-        try:
-            return client.list_filters(use_cache=True, ttl=cache_ttl)
-        except Exception:
-            return []
+    return _fetch_rules_with_provenance(client, use_cache, cache_ttl)[0]
 
 
 def _build_rule_criteria(match_spec: dict[str, Any]) -> dict[str, Any]:
@@ -65,19 +151,48 @@ def _build_rule_criteria(match_spec: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in match_spec.items() if k in ("from", "to", "subject") and v}
 
 
+def _resolve_folder_for_action(path: str, ctx: RuleContext) -> str:
+    """Resolve a folder path to an id, never creating a folder under dry-run.
+
+    The live resolver is ``ensure_folder_path``, which CREATES missing folders via
+    Graph.  ``_build_rule_action`` runs before the caller's ``dry_run`` check, so
+    without this guard ``rules.sync --dry-run`` created folders whenever the cached
+    folder map missed a destination: no rule was created, but the mailbox changed.
+    A preview that mutates is the failure mode this PR has fixed most often.
+
+    Under dry-run, falls back to the cached map and then to the path itself.  The
+    returned value is then not a Graph id, which is correct for a preview: it only
+    has to be stable and truthy so the rule key matches what the live run would
+    build, and nothing in the dry-run path sends it to Graph.  This mirrors
+    ``_resolve_destination_folder``, which already made the same choice for sweep.
+    """
+    if not ctx.dry_run:
+        return ctx.client.ensure_folder_path(path)
+    return ctx.folder_map.get(path) or path
+
+
 def _build_rule_action(action_spec: dict[str, Any], ctx: RuleContext) -> dict[str, Any]:
-    """Build action dict from action spec."""
+    """Build action dict from action spec.
+
+    ``noMoveToFolder`` is an internal marker written by the derive step for rules
+    that carried ``keepInInbox: true`` in the unified config.  It signals that
+    the rule must categorise/label mail without moving it, even when
+    ``ctx.move_to_folders`` is True.  The marker is read here but never written
+    to the output ``action`` dict — it must not appear in the Graph API payload.
+    """
     action = {}
     add_labs = action_spec.get("add") or []
 
     if action_spec.get("moveToFolder"):
-        fid = ctx.client.ensure_folder_path(str(action_spec.get("moveToFolder")))
+        fid = _resolve_folder_for_action(str(action_spec.get("moveToFolder")), ctx)
         action["moveToFolderId"] = fid
-    elif ctx.move_to_folders and add_labs:
+    elif ctx.move_to_folders and add_labs and not action_spec.get("noMoveToFolder"):
+        # Normal rule with move_to_folders: derive folder from first add label.
         lab_name = str(add_labs[0])
-        fid = ctx.folder_map.get(lab_name) or ctx.client.ensure_folder_path(lab_name)
+        fid = ctx.folder_map.get(lab_name) or _resolve_folder_for_action(lab_name, ctx)
         action["moveToFolderId"] = fid
     elif add_labs:
+        # Categorise only: either noMoveToFolder (keepInInbox) or move_to_folders=False.
         ids = [ctx.name_to_id.get(x) or ctx.name_to_id.get(norm_label_name_outlook(x)) for x in add_labs]
         ids = [x for x in ids if x]
         if ids:
@@ -101,16 +216,91 @@ def _create_rule_key(criteria: dict[str, Any], action: dict[str, Any]) -> str:
     })
 
 
+def _norm_create_rule_key(criteria: dict[str, Any], action: dict[str, Any]) -> str:
+    """Create a case-normalised canonical key for a rule.
+
+    Identical to ``_create_rule_key`` except that the criteria fields are passed
+    through ``_norm_criteria_field`` for case-insensitive, order-insensitive
+    comparison.  Used to detect a live rule that already satisfies a desired spec
+    where the only difference is criteria case (e.g. live stores UPPERCASE
+    criteria, desired emits lowercase from the derive step).
+
+    Action fields (addLabelIds, moveToFolderId, forward) are Graph ids or email
+    addresses and are kept as-is; the case mismatch is criteria-specific.
+    """
+    return str({
+        "from": _norm_criteria_field(criteria.get("from")),
+        "to": _norm_criteria_field(criteria.get("to")),
+        "subject": _norm_criteria_field(criteria.get("subject")),
+        "add": tuple(sorted(action.get("addLabelIds", []) or [])),
+        "forward": action.get("forward"),
+        "move": action.get("moveToFolderId"),
+    })
+
+
+def _resolve_folder_id(path: str, folder_map: dict[str, str]) -> str:
+    """Resolve a folder path to an id for planning, by raw path only.
+
+    The raw path is what ``_build_rule_action`` passes to
+    ``ensure_folder_path()``, so matching it is what keeps the plan's rule key
+    equal to apply's. Normalizing first turned ``Security/Alerts`` into
+    ``Security-Alerts``, matched nothing, and left that string to be used as the
+    folder id — the plan then reported an existing rule as "Would create" with
+    the wrong destination displayed.
+
+    The normalized alias is tried **only for a flat name**, where normalization
+    is a no-op. For a nested path it is unsafe: ``Security/Alerts`` flattens to
+    ``Security-Alerts``, which may be a genuinely different, top-level folder.
+    Resolving to that folder's id would make the plan name a destination apply
+    never touches — a wrong answer, where a miss is merely an unresolved one.
+
+    Falling back to the path itself keeps planning possible when the map has no
+    entry (apply would create the folder); it is not a Graph id, so a caller
+    comparing keys against live rules still sees a difference rather than a
+    false match.
+    """
+    if path in folder_map:
+        return folder_map[path]
+    if "/" not in path:
+        alias = norm_label_name_outlook(path)
+        if alias in folder_map:
+            return folder_map[alias]
+    return path
+
+
 def _build_plan_action(action_spec: dict[str, Any], ctx: RuleContext) -> dict[str, Any]:
-    """Build action dict for plan (without creating folders)."""
+    """Build action dict for plan (without creating folders).
+
+    ``noMoveToFolder: true`` is the internal marker set by the derive step for
+    rules that had ``keepInInbox: true`` in the unified config.  When present,
+    the folder derivation branch is skipped and the rule categorises/labels
+    without a folder move.
+
+    An explicit ``moveToFolder`` still wins over the marker, matching
+    ``_build_rule_action`` and ``_resolve_destination_folder``: the marker
+    suppresses a folder *derived* from ``add[0]``, not a destination the config
+    named outright. The two can legitimately co-occur — ``derive.filters
+    --outlook-archive-on-remove-inbox`` emits ``moveToFolder: Archive``
+    alongside the marker. This branch was previously absent here, so the plan
+    reported "no move" for a rule that sync and sweep would move: the plan
+    contradicted the apply it is supposed to preview.
+    """
     action = {}
     adds = action_spec.get("add") or []
 
-    if ctx.move_to_folders and adds:
-        lab_name = norm_label_name_outlook(adds[0])
-        fid = ctx.folder_map.get(lab_name) or lab_name
-        action["moveToFolderId"] = fid
+    if action_spec.get("moveToFolder"):
+        action["moveToFolderId"] = _resolve_folder_id(
+            str(action_spec["moveToFolder"]), ctx.folder_map
+        )
+    elif ctx.move_to_folders and adds and not action_spec.get("noMoveToFolder"):
+        # Derive from the first add label — raw path first, for the same reason
+        # as the explicit branch above. `add: [Lists/Commercial]` in a raw
+        # config is a nested path, and `_build_rule_action` resolves that raw
+        # value, so normalizing first here made the plan key diverge from
+        # apply's for every nested rule.
+        action["moveToFolderId"] = _resolve_folder_id(str(adds[0]), ctx.folder_map)
     elif adds:
+        # Categorise only: either noMoveToFolder (keepInInbox) or move_to_folders=False.
         ids = [ctx.name_to_id.get(x) or ctx.name_to_id.get(norm_label_name_outlook(x)) for x in adds]
         ids = [x for x in ids if x]
         if ids:
@@ -152,17 +342,36 @@ def _resolve_destination_folder(
     client: Any,
     dry_run: bool,
 ) -> str | None:
-    """Resolve destination folder ID for sweep operation."""
+    """Resolve destination folder ID for sweep operation.
+
+    Returns None for rules that carry ``noMoveToFolder: true``, which is the
+    internal marker set by the derive step for rules that had ``keepInInbox``
+    in the unified config.  Returning None causes the sweep loop to skip the
+    move step, leaving the message in the inbox.
+
+    Dry-run resolves through the cached ``folder_paths`` snapshot because the
+    live call, ``ensure_folder_path``, *creates* missing folders — a preview
+    must not mutate the mailbox.  A cache miss therefore falls back to the path
+    itself rather than None: the sweep loop only tests truthiness to decide
+    whether a move happens, and returning None for a folder the live run would
+    resolve made ``sweep --dry-run`` report zero moves while the real run moved
+    mail.  The returned value is not a Graph id, but nothing in the dry-run path
+    sends it anywhere.
+    """
     if action_spec.get("moveToFolder"):
         pth = str(action_spec.get("moveToFolder"))
         if dry_run:
-            return folder_paths.get(pth)
+            return folder_paths.get(pth) or pth
         return client.ensure_folder_path(pth)
+
+    # noMoveToFolder is the internal marker for keepInInbox rules: no move wanted.
+    if action_spec.get("noMoveToFolder"):
+        return None
 
     if move_to_folders and (action_spec.get("add") or []):
         pth = str((action_spec.get("add") or ["Inbox"])[0])
         if dry_run:
-            return folder_paths.get(pth)
+            return folder_paths.get(pth) or pth
         return client.ensure_folder_path(pth)
 
     return None

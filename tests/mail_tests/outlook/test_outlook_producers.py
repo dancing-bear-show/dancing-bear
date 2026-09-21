@@ -212,6 +212,182 @@ class TestOutlookRulesSyncProducer(unittest.TestCase):
         self.assertIn("[dry-run]", buf.getvalue())
         self.assertIn("Deleted: 1", buf.getvalue())
 
+    def test_failure_with_payload_still_prints_the_tally(self):
+        """A reconcile failure exits nonzero but must not swallow the counts.
+
+        The processor returns status="error" WITH a payload when ``failed > 0``,
+        so the command exits nonzero (a lost rule must not look like success).
+        The default producer path prints only the error for a non-ok envelope,
+        which would discard the tally -- and the tally is exactly the recovery
+        information: what landed before the failure, and what a re-run still has
+        to do. The headline must also not claim completion.
+        """
+        result = ResultEnvelope(
+            status="error",
+            payload=OutlookRulesSyncResult(created=2, reconciled=1, failed=1),
+            diagnostics={
+                "error": "1 reconcile operation(s) failed.",
+                "code": 1,
+                "hint": "re-run once the API error clears",
+            },
+        )
+        producer = OutlookRulesSyncProducer(dry_run=False, reconcile=True)
+
+        with capture_stdout() as buf:
+            producer.produce(result)
+        out = buf.getvalue()
+
+        self.assertIn("Created: 2", out)
+        self.assertIn("Reconciled: 1", out)
+        self.assertIn("Failed: 1", out)
+        self.assertIn("Hint:", out)
+        # Never "Sync complete." on a run that lost a rule.
+        self.assertIn("Sync incomplete", out)
+        self.assertNotIn("Sync complete", out)
+
+    def test_hard_failure_without_payload_prints_no_tally(self):
+        """Contrast: a payload-less failure (auth, etc.) prints only the error.
+
+        Guards the new branch from over-reaching -- it must trigger on a payload
+        being present, not on any non-ok envelope, or an auth failure would
+        print a meaningless all-zero tally.
+        """
+        result = ResultEnvelope(
+            status="error",
+            payload=None,
+            diagnostics={"error": "Auth failed", "code": 2, "hint": "Run outlook auth.ensure"},
+        )
+        producer = OutlookRulesSyncProducer(dry_run=False, reconcile=True)
+
+        with capture_stdout() as buf:
+            producer.produce(result)
+        out = buf.getvalue()
+
+        self.assertNotIn("Created:", out)
+        self.assertNotIn("Sync complete", out)
+        self.assertNotIn("Sync incomplete", out)
+
+    def test_reconciled_count_is_reported(self):
+        """`--reconcile` must surface what it did, on both output paths.
+
+        The count reached OutlookRulesSyncResult before this was wired, so the
+        flag worked while the run said nothing about it. Dry-run is asserted
+        alongside live because the dry-run branch builds its own string: it
+        previously did so inline and would have silently dropped the new field.
+        """
+        payload = OutlookRulesSyncResult(created=2, deleted=1, reconciled=3)
+
+        for dry_run, marker in ((False, "Sync complete."), (True, "[dry-run]")):
+            with self.subTest(dry_run=dry_run):
+                producer = OutlookRulesSyncProducer(
+                    dry_run=dry_run, delete_missing=True, reconcile=True
+                )
+                with capture_stdout() as buf:
+                    producer.produce(ResultEnvelope(status="success", payload=payload))
+                out = buf.getvalue()
+                self.assertIn(marker, out)
+                self.assertIn("Created: 2", out)
+                self.assertIn("Reconciled: 3", out)
+                self.assertIn("Deleted: 1", out)
+
+    def test_reconciled_line_omitted_when_nothing_reconciled(self):
+        """Contrast: reconcile on but zero reconciled says nothing extra.
+
+        Keeps the flag from adding noise to every run that changes nothing.
+        """
+        producer = OutlookRulesSyncProducer(dry_run=False, reconcile=True)
+        with capture_stdout() as buf:
+            producer.produce(ResultEnvelope(
+                status="success",
+                payload=OutlookRulesSyncResult(created=2, deleted=0, reconciled=0),
+            ))
+        out = buf.getvalue()
+        self.assertIn("Created: 2", out)
+        self.assertNotIn("Reconciled", out)
+
+    def test_failed_count_is_reported_on_both_branches(self):
+        """A failed reconcile must be visible, in dry-run as well as live.
+
+        Regression: `Failed: N` was added to the live branch only. The dry-run
+        branch built its own parts list and omitted it, so a preview said nothing
+        about a rule it would fail to reconcile — and a failed reconcile can mean
+        a rule was deleted and not replaced. That is the same defect the
+        `Reconciled` field had before f5b940a, in the same method, caused by the
+        same duplicated message construction. Both branches now derive from one
+        parts list; this test pins both so the duplication cannot return.
+        """
+        payload = OutlookRulesSyncResult(created=0, deleted=0, reconciled=0, failed=1)
+
+        for dry_run, marker in ((False, "Sync complete."), (True, "[dry-run]")):
+            with self.subTest(dry_run=dry_run):
+                producer = OutlookRulesSyncProducer(dry_run=dry_run, reconcile=True)
+                with capture_stdout() as buf:
+                    producer.produce(ResultEnvelope(status="success", payload=payload))
+                out = buf.getvalue()
+                self.assertIn(marker, out)
+                self.assertIn("Failed: 1", out)
+
+    def test_reconciled_and_failed_both_reported_together(self):
+        """A partial run reports both halves — some reconciled, some failed."""
+        producer = OutlookRulesSyncProducer(
+            dry_run=False, delete_missing=True, reconcile=True
+        )
+        with capture_stdout() as buf:
+            producer.produce(ResultEnvelope(
+                status="success",
+                payload=OutlookRulesSyncResult(
+                    created=1, deleted=1, reconciled=2, failed=1
+                ),
+            ))
+        out = buf.getvalue()
+        for expected in ("Created: 1", "Reconciled: 2", "Failed: 1", "Deleted: 1"):
+            self.assertIn(expected, out)
+
+    def test_failed_line_omitted_when_nothing_failed(self):
+        """Contrast: a clean run must not mention failures."""
+        producer = OutlookRulesSyncProducer(dry_run=False, reconcile=True)
+        with capture_stdout() as buf:
+            producer.produce(ResultEnvelope(
+                status="success",
+                payload=OutlookRulesSyncResult(created=1, deleted=0, reconciled=0, failed=0),
+            ))
+        self.assertNotIn("Failed", buf.getvalue())
+
+    def test_failed_not_reported_without_reconcile(self):
+        """The opt-in guarantee: `failed` is a reconcile-only concept.
+
+        A non-zero count with the flag off must not leak into the default
+        output, which has to stay byte-identical to pre-reconcile runs.
+        """
+        producer = OutlookRulesSyncProducer(dry_run=False, delete_missing=True)
+        with capture_stdout() as buf:
+            producer.produce(ResultEnvelope(
+                status="success",
+                payload=OutlookRulesSyncResult(created=1, deleted=1, reconciled=2, failed=1),
+            ))
+        out = buf.getvalue()
+        self.assertIn("Created: 1", out)
+        self.assertIn("Deleted: 1", out)
+        self.assertNotIn("Failed", out)
+        self.assertNotIn("Reconciled", out)
+
+    def test_default_output_unchanged_without_reconcile(self):
+        """The opt-in guarantee, asserted at the output layer.
+
+        A reconciled count can only appear when the flag asked for it, so an
+        existing `rules.sync` run prints exactly what it always did.
+        """
+        producer = OutlookRulesSyncProducer(dry_run=False, delete_missing=True)
+        with capture_stdout() as buf:
+            producer.produce(ResultEnvelope(
+                status="success",
+                payload=OutlookRulesSyncResult(created=2, deleted=1, reconciled=3),
+            ))
+        out = buf.getvalue()
+        self.assertIn("Created: 2", out)
+        self.assertIn("Deleted: 1", out)
+        self.assertNotIn("Reconciled", out)
+
     def test_error_with_hint(self):
         result = ResultEnvelope(
             status="error",

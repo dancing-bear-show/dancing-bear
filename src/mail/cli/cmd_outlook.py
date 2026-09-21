@@ -124,6 +124,13 @@ def register_outlook_commands(app: CLIApp) -> object:
             *_MOVE_TO_FOLDERS_ARGS,
             _ACCOUNTS_CONFIG,
             _ACCOUNT,
+            (("--reconcile",), {"action": "store_true", "help": (
+                "Preview reconcile: rules matching by criteria but with a changed action are shown as "
+                "'Would reconcile' (delete existing rule id, create replacement). "
+                "Without this flag only creates are shown. "
+                "Read-only: makes no API changes, so it reports no failures -- "
+                "run 'rules.sync --reconcile' to apply."
+            )}),
         ]),
         ("rules.sync", "Sync rules from filters YAML into Outlook Inbox", run_outlook_rules_sync, [
             *_OUTLOOK_AUTH_ARGS,
@@ -133,6 +140,14 @@ def register_outlook_commands(app: CLIApp) -> object:
             _ACCOUNTS_CONFIG,
             _ACCOUNT,
             (("--delete-missing",), {"action": "store_true", "help": "Delete rules not in YAML"}),
+            (("--reconcile",), {"action": "store_true", "help": (
+                "Match rules by criteria only; an action change is applied as delete+create "
+                "(no Graph PATCH for inbox rules). Sequence, stop-processing and enabled state "
+                "are preserved; the rule ID changes. Rules with conditions/actions/exceptions "
+                "this tool cannot express are skipped, not rewritten. 'Failed: N' means a rule "
+                "may be absent -- re-run once the error clears; if it persists, stop and check "
+                "permissions/quota."
+            )}),
         ]),
         ("rules.delete", "Delete an Outlook rule by ID", run_outlook_rules_delete, [
             *_OUTLOOK_AUTH_ARGS,
