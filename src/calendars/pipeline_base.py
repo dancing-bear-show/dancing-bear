@@ -5,6 +5,7 @@ Provides shared functionality for Gmail and Outlook pipelines.
 from __future__ import annotations
 
 import datetime as _dt
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -80,10 +81,12 @@ class GmailServiceBuilderMixin:
 
     _service_cls: Any = None
 
-    def __init__(self, service_builder=None) -> None:
+    def __init__(
+        self, service_builder: Callable[[GmailAuth], Any] | None = None
+    ) -> None:
         self._service_builder = service_builder or self._default_service_builder
 
-    def _default_service_builder(self, auth: GmailAuth):
+    def _default_service_builder(self, auth: GmailAuth) -> Any:
         return GmailServiceBuilder.build(auth, service_cls=self._service_cls)
 
 
@@ -155,12 +158,14 @@ def dedupe_events(events: list[dict[str, Any]], key_fn=None) -> list[dict[str, A
     return dedupe(events, key_fn or _default_event_key)
 
 
-def load_schedule_sources(sources, kind):
+def load_schedule_sources(
+    sources: Iterable[str], kind: str | None
+) -> list[dict[str, Any]]:
     """Load schedule items from multiple sources, normalized to event dicts."""
     from calendars.importer import load_schedule
     from calendars.model import normalize_event
 
-    out = []
+    out: list[dict[str, Any]] = []
     for src in sources:
         items = load_schedule(src, kind)
         for it in items:
