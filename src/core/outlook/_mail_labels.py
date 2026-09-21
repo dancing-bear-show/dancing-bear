@@ -161,9 +161,15 @@ class LabelsFiltersMixin:
         stopProcessingRules=True), which silently reorders the rule chain.
 
         Also records ``unmappedConditions``: every Graph key this format cannot
-        represent, from BOTH ``conditions`` and ``actions``.  The name is kept for
-        the existing callers, but it covers both -- the hazard is identical and
-        the consumers treat it as one "cannot round-trip this rule" flag.
+        represent, across ``conditions``, ``actions`` AND ``exceptions``.  The
+        name is kept for the existing callers, but it covers all three -- the
+        hazard is identical and the consumers treat it as one "cannot round-trip
+        this rule" flag.
+
+        ``exceptions`` contributes EVERY key rather than a set difference, because
+        this format has no representation for exceptions at all: a rule reading
+        "categorise newsletters, except ones titled URGENT" loses the exception
+        entirely and comes back acting on URGENT mail too.
 
         Graph supports many conditions (``bodyContains``, ``hasAttachments``,
         ``importance``, ``sentToMe``, ...) and many actions (``markAsRead``,
@@ -207,6 +213,11 @@ class LabelsFiltersMixin:
             "unmappedConditions": sorted(
                 (set(ru.get("conditions") or {}) - _MAPPED_CONDITION_KEYS)
                 | (set(ru.get("actions") or {}) - _MAPPED_ACTION_KEYS)
+                # EVERY exception key, not a set difference: this format has no
+                # representation for exceptions at all, so none of them round
+                # trip. Prefixed to stay readable in a diagnostic -- a bare
+                # "subjectContains" would be indistinguishable from a condition.
+                | {f"exceptions.{k}" for k in (ru.get("exceptions") or {})}
             ),
         }
 

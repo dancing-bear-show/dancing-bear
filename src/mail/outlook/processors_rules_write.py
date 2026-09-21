@@ -568,8 +568,20 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         if not dry_run:
             try:
                 ctx.client.create_filter(criteria, action)
-            except Exception:  # nosec B110 - filter creation failure logged elsewhere
-                pass
+            except Exception:  # nosec B110 - see below; surfaced as failed under reconcile
+                # Under --reconcile, report the failure instead of swallowing it.
+                # Otherwise a rule whose create raised was still counted as
+                # `created`, so the run printed `Created: 1` and exited 0 while the
+                # rule did not exist. That is the same silent-loss shape already
+                # fixed for the reconcile delete+create path, and a user who opted
+                # into a mode that tracks failures should see this one too.
+                #
+                # The non-reconcile path deliberately keeps swallowing it: that is
+                # long-standing behaviour for plain `rules.sync`, and changing it is
+                # a separate decision from fixing reconcile. The contrast is pinned
+                # by test_non_reconcile_create_failure_still_exits_zero.
+                if reconcile_index is not None:
+                    return key, False, False, True, None
         return key, True, False, False, None
 
     def _build_reconcile_index(

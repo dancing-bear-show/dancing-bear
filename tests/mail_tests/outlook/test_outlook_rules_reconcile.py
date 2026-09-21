@@ -1421,6 +1421,38 @@ class TestReconcileFailureExitCode(unittest.TestCase):
 
     @patch("core.yamlio.load_config")
     @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_fresh_create_failure_counts_as_failed_under_reconcile(self, mock_norm, mock_load):
+        """A NEW rule whose create raises is `failed`, not `created`, under reconcile.
+
+        Raised in review: the reconcile delete+create path reported its failures,
+        but the fresh-create fallthrough still swallowed the exception and returned
+        ``was_created=True``. So a brand-new rule whose create failed printed
+        ``Created: 1`` and exited 0 while the rule did not exist -- the same silent
+        loss, one branch over.
+
+        A user who opted into a mode that tracks failures should see this one too.
+        """
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = [{
+            "match": {"from": "brand-new@example.com"},
+            "action": {"forward": "x@other.com"},
+        }]
+        client = _make_client(list_filters=[])  # no live rules: fresh-create path
+        client.create_filter.side_effect = Exception("graph 500")
+
+        envelope = OutlookRulesSyncProcessor().process(
+            _sync_payload(client, reconcile=True, dry_run=False)
+        )
+
+        self.assertEqual(envelope.payload.failed, 1)
+        self.assertEqual(
+            envelope.payload.created, 0,
+            "a rule that was never created was counted as created",
+        )
+        self.assertNotEqual(self._exit_code(envelope), 0)
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
     def test_non_reconcile_create_failure_still_exits_zero(self, mock_norm, mock_load):
         """The non-reconcile path is unchanged: a swallowed create still exits 0.
 
@@ -1732,6 +1764,79 @@ class TestUnmappableConditionsAreNotRewritten(unittest.TestCase):
         self.assertEqual(
             client.delete_filter.call_count, 0,
             "a rule that deletes mail was rewritten without its delete action",
+        )
+        self.assertEqual(client.create_filter.call_count, 0)
+
+    def test_map_rule_reports_exceptions_as_unmappable(self):
+        """Graph ``exceptions`` are reported -- the third unmappable surface.
+
+        Raised in review after the conditions and actions fixes. This format has no
+        representation for exceptions AT ALL, so every key contributes rather than
+        a set difference: a rule reading "categorise newsletters, except ones titled
+        URGENT" lost the exception entirely and came back acting on URGENT mail too.
+
+        Keys are prefixed ``exceptions.`` so a diagnostic cannot confuse
+        ``exceptions.subjectContains`` with the condition of the same name.
+        """
+        from core.outlook._mail_labels import LabelsFiltersMixin
+
+        raw = {
+            "id": "exc-rule",
+            "conditions": {"senderContains": ["newsletter.example"]},
+            "exceptions": {"subjectContains": ["URGENT"]},
+            "actions": {"assignCategories": ["News"]},
+        }
+        mapped = LabelsFiltersMixin._map_rule(MagicMock(), raw)
+
+        self.assertEqual(mapped["unmappedConditions"], ["exceptions.subjectContains"])
+
+    def test_map_rule_ignores_an_empty_exceptions_object(self):
+        """An empty ``exceptions`` dict must not false-positive.
+
+        Graph may return the key with no content; treating that as unmappable
+        would freeze reconciliation for ordinary rules.
+        """
+        from core.outlook._mail_labels import LabelsFiltersMixin
+
+        raw = {
+            "id": "plain",
+            "conditions": {"senderContains": ["a.example"]},
+            "exceptions": {},
+            "actions": {"assignCategories": ["Cat"]},
+        }
+        mapped = LabelsFiltersMixin._map_rule(MagicMock(), raw)
+
+        self.assertEqual(mapped["unmappedConditions"], [])
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_rule_with_exceptions_is_not_reconciled(self, mock_norm, mock_load):
+        """A rule carrying an exception is left entirely alone."""
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = [{
+            "match": {"from": "newsletter.example"},
+            "action": {"add": ["News", "Extra"]},
+        }]
+        live_rule = {
+            "id": "exc-rule",
+            "criteria": {"from": "newsletter.example"},
+            "action": {"addLabelIds": ["cat-news"]},
+            "unmappedConditions": ["exceptions.subjectContains"],
+        }
+        client = _make_client(
+            list_filters=[live_rule],
+            name_to_id={"News": "cat-news", "Extra": "cat-extra"},
+        )
+
+        envelope = OutlookRulesSyncProcessor().process(
+            _sync_payload(client, reconcile=True, delete_missing=True, dry_run=False)
+        )
+
+        self.assertEqual(envelope.payload.reconciled, 0)
+        self.assertEqual(envelope.payload.deleted, 0)
+        self.assertEqual(
+            client.delete_filter.call_count, 0,
+            "a rule with an exception was rewritten without it, broadening what it acts on",
         )
         self.assertEqual(client.create_filter.call_count, 0)
 
