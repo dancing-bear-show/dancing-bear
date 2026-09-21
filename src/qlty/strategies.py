@@ -16,8 +16,10 @@ from .models import RuleStrategy, Tier
 
 _COMPLEXITY_SWEEP = "workflows/code/qlty-complexity-sweep.yaml"
 
-#: Appended to the rationale of every rule the sweep automates, so the path is
-#: written once rather than restated in each rationale.
+#: Appended to the rationales that cite the sweep, so the path is written once
+#: rather than restated in each. Not every rule in _COMPLEXITY_SWEEP_RULES uses
+#: it: function-complexity's rationale does not mention the sweep, and saying so
+#: there would be a wording change rather than a deduplication.
 _SWEEP_TOOLING = f"Existing tooling: {_COMPLEXITY_SWEEP}."
 
 # Ordered worst-first for stable rendering; the tier decides handling.
