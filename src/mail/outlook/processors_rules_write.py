@@ -472,16 +472,34 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
     ) -> int:
         """Delete rules that are not in desired set.
 
-        ``reconciled_rule_ids``: IDs of live rules that were already deleted
-        during reconciliation.  Excluded here to avoid a double-delete attempt
-        (the rule no longer exists; the API call would 404 and count as 0, but
-        the extra round-trip is unnecessary and noisy in logs).
+        ``reconciled_rule_ids`` is a set of rule ids this call must NOT delete.
+        Three distinct cases put an id there, and only the first is literally
+        "already reconciled" (the name predates the other two):
+
+        1. Reconciled: the live rule was deleted and replaced during reconcile.
+        2. Case-only no-op: the live rule already satisfies the desired spec and
+           differs only in criteria casing.  Deleting it would destroy a correct
+           rule -- this was a live data-loss defect, not a hypothetical.
+        3. ``create_failed``: reconcile's delete succeeded but the replacement
+           create raised, so the rule is already gone.
+
+        Excluding them is a correctness requirement, not an optimisation.  The
+        earlier rationale -- that a redundant delete "would 404 and count as 0"
+        -- was wrong: ``_delete_one_rule`` swallows the exception and returns
+        True/False from the call's outcome, so a second delete against an
+        already-gone id could be tallied as a *successful* deletion.  That made
+        one rule report as both ``Failed: 1`` and ``Deleted: 1``, and made the
+        number depend on whether Graph 404s or succeeds.
+
+        Note what is deliberately absent: a ``delete_failed`` id is NOT
+        protected.  There the live rule survives on its old action, so it does
+        not satisfy the desired spec and ``--delete-missing`` should retry it.
 
         Args:
             existing: Map of canonical rule keys to rule objects
             desired_keys: Set of canonical keys for desired rules
             payload: Sync request payload
-            reconciled_rule_ids: Set of rule IDs already deleted during reconcile
+            reconciled_rule_ids: Set of rule IDs this call must not delete (see above)
 
         Returns:
             Number of rules deleted
