@@ -141,6 +141,10 @@ def cmd_parse(args: argparse.Namespace) -> int:
     dest="no_cache",
     help="Bypass the sha256-keyed compile cache and re-compile from YAML",
 )
+@app.argument(
+    "--params", action="append", default=[], metavar="key=value",
+    help="Trigger parameter overrides (repeatable) — affects when/will_run",
+)
 @app.argument("--format", "-f", **_format_kwargs(default="table"))
 def cmd_compile(args: argparse.Namespace) -> int:
     return _cmd_compile(args)

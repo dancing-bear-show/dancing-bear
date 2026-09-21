@@ -300,6 +300,79 @@ def _expand_includes(
     return tuple(expanded)
 
 
+def collect_include_params(
+    includes: tuple[IncludeSpec, ...],
+    ctx: FragmentContext,
+    *,
+    _visited: frozenset[str] | None = None,
+) -> dict[str, str]:
+    """Trigger param defaults declared by included fragments, depth-first.
+
+    ``_expand_includes`` inlines a fragment's *stages* only, so a param a
+    fragment declares — and whose ``{name}`` its own stages substitute — never
+    reached the importing workflow's TriggerSpec. ``resolve_params`` leaves an
+    unresolved placeholder as-is, so the omission was silent: a ``when:``
+    expression comparing ``"{pr_size}"`` became a literal-string comparison
+    that is always false, selecting the opposite execution path without a
+    word.
+
+    Returned defaults are the weakest binding. The caller layers the importing
+    workflow's own trigger params over these, so a local declaration still
+    wins, and caller-supplied ``--params`` override both.
+    """
+    visited = _visited if _visited is not None else frozenset()
+    collected: dict[str, str] = {}
+
+    for inc in includes:
+        frag_path = _resolve_frag_path(inc.path, ctx.source_path)
+        frag_path_key = str(frag_path.resolve())
+        if frag_path_key in visited:
+            # Cycles are reported by _expand_includes; stop quietly here so a
+            # cyclic include fails with that error rather than recursing.
+            continue
+        frag_path_str = str(frag_path)
+        frag_text = _load_frag_text(frag_path, ctx.source)
+
+        nested = _parse_nested_includes(frag_text, frag_path_str)
+        if nested:
+            collected.update(
+                collect_include_params(
+                    nested,
+                    FragmentContext(source=frag_path_str, source_path=frag_path),
+                    _visited=visited | {frag_path_key},
+                )
+            )
+        collected.update(_frag_trigger_params(frag_text, frag_path_str))
+
+    return collected
+
+
+def _frag_trigger_params(frag_text: str, source: str) -> dict[str, str]:
+    """Parse one fragment's ``trigger.params`` into name -> default strings."""
+    import yaml  # lazy — optional dep
+
+    from workflow.parser_fields import _param_default  # noqa: PLC0415
+
+    try:
+        data = yaml.safe_load(frag_text)
+    except yaml.YAMLError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+
+    # A fragment's trigger is optional metadata, so _parse_fragment_str
+    # accepts `trigger: manual` (a scalar) as readily as a mapping. Calling
+    # .get on that scalar raised AttributeError, crashing the parse of every
+    # workflow importing it instead of producing a WorkflowParseError.
+    trigger = data.get("trigger")
+    if not isinstance(trigger, dict):
+        return {}
+    params = trigger.get("params") or {}
+    if not isinstance(params, dict):
+        return {}
+    return {str(k): _param_default(str(k), v, source) for k, v in params.items()}
+
+
 def _parse_nested_includes(frag_text: str, source: str) -> tuple[IncludeSpec, ...]:
     """Extract and parse the ``include:`` list from a fragment's YAML text."""
     import yaml  # lazy — optional dep

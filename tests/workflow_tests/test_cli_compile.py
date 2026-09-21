@@ -505,5 +505,292 @@ class TestCmdCompile(unittest.TestCase):
             self.assertEqual(rc, 1)
 
 
+# ---------------------------------------------------------------------------
+# `when` visibility in the compiled manifest
+# ---------------------------------------------------------------------------
+
+
+_CONDITIONAL_YAML = (
+    "name: conditional-wf\n"
+    'version: "1.0"\n'
+    "description: Two mutually-exclusive branches\n"
+    "trigger:\n"
+    "  source: manual\n"
+    "  params:\n"
+    "    mode: fast\n"
+    "stages:\n"
+    "  - name: always\n"
+    "    kind: execute\n"
+    "    description: Runs unconditionally\n"
+    "    agent:\n"
+    "      role: doc-writer\n"
+    "  - name: fast-path\n"
+    "    kind: execute\n"
+    "    description: Fast branch\n"
+    "    agent:\n"
+    "      role: doc-writer\n"
+    "    when: '\"{mode}\" contains \"fast\"'\n"
+    "  - name: slow-path\n"
+    "    kind: execute\n"
+    "    description: Slow branch\n"
+    "    agent:\n"
+    "      role: doc-writer\n"
+    "    when: '\"{mode}\" does not contain \"fast\"'\n"
+)
+
+
+class TestManifestWhenVisibility(unittest.TestCase):
+    """The manifest must say which conditional stages actually run.
+
+    Without `when`/`will_run`, mutually-exclusive stages are listed as equally
+    runnable, so an orchestrator dispatching from `resolutions` alone runs BOTH
+    branches — and two stages declaring the same output silently clobber each
+    other.
+    """
+
+    def _resolutions(self, yaml_text: str = _CONDITIONAL_YAML) -> dict:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "wf.yaml"
+            path.write_text(yaml_text)
+            payload = _build_compile_payload(str(path))
+        return {r["stage"]: r for r in payload["resolutions"]}
+
+    def test_resolutions_carry_the_when_expression(self):
+        res = self._resolutions()
+        self.assertIsNone(res["always"]["when"])
+        self.assertIn("contains", res["fast-path"]["when"])
+
+    def test_will_run_reflects_the_resolved_param(self):
+        res = self._resolutions()
+        self.assertTrue(res["fast-path"]["will_run"])
+        self.assertFalse(res["slow-path"]["will_run"])
+
+    def test_unconditional_stage_always_runs(self):
+        self.assertTrue(self._resolutions()["always"]["will_run"])
+
+    def test_exactly_one_branch_runs(self):
+        res = self._resolutions()
+        running = [n for n in ("fast-path", "slow-path") if res[n]["will_run"]]
+        self.assertEqual(running, ["fast-path"])
+
+    def test_flipping_the_param_flips_the_branch(self):
+        res = self._resolutions(_CONDITIONAL_YAML.replace("    mode: fast", "    mode: slow"))
+        self.assertFalse(res["fast-path"]["will_run"])
+        self.assertTrue(res["slow-path"]["will_run"])
+
+    def test_manifest_agrees_with_the_runtime_evaluator(self):
+        # The manifest disagreeing with the orchestrator would be worse than
+        # omitting the field, so pin them to the same answer.
+        import re
+
+        from workflow.compiler import resolve_params
+
+        def runtime_eval(when, params):
+            if when is None:
+                return True
+            expr = resolve_params(when, params)
+            m = re.fullmatch(r'"(.*?)"\s+does not contain\s+"(.*?)"', expr)
+            if m:
+                return m.group(2) not in m.group(1)
+            m = re.fullmatch(r'"(.*?)"\s+contains\s+"(.*?)"', expr)
+            if m:
+                return m.group(2) in m.group(1)
+            return True
+
+        res = self._resolutions()
+        params = {"mode": "fast"}
+        for name, r in res.items():
+            self.assertEqual(
+                r["will_run"], runtime_eval(r["when"], params), f"disagreement on {name}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Real workflows keep their documented review path
+# ---------------------------------------------------------------------------
+
+
+class TestSwarmPathContract(unittest.TestCase):
+    """code-review-swarm.yaml documents which callers take which path.
+
+    Its header says: "code-review.yaml defaults to small; other callers
+    default to large." Once fragment trigger params are inherited, a caller
+    that does not declare pr_size picks up the fragment's own "small" default
+    and silently switches to the single-agent reviewer. These pin the real
+    workflows against that.
+    """
+
+    _REPO = Path(__file__).resolve().parents[2]
+
+    def _pr_size_stages(self, rel_path: str):
+        from workflow.cli_compile import _build_compile_payload
+
+        path = self._REPO / rel_path
+        if not path.exists():  # pragma: no cover - workflow renamed or removed
+            self.skipTest(f"{rel_path} not present")
+        payload = _build_compile_payload(str(path))
+        return [
+            r for r in payload["resolutions"]
+            if r.get("when") and "pr_size" in r["when"]
+        ]
+
+    def _running(self, rel_path: str):
+        stages = self._pr_size_stages(rel_path)
+        self.assertTrue(stages, f"{rel_path} has no pr_size-gated stages")
+        return [r["stage"] for r in stages if r["will_run"]]
+
+    def test_code_review_takes_the_consolidated_path(self):
+        running = self._running("workflows/code/code-review.yaml")
+        self.assertEqual(running, ["review-consolidated"])
+
+    def test_coverage_uplift_takes_the_fan_out_path(self):
+        running = self._running("workflows/code/coverage-uplift.yaml")
+        self.assertNotIn("review-review-consolidated", running)
+        self.assertGreater(len(running), 1, "expected the multi-stage fan-out")
+
+    def test_review_and_fix_takes_the_fan_out_path(self):
+        running = self._running("workflows/code/review-and-fix.yaml")
+        self.assertNotIn("review-consolidated", running)
+        self.assertGreater(len(running), 1, "expected the multi-stage fan-out")
+
+    def test_exactly_one_branch_runs_in_each_caller(self):
+        # The manifest must never present both branches as runnable: they
+        # declare the same outputs and would clobber each other.
+        for rel in (
+            "workflows/code/code-review.yaml",
+            "workflows/code/coverage-uplift.yaml",
+            "workflows/code/review-and-fix.yaml",
+        ):
+            with self.subTest(workflow=rel):
+                stages = self._pr_size_stages(rel)
+                consolidated = [
+                    r for r in stages if r["stage"].endswith("review-consolidated")
+                ]
+                fanned = [r for r in stages if r not in consolidated]
+                self.assertTrue(consolidated, "no consolidated stage found")
+                c_runs = any(r["will_run"] for r in consolidated)
+                f_runs = any(r["will_run"] for r in fanned)
+                self.assertNotEqual(
+                    c_runs, f_runs, "exactly one branch must run, not both or neither"
+                )
+
+
+# ---------------------------------------------------------------------------
+# Manifest must not diverge from the runtime
+# ---------------------------------------------------------------------------
+
+
+class TestWhenWhitespace(unittest.TestCase):
+    """_validate_when accepts padding; both evaluators must too.
+
+    _validate_when validates `spec.when.strip()`, so `  "{m}" contains "x"  `
+    compiles cleanly. The runtime evaluator used re.fullmatch on the
+    unstripped string and raised WorkflowExecutionError at dispatch, while the
+    manifest evaluator returned its permissive fallback True — advertising a
+    branch that could not run.
+    """
+
+    _PADDED = '  "{mode}" contains "fast"  '
+
+    def test_manifest_evaluates_a_padded_expression(self):
+        from workflow.cli_compile import _eval_when_for_manifest
+
+        self.assertTrue(_eval_when_for_manifest(self._PADDED, {"mode": "fast"}))
+        self.assertFalse(_eval_when_for_manifest(self._PADDED, {"mode": "slow"}))
+
+    def test_padded_expression_is_not_the_permissive_fallback(self):
+        # Before the fix this returned True for BOTH params, because neither
+        # regex matched and the fallback fired. Asserting only the True case
+        # would have passed against the bug.
+        from workflow.cli_compile import _eval_when_for_manifest
+
+        self.assertNotEqual(
+            _eval_when_for_manifest(self._PADDED, {"mode": "fast"}),
+            _eval_when_for_manifest(self._PADDED, {"mode": "slow"}),
+        )
+
+    def test_runtime_evaluator_accepts_padding(self):
+        import re
+
+        from workflow.compiler import resolve_params
+
+        expr = resolve_params(self._PADDED, {"mode": "fast"}).strip()
+        matched = re.fullmatch(r'"(.*?)"\s+contains\s+"(.*?)"', expr)
+        self.assertIsNotNone(matched, "runtime regex must match the stripped form")
+
+    def test_validate_when_accepts_padding(self):
+        # The premise: if the compiler rejected padding, there would be no
+        # divergence to fix.
+        from workflow.compiler import _WHEN_PATTERN
+
+        self.assertIsNotNone(_WHEN_PATTERN.fullmatch(self._PADDED.strip()))
+
+
+class TestManifestHonoursParamOverrides(unittest.TestCase):
+    """will_run must reflect --params, not just declared defaults.
+
+    The run path merges caller overrides over the declared trigger params. A
+    manifest computed from defaults alone advertises the default branch while
+    execution takes the other one.
+    """
+
+    _YAML = (
+        "name: override-wf\n"
+        'version: "1.0"\n'
+        "description: Two branches keyed on mode\n"
+        "trigger:\n"
+        "  source: manual\n"
+        "  params:\n"
+        "    mode: fast\n"
+        "stages:\n"
+        "  - name: fast-path\n"
+        "    kind: execute\n"
+        "    description: fast\n"
+        "    agent:\n"
+        "      role: doc-writer\n"
+        "    when: '\"{mode}\" contains \"fast\"'\n"
+        "  - name: slow-path\n"
+        "    kind: execute\n"
+        "    description: slow\n"
+        "    agent:\n"
+        "      role: doc-writer\n"
+        "    when: '\"{mode}\" does not contain \"fast\"'\n"
+    )
+
+    def _running(self, overrides=None):
+        from workflow.cli_compile import _build_compile_payload
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "wf.yaml"
+            path.write_text(self._YAML)
+            payload = _build_compile_payload(str(path), overrides)
+        return [r["stage"] for r in payload["resolutions"] if r["will_run"]]
+
+    def test_declared_default_selects_the_default_branch(self):
+        self.assertEqual(self._running(), ["fast-path"])
+
+    def test_override_flips_the_branch(self):
+        self.assertEqual(self._running(["mode=slow"]), ["slow-path"])
+
+    def test_override_matching_the_default_is_a_no_op(self):
+        self.assertEqual(self._running(["mode=fast"]), ["fast-path"])
+
+    def test_unrelated_override_leaves_the_branch_alone(self):
+        self.assertEqual(self._running(["other=x"]), ["fast-path"])
+
+    def test_malformed_override_is_ignored_not_fatal(self):
+        # No "=" — dropped rather than raising. It cannot select a wrong
+        # branch: an unresolved {placeholder} is a non-match either way.
+        self.assertEqual(self._running(["justakey"]), ["fast-path"])
+
+    def test_value_containing_equals_is_preserved(self):
+        from workflow.cli_compile import _parse_param_overrides
+
+        self.assertEqual(_parse_param_overrides(["k=a=b"]), {"k": "a=b"})
+
+    def test_exactly_one_branch_runs_under_override(self):
+        self.assertEqual(len(self._running(["mode=slow"])), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

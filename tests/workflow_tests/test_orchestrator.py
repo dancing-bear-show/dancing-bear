@@ -373,6 +373,22 @@ class TestEvalWhen(unittest.TestCase):
             result = orch._eval_when('"hello world" does not contain "hello"', {})
             self.assertFalse(result)
 
+    def test_surrounding_whitespace_is_tolerated(self) -> None:
+        # _validate_when validates spec.when.strip(), so a padded expression
+        # compiles cleanly. Without the same strip here it reached
+        # re.fullmatch unstripped, matched neither form, and raised
+        # WorkflowExecutionError at dispatch on a stage the compiler blessed.
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            orch = self._make_orch(tmp_dir)
+            self.assertTrue(orch._eval_when('  "hello world" contains "hello"  ', {}))
+            self.assertFalse(orch._eval_when('  "hello world" contains "bye"  ', {}))
+
+    def test_padded_expression_resolves_params(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            orch = self._make_orch(tmp_dir)
+            self.assertTrue(orch._eval_when('  "{mode}" contains "fast"  ', {"mode": "fast"}))
+            self.assertFalse(orch._eval_when('  "{mode}" contains "fast"  ', {"mode": "slow"}))
+
     def test_param_substitution_in_when(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             orch = self._make_orch(tmp_dir)

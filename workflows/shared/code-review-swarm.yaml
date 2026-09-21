@@ -6,7 +6,13 @@
 #       depends_on: [last-pre-review-stage]
 #       reads_from: [last-pre-review-stage]
 #
-# Caller must set trigger.params.pr_number.
+# This fragment declares pr_number (default "") and pr_size (default
+# "small"), and the include engine merges them UNDER the caller's own
+# trigger.params. So a caller need not redeclare pr_number — but it SHOULD
+# pass one at run time, since the default is blank and the review stages then
+# auto-detect the PR from the current branch. A caller that wants the fan-out
+# path MUST declare pr_size: "large" explicitly; omitting it inherits "small"
+# and selects the consolidated reviewer.
 # Stages injected (all prefixed):
 #   review-fetch-pr-context → review-concern-sweep → review-enumerate-targets
 #   → review-validate-concerns (native fan_out: one agent per manifest entry) + review-cross-unit-check
@@ -28,20 +34,45 @@ description: >
       enumeration, and validation in one pass, writing consolidated.json +
       consolidated-summary.md directly. Skips the multi-agent fan-out.
 
-    large (safe default when pr_size is absent/blank) — full fan-out:
+    large (selected explicitly, or by a blank value) — full fan-out:
       concern-sweep (9 agents) → concern-sweep-merge → enumerate-targets
       → validate-concerns (N agents) + cross-unit-check → consolidate.
+      ABSENT is not blank: an absent pr_size inherits this fragment's
+      "small" default and takes the consolidated path. Only an explicit
+      "large", or an explicitly empty value, selects fan-out. See the NOTE
+      below — do not rely on omission.
 
-  NOTE: fragment trigger.params are NOT merged into callers by the include
-  engine. The `when:` conditions use "does not contain small" for the fan-out
-  path so it is the safe default when pr_size is absent or blank. Callers
-  that want the consolidated path must explicitly set pr_size=small.
-  code-review.yaml defaults to small; other callers default to large.
+  NOTE: fragment trigger.params ARE merged into callers by the include
+  engine, layered UNDER the caller's own declarations. This fragment declares
+  pr_size with default "small", so a caller that does not declare pr_size
+  inherits "small" and takes the CONSOLIDATED path — not the fan-out one.
+
+  A caller wanting the fan-out path must declare pr_size explicitly:
+
+      trigger:
+        params:
+          pr_size: "large"
+
+  This was the opposite before the merge landed: an undeclared pr_size left
+  "{pr_size}" unsubstituted, which made "does not contain small" trivially
+  true and selected fan-out by accident. Do not rely on absence to pick a
+  path — say which one you want.
+
+  Current callers: code-review.yaml declares small; coverage-uplift.yaml and
+  review-and-fix.yaml declare large. A new caller that declares nothing gets
+  small.
 
   Both paths converge at fact-check-findings.
 
-  Used by: code-review.yaml, implement-domain.yaml, and any future
-  feature or enhancement workflow that needs a structured review pass.
+  Used by (verified by parsing every workflow's include: list, not by
+  grepping for the filename — pr-open-and-wait-ci.yaml and
+  branch-hygiene-sweep.yaml mention this file in prose but do not include
+  it):
+    code-review.yaml       pr_size: "small"  — consolidated reviewer
+    coverage-uplift.yaml   pr_size: "large"  — fan-out (prefix: review)
+    review-and-fix.yaml    pr_size: "large"  — fan-out
+  Any future workflow needing a structured review pass can include it too;
+  declare pr_size explicitly rather than relying on the inherited default.
 
 # ---------------------------------------------------------------------------
 # Filename sanitization convention (used across multiple stages):

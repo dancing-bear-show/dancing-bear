@@ -769,5 +769,221 @@ class TestExtractIncludeEntries(unittest.TestCase):
         self.assertEqual(result[0]["path"], "shared/frag.yaml")
 
 
+# ---------------------------------------------------------------------------
+# Trigger params declared by fragments
+# ---------------------------------------------------------------------------
+
+
+def _fragment_with_trigger_params(params_dict: dict[str, str], when: str = "") -> str:
+    """A fragment that declares trigger params its own stage is gated on."""
+    params_yaml = "".join(f"    {k}: {v}\n" for k, v in params_dict.items())
+    when_line = f"    when: '{when}'\n" if when else ""
+    return (
+        "fragment: true\n"
+        "trigger:\n"
+        "  source: manual\n"
+        "  params:\n"
+        + params_yaml
+        + "stages:\n"
+        "  - name: gated\n"
+        "    kind: execute\n"
+        "    description: Uses the mode param\n"
+        "    agent:\n"
+        "      role: code-writer\n"
+        + when_line
+    )
+
+
+def _workflow_including(frag_path: str, own_params: dict[str, str] | None = None) -> str:
+    params_block = ""
+    if own_params:
+        params_block = "  params:\n" + "".join(
+            f"    {k}: {v}\n" for k, v in own_params.items()
+        )
+    return (
+        "name: test-frag-params\n"
+        'version: "1.0"\n'
+        "description: Imports a fragment that declares trigger params\n"
+        "trigger:\n"
+        "  source: manual\n"
+        + params_block
+        + "stages:\n"
+        "  - name: compose\n"
+        "    kind: execute\n"
+        "    description: Generate output\n"
+        "    agent:\n"
+        "      role: doc-writer\n"
+        "include:\n"
+        f"  - path: {frag_path}\n"
+        "    prefix: fx\n"
+        "    depends_on: [compose]\n"
+        "    reads_from: [compose]\n"
+    )
+
+
+class TestFragmentTriggerParams(unittest.TestCase):
+    """A fragment's declared params must reach the importing workflow.
+
+    _expand_includes inlines a fragment's stages only. A param the fragment
+    declares -- and whose {name} its own stages substitute -- was dropped, and
+    resolve_params leaves an unresolved placeholder as-is, so the omission was
+    silent: a `when:` comparing "{mode}" became a literal-string comparison
+    that is always false, selecting the opposite branch without a word.
+    """
+
+    def _parse(self, frag_body: str, own_params: dict[str, str] | None = None):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            frag = Path(tmp_dir) / "frag.yaml"
+            frag.write_text(frag_body)
+            wf_yaml = _workflow_including(str(frag), own_params)
+            return parse_workflow_str(wf_yaml, source=str(Path(tmp_dir) / "wf.yaml"))
+
+    def test_fragment_param_reaches_the_importing_workflow(self):
+        wf = self._parse(_fragment_with_trigger_params({"mode": "fast"}))
+        self.assertEqual(wf.trigger.params.get("mode"), "fast")
+
+    def test_importing_workflow_own_param_wins(self):
+        # Fragment defaults are the WEAKEST binding: a local declaration of the
+        # same name must not be overwritten by the fragment's default.
+        wf = self._parse(
+            _fragment_with_trigger_params({"mode": "fast"}),
+            own_params={"mode": "slow"},
+        )
+        self.assertEqual(wf.trigger.params.get("mode"), "slow")
+
+    def test_fragment_param_gates_its_own_stage(self):
+        # The end-to-end consequence: without the merge, "{mode}" stays
+        # unsubstituted and the contains-check is always false.
+        frag = _fragment_with_trigger_params(
+            {"mode": "fast"}, when='"{mode}" contains "fast"'
+        )
+        wf = self._parse(frag)
+        gated = next(st for st in wf.stages if st.name.endswith("gated"))
+        self.assertEqual(wf.trigger.params.get("mode"), "fast")
+        self.assertIn("fast", gated.when or "")
+
+    def test_workflow_without_includes_is_unchanged(self):
+        # No include: block at all — the merge must not run or invent params.
+        wf_yaml = _workflow_including("/unused.yaml").split("include:")[0]
+        wf = parse_workflow_str(wf_yaml, source="wf.yaml")
+        self.assertEqual(dict(wf.trigger.params), {})
+
+
+class TestMalformedFragmentTrigger(unittest.TestCase):
+    """A fragment's trigger is optional metadata and may be any YAML shape.
+
+    _parse_fragment_str accepts `trigger: manual` (a scalar) as readily as a
+    mapping, so reading .params off it raised AttributeError and crashed the
+    parse of every workflow importing that fragment, rather than producing a
+    WorkflowParseError.
+    """
+
+    def _params_for(self, trigger_yaml: str) -> dict[str, str]:
+        from workflow.include import _frag_trigger_params
+
+        body = "fragment: true\n" + trigger_yaml + "stages: []\n"
+        return _frag_trigger_params(body, "frag.yaml")
+
+    def test_scalar_trigger_yields_no_params(self):
+        self.assertEqual(self._params_for("trigger: manual\n"), {})
+
+    def test_numeric_trigger_yields_no_params(self):
+        self.assertEqual(self._params_for("trigger: 42\n"), {})
+
+    def test_list_trigger_yields_no_params(self):
+        self.assertEqual(self._params_for("trigger: [a, b]\n"), {})
+
+    def test_absent_trigger_yields_no_params(self):
+        self.assertEqual(self._params_for(""), {})
+
+    def test_mapping_trigger_still_yields_params(self):
+        # The control: guarding the scalar case must not break the real one.
+        params = self._params_for("trigger:\n  source: manual\n  params:\n    x: y\n")
+        self.assertEqual(params, {"x": "y"})
+
+    def test_importing_a_scalar_trigger_fragment_does_not_crash(self):
+        # End-to-end: the AttributeError surfaced during parse_workflow_str,
+        # not just in the helper.
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            frag = Path(tmp_dir) / "frag.yaml"
+            frag.write_text(
+                "fragment: true\n"
+                "trigger: manual\n"
+                "stages:\n"
+                "  - name: only\n"
+                "    kind: execute\n"
+                "    description: A stage\n"
+                "    agent:\n"
+                "      role: doc-writer\n"
+            )
+            wf = parse_workflow_str(
+                _workflow_including(str(frag)), source=str(Path(tmp_dir) / "wf.yaml")
+            )
+        self.assertEqual(dict(wf.trigger.params), {})
+
+
+class TestMappingFormTriggerParams(unittest.TestCase):
+    """{type, default, description} params must resolve to their default.
+
+    The mapping form previously fell through to str(value), so {name}
+    substituted the literal text "{'type': 'string', 'default': ...}" into
+    commands and when: expressions.
+    """
+
+    def _parse_params(self, params_yaml: str):
+        wf_yaml = (
+            "name: test-mapping-params\n"
+            'version: "1.0"\n'
+            "description: Mapping-form trigger params\n"
+            "trigger:\n"
+            "  source: manual\n"
+            "  params:\n"
+            + params_yaml
+            + "stages:\n"
+            "  - name: only\n"
+            "    kind: execute\n"
+            "    description: Uses the mode param\n"
+            "    agent:\n"
+            "      role: doc-writer\n"
+        )
+        return parse_workflow_str(wf_yaml, source="wf.yaml").trigger.params
+
+    def test_mapping_form_resolves_to_default(self):
+        params = self._parse_params(
+            '    mode:\n'
+            '      type: string\n'
+            '      default: fast\n'
+            '      description: Execution mode\n'
+        )
+        self.assertEqual(params["mode"], "fast")
+
+    def test_mapping_form_does_not_stringify_the_dict(self):
+        params = self._parse_params(
+            '    mode:\n'
+            '      type: string\n'
+            '      default: fast\n'
+            '      description: Execution mode\n'
+        )
+        self.assertNotIn("description", params["mode"])
+        self.assertNotIn("{", params["mode"])
+
+    def test_scalar_form_still_works(self):
+        self.assertEqual(self._parse_params('    mode: "fast"\n')["mode"], "fast")
+
+    def test_empty_scalar_default_preserved(self):
+        self.assertEqual(self._parse_params('    mode: ""\n')["mode"], "")
+
+    def test_mapping_without_default_is_a_parse_error(self):
+        # Failing loudly beats inventing a default: a silently-empty param
+        # would substitute "" and select a branch nobody asked for.
+        with self.assertRaises(WorkflowParseError) as ctx:
+            self._parse_params(
+                '    mode:\n'
+                '      type: string\n'
+                '      description: no default here\n'
+            )
+        self.assertIn("default", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
