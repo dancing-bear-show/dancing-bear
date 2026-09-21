@@ -19,6 +19,7 @@ class MatchCriteria:
     byday: list[str]
     start_time: str | None
     end_time: str | None
+    tz: str | None = None
 
 
 @dataclass
@@ -55,7 +56,11 @@ class LocationSync:
             subject_filter=criteria.subj,
         ))
         return filter_events_by_day_time(
-            events, byday=criteria.byday, start_time=criteria.start_time, end_time=criteria.end_time
+            events,
+            byday=criteria.byday,
+            start_time=criteria.start_time,
+            end_time=criteria.end_time,
+            tz=criteria.tz,
         ) or events[:1]
 
     def _resolve_event_criteria(
@@ -78,6 +83,7 @@ class LocationSync:
             byday=nev.get("byday") or [],
             start_time=(nev.get("start_time") or "").strip(),
             end_time=(nev.get("end_time") or "").strip(),
+            tz=(nev.get("tz") or "").strip() or None,
         )
 
     def _resolve_event_location(
