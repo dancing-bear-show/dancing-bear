@@ -167,7 +167,10 @@ stages:
   - name: fix-code
     kind: execute
     depends_on: [triage-findings]
-    reads_from: [triage-findings, fetch-pr-context]
+    # `consolidate` is required, not decorative: under isolation only the
+    # outputs of declared upstream stages are staged into inputs/, and this
+    # stage resolves item["finding_id"] against consolidated.json.
+    reads_from: [triage-findings, fetch-pr-context, consolidate]
     description: >
       ISOLATED STAGE — you run in your OWN git worktree on a
       `worktree-agent-*` branch, not in the shared tree.
@@ -209,11 +212,20 @@ stages:
            Confirm the `Ran N tests` line; an exit code alone is not evidence
            the suite ran. Record pass/fail.
         6. Commit your edits on the worktree branch (see the isolation note
-           above). If you made no code edits, say so explicitly in your result
-           JSON so the orchestrator does not attempt an empty merge.
+           above), then record which branch they are on. merge-fix-worktrees
+           identifies your branch from these fields and refuses to guess from
+           a `worktree-agent-*` wildcard, since those refs persist between
+           runs:
+             Bash tool: git rev-parse --abbrev-ref HEAD   -> "branch"
+             Bash tool: git rev-parse HEAD                -> "head_commit"
+           Record both even when you made no edits; "fixed": [] with an empty
+           branch is a legitimate no-op, and the merge stage distinguishes
+           that from edits that were never committed.
 
       Write <your-cwd>/outputs/fix/fix-code-results.json:
         {
+          "branch": "worktree-agent-...",
+          "head_commit": "<sha from git rev-parse HEAD>",
           "fixed": [
             {
               "finding_id": "0",
@@ -286,10 +298,17 @@ stages:
            Confirm the `Ran N tests` line rather than trusting the exit code.
            If the test fails, re-read and fix before moving on.
         5. Commit your edits on the worktree branch (see the isolation note
-           above). If you made no edits, say so explicitly in your result JSON.
+           above), then record which branch they are on so
+           merge-fix-worktrees can identify it without guessing from a
+           `worktree-agent-*` wildcard:
+             Bash tool: git rev-parse --abbrev-ref HEAD   -> "branch"
+             Bash tool: git rev-parse HEAD                -> "head_commit"
+           Record both even when you made no edits.
 
       Write <your-cwd>/outputs/fix/fix-tests-results.json:
         {
+          "branch": "worktree-agent-...",
+          "head_commit": "<sha from git rev-parse HEAD>",
           "fixed": [
             {
               "finding_id": "2",
@@ -320,7 +339,12 @@ stages:
   - name: fix-qlty
     kind: execute
     depends_on: [triage-findings]
-    reads_from: [triage-findings]
+    # `fetch-pr-context` is required, not decorative: under isolation only the
+    # outputs of declared upstream stages are staged into inputs/, and the
+    # new-code scope filter below reads changed-files.txt from that stage.
+    # Without it the filter silently degrades and pre-existing issues get
+    # "fixed" outside the PR's scope.
+    reads_from: [triage-findings, fetch-pr-context]
     description: >
       ISOLATED STAGE — you run in your OWN git worktree on a
       `worktree-agent-*` branch, not in the shared tree.
@@ -361,10 +385,17 @@ stages:
         Write result to <your-cwd>/outputs/fix/qlty-post-fix.json.
 
       Step 4 — commit your edits on the worktree branch (see the isolation note
-        above). If you made no edits, say so explicitly in your result JSON.
+        above), then record which branch they are on so merge-fix-worktrees
+        can identify it without guessing from a `worktree-agent-*` wildcard:
+          Bash tool: git rev-parse --abbrev-ref HEAD   -> "branch"
+          Bash tool: git rev-parse HEAD                -> "head_commit"
+        Record both even when you made no edits — an empty qlty bucket is
+        common and is treated as a no-op, not a failure.
 
       Write <your-cwd>/outputs/fix/fix-sq-results.json:
         {
+          "branch": "worktree-agent-...",
+          "head_commit": "<sha from git rev-parse HEAD>",
           "fixed": [
             {
               "key": "AY...",
@@ -408,47 +439,79 @@ stages:
       unchanged checkout and can report success while no fix landed — a green
       result that means nothing.
 
+      Step 0 — capture the pre-merge ref, before touching anything:
+        Bash tool: git rev-parse HEAD
+        Call this PRE_FIX_SHA. It is the immutable baseline for both the
+        ancestry checks and the final diff. Do not substitute a branch name:
+        a branch moves as merges land, so a diff against it under-reports.
+
       For each of the three fix stages, in a deterministic order
       (fix-code, then fix-qlty, then fix-tests):
 
-        1. Identify the stage's worktree branch. The orchestrator records it
-           when it spawns the agent; it has the form `worktree-agent-<id>`.
+        1. Identify the stage's worktree branch from its result JSON, NOT by
+           globbing `worktree-agent-*`. Those refs persist across runs, so a
+           wildcard can match a stale or foreign branch and merge commits that
+           have nothing to do with this run.
 
-        2. Confirm the branch has commits before merging — an agent that
-           edited without committing leaves an empty branch, and merging it
-           succeeds while landing nothing:
-             Bash tool: git log --oneline <pr-branch>..worktree-agent-<id>
-           An empty result is a STAGE FAILURE for that fixer, not a no-op.
-           Cross-check it against that stage's result JSON: a fixer reporting
-           entries under "fixed" with an empty branch means its edits were
-           never committed. Record the discrepancy and fail this stage.
+           Each fixer records `branch` and `head_commit` in its result file
+           (see the schema in each fix stage). If a result file is missing
+           either field, fail this stage for that fixer rather than guessing:
+           an unidentifiable branch is not safe to merge.
 
-        3. Merge:
-             Bash tool: git merge --no-ff worktree-agent-<id> -m "merge fix stage <name>"
+           Verify the branch belongs to this run before merging it:
+             Bash tool: git merge-base --is-ancestor <PRE_FIX_SHA> <branch>
+           A branch that does not descend from PRE_FIX_SHA predates this run.
+           Record it and fail — do not merge it.
+
+        2. Decide whether there is anything to merge:
+             Bash tool: git log --oneline <PRE_FIX_SHA>..<branch>
+
+           An empty branch is a legitimate outcome: a bucket with no findings
+           produces no edits, and the fixer prompts explicitly allow that.
+           Record it as a no-op, skip the merge, and CONTINUE.
+
+           It is a failure only when the fixer's result JSON lists entries
+           under "fixed" while its branch has no commits — that means edits
+           were made and never committed, so they would silently not land.
+           Record the discrepancy and fail this stage.
+
+        3. Merge (skip when step 2 found no commits):
+             Bash tool: git merge --no-ff <branch> -m "merge fix stage <name>"
            On a conflict, abort the merge (`git merge --abort`), record the
            conflicting paths, and fail this stage. Do NOT resolve conflicts
            here — a conflict means two fixers changed the same lines and a
            human needs to see that.
 
         4. After all merges, confirm the expected files actually changed:
-             Bash tool: git diff --name-only <merge-base>..HEAD
+             Bash tool: git diff --name-only <PRE_FIX_SHA>..HEAD
 
       Write {workspace}/outputs/fix/merge-results.json:
         {
+          "pre_fix_sha": "<PRE_FIX_SHA>",
           "merged": [
             {"stage": "fix-code", "branch": "worktree-agent-...",
              "commits": 2, "files": ["src/foo.py"]}
           ],
-          "empty_branches": [
-            {"stage": "fix-tests", "reported_fixed": 3,
-             "detail": "branch had no commits — edits were not committed"}
+          "no_op": [
+            {"stage": "fix-qlty", "branch": "worktree-agent-...",
+             "detail": "bucket had no findings; branch empty as expected"}
           ],
+          "uncommitted": [
+            {"stage": "fix-tests", "reported_fixed": 3,
+             "detail": "result lists fixes but branch has no commits"}
+          ],
+          "unidentifiable": [],
           "conflicts": [],
           "all_merged": true
         }
 
-      Set "all_merged" false if any branch was empty while its stage reported
-      fixes, or if any merge conflicted. verify-fixes reads this field.
+      "no_op" is a normal outcome and does NOT affect "all_merged".
+
+      Set "all_merged" false only when something was actually lost or unsafe:
+      an entry in "uncommitted" (fixes reported but not committed), in
+      "unidentifiable" (result JSON missing branch/head_commit, or the branch
+      does not descend from PRE_FIX_SHA), or in "conflicts". verify-fixes
+      reads this field and refuses to run on false.
     agent:
       role: code-writer
       model: sonnet
