@@ -67,6 +67,11 @@ metadata:
 trigger:
   source: manual
   params:
+    # Explicit: this is a non-code-review caller, and code-review-swarm.yaml
+    # documents that such callers take the LARGE fan-out path. The fragment's
+    # own default is "small", so leaving this undeclared would silently switch
+    # this workflow to the single-agent reviewer.
+    pr_size: "large"
     min_coverage: "90"         # coverage % threshold; files below this are targeted
     min_lines: "20"            # skip files with fewer coverable lines than this
     domains: "*"               # comma-list of domain names under , or "*" for all

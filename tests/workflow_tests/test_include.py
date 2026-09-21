@@ -869,6 +869,59 @@ class TestFragmentTriggerParams(unittest.TestCase):
         self.assertEqual(dict(wf.trigger.params), {})
 
 
+class TestMalformedFragmentTrigger(unittest.TestCase):
+    """A fragment's trigger is optional metadata and may be any YAML shape.
+
+    _parse_fragment_str accepts `trigger: manual` (a scalar) as readily as a
+    mapping, so reading .params off it raised AttributeError and crashed the
+    parse of every workflow importing that fragment, rather than producing a
+    WorkflowParseError.
+    """
+
+    def _params_for(self, trigger_yaml: str) -> dict[str, str]:
+        from workflow.include import _frag_trigger_params
+
+        body = "fragment: true\n" + trigger_yaml + "stages: []\n"
+        return _frag_trigger_params(body, "frag.yaml")
+
+    def test_scalar_trigger_yields_no_params(self):
+        self.assertEqual(self._params_for("trigger: manual\n"), {})
+
+    def test_numeric_trigger_yields_no_params(self):
+        self.assertEqual(self._params_for("trigger: 42\n"), {})
+
+    def test_list_trigger_yields_no_params(self):
+        self.assertEqual(self._params_for("trigger: [a, b]\n"), {})
+
+    def test_absent_trigger_yields_no_params(self):
+        self.assertEqual(self._params_for(""), {})
+
+    def test_mapping_trigger_still_yields_params(self):
+        # The control: guarding the scalar case must not break the real one.
+        params = self._params_for("trigger:\n  source: manual\n  params:\n    x: y\n")
+        self.assertEqual(params, {"x": "y"})
+
+    def test_importing_a_scalar_trigger_fragment_does_not_crash(self):
+        # End-to-end: the AttributeError surfaced during parse_workflow_str,
+        # not just in the helper.
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            frag = Path(tmp_dir) / "frag.yaml"
+            frag.write_text(
+                "fragment: true\n"
+                "trigger: manual\n"
+                "stages:\n"
+                "  - name: only\n"
+                "    kind: execute\n"
+                "    description: A stage\n"
+                "    agent:\n"
+                "      role: doc-writer\n"
+            )
+            wf = parse_workflow_str(
+                _workflow_including(str(frag)), source=str(Path(tmp_dir) / "wf.yaml")
+            )
+        self.assertEqual(dict(wf.trigger.params), {})
+
+
 class TestMappingFormTriggerParams(unittest.TestCase):
     """{type, default, description} params must resolve to their default.
 

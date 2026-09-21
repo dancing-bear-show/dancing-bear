@@ -360,7 +360,14 @@ def _frag_trigger_params(frag_text: str, source: str) -> dict[str, str]:
     if not isinstance(data, dict):
         return {}
 
-    params = (data.get("trigger") or {}).get("params") or {}
+    # A fragment's trigger is optional metadata, so _parse_fragment_str
+    # accepts `trigger: manual` (a scalar) as readily as a mapping. Calling
+    # .get on that scalar raised AttributeError, crashing the parse of every
+    # workflow importing it instead of producing a WorkflowParseError.
+    trigger = data.get("trigger")
+    if not isinstance(trigger, dict):
+        return {}
+    params = trigger.get("params") or {}
     if not isinstance(params, dict):
         return {}
     return {str(k): _param_default(str(k), v, source) for k, v in params.items()}

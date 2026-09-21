@@ -605,5 +605,75 @@ class TestManifestWhenVisibility(unittest.TestCase):
             )
 
 
+# ---------------------------------------------------------------------------
+# Real workflows keep their documented review path
+# ---------------------------------------------------------------------------
+
+
+class TestSwarmPathContract(unittest.TestCase):
+    """code-review-swarm.yaml documents which callers take which path.
+
+    Its header says: "code-review.yaml defaults to small; other callers
+    default to large." Once fragment trigger params are inherited, a caller
+    that does not declare pr_size picks up the fragment's own "small" default
+    and silently switches to the single-agent reviewer. These pin the real
+    workflows against that.
+    """
+
+    _REPO = Path(__file__).resolve().parents[2]
+
+    def _pr_size_stages(self, rel_path: str):
+        from workflow.cli_compile import _build_compile_payload
+
+        path = self._REPO / rel_path
+        if not path.exists():  # pragma: no cover - workflow renamed or removed
+            self.skipTest(f"{rel_path} not present")
+        payload = _build_compile_payload(str(path))
+        return [
+            r for r in payload["resolutions"]
+            if r.get("when") and "pr_size" in r["when"]
+        ]
+
+    def _running(self, rel_path: str):
+        stages = self._pr_size_stages(rel_path)
+        self.assertTrue(stages, f"{rel_path} has no pr_size-gated stages")
+        return [r["stage"] for r in stages if r["will_run"]]
+
+    def test_code_review_takes_the_consolidated_path(self):
+        running = self._running("workflows/code/code-review.yaml")
+        self.assertEqual(running, ["review-consolidated"])
+
+    def test_coverage_uplift_takes_the_fan_out_path(self):
+        running = self._running("workflows/code/coverage-uplift.yaml")
+        self.assertNotIn("review-review-consolidated", running)
+        self.assertGreater(len(running), 1, "expected the multi-stage fan-out")
+
+    def test_review_and_fix_takes_the_fan_out_path(self):
+        running = self._running("workflows/code/review-and-fix.yaml")
+        self.assertNotIn("review-consolidated", running)
+        self.assertGreater(len(running), 1, "expected the multi-stage fan-out")
+
+    def test_exactly_one_branch_runs_in_each_caller(self):
+        # The manifest must never present both branches as runnable: they
+        # declare the same outputs and would clobber each other.
+        for rel in (
+            "workflows/code/code-review.yaml",
+            "workflows/code/coverage-uplift.yaml",
+            "workflows/code/review-and-fix.yaml",
+        ):
+            with self.subTest(workflow=rel):
+                stages = self._pr_size_stages(rel)
+                consolidated = [
+                    r for r in stages if r["stage"].endswith("review-consolidated")
+                ]
+                fanned = [r for r in stages if r not in consolidated]
+                self.assertTrue(consolidated, "no consolidated stage found")
+                c_runs = any(r["will_run"] for r in consolidated)
+                f_runs = any(r["will_run"] for r in fanned)
+                self.assertNotEqual(
+                    c_runs, f_runs, "exactly one branch must run, not both or neither"
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
