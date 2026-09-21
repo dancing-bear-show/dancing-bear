@@ -420,6 +420,37 @@ class TestCheckPythonpathHook(unittest.TestCase):
             # Safe is not enough — it must still give the right answer.
             self.assertIn(str(foreign / "resume"), proc.stdout)
 
+    def test_control_characters_in_a_path_still_emit_valid_json(self) -> None:
+        """A tab or CR in a checkout path must not break the JSON contract.
+
+        RFC 8259 §7 forbids raw U+0000–U+001F inside a JSON string. The escaper
+        originally handled backslash, double-quote and newline only, so a
+        directory legally named with a tab produced an unparseable object — the
+        hook breaking its own one-object contract on exactly the kind of path it
+        exists to report.
+
+        Each name here is a real directory created on disk, so this asserts a
+        reachable path rather than the escaper in isolation.
+        """
+        for label, name in (
+            ("tab", "we\tird"),
+            ("carriage-return", "we\rird"),
+            ("double-quote", 'we"ird'),
+            ("backslash", "we\\ird"),
+        ):
+            with self.subTest(label=label):
+                with tempfile.TemporaryDirectory() as td:
+                    foreign = _make_fake_checkout(Path(td, name))
+
+                    proc = _run_hook(str(foreign))
+
+                    self.assertEqual(proc.returncode, 0, proc.stderr)
+                    self.assertNotEqual(
+                        proc.stdout.strip(), "", f"{label}: no warning emitted"
+                    )
+                    payload = json.loads(proc.stdout)  # raises if malformed
+                    self.assertIn("systemMessage", payload)
+
     def test_output_is_a_single_json_object(self) -> None:
         """The hook contract is one JSON object on stdout — not prose."""
         with tempfile.TemporaryDirectory() as td:

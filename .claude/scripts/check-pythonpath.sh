@@ -33,12 +33,26 @@ set -uo pipefail
 # Clearing PYTHONPATH and passing -I -S would also close it, but the payload is
 # one string in one field, so shell escaping is less machinery than hardening an
 # interpreter we do not need. Escapes backslash, double-quote, and newline —
-# the three that can break JSON here. Paths are the only interpolated values.
+# Escapes backslash, double-quote, and the control characters that are illegal
+# raw inside a JSON string (RFC 8259 §7: U+0000–U+001F must be escaped).
+#
+# Newline alone is not enough. A directory name may legally contain a tab or a
+# carriage return on every filesystem this runs on, and such a path reaches
+# emit() verbatim through ${foreign}. Verified by creating a real
+# ".../we<TAB>ird/src" checkout: the old escaper emitted INVALID JSON, so the
+# hook broke its own one-object contract on a path it was built to report.
 emit() {
   local msg=$1
   msg=${msg//\\/\\\\}
   msg=${msg//\"/\\\"}
   msg=${msg//$'\n'/\\n}
+  msg=${msg//$'\r'/\\r}
+  msg=${msg//$'\t'/\\t}
+  msg=${msg//$'\b'/\\b}
+  msg=${msg//$'\f'/\\f}
+  # Any remaining C0 control character has no short escape; drop it rather than
+  # emit a byte that makes the whole object unparseable.
+  msg=$(printf '%s' "$msg" | LC_ALL=C tr -d '\000-\010\013\016-\037')
   printf '{"systemMessage": "%s"}\n' "$msg"
 }
 
