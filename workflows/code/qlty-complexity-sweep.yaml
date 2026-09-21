@@ -2499,16 +2499,17 @@ stages:
         - Full unittest discover exits 0 and prints a "Ran N tests" summary
           line (the exit code alone is not evidence the suite ran)
         - qlty_status is not ISSUES, AND the evidence behind it is post-fix
-          and complete. Note this is deliberately WEAKER than the
-          ready_for_commit predicate above, which requires PASS: the stage is
-          DONE when it has gathered honest evidence, and an UNVERIFIED lint
-          is honest evidence. Whether that evidence is good enough to commit
-          on is the human gate's call, not this stage's: the batched scan plus a per-file scan for every
+          and complete — the batched scan plus a per-file scan for every
           surviving file, each stable and non-degraded, all re-run after the
           last `qlty check --fix`. An all-clean result is UNVERIFIED rather
           than PASS (Step 2), so this criterion is about the absence of
           findings and the freshness of the evidence, never about a zero exit
-          code — a capped run exits 0 too.
+          code, since a capped run exits 0 too.
+          This is deliberately WEAKER than the ready_for_commit predicate
+          above, which requires PASS. The stage is DONE when it has gathered
+          honest evidence, and an UNVERIFIED lint is honest evidence;
+          whether that evidence justifies a commit is the human gate's call,
+          not this stage's.
         - complexity_status is IMPROVED. RELOCATED, REGRESSED and UNVERIFIED
           all fail it.
         - ready_for_commit was DERIVED from those fields, not asserted, and
@@ -2621,7 +2622,18 @@ stages:
         - Strategy downgrades (split -> reduce-in-place) and why
         - Files deferred (with reasons from plan.md)
         - Test status: PASS / FAIL with blocker details
-        - Lint status: PASS / ISSUES
+        - Lint status: PASS / ISSUES / UNVERIFIED. UNVERIFIED is the EXPECTED
+          outcome of a clean scan, not an error — quote
+          qlty_unverified_reason verbatim next to it and say plainly that no
+          finding surfaced but the scanner cannot confirm the cap hid none.
+          Never present UNVERIFIED as clean, and never silently omit it
+          because it is not one of the two older values.
+        - Complexity status: IMPROVED / RELOCATED / REGRESSED / UNVERIFIED,
+          with complexity_unverified_reason when it applies
+        - ready_for_commit and, when false, every entry in blocked_by.
+          Distinguish the two cases in words: blocked only by an UNVERIFIED
+          status means incomplete evidence a human may choose to accept;
+          blocked by ISSUES or a FAIL means real defects.
         - Complexity before/after per file, and for any split the
           sibling-sum verdict (REDUCED vs RELOCATED)
         - Confirmation that zero re-export facades were introduced

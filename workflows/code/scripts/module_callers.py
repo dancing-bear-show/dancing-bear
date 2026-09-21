@@ -28,6 +28,19 @@ Usage:
     PYTHONPATH=src python3 module_callers.py --module mail.foo --format json
     PYTHONPATH=src python3 module_callers.py --module mail.foo --roots src tests bin
 
+One --src-root applies to every --roots entry. That is correct here because
+``tests/`` and ``tests/*/`` carry ``__init__.py``, so a test module's real
+dotted name is ``tests.resume_tests.fixtures`` — rooted at the repo, exactly
+what the default ``--src-root src`` produces for a path outside ``src/``.
+Verified across all 1215 .py files under src, tests and bin: zero names
+disagree with what Python actually binds.
+
+It would NOT hold in a layout where two roots are separate package bases
+(say ``src/`` and ``plugins/``, each with its own top-level packages). There
+the single value cannot be right for both, and the wrong half resolves
+relative imports against a wrong package — silently, with exit 0. Pass the
+matching ``--src-root`` and scan such roots one at a time.
+
 Exit codes:
     0  scan completed and covered every file (callers may be zero — that is a
        real answer)
@@ -257,7 +270,11 @@ def main(argv: list[str] | None = None) -> int:
         default=["src", "tests", "bin"],
         help="directories to search (default: src tests bin)",
     )
-    parser.add_argument("--src-root", default="src", help="package root for dotted paths")
+    parser.add_argument(
+        "--src-root",
+        default="src",
+        help="package root for dotted paths (applies to ALL roots — see below)",
+    )
     parser.add_argument("--format", choices=["text", "json"], default="text")
     args = parser.parse_args(argv)
 

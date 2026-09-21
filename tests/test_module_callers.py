@@ -305,6 +305,41 @@ class AliasIsNotAlwaysAModuleTests(TreeMixin):
         self.assertEqual(self._callers("pkg.sub.NoSuchThing", ["src", "tests"]), [])
 
 
+class TestsRootNamingTests(TreeMixin):
+    """A file under tests/ gets the name Python actually binds.
+
+    tests/ and its subpackages carry __init__.py in this repo, so a test
+    module's real dotted name is rooted at the repo (tests.pkg.mod), which is
+    what the default --src-root src produces for any path outside src/.
+    Pinning it because a "fix" that stripped the tests/ prefix would make
+    every relative import in a test package resolve to a module that does not
+    exist, and the scan would still exit 0.
+    """
+
+    def test_test_module_keeps_its_tests_prefix(self):
+        self._write("tests/suite/__init__.py", "")
+        self._write("tests/suite/helper.py", "X = 1\n")
+        self.assertEqual(
+            module_callers.module_path("tests/suite/helper.py", "src"),
+            "tests.suite.helper",
+        )
+
+    def test_relative_import_in_a_test_package_resolves(self):
+        self._write("tests/suite/__init__.py", "")
+        self._write("tests/suite/helper.py", "X = 1\n")
+        self._write("tests/suite/test_uses.py", "from .helper import X\n")
+        self.assertIn(
+            "tests/suite/test_uses.py",
+            self._callers("tests.suite.helper", ["tests"]),
+        )
+
+    def test_src_file_is_unaffected_by_the_same_src_root(self):
+        self.assertEqual(
+            module_callers.module_path("src/pkg/sub/target.py", "src"),
+            "pkg.sub.target",
+        )
+
+
 class AbsoluteRootTests(TreeMixin):
     """An absolute --roots must behave like a relative one.
 
