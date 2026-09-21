@@ -28,14 +28,29 @@ class RuleContext:
     dry_run: bool = False
 
     @classmethod
-    def for_plan(cls, name_to_id: dict[str, str], folder_map: dict[str, str], move_to_folders: bool) -> "RuleContext":
-        """Create context for plan operations (no client needed).
+    def for_plan(
+        cls,
+        name_to_id: dict[str, str],
+        folder_map: dict[str, str],
+        move_to_folders: bool,
+        client: Any = None,
+    ) -> "RuleContext":
+        """Create context for plan operations.
 
-        ``dry_run=True``: plan is read-only by definition, and ``client`` is None
-        here, so a mutating resolver call would raise rather than merely be wrong.
+        ``dry_run=True`` always: plan is read-only by definition, so folder
+        resolution must never reach the mutating ``ensure_folder_path``.
+
+        ``client`` is optional and used only for NON-mutating lookups
+        (``resolve_folder_path``).  It was omitted entirely at first, on the
+        reasoning that plan needs no client -- but that forced plan to fall back
+        to the folder path string whenever the cached snapshot missed, while the
+        apply resolved the real Graph id.  The two then keyed the same rule
+        differently and plan reported ``Would create`` for a rule sync treated as
+        a no-op.  Passing a read-only client is what closes that gap; ``dry_run``
+        still guarantees nothing is created.
         """
         return cls(
-            client=None, name_to_id=name_to_id, folder_map=folder_map,
+            client=client, name_to_id=name_to_id, folder_map=folder_map,
             move_to_folders=move_to_folders, dry_run=True,
         )
 
@@ -158,17 +173,40 @@ def _resolve_folder_for_action(path: str, ctx: RuleContext) -> str:
     Graph.  ``_build_rule_action`` runs before the caller's ``dry_run`` check, so
     without this guard ``rules.sync --dry-run`` created folders whenever the cached
     folder map missed a destination: no rule was created, but the mailbox changed.
-    A preview that mutates is the failure mode this PR has fixed most often.
 
-    Under dry-run, falls back to the cached map and then to the path itself.  The
-    returned value is then not a Graph id, which is correct for a preview: it only
-    has to be stable and truthy so the rule key matches what the live run would
-    build, and nothing in the dry-run path sends it to Graph.  This mirrors
-    ``_resolve_destination_folder``, which already made the same choice for sweep.
+    Resolution order under a preview:
+
+    1. the cached folder map, when it has the path;
+    2. ``resolve_folder_path`` -- a LIVE lookup that creates nothing and returns
+       ``""`` for a folder that genuinely does not exist;
+    3. the path itself, when no client is available (``RuleContext.for_plan``
+       passes ``client=None``) or the lookup found nothing.
+
+    Step 2 is what keeps preview and apply in agreement.  Falling straight from a
+    stale cache to the path string made both previews key the rule on
+    ``'Archive/News'`` while the live run keyed it on the real Graph id, so
+    ``plan`` and ``sync --dry-run`` reported ``Would create`` for a rule the apply
+    treated as a no-op.  A folder that exists is now resolved to the same id both
+    sides use; only a folder that does not exist yet falls through to the path,
+    where "would create" is the honest answer.
     """
     if not ctx.dry_run:
         return ctx.client.ensure_folder_path(path)
-    return ctx.folder_map.get(path) or path
+
+    cached = ctx.folder_map.get(path)
+    if cached:
+        return cached
+
+    resolver = getattr(ctx.client, "resolve_folder_path", None)
+    if resolver is not None:
+        try:
+            live = resolver(path)
+        except Exception:  # nosec B110 - preview must degrade, never fail the run
+            live = ""
+        if live:
+            return live
+
+    return path
 
 
 def _build_rule_action(action_spec: dict[str, Any], ctx: RuleContext) -> dict[str, Any]:
@@ -238,7 +276,7 @@ def _norm_create_rule_key(criteria: dict[str, Any], action: dict[str, Any]) -> s
     })
 
 
-def _resolve_folder_id(path: str, folder_map: dict[str, str]) -> str:
+def _resolve_folder_id(path: str, folder_map: dict[str, str], client: Any = None) -> str:
     """Resolve a folder path to an id for planning, by raw path only.
 
     The raw path is what ``_build_rule_action`` passes to
@@ -265,6 +303,20 @@ def _resolve_folder_id(path: str, folder_map: dict[str, str]) -> str:
         alias = norm_label_name_outlook(path)
         if alias in folder_map:
             return folder_map[alias]
+    if client is not None:
+        # Live, NON-mutating lookup before giving up on the path string. A folder
+        # that exists but is absent from the cached snapshot (created after it)
+        # otherwise left plan keying the rule on 'Archive/News' while apply keyed
+        # it on the real Graph id -- plan reported "Would create" for a rule the
+        # live run treated as a no-op. Probed on #359 and deferred from it.
+        resolver = getattr(client, "resolve_folder_path", None)
+        if resolver is not None:
+            try:
+                live = resolver(path)
+            except Exception:  # nosec B110 - preview must degrade, never fail the run
+                live = ""
+            if live:
+                return live
     return path
 
 
@@ -290,7 +342,7 @@ def _build_plan_action(action_spec: dict[str, Any], ctx: RuleContext) -> dict[st
 
     if action_spec.get("moveToFolder"):
         action["moveToFolderId"] = _resolve_folder_id(
-            str(action_spec["moveToFolder"]), ctx.folder_map
+            str(action_spec["moveToFolder"]), ctx.folder_map, ctx.client
         )
     elif ctx.move_to_folders and adds and not action_spec.get("noMoveToFolder"):
         # Derive from the first add label — raw path first, for the same reason
@@ -298,7 +350,7 @@ def _build_plan_action(action_spec: dict[str, Any], ctx: RuleContext) -> dict[st
         # config is a nested path, and `_build_rule_action` resolves that raw
         # value, so normalizing first here made the plan key diverge from
         # apply's for every nested rule.
-        action["moveToFolderId"] = _resolve_folder_id(str(adds[0]), ctx.folder_map)
+        action["moveToFolderId"] = _resolve_folder_id(str(adds[0]), ctx.folder_map, ctx.client)
     elif adds:
         # Categorise only: either noMoveToFolder (keepInInbox) or move_to_folders=False.
         ids = [ctx.name_to_id.get(x) or ctx.name_to_id.get(norm_label_name_outlook(x)) for x in adds]

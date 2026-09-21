@@ -28,6 +28,7 @@ class _FoldersHost(Protocol):
     def get_folder_id_map(self) -> dict[str, str]: ...
     def ensure_folder(self, name: str) -> str: ...
     def list_all_folders(self, ttl: int = ..., clear_cache: bool = ...) -> list[dict[str, Any]]: ...
+    def get_folder_path_map(self, ttl: int = ..., clear_cache: bool = ...) -> dict[str, str]: ...
     def _ensure_child_folder(self, parent_id: str, seg: str) -> str: ...
 
 
@@ -170,8 +171,33 @@ class FoldersMixin:
         r2.raise_for_status()
         return r2.json().get("id") or ""
 
+    def resolve_folder_path(
+        self: "_FoldersHost",
+        path: str,
+        ttl: int = 0,
+    ) -> str:
+        """Resolve a nested folder path to its id WITHOUT creating anything.
+
+        Returns ``""`` when the path does not exist.  The non-mutating counterpart
+        to ``ensure_folder_path``, for callers that must not change the mailbox --
+        previews above all.
+
+        ``ttl=0`` reads a fresh listing by default, which is the point: the reason
+        this exists is that a preview resolving through a *stale* cached snapshot
+        classified a rule differently from the apply, reporting "Would create" for
+        a rule the live run treated as a no-op.  Callers that genuinely want the
+        cached map already have ``get_folder_path_map``.
+        """
+        if not [p for p in (path or "").split("/") if p]:
+            raise ValueError("Folder path is empty")
+        return self.get_folder_path_map(ttl=ttl).get(path, "")
+
     def ensure_folder_path(self: "_FoldersHost", path: str) -> str:
-        """Ensure a nested folder path exists and return the leaf folder id."""
+        """Ensure a nested folder path exists and return the leaf folder id.
+
+        MUTATES: creates every missing segment.  Use ``resolve_folder_path`` from
+        any code path that must not change the mailbox.
+        """
         parts = [p for p in (path or "").split("/") if p]
         if not parts:
             raise ValueError("Folder path is empty")

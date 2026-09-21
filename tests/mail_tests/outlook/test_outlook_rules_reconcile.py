@@ -2180,5 +2180,220 @@ class TestRulesPlanCLIReconcileFlag(unittest.TestCase):
         self.assertTrue(ns.reconcile, "--reconcile not parsed correctly on rules.plan")
 
 
+# ---------------------------------------------------------------------------
+# Folder resolution parity on a stale snapshot
+# ---------------------------------------------------------------------------
+
+class TestExistingFolderCacheMissParity(unittest.TestCase):
+    """A folder that EXISTS but is missing from the cached snapshot.
+
+    ``_build_rule_action`` (sync, live) resolved via ``ensure_folder_path`` and got
+    the real Graph id. Both previews fell back to the folder PATH STRING on a cache
+    miss, so they keyed the same rule differently from the apply and reported
+    ``Would create`` for a rule the live run treated as a no-op:
+
+        STALE snapshot : plan would_create=1   sync --dry-run 1   sync LIVE 0
+
+    Deferred from #359 because the fix needs a NON-mutating client lookup: plan
+    cannot call ``ensure_folder_path``, which creates folders, and #359 had just
+    fixed a dry run that did exactly that.
+
+    ``resolve_folder_path`` is that lookup -- it returns ``""`` rather than
+    creating. Both previews now consult it after the cached map and before falling
+    back to the path, so an existing folder resolves to the id the apply uses, and
+    only a genuinely absent folder falls through to the path (where "would create"
+    is the honest answer).
+    """
+
+    REAL_ID = "folder-real-id"
+    DESIRED = [{"match": {"from": "news.example"}, "action": {"moveToFolder": "Archive/News"}}]
+
+    def _client(self, folder_map):
+        client = _make_client(
+            list_filters=[{
+                "id": "news-rule",
+                "criteria": {"from": "news.example"},
+                "action": {"moveToFolderId": self.REAL_ID},
+            }],
+            folder_path_map=dict(folder_map),
+        )
+        client.ensure_folder_path.return_value = self.REAL_ID
+        # The folder exists in Graph even when the snapshot missed it.
+        client.resolve_folder_path.return_value = self.REAL_ID
+        return client
+
+    def _plan(self, folder_map):
+        client = self._client(folder_map)
+        payload = OutlookRulesPlanPayload(
+            client=client, config_path="/test.yaml", move_to_folders=True, reconcile=False,
+        )
+        with patch("core.yamlio.load_config", return_value={"filters": []}), \
+                patch("mail.dsl.normalize_filters_for_outlook", return_value=list(self.DESIRED)):
+            return OutlookRulesPlanProcessor().process(payload), client
+
+    def _sync(self, folder_map, dry_run):
+        client = self._client(folder_map)
+        payload = OutlookRulesSyncPayload(
+            client=client, config_path="/test.yaml", dry_run=dry_run,
+            move_to_folders=True, delete_missing=False, reconcile=False,
+        )
+        with patch("core.yamlio.load_config", return_value={"filters": []}), \
+                patch("mail.dsl.normalize_filters_for_outlook", return_value=list(self.DESIRED)):
+            return OutlookRulesSyncProcessor().process(payload), client
+
+    def test_stale_snapshot_plan_agrees_with_live(self):
+        """The regression: plan must not promise a create the apply will not make."""
+        plan_env, _ = self._plan({})
+        live_env, _ = self._sync({}, dry_run=False)
+
+        self.assertEqual(plan_env.payload.would_create, live_env.payload.created)
+        self.assertEqual(
+            plan_env.payload.plan_items, [],
+            "plan reported an action for a rule that already points at the folder",
+        )
+
+    def test_stale_snapshot_dry_run_agrees_with_live(self):
+        """sync --dry-run must agree with sync too, not only plan."""
+        dry_env, _ = self._sync({}, dry_run=True)
+        live_env, _ = self._sync({}, dry_run=False)
+
+        self.assertEqual(dry_env.payload.created, live_env.payload.created)
+
+    def test_fresh_snapshot_unchanged(self):
+        """Contrast: when the snapshot has the folder, nothing changes."""
+        for surface in (lambda: self._plan({"Archive/News": self.REAL_ID})[0],
+                        lambda: self._sync({"Archive/News": self.REAL_ID}, True)[0]):
+            env = surface()
+            count = getattr(env.payload, "would_create", None)
+            if count is None:
+                count = env.payload.created
+            self.assertEqual(count, 0)
+
+    def test_previews_never_create_a_folder(self):
+        """Neither preview may call the mutating resolver. Guards #359's fix."""
+        _, plan_client = self._plan({})
+        _, dry_client = self._sync({}, dry_run=True)
+
+        for label, client in (("plan", plan_client), ("dry-run", dry_client)):
+            with self.subTest(surface=label):
+                self.assertEqual(
+                    client.ensure_folder_path.call_count, 0,
+                    f"{label} called ensure_folder_path, which creates folders",
+                )
+
+    def test_absent_folder_still_falls_back_to_the_path(self):
+        """A folder that does NOT exist resolves to the path, so plan can still report it.
+
+        ``resolve_folder_path`` returns "" for a missing folder. Treating that as
+        the answer would make the rule key fall out of comparison entirely; the
+        path keeps the preview usable, and "would create" is then correct.
+        """
+        client = self._client({})
+        client.resolve_folder_path.return_value = ""   # folder genuinely absent
+        payload = OutlookRulesPlanPayload(
+            client=client, config_path="/test.yaml", move_to_folders=True, reconcile=False,
+        )
+        with patch("core.yamlio.load_config", return_value={"filters": []}), \
+                patch("mail.dsl.normalize_filters_for_outlook", return_value=list(self.DESIRED)):
+            env = OutlookRulesPlanProcessor().process(payload)
+
+        self.assertEqual(env.payload.would_create, 1)
+        self.assertIn("Archive/News", env.payload.plan_items[0])
+
+
+# ---------------------------------------------------------------------------
+# Exact-duplicate live rules and --delete-missing
+# ---------------------------------------------------------------------------
+
+class TestExactDuplicateRulesAreAllDeleted(unittest.TestCase):
+    """``--delete-missing`` must remove EVERY copy of an unwanted rule.
+
+    ``existing = {_canon_rule(r): r ...}`` keys on criteria AND action, so live
+    rules identical in both collapse to one entry and the rest were invisible to
+    the deletion pass:
+
+        3 identical live rules -> 1 entry in `existing`
+        reported Deleted: 1, deleted ['dup-3'], STILL LIVE ['dup-1', 'dup-2']
+
+    The user asked for the rule to be removed, was told it was, and two copies
+    kept acting on mail. Not hypothetical -- three senders on this mailbox each
+    carried three identical rules, deduplicated by hand while working on #359.
+
+    Fixed by iterating the full live rule list rather than the collapsed map.
+    The collapse itself is left alone: ``existing`` is still the right shape for
+    the membership tests everything else does with it.
+    """
+
+    @staticmethod
+    def _dups(**extra):
+        return [
+            {"id": f"dup-{i}", "criteria": {"from": "spam.example"},
+             "action": {"forward": "x@y.com"}, **extra}
+            for i in (1, 2, 3)
+        ]
+
+    def _run(self, live, desired):
+        client = _make_client(list_filters=[dict(r) for r in live])
+        client.resolve_folder_path.return_value = ""
+        with patch("core.yamlio.load_config", return_value={"filters": []}), \
+                patch("mail.dsl.normalize_filters_for_outlook", return_value=desired):
+            envelope = OutlookRulesSyncProcessor().process(
+                _sync_payload(client, reconcile=True, delete_missing=True, dry_run=False)
+            )
+        return envelope, [c.args[0] for c in client.delete_filter.call_args_list]
+
+    WANT_OTHER = [{"match": {"from": "keep.example"}, "action": {"forward": "k@y.com"}}]
+    WANT_THESE = [{"match": {"from": "spam.example"}, "action": {"forward": "x@y.com"}}]
+
+    def test_all_duplicates_deleted_when_not_desired(self):
+        """Every copy is deleted, and the reported count matches reality."""
+        envelope, deleted = self._run(self._dups(), list(self.WANT_OTHER))
+
+        self.assertEqual(sorted(deleted), ["dup-1", "dup-2", "dup-3"])
+        self.assertEqual(
+            envelope.payload.deleted, 3,
+            "the tally must match what was actually deleted, not the collapsed count",
+        )
+
+    def test_duplicates_kept_when_desired(self):
+        """Contrast: a desired rule is not deleted just because copies exist.
+
+        Iterating every live rule means the desired-key check has to hold per
+        rule; without this, the fix could delete rules the config asks for.
+        """
+        envelope, deleted = self._run(self._dups(), list(self.WANT_THESE))
+
+        self.assertEqual(deleted, [])
+        self.assertEqual(envelope.payload.deleted, 0)
+
+    def test_unmappable_duplicates_still_protected(self):
+        """Contrast: the unmappable-rule protection survives the wider iteration."""
+        envelope, deleted = self._run(
+            self._dups(unmappedConditions=["bodyContains"]), list(self.WANT_THESE)
+        )
+
+        self.assertEqual(deleted, [])
+        self.assertEqual(envelope.payload.deleted, 0)
+
+    def test_caller_supplied_keys_are_honoured(self):
+        """`_delete_missing_rules` must not ignore the keys it was handed.
+
+        A first cut derived `_canon_rule(rule)` for every candidate, which works
+        for real callers (they key the same way) but made the caller's mapping a
+        second source of truth -- and broke two existing tests that pass synthetic
+        keys. Keys come from `all_rules` only when `all_rules` is supplied.
+        """
+        client = _make_client()
+        existing = {"synthetic-keep": {"id": "r-keep"}, "synthetic-drop": {"id": "r-drop"}}
+        payload = _sync_payload(client, delete_missing=True, dry_run=False)
+
+        deleted = OutlookRulesSyncProcessor()._delete_missing_rules(
+            existing, {"synthetic-keep"}, payload
+        )
+
+        self.assertEqual(deleted, 1)
+        client.delete_filter.assert_called_once_with("r-drop")
+
+
 if __name__ == "__main__":
     unittest.main()

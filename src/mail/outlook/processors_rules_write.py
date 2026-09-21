@@ -237,7 +237,8 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
             )
             deleted = (
                 self._delete_missing_rules(
-                    existing, desired_keys, payload, reconciled_rule_ids
+                    existing, desired_keys, payload, reconciled_rule_ids,
+                    all_rules=existing_rules,
                 ) if payload.delete_missing else 0
             )
 
@@ -708,6 +709,7 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         desired_keys: set,
         payload: OutlookRulesSyncPayload,
         reconciled_rule_ids: set[str] | None = None,
+        all_rules: list[dict[str, Any]] | None = None,
     ) -> int:
         """Delete rules that are not in desired set.
 
@@ -730,23 +732,50 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         one rule report as both ``Failed: 1`` and ``Deleted: 1``, and made the
         number depend on whether Graph 404s or succeeds.
 
-        Note what is deliberately absent: a ``delete_failed`` id is NOT
-        protected.  There the live rule survives on its old action, so it does
-        not satisfy the desired spec and ``--delete-missing`` should retry it.
+        Iterates ``all_rules`` (every live rule) rather than ``existing.values()``.
+        ``existing`` is keyed by ``_canon_rule`` -- criteria AND action -- so two
+        live rules identical in both collapse to ONE entry and the rest were
+        invisible here:
+
+            3 identical live rules -> 1 entry in `existing`
+            --delete-missing:  reported Deleted: 1, deleted ['dup-3'],
+                               STILL LIVE ['dup-1', 'dup-2']
+
+        The user asked for the rule to be removed, was told it was, and two copies
+        kept acting on mail. Not hypothetical: three senders on this mailbox each
+        carried three identical rules, deduplicated by hand during #359.
 
         Args:
-            existing: Map of canonical rule keys to rule objects
+            existing: Map of canonical rule keys to rule objects (membership test
+                only -- see ``all_rules`` for what is actually iterated)
             desired_keys: Set of canonical keys for desired rules
             payload: Sync request payload
             reconciled_rule_ids: Set of rule IDs this call must not delete (see above)
+            all_rules: Every live rule, including exact duplicates that collapse
+                out of ``existing``.  Falls back to ``existing.values()`` when not
+                supplied, which preserves the old behaviour for any caller that
+                has not been updated.
 
         Returns:
             Number of rules deleted
         """
         skip_ids = reconciled_rule_ids or set()
+
+        # (key, rule) pairs. When `all_rules` is supplied, each rule's key is
+        # recomputed so duplicates that collapsed out of `existing` are still
+        # matched against `desired_keys`; otherwise the caller's own keys are used
+        # verbatim. Deriving the key unconditionally would silently ignore the keys
+        # the caller passed in -- which works for real callers (they key by
+        # `_canon_rule` too) but makes the mapping a second source of truth, and
+        # broke callers that pass synthetic keys.
+        if all_rules is not None:
+            candidates = [(_canon_rule(rule), rule) for rule in all_rules]
+        else:
+            candidates = list(existing.items())
+
         to_delete = [
-            rule for k, rule in existing.items()
-            if k not in desired_keys and rule.get("id") not in skip_ids
+            rule for key, rule in candidates
+            if key not in desired_keys and rule.get("id") not in skip_ids
         ]
         return sum(
             1 for rule in to_delete
@@ -825,7 +854,12 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
             existing_map = {_canon_rule(r): r for r in existing_rules}
             plan_items, would_reconcile = self._build_plan_items(
                 desired, existing_keys, existing_map, name_to_id, folder_map,
-                payload.move_to_folders, payload.reconcile
+                payload.move_to_folders, payload.reconcile,
+                # Read-only client, for non-mutating folder lookups only. Without
+                # it plan falls back to the folder path string on a cache miss
+                # while sync resolves the real Graph id, so the two key the same
+                # rule differently and plan promises a create sync will not make.
+                client,
             )
 
             return ResultEnvelope(
@@ -915,6 +949,7 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
         folder_map: dict[str, str],
         move_to_folders: bool,
         reconcile: bool = False,
+        client: Any = None,
     ) -> tuple[list[str], int]:
         """Build plan items for rules that would be created or reconciled.
 
@@ -933,7 +968,7 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
         """
         plan_items = []
         would_reconcile = 0
-        ctx = RuleContext.for_plan(name_to_id, folder_map, move_to_folders)
+        ctx = RuleContext.for_plan(name_to_id, folder_map, move_to_folders, client)
 
         # Build the same indexes that sync uses so plan and apply classify each
         # desired rule identically.
