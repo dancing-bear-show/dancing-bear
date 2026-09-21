@@ -28,9 +28,13 @@ description: >
       enumeration, and validation in one pass, writing consolidated.json +
       consolidated-summary.md directly. Skips the multi-agent fan-out.
 
-    large (safe default when pr_size is absent/blank) — full fan-out:
+    large (selected explicitly, or by a blank value) — full fan-out:
       concern-sweep (9 agents) → concern-sweep-merge → enumerate-targets
       → validate-concerns (N agents) + cross-unit-check → consolidate.
+      ABSENT is not blank: an absent pr_size inherits this fragment's
+      "small" default and takes the consolidated path. Only an explicit
+      "large", or an explicitly empty value, selects fan-out. See the NOTE
+      below — do not rely on omission.
 
   NOTE: fragment trigger.params ARE merged into callers by the include
   engine, layered UNDER the caller's own declarations. This fragment declares
