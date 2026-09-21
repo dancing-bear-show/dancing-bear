@@ -54,7 +54,14 @@ def register_labels_commands(app: CLIApp) -> object:
             (("--config",), {"required": True, "help": "Labels YAML config"}),
         ]),
         ("doctor", "Check for label inconsistencies", run_labels_doctor, []),
-        ("prune-empty", "Delete empty labels", run_labels_prune_empty, [_DRY_RUN]),
+        ("prune-empty", "Delete empty labels not targeted by a filter", run_labels_prune_empty, [
+            _DRY_RUN,
+            (("--force",), {"action": "store_true",
+                            "help": "Also delete labels targeted by a filter"}),
+            (("--limit",), {"type": int, "default": 0, "help": "Max labels to delete"}),
+            (("--sleep-sec",), {"type": float, "default": 0.0,
+                                "help": "Delay between deletions"}),
+        ]),
         ("learn", "Learn label patterns from existing messages", run_labels_learn, [
             (("--out",), {"help": "Output suggestions YAML"}),
             (("--days",), {"type": int, "default": 30, "help": "Days of messages to analyze"}),

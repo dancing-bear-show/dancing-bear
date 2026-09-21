@@ -139,6 +139,61 @@ def _get_empty_user_labels(labels: list) -> list:
             if lab.get("type") == "user" and int(lab.get("messagesTotal", 0)) == 0]
 
 
+def _labels_referenced_by_filters(client, labels: list) -> set[str]:
+    """Return names of labels any Gmail filter adds or removes.
+
+    An empty label is routinely the *target* of a filter rather than dead
+    weight: rules that archive on arrival leave their label at zero messages
+    until the next matching mail lands. Deleting one silently breaks the rule,
+    so these are never pruned.
+    """
+    id_to_name = {lab.get("id"): lab.get("name") for lab in labels}
+    referenced: set[str] = set()
+    for filt in client.list_filters():
+        action = filt.get("action") or {}
+        for key in ("addLabelIds", "removeLabelIds"):
+            for label_id in (action.get(key) or []):
+                name = id_to_name.get(label_id)
+                if name:
+                    referenced.add(name)
+    return referenced
+
+
+def _labels_with_protected_descendants(protected: set[str], labels: list) -> set[str]:
+    """Return ancestor label names that must survive to keep a protected child.
+
+    Gmail nests labels by name ("Finance/TD" is a child of "Finance") and
+    deleting a parent takes its children with it. An empty parent whose child
+    is filter-referenced therefore cannot be pruned either.
+    """
+    ancestors: set[str] = set()
+    for name in protected:
+        parts = name.split("/")
+        for depth in range(1, len(parts)):
+            ancestors.add("/".join(parts[:depth]))
+    existing = {lab.get("name") for lab in labels}
+    return ancestors & existing
+
+
+def _partition_prunable(client, labels: list) -> tuple[list, dict[str, str]]:
+    """Split empty labels into prunable ones and {name: reason} for the rest."""
+    empty = _get_empty_user_labels(labels)
+
+    referenced = _labels_referenced_by_filters(client, labels)
+    ancestors = _labels_with_protected_descendants(referenced, labels)
+
+    prunable, skipped = [], {}
+    for lab in empty:
+        name = lab.get("name") or ""
+        if name in referenced:
+            skipped[name] = "targeted by a filter"
+        elif name in ancestors:
+            skipped[name] = "parent of a filter-targeted label"
+        else:
+            prunable.append(lab)
+    return prunable, skipped
+
+
 def _prune_one_label(client, lab: dict, dry_run: bool, sleep_s: float) -> bool:
     """Delete (or preview deleting) a single empty label. Returns True if deleted."""
     name = lab.get("name")
@@ -159,10 +214,19 @@ def run_labels_prune_empty(args) -> int:
     client = gmail_provider_from_args(args)
     client.authenticate()
 
-    empty_labels = _get_empty_user_labels(client.list_labels())
     limit = int(getattr(args, 'limit', 0) or 0)
     sleep_s = float(getattr(args, 'sleep_sec', 0.0) or 0.0)
     dry_run = getattr(args, 'dry_run', False)
+    force = getattr(args, 'force', False)
+
+    labels = client.list_labels()
+    if force:
+        empty_labels, skipped = _get_empty_user_labels(labels), {}
+    else:
+        empty_labels, skipped = _partition_prunable(client, labels)
+
+    for name in sorted(skipped):
+        print(f"Keeping label: {name} ({skipped[name]})")
 
     if limit:
         empty_labels = empty_labels[:limit]
@@ -171,7 +235,8 @@ def run_labels_prune_empty(args) -> int:
         1 for lab in empty_labels if _prune_one_label(client, lab, dry_run, sleep_s)
     )
 
-    print(f"Prune complete. Deleted: {deleted}")
+    kept_suffix = f" Kept: {len(skipped)}." if skipped else ""
+    print(f"Prune complete. Deleted: {deleted}{kept_suffix}")
     return 0
 
 

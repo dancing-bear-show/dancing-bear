@@ -321,9 +321,11 @@ class TestPruneOneLabel(unittest.TestCase):
 class TestRunLabelsPruneEmpty(unittest.TestCase):
     """Tests for run_labels_prune_empty."""
 
-    def _run_prune(self, labels, dry_run=False, limit=0, sleep_sec=0.0):
-        client = FakeGmailClient(labels=labels)
-        args = make_args(dry_run=dry_run, limit=limit, sleep_sec=sleep_sec)
+    def _run_prune(self, labels, dry_run=False, limit=0, sleep_sec=0.0,
+                   filters=None, force=False):
+        client = FakeGmailClient(labels=labels, filters=filters or [])
+        args = make_args(dry_run=dry_run, limit=limit, sleep_sec=sleep_sec,
+                         force=force)
         with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client), \
                 patch("time.sleep"), \
                 capture_stdout() as buf:
@@ -364,6 +366,83 @@ class TestRunLabelsPruneEmpty(unittest.TestCase):
         rc, out, _ = self._run_prune(labels)
         self.assertEqual(rc, 0)
         self.assertIn("Deleted: 0", out)
+
+    def test_keeps_empty_label_targeted_by_filter(self):
+        """An archive-on-arrival rule leaves its label empty; it is not dead."""
+        labels = [make_user_label("Finance/TD", "L1", messages=0)]
+        filters = [{"id": "F1", "criteria": {"from": "td.com"},
+                    "action": {"addLabelIds": ["L1"], "removeLabelIds": ["INBOX"]}}]
+        rc, out, client = self._run_prune(labels, filters=filters)
+        self.assertEqual(rc, 0)
+        self.assertIn("Keeping label: Finance/TD", out)
+        self.assertIn("Deleted: 0", out)
+        self.assertIn("Kept: 1", out)
+        self.assertEqual(len(client.labels), 1)
+
+    def test_keeps_label_referenced_only_via_remove(self):
+        labels = [make_user_label("Archived", "L1", messages=0)]
+        filters = [{"id": "F1", "criteria": {"from": "x.com"},
+                    "action": {"removeLabelIds": ["L1"]}}]
+        _, out, client = self._run_prune(labels, filters=filters)
+        self.assertIn("Keeping label: Archived", out)
+        self.assertEqual(len(client.labels), 1)
+
+    def test_keeps_empty_parent_of_filter_targeted_child(self):
+        """Deleting a parent deletes its children, so ancestors are protected."""
+        labels = [
+            make_user_label("Finance", "P1", messages=0),
+            make_user_label("Finance/TD", "L1", messages=0),
+        ]
+        filters = [{"id": "F1", "criteria": {"from": "td.com"},
+                    "action": {"addLabelIds": ["L1"]}}]
+        _, out, client = self._run_prune(labels, filters=filters)
+        self.assertIn("Keeping label: Finance (parent of a filter-targeted label)", out)
+        self.assertIn("Keeping label: Finance/TD (targeted by a filter)", out)
+        self.assertIn("Deleted: 0", out)
+        self.assertEqual(len(client.labels), 2)
+
+    def test_prunes_unreferenced_label_alongside_protected_one(self):
+        labels = [
+            make_user_label("Finance/TD", "L1", messages=0),
+            make_user_label("Dead", "L2", messages=0),
+        ]
+        filters = [{"id": "F1", "criteria": {"from": "td.com"},
+                    "action": {"addLabelIds": ["L1"]}}]
+        _, out, client = self._run_prune(labels, filters=filters)
+        self.assertIn("Deleted: 1", out)
+        self.assertEqual([lab["name"] for lab in client.labels], ["Finance/TD"])
+
+    def test_force_deletes_filter_targeted_label(self):
+        labels = [make_user_label("Finance/TD", "L1", messages=0)]
+        filters = [{"id": "F1", "criteria": {"from": "td.com"},
+                    "action": {"addLabelIds": ["L1"]}}]
+        _, out, client = self._run_prune(labels, filters=filters, force=True)
+        self.assertIn("Deleted: 1", out)
+        self.assertNotIn("Keeping label", out)
+        self.assertEqual(client.labels, [])
+
+    def test_dry_run_reports_protection_without_deleting(self):
+        labels = [
+            make_user_label("Finance/TD", "L1", messages=0),
+            make_user_label("Dead", "L2", messages=0),
+        ]
+        filters = [{"id": "F1", "criteria": {"from": "td.com"},
+                    "action": {"addLabelIds": ["L1"]}}]
+        _, out, client = self._run_prune(labels, filters=filters, dry_run=True)
+        self.assertIn("Keeping label: Finance/TD", out)
+        self.assertIn("Would delete label: Dead", out)
+        self.assertNotIn("Would delete label: Finance/TD", out)
+        self.assertEqual(len(client.labels), 2)
+
+    def test_unknown_label_id_in_filter_is_ignored(self):
+        """A filter referencing a deleted label must not crash the prune."""
+        labels = [make_user_label("Dead", "L2", messages=0)]
+        filters = [{"id": "F1", "criteria": {"from": "x.com"},
+                    "action": {"addLabelIds": ["GONE"]}}]
+        rc, out, client = self._run_prune(labels, filters=filters)
+        self.assertEqual(rc, 0)
+        self.assertIn("Deleted: 1", out)
+        self.assertEqual(client.labels, [])
 
 
 # ---------------------------------------------------------------------------
