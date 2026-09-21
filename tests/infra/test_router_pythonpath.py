@@ -14,7 +14,9 @@ tests pin the repair in ``bin/_router.py`` so it cannot regress into a no-op.
 
 Each test builds a throwaway fake checkout on disk rather than pointing at a
 real sibling worktree, so it does not depend on the developer's machine having
-one.
+one. Those builders live in ``tests/infra/pathrepair_fixtures.py`` because
+``test_pathrepair_shared.py`` needs the identical decoy shape — two copies could
+drift so that one suite tested the old marker and the other the new.
 """
 
 from __future__ import annotations
@@ -26,32 +28,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.infra.pathrepair_fixtures import (
+    make_fake_checkout,
+    make_third_party_checkout,
+    make_unmarked_src,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ROUTER = REPO_ROOT / "bin" / "_router.py"
-
-
-def _make_fake_checkout(root: Path, package: str) -> Path:
-    """A decoy checkout of THIS project: matching pyproject.toml plus src/<pkg>/.
-
-    The marker must NAME this project. The router only strips a ``src`` entry
-    whose sibling pyproject.toml says ``name = "personal-assistants"``, so an
-    unrelated third-party entry — which very likely ships a pyproject.toml of
-    its own — is left alone.
-    """
-    pkg = root / "src" / package
-    pkg.mkdir(parents=True)
-    (root / "pyproject.toml").write_text(
-        '[project]\nname = "personal-assistants"\nversion = "0.1.0"\n'
-    )
-    (pkg / "__init__.py").write_text('ORIGIN = "decoy"\n')
-    return root / "src"
-
-
-def _make_third_party_checkout(root: Path) -> Path:
-    """A DIFFERENT project that also has src/ and its own pyproject.toml."""
-    (root / "src").mkdir(parents=True)
-    (root / "pyproject.toml").write_text('[project]\nname = "some-other-lib"\n')
-    return root / "src"
 
 
 def _run_prologue(pythonpath: str, cwd: Path) -> dict[str, str]:
@@ -95,7 +79,7 @@ class TestRouterStripsForeignCheckouts(unittest.TestCase):
 
     def test_foreign_repo_src_is_removed_from_pythonpath(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            foreign = _make_fake_checkout(Path(td, "other-checkout"), "mail")
+            foreign = make_fake_checkout(Path(td, "other-checkout"), "mail")
 
             state = _run_prologue(str(foreign), REPO_ROOT)
 
@@ -108,7 +92,7 @@ class TestRouterStripsForeignCheckouts(unittest.TestCase):
 
     def test_own_src_is_first_on_sys_path(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            foreign = _make_fake_checkout(Path(td, "other-checkout"), "mail")
+            foreign = make_fake_checkout(Path(td, "other-checkout"), "mail")
 
             state = _run_prologue(str(foreign), REPO_ROOT)
 
@@ -126,7 +110,7 @@ class TestRouterStripsForeignCheckouts(unittest.TestCase):
         the path but sat *behind* a foreign entry, so the foreign tree still won.
         """
         with tempfile.TemporaryDirectory() as td:
-            foreign = _make_fake_checkout(Path(td, "other-checkout"), "mail")
+            foreign = make_fake_checkout(Path(td, "other-checkout"), "mail")
             # foreign first, ours second — the ordering that defeated the old guard
             combined = os.pathsep.join([str(foreign), str(REPO_ROOT / "src")])
 
@@ -135,44 +119,36 @@ class TestRouterStripsForeignCheckouts(unittest.TestCase):
             self.assertEqual(state["sys_path0"], str(REPO_ROOT / "src"))
             self.assertNotIn(str(foreign), state["pythonpath"])
 
-    def test_unrelated_pythonpath_entries_are_preserved(self) -> None:
-        """Only checkouts of THIS project are stripped.
+    def test_entries_that_are_not_this_project_are_preserved(self) -> None:
+        """Only checkouts of THIS project are stripped — nothing else.
 
-        A ``src`` directory with no sibling ``pyproject.toml`` belongs to some
-        other setup; removing it would break things the router knows nothing
-        about.
+        Two ways an entry can fail to be ours, both of which must survive:
+
+        * a third-party checkout that ships its own pyproject.toml — most do,
+          so a pyproject.toml is not the marker; one NAMING this project is;
+        * a bare ``src`` directory with no sibling pyproject.toml at all.
+
+        Removing either would break setups the router knows nothing about.
         """
-        with tempfile.TemporaryDirectory() as td:
-            unrelated = Path(td, "some-lib", "src")
-            unrelated.mkdir(parents=True)  # deliberately NO pyproject.toml
+        cases = (
+            ("third-party checkout", make_third_party_checkout, "some-other-lib"),
+            ("src without pyproject", make_unmarked_src, "some-lib"),
+        )
+        for label, build, dirname in cases:
+            with (
+                self.subTest(case=label),
+                tempfile.TemporaryDirectory() as td,
+            ):
+                entry = build(Path(td, dirname))
 
-            state = _run_prologue(str(unrelated), REPO_ROOT)
+                state = _run_prologue(str(entry), REPO_ROOT)
 
-            self.assertIn(
-                str(unrelated),
-                state["pythonpath"],
-                "an unrelated src/ was stripped; the check must require a "
-                "sibling pyproject.toml",
-            )
-
-    def test_third_party_checkout_with_its_own_pyproject_is_preserved(self) -> None:
-        """A pyproject.toml is not the marker — one naming THIS project is.
-
-        Most third-party checkouts ship a pyproject.toml. Stripping on its mere
-        presence would silently remove entries the router has no business
-        touching and break setups it knows nothing about.
-        """
-        with tempfile.TemporaryDirectory() as td:
-            other = _make_third_party_checkout(Path(td, "some-other-lib"))
-
-            state = _run_prologue(str(other), REPO_ROOT)
-
-            self.assertIn(
-                str(other),
-                state["pythonpath"],
-                "a third-party src/ was stripped; the marker must name this "
-                "project, not merely be a pyproject.toml",
-            )
+                self.assertIn(
+                    str(entry),
+                    state["pythonpath"],
+                    f"a {label} was stripped; only a src/ beside a "
+                    "pyproject.toml NAMING this project is ours",
+                )
 
     def test_empty_pythonpath_is_left_alone(self) -> None:
         state = _run_prologue("", REPO_ROOT)
