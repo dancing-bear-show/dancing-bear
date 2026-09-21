@@ -203,5 +203,86 @@ class TestGetFolderPathMap(OutlookMailTestBase):
         self.assertEqual(result.get("A/B"), "b-id")
 
 
+class TestResolveFolderPath(OutlookMailTestBase):
+    """``resolve_folder_path``: look up a folder path WITHOUT creating anything.
+
+    The non-mutating counterpart to ``ensure_folder_path``, added for callers that
+    must not change the mailbox -- previews above all. ``rules.plan`` and
+    ``rules.sync --dry-run`` previously fell back to the folder path string on a
+    cache miss while the apply resolved the real Graph id, so the two keyed the
+    same rule differently and the preview reported ``Would create`` for a rule the
+    live run treated as a no-op.
+
+    Tested against the real implementation rather than a stub: the parity tests in
+    tests/mail_tests/outlook/ mock this method, which proves the wiring but says
+    nothing about the method itself.
+    """
+
+    #: Archive/News nested under Archive, plus one top-level folder.
+    FOLDERS = [
+        {"id": "id-archive", "displayName": "Archive", "parentFolderId": None},
+        {"id": "id-news", "displayName": "News", "parentFolderId": "id-archive"},
+        {"id": "id-flat", "displayName": "Receipts", "parentFolderId": None},
+    ]
+
+    def _mock_tree(self, mock_requests_fn):
+        """Serve the folder tree, then empty child listings for the BFS walk."""
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.side_effect = [
+            make_mock_response({"value": list(self.FOLDERS)}),
+        ] + [make_mock_response({"value": []}) for _ in range(len(self.FOLDERS))]
+        return mock_requests
+
+    @patch("core.outlook._mail_folders._requests")
+    def test_resolves_a_nested_path(self, mock_requests_fn):
+        self._mock_tree(mock_requests_fn)
+
+        self.assertEqual(FakeMailClient().resolve_folder_path("Archive/News"), "id-news")
+
+    @patch("core.outlook._mail_folders._requests")
+    def test_resolves_a_flat_path(self, mock_requests_fn):
+        self._mock_tree(mock_requests_fn)
+
+        self.assertEqual(FakeMailClient().resolve_folder_path("Receipts"), "id-flat")
+
+    @patch("core.outlook._mail_folders._requests")
+    def test_absent_path_returns_empty_string(self, mock_requests_fn):
+        """A missing folder resolves to "" -- never a created folder, never a guess.
+
+        Callers distinguish "" from an id to decide whether the apply would have to
+        create the folder, which is what makes "Would create" honest.
+        """
+        self._mock_tree(mock_requests_fn)
+
+        self.assertEqual(FakeMailClient().resolve_folder_path("Archive/Missing"), "")
+
+    @patch("core.outlook._mail_folders._requests")
+    def test_never_posts(self, mock_requests_fn):
+        """The whole point: no POST, for a hit or a miss.
+
+        ``ensure_folder_path`` reaches ``ensure_folder`` / ``_ensure_child_folder``,
+        both of which POST to create. A preview calling those was a live defect on
+        the sync dry-run path, so this asserts on the transport rather than trusting
+        the call graph.
+        """
+        mock_requests = self._mock_tree(mock_requests_fn)
+
+        FakeMailClient().resolve_folder_path("Archive/Missing")
+
+        self.assertEqual(
+            mock_requests.post.call_count, 0,
+            "resolve_folder_path POSTed -- it must never create a folder",
+        )
+
+    def test_empty_path_raises(self):
+        """Matches ``ensure_folder_path``: an empty path is a caller error.
+
+        Returning "" instead would be indistinguishable from "folder not found",
+        hiding a malformed config behind a plausible-looking miss.
+        """
+        with self.assertRaises(ValueError):
+            FakeMailClient().resolve_folder_path("")
+
+
 if __name__ == "__main__":
     unittest.main()
