@@ -439,6 +439,9 @@ stages:
       tools: [Bash, Read, Write]
       access: read-write
     required: true
+    writes_to:
+      - concerns.json
+      - concerns-excluded.json
 
   # ===========================================================================
   # Group 2: Enumerate targets
@@ -526,6 +529,9 @@ stages:
       tools: [Read, Bash, Write]
       access: read-write
     required: true
+    writes_to:
+      - manifest.json
+      - fan-out-index.json
     outputs:
       - name: fan-out-index
         mode: generate
@@ -687,6 +693,8 @@ stages:
       tools: [Read, Grep, Bash, Write]
       access: read-write
     required: true
+    writes_to:
+      - cross-unit-findings.json
 
   # ===========================================================================
   # Group 4: Consolidate
@@ -763,6 +771,9 @@ stages:
       model: sonnet
       tools: [Read, Glob, Write]
       access: read-write
+    writes_to:
+      - consolidated.json
+      - consolidated-summary.md
     outputs:
       - name: consolidated-report
         mode: generate
