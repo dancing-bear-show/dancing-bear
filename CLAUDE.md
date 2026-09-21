@@ -313,9 +313,17 @@ they kept the old membership-only guard while the router had moved on. With a
 foreign checkout ahead of ours on `PYTHONPATH` they raised
 `ModuleNotFoundError: No module named 'core.llm_cli'` / `'core.path_guard'`, and
 against a *real* foreign checkout they would have silently run the other tree's
-code instead. If you add another standalone script under `bin/`, wire it to
-`bin/_pathrepair.py` too — `bin/_wrappers.yaml`'s `manual:` list is the inventory
-of scripts that need it.
+code instead. If you add another standalone script under `bin/` that imports a
+repo module, wire it to `bin/_pathrepair.py` too.
+
+Do **not** treat `bin/_wrappers.yaml`'s `manual:` list as that inventory — it is
+a generator exclusion list, not a hazard list, and it is incomplete for this
+purpose: `bootstrap`, `bootstrap-otel`, `pr-assistant`, `worker-install-launchd`,
+and `worker-wait` are all standalone scripts absent from it. The test that
+matters is narrower than "is it a script": **does it import a repo module?**
+Only `bin/bootstrap` did among those five — `worker-wait`'s `python3 -c` touches
+`sys` and `json` only, which a foreign checkout cannot shadow. Check the
+imports, not the file list.
 
 **`sitecustomize` is a gap none of this closes.** Python imports
 `sitecustomize`/`usercustomize` from `PYTHONPATH` entries during interpreter
@@ -349,7 +357,8 @@ cd .claude/worktrees/<wt> && direnv allow .
 
 Until you do, a `SessionStart` hook (`.claude/scripts/check-pythonpath.sh`)
 warns whenever `PYTHONPATH` names another checkout of this project, and the
-router and Makefile keep `./bin/*` and `make` correct regardless.
+repair plus the Makefile keep the CLI entry points and `make` correct
+regardless.
 
 **Any `SessionStart` hook that runs Python MUST use `python3 -I -S`.** These
 hooks execute with the session's environment, which is exactly when `PYTHONPATH`
@@ -369,10 +378,16 @@ What still redirects the import:
   bare `python3 -c ...`, `python3 -m unittest`, or an ad-hoc probe. `PYTHONPATH`
   entries land ahead of the editable install's `.pth`, so another checkout's
   `src/` wins and the command reports behaviour from source you are not editing.
-  `./bin/*` and `make` are immune (see above); nothing else is. This is the one
-  that keeps biting — it caused three separate misdiagnoses in a single session,
-  including one probe that returned a confident wrong answer about whether a
-  guard was load-bearing
+  The CLI entry points and `make` are immune (see above); assume nothing else
+  is. This is the one that keeps biting — it caused three separate misdiagnoses
+  in a single session, including one probe that returned a confident wrong
+  answer about whether a guard was load-bearing.
+  "Everything under `bin/` is covered" is the wrong mental model, and stating it
+  that way hid a live bug twice: `bin/llm` and `bin/path-guard` are standalone
+  scripts rather than router symlinks, and `bin/bootstrap` is **bash**, so a
+  scan for Python `sys.path` guards never saw its
+  `.venv/bin/python -c "import mail; …"` verify step at all. Coverage follows
+  the code, not the directory
 - **Invoking a wrapper by absolute path** from another checkout — that runs
   *that* checkout's source, correctly and by design
 - **A `.venv` whose editable install points elsewhere** — each worktree's

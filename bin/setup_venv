@@ -22,4 +22,8 @@ chmod +x bin/mail || true
 
 echo "Virtual env ready: .venv"
 echo "Console script available after install: mail-assistant"
-echo "Run: .venv/bin/python -m unittest -v"
+# Advise `make test`, not a bare `python -m unittest`. An inherited PYTHONPATH
+# naming another checkout of this repo outranks the editable install, so the
+# bare form silently tests the OTHER tree and reports a green that means
+# nothing. `make test` pins PYTHONPATH to this checkout.
+echo "Run: make test"

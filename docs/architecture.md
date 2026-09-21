@@ -75,25 +75,62 @@ Two independent ways in, and both import the same domain module directly.
   and calls that module's `main(argv)` with the remaining argv.
 - `./bin/<app> <subcommand>`: the standalone wrapper.
 
-Every `bin/*` wrapper is a **symlink to `bin/_router.py`**. The router:
+*Most* `bin/*` wrappers are **symlinks to `bin/_router.py`** — but not all. A few
+are standalone scripts with custom logic (`bin/llm`, `bin/path-guard`, the `ios-*`
+tools); `bin/_wrappers.yaml`'s `manual:` list is the inventory. The distinction
+matters whenever you change how entry points bootstrap, because the symlinks all
+inherit a fix for free and the standalone scripts do not.
+
+The router:
 
 1. resolves the repo root *through the symlink*: `Path(__file__).resolve()`
-   follows it, so `_REPO_ROOT` is always the real repo (`_router.py:35`);
-2. re-execs under that repo's `.venv/bin/python3` when one exists
-   (`_router.py:36-51`), guarded by a sentinel so it cannot loop;
-3. inserts that repo's `src/` on `sys.path` (`_router.py:53-55`);
-4. derives the target module from `sys.argv[0]` via the generated `_MODULE_MAP`.
+   follows it, so `_REPO_ROOT` is always the real repo (`_router.py:36`);
+2. strips foreign `PYTHONPATH` entries **before** re-execing, so the correction
+   is inherited across the exec (see below);
+3. re-execs under that repo's `.venv/bin/python3` when one exists
+   (`_router.py:74`), guarded by a sentinel so it cannot loop;
+4. forces that repo's `src/` to the *front* of `sys.path`;
+5. derives the target module from `sys.argv[0]` via the generated `_MODULE_MAP`.
 
 `bin/_gen_wrappers.py` generates that map from `bin/_wrappers.yaml`. Run
-`make bin-wrappers` after editing the YAML; don't hand-edit the router.
+`make bin-wrappers` after editing the YAML; don't hand-edit the router —
+`make bin-wrappers-check` fails if you do.
 
-> **Gotcha worth learning early.** An inherited `PYTHONPATH` beats both the
-> editable install and the router's own `sys.path` insert, so a wrapper run from
-> your worktree can load *another checkout's* code and print pre-change behavior.
-> Before concluding an edit didn't take effect, run
+### The foreign-PYTHONPATH repair
+
+`.envrc` exports `PYTHONPATH="$PWD/src"`, and direnv loads the `.envrc` of
+whichever checkout your shell *started* in. A worktree's `.envrc` is a different
+file that direnv has not been told to trust, so in a worktree `PYTHONPATH` keeps
+pointing at the **main** checkout — and a `PYTHONPATH` entry outranks the
+editable install's `.pth`, so even the worktree's own `.venv` resolved `mail`,
+`resume`, and `core` to the other tree.
+
+`bin/_pathrepair.py` is the single implementation. Every entry point loads it by
+explicit filesystem path rather than by `import`: a module whose job is to repair
+the import path cannot depend on that path already being correct, and a plain
+`import` could silently load a *foreign* copy and repair nothing. It drops
+`PYTHONPATH` entries that are another checkout's `src/` — identified by a sibling
+`pyproject.toml` naming this project, deliberately narrow so unrelated
+third-party entries survive — and then forces our own `src/` to the front.
+
+Both routes are covered: the router symlinks, and the standalone `bin/llm` and
+`bin/path-guard`, which call the same module. `DANCING_BEAR_PATH_DEBUG=1` prints
+what was dropped. `tests/infra/test_pathrepair_shared.py` and
+`tests/infra/test_router_pythonpath.py` pin it, including cases that execute the
+real binaries.
+
+> **Gotcha worth learning early.** `./bin/*` and `make` correct this for you.
+> A bare `python3` does **not** — an inherited `PYTHONPATH` beats the editable
+> install, so an ad-hoc `python3 -c`, `python3 -m unittest`, or a one-off probe
+> can load *another checkout's* code and print pre-change behavior. Before
+> concluding an edit didn't take effect, run
 > `python3 -c "import resume; print(resume.__file__)"`. If that path isn't under
-> the tree you're editing, the environment is wrong, not your change. The same
-> root cause makes bare `python3 -m unittest` unsafe here; use `make test`.
+> the tree you're editing, the environment is wrong, not your change. Use
+> `make test`, never a bare `python3 -m unittest`.
+>
+> One limit no wrapper can close: Python imports `sitecustomize`/`usercustomize`
+> from `PYTHONPATH` entries during interpreter startup, before any Python-level
+> guard exists. That is why `SessionStart` hooks must use `python3 -I -S`.
 
 ## 3. The CLI framework
 
