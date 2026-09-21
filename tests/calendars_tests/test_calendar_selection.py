@@ -10,7 +10,7 @@ from __future__ import annotations
 import datetime as _dt
 import unittest
 
-from calendars.selection import compute_window, filter_events_by_day_time
+from calendars.selection import _parse_dt, compute_window, filter_events_by_day_time
 
 
 class TestComputeWindow(unittest.TestCase):
@@ -358,6 +358,46 @@ class TestFilterEventsUtcToLocal(unittest.TestCase):
             evs, byday=["SU"], start_time="10:30", end_time="11:30", tz=self.TZ
         )
         self.assertEqual(len(matches), 1)
+
+
+class TestParseDtGraphFractionalSeconds(unittest.TestCase):
+    """Pin the assumption that let a fraction-trimming fallback be removed.
+
+    ``_parse_dt`` once retried through a helper that stripped an "over-long"
+    fractional part, on the premise that ``fromisoformat`` rejects Graph's
+    seven digits. It does not, on any Python this project supports, so the
+    retry path was unreachable and untested. These tests fail if that premise
+    ever stops holding, rather than letting a silent parse failure surface as
+    an event that cannot be matched.
+    """
+
+    GRAPH_FORMS = (
+        "2026-09-27T14:30:00.0000000",
+        "2026-09-27T14:30:00.0000000+00:00",
+        "2026-09-27T14:30:00.0000000-04:00",
+        "2026-09-27T14:30:00.1234567-04:00",
+    )
+
+    def test_graph_seven_digit_fraction_parses_directly(self):
+        for raw in self.GRAPH_FORMS:
+            with self.subTest(raw=raw):
+                self.assertIsNotNone(
+                    _parse_dt(raw), f"fromisoformat no longer accepts {raw!r}"
+                )
+
+    def test_offset_is_preserved_not_collapsed_to_utc(self):
+        # The reason this does not delegate to core.date_utils.parse_iso_utc:
+        # that helper returns the instant in UTC, losing the local offset
+        # _as_local needs to express it in a target zone.
+        parsed = _parse_dt("2026-09-27T10:30:00-04:00")
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.utcoffset(), _dt.timedelta(hours=-4))
+        self.assertEqual(parsed.hour, 10)
+
+    def test_unparseable_returns_none(self):
+        for raw in ("", "   ", "not-a-date", "2026-13-45T99:99:99"):
+            with self.subTest(raw=raw):
+                self.assertIsNone(_parse_dt(raw))
 
 
 if __name__ == "__main__":  # pragma: no cover
