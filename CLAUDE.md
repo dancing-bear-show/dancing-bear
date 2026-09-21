@@ -288,13 +288,40 @@ plainly in the file, which looks exactly like "the fix didn't work."
 
 **`./bin/*` and `make` are now both safe. A bare `python3` is not.**
 
-`bin/_router.py` self-heals: before it re-execs, it drops any `PYTHONPATH` entry
-that is a *different* checkout's `src/` (identified by a sibling
-`pyproject.toml`), rewrites the variable so the re-exec and any child process
-inherit the correction, and forces its own `src/` to the front of `sys.path`.
-Set `DANCING_BEAR_PATH_DEBUG=1` to see what it dropped. `tests/infra/
-test_router_pythonpath.py` pins this; 4 of its 5 cases fail if the repair is
-removed.
+The repair lives in one place, `bin/_pathrepair.py`, and every entry point loads
+it by explicit filesystem path rather than by `import` — a module whose job is to
+fix a broken import path cannot depend on that path already being correct, and a
+plain `import` could silently load a *foreign* checkout's copy and repair
+nothing.
+
+Before re-execing, each entry point drops any `PYTHONPATH` entry that is a
+*different* checkout's `src/` (identified by a sibling `pyproject.toml` that
+names **this** project — deliberately narrow, so unrelated third-party entries
+survive), rewrites the variable so the re-exec and any child process inherit the
+correction, and then forces its own `src/` to the *front* of `sys.path`. Set
+`DANCING_BEAR_PATH_DEBUG=1` to see what was dropped.
+
+Coverage is all of `bin/`, by two different routes: the generated wrappers are
+symlinks to `bin/_router.py`, while `bin/llm` and `bin/path-guard` are standalone
+scripts that call the same shared module. Both routes are pinned by
+`tests/infra/test_pathrepair_shared.py` and `tests/infra/test_router_pythonpath.py`,
+including end-to-end cases that execute the real binaries. Revert the repair and
+those suites go red.
+
+`bin/llm` and `bin/path-guard` were **not** covered until #368's follow-up commit:
+they kept the old membership-only guard while the router had moved on. With a
+foreign checkout ahead of ours on `PYTHONPATH` they raised
+`ModuleNotFoundError: No module named 'core.llm_cli'` / `'core.path_guard'`, and
+against a *real* foreign checkout they would have silently run the other tree's
+code instead. If you add another standalone script under `bin/`, wire it to
+`bin/_pathrepair.py` too — `bin/_wrappers.yaml`'s `manual:` list is the inventory
+of scripts that need it.
+
+**`sitecustomize` is a gap none of this closes.** Python imports
+`sitecustomize`/`usercustomize` from `PYTHONPATH` entries during interpreter
+startup — before any Python-level guard can run. A foreign checkout's
+`sitecustomize.py` therefore executes under every wrapper, the router included.
+That is why the `python3 -I -S` rule below exists, and why it is not optional.
 
 This previously read "the `bin/*` wrappers are **not** at fault." That was
 wrong, and measurably so: with `PYTHONPATH` pointing at the main checkout, a
