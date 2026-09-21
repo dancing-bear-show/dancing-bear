@@ -31,6 +31,30 @@ from .parser_errors import WorkflowParseError
 logger = logging.getLogger(__name__)
 
 
+def _param_default(name: str, value: Any, source: str) -> str:
+    """Normalise one declared trigger param to its default string.
+
+    Two declaration forms are in use, and both must yield the same thing --
+    the param's default value::
+
+        pr_size: "small"                                     # scalar form
+        pr_size: {type: string, default: small, description: ...}  # mapping
+
+    The mapping form previously fell through to ``str(value)``, which
+    stringified the whole dict, so ``{pr_size}`` substituted the literal text
+    ``{'type': 'string', 'default': 'small', ...}`` into commands and into
+    ``when:`` expressions rather than ``small``.
+    """
+    if not isinstance(value, dict):
+        return str(value)
+    if "default" not in value:
+        raise WorkflowParseError(
+            f"{source}: trigger param {name!r} is declared as a mapping but has no"
+            " 'default' key; add one or declare it as a plain scalar"
+        )
+    return str(value["default"])
+
+
 def _parse_trigger(data: dict[str, Any], source: str) -> TriggerSpec:
     if not isinstance(data, dict):
         raise WorkflowParseError(f"{source}: 'trigger' must be a mapping")
@@ -41,7 +65,7 @@ def _parse_trigger(data: dict[str, Any], source: str) -> TriggerSpec:
         raise WorkflowParseError(f"{source}: trigger 'params' must be a mapping, got {type(params).__name__}")
     return TriggerSpec(
         source=data["source"],
-        params={str(k): str(v) for k, v in params.items()},
+        params={str(k): _param_default(str(k), v, source) for k, v in params.items()},
     )
 
 

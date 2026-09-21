@@ -9,12 +9,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
 from core.fileutil import write_once
 from workflow.cli_helpers import check_workflow_path
-from workflow.compiler import validate_dag_contracts
+from workflow.compiler import resolve_params, validate_dag_contracts
 from workflow.include import extract_include_entries, resolve_fragment_path
 
 
@@ -52,7 +53,7 @@ def _fragment_bytes(
 # schema change is still served and silently lacks the new fields — e.g. a
 # pre-existing cache would drop agent_isolation, making `isolation: worktree` a
 # no-op again for any workflow that had already been compiled once.
-_COMPILE_PAYLOAD_SCHEMA = 3
+_COMPILE_PAYLOAD_SCHEMA = 4
 
 
 def _compile_cache_path(
@@ -119,6 +120,32 @@ def _write_once(path: Path, content: bytes) -> None:
         pass
 
 
+def _eval_when_for_manifest(when: str | None, params: dict[str, str]) -> bool:
+    """Whether a stage's ``when`` holds, for the compiled manifest.
+
+    Mirrors ``orchestrator._eval_when`` exactly, including its "unresolved
+    placeholder is left as-is" behaviour, so the manifest cannot disagree with
+    the runtime about which branch executes. An unrecognised expression
+    returns True (run it) rather than raising: the compiler already rejects
+    malformed ``when`` clauses via ``_validate_when``, and a manifest field is
+    not the place to fail a build.
+    """
+    if when is None:
+        return True
+
+    expr = resolve_params(when, params)
+
+    m = re.fullmatch(r'"(.*?)"\s+does not contain\s+"(.*?)"', expr)
+    if m:
+        return m.group(2) not in m.group(1)
+
+    m = re.fullmatch(r'"(.*?)"\s+contains\s+"(.*?)"', expr)
+    if m:
+        return m.group(2) in m.group(1)
+
+    return True
+
+
 def _build_compile_payload(path: str) -> dict:
     """Load + compile the workflow and build the cache payload dict."""
     from workflow.cli_dispatch import _load_manifest
@@ -151,6 +178,14 @@ def _build_compile_payload(path: str) -> dict:
         "agent_role": r.spec.agent.role if r.spec.agent else None,
         "agent_model": r.spec.agent.model if r.spec.agent else None,
         "agent_isolation": r.spec.agent.isolation if r.spec.agent else None,
+        # A conditional stage is only dispatchable if its `when` holds. Without
+        # these two fields the manifest lists mutually-exclusive stages as
+        # equally runnable, so an orchestrator trusting `resolutions` alone
+        # runs BOTH branches -- and two stages writing the same declared output
+        # silently clobber each other. `when` carries the raw expression;
+        # `will_run` carries the decision against the resolved trigger params.
+        "when": r.spec.when,
+        "will_run": _eval_when_for_manifest(r.spec.when, defn.trigger.params),
     } for name, r in manifest.resolved_stages.items()]
     warnings = [{"stage": w.stage, "upstream": w.upstream, "message": w.message}
                 for w in contract_warnings]

@@ -6,11 +6,13 @@ constructs a fully typed ``WorkflowDefinition``.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from .models import WorkflowDefinition
 from .include import (
     FragmentContext,
+    collect_include_params,
     parse_fragment,  # re-exported for backward compat — keep in __all__
     _parse_include,
     _expand_includes,
@@ -80,7 +82,16 @@ def parse_workflow_str(content: str, source: str = "<string>") -> WorkflowDefini
     includes = tuple(_parse_include(inc, source) for inc in raw_includes)
     if includes:
         source_path = Path(source) if source != "<string>" else None
-        stages = _expand_includes(stages, includes, FragmentContext(source=source, source_path=source_path))
+        frag_ctx = FragmentContext(source=source, source_path=source_path)
+        stages = _expand_includes(stages, includes, frag_ctx)
+
+        # Fragments declare trigger params their own inlined stages reference.
+        # Layer them UNDER the importing workflow's own params so a local
+        # declaration still wins; caller --params override both downstream.
+        inherited = collect_include_params(includes, frag_ctx)
+        if inherited:
+            merged = {**inherited, **trigger.params}
+            trigger = replace(trigger, params=merged)
 
     _validate_unique_names(stages, source)
     _validate_refs(stages, source)

@@ -505,5 +505,105 @@ class TestCmdCompile(unittest.TestCase):
             self.assertEqual(rc, 1)
 
 
+# ---------------------------------------------------------------------------
+# `when` visibility in the compiled manifest
+# ---------------------------------------------------------------------------
+
+
+_CONDITIONAL_YAML = (
+    "name: conditional-wf\n"
+    'version: "1.0"\n'
+    "description: Two mutually-exclusive branches\n"
+    "trigger:\n"
+    "  source: manual\n"
+    "  params:\n"
+    "    mode: fast\n"
+    "stages:\n"
+    "  - name: always\n"
+    "    kind: execute\n"
+    "    description: Runs unconditionally\n"
+    "    agent:\n"
+    "      role: doc-writer\n"
+    "  - name: fast-path\n"
+    "    kind: execute\n"
+    "    description: Fast branch\n"
+    "    agent:\n"
+    "      role: doc-writer\n"
+    "    when: '\"{mode}\" contains \"fast\"'\n"
+    "  - name: slow-path\n"
+    "    kind: execute\n"
+    "    description: Slow branch\n"
+    "    agent:\n"
+    "      role: doc-writer\n"
+    "    when: '\"{mode}\" does not contain \"fast\"'\n"
+)
+
+
+class TestManifestWhenVisibility(unittest.TestCase):
+    """The manifest must say which conditional stages actually run.
+
+    Without `when`/`will_run`, mutually-exclusive stages are listed as equally
+    runnable, so an orchestrator dispatching from `resolutions` alone runs BOTH
+    branches — and two stages declaring the same output silently clobber each
+    other.
+    """
+
+    def _resolutions(self, yaml_text: str = _CONDITIONAL_YAML) -> dict:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "wf.yaml"
+            path.write_text(yaml_text)
+            payload = _build_compile_payload(str(path))
+        return {r["stage"]: r for r in payload["resolutions"]}
+
+    def test_resolutions_carry_the_when_expression(self):
+        res = self._resolutions()
+        self.assertIsNone(res["always"]["when"])
+        self.assertIn("contains", res["fast-path"]["when"])
+
+    def test_will_run_reflects_the_resolved_param(self):
+        res = self._resolutions()
+        self.assertTrue(res["fast-path"]["will_run"])
+        self.assertFalse(res["slow-path"]["will_run"])
+
+    def test_unconditional_stage_always_runs(self):
+        self.assertTrue(self._resolutions()["always"]["will_run"])
+
+    def test_exactly_one_branch_runs(self):
+        res = self._resolutions()
+        running = [n for n in ("fast-path", "slow-path") if res[n]["will_run"]]
+        self.assertEqual(running, ["fast-path"])
+
+    def test_flipping_the_param_flips_the_branch(self):
+        res = self._resolutions(_CONDITIONAL_YAML.replace("    mode: fast", "    mode: slow"))
+        self.assertFalse(res["fast-path"]["will_run"])
+        self.assertTrue(res["slow-path"]["will_run"])
+
+    def test_manifest_agrees_with_the_runtime_evaluator(self):
+        # The manifest disagreeing with the orchestrator would be worse than
+        # omitting the field, so pin them to the same answer.
+        import re
+
+        from workflow.compiler import resolve_params
+
+        def runtime_eval(when, params):
+            if when is None:
+                return True
+            expr = resolve_params(when, params)
+            m = re.fullmatch(r'"(.*?)"\s+does not contain\s+"(.*?)"', expr)
+            if m:
+                return m.group(2) not in m.group(1)
+            m = re.fullmatch(r'"(.*?)"\s+contains\s+"(.*?)"', expr)
+            if m:
+                return m.group(2) in m.group(1)
+            return True
+
+        res = self._resolutions()
+        params = {"mode": "fast"}
+        for name, r in res.items():
+            self.assertEqual(
+                r["will_run"], runtime_eval(r["when"], params), f"disagreement on {name}"
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
