@@ -56,7 +56,15 @@ emit() {
   printf '{"systemMessage": "%s"}\n' "$msg"
 }
 
-cwd_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+# Sentinel-guarded like every other path capture here: `git rev-parse` prints
+# the toplevel followed by a newline, and command substitution cannot tell that
+# newline from one belonging to the path. Truncating here is the most damaging
+# of the four sites — own_src is derived from cwd_root, so a stripped root makes
+# own_src disagree with the correctly-resolved entry and the hook warns that our
+# OWN src/ is a foreign checkout, on every session start.
+cwd_root=$(git rev-parse --show-toplevel 2>/dev/null && printf '.') || exit 0
+cwd_root=${cwd_root%.}
+cwd_root=${cwd_root%$'\n'}
 [ -n "$cwd_root" ] || exit 0
 
 # No PYTHONPATH at all is fine: the editable install resolves correctly.
@@ -66,9 +74,29 @@ cwd_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 # Comparing a physical entry against a logical own_src would fail to recognise
 # our own src/ when the checkout itself sits behind a symlink, and we would warn
 # about ourselves.
+# Deliberately NOT sentinel-guarded, unlike cwd_root above and the split and
+# expansions below. `pwd -P` can only lose a newline that is in the FINAL
+# component, and the basename check below admits an entry only when that
+# component is exactly `src` — a path ending in `src\n` has basename `src\n`
+# and is skipped before own_src is ever compared. The two conditions are
+# mutually exclusive, so a guard here would be unreachable and untestable.
+# cwd_root's guard is what actually matters: own_src is derived from it, and a
+# newline anywhere in a PARENT component does reach this line.
 own_src=$(cd "$cwd_root/src" 2>/dev/null && pwd -P) || own_src="$cwd_root/src"
 foreign=""
-IFS=':' read -r -a entries <<< "$PYTHONPATH"
+# Split on ':' ONLY. `IFS=':' read -r -a entries <<< "$PYTHONPATH"` looks
+# equivalent but is not: `read` is line-oriented, so it stops at the first
+# newline in the here-string. A checkout path legally containing a newline
+# therefore lost that entry and everything after it — the truncation happened
+# here, before the per-entry `pwd -P` ever ran. bin/_pathrepair.py splits on
+# os.pathsep with no such limit, so the shell and Python layers disagreed about
+# the same PYTHONPATH: ./bin/* got repaired while the user went unwarned.
+# The trailing ':' makes the final entry terminated like the rest; `|| [ -n ]`
+# then catches it when the input does not end in a separator.
+entries=()
+while IFS= read -r -d ':' entry || [ -n "$entry" ]; do
+  entries+=("$entry")
+done < <(printf '%s:' "$PYTHONPATH")
 for entry in "${entries[@]}"; do
   [ -n "$entry" ] || continue
   # Canonicalize FIRST, then inspect. Testing the raw string would miss a
@@ -80,15 +108,29 @@ for entry in "${entries[@]}"; do
   # `pwd -P` (physical), not bare `pwd`: bare pwd reports the LOGICAL path, so
   # cd'ing into a symlink returns the symlink's own path and the basename check
   # below still sees `current-src` rather than `src`.
-  resolved=$(cd "$entry" 2>/dev/null && pwd -P) || continue
+  # The sentinel `.` survives command substitution's trailing-newline strip, so
+  # a checkout whose physical path legally ends in a newline is not truncated
+  # before the basename and marker checks below. Without it that path is
+  # silently missed here while bin/_pathrepair.py handles it correctly, leaving
+  # the shell and Python layers disagreeing about the same PYTHONPATH.
+  # The sentinel must be appended by a SEPARATE command, not by
+  # `printf '%s.' "$(pwd -P)"`: that inner substitution strips the newline
+  # before printf ever sees it, which defeats the whole point.
+  resolved=$(cd "$entry" 2>/dev/null && { pwd -P; printf '.'; }) || continue
+  resolved=${resolved%.}       # drop the sentinel
+  resolved=${resolved%$'\n'}   # drop the single newline `pwd -P` itself emits
   # Only care about entries that are a `src/` dir of some checkout of THIS
   # project. Unrelated PYTHONPATH entries are none of our business.
-  case "$(basename "$resolved")" in src) ;; *) continue ;; esac
+  # Parameter expansion, not `$(basename ...)`/`$(dirname ...)`: those are
+  # command substitutions and strip trailing newlines all over again, which is
+  # what defeated the sentinel above. `${x##*/}` and `${x%/*}` are pure string
+  # operations and leave the path byte-exact.
+  case "${resolved##*/}" in src) ;; *) continue ;; esac
   # The marker must identify THIS project, not merely "some Python project".
   # A sibling pyproject.toml alone is far too broad — most third-party checkouts
   # have one, so that would warn about paths we have no business touching and
   # train the reader to ignore the warning.
-  proj="$(dirname "$resolved")/pyproject.toml"
+  proj="${resolved%/*}/pyproject.toml"
   [ -f "$proj" ] || continue
   grep -qE '^name *= *"personal-assistants"' "$proj" 2>/dev/null || continue
   [ "$resolved" = "$own_src" ] && continue

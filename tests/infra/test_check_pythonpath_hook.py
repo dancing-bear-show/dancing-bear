@@ -40,6 +40,29 @@ def _run_hook(pythonpath: str | None) -> subprocess.CompletedProcess[str]:
     )
 
 
+#: The EXACT argv of the diagnostic the hook advises, as tokenized by
+#: ``shlex.split``. ``test_the_advised_diagnostic_is_itself_safe`` runs this
+#: command for real, so it is pinned rather than trusted: the hook is a tracked
+#: file, and a branch that rewrote its advised line would otherwise turn this
+#: suite into an execution sink for arbitrary code. Shape checks alone cannot
+#: close that — ``-I -S`` isolates imports, it does not sandbox ``os.system``.
+#:
+#: Changing the hook's advised line SHOULD fail that test. Read the replacement
+#: first, confirm it still resolves without importing, then update this list.
+EXPECTED_DIAGNOSTIC_ARGV = [
+    "python3",
+    "-I",
+    "-S",
+    "-c",
+    (
+        "import importlib.util as u, os, sys; "
+        "sys.path[:0] = os.environ.get('PYTHONPATH','').split(os.pathsep); "
+        "s = u.find_spec('resume'); "
+        "print(s.origin if s else 'not found')"
+    ),
+]
+
+
 def _make_fake_checkout(root: Path) -> Path:
     """A decoy checkout of THIS project: src/ plus a matching pyproject.toml."""
     (root / "src").mkdir(parents=True)
@@ -381,33 +404,36 @@ class TestCheckPythonpathHook(unittest.TestCase):
                 "code from whichever checkout wins",
             )
 
-            # Tokenize and run WITHOUT a shell. `advised` comes from a tracked,
-            # branch-controlled file, so `shell=True` made this test a
-            # code-execution sink: a PR could append `; <anything>` to that line
-            # and CI would run it. Demonstrated before fixing — an injected
-            # `touch` fired and the test still reported OK, which is the worst
-            # combination.
+            # Tokenize and compare against a PINNED expectation before running.
+            # `advised` comes from a tracked, branch-controlled file, so this
+            # test executes whatever that line says. `shell=True` made it a
+            # code-execution sink outright (an injected `touch` fired while the
+            # test still reported OK), but dropping to shell=False only closed
+            # the metacharacter route: `-I -S` is an import-isolation flag pair,
+            # not a sandbox. A PR could rewrite the line to a perfectly valid
+            #   python3 -I -S -c 'import os; os.system("...")'
+            # which satisfies every shape check — right argv[0], -I, -S, -c, one
+            # payload — and CI would run it.
             #
-            # The argv is validated before execution rather than trusted, so a
-            # rewritten line fails the assertions instead of running.
+            # So the payload itself is pinned, not just the shape. Any edit to
+            # the hook's advised line fails this assertion instead of executing,
+            # and updating EXPECTED_DIAGNOSTIC_ARGV below is a deliberate act a
+            # reviewer can see in the diff.
             argv = shlex.split(advised)
-            self.assertTrue(argv, f"advised line did not tokenize: {advised!r}")
-            self.assertRegex(
-                argv[0],
-                r"(^|/)python(3(\.\d+)?)?$",
-                f"advised command does not invoke python: {argv[0]!r}",
-            )
-            self.assertIn("-I", argv, "advised diagnostic is not isolated")
-            self.assertIn("-S", argv, "advised diagnostic is not isolated")
-            self.assertIn("-c", argv, "advised diagnostic is not a -c one-liner")
-            # Exactly one argument after -c: a shell would have split further.
+            self.assertTrue(advised, f"advised line did not tokenize: {advised!r}")
             self.assertEqual(
-                len(argv) - argv.index("-c"),
-                2,
-                f"unexpected trailing arguments after -c: {argv!r}",
+                argv,
+                EXPECTED_DIAGNOSTIC_ARGV,
+                "the hook's advised diagnostic changed.\n"
+                "This test EXECUTES that line, so it is pinned rather than\n"
+                "trusted. Review the new command — confirm it neither imports\n"
+                "the module under test nor runs anything else — then update\n"
+                "EXPECTED_DIAGNOSTIC_ARGV in this file to match.\n"
+                f"  expected: {EXPECTED_DIAGNOSTIC_ARGV!r}\n"
+                f"  actual:   {argv!r}",
             )
 
-            proc = subprocess.run(  # nosec B603 - argv validated above, no shell
+            proc = subprocess.run(  # nosec B603 - argv pinned above, no shell
                 argv,
                 capture_output=True,
                 text=True,
@@ -419,6 +445,130 @@ class TestCheckPythonpathHook(unittest.TestCase):
             self.assertNotIn("PWNED_IMPORT", combined)
             # Safe is not enough — it must still give the right answer.
             self.assertIn(str(foreign / "resume"), proc.stdout)
+
+    def test_a_tampered_advised_line_is_rejected_not_executed(self) -> None:
+        """A rewritten advised line must fail the pin, not run.
+
+        This is the gap that shape-only validation left open. The payload below
+        is a *valid* `python3 -I -S -c <one string>` invocation: correct argv[0],
+        both isolation flags present, exactly one argument after -c. Every check
+        the shape-based version made would pass it, and it would then be handed
+        to subprocess.run and executed.
+
+        `-I -S` governs where imports come from; it does nothing to stop the
+        payload calling out. So the guard has to be the pinned argv, and this
+        test exists to prove that pin actually rejects a plausible tamper rather
+        than merely being present.
+        """
+        tampered = (
+            "python3 -I -S -c 'import os; os.system(\"echo PWNED_TAMPER\")'"
+        )
+        argv = shlex.split(tampered)
+
+        # The tamper clears every shape check the previous version relied on,
+        # which is exactly why those checks were not sufficient on their own.
+        self.assertRegex(argv[0], r"(^|/)python(3(\.\d+)?)?$")
+        self.assertIn("-I", argv)
+        self.assertIn("-S", argv)
+        self.assertIn("-c", argv)
+        self.assertEqual(len(argv) - argv.index("-c"), 2)
+
+        # The pin is what catches it. Compared, never executed.
+        self.assertNotEqual(
+            argv,
+            EXPECTED_DIAGNOSTIC_ARGV,
+            "a tampered diagnostic matched the pinned argv",
+        )
+
+    def test_a_checkout_path_ending_in_a_newline_is_still_detected(self) -> None:
+        """A trailing newline in the checkout path must not hide the warning.
+
+        Command substitution strips ALL trailing newlines, so the plain
+        `resolved=$(cd "$entry" && pwd -P)` truncated such a path before the
+        basename check ran: `.../weird\\n/src` came back as `.../weird/src`
+        only by luck of the basename still being `src`, while a checkout dir
+        itself ending in a newline lost the character entirely and the marker
+        lookup then read the wrong pyproject.toml path.
+
+        bin/_pathrepair.py handles this correctly via pathlib, so without the
+        sentinel the shell and Python layers disagree about the same
+        PYTHONPATH: the import is repaired for ./bin/* while the user is never
+        warned about their bare-python3 hazard.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            # A directory whose name genuinely ends in a newline. POSIX allows
+            # any byte but NUL and '/' in a path component.
+            odd = Path(td, "checkout\n")
+            foreign = _make_fake_checkout(odd)
+
+            result = _run_hook(str(foreign))
+
+            self.assertEqual(result.returncode, 0)
+            self.assertTrue(
+                result.stdout.strip(),
+                "hook stayed silent about a foreign checkout whose path ends "
+                "in a newline — the trailing-newline strip hid it",
+            )
+            message = json.loads(result.stdout)["systemMessage"]
+            self.assertIn(
+                "another checkout",
+                message,
+                f"expected the foreign-checkout warning, got: {message!r}",
+            )
+
+    def test_own_src_ending_in_a_newline_is_not_reported_as_foreign(self) -> None:
+        """The `pwd -P` sentinel: own_src must survive the newline intact.
+
+        This is the one truncation site the sibling newline test cannot reach.
+        There the newline sits in a PARENT component (`checkout\\n/src`), so the
+        split and the basename/dirname expansions are what mattered and
+        `pwd -P` was never handed a path whose FINAL component ends in a
+        newline.
+
+        Here it is. `own_src` is resolved with `pwd -P` from $cwd_root/src, and
+        each entry the same way; if only one of them is sentinel-guarded the two
+        strings stop matching and the hook reports OUR OWN src/ as a foreign
+        checkout — a false warning on every single session start.
+
+        Modelled by pointing the hook at a checkout whose physical path ends in
+        a newline and passing that same src/ as PYTHONPATH. Correct behaviour is
+        silence: it is us, not another tree.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            # Final component ends in a newline — what `pwd -P` must preserve.
+            odd_root = Path(td, "checkout\n")
+            (odd_root / "src").mkdir(parents=True)
+            (odd_root / "pyproject.toml").write_text(
+                '[project]\nname = "personal-assistants"\nversion = "0.1.0"\n'
+            )
+            # A git repo, so `git rev-parse --show-toplevel` names this tree and
+            # the hook treats it as the current checkout rather than bailing.
+            subprocess.run(  # nosec B603 B607 - fixed argv, temp dir
+                ["git", "init", "-q"],
+                cwd=str(odd_root),
+                capture_output=True,
+                timeout=30,
+                check=False,
+            )
+
+            env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+            env["PYTHONPATH"] = str(odd_root / "src")
+            result = subprocess.run(  # nosec B603 B607 - in-repo script
+                ["bash", str(HOOK)],
+                capture_output=True,
+                text=True,
+                cwd=str(odd_root),
+                env=env,
+                timeout=30,
+            )
+
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(
+                result.stdout.strip(),
+                "",
+                "the hook warned about our OWN src/ — own_src and the resolved "
+                "entry disagree because one of them lost its trailing newline",
+            )
 
     def test_control_characters_in_a_path_still_emit_valid_json(self) -> None:
         """A tab or CR in a checkout path must not break the JSON contract.
