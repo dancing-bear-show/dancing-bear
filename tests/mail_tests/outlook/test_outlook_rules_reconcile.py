@@ -1344,6 +1344,95 @@ class TestUnmappableConditionsAreNotRewritten(unittest.TestCase):
         self.assertEqual(envelope.payload.created, 1)
         self.assertEqual(client.create_filter.call_count, 1)
 
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_protected_even_when_a_mappable_sibling_matches_first(self, mock_norm, mock_load):
+        """An unmappable rule is protected because it EXISTS, not because a spec hit it.
+
+        Regression on a hole in the first cut of this protection. Protection was
+        recorded per desired spec inside ``_create_rule_if_new``, so an earlier
+        branch returning first skipped it entirely. With an unmappable rule AND a
+        mappable sibling sharing criteria, the sibling's exact key is already in
+        ``existing``, so the function returned at the ``key in existing`` branch,
+        the unmappable id never entered the protected set, and ``--delete-missing``
+        deleted the very rule the skip exists to preserve.
+
+        Probed before the fix: ``deleted ids: ['unmappable']``.
+
+        Reconcile can never faithfully recreate these rules, so deleting one is
+        unconditional data loss -- the protected set is therefore seeded from the
+        index up front rather than per spec.
+        """
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = [{
+            "match": {"from": "bank.example"},
+            "action": {"forward": "new@other.com"},
+        }]
+        live = [
+            {
+                "id": "unmappable",
+                "criteria": {"from": "bank.example"},
+                "action": {"forward": "old@other.com"},
+                "unmappedConditions": ["bodyContains"],
+            },
+            {
+                # Same criteria, and ALREADY the desired action, so this one
+                # matches on the exact-key branch before any unmappable check.
+                "id": "mappable-sibling",
+                "criteria": {"from": "bank.example"},
+                "action": {"forward": "new@other.com"},
+                "unmappedConditions": [],
+            },
+        ]
+        client = _make_client(list_filters=[dict(r) for r in live])
+
+        envelope = OutlookRulesSyncProcessor().process(
+            _sync_payload(client, reconcile=True, delete_missing=True, dry_run=False)
+        )
+
+        deleted_ids = [c.args[0] for c in client.delete_filter.call_args_list]
+        self.assertNotIn(
+            "unmappable", deleted_ids,
+            "the unmappable rule was deleted despite the reconcile skip",
+        )
+        self.assertEqual(envelope.payload.deleted, 0)
+        # The sibling already implements the desired action: nothing to do at all.
+        self.assertEqual(deleted_ids, [])
+        self.assertEqual(client.create_filter.call_count, 0)
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_all_unmappable_duplicates_are_protected(self, mock_norm, mock_load):
+        """Two unmappable rules sharing a criteria key are BOTH protected.
+
+        The index keeps every id per key, not just the first: protection is per
+        rule, since each is individually impossible to recreate faithfully.
+        """
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = [{
+            "match": {"from": "bank.example"},
+            "action": {"forward": "new@other.com"},
+        }]
+        live = [
+            {"id": "unmappable-a", "criteria": {"from": "bank.example"},
+             "action": {"forward": "a@other.com"},
+             "unmappedConditions": ["bodyContains"]},
+            {"id": "unmappable-b", "criteria": {"from": "bank.example"},
+             "action": {"forward": "b@other.com"},
+             "unmappedConditions": ["hasAttachments"]},
+        ]
+        client = _make_client(list_filters=[dict(r) for r in live])
+
+        envelope = OutlookRulesSyncProcessor().process(
+            _sync_payload(client, reconcile=True, delete_missing=True, dry_run=False)
+        )
+
+        self.assertEqual(
+            [c.args[0] for c in client.delete_filter.call_args_list], [],
+            "an unmappable duplicate was deleted; only the first was protected",
+        )
+        self.assertEqual(envelope.payload.deleted, 0)
+
     def test_map_rule_reports_unmapped_conditions(self):
         """_map_rule records the Graph condition keys it could not represent.
 
@@ -1367,6 +1456,60 @@ class TestUnmappableConditionsAreNotRewritten(unittest.TestCase):
         self.assertEqual(mapped["unmappedConditions"], ["bodyContains", "hasAttachments"])
         # The mappable part still round-trips.
         self.assertEqual(mapped["criteria"], {"from": "bank.example"})
+
+    def test_map_rule_reports_unmapped_actions_too(self):
+        """Unsupported ACTION keys are reported alongside unsupported conditions.
+
+        Raised in review: the first cut tracked only conditions, but
+        ``_build_rule_actions`` writes back just categories/forward/move, so a
+        rule with ``markAsRead``, ``delete`` or ``copyToFolder`` reported
+        ``unmappedConditions=[]`` and was reconciled freely -- coming back without
+        that action. Sharper than the conditions case: a rule that categorises AND
+        deletes would be recreated as categorise-only.
+        """
+        from core.outlook._mail_labels import LabelsFiltersMixin
+
+        raw = {
+            "id": "ui-rule",
+            "conditions": {"senderContains": ["spam.example"]},
+            "actions": {"assignCategories": ["Junk"], "markAsRead": True, "delete": True},
+        }
+        mapped = LabelsFiltersMixin._map_rule(MagicMock(), raw)
+
+        self.assertEqual(mapped["unmappedConditions"], ["delete", "markAsRead"])
+        # The mappable part is still parsed.
+        self.assertEqual(mapped["action"], {"addLabelIds": ["Junk"]})
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_rule_with_unmapped_action_is_not_reconciled(self, mock_norm, mock_load):
+        """A rule whose action includes `delete` is left entirely alone."""
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = [{
+            "match": {"from": "spam.example"},
+            "action": {"add": ["Junk", "Extra"]},
+        }]
+        live_rule = {
+            "id": "del-rule",
+            "criteria": {"from": "spam.example"},
+            "action": {"addLabelIds": ["cat-junk"]},
+            "unmappedConditions": ["delete", "markAsRead"],
+        }
+        client = _make_client(
+            list_filters=[live_rule], name_to_id={"Junk": "cat-junk", "Extra": "cat-extra"}
+        )
+
+        envelope = OutlookRulesSyncProcessor().process(
+            _sync_payload(client, reconcile=True, delete_missing=True, dry_run=False)
+        )
+
+        self.assertEqual(envelope.payload.reconciled, 0)
+        self.assertEqual(envelope.payload.deleted, 0)
+        self.assertEqual(
+            client.delete_filter.call_count, 0,
+            "a rule that deletes mail was rewritten without its delete action",
+        )
+        self.assertEqual(client.create_filter.call_count, 0)
 
     def test_map_rule_reports_empty_list_for_fully_mappable_rule(self):
         """A rule using only from/to/subject reports no unmapped conditions."""

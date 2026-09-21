@@ -54,8 +54,8 @@ def _build_norm_existing_keys(existing: dict[str, Any]) -> set[str]:
     }
 
 
-def _build_unmappable_criteria_index(existing: dict[str, Any]) -> dict[str, str]:
-    """Map criteria key -> live rule id, for rules that must not be touched.
+def _build_unmappable_criteria_index(existing: dict[str, Any]) -> dict[str, list[str]]:
+    """Map criteria key -> live rule ids, for rules that must not be touched.
 
     A live rule carrying Graph conditions this codebase cannot express (see
     ``_build_reconcile_index``) is excluded from the reconcile index so reconcile
@@ -74,15 +74,31 @@ def _build_unmappable_criteria_index(existing: dict[str, Any]) -> dict[str, str]
        deletes it.  That is why this returns ids rather than a bare key set: the
        id goes into the protected set that ``--delete-missing`` honours.
     """
-    index: dict[str, str] = {}
+    index: dict[str, list[str]] = {}
     for rule in existing.values():
         if not rule.get("unmappedConditions"):
             continue
-        ck = _criteria_key(rule.get("criteria") or {})
         rid = rule.get("id")
-        if ck not in index and rid:
-            index[ck] = rid
+        if not rid:
+            continue
+        # EVERY matching id, not just the first. Two unmappable rules can share a
+        # criteria key, and protection is per RULE: each one is individually
+        # impossible to recreate faithfully, so keeping only the first would leave
+        # the rest exposed to --delete-missing.
+        index.setdefault(_criteria_key(rule.get("criteria") or {}), []).append(rid)
     return index
+
+
+def _all_unmappable_ids(index: dict[str, list[str]] | None) -> set[str]:
+    """Every protected id in an unmappable index, flattened.
+
+    Seeded into the protected set before any desired spec is processed, so an
+    unmappable rule is protected because it EXISTS rather than because some spec
+    happened to reach the per-spec check.
+    """
+    if not index:
+        return set()
+    return {rid for ids in index.values() for rid in ids}
 
 
 #: Sentinel distinguishing "this spec is not protected, carry on" from a genuine
@@ -384,7 +400,7 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         action: dict[str, Any],
         existing: dict[str, Any],
         norm_existing_keys: set[str] | None,
-        unmappable_index: dict[str, str] | None,
+        unmappable_index: dict[str, list[str]] | None,
     ) -> Any:
         """Id of a live rule that already owns these criteria, or ``_NOT_PROTECTED``.
 
@@ -408,9 +424,14 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         the two must stay distinguishable.
         """
         if unmappable_index:
-            unmappable_id = unmappable_index.get(_criteria_key(criteria))
-            if unmappable_id:
-                return unmappable_id
+            unmappable_ids = unmappable_index.get(_criteria_key(criteria))
+            if unmappable_ids:
+                # Any id will do here: the caller only needs a non-_NOT_PROTECTED
+                # value to skip creating the spec. Every id for this criteria key
+                # is already in the protected set, seeded up front by
+                # `_create_desired_rules` -- deliberately not left to this
+                # per-spec path, which an earlier check can return before.
+                return unmappable_ids[0]
 
         if norm_existing_keys is not None:
             if _norm_create_rule_key(criteria, action) in norm_existing_keys:
@@ -426,7 +447,7 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         dry_run: bool,
         reconcile_index: dict[str, Any] | None = None,
         norm_existing_keys: set[str] | None = None,
-        unmappable_index: dict[str, str] | None = None,
+        unmappable_index: dict[str, list[str]] | None = None,
     ) -> tuple[str, bool, bool, bool, str | None] | None:
         """Build criteria/action/key for one spec and create it if missing.
 
@@ -561,6 +582,22 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         reconcile_index = self._build_reconcile_index(existing) if reconcile else None
         norm_existing_keys = _build_norm_existing_keys(existing) if reconcile else None
         unmappable_index = _build_unmappable_criteria_index(existing) if reconcile else None
+
+        # Seed the protected set from the index UP FRONT rather than relying on a
+        # desired spec to reach the unmappable check.
+        #
+        # Protection was previously recorded per desired spec, inside
+        # `_create_rule_if_new`. That left a hole whenever an earlier check
+        # returned first: with an unmappable rule AND a mappable sibling sharing
+        # criteria, the sibling's exact key is already in `existing`, so the
+        # function returned at the `key in existing` branch and the unmappable id
+        # never entered the set -- and `--delete-missing` deleted the very rule
+        # the skip exists to preserve. Probed: deleted ids ['unmappable'].
+        #
+        # These rules must be protected because they exist, not because some spec
+        # happened to match them: reconcile can never faithfully recreate them, so
+        # deleting one is unconditional data loss.
+        reconciled_rule_ids_set.update(_all_unmappable_ids(unmappable_index))
 
         for spec in desired:
             result = self._create_rule_if_new(
@@ -751,7 +788,7 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
         folder_map: dict[str, str],
         reconcile_index: dict[str, Any] | None,
         norm_existing_keys: set[str] | None,
-        unmappable_index: dict[str, str] | None = None,
+        unmappable_index: dict[str, list[str]] | None = None,
     ) -> tuple[str, bool] | None:
         """Classify one desired spec and return (plan_line, is_reconcile) or None.
 

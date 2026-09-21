@@ -19,6 +19,17 @@ _MAPPED_CONDITION_KEYS = frozenset({
     "subjectContains",
 })
 
+#: Graph rule ACTION keys ``_map_rule`` can represent, and
+#: ``_build_rule_actions`` can write back. The same hazard as conditions, and a
+#: sharper one: a rule that categorises AND deletes would be recreated as
+#: categorise-only, or a ``markAsRead`` silently lost. Reported alongside
+#: unmapped conditions so reconcile refuses those rules too.
+_MAPPED_ACTION_KEYS = frozenset({
+    "assignCategories",
+    "forwardTo",
+    "moveToFolder",
+})
+
 
 class _LabelsHost(Protocol):
     """Complete self-type for LabelsFiltersMixin methods that call sibling methods.
@@ -149,15 +160,24 @@ class LabelsFiltersMixin:
         reconcile resets both fields to their hardcoded defaults (sequence=1,
         stopProcessingRules=True), which silently reorders the rule chain.
 
-        Also records ``unmappedConditions``: the Graph condition keys this
-        format cannot represent.  Graph supports many conditions
-        (``bodyContains``, ``hasAttachments``, ``importance``, ``sentToMe``,
-        ...) while ``_build_rule_conditions`` emits only sender/recipient/
-        subject, so a rule created in the Outlook UI can carry conditions that
-        do not survive a round trip.  Reconcile recreates rules by delete+create
-        and MUST refuse to touch such a rule: dropping a condition makes the
-        replacement match *more* mail than the original, which is the dangerous
-        direction.  Callers read this list; nothing else depends on it.
+        Also records ``unmappedConditions``: every Graph key this format cannot
+        represent, from BOTH ``conditions`` and ``actions``.  The name is kept for
+        the existing callers, but it covers both -- the hazard is identical and
+        the consumers treat it as one "cannot round-trip this rule" flag.
+
+        Graph supports many conditions (``bodyContains``, ``hasAttachments``,
+        ``importance``, ``sentToMe``, ...) and many actions (``markAsRead``,
+        ``delete``, ``copyToFolder``, ...), while ``_build_rule_conditions`` and
+        ``_build_rule_actions`` emit only sender/recipient/subject and
+        categories/forward/move.  A rule created in the Outlook UI can therefore
+        carry either kind of key, and neither survives a round trip.
+
+        Reconcile recreates rules by delete+create and MUST refuse to touch such
+        a rule.  Dropping a *condition* makes the replacement match more mail than
+        the original; dropping an *action* is sharper still -- a rule that
+        categorises and deletes would come back categorise-only.  Both are silent
+        changes to what the rule does.  Callers read this list; nothing else
+        depends on it.
         """
         cond = ru.get("conditions", {}) or {}
         act = ru.get("actions", {}) or {}
@@ -185,7 +205,8 @@ class LabelsFiltersMixin:
             "stopProcessingRules": ru.get("stopProcessingRules"),
             "isEnabled": ru.get("isEnabled"),
             "unmappedConditions": sorted(
-                set(ru.get("conditions") or {}) - _MAPPED_CONDITION_KEYS
+                (set(ru.get("conditions") or {}) - _MAPPED_CONDITION_KEYS)
+                | (set(ru.get("actions") or {}) - _MAPPED_ACTION_KEYS)
             ),
         }
 
