@@ -675,5 +675,122 @@ class TestSwarmPathContract(unittest.TestCase):
                 )
 
 
+# ---------------------------------------------------------------------------
+# Manifest must not diverge from the runtime
+# ---------------------------------------------------------------------------
+
+
+class TestWhenWhitespace(unittest.TestCase):
+    """_validate_when accepts padding; both evaluators must too.
+
+    _validate_when validates `spec.when.strip()`, so `  "{m}" contains "x"  `
+    compiles cleanly. The runtime evaluator used re.fullmatch on the
+    unstripped string and raised WorkflowExecutionError at dispatch, while the
+    manifest evaluator returned its permissive fallback True — advertising a
+    branch that could not run.
+    """
+
+    _PADDED = '  "{mode}" contains "fast"  '
+
+    def test_manifest_evaluates_a_padded_expression(self):
+        from workflow.cli_compile import _eval_when_for_manifest
+
+        self.assertTrue(_eval_when_for_manifest(self._PADDED, {"mode": "fast"}))
+        self.assertFalse(_eval_when_for_manifest(self._PADDED, {"mode": "slow"}))
+
+    def test_padded_expression_is_not_the_permissive_fallback(self):
+        # Before the fix this returned True for BOTH params, because neither
+        # regex matched and the fallback fired. Asserting only the True case
+        # would have passed against the bug.
+        from workflow.cli_compile import _eval_when_for_manifest
+
+        self.assertNotEqual(
+            _eval_when_for_manifest(self._PADDED, {"mode": "fast"}),
+            _eval_when_for_manifest(self._PADDED, {"mode": "slow"}),
+        )
+
+    def test_runtime_evaluator_accepts_padding(self):
+        import re
+
+        from workflow.compiler import resolve_params
+
+        expr = resolve_params(self._PADDED, {"mode": "fast"}).strip()
+        matched = re.fullmatch(r'"(.*?)"\s+contains\s+"(.*?)"', expr)
+        self.assertIsNotNone(matched, "runtime regex must match the stripped form")
+
+    def test_validate_when_accepts_padding(self):
+        # The premise: if the compiler rejected padding, there would be no
+        # divergence to fix.
+        from workflow.compiler import _WHEN_PATTERN
+
+        self.assertIsNotNone(_WHEN_PATTERN.fullmatch(self._PADDED.strip()))
+
+
+class TestManifestHonoursParamOverrides(unittest.TestCase):
+    """will_run must reflect --params, not just declared defaults.
+
+    The run path merges caller overrides over the declared trigger params. A
+    manifest computed from defaults alone advertises the default branch while
+    execution takes the other one.
+    """
+
+    _YAML = (
+        "name: override-wf\n"
+        'version: "1.0"\n'
+        "description: Two branches keyed on mode\n"
+        "trigger:\n"
+        "  source: manual\n"
+        "  params:\n"
+        "    mode: fast\n"
+        "stages:\n"
+        "  - name: fast-path\n"
+        "    kind: execute\n"
+        "    description: fast\n"
+        "    agent:\n"
+        "      role: doc-writer\n"
+        "    when: '\"{mode}\" contains \"fast\"'\n"
+        "  - name: slow-path\n"
+        "    kind: execute\n"
+        "    description: slow\n"
+        "    agent:\n"
+        "      role: doc-writer\n"
+        "    when: '\"{mode}\" does not contain \"fast\"'\n"
+    )
+
+    def _running(self, overrides=None):
+        from workflow.cli_compile import _build_compile_payload
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "wf.yaml"
+            path.write_text(self._YAML)
+            payload = _build_compile_payload(str(path), overrides)
+        return [r["stage"] for r in payload["resolutions"] if r["will_run"]]
+
+    def test_declared_default_selects_the_default_branch(self):
+        self.assertEqual(self._running(), ["fast-path"])
+
+    def test_override_flips_the_branch(self):
+        self.assertEqual(self._running(["mode=slow"]), ["slow-path"])
+
+    def test_override_matching_the_default_is_a_no_op(self):
+        self.assertEqual(self._running(["mode=fast"]), ["fast-path"])
+
+    def test_unrelated_override_leaves_the_branch_alone(self):
+        self.assertEqual(self._running(["other=x"]), ["fast-path"])
+
+    def test_malformed_override_is_ignored_not_fatal(self):
+        # No "=" — dropped rather than raising. It cannot select a wrong
+        # branch: an unresolved {placeholder} is a non-match either way.
+        self.assertEqual(self._running(["justakey"]), ["fast-path"])
+
+    def test_value_containing_equals_is_preserved(self):
+        from workflow.cli_compile import _parse_param_overrides
+
+        self.assertEqual(_parse_param_overrides(["k=a=b"]), {"k": "a=b"})
+
+    def test_exactly_one_branch_runs_under_override(self):
+        self.assertEqual(len(self._running(["mode=slow"])), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -48,12 +48,15 @@ def _fragment_bytes(
     return b"".join(parts)
 
 
-# Bump whenever _build_compile_payload's key set changes. The cache key is
+# Bump whenever _build_compile_payload's key set OR the meaning of an
+# existing value changes. Schema 5 kept the key set of 4 but made will_run
+# depend on --params overrides and on whitespace-normalised when expressions,
+# so a v4 entry can hold a stale decision for the same YAML. The cache key is
 # derived from YAML + root + params, so without this a payload cached before a
 # schema change is still served and silently lacks the new fields — e.g. a
 # pre-existing cache would drop agent_isolation, making `isolation: worktree` a
 # no-op again for any workflow that had already been compiled once.
-_COMPILE_PAYLOAD_SCHEMA = 4
+_COMPILE_PAYLOAD_SCHEMA = 5
 
 
 def _compile_cache_path(
@@ -133,7 +136,11 @@ def _eval_when_for_manifest(when: str | None, params: dict[str, str]) -> bool:
     if when is None:
         return True
 
-    expr = resolve_params(when, params)
+    # .strip() to match both _validate_when (which validates the stripped
+    # form) and orchestrator._eval_when. Without it this returned its
+    # permissive fallback True for a padded expression that the runtime
+    # rejected outright — the manifest advertising a branch that cannot run.
+    expr = resolve_params(when, params).strip()
 
     m = re.fullmatch(r'"(.*?)"\s+does not contain\s+"(.*?)"', expr)
     if m:
@@ -146,13 +153,42 @@ def _eval_when_for_manifest(when: str | None, params: dict[str, str]) -> bool:
     return True
 
 
-def _build_compile_payload(path: str) -> dict:
-    """Load + compile the workflow and build the cache payload dict."""
+def _parse_param_overrides(raw: list[str] | None) -> dict[str, str]:
+    """Parse repeatable ``--params key=value`` into a dict.
+
+    Entries without "=" are ignored rather than raising: this function only
+    feeds manifest metadata, and the run path already reports malformed
+    params. Silently dropping one here cannot select a wrong branch — an
+    unresolved {placeholder} is left as-is by resolve_params, which the
+    evaluators treat as a non-match.
+    """
+    out: dict[str, str] = {}
+    for item in raw or []:
+        key, sep, value = item.partition("=")
+        if sep:
+            out[key.strip()] = value
+    return out
+
+
+def _build_compile_payload(path: str, param_overrides: list[str] | None = None) -> dict:
+    """Load + compile the workflow and build the cache payload dict.
+
+    *param_overrides* are the caller's ``--params key=value`` entries. They
+    must reach `will_run`: the runtime merges overrides over the declared
+    trigger params, so computing the manifest from declared params alone
+    would advertise the default branch while execution took the other one.
+    """
     from workflow.cli_dispatch import _load_manifest
     defn, manifest = _load_manifest(path)
     max_par = max((len(g) for g in manifest.parallel_groups), default=0)
 
     contract_warnings = validate_dag_contracts(defn)
+
+    # Caller overrides win over declared defaults, mirroring the run path.
+    effective_params = {
+        **defn.trigger.params,
+        **_parse_param_overrides(param_overrides),
+    }
 
     summary = {
         "name": defn.name, "total_stages": len(manifest.resolved_stages),
@@ -185,7 +221,7 @@ def _build_compile_payload(path: str) -> dict:
         # silently clobber each other. `when` carries the raw expression;
         # `will_run` carries the decision against the resolved trigger params.
         "when": r.spec.when,
-        "will_run": _eval_when_for_manifest(r.spec.when, defn.trigger.params),
+        "will_run": _eval_when_for_manifest(r.spec.when, effective_params),
     } for name, r in manifest.resolved_stages.items()]
     warnings = [{"stage": w.stage, "upstream": w.upstream, "message": w.message}
                 for w in contract_warnings]
@@ -217,7 +253,7 @@ def _cmd_compile(args: argparse.Namespace) -> int:
             _render_compile_output(cached, args.format)
             return 0
 
-    payload = _build_compile_payload(args.path)
+    payload = _build_compile_payload(args.path, getattr(args, "params", []) or [])
     _write_once(cache_path, (json.dumps(payload) + "\n").encode())
 
     _render_compile_output(payload, args.format)

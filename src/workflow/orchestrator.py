@@ -271,7 +271,10 @@ class WorkflowOrchestrator:
         if when is None:
             return True
 
-        expr = resolve_params(when, params)
+        # .strip() because _validate_when accepts surrounding whitespace
+        # (it validates `spec.when.strip()`), so a padded expression compiles
+        # cleanly and would then raise here at dispatch time.
+        expr = resolve_params(when, params).strip()
 
         m = re.fullmatch(r'"(.*?)"\s+does not contain\s+"(.*?)"', expr)
         if m:

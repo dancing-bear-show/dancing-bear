@@ -32,11 +32,25 @@ description: >
       concern-sweep (9 agents) → concern-sweep-merge → enumerate-targets
       → validate-concerns (N agents) + cross-unit-check → consolidate.
 
-  NOTE: fragment trigger.params are NOT merged into callers by the include
-  engine. The `when:` conditions use "does not contain small" for the fan-out
-  path so it is the safe default when pr_size is absent or blank. Callers
-  that want the consolidated path must explicitly set pr_size=small.
-  code-review.yaml defaults to small; other callers default to large.
+  NOTE: fragment trigger.params ARE merged into callers by the include
+  engine, layered UNDER the caller's own declarations. This fragment declares
+  pr_size with default "small", so a caller that does not declare pr_size
+  inherits "small" and takes the CONSOLIDATED path — not the fan-out one.
+
+  A caller wanting the fan-out path must declare pr_size explicitly:
+
+      trigger:
+        params:
+          pr_size: "large"
+
+  This was the opposite before the merge landed: an undeclared pr_size left
+  "{pr_size}" unsubstituted, which made "does not contain small" trivially
+  true and selected fan-out by accident. Do not rely on absence to pick a
+  path — say which one you want.
+
+  Current callers: code-review.yaml declares small; coverage-uplift.yaml and
+  review-and-fix.yaml declare large. A new caller that declares nothing gets
+  small.
 
   Both paths converge at fact-check-findings.
 
