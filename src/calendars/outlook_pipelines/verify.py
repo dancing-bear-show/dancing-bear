@@ -98,7 +98,13 @@ class OutlookVerifyProcessor(EventIterationProcessor):
             return None
         want_start = (context.nev.get("start_time") or "").strip()
         want_end = (context.nev.get("end_time") or "").strip()
-        matches = filter_events_by_day_time(events, byday=context.byday, start_time=want_start, end_time=want_end)
+        matches = filter_events_by_day_time(
+            events,
+            byday=context.byday,
+            start_time=want_start,
+            end_time=want_end,
+            tz=(context.nev.get("tz") or "").strip() or None,
+        )
         cal_display = cal_name or "<primary>"
         if matches:
             logs.append(f"[{context.idx}] duplicate: {context.subj} {','.join(context.byday)} {want_start}-{want_end} in '{cal_display}'")

@@ -66,6 +66,14 @@ class _FakeClient:
         self.permissions.append((calendar_id, recipient, role))
         return {"id": "perm1"}
 
+    def get_event(self, event_id):
+        if event_id == "missing":
+            return None
+        return {"id": event_id, "subject": "Series Master"}
+
+    def get_mailbox_timezone(self):
+        return "Eastern Standard Time"
+
 
 class _FakeCtx:
     def ensure_client(self):
@@ -88,6 +96,31 @@ class TestOutlookServiceDelegation(unittest.TestCase):
         result = svc.list_events_in_range(params)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["id"], "e1")
+
+    def test_get_event_delegates(self):
+        """export/import pipelines call svc.get_event; the wrapper must forward it.
+
+        Regression: OutlookService never delegated get_event, so
+        `outlook export-plan` died with AttributeError on any recurring series.
+        """
+        svc = _make_svc()
+        result = svc.get_event("master-1")
+        self.assertIsNotNone(result)
+        self.assertEqual(result["id"], "master-1")
+
+    def test_get_event_propagates_none_for_missing(self):
+        """A 404 on the master must stay None so callers record orphaned_master."""
+        svc = _make_svc()
+        self.assertIsNone(svc.get_event("missing"))
+
+    def test_get_mailbox_timezone_delegates(self):
+        """export.py:_resolve_tz calls this inside a bare except.
+
+        Without delegation the AttributeError was swallowed and every event
+        silently fell back to the default zone.
+        """
+        svc = _make_svc()
+        self.assertEqual(svc.get_mailbox_timezone(), "Eastern Standard Time")
 
     def test_create_event_delegates(self):
         from core.outlook.models import EventCreationParams

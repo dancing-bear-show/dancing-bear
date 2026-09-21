@@ -1,6 +1,7 @@
 """Gmail scan-classes pipeline for calendar assistant."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -9,7 +10,16 @@ from core.pipeline import SafeProcessor
 from core.text_utils import html_to_text
 
 from .gmail_service import QueryParams
-from .scan_common import RANGE_PAT, MONTH_MAP, norm_time as _norm_time_common, infer_meta_from_text
+from .scan_common import (
+    DEFAULT_CLASS_SUBJECT,
+    RANGE_PAT,
+    MONTH_MAP,
+    infer_meta_from_text,
+    is_enrollment_notice,
+    is_plausible_session,
+    norm_time as _norm_time_common,
+    parse_clock_time,
+)
 from .pipeline_base import (
     BaseProducer,
     GmailAuth,
@@ -18,6 +28,16 @@ from .pipeline_base import (
     dedupe_events,
     DAY_MAP,
 )
+
+
+# Transfer notices restate the superseded enrollment alongside the new one.
+# Everything from "New Enrollment:" onward is the authoritative block; the
+# preceding text describes the slot the student is leaving.
+_NEW_ENROLLMENT_PAT = re.compile(r"New\s+Enrollment:", re.I)
+
+# Makeup-token notices reference a single dated makeup slot, not a recurring
+# class, so they must not produce a weekly event.
+_MAKEUP_TOKEN_PAT = re.compile(r"\bmakeup\s+token\b", re.I)
 
 
 # =============================================================================
@@ -87,32 +107,68 @@ class GmailScanClassesProcessor(
 
     def _extract_events(self, message_text: str, calendar: str | None) -> list[dict[str, Any]]:
         plain = self._html_to_text(message_text)
-        matches = list(self._range_pat.finditer(plain))
+        if _MAKEUP_TOKEN_PAT.search(plain):
+            # A makeup token is a one-off dated slot, not a recurring class.
+            return []
+        if not is_enrollment_notice(plain):
+            # Newsletters, marketing announcements, payment receipts and skills
+            # reports all carry day/time text but enroll nobody.
+            return []
+        scope = self._authoritative_scope(plain)
+        matches = list(self._range_pat.finditer(scope))
         if not matches:
             return []
+        # Subject/child/location come from the whole body (headers and greeting
+        # carry them), while times come only from the authoritative scope.
         meta = self._infer_meta(plain)
-        events: list[dict[str, Any]] = []
-        for match in matches:
-            day_raw = (match.group("day") or "").lower()
-            byday = [self._day_map.get(day_raw, day_raw[:2].upper())]
-            start_time = self._norm_time(match.group("h1"), match.group("m1"), match.group("ampm1"))
-            end_time = self._norm_time(match.group("h2"), match.group("m2"), match.group("ampm2"))
-            ev: dict[str, Any] = {
-                "calendar": calendar,
-                "subject": "Class",
-                "repeat": "weekly",
-                "byday": byday,
-                "start_time": start_time,
-                "end_time": end_time,
-            }
-            if meta.get("subject"):
-                ev["subject"] = meta["subject"]
-            if meta.get("location"):
-                ev["location"] = meta["location"]
-            if meta.get("range"):
-                ev.setdefault("range", {}).update(meta["range"])
-            events.append(ev)
-        return events
+        events = (self._build_event(match, meta, calendar) for match in matches)
+        return [ev for ev in events if ev is not None]
+
+    def _authoritative_scope(self, plain: str) -> str:
+        """Narrow a transfer notice to the enrollment that is actually in effect.
+
+        Transfer emails restate the superseded enrollment before the new one, so
+        parsing the full body emits the stale slot alongside the current one.
+        """
+        m_new = _NEW_ENROLLMENT_PAT.search(plain)
+        return plain[m_new.end():] if m_new else plain
+
+    def _build_event(
+        self, match: re.Match[str], meta: dict[str, Any], calendar: str | None
+    ) -> dict[str, Any] | None:
+        """Assemble one recurring event, or None if the match is not a class.
+
+        RANGE_PAT scans free-form prose, so a match can pair digits that are not
+        clock times or two unrelated times far apart. Both are dropped rather
+        than emitted with clamped values, since a silently corrected time is
+        indistinguishable from a real one downstream.
+        """
+        start_time = parse_clock_time(
+            match.group("h1"), match.group("m1"), match.group("ampm1")
+        )
+        end_time = parse_clock_time(
+            match.group("h2"), match.group("m2"), match.group("ampm2")
+        )
+        if not (start_time and end_time):
+            return None
+        if not is_plausible_session(start_time, end_time):
+            return None
+        day_raw = (match.group("day") or "").lower()
+        ev: dict[str, Any] = {
+            "calendar": calendar,
+            "subject": meta.get("subject") or DEFAULT_CLASS_SUBJECT,
+            "repeat": "weekly",
+            "byday": [self._day_map.get(day_raw, day_raw[:2].upper())],
+            "start_time": start_time,
+            "end_time": end_time,
+        }
+        if meta.get("child"):
+            ev["child"] = meta["child"]
+        if meta.get("location"):
+            ev["location"] = meta["location"]
+        if meta.get("range"):
+            ev.setdefault("range", {}).update(meta["range"])
+        return ev
 
     def _html_to_text(self, html: str) -> str:
         return html_to_text(html)

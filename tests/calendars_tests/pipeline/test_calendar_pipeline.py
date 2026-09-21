@@ -110,7 +110,9 @@ Location: Elgin West""",
         self.assertEqual(len(env.payload.document["events"]), 1)
 
     def test_scan_classes_processor_and_producer(self):
-        text = """Location: Elgin West
+        text = """Student: Bruce Sherwin
+Schedule: lesson
+Location: Elgin West
 Monday from 5:00 pm to 5:30 pm"""
         svc = self._make_service({"m1": text})
         auth = GmailAuth(None, None, None, None)
@@ -135,7 +137,9 @@ Monday from 5:00 pm to 5:30 pm"""
         self.assertIn("Found 1", buf.getvalue())
 
     def test_scan_classes_producer_writes_yaml(self):
-        text = """Location: Elgin West
+        text = """Student: Bruce Sherwin
+Schedule: lesson
+Location: Elgin West
 Tuesday from 6:00 pm to 6:30 pm"""
         svc = self._make_service({"m1": text})
         auth = GmailAuth(None, None, None, None)
