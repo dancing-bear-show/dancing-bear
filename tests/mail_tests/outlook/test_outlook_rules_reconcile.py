@@ -1110,6 +1110,171 @@ class TestPlanSyncParity(unittest.TestCase):
 # SEQUENCE PRESERVATION
 # ---------------------------------------------------------------------------
 
+class TestUnmappableConditionsAreNotRewritten(unittest.TestCase):
+    """A live rule with Graph conditions this codebase cannot express is untouched.
+
+    Graph supports conditions (``bodyContains``, ``hasAttachments``,
+    ``importance``, ``sentToMe``, ...) that ``_build_rule_conditions`` never
+    writes and ``_map_rule`` never parses.  ``_criteria_key`` keys on
+    from/to/subject only, so a UI-created rule scoped by sender AND body looks
+    identical to a sender-only rule.
+
+    Reconcile recreates by delete+create from the mapped criteria, so rewriting
+    such a rule DROPS the extra condition and the replacement matches *more* mail
+    than the original -- "from bank.example AND body contains 'wire transfer'"
+    becomes every message from that sender.  Broadening a filter unasked is the
+    dangerous direction, so these rules are left exactly as they are.
+
+    Three distinct protections are required and each was verified by probe:
+      1. not reconciled (no delete+create),
+      2. no second rule created beside it (which would be worse -- two rules on
+         the same mail when the user asked for one),
+      3. not deleted by ``--delete-missing``.
+
+    (3) is the subtle one: skipping the desired spec contributes no key to
+    ``desired_keys``, and ``_delete_missing_rules`` deletes exactly those live
+    rules whose canon key is absent from that set -- so skipping ALONE marked the
+    rule stale and deleted it. A first cut of this fix returned None and probed
+    as ``deleted=1``: one data-loss path traded for another.
+    """
+
+    LIVE_RULE = {
+        "id": "ui-rule",
+        "criteria": {"from": "bank.example"},
+        "action": {"forward": "old@other.com"},
+        "sequence": 3,
+        "stopProcessingRules": False,
+        "unmappedConditions": ["bodyContains"],
+    }
+    DESIRED = [{
+        "match": {"from": "bank.example"},
+        "action": {"forward": "new@other.com"},
+    }]
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_not_reconciled_and_no_duplicate_created(self, mock_norm, mock_load):
+        """Reconcile neither rewrites the rule nor creates a second one."""
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = list(self.DESIRED)
+        client = _make_client(list_filters=[dict(self.LIVE_RULE)])
+
+        envelope = OutlookRulesSyncProcessor().process(
+            _sync_payload(client, reconcile=True, dry_run=False)
+        )
+
+        self.assertEqual(envelope.payload.reconciled, 0)
+        self.assertEqual(envelope.payload.created, 0)
+        self.assertEqual(envelope.payload.failed, 0)
+        self.assertEqual(
+            client.delete_filter.call_count, 0,
+            "reconcile deleted a rule whose extra condition it cannot recreate",
+        )
+        self.assertEqual(
+            client.create_filter.call_count, 0,
+            "a second, broader rule was created beside the protected one",
+        )
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_delete_missing_does_not_delete_it(self, mock_norm, mock_load):
+        """--delete-missing must not treat the protected rule as stale."""
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = list(self.DESIRED)
+        client = _make_client(list_filters=[dict(self.LIVE_RULE)])
+
+        envelope = OutlookRulesSyncProcessor().process(
+            _sync_payload(client, reconcile=True, delete_missing=True, dry_run=False)
+        )
+
+        self.assertEqual(envelope.payload.deleted, 0)
+        self.assertEqual(
+            client.delete_filter.call_count, 0,
+            "--delete-missing deleted a rule the reconcile pass deliberately skipped",
+        )
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_plan_agrees_with_sync_and_promises_nothing(self, mock_norm, mock_load):
+        """plan --reconcile reports no action, matching sync --reconcile --dry-run."""
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = list(self.DESIRED)
+
+        plan_client = _make_client(list_filters=[dict(self.LIVE_RULE)])
+        plan_env = OutlookRulesPlanProcessor().process(
+            _plan_payload(plan_client, reconcile=True)
+        )
+        sync_client = _make_client(list_filters=[dict(self.LIVE_RULE)])
+        sync_env = OutlookRulesSyncProcessor().process(
+            _sync_payload(sync_client, reconcile=True, dry_run=True)
+        )
+
+        self.assertEqual(plan_env.payload.plan_items, [])
+        self.assertEqual(plan_env.payload.would_create, sync_env.payload.created)
+        self.assertEqual(plan_env.payload.would_reconcile, sync_env.payload.reconciled)
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_non_reconcile_path_unchanged(self, mock_norm, mock_load):
+        """Without --reconcile the skip does not apply; default behaviour stands.
+
+        Contrast case: the protection is reconcile-only. On the default path an
+        action change has always been treated as a brand-new rule, and that must
+        not change -- otherwise this fix would quietly disable rule creation for
+        anyone whose mailbox has a UI-created rule.
+        """
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = list(self.DESIRED)
+        client = _make_client(list_filters=[dict(self.LIVE_RULE)])
+
+        envelope = OutlookRulesSyncProcessor().process(
+            _sync_payload(client, reconcile=False, dry_run=False)
+        )
+
+        self.assertEqual(envelope.payload.created, 1)
+        self.assertEqual(client.create_filter.call_count, 1)
+
+    def test_map_rule_reports_unmapped_conditions(self):
+        """_map_rule records the Graph condition keys it could not represent.
+
+        Unit-level guard on the marker the protections depend on: if _map_rule
+        stops reporting it, every protection above silently becomes a no-op while
+        still passing its own assertions.
+        """
+        from core.outlook._mail_labels import LabelsFiltersMixin
+
+        raw = {
+            "id": "ui-rule",
+            "conditions": {
+                "senderContains": ["bank.example"],
+                "bodyContains": ["wire transfer"],
+                "hasAttachments": True,
+            },
+            "actions": {"forwardTo": [{"emailAddress": {"address": "x@y.com"}}]},
+        }
+        mapped = LabelsFiltersMixin._map_rule(MagicMock(), raw)
+
+        self.assertEqual(mapped["unmappedConditions"], ["bodyContains", "hasAttachments"])
+        # The mappable part still round-trips.
+        self.assertEqual(mapped["criteria"], {"from": "bank.example"})
+
+    def test_map_rule_reports_empty_list_for_fully_mappable_rule(self):
+        """A rule using only from/to/subject reports no unmapped conditions."""
+        from core.outlook._mail_labels import LabelsFiltersMixin
+
+        raw = {
+            "id": "ordinary",
+            "conditions": {
+                "senderContains": ["a.example"],
+                "subjectContains": ["invoice"],
+            },
+            "actions": {"assignCategories": ["Cat"]},
+        }
+        mapped = LabelsFiltersMixin._map_rule(MagicMock(), raw)
+
+        self.assertEqual(mapped["unmappedConditions"], [])
+
+
 class TestSequencePreservation(unittest.TestCase):
     """When a live rule has a sequence number, reconcile must pass it through to
     create_filter so the replacement preserves its position in the chain.
@@ -1181,29 +1346,35 @@ class TestSequencePreservation(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# delete_failed + --delete-missing counter correctness
+# delete_failed + --delete-missing: the surviving rule must not be destroyed
 # ---------------------------------------------------------------------------
 
 class TestDeleteFailedDeleteMissing(unittest.TestCase):
-    """When delete_failed occurs during reconcile, the live rule is still alive.
-    --delete-missing should retry the delete (rule is on old, wrong action).
-    The counters must NOT double-count: failed=1, deleted=1 (the retry succeeds)
-    -- not failed=1, deleted=2.
+    """After a failed reconcile delete, ``--delete-missing`` must not retry it.
 
-    Design choice: we do NOT protect delete_failed rules from --delete-missing.
-    The rule is alive on the OLD action (which is wrong), so --delete-missing
-    retrying the delete is correct behaviour.  The user was already told it
-    failed via failed=1; a successful retry via delete_missing shows deleted=1
-    which is honest.
+    The reconcile delete raised, so no replacement was created and the live rule
+    survives on its OLD action.  It is stale, but it works.
 
-    The alternative (protecting it) would leave a wrong-action rule alive
-    permanently, which is more surprising than a second delete attempt.
+    An earlier version of this test asserted the opposite -- that
+    ``--delete-missing`` *should* retry, and that a successful retry showing
+    ``deleted=1`` was "honest".  The count was honest; the outcome was not. The
+    retry is a delete with no accompanying create, so when it succeeds the rule
+    vanishes entirely and the mailbox is left with NO rule for those criteria:
+    mail that was being forwarded becomes unfiltered, reported as a
+    routine-looking ``Deleted: 1``.
+
+    A stale but functioning rule is strictly better than no rule. The correct
+    recovery is a re-run once the API error clears, which ``Failed: 1`` prompts.
+
+    This was raised in review on PR #359 and confirmed by probe: with the retry
+    mocked to SUCCEED (rather than fail, as an earlier probe had it), the rule
+    was deleted and never recreated.
     """
 
     @patch("core.yamlio.load_config")
     @patch("mail.dsl.normalize_filters_for_outlook")
-    def test_delete_failed_not_double_counted(self, mock_norm, mock_load):
-        """delete_failed -> failed=1; if delete_missing retries successfully, deleted=1, not 2."""
+    def test_delete_failed_rule_is_not_deleted_by_delete_missing(self, mock_norm, mock_load):
+        """delete_failed -> the surviving rule is protected; no second delete."""
         mock_load.return_value = {"filters": []}
         mock_norm.return_value = [
             {
@@ -1219,7 +1390,11 @@ class TestDeleteFailedDeleteMissing(unittest.TestCase):
             "stopProcessingRules": True,
         }
         client = _make_client(list_filters=[live_rule])
-        # First delete call fails (reconcile path); second succeeds (delete_missing path)
+        # Reconcile delete fails. Any LATER delete is left SUCCEEDING on purpose:
+        # if --delete-missing retried, the rule would really be destroyed and the
+        # call-count assertion below fails loudly. Forcing the retry to raise
+        # would hide the defect behind an error, which is how the previous
+        # version of this test passed while the rule was being lost.
         client.delete_filter.side_effect = [Exception("API error"), None]
         payload = _sync_payload(client, reconcile=True, delete_missing=True, dry_run=False)
 
@@ -1227,11 +1402,17 @@ class TestDeleteFailedDeleteMissing(unittest.TestCase):
 
         self.assertEqual(envelope.status, "success")
         self.assertEqual(envelope.payload.failed, 1)
-        # delete_missing retries and succeeds
-        self.assertEqual(envelope.payload.deleted, 1)
         self.assertEqual(envelope.payload.reconciled, 0)
-        # delete_filter called twice: once by reconcile (fails), once by delete_missing
-        self.assertEqual(client.delete_filter.call_count, 2)
+        # The rule still exists and was NOT deleted.
+        self.assertEqual(envelope.payload.deleted, 0)
+        self.assertEqual(
+            client.delete_filter.call_count,
+            1,
+            "--delete-missing destroyed a rule whose replacement was never created",
+        )
+        # One rule in, one tally out.
+        p = envelope.payload
+        self.assertEqual(p.created + p.reconciled + p.deleted + p.failed, 1)
         # No create_filter since delete failed on reconcile path
         client.create_filter.assert_not_called()
 

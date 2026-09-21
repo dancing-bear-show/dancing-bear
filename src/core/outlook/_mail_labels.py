@@ -9,6 +9,17 @@ from .client import _requests
 from core.constants import GRAPH_API_URL
 
 
+#: Graph rule condition keys ``_map_rule`` can represent, and
+#: ``_build_rule_conditions`` can write back. Any other condition on a live rule
+#: is lost on a delete+create round trip, so ``_map_rule`` reports the remainder
+#: as ``unmappedConditions`` and reconcile refuses to rewrite those rules.
+_MAPPED_CONDITION_KEYS = frozenset({
+    "senderContains",
+    "recipientContains",
+    "subjectContains",
+})
+
+
 class _LabelsHost(Protocol):
     """Complete self-type for LabelsFiltersMixin methods that call sibling methods.
 
@@ -137,6 +148,16 @@ class LabelsFiltersMixin:
         reconciliation (``rules.sync --reconcile``).  Without this, every
         reconcile resets both fields to their hardcoded defaults (sequence=1,
         stopProcessingRules=True), which silently reorders the rule chain.
+
+        Also records ``unmappedConditions``: the Graph condition keys this
+        format cannot represent.  Graph supports many conditions
+        (``bodyContains``, ``hasAttachments``, ``importance``, ``sentToMe``,
+        ...) while ``_build_rule_conditions`` emits only sender/recipient/
+        subject, so a rule created in the Outlook UI can carry conditions that
+        do not survive a round trip.  Reconcile recreates rules by delete+create
+        and MUST refuse to touch such a rule: dropping a condition makes the
+        replacement match *more* mail than the original, which is the dangerous
+        direction.  Callers read this list; nothing else depends on it.
         """
         cond = ru.get("conditions", {}) or {}
         act = ru.get("actions", {}) or {}
@@ -162,6 +183,9 @@ class LabelsFiltersMixin:
             "action": action,
             "sequence": ru.get("sequence"),
             "stopProcessingRules": ru.get("stopProcessingRules"),
+            "unmappedConditions": sorted(
+                set(ru.get("conditions") or {}) - _MAPPED_CONDITION_KEYS
+            ),
         }
 
     def list_filters(
