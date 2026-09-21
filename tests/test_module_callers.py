@@ -188,6 +188,84 @@ class CallerDetectionTests(TreeMixin):
         self.assertEqual(unscannable, ["tests/broken_caller.py"])
 
 
+class AncestorImportTests(TreeMixin):
+    """Importing a descendant imports its ancestor packages."""
+
+    def test_from_import_of_descendant_reports_ancestor(self):
+        # `from pkg.sub.target.child import value` executes
+        # pkg/sub/target/__init__.py, so this file is a live caller of
+        # pkg.sub.target. Recording only the leaf let a split of
+        # pkg.sub.target proceed while this caller still depended on it.
+        self._write("src/pkg/sub/target/__init__.py", "")
+        self._write("src/pkg/sub/target/child.py", "value = 1\n")
+        self._write("tests/deep.py", "from pkg.sub.target.child import value\n")
+        self.assertIn("tests/deep.py", self._callers("pkg.sub.target", ["src", "tests"]))
+
+    def test_plain_import_of_descendant_reports_ancestor(self):
+        self._write("src/pkg/sub/target/__init__.py", "")
+        self._write("src/pkg/sub/target/child.py", "value = 1\n")
+        self._write("tests/deep2.py", "import pkg.sub.target.child\n")
+        self.assertIn("tests/deep2.py", self._callers("pkg.sub.target", ["src", "tests"]))
+
+    def test_intermediate_packages_all_reported(self):
+        self._write("tests/deep3.py", "import pkg.sub.target\n")
+        targets = module_callers._targets_in("tests/deep3.py", "src")
+        self.assertEqual(
+            {"pkg", "pkg.sub", "pkg.sub.target"} - targets, set(),
+            "every ancestor package is imported at runtime",
+        )
+
+
+class PackageInitTests(TreeMixin):
+    """An __init__.py is its own package, not a member of its parent."""
+
+    def test_relative_import_in_initializer_resolves_within_the_package(self):
+        # `from .target import thing` inside src/pkg/sub/__init__.py means
+        # pkg.sub.target. Treating the file as a member of `pkg` resolved it
+        # to pkg.target and missed the caller entirely.
+        self._write("src/pkg/sub/__init__.py", "from .target import thing\n")
+        self.assertIn(
+            "src/pkg/sub/__init__.py", self._callers("pkg.sub.target", ["src"])
+        )
+
+    def test_initializer_does_not_resolve_into_the_parent(self):
+        self._write("src/pkg/sub/__init__.py", "from .target import thing\n")
+        targets = module_callers._targets_in("src/pkg/sub/__init__.py", "src")
+        self.assertNotIn("pkg.target", targets)
+
+
+class WalkErrorTests(TreeMixin):
+    """A directory that cannot be listed must not read as 'no callers'."""
+
+    def test_unreadable_directory_is_reported(self):
+        import os
+
+        self._write("src/pkg/locked/caller.py", "from pkg.sub.target import thing\n")
+        locked = self.tmp / "src" / "pkg" / "locked"
+        os.chmod(locked, 0o000)
+        self.addCleanup(os.chmod, locked, 0o755)
+
+        callers, unscannable = module_callers.callers_of("pkg.sub.target", ["src"])
+        # os.walk defaults to onerror=None, which dropped the whole subtree
+        # without a word: callers [], unscannable [], complete True, exit 0.
+        self.assertNotEqual(unscannable, [], "an unreadable directory must be reported")
+        self.assertEqual(callers, [])
+
+    def test_unreadable_directory_exits_two(self):
+        import os
+
+        self._write("src/pkg/locked2/caller.py", "from pkg.sub.target import thing\n")
+        locked = self.tmp / "src" / "pkg" / "locked2"
+        os.chmod(locked, 0o000)
+        self.addCleanup(os.chmod, locked, 0o755)
+
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc = module_callers.main(["--module", "pkg.sub.target", "--roots", "src"])
+        self.assertEqual(rc, 2)
+        self.assertIn("INCOMPLETE", err.getvalue())
+
+
 class ModulePathTests(unittest.TestCase):
     def test_init_maps_to_the_package(self):
         # Not pkg.providers.__init__, which would bind a second module object.

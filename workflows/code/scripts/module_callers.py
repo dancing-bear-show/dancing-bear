@@ -14,6 +14,9 @@ A string grep cannot answer this question:
   body is not in ``tree.body``; only ``ast.walk`` reaches it.
 - **Dots are wildcards.** ``grep "import mail.foo"`` also matches
   ``import mailXfoo``. ``grep -F`` fixes that but keeps the first two gaps.
+- **Importing a descendant imports its ancestors.** ``import pkg.target.child``
+  executes ``pkg/target/__init__.py``, so that file is a live caller of
+  ``pkg.target`` even though the string never appears on its own.
 
 This is not hypothetical. ``workflows/code/facade-elimination.yaml`` records
 that a grep-based caller count once labelled 7 facades "zero callers — safe to
@@ -29,11 +32,12 @@ Exit codes:
     0  scan completed and covered every file (callers may be zero — that is a
        real answer)
     1  bad arguments, or a root that does not exist
-    2  scan completed but one or more files could not be read or parsed, so
-       the caller list is INCOMPLETE. A stale import inside an unparseable
-       file would be missed, and acting on a zero count here could delete a
-       module that still has callers. The unreadable paths are listed on
-       stderr, and in the "unscannable" key with --format json.
+    2  scan completed but one or more files could not be read or parsed, or
+       a directory could not be listed, so the caller list is INCOMPLETE. A
+       stale import inside an unreadable file or subtree would be missed, and
+       acting on a zero count here could delete a module that still has
+       callers. The affected paths are listed on stderr, and in the
+       "unscannable" key with --format json.
 
 Prints one caller path per line, sorted, or a JSON object with --format json.
 A file is reported once however many times it imports the target.
@@ -54,18 +58,36 @@ SKIP_DIRS = {
 }
 
 
-def iter_py(roots: list[str]) -> Iterator[str]:
-    """Yield every .py file under *roots*, skipping vendored/build dirs."""
+def _walk_py(root: str, unscannable: list[str] | None) -> Iterator[str]:
+    """Yield .py files under one directory, recording unlistable directories.
+
+    ``os.walk`` defaults to ``onerror=None``, which drops an unreadable
+    directory without a word — its files never reach ``_parse``, so a
+    file-level error list stays empty and the scan reports complete while a
+    whole subtree went unread.
+    """
+    def _on_error(err: OSError) -> None:
+        if unscannable is not None:
+            unscannable.append(getattr(err, "filename", None) or str(err))
+
+    for dirpath, dirnames, filenames in os.walk(root, onerror=_on_error):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        for fn in sorted(filenames):
+            if fn.endswith(".py"):
+                yield os.path.join(dirpath, fn)
+
+
+def iter_py(roots: list[str], unscannable: list[str] | None = None) -> Iterator[str]:
+    """Yield every .py file under *roots*, skipping vendored/build dirs.
+
+    Directories that cannot be listed are appended to *unscannable*.
+    """
     for root in roots:
         if os.path.isfile(root):
             if root.endswith(".py"):
                 yield root
-            continue
-        for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
-            for fn in sorted(filenames):
-                if fn.endswith(".py"):
-                    yield os.path.join(dirpath, fn)
+        else:
+            yield from _walk_py(root, unscannable)
 
 
 def module_path(path: str, src_root: str = "src") -> str:
@@ -114,6 +136,18 @@ def _parse(path: str, unscannable: list[str] | None = None) -> ast.Module | None
         return None
 
 
+def _with_ancestors(dotted: str) -> set[str]:
+    """*dotted* plus every ancestor package it necessarily imports.
+
+    ``import pkg.target.child`` executes ``pkg/__init__.py`` and
+    ``pkg/target/__init__.py`` before binding the leaf, so the importing file
+    is a live caller of all three. Recording only the leaf let a split or
+    delete of ``pkg.target`` proceed while that caller still depended on it.
+    """
+    parts = dotted.split(".")
+    return {".".join(parts[: i + 1]) for i in range(len(parts))}
+
+
 def _from_targets(node: ast.ImportFrom, pkg: str) -> set[str]:
     """Modules referenced by one ``from x import y`` node."""
     target = resolve_relative(node.level, node.module, pkg) if node.level else node.module
@@ -122,7 +156,10 @@ def _from_targets(node: ast.ImportFrom, pkg: str) -> set[str]:
     # `from pkg import submodule` binds a MODULE, not a symbol, so the real
     # target is pkg.submodule — matching how detect_facades handles
     # `from worker import queue as q`.
-    return {target} | {f"{target}.{alias.name}" for alias in node.names}
+    found = _with_ancestors(target)
+    for alias in node.names:
+        found.add(f"{target}.{alias.name}")
+    return found
 
 
 def _targets_in(path: str, src_root: str,
@@ -137,7 +174,15 @@ def _targets_in(path: str, src_root: str,
         return set()
 
     mod = module_path(path, src_root)
-    pkg = mod.rsplit(".", 1)[0] if "." in mod else ""
+    # An __init__.py IS its package, so a relative import inside it resolves
+    # against the package itself. Stripping the last segment (correct for a
+    # plain module) would make `from .base import X` in mail/providers/
+    # resolve to mail.base instead of mail.providers.base, missing every
+    # caller that imports through a package initializer.
+    if os.path.basename(path) == "__init__.py":
+        pkg = mod
+    else:
+        pkg = mod.rsplit(".", 1)[0] if "." in mod else ""
     found: set[str] = set()
 
     # ast.walk, NOT tree.body: a lazy import inside a function body is a real
@@ -146,7 +191,8 @@ def _targets_in(path: str, src_root: str,
         if isinstance(node, ast.ImportFrom):
             found |= _from_targets(node, pkg)
         elif isinstance(node, ast.Import):
-            found.update(alias.name for alias in node.names)
+            for alias in node.names:
+                found |= _with_ancestors(alias.name)
     return found
 
 
@@ -160,10 +206,10 @@ def callers_of(target: str, roots: list[str],
     """
     unscannable: list[str] = []
     callers = sorted(
-        path for path in iter_py(roots)
+        path for path in iter_py(roots, unscannable)
         if target in _targets_in(path, src_root, unscannable)
     )
-    return callers, sorted(unscannable)
+    return callers, sorted(set(unscannable))
 
 
 def main(argv: list[str] | None = None) -> int:

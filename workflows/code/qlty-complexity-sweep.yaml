@@ -2239,10 +2239,18 @@ stages:
         writing PASS:
 
           for p in <the surviving .py files>; do
+            SAFE=$(printf '%s' "$p" | sed 's|_|__|g; s|/|_|g')
             ./bin/qlty-assistant scan --rescan-until-stable --check-only \
               --format json "$p" \
-              > {workspace}/validation/final-lint-$(echo "$p" | tr '/' '_').json
+              > {workspace}/validation/final-lint-${SAFE}.json
           done
+
+        Double the underscores BEFORE replacing separators. A bare
+        `tr '/' '_'` is not injective: src/a_b.py and src/a/b.py both become
+        src_a_b.py, so the second scan silently overwrites the first and one
+        file's evidence vanishes from the very gate that is supposed to
+        prove completeness. Escaping first keeps the mapping one-to-one
+        (src_a__b.py vs src_a_b.py).
 
         This is the same discipline Step 3 already applies to complexity
         findings ("ABSENCE IS NOT RESOLUTION"), applied to lint. Write PASS
