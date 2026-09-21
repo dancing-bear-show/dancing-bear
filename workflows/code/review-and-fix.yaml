@@ -428,7 +428,10 @@ stages:
     kind: execute
     executor: inline
     depends_on: [fix-code, fix-tests, fix-qlty]
-    reads_from: [fix-code, fix-tests, fix-qlty]
+    # `fetch-pr-context` is required, not decorative: this stage commits to
+    # whatever checkout runs the workflow, and pr-context.json is the only
+    # record of which branch that is supposed to be.
+    reads_from: [fix-code, fix-tests, fix-qlty, fetch-pr-context]
     description: >
       Land the isolated fix stages' commits on the PR branch before anything
       verifies them.
@@ -439,7 +442,23 @@ stages:
       unchanged checkout and can report success while no fix landed — a green
       result that means nothing.
 
-      Step 0 — capture the pre-merge ref, before touching anything:
+      Step 0a — confirm this checkout is the PR's head branch, BEFORE any
+      merge. This stage writes commits to whatever branch is checked out, and
+      nothing upstream guarantees that is the right one: `pr_number` can be
+      passed explicitly, so the workflow may be reviewing one PR while the
+      working tree sits on another branch entirely. Landing a fixer's commits
+      on an unrelated branch is silent and hard to unpick.
+
+        Use the Read tool on inputs/outputs/pr-context.json and take
+        `headRefName`.
+        Bash tool: git branch --show-current
+
+        If they differ, STOP: write merge-results.json with "all_merged":
+        false and a "wrong_branch" entry naming both refs, and fail this
+        stage. Do not check out the correct branch here — switching branches
+        under a running workflow is a bigger surprise than halting.
+
+      Step 0b — capture the pre-merge ref, before touching anything:
         Bash tool: git rev-parse HEAD
         Call this PRE_FIX_SHA. It is the immutable baseline for both the
         ancestry checks and the final diff. Do not substitute a branch name:
@@ -502,16 +521,21 @@ stages:
           ],
           "unidentifiable": [],
           "conflicts": [],
+          "wrong_branch": null,
           "all_merged": true
         }
 
       "no_op" is a normal outcome and does NOT affect "all_merged".
 
       Set "all_merged" false only when something was actually lost or unsafe:
-      an entry in "uncommitted" (fixes reported but not committed), in
-      "unidentifiable" (result JSON missing branch/head_commit, or the branch
-      does not descend from PRE_FIX_SHA), or in "conflicts". verify-fixes
-      reads this field and refuses to run on false.
+      a "wrong_branch" value (checkout is not the PR's head branch, so nothing
+      was merged at all), an entry in "uncommitted" (fixes reported but not
+      committed), in "unidentifiable" (result JSON missing branch/head_commit,
+      or the branch does not descend from PRE_FIX_SHA), or in "conflicts".
+      verify-fixes reads this field and refuses to run on false.
+
+      "wrong_branch", when set, is
+      {"expected": "<headRefName>", "actual": "<current branch>"}.
     agent:
       role: code-writer
       model: sonnet
