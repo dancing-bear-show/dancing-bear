@@ -7,7 +7,7 @@ from unittest import TestCase
 from unittest.mock import MagicMock
 
 from tests.fixtures import test_path, write_yaml
-from tests.calendars_tests.fixtures import NoOpProducer, make_mock_processor
+from tests.calendars_tests.fixtures import NoOpProducer, make_mock_processor_class
 
 from core.pipeline import ResultEnvelope
 from calendars.pipeline_base import BaseProducer, RequestConsumer, GmailAuth
@@ -861,7 +861,7 @@ class RunPipelineTests(TestCase):
         """run_pipeline() returns 0 when processor returns success."""
         from core.pipeline import run_pipeline
 
-        processor = make_mock_processor(ResultEnvelope(status="success", payload={"data": "test"}))
+        processor = make_mock_processor_class(ResultEnvelope(status="success", payload={"data": "test"}))
         result = run_pipeline({"test": 123}, processor, NoOpProducer)
         self.assertEqual(0, result)
 
@@ -869,7 +869,7 @@ class RunPipelineTests(TestCase):
         """run_pipeline() returns error code from diagnostics on failure."""
         from core.pipeline import run_pipeline
 
-        processor = make_mock_processor(ResultEnvelope(status="error", diagnostics={"code": 42, "message": "fail"}))
+        processor = make_mock_processor_class(ResultEnvelope(status="error", diagnostics={"code": 42, "message": "fail"}))
         result = run_pipeline({}, processor, NoOpProducer)
         self.assertEqual(42, result)
 
@@ -877,7 +877,7 @@ class RunPipelineTests(TestCase):
         """run_pipeline() returns 2 when error has no code in diagnostics."""
         from core.pipeline import run_pipeline
 
-        processor = make_mock_processor(ResultEnvelope(status="error", diagnostics={"message": "fail"}))
+        processor = make_mock_processor_class(ResultEnvelope(status="error", diagnostics={"message": "fail"}))
         result = run_pipeline({}, processor, NoOpProducer)
         self.assertEqual(2, result)
 
