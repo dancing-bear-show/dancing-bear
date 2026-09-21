@@ -160,22 +160,25 @@ class OutlookRulesSyncProducer(BaseProducer):
         self._produce_success(result.payload, result.diagnostics)
 
     def _produce_success(self, payload: OutlookRulesSyncResult, diagnostics: dict | None) -> None:
-        msg = f"Sync complete. Created: {payload.created}"
+        # ONE parts list for both branches. They were built independently, and
+        # the duplication silently dropped a field twice: `Reconciled` before
+        # f5b940a, then `Failed` — added to the live branch only, so a dry run
+        # reported nothing about a rule it would have failed to reconcile. A
+        # preview that omits a failure is worse than one that reports it, and
+        # this PR has already fixed five preview/apply divergences.
+        parts = [f"Created: {payload.created}"]
         if self._reconcile and payload.reconciled:
-            msg += f", Reconciled: {payload.reconciled}"
+            parts.append(f"Reconciled: {payload.reconciled}")
         if self._reconcile and payload.failed:
-            msg += f", Failed: {payload.failed}"
+            parts.append(f"Failed: {payload.failed}")
         if self._delete_missing:
-            msg += f", Deleted: {payload.deleted}"
+            parts.append(f"Deleted: {payload.deleted}")
+        summary = ", ".join(parts)
+
         if self._dry_run:
-            dry_parts = [f"Created: {payload.created}"]
-            if self._reconcile and payload.reconciled:
-                dry_parts.append(f"Reconciled: {payload.reconciled}")
-            if self._delete_missing:
-                dry_parts.append(f"Deleted: {payload.deleted}")
-            self._writer.print_dry_run(f"sync. {', '.join(dry_parts)}")
+            self._writer.print_dry_run(f"sync. {summary}")
         else:
-            self._writer.print(msg)
+            self._writer.print(f"Sync complete. {summary}")
 
 
 class OutlookRulesPlanProducer(BaseProducer):

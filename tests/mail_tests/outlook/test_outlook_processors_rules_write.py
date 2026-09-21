@@ -141,8 +141,22 @@ class TestCreateRuleIfNewApplyPath(unittest.TestCase):
         self.assertTrue(was_created)
         mock_client.create_filter.assert_called_once()
 
-    def test_create_filter_exception_is_swallowed(self):
-        """Exception from create_filter is caught; rule still counts as (key, True)."""
+    def test_non_reconcile_create_failure_still_counts_as_created(self):
+        """On the NON-reconcile path a create exception is swallowed, by design.
+
+        Named for the path it covers. The old name
+        (`test_create_filter_exception_is_swallowed`) read as a general contract,
+        which is now wrong: under `--reconcile` a create failure is counted as
+        `failed`, never `created`, because there it can mean a rule was deleted
+        and not replaced. Here `reconcile_index` is None, nothing was deleted
+        first, and a transient create failure leaves the mailbox as it was — so
+        counting it as attempted is the long-standing behaviour and must not
+        change.
+
+        `was_failed` is asserted False explicitly so the two paths stay visibly
+        distinct, and so adding a `reconcile_index=` here without updating the
+        assertion fails loudly instead of quietly widening the swallow.
+        """
         mock_client = MagicMock()
         mock_client.create_filter.side_effect = Exception("Graph API 429")
         ctx = _make_ctx(client=mock_client)
@@ -155,8 +169,9 @@ class TestCreateRuleIfNewApplyPath(unittest.TestCase):
             dry_run=False,
         )
         self.assertIsNotNone(result)
-        _key, was_created, _, _was_failed = result
+        _key, was_created, _was_reconciled, was_failed = result
         self.assertTrue(was_created)
+        self.assertFalse(was_failed, "non-reconcile path must not set the failed flag")
         mock_client.create_filter.assert_called_once()
 
 
