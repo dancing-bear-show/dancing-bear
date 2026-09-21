@@ -223,6 +223,7 @@ def run_labels_prune_empty(args) -> int:
     force = getattr(args, 'force', False)
 
     labels = client.list_labels()
+    skipped: dict[str, str]
     if force:
         empty_labels, skipped = _get_empty_user_labels(labels), {}
     else:
