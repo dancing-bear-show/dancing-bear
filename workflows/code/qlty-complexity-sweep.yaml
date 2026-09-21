@@ -2440,7 +2440,15 @@ stages:
       Acceptance criteria — this stage is not done until all hold:
         - Full unittest discover exits 0 and prints a "Ran N tests" summary
           line (the exit code alone is not evidence the suite ran)
-        - qlty check exits 0 on all modified files
+        - qlty_status is PASS — which requires the batched scan clean AND a
+          clean per-file scan for every surviving file, each stable and
+          non-degraded. A zero exit from `qlty check` is NOT this criterion:
+          a capped or unstable run also exits 0, and that case is UNVERIFIED,
+          which fails this criterion exactly as ISSUES does.
+        - complexity_status is IMPROVED. RELOCATED, REGRESSED and UNVERIFIED
+          all fail it.
+        - ready_for_commit was DERIVED from those fields, not asserted, and
+          the stage states which field blocked it when false
         - No file touched by this sweep has a higher complexity score than
           before
         - Split files report the sibling-sum verdict, not just the original
@@ -2459,7 +2467,12 @@ stages:
       strategy: unit
       criteria:
         - Full unittest discover exits 0 and prints a "Ran N tests" summary line
-        - qlty check exits 0 on all modified files
+        - qlty_status is PASS — batched scan clean AND every per-file scan
+          clean, each stable and non-degraded. A zero exit from `qlty check`
+          does not satisfy this; a capped run exits 0 too and is UNVERIFIED,
+          which fails exactly as ISSUES does.
+        - complexity_status is IMPROVED (RELOCATED, REGRESSED, UNVERIFIED all fail)
+        - ready_for_commit was derived from those fields, not asserted
         - No file touched by this sweep has a higher complexity score than before
         - Split files report the sibling-sum verdict, not just the original
           path's new score
