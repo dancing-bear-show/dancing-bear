@@ -165,14 +165,17 @@ def run_outlook_rules_sync(args) -> int:
 
 
 def run_outlook_rules_plan(args) -> int:
+    reconcile = getattr(args, 'reconcile', False)
     return _run_pipeline(
         'rules_plan',
         args,
         {
             'config_path': args.config,
             'move_to_folders': getattr(args, 'move_to_folders', False),
+            'reconcile': reconcile,
             **_cache_kwargs(args),
         },
+        {'reconcile': reconcile},
     )
 
 

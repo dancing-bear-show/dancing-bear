@@ -130,7 +130,14 @@ class LabelsFiltersMixin:
         return r.json().get("value", [])
 
     def _map_rule(self: OutlookClientBase, ru: dict[str, Any]) -> dict[str, Any]:
-        """Map a raw Graph rule to the internal filter format."""
+        """Map a raw Graph rule to the internal filter format.
+
+        Preserves ``sequence`` and ``stopProcessingRules`` from the Graph API
+        response so they can be carried over when a rule is recreated during
+        reconciliation (``rules.sync --reconcile``).  Without this, every
+        reconcile resets both fields to their hardcoded defaults (sequence=1,
+        stopProcessingRules=True), which silently reorders the rule chain.
+        """
         cond = ru.get("conditions", {}) or {}
         act = ru.get("actions", {}) or {}
         crit: dict[str, Any] = {}
@@ -149,7 +156,13 @@ class LabelsFiltersMixin:
             )
         if act.get("moveToFolder"):
             action["moveToFolderId"] = act.get("moveToFolder")
-        return {"id": ru.get("id"), "criteria": crit, "action": action}
+        return {
+            "id": ru.get("id"),
+            "criteria": crit,
+            "action": action,
+            "sequence": ru.get("sequence"),
+            "stopProcessingRules": ru.get("stopProcessingRules"),
+        }
 
     def list_filters(
         self: "_LabelsHost",
@@ -192,14 +205,29 @@ class LabelsFiltersMixin:
         self: "_LabelsHost",
         criteria: dict[str, Any],
         action: dict[str, Any],
+        sequence: int | None = None,
+        stop_processing_rules: bool | None = None,
     ) -> dict[str, Any]:
+        """Create an inbox rule from criteria and action dicts.
+
+        ``sequence`` and ``stop_processing_rules`` default to today's behaviour
+        (1 and True) when not supplied, so existing callers are unaffected.
+        Pass explicit values when recreating a rule during reconciliation
+        (``rules.sync --reconcile``) to preserve the live rule's position in
+        the rule chain and its stop-processing setting.
+
+        Note: the Graph API has no PATCH endpoint for inbox rules.  Reconcile
+        must delete the old rule and create a replacement.  If the live rule's
+        sequence is not passed, the new rule will land at position 1 and may
+        alter the order of all subsequent rules for that mailbox.
+        """
         payload = {
             "displayName": f"Rule {int(time.time())}",
-            "sequence": 1,
+            "sequence": sequence if sequence is not None else 1,
             "isEnabled": True,
             "conditions": self._build_rule_conditions(criteria),
             "actions": self._build_rule_actions(action),
-            "stopProcessingRules": True,
+            "stopProcessingRules": stop_processing_rules if stop_processing_rules is not None else True,
         }
         r = _requests().post(
             f"{GRAPH_API_URL}/me/mailFolders/inbox/messageRules",

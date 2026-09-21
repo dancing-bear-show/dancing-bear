@@ -13,12 +13,12 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
-from mail.outlook.processors_rules_write import OutlookRulesSyncProcessor
+from mail.outlook.processors_rules_write import OutlookRulesSyncProcessor, OutlookRulesPlanProcessor
 from mail.outlook.processors_rules_helpers import (
     _criteria_key,
     _norm_criteria_field,
 )
-from mail.outlook.consumers import OutlookRulesSyncPayload
+from mail.outlook.consumers import OutlookRulesSyncPayload, OutlookRulesPlanPayload
 
 
 # ---------------------------------------------------------------------------
@@ -808,6 +808,525 @@ class TestReconcileDryRunFailurePaths(unittest.TestCase):
         self.assertEqual(envelope.payload.created, 0)
         client.delete_filter.assert_not_called()
         client.create_filter.assert_not_called()
+
+
+
+# ============================================================
+# NEW TESTS ADDED: plan preview + data-loss regression fixes
+# ============================================================
+
+def _plan_payload(client, *, reconcile=False):
+    return OutlookRulesPlanPayload(
+        client=client,
+        config_path="/test.yaml",
+        reconcile=reconcile,
+    )
+
+
+# ---------------------------------------------------------------------------
+# DATA-LOSS REGRESSION: case-only no-op + --delete-missing must NOT delete
+# ---------------------------------------------------------------------------
+
+class TestCaseOnlyNoOpDeleteMissing(unittest.TestCase):
+    """--reconcile --delete-missing must NOT delete a live rule that already has
+    the correct action when only the criteria case differs.
+
+    Regression guard: introduced in d0df0e7.  The case-normalised no-op path
+    returned (key, False, False, False) without recording the live rule id.
+    _delete_missing_rules then compared each live rule's _canon_rule key
+    (UPPERCASE criteria verbatim) against desired_keys (lowercase desired key);
+    they never matched, and the live rule was deleted.
+
+    The rule was already correct. This was outright data loss: reconcile with
+    delete-missing turned a benign case discrepancy into a missing rule.
+    """
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_case_only_no_op_not_deleted(self, mock_norm, mock_load):
+        """reconcile=True, delete_missing=True, case-only diff -> nothing deleted, nothing created."""
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = [
+            {
+                "match": {"from": "nintendo.net OR accounts.nintendo.com"},
+                "action": {"forward": "games@example.com"},
+            },
+        ]
+        live_rule = {
+            "id": "nintendo-rule",
+            "criteria": {"from": "NINTENDO.NET OR ACCOUNTS.NINTENDO.COM"},
+            "action": {"forward": "games@example.com"},
+        }
+        client = _make_client(list_filters=[live_rule])
+        payload = _sync_payload(client, reconcile=True, delete_missing=True, dry_run=False)
+
+        envelope = OutlookRulesSyncProcessor().process(payload)
+
+        self.assertEqual(envelope.status, "success")
+        self.assertEqual(envelope.payload.created, 0)
+        self.assertEqual(envelope.payload.reconciled, 0)
+        self.assertEqual(envelope.payload.deleted, 0)
+        self.assertEqual(envelope.payload.failed, 0)
+        client.delete_filter.assert_not_called()
+        client.create_filter.assert_not_called()
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_case_only_no_op_delete_missing_false_unchanged(self, mock_norm, mock_load):
+        """delete_missing=False: case-only no-op is still a no-op (baseline)."""
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = [
+            {
+                "match": {"from": "nintendo.net OR accounts.nintendo.com"},
+                "action": {"forward": "games@example.com"},
+            },
+        ]
+        live_rule = {
+            "id": "nintendo-rule",
+            "criteria": {"from": "NINTENDO.NET OR ACCOUNTS.NINTENDO.COM"},
+            "action": {"forward": "games@example.com"},
+        }
+        client = _make_client(list_filters=[live_rule])
+        payload = _sync_payload(client, reconcile=True, delete_missing=False, dry_run=False)
+
+        envelope = OutlookRulesSyncProcessor().process(payload)
+
+        self.assertEqual(envelope.status, "success")
+        self.assertEqual(envelope.payload.created, 0)
+        self.assertEqual(envelope.payload.reconciled, 0)
+        self.assertEqual(envelope.payload.deleted, 0)
+        client.delete_filter.assert_not_called()
+        client.create_filter.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# PLAN PREVIEW: --reconcile flag on rules.plan
+# ---------------------------------------------------------------------------
+
+class TestPlanReconcilePreview(unittest.TestCase):
+    """rules.plan --reconcile must report 'Would reconcile' for rules that would
+    be deleted and recreated, not 'Would create'.
+
+    Regression guard: before this fix, rules.plan had no --reconcile flag.
+    Running plan showed 'Would create' lines for rules with changed actions;
+    running sync --reconcile deleted and recreated them.  The plan/apply
+    discrepancy meant the documented plan->dry-run->apply discipline could not
+    be followed safely.
+    """
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_plan_reconcile_shows_would_reconcile(self, mock_norm, mock_load):
+        """Plan with --reconcile shows 'Would reconcile' not 'Would create' for action changes."""
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = [
+            {
+                "match": {"from": "news@example.com"},
+                "action": {"forward": "new@other.com"},
+            },
+        ]
+        live_rule = {
+            "id": "rule-99",
+            "criteria": {"from": "news@example.com"},
+            "action": {"forward": "old@other.com"},
+        }
+        client = _make_client(list_filters=[live_rule])
+        payload = _plan_payload(client, reconcile=True)
+
+        envelope = OutlookRulesPlanProcessor().process(payload)
+
+        self.assertEqual(envelope.status, "success")
+        self.assertEqual(envelope.payload.would_create, 0)
+        self.assertEqual(envelope.payload.would_reconcile, 1)
+        self.assertEqual(len(envelope.payload.plan_items), 1)
+        self.assertIn("Would reconcile", envelope.payload.plan_items[0])
+        self.assertIn("rule-99", envelope.payload.plan_items[0])
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_plan_no_reconcile_shows_would_create(self, mock_norm, mock_load):
+        """Plan WITHOUT --reconcile still shows 'Would create' for action changes (opt-in guard)."""
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = [
+            {
+                "match": {"from": "news@example.com"},
+                "action": {"forward": "new@other.com"},
+            },
+        ]
+        live_rule = {
+            "id": "rule-99",
+            "criteria": {"from": "news@example.com"},
+            "action": {"forward": "old@other.com"},
+        }
+        client = _make_client(list_filters=[live_rule])
+        payload = _plan_payload(client, reconcile=False)
+
+        envelope = OutlookRulesPlanProcessor().process(payload)
+
+        self.assertEqual(envelope.status, "success")
+        self.assertEqual(envelope.payload.would_create, 1)
+        self.assertEqual(envelope.payload.would_reconcile, 0)
+        self.assertIn("Would create", envelope.payload.plan_items[0])
+        self.assertNotIn("Would reconcile", envelope.payload.plan_items[0])
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_plan_case_only_no_op_not_reported(self, mock_norm, mock_load):
+        """Plan --reconcile with case-only diff emits NO plan items (rule already correct)."""
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = [
+            {
+                "match": {"from": "nintendo.net OR accounts.nintendo.com"},
+                "action": {"forward": "games@example.com"},
+            },
+        ]
+        live_rule = {
+            "id": "nintendo-rule",
+            "criteria": {"from": "NINTENDO.NET OR ACCOUNTS.NINTENDO.COM"},
+            "action": {"forward": "games@example.com"},
+        }
+        client = _make_client(list_filters=[live_rule])
+        payload = _plan_payload(client, reconcile=True)
+
+        envelope = OutlookRulesPlanProcessor().process(payload)
+
+        self.assertEqual(envelope.status, "success")
+        self.assertEqual(envelope.payload.would_create, 0)
+        self.assertEqual(envelope.payload.would_reconcile, 0)
+        self.assertEqual(envelope.payload.plan_items, [])
+
+
+# ---------------------------------------------------------------------------
+# PLAN/SYNC PARITY: plan --reconcile and sync --dry-run agree
+# ---------------------------------------------------------------------------
+
+class TestPlanSyncParity(unittest.TestCase):
+    """rules.plan --reconcile and rules.sync --reconcile --dry-run must report
+    the same set of actions on the same input.
+
+    Regression guard: this PR has already fixed six plan/apply divergences.
+    Any new divergence must be caught here before it reaches production.
+
+    Invariant: plan items and sync dry_run created/reconciled counts agree.
+    """
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_plan_and_sync_dry_run_agree_on_reconcile(self, mock_norm, mock_load):
+        """For an action-change case, plan --reconcile and sync --dry-run reconcile=1 both."""
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = [
+            {
+                "match": {"from": "news@example.com"},
+                "action": {"forward": "new@other.com"},
+            },
+        ]
+        live_rule = {
+            "id": "rule-1",
+            "criteria": {"from": "news@example.com"},
+            "action": {"forward": "old@other.com"},
+        }
+        client = _make_client(list_filters=[live_rule])
+
+        plan_payload = _plan_payload(client, reconcile=True)
+        plan_env = OutlookRulesPlanProcessor().process(plan_payload)
+
+        sync_payload = _sync_payload(client, reconcile=True, dry_run=True)
+        sync_env = OutlookRulesSyncProcessor().process(sync_payload)
+
+        # Both agree: no creates, exactly one reconcile
+        self.assertEqual(plan_env.payload.would_create, 0)
+        self.assertEqual(plan_env.payload.would_reconcile, 1)
+        self.assertEqual(sync_env.payload.created, 0)
+        self.assertEqual(sync_env.payload.reconciled, 1)
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_plan_and_sync_dry_run_agree_on_create(self, mock_norm, mock_load):
+        """For a genuinely new rule, plan and sync dry_run agree on create=1, reconcile=0."""
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = [
+            {
+                "match": {"from": "brand-new@example.com"},
+                "action": {"forward": "x@other.com"},
+            },
+        ]
+        client = _make_client(list_filters=[])  # no live rules
+
+        plan_payload = _plan_payload(client, reconcile=True)
+        plan_env = OutlookRulesPlanProcessor().process(plan_payload)
+
+        sync_payload = _sync_payload(client, reconcile=True, dry_run=True)
+        sync_env = OutlookRulesSyncProcessor().process(sync_payload)
+
+        self.assertEqual(plan_env.payload.would_create, 1)
+        self.assertEqual(plan_env.payload.would_reconcile, 0)
+        self.assertEqual(sync_env.payload.created, 1)
+        self.assertEqual(sync_env.payload.reconciled, 0)
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_plan_and_sync_dry_run_agree_on_case_only_noop(self, mock_norm, mock_load):
+        """A rule differing only in criteria CASE is a no-op in both plan and sync.
+
+        The third parity row, and the one tied to the data-loss regression: a live
+        rule that already satisfies the desired spec, where only the criteria
+        casing differs.  Both surfaces must report nothing to do -- if plan and
+        sync disagree here, one of them is about to churn or destroy a rule that
+        is already correct.
+        """
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = [
+            {
+                "match": {"from": "nintendo.net OR accounts.nintendo.com"},
+                "action": {"forward": "games@other.com"},
+            },
+        ]
+        live_rule = {
+            "id": "rule-correct",
+            "criteria": {"from": "NINTENDO.NET OR ACCOUNTS.NINTENDO.COM"},
+            "action": {"forward": "games@other.com"},
+        }
+        client = _make_client(list_filters=[live_rule])
+
+        plan_env = OutlookRulesPlanProcessor().process(_plan_payload(client, reconcile=True))
+        sync_env = OutlookRulesSyncProcessor().process(
+            _sync_payload(client, reconcile=True, dry_run=True)
+        )
+
+        # Nothing to do on either surface.
+        self.assertEqual(plan_env.payload.would_create, 0)
+        self.assertEqual(plan_env.payload.would_reconcile, 0)
+        self.assertEqual(plan_env.payload.plan_items, [])
+        self.assertEqual(sync_env.payload.created, 0)
+        self.assertEqual(sync_env.payload.reconciled, 0)
+        self.assertEqual(sync_env.payload.failed, 0)
+        # Both surfaces are read-only on this input.
+        self.assertEqual(client.delete_filter.call_count, 0)
+        self.assertEqual(client.create_filter.call_count, 0)
+
+
+# ---------------------------------------------------------------------------
+# SEQUENCE PRESERVATION
+# ---------------------------------------------------------------------------
+
+class TestSequencePreservation(unittest.TestCase):
+    """When a live rule has a sequence number, reconcile must pass it through to
+    create_filter so the replacement preserves its position in the chain.
+
+    Regression guard: create_filter previously hardcoded sequence=1, so any
+    reconcile moved the rule to position 1 and silently reordered all later
+    rules.  Outlook inbox rules execute in sequence order; a reordering can
+    cause later rules to never fire for matched mail (stopProcessingRules=True).
+    """
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_sequence_preserved_on_reconcile(self, mock_norm, mock_load):
+        """create_filter receives sequence=5 when live rule had sequence=5."""
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = [
+            {
+                "match": {"from": "news@example.com"},
+                "action": {"forward": "new@other.com"},
+            },
+        ]
+        live_rule = {
+            "id": "rule-1",
+            "criteria": {"from": "news@example.com"},
+            "action": {"forward": "old@other.com"},
+            "sequence": 5,
+            "stopProcessingRules": False,
+        }
+        client = _make_client(list_filters=[live_rule])
+        payload = _sync_payload(client, reconcile=True, dry_run=False)
+
+        envelope = OutlookRulesSyncProcessor().process(payload)
+
+        self.assertEqual(envelope.payload.reconciled, 1)
+        # Verify create_filter was called with sequence=5 and stop_processing_rules=False
+        client.create_filter.assert_called_once()
+        call_kwargs = client.create_filter.call_args
+        self.assertEqual(call_kwargs.kwargs.get("sequence"), 5)
+        self.assertFalse(call_kwargs.kwargs.get("stop_processing_rules"))
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_sequence_none_falls_back_to_default(self, mock_norm, mock_load):
+        """When live rule has no sequence (old cache), create_filter uses its default."""
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = [
+            {
+                "match": {"from": "news@example.com"},
+                "action": {"forward": "new@other.com"},
+            },
+        ]
+        live_rule = {
+            "id": "rule-1",
+            "criteria": {"from": "news@example.com"},
+            "action": {"forward": "old@other.com"},
+            # no 'sequence' or 'stopProcessingRules' keys -- simulates old cache
+        }
+        client = _make_client(list_filters=[live_rule])
+        payload = _sync_payload(client, reconcile=True, dry_run=False)
+
+        envelope = OutlookRulesSyncProcessor().process(payload)
+
+        self.assertEqual(envelope.payload.reconciled, 1)
+        client.create_filter.assert_called_once()
+        call_kwargs = client.create_filter.call_args
+        # None signals create_filter to use its own default (sequence=1)
+        self.assertIsNone(call_kwargs.kwargs.get("sequence"))
+        self.assertIsNone(call_kwargs.kwargs.get("stop_processing_rules"))
+
+
+# ---------------------------------------------------------------------------
+# delete_failed + --delete-missing counter correctness
+# ---------------------------------------------------------------------------
+
+class TestDeleteFailedDeleteMissing(unittest.TestCase):
+    """When delete_failed occurs during reconcile, the live rule is still alive.
+    --delete-missing should retry the delete (rule is on old, wrong action).
+    The counters must NOT double-count: failed=1, deleted=1 (the retry succeeds)
+    -- not failed=1, deleted=2.
+
+    Design choice: we do NOT protect delete_failed rules from --delete-missing.
+    The rule is alive on the OLD action (which is wrong), so --delete-missing
+    retrying the delete is correct behaviour.  The user was already told it
+    failed via failed=1; a successful retry via delete_missing shows deleted=1
+    which is honest.
+
+    The alternative (protecting it) would leave a wrong-action rule alive
+    permanently, which is more surprising than a second delete attempt.
+    """
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_delete_failed_not_double_counted(self, mock_norm, mock_load):
+        """delete_failed -> failed=1; if delete_missing retries successfully, deleted=1, not 2."""
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = [
+            {
+                "match": {"from": "news@example.com"},
+                "action": {"forward": "new@other.com"},
+            },
+        ]
+        live_rule = {
+            "id": "rule-fail",
+            "criteria": {"from": "news@example.com"},
+            "action": {"forward": "old@other.com"},
+            "sequence": 1,
+            "stopProcessingRules": True,
+        }
+        client = _make_client(list_filters=[live_rule])
+        # First delete call fails (reconcile path); second succeeds (delete_missing path)
+        client.delete_filter.side_effect = [Exception("API error"), None]
+        payload = _sync_payload(client, reconcile=True, delete_missing=True, dry_run=False)
+
+        envelope = OutlookRulesSyncProcessor().process(payload)
+
+        self.assertEqual(envelope.status, "success")
+        self.assertEqual(envelope.payload.failed, 1)
+        # delete_missing retries and succeeds
+        self.assertEqual(envelope.payload.deleted, 1)
+        self.assertEqual(envelope.payload.reconciled, 0)
+        # delete_filter called twice: once by reconcile (fails), once by delete_missing
+        self.assertEqual(client.delete_filter.call_count, 2)
+        # No create_filter since delete failed on reconcile path
+        client.create_filter.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# create_failed + --delete-missing: no spurious second delete
+# ---------------------------------------------------------------------------
+
+class TestCreateFailedDeleteMissing(unittest.TestCase):
+    """After create_failed the reconcile delete already succeeded: the rule is gone.
+
+    ``--delete-missing`` must therefore issue NO second delete for that id.  The
+    id is added to the protected set, which is what keeps the tallies honest: one
+    rule must produce exactly one tally (``failed``), never ``Failed: 1`` plus
+    ``Deleted: 1``, which reads as two affected rules.
+
+    The earlier version of this test asserted ``deleted == 0`` while forcing the
+    second delete to raise (``side_effect = [None, Exception("404")]``).  That
+    passed for the wrong reason -- the count was 0 because the test made the call
+    fail, not because no call was made -- so it held while the double-count
+    defect was live, and could not tell the two behaviours apart.  Assert the
+    call count, not just the tally.
+    """
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_create_failed_issues_no_second_delete(self, mock_norm, mock_load):
+        """create_failed -> the deleted id is protected; delete_missing skips it."""
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = [
+            {
+                "match": {"from": "news@example.com"},
+                "action": {"forward": "new@other.com"},
+            },
+        ]
+        live_rule = {
+            "id": "rule-gone",
+            "criteria": {"from": "news@example.com"},
+            "action": {"forward": "old@other.com"},
+            "sequence": 1,
+            "stopProcessingRules": True,
+        }
+        client = _make_client(list_filters=[live_rule])
+        # The reconcile delete succeeds; the replacement create then fails.
+        # delete_filter is deliberately left succeeding for any further call, so
+        # a spurious second delete would be COUNTED and fail this test loudly
+        # rather than being masked by a forced 404.
+        client.create_filter.side_effect = Exception("API error")
+        payload = _sync_payload(client, reconcile=True, delete_missing=True, dry_run=False)
+
+        envelope = OutlookRulesSyncProcessor().process(payload)
+
+        self.assertEqual(envelope.status, "success")
+        self.assertEqual(envelope.payload.failed, 1)
+        self.assertEqual(envelope.payload.reconciled, 0)
+        # The rule is already gone: no second delete, and no second tally.
+        self.assertEqual(envelope.payload.deleted, 0)
+        self.assertEqual(
+            client.delete_filter.call_count,
+            1,
+            "--delete-missing issued a redundant delete for an already-deleted rule",
+        )
+        # One rule in, one tally out.
+        p = envelope.payload
+        self.assertEqual(p.created + p.reconciled + p.deleted + p.failed, 1)
+
+
+# ---------------------------------------------------------------------------
+# CLI: --reconcile is registered on rules.plan
+# ---------------------------------------------------------------------------
+
+class TestRulesPlanCLIReconcileFlag(unittest.TestCase):
+    """rules.plan --reconcile must be a registered CLI flag.
+
+    Regression guard: before this fix, rules.plan had no --reconcile flag.
+    A user following plan->dry-run->apply could not preview reconcile changes.
+    """
+
+    def test_reconcile_flag_registered_on_rules_plan(self):
+        """Parsing rules.plan --reconcile does not raise an error."""
+        from core.cli_framework import CLIApp
+        from mail.cli.cmd_outlook import register_outlook_commands
+
+        app = CLIApp("mail")
+        register_outlook_commands(app)
+        # Build the actual parser
+        parser = app.build_parser()
+        # rules.plan is a dotted subcommand; parse it
+        ns = parser.parse_args([
+            "outlook", "rules.plan",
+            "--config", "/dev/null",
+            "--client-id", "x",
+            "--reconcile",
+        ])
+        self.assertTrue(ns.reconcile, "--reconcile not parsed correctly on rules.plan")
 
 
 if __name__ == "__main__":

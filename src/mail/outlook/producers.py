@@ -186,13 +186,19 @@ class OutlookRulesPlanProducer(BaseProducer):
 
     failure_message = "Failed to plan rules."
 
-    def __init__(self, writer: OutputWriter | None = None) -> None:
+    def __init__(self, reconcile: bool = False, writer: OutputWriter | None = None) -> None:
         super().__init__(writer)
+        self._reconcile = reconcile
 
     def _produce_success(self, payload: OutlookRulesPlanResult, diagnostics: dict | None) -> None:
         for item in payload.plan_items:
             self._writer.print(item)
-        self._writer.print(f"Plan summary: create={payload.would_create}")
+        if self._reconcile:
+            self._writer.print(
+                f"Plan summary: create={payload.would_create} reconcile={payload.would_reconcile}"
+            )
+        else:
+            self._writer.print(f"Plan summary: create={payload.would_create}")
 
 
 class OutlookRulesDeleteProducer(BaseProducer):

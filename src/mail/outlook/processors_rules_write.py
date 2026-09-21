@@ -51,6 +51,7 @@ class OutlookRulesSyncResult:
 class OutlookRulesPlanResult:
     """Result of rules plan."""
     would_create: int = 0
+    would_reconcile: int = 0
     plan_items: list[str] = field(default_factory=list)
 
 
@@ -129,10 +130,17 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         reconcile_index: dict[str, Any],
         ctx: RuleContext,
         dry_run: bool,
-    ) -> str:
+    ) -> tuple[str, str | None]:
         """Apply a reconcile update when a criteria match exists with a different action.
 
-        Returns a status string:
+        Returns ``(status, deleted_rule_id)``.  ``deleted_rule_id`` is the id of
+        the live rule this call actually deleted, or None when no delete landed
+        ("no_match", "delete_failed", or dry_run).  The caller needs it to keep
+        ``--delete-missing`` from issuing a second delete against an id that is
+        already gone -- which would otherwise be tallied as a separate deletion,
+        reporting two affected rules where there was one.
+
+        Status values:
         - ``"no_match"``     : criteria key not in index; caller should treat as new.
         - ``"ok"``           : delete and create both succeeded (or dry_run).
         - ``"delete_failed"``: delete raised; create was NOT attempted (no duplicate).
@@ -158,19 +166,37 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         """
         crit_k = _criteria_key(criteria)
         if crit_k not in reconcile_index:
-            return "no_match"
+            return "no_match", None
         live_rule = reconcile_index.pop(crit_k)
+        live_id = live_rule.get("id")
         if dry_run:
-            return "ok"
+            return "ok", None
         try:
-            ctx.client.delete_filter(live_rule.get("id"))
+            ctx.client.delete_filter(live_id)
         except Exception:  # nosec B110 - delete failed; abort to prevent duplicate creation
-            return "delete_failed"
+            return "delete_failed", None
         try:
-            ctx.client.create_filter(criteria, action)
+            # Pass the live rule's sequence and stopProcessingRules so the
+            # replacement lands at the same position in the rule chain with the
+            # same stop-processing setting. create_filter defaults to
+            # sequence=1 / stopProcessingRules=True when not supplied, which
+            # silently reorders the chain and forces a hard stop on all later
+            # rules for this mailbox.
+            #
+            # The Graph API exposes sequence on read (_map_rule preserves it).
+            # If list_filters returned a cached value that predates this PR
+            # (sequence not in the cached doc), live_rule.get("sequence") is
+            # None and create_filter falls back to its default -- identical to
+            # previous behaviour, not worse.
+            ctx.client.create_filter(
+                criteria,
+                action,
+                sequence=live_rule.get("sequence"),
+                stop_processing_rules=live_rule.get("stopProcessingRules"),
+            )
         except Exception:  # nosec B110 - create failed after delete; rule is lost, surfaced as failed
-            return "create_failed"
-        return "ok"
+            return "create_failed", live_id
+        return "ok", live_id
 
     def _find_live_rule_id(self, spec: dict[str, Any], existing: dict[str, Any]) -> str | None:
         """Find the id of the live rule whose criteria match a spec's criteria.
@@ -193,19 +219,57 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         reconcile_index: dict[str, Any],
         ctx: RuleContext,
         dry_run: bool,
-    ) -> tuple[str, bool, bool, bool] | None:
-        """Map a reconcile-update status to its (key, created, reconciled, failed) tuple.
+    ) -> tuple[str, bool, bool, bool, str | None] | None:
+        """Map a reconcile-update status to its (key, created, reconciled, failed, protected_id) tuple.
 
         Returns None when there is no criteria match in the index ("no_match"),
         signalling the caller to fall through to fresh creation.  A non-None
         result should be returned directly by the caller.
+
+        ``protected_id`` semantics per status:
+
+        - "ok": None.  The caller recovers the deleted id itself via
+          ``_find_live_rule_id`` on the reconciled branch.
+        - "delete_failed": None.  The live rule survives on the OLD action, so it
+          does not satisfy the desired spec and ``--delete-missing`` *should*
+          retry it.
+        - "create_failed": the deleted id.  The rule is already gone, so a second
+          delete has nothing to remove.  This was previously left unprotected on
+          the reasoning that the redundant call "would spuriously 404 but is
+          otherwise harmless".  It is not harmless: ``_delete_one_rule`` swallows
+          the exception and tallies from the call's outcome, so one rule was
+          reported as both ``Failed: 1`` and ``Deleted: 1`` -- two affected rules
+          where there was one -- and which number appeared depended on whether
+          Graph 404s or succeeds against the dead id.
         """
-        status = self._apply_reconcile_update(criteria, action, reconcile_index, ctx, dry_run)
+        status, deleted_id = self._apply_reconcile_update(
+            criteria, action, reconcile_index, ctx, dry_run
+        )
         if status == "ok":
-            return key, False, True, False
-        if status in ("delete_failed", "create_failed"):
-            return key, False, False, True
+            return key, False, True, False, None
+        if status == "delete_failed":
+            return key, False, False, True, None
+        if status == "create_failed":
+            return key, False, False, True, deleted_id
         return None  # "no_match"
+
+    def _find_live_rule_id_by_norm_key(
+        self, criteria: dict[str, Any], action: dict[str, Any], existing: dict[str, Any]
+    ) -> str | None:
+        """Find the id of the live rule whose case-normalised key matches the desired spec.
+
+        Used for the case-only no-op path in ``_create_rule_if_new`` so that
+        ``--delete-missing`` can be told to skip the live rule: it already has
+        the correct action; only criteria case differs from the desired spec.
+        """
+        target = _norm_create_rule_key(criteria, action)
+        for live_rule in existing.values():
+            if _norm_create_rule_key(
+                live_rule.get("criteria") or {},
+                live_rule.get("action") or {},
+            ) == target:
+                return live_rule.get("id")
+        return None
 
     def _create_rule_if_new(
         self,
@@ -215,15 +279,24 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         dry_run: bool,
         reconcile_index: dict[str, Any] | None = None,
         norm_existing_keys: set[str] | None = None,
-    ) -> tuple[str, bool, bool, bool] | None:
+    ) -> tuple[str, bool, bool, bool, str | None] | None:
         """Build criteria/action/key for one spec and create it if missing.
 
-        Returns (key, was_created, was_reconciled, was_failed) for specs with valid criteria
-        and a real action, or None to skip — no key is contributed to the
-        desired-keys set in that case, so `--delete-missing` does not treat a
-        skipped spec as something to preserve.
+        Returns (key, was_created, was_reconciled, was_failed, protected_rule_id)
+        for specs with valid criteria and a real action, or None to skip — no key
+        is contributed to the desired-keys set in that case, so ``--delete-missing``
+        does not treat a skipped spec as something to preserve.
 
-        reconcile_index: when provided (``--reconcile`` mode), maps a
+        ``protected_rule_id``: id of the live rule that already satisfies this
+        desired spec (case-only no-op path), or None.  The caller adds it to
+        ``reconciled_rule_ids_set`` so ``--delete-missing`` does not delete a
+        live rule that is already correct.  Without this protection,
+        ``_delete_missing_rules`` compares each live rule's ``_canon_rule`` key
+        (built from raw UPPERCASE criteria) against ``desired_keys`` (which holds
+        the desired lowercase key); they never match, and the live rule is deleted
+        silently even though its action is already correct.
+
+        ``reconcile_index``: when provided (``--reconcile`` mode), maps a
         criteria-only key to the live rule it came from. When a desired rule's
         criteria key matches an entry in this index but the full key (criteria +
         action) does not match, the live rule is deleted and a fresh one created
@@ -238,30 +311,36 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
             return None
 
         action = _build_rule_action(a_act, ctx)
-        # Guard the BUILT action, not the source spec. `create_filter` sets
-        # `stopProcessingRules: True` unconditionally
+        # Guard the BUILT action, not the source spec. ``create_filter`` sets
+        # ``stopProcessingRules: True`` unconditionally
         # (core/outlook/_mail_labels.py:202), so an empty action becomes a rule
         # that matches mail, does nothing, and halts every later inbox rule.
         #
-        # Derive drops such specs (`_drop_actionless_specs`), but `rules.sync`
+        # Derive drops such specs (``_drop_actionless_specs``), but ``rules.sync``
         # also accepts the RAW unified config directly, where nothing has run
-        # that filter — a `keepInInbox` + `remove: [INBOX]` rule with no
-        # category normalizes to `action: {}` and arrived here intact. Checking
+        # that filter — a ``keepInInbox`` + ``remove: [INBOX]`` rule with no
+        # category normalizes to ``action: {}`` and arrived here intact. Checking
         # the built action covers both config shapes, and anything else that
         # empties an action on the way in.
         if not action:
             return None
         key = _create_rule_key(criteria, action)
         if key in existing:
-            return key, False, False, False
+            return key, False, False, False, None
 
         # Case-normalised no-op check (reconcile mode only): if the desired
         # rule's normalised key already exists among live rules, the action is
-        # already correct -- only the criteria case differs. Treat as matching.
+        # already correct -- only the criteria case differs. Treat as matching,
+        # and record the live rule's id so --delete-missing does not delete it.
+        # Without the protected_rule_id, _delete_missing_rules compares the
+        # live rule's _canon_rule key (UPPERCASE criteria verbatim) against
+        # desired_keys (lowercase desired key); they never match, and the live
+        # rule is deleted even though its action is already correct.
         if norm_existing_keys is not None:
             norm_key = _norm_create_rule_key(criteria, action)
             if norm_key in norm_existing_keys:
-                return key, False, False, False
+                protected_id = self._find_live_rule_id_by_norm_key(criteria, action, existing)
+                return key, False, False, False, protected_id
 
         # Reconcile path: check whether criteria match a live rule with a
         # different action (action-change case). When reconcile_index is None
@@ -279,7 +358,7 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
                 ctx.client.create_filter(criteria, action)
             except Exception:  # nosec B110 - filter creation failure logged elsewhere
                 pass
-        return key, True, False, False
+        return key, True, False, False, None
 
     def _build_reconcile_index(
         self, existing: dict[str, Any]
@@ -351,7 +430,7 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
             )
             if result is None:
                 continue
-            key, was_created, was_reconciled, was_failed = result
+            key, was_created, was_reconciled, was_failed, protected_id = result
             desired_keys.add(key)
             if was_created:
                 created += 1
@@ -362,6 +441,15 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
                     reconciled_rule_ids_set.add(rid)
             elif was_failed:
                 failed += 1
+            # protected_id: --delete-missing must not issue a delete for this id.
+            # Two distinct reasons produce it:
+            #   - case-only no-op: the live rule already satisfies the desired
+            #     spec, so deleting it would destroy a correct rule.
+            #   - create_failed: the rule was already deleted during reconcile,
+            #     so a second delete has nothing to remove and would tally the
+            #     same rule twice (Failed: 1 AND Deleted: 1).
+            if protected_id:
+                reconciled_rule_ids_set.add(protected_id)
 
         return created, reconciled, failed, desired_keys, reconciled_rule_ids_set
 
@@ -430,15 +518,15 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
             doc = load_config(payload.config_path)
             desired = normalize_filters_for_outlook(doc.get("filters") or [])
 
-            existing = _fetch_rules_with_resilience(
+            existing_rules = _fetch_rules_with_resilience(
                 client, payload.use_cache, payload.cache_ttl
             )
-            existing_keys = {_canon_rule(r) for r in existing}
+            existing_keys = {_canon_rule(r) for r in existing_rules}
             name_to_id = client.get_label_id_map()
             # Path-keyed, matching sync (line 83) and sweep (line 285). Plan used
             # get_folder_id_map, which keys displayName only, so an explicit
             # nested destination like `Security/Alerts` resolved to no id here
-            # while sync resolved it through ensure_folder_path() — the plan's
+            # while sync resolved it through ensure_folder_path() -- the plan's
             # rule key diverged from apply's and reported an existing rule as
             # "Would create". A path map also reverses correctly for display in
             # _format_plan_action.
@@ -450,7 +538,7 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
             # either way. Gating solely on move_to_folders left the map empty
             # under --categories-only, so plan fell back to the literal path
             # while apply used the Graph id.
-            # Call it exactly as sync does (line 83) — no ttl argument — so the
+            # Call it exactly as sync does (line 83) -- no ttl argument -- so the
             # preview resolves destinations the same way the apply will.
             #
             # `--use-cache` / `--cache-ttl` exist on plan but not on sync, and
@@ -465,7 +553,7 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
             # (processors_rules_helpers.py:86). Matching it is the goal; reading
             # fresher than it is the bug.
             #
-            # There is no clean per-key bypass to reach for instead — verified
+            # There is no clean per-key bypass to reach for instead -- verified
             # against core/cache.py rather than assumed: `ttl=0` and any
             # negative ttl skip the `ttl > 0` guard and serve an entry of any
             # age, and `clear_cache=True` rmtree's the whole provider cache
@@ -477,13 +565,19 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
             need_folders = payload.move_to_folders or _has_explicit_destination(desired)
             folder_map = client.get_folder_path_map() if need_folders else {}
 
-            plan_items = self._build_plan_items(
-                desired, existing_keys, name_to_id, folder_map, payload.move_to_folders
+            existing_map = {_canon_rule(r): r for r in existing_rules}
+            plan_items, would_reconcile = self._build_plan_items(
+                desired, existing_keys, existing_map, name_to_id, folder_map,
+                payload.move_to_folders, payload.reconcile
             )
 
             return ResultEnvelope(
                 status="success",
-                payload=OutlookRulesPlanResult(would_create=len(plan_items), plan_items=plan_items),
+                payload=OutlookRulesPlanResult(
+                    would_create=len(plan_items) - would_reconcile,
+                    would_reconcile=would_reconcile,
+                    plan_items=plan_items,
+                ),
             )
         except Exception as exc:
             return ResultEnvelope(
@@ -492,41 +586,136 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
                 diagnostics={"error": str(exc), "code": 1},
             )
 
+    def _plan_item_for_spec(
+        self,
+        spec: dict[str, Any],
+        existing_keys: set,
+        ctx: RuleContext,
+        folder_map: dict[str, str],
+        reconcile_index: dict[str, Any] | None,
+        norm_existing_keys: set[str] | None,
+    ) -> tuple[str, bool] | None:
+        """Classify one desired spec and return (plan_line, is_reconcile) or None.
+
+        Returns None when the spec should produce no plan line (no criteria,
+        no action, or rule already satisfied by a live rule).  Returns
+        (line, True) for a reconcile, (line, False) for a net-new create.
+        """
+        m = spec.get("match") or {}
+        a_act = spec.get("action") or {}
+        criteria = _build_rule_criteria(m)
+        if not criteria:
+            return None
+
+        action = _build_plan_action(a_act, ctx)
+        # Mirror the sync guard: an empty built action is skipped in
+        # ``_create_rule_if_new``, so predicting it here would promise a
+        # rule the apply will not create.
+        if not action:
+            return None
+        key = _create_rule_key(criteria, action)
+
+        if key in existing_keys:
+            return None  # exact match: no action needed
+
+        # Case-normalised no-op: live rule already has the correct action;
+        # only criteria case differs.
+        if norm_existing_keys is not None:
+            if _norm_create_rule_key(criteria, action) in norm_existing_keys:
+                return None
+
+        # Reconcile path: criteria match with a different action.
+        if reconcile_index is not None:
+            crit_k = _criteria_key(criteria)
+            if crit_k in reconcile_index:
+                live_rule = reconcile_index.pop(crit_k)
+                live_id = live_rule.get("id", "<unknown>")
+                disp = _format_plan_action(action, folder_map)
+                return (
+                    f"Would reconcile: delete rule id={live_id} "
+                    f"criteria={criteria} action={disp}",
+                    True,
+                )
+
+        disp = _format_plan_action(action, folder_map)
+        return f"Would create: criteria={criteria} action={disp}", False
+
     def _build_plan_items(
         self,
         desired: list[dict[str, Any]],
         existing_keys: set,
+        existing_map: dict[str, Any],
         name_to_id: dict[str, str],
         folder_map: dict[str, str],
         move_to_folders: bool,
-    ) -> list[str]:
-        """Build plan items for rules that would be created."""
+        reconcile: bool = False,
+    ) -> tuple[list[str], int]:
+        """Build plan items for rules that would be created or reconciled.
+
+        In ``reconcile`` mode, rules that match a live rule by criteria but have
+        a changed action are reported as ``Would reconcile`` (delete existing
+        rule id, create replacement) rather than ``Would create``.  The live
+        rule id and the replacement action are both shown so the user can see
+        what will be deleted and what will replace it.
+
+        Returns (plan_items, would_reconcile_count).  ``would_reconcile_count``
+        is the number of ``Would reconcile`` lines so the caller can split the
+        summary into distinct create and reconcile totals.
+
+        The output of ``rules.plan --reconcile`` must agree with
+        ``rules.sync --reconcile --dry-run`` on the same input.
+        """
         plan_items = []
+        would_reconcile = 0
         ctx = RuleContext.for_plan(name_to_id, folder_map, move_to_folders)
 
+        # Build the same indexes that sync uses so plan and apply classify each
+        # desired rule identically.
+        reconcile_index = self._build_reconcile_index(existing_map) if reconcile else None
+        norm_existing_keys = self._build_norm_existing_keys(existing_map) if reconcile else None
+
         for spec in desired:
-            m = spec.get("match") or {}
-            a_act = spec.get("action") or {}
-            criteria = _build_rule_criteria(m)
-            if not criteria:
+            item = self._plan_item_for_spec(
+                spec, existing_keys, ctx, folder_map, reconcile_index, norm_existing_keys
+            )
+            if item is None:
                 continue
+            line, is_reconcile = item
+            plan_items.append(line)
+            if is_reconcile:
+                would_reconcile += 1
 
-            action = _build_plan_action(a_act, ctx)
-            # Mirror the sync guard (`_create_rule_if_new`): an empty built
-            # action is skipped there, so predicting it here would promise a
-            # rule the apply will not create. Reached by a raw
-            # `keepInInbox` + `remove: [INBOX]` config with no category, and by
-            # an `add` list that coerces to empty.
-            if not action:
-                continue
-            key = _create_rule_key(criteria, action)
+        return plan_items, would_reconcile
 
-            if key not in existing_keys:
-                disp = _format_plan_action(action, folder_map)
-                plan_items.append(f"Would create: criteria={criteria} action={disp}")
 
-        return plan_items
+    def _build_reconcile_index(self, existing: dict[str, Any]) -> dict[str, Any]:
+        """Build a criteria-only index of live rules for reconciliation.
 
+        The first live rule for each criteria key wins; later duplicates are
+        skipped.  Entries are popped as they are matched, so the same live rule
+        cannot be reconciled twice.
+        """
+        index: dict[str, Any] = {}
+        for live_rule in existing.values():
+            ck = _criteria_key(live_rule.get("criteria") or {})
+            if ck not in index:
+                index[ck] = live_rule
+        return index
+
+    def _build_norm_existing_keys(self, existing: dict[str, Any]) -> set[str]:
+        """Build a set of case-normalised rule keys from existing live rules.
+
+        Used to detect a desired rule that already matches a live rule modulo
+        criteria case.  A desired rule whose normalised key is in this set
+        already has the correct action and must be left alone.
+        """
+        return {
+            _norm_create_rule_key(
+                r.get("criteria") or {},
+                r.get("action") or {},
+            )
+            for r in existing.values()
+        }
 
 class OutlookRulesDeleteProcessor(Processor[OutlookRulesDeletePayload, ResultEnvelope[OutlookRulesDeleteResult]]):
     """Delete an Outlook inbox rule."""

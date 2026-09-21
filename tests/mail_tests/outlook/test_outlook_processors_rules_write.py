@@ -109,14 +109,14 @@ class TestCreateRuleIfNewAlreadyExists(unittest.TestCase):
         # First run with empty existing to learn the key
         result_new = proc._create_rule_if_new(spec, {}, ctx, dry_run=True)
         self.assertIsNotNone(result_new)
-        key, was_created, _, _was_failed = result_new
+        key, was_created, _, _was_failed, _ = result_new
         self.assertTrue(was_created)
 
         # Now run again with that key pre-populated in existing
         existing = {key: {"id": "rule-existing"}}
         result_dup = proc._create_rule_if_new(spec, existing, ctx, dry_run=True)
         self.assertIsNotNone(result_dup)
-        returned_key, was_created_dup, _, _was_failed_dup = result_dup
+        returned_key, was_created_dup, _, _was_failed_dup, _ = result_dup
         self.assertEqual(returned_key, key)
         self.assertFalse(was_created_dup)
 
@@ -137,7 +137,7 @@ class TestCreateRuleIfNewApplyPath(unittest.TestCase):
             dry_run=False,
         )
         self.assertIsNotNone(result)
-        _key, was_created, _, _was_failed = result
+        _key, was_created, _, _was_failed, _ = result
         self.assertTrue(was_created)
         mock_client.create_filter.assert_called_once()
 
@@ -169,7 +169,7 @@ class TestCreateRuleIfNewApplyPath(unittest.TestCase):
             dry_run=False,
         )
         self.assertIsNotNone(result)
-        _key, was_created, _was_reconciled, was_failed = result
+        _key, was_created, _was_reconciled, was_failed, _ = result
         self.assertTrue(was_created)
         self.assertFalse(was_failed, "non-reconcile path must not set the failed flag")
         mock_client.create_filter.assert_called_once()

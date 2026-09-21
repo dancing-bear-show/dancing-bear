@@ -124,6 +124,13 @@ def register_outlook_commands(app: CLIApp) -> object:
             *_MOVE_TO_FOLDERS_ARGS,
             _ACCOUNTS_CONFIG,
             _ACCOUNT,
+            (("--reconcile",), {"action": "store_true", "help": (
+                "Preview reconcile: rules matching by criteria but with a changed action are shown as "
+                "'Would reconcile' (delete existing rule id, create replacement). "
+                "Without this flag only creates are shown. "
+                "Recovery: a 'Failed: N' line means a non-transient API error; "
+                "stop and diagnose rather than re-running in a loop."
+            )}),
         ]),
         ("rules.sync", "Sync rules from filters YAML into Outlook Inbox", run_outlook_rules_sync, [
             *_OUTLOOK_AUTH_ARGS,
@@ -133,7 +140,15 @@ def register_outlook_commands(app: CLIApp) -> object:
             _ACCOUNTS_CONFIG,
             _ACCOUNT,
             (("--delete-missing",), {"action": "store_true", "help": "Delete rules not in YAML"}),
-            (("--reconcile",), {"action": "store_true", "help": "Match rules by criteria only; update action when it differs"}),
+            (("--reconcile",), {"action": "store_true", "help": (
+                "Match rules by criteria only: a rule whose action changed is deleted (losing its "
+                "original id and sequence position) and recreated with the desired action. "
+                "No Graph PATCH endpoint exists for inbox rules. "
+                "Recovery: a 'create_failed' means the old rule was deleted but the replacement "
+                "was not created; re-run after the error clears. "
+                "A persistent 'Failed: N' indicates a non-transient problem (permissions/quota); "
+                "stop rather than re-running in a loop."
+            )}),
         ]),
         ("rules.delete", "Delete an Outlook rule by ID", run_outlook_rules_delete, [
             *_OUTLOOK_AUTH_ARGS,
