@@ -15,14 +15,15 @@ Covers:
 """
 from __future__ import annotations
 
-import io
 import unittest
-from contextlib import redirect_stderr
 from unittest.mock import patch
 
 from resume.schema import Resume
 from tests.resume_tests.docx_tests.fixtures import make_mock_doc as _make_mock_doc
 from tests.resume_tests.fixtures import mock_docx_modules
+
+#: Logger the experience renderer emits truncation warnings through.
+_EXP_LOGGER = "resume.docx_sections_exp"
 
 
 # ---------------------------------------------------------------------------
@@ -55,16 +56,15 @@ class TestExperienceTruncationWarnings(unittest.TestCase):
         data = {"experience": roles}
         sec = {"max_items": 5}
 
-        buf = io.StringIO()
-        with redirect_stderr(buf):
+        with self.assertLogs(_EXP_LOGGER, level="WARNING") as captured:
             renderer.render(Resume.from_dict(data), sec)
 
-        stderr = buf.getvalue()
-        self.assertIn("resume:", stderr)
-        self.assertIn("max_items=5", stderr)
-        self.assertIn("1 of 6", stderr)
+        logged = "\n".join(captured.output)
+        self.assertIn("resume:", logged)
+        self.assertIn("max_items=5", logged)
+        self.assertIn("1 of 6", logged)
         # Dropped role is "Company 5" (the 6th, index 5)
-        self.assertIn("Company 5", stderr)
+        self.assertIn("Company 5", logged)
 
     def test_6_roles_max_5_renders_exactly_5_roles(self):
         """Only 5 roles are rendered when max_items=5."""
@@ -75,7 +75,7 @@ class TestExperienceTruncationWarnings(unittest.TestCase):
         data = {"experience": roles}
         sec = {"max_items": 5}
 
-        with redirect_stderr(io.StringIO()):
+        with self.assertLogs(_EXP_LOGGER, level="WARNING"):
             renderer.render(Resume.from_dict(data), sec)
 
         # 5 roles -> 5 header paragraphs (add_paragraph called once per role header)
@@ -98,15 +98,14 @@ class TestExperienceTruncationWarnings(unittest.TestCase):
             "prior_max_bullets": 3,
         }
 
-        buf = io.StringIO()
-        with redirect_stderr(buf):
+        with self.assertLogs(_EXP_LOGGER, level="WARNING") as captured:
             renderer.render(Resume.from_dict(data), sec)
 
-        stderr = buf.getvalue()
-        self.assertIn("resume:", stderr)
-        self.assertIn("LinkedIn", stderr)
-        self.assertIn("5", stderr)
-        self.assertIn("3", stderr)
+        logged = "\n".join(captured.output)
+        self.assertIn("resume:", logged)
+        self.assertIn("LinkedIn", logged)
+        self.assertIn("5", logged)
+        self.assertIn("3", logged)
 
     # --- Test 3: no truncation -> NO warning emitted ---
 
@@ -116,11 +115,8 @@ class TestExperienceTruncationWarnings(unittest.TestCase):
         data = {"experience": roles}
         sec = {"max_items": 5, "max_bullets": 5}
 
-        buf = io.StringIO()
-        with redirect_stderr(buf):
+        with self.assertNoLogs(_EXP_LOGGER, level="WARNING"):
             renderer.render(Resume.from_dict(data), sec)
-
-        self.assertEqual(buf.getvalue(), "")
 
     def test_no_warning_at_exact_max_items_boundary(self):
         renderer = self._make_renderer()
@@ -128,11 +124,8 @@ class TestExperienceTruncationWarnings(unittest.TestCase):
         data = {"experience": roles}
         sec = {"max_items": 5}
 
-        buf = io.StringIO()
-        with redirect_stderr(buf):
+        with self.assertNoLogs(_EXP_LOGGER, level="WARNING"):
             renderer.render(Resume.from_dict(data), sec)
-
-        self.assertEqual(buf.getvalue(), "")
 
 
 # ---------------------------------------------------------------------------
