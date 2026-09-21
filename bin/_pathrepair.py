@@ -69,8 +69,14 @@ def is_foreign_repo_src(entry: str, own_src: str) -> bool:
         if not proj.is_file():
             return False
         return PROJECT_MARKER in proj.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return False  # unreadable path: keep it rather than guess
+    except (OSError, RuntimeError, ValueError):
+        # Unreadable, unresolvable, or malformed path: keep it rather than
+        # guess. RuntimeError is NOT an OSError subclass and is what
+        # Path.resolve() raises on a symlink loop — catching only OSError let
+        # one looping entry anywhere on PYTHONPATH abort the repair, and with
+        # it every ./bin/* wrapper, with a pathlib traceback and exit 120.
+        # ValueError covers embedded NULs, which os.stat rejects separately.
+        return False
 
 
 def strip_foreign_src_paths(repo_root: Path) -> list[str]:

@@ -367,5 +367,52 @@ class TestPathRepairIsShared(unittest.TestCase):
                 self.assertNotIn("import _pathrepair", text)
 
 
+class TestUnresolvableEntriesDoNotBreakTheRepair(unittest.TestCase):
+    """A hostile PYTHONPATH entry must be skipped, never fatal.
+
+    The repair runs before every command in bin/. An entry it cannot resolve is
+    a reason to leave that entry alone, not a reason to take the whole CLI down.
+    """
+
+    def test_a_symlink_loop_does_not_crash_the_wrappers(self) -> None:
+        """``Path.resolve()`` raises RuntimeError — NOT an OSError — on a loop.
+
+        Catching only OSError meant one looping entry anywhere on PYTHONPATH
+        aborted the repair and every ./bin/* wrapper with it: a pathlib
+        traceback and exit 120, from a path the command never needed to read.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            loop = Path(td, "loop")
+            loop.parent.mkdir(parents=True, exist_ok=True)
+            loop.symlink_to(loop)  # self-referential: resolve() cannot converge
+
+            # Sanity: the fixture really does produce the fatal exception, so
+            # this test cannot quietly pass against a path that resolves fine.
+            with self.assertRaises(RuntimeError):
+                loop.resolve()
+
+            for script in ["mail", "llm"]:
+                with self.subTest(script=script):
+                    proc = subprocess.run(  # nosec B603 - repo's own wrapper
+                        [str(BIN_DIR / script), "--help"],
+                        capture_output=True,
+                        text=True,
+                        env={
+                            **os.environ,
+                            "PYTHONPATH": os.pathsep.join(
+                                [str(loop), str(REPO_ROOT / "src")]
+                            ),
+                        },
+                        timeout=120,
+                    )
+                    self.assertEqual(
+                        proc.returncode,
+                        0,
+                        f"bin/{script} died on a looping PYTHONPATH entry:\n"
+                        f"{proc.stderr[-800:]}",
+                    )
+                    self.assertNotIn("Traceback", proc.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -360,15 +360,21 @@ warns whenever `PYTHONPATH` names another checkout of this project, and the
 repair plus the Makefile keep the CLI entry points and `make` correct
 regardless.
 
-**Any `SessionStart` hook that runs Python MUST use `python3 -I -S`.** These
-hooks execute with the session's environment, which is exactly when `PYTHONPATH`
-may name a foreign checkout — and Python imports `sitecustomize`/`usercustomize`
-from `PYTHONPATH` entries during interpreter startup. A bare `python3 -c` hook
-therefore runs code from that checkout before any warning is emitted. `-I`
-ignores `PYTHONPATH` and the user site directory; `-S` skips `site.py`, which is
-what performs those imports. Demonstrated with a planted `sitecustomize.py`, and
-pinned by `tests/infra/test_check_pythonpath_hook.py`, which fails if any
-SessionStart hook starts an unisolated interpreter. Prefer a pure-shell hook
+**Any configured hook that runs Python MUST use `python3 -I -S`** — every hook
+type, not just `SessionStart`. Hooks execute with the session's environment,
+which is exactly when `PYTHONPATH` may name a foreign checkout — and Python
+imports `sitecustomize`/`usercustomize` from `PYTHONPATH` entries during
+interpreter startup. A bare `python3 -c` hook therefore runs code from that
+checkout before any warning is emitted. `-I` ignores `PYTHONPATH` and the user
+site directory; `-S` skips `site.py`, which is what performs those imports.
+Demonstrated with a planted `sitecustomize.py`, and pinned by
+`tests/infra/test_check_pythonpath_hook.py`, which walks **all** hook types in
+`settings.json` and fails if any of them starts an unisolated interpreter.
+
+Stating this as a `SessionStart` rule is how the hole stayed open through two
+revisions of that test: `.claude/scripts/name-worktree.sh` is a `WorktreeCreate`
+hook that also runs Python, and a rule scoped to one hook type reads as a
+licence for every other. Prefer a pure-shell hook
 where the work is trivial — `check-pythonpath.sh` builds its JSON with parameter
 expansion for exactly this reason.
 

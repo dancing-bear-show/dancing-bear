@@ -111,19 +111,28 @@ pointing at the **main** checkout — and a `PYTHONPATH` entry outranks the
 editable install's `.pth`, so even the worktree's own `.venv` resolved `mail`,
 `resume`, and `core` to the other tree.
 
-`bin/_pathrepair.py` is the single implementation. Every entry point loads it by
-explicit filesystem path rather than by `import`: a module whose job is to repair
-the import path cannot depend on that path already being correct, and a plain
-`import` could silently load a *foreign* copy and repair nothing. It drops
+`bin/_pathrepair.py` is the single implementation for the **Python** entry
+points. Each of those loads it by explicit filesystem path rather than by
+`import`: a module whose job is to repair the import path cannot depend on that
+path already being correct, and a plain `import` could silently load a *foreign*
+copy and repair nothing. It drops
 `PYTHONPATH` entries that are another checkout's `src/` — identified by a sibling
 `pyproject.toml` naming this project, deliberately narrow so unrelated
 third-party entries survive — and then forces our own `src/` to the front.
 
-Both routes are covered: the router symlinks, and the standalone `bin/llm` and
-`bin/path-guard`, which call the same module. `DANCING_BEAR_PATH_DEBUG=1` prints
-what was dropped. `tests/infra/test_pathrepair_shared.py` and
+Both Python routes are covered: the router symlinks, and the standalone
+`bin/llm` and `bin/path-guard`, which call the same module.
+`DANCING_BEAR_PATH_DEBUG=1` prints what was dropped.
+`tests/infra/test_pathrepair_shared.py` and
 `tests/infra/test_router_pythonpath.py` pin it, including cases that execute the
 real binaries.
+
+`bin/bootstrap` is the exception, and deliberately so. It is a bash script that
+must work *before* anything is installed, so it cannot call a Python module to
+fix a Python path; it pins `PYTHONPATH="$(pwd)/src"` inline on its verify command
+instead (`bin/bootstrap:175`), which is the same guarantee by a different
+mechanism. `tests/infra/test_bootstrap_pythonpath.py` pins it by replaying that
+line with a decoy checkout ahead on `PYTHONPATH`.
 
 > **Gotcha worth learning early.** `./bin/*` and `make` correct this for you.
 > A bare `python3` does **not** — an inherited `PYTHONPATH` beats the editable
@@ -136,7 +145,10 @@ real binaries.
 >
 > One limit no wrapper can close: Python imports `sitecustomize`/`usercustomize`
 > from `PYTHONPATH` entries during interpreter startup, before any Python-level
-> guard exists. That is why `SessionStart` hooks must use `python3 -I -S`.
+> guard exists. That is why **every** configured hook that runs Python must use
+> `python3 -I -S` — `SessionStart` and `WorktreeCreate` alike. The regression
+> test audits all hook types; scoping the rule to one of them is what left the
+> `WorktreeCreate` hook unhardened through two earlier revisions.
 
 ## 3. The CLI framework
 
