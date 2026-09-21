@@ -114,34 +114,24 @@ def _load_zone(tz_name: str | None) -> _dt.tzinfo | None:
 
 
 def _parse_dt(iso: str) -> _dt.datetime | None:
-    """Parse an ISO datetime, tolerating a trailing Z and Graph's 7-digit fraction."""
+    """Parse an ISO datetime, tolerating a trailing Z, or None if unparseable.
+
+    Graph emits seven fractional digits ("...T14:30:00.0000000"). On the Python
+    floor this project targets (3.11) ``fromisoformat`` accepts that form
+    directly, with or without a trailing offset, so no fraction-trimming
+    fallback is needed.
+
+    Deliberately not shared with ``core.date_utils.parse_iso_utc``, which
+    overlaps this closely but converts its result to UTC. Callers here need the
+    instant in its *original* offset so ``_as_local`` can express it in a target
+    zone; a value already collapsed to UTC has lost that distinction.
+    """
     raw = (iso or "").strip()
     if not raw:
         return None
     candidate = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
     try:
         return _dt.datetime.fromisoformat(candidate)
-    except ValueError:
-        return _parse_dt_wide_fraction(candidate)
-
-
-def _parse_dt_wide_fraction(candidate: str) -> _dt.datetime | None:
-    """Retry a failed ISO parse after dropping an over-long fractional part.
-
-    Graph emits seven fractional digits ("...T14:30:00.0000000"), more than
-    ``fromisoformat`` accepts on some inputs.
-    """
-    head, sep, tail = candidate.partition(".")
-    if not sep:
-        return None
-    suffix = ""
-    for marker in ("+", "-"):
-        idx = tail.find(marker)
-        if idx > 0:
-            suffix = tail[idx:]
-            break
-    try:
-        return _dt.datetime.fromisoformat(head + suffix)
     except ValueError:
         return None
 
