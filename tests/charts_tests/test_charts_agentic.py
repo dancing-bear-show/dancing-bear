@@ -19,6 +19,7 @@ from unittest.mock import patch
 from tests.agentic_builder_contract import AgenticBuilderContractMixin
 from tests.agentic_cli_contract import AgenticCLIContractMixin
 from tests.cli_separator_contract import SeparatorContractMixin
+from tests.cli_no_subcommand_contract import NoSubcommandContractMixin
 from tests.fixtures import capture_stdout
 
 
@@ -72,12 +73,18 @@ class TestChartsAgenticFlag(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("agentic: charts", buf.getvalue())
 
-    def test_no_subcommand_exits_one(self):
-        """Legacy exit code must remain 1 when no subcommand given."""
+    def test_no_subcommand_prints_help_and_exits_zero(self):
+        """Rule A7: help + 0, matching the framework default.
+
+        Previously pinned at 1 as a "legacy exit code", but nothing in the
+        source stated why and the value predates the src/ move (#147). Aligned
+        with the other 15 apps; worker and workflow keep their non-zero codes,
+        which ARE documented and print a one-line usage to stderr.
+        """
         from charts.cli import main
         with patch("argparse.ArgumentParser.print_help"):
             rc = main([])
-        self.assertEqual(rc, 1)
+        self.assertEqual(rc, 0)
 
 
 
@@ -86,6 +93,14 @@ class TestChartsSeparatorCLI(SeparatorContractMixin, unittest.TestCase):
 
     MODULE_PATH = "charts.cli"
     APP_ID = "charts"
+
+
+class TestChartsNoSubcommand(NoSubcommandContractMixin, unittest.TestCase):
+    """Rule A7 — the no-subcommand exit code is deliberate."""
+
+    MODULE_PATH = "charts.cli"
+    EXPECTED_RC = 0
+    EXPECTED_STREAM = "stdout"
 
 if __name__ == "__main__":
     unittest.main()

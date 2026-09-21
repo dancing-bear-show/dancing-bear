@@ -31,8 +31,12 @@ class OutlookProvider(BaseProvider):
 
     def create_label(self, **body: Any) -> dict[str, Any]:
         name = body.get("name") or body.get("displayName")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(
+                f"create_label requires a non-empty string 'name' or 'displayName' in body; got {name!r}"
+            )
         color = body.get("color")
-        return self._client.create_label(name=name, color=color)
+        return self._client.create_label(name=name.strip(), color=color)
 
     def update_label(self, label_id: str, body: dict[str, Any]) -> dict[str, Any]:
         return self._client.update_label(label_id, body)

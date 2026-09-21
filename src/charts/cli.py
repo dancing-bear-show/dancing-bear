@@ -283,15 +283,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(_argv)
 
     # Handled before the no-subcommand branch so `--agentic` alone exits 0
-    # while a bare invocation keeps its legacy exit code of 1.
+    # without falling through to the help path below.
     rc = assistant.maybe_emit_agentic(args, _lazy_agentic(), parser=parser)
     if rc is not None:
         return rc
 
     cmd_func = getattr(args, "_cmd_func", None)
     if cmd_func is None:
+        # Rule A7: help + 0, matching run_with_assistant's default and the
+        # other 15 apps. Previously returned 1 with no stated rationale.
         parser.print_help()
-        return 1
+        return 0
 
     try:
         return cmd_func(args)

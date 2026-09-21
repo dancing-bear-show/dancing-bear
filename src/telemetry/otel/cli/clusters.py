@@ -43,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     headers = ["cluster", "session_id", "cost", "tokens"]
-    rows = [
+    rows: list[dict[str, object]] = [
         {
             "cluster": r.cluster_label,
             "session_id": truncate_sid(r.session_id),

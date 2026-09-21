@@ -262,7 +262,7 @@ def auto_folderize(
     layout: NormalizedLayout,
     *,
     keep: list[str] | None = None,
-    seed_folders: dict[str, list[str] | None] = None,
+    seed_folders: dict[str, list[str] | None] | None = None,
 ) -> dict[str, list[str]]:
     """Return a folder -> apps mapping assigning all apps (except keep) to folders.
 
@@ -278,7 +278,7 @@ def auto_folderize(
 
     keep_set = set(keep or [])
     folders: dict[str, list[str]] = {
-        k: list(v) for k, v in (seed_folders or {}).items()
+        k: list(v or []) for k, v in (seed_folders or {}).items()
     }
 
     for app in list_all_apps(layout):

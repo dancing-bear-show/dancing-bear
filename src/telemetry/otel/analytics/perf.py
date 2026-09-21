@@ -8,11 +8,15 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from telemetry.otel.cost_models import SessionPerf
 
+if TYPE_CHECKING:
+    from telemetry.otel.models import OTLPAttribute, OTLPEvent
 
-def _parse_token_attribute(attr: object, event_dict: dict) -> None:
+
+def _parse_token_attribute(attr: OTLPAttribute, event_dict: dict) -> None:
     """Parse a single token attribute and update event_dict."""
     token_keys = {
         "input_tokens": "input_tokens",
@@ -21,57 +25,57 @@ def _parse_token_attribute(attr: object, event_dict: dict) -> None:
         "cache_read_tokens": "cache_read_tokens",
     }
 
-    if attr.key not in token_keys:  # type: ignore[union-attr]
+    if attr.key not in token_keys:
         return
 
     try:
-        value = int(float(attr.value.as_str()))  # type: ignore[union-attr]
-        event_dict[token_keys[attr.key]] = value  # type: ignore[union-attr]
+        value = int(float(attr.value.as_str()))
+        event_dict[token_keys[attr.key]] = value
     except (ValueError, TypeError):
         pass
 
 
 def _process_api_request(
-    event: object, sid: str, acc: dict, api_requests: list[dict]
+    event: OTLPEvent, sid: str, acc: dict, api_requests: list[dict]
 ) -> None:
     """Process an api_request event for cost and perf data."""
     event_dict = {
-        "timestamp": event.timestamp,  # type: ignore[union-attr]
+        "timestamp": event.timestamp,
         "session_id": sid,
-        "model": event.get_attr("model") or "unknown",  # type: ignore[union-attr]
+        "model": event.get_attr("model") or "unknown",
         "input_tokens": 0,
         "output_tokens": 0,
         "cache_creation_tokens": 0,
         "cache_read_tokens": 0,
-        "duration_ms": event.get_attr_as_float("duration_ms"),  # type: ignore[union-attr]
+        "duration_ms": event.get_attr_as_float("duration_ms"),
     }
-    for attr in event.attributes:  # type: ignore[union-attr]
+    for attr in event.attributes:
         _parse_token_attribute(attr, event_dict)
     api_requests.append(event_dict)
 
     acc["api_calls"] += 1
     acc["model_mix"][event_dict["model"]] += 1
-    terminal = event.get_attr("terminal.type") or ""  # type: ignore[union-attr]
+    terminal = event.get_attr("terminal.type") or ""
     if terminal:
         acc["terminal_type"] = terminal
-    dur = event.get_attr_as_float("duration_ms")  # type: ignore[union-attr]
+    dur = event.get_attr_as_float("duration_ms")
     if dur is not None and dur > 0:
         acc["api_latencies"].append(dur)
 
 
-def _process_api_error(event: object, acc: dict) -> None:
+def _process_api_error(event: OTLPEvent, acc: dict) -> None:
     """Process an api_error event."""
     acc["error_count"] += 1
-    status = event.get_attr("status_code") or "unknown"  # type: ignore[union-attr]
+    status = event.get_attr("status_code") or "unknown"
     acc["error_status_codes"][str(status)] += 1
 
 
-def _process_tool_result(event: object, acc: dict) -> None:
+def _process_tool_result(event: OTLPEvent, acc: dict) -> None:
     """Process a tool_result event."""
     acc["tool_calls"] += 1
-    tool_name = event.get_attr("tool_name") or "unknown"  # type: ignore[union-attr]
+    tool_name = event.get_attr("tool_name") or "unknown"
     acc["tool_usage"][tool_name] += 1
-    success_val = event.get_attr("success")  # type: ignore[union-attr]
+    success_val = event.get_attr("success")
     if success_val in ("false", "False", False):
         acc["tool_failures"] += 1
 
@@ -92,11 +96,11 @@ def _new_perf_accumulator() -> dict:
     }
 
 
-def get_session_id(event: object) -> str:
+def get_session_id(event: OTLPEvent) -> str:
     """Extract session ID from an event."""
     return (
-        event.get_attr("session.id")  # type: ignore[union-attr]
-        or event.get_attr("session_id")  # type: ignore[union-attr]
+        event.get_attr("session.id")
+        or event.get_attr("session_id")
         or "unknown"
     )
 
@@ -115,10 +119,10 @@ _EVENT_DISPATCH = {
 
 
 def _dispatch_event(
-    event: object, sid: str, acc: dict, api_requests: list[dict]
+    event: OTLPEvent, sid: str, acc: dict, api_requests: list[dict]
 ) -> None:
     """Dispatch a single event to the appropriate handler."""
-    body = event.body  # type: ignore[union-attr]
+    body = event.body
     for key, handler in _EVENT_DISPATCH.items():
         if key in body:
             handler(event, sid, acc, api_requests)

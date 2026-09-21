@@ -9,26 +9,25 @@ description = "Reconstituted personal assistants (mail, resume, schedule)"
 requires-python = ">=3.11"
 readme = "README.md"
 dependencies = [
-  "click==8.5.0",
   "cryptography==50.0.1",
   "rich==15.0.0",
   "PyYAML==6.0.3",
   "python-docx==1.2.0",
-  "google-api-python-client==2.199.0",
-  "google-auth==2.56.3",
-  "google-auth-httplib2==0.4.1",
+  "google-api-python-client==2.200.0",
+  "google-auth==2.58.0",
+  "google-auth-httplib2==0.4.2",
   "google-auth-oauthlib==1.4.1",
   "httplib2==0.32.0",
   "matplotlib>=3.8",
-  "msal==1.38.0",
+  "msal==1.39.0",
   "numpy==2.4.6",
   "openpyxl==3.1.5",
   "pdfminer.six==20260107",
   "premailer==3.10.0",
   "requests==2.34.2",
   "shapely==2.1.2",
-  "trimesh==5.0.0",
-  "urllib3==2.7.0",
+  "trimesh==5.1.0",
+  "urllib3==2.8.0",
 ]
 
 [project.optional-dependencies]
@@ -71,11 +70,13 @@ dev = [
   # What DOES block, both in CI and via make:
   #   typecheck-changed  — any new type error in a file the branch touched
   #   typecheck-ratchet  — any growth in a package's error count
-  # See bin/mypy_ratchet.py and typecheck-baseline.json. The baseline is 680
-  # across src/, tests/ and bin/, measured on Linux (the platform CI enforces
-  # on); macOS reports 684 because rumps is darwin-only, so the menubar tests
-  # are analysed there and not in CI. src/ alone is 445 on both, which is what
-  # the report-only target still measures.
+  # See bin/mypy_ratchet.py and typecheck-baseline.json — read the total from
+  # that file rather than from a comment, since it drops with every type-fixing
+  # PR (it has already run 680 -> 566 -> 371 -> 347). It is measured on Linux,
+  # the platform CI enforces on; macOS reports a few more because rumps is
+  # darwin-only, so the menubar tests are analysed there and not in CI. The
+  # report-only target measures src/ alone, a strictly smaller scope than the
+  # baseline's src/ + tests/ + bin/.
   #
   # Also declared because the open-pr workflow probes `.venv/bin/python -m mypy`
   # and, finding nothing, recorded the type gate as UNAVAILABLE on every run — a
@@ -100,8 +101,13 @@ dev = [
 ]
 # Note: pdfplumber depends on pdfminer.six==20251107 (vulnerable version)
 # Keep as optional but not recommended for security-sensitive use
+#
+# PyMuPDF backs the AcroForm field helpers in src/core/pdf_forms.py, used to
+# fill insurance/government PDF templates. Imported lazily there so the core
+# CLIs stay dependency-light.
 pdf = [
   "pdfplumber>=0.11.0",
+  "PyMuPDF>=1.24.0",
 ]
 
 [project.scripts]
@@ -136,7 +142,10 @@ exclude = [
   "src/workflow/models.py", "src/telemetry/otel/models.py",
 ]
 ignore_decorators = [
-  # Click CLI dispatch: framework invokes by registry, not direct call.
+  # CLIApp dispatch (src/core/cli_framework.py): the framework invokes these by
+  # registry, not by direct call. Named for Click historically; the telemetry
+  # Click port landed in #341 and no Click remains, but @app.command is still
+  # the CLIApp decorator across schedule/, wifi/ and others.
   "@*.command", "@*.group",
 ]
 ignore_names = [
@@ -202,6 +211,36 @@ ignore_names = [
   # __getattr__: PEP 562 module-level __getattr__ for lazy attribute access;
   #   the import system calls it, not any code in this repo.
   "__getattr__",
+  # Protocol self-types (`def m(self: "_FoldersHost")`): each declares the
+  #   combined cross-mixin surface a mixin's methods need from their host
+  #   class. They are referenced only inside string annotations, which vulture
+  #   does not resolve, so every one reads as an unused class. Deleting any
+  #   breaks mypy, not runtime — which is exactly why they exist.
+  "_FoldersHost", "_LabelsHost", "_OutlookMailHost",
+  "_ContentHost", "_ImageHost", "_ShapeUtilsHost", "_TableHost",
+  "_QueueHost",
+  # github: read via a string-keyed loop over ("website", "linkedin",
+  #   "github") in docx_base.py:405 and docx_writer.py:94, not by attribute
+  #   access. Its two siblings escape detection only because the PDF/text
+  #   parsers also assign them by name; the same dict-key blind spot as
+  #   old_from and due_at above.
+  "github",
+  # html.parser.HTMLParser overrides in a vendored-BeautifulSoup stand-in
+  #   (tests/calendars_tests/importer/test_rh_vendor_bs4_paths.py): the base
+  #   class's feed() dispatches to them, nothing calls them by name.
+  "handle_starttag", "handle_endtag", "handle_data",
+  # discovery: attribute set on a MagicMock standing in for the
+  #   googleapiclient module, read by the code under test as
+  #   googleapiclient.discovery.build.
+  "discovery",
+  # unittest.TestCase subclasses discovered and run by the test loader, never
+  #   referenced by name. Only these two are flagged because they sit in a
+  #   module whose other classes are referenced from its own helpers.
+  "SubprocessEnvironment", "InvocationParsing",
+  # function: parameter name on a Protocol's addCleanup stub
+  #   (tests/worker_tests/helpers.py:22). It must match unittest.TestCase's
+  #   real signature; the stub body is `...`, so the binding is never read.
+  "function",
   # python-pptx object protocol attributes set on Mock/stub objects in tests.
   # The code under test reads these via the python-pptx object model; setting
   # them on MagicMock satisfies the attribute lookup at test time.

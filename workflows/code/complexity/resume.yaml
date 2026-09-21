@@ -14,7 +14,7 @@ description: >
     | src/resume/docx_sections_skills.py | 83 | reduce-in-place |
     | src/resume/cli/main.py | 82 | reduce-in-place |
     | src/resume/parsing_experience_text.py | 82 | reduce-in-place |
-    | src/resume/docx_renderers.py | 70 | reduce-in-place |
+    | src/resume/docx_bullets.py | 70 | reduce-in-place |
 
   Strategy rationale: qlty file-complexity is the SUM of per-function
   complexity, so splitting redistributes rather than reduces it. Default is

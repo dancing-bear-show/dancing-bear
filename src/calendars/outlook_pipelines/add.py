@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TypeGuard
+
 from ._base import (
     Any,
     dataclass,
@@ -16,6 +18,11 @@ from ._base import (
 )
 from ._context import EventProcessingContext
 from ..outlook_service import EventCreationParams, RecurringEventCreationParams
+
+
+def _nonempty_str(value: object) -> TypeGuard[str]:
+    """Return True if value is a non-empty string."""
+    return isinstance(value, str) and bool(value)
 
 
 @dataclass
@@ -86,11 +93,25 @@ class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
             )
             return 1
         try:
+            start_time = ctx.nev.get("start_time")
+            end_time = ctx.nev.get("end_time")
+            repeat = ctx.nev.get("repeat")
+            if not (
+                _nonempty_str(start_time)
+                and _nonempty_str(end_time)
+                and _nonempty_str(repeat)
+            ):
+                ctx.logs.append(
+                    f"[{ctx.idx}] Skipping recurring event '{ctx.subj}': "
+                    f"start_time, end_time, and repeat must be non-empty strings "
+                    f"(got {start_time!r}, {end_time!r}, {repeat!r})"
+                )
+                return 0
             params = RecurringEventCreationParams(
                 subject=ctx.subj,
-                start_time=ctx.nev.get("start_time"),
-                end_time=ctx.nev.get("end_time"),
-                repeat=ctx.nev.get("repeat"),
+                start_time=start_time,
+                end_time=end_time,
+                repeat=repeat,
                 calendar_id=None,
                 calendar_name=cal_name,
                 tz=ctx.nev.get("tz"),
@@ -114,8 +135,8 @@ class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
 
     def _create_single(self, ctx: EventProcessingContext, payload: OutlookAddRequest) -> int:
         cal_name = ctx.nev.get("calendar")
-        start_iso = ctx.nev.get("start")
-        end_iso = ctx.nev.get("end")
+        start_iso = to_iso_str(ctx.nev.get("start"))
+        end_iso = to_iso_str(ctx.nev.get("end"))
         if not (start_iso and end_iso):
             ctx.logs.append(f"[{ctx.idx}] Skipping one-time event '{ctx.subj}': missing start/end")
             return 0
@@ -128,8 +149,8 @@ class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
         try:
             params = EventCreationParams(
                 subject=ctx.subj,
-                start_iso=to_iso_str(start_iso),
-                end_iso=to_iso_str(end_iso),
+                start_iso=start_iso,
+                end_iso=end_iso,
                 calendar_id=None,
                 calendar_name=cal_name,
                 tz=ctx.nev.get("tz"),

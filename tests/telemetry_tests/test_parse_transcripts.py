@@ -4,7 +4,9 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import tempfile
+import time
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -964,6 +966,34 @@ class TestEmitRows(unittest.TestCase):
             _emit_rows([], fmt="table")
         self.assertEqual(buf.getvalue(), "")
 
+    def test_table_renders_falsy_values_not_blanks(self):
+        """0 and False are data, not absence — only None renders empty.
+
+        `str(value or "")` blanks every falsy value, so a count of 0 printed as
+        an empty cell while the JSON path still emitted 0. The two formats must
+        agree on what the row contains.
+        """
+        import io
+        rows = [{"count": 0, "flag": False, "missing": None, "name": "x"}]
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            _emit_rows(rows, fmt="table")
+        data_line = buf.getvalue().splitlines()[-1]
+        self.assertIn("0", data_line)
+        self.assertIn("False", data_line)
+        self.assertIn("x", data_line)
+
+    def test_table_renders_none_as_empty(self):
+        """A null value is absence and renders blank rather than "None"."""
+        import io
+        rows = [{"only": None}]
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            _emit_rows(rows, fmt="table")
+        data_line = buf.getvalue().splitlines()[-1]
+        self.assertNotIn("None", data_line)
+        self.assertEqual(data_line.strip(), "")
+
     def test_custom_headers_limit_columns(self):
         import io
         rows = [{"a": 1, "b": 2, "c": 3}]
@@ -1045,7 +1075,7 @@ class TestParseTranscriptsCli(unittest.TestCase):
         self.assertIn("session_id", out)
 
     def test_cli_invalid_since_exits_1(self):
-        rc, out = _run_main([
+        rc, _ = _run_main([
             "parse-transcripts",
             "--projects-dir", str(self.projects_dir),
             "--index-dir", str(self.index_dir),
@@ -1064,6 +1094,8 @@ class TestParseTranscriptsCli(unittest.TestCase):
             "--force",
         ])
         self.assertEqual(rc, 0)
+        self.assertIn("s3", out)
+        self.assertIn("ok", out)
 
     def test_cli_limit_flag(self):
         self._write_jsonl("proj/s4.jsonl", [
@@ -1083,7 +1115,18 @@ class TestParseTranscriptsCli(unittest.TestCase):
         data = json.loads(out)
         self.assertEqual(len(data), 1)
 
-    def test_cli_since_7d(self):
+    def test_cli_since_7d_excludes_files_older_than_window(self):
+        recent = self._write_jsonl("proj/recent.jsonl", [
+            {"message": {"role": "user", "content": "In window"}}
+        ])
+        stale = self._write_jsonl("proj/stale.jsonl", [
+            {"message": {"role": "user", "content": "Out of window"}}
+        ])
+        now = time.time()
+        os.utime(recent, (now, now))
+        old = now - (30 * 86400)
+        os.utime(stale, (old, old))
+
         rc, out = _run_main([
             "parse-transcripts",
             "--projects-dir", str(self.projects_dir),
@@ -1091,6 +1134,24 @@ class TestParseTranscriptsCli(unittest.TestCase):
             "--since", "7d",
         ])
         self.assertEqual(rc, 0)
+        self.assertIn("recent", out)
+        self.assertNotIn("stale", out)
+
+    def test_cli_since_reports_nothing_when_all_files_are_stale(self):
+        stale = self._write_jsonl("proj/stale_only.jsonl", [
+            {"message": {"role": "user", "content": "Out of window"}}
+        ])
+        old = time.time() - (30 * 86400)
+        os.utime(stale, (old, old))
+
+        rc, out = _run_main([
+            "parse-transcripts",
+            "--projects-dir", str(self.projects_dir),
+            "--index-dir", str(self.index_dir),
+            "--since", "7d",
+        ])
+        self.assertEqual(rc, 0)
+        self.assertIn("No sessions processed", out)
 
 
 if __name__ == "__main__":

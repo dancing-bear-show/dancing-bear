@@ -20,6 +20,7 @@ from unittest.mock import patch
 from tests.agentic_builder_contract import AgenticBuilderContractMixin
 from tests.agentic_cli_contract import AgenticCLIContractMixin
 from tests.cli_separator_contract import SeparatorContractMixin
+from tests.cli_no_subcommand_contract import NoSubcommandContractMixin
 
 
 class TestWorkerAgenticBuilder(AgenticBuilderContractMixin, unittest.TestCase):
@@ -83,6 +84,15 @@ class TestWorkerSeparatorCLI(SeparatorContractMixin, unittest.TestCase):
 
     MODULE_PATH = "worker.cli"
     APP_ID = "worker"
+
+
+class TestWorkerNoSubcommand(NoSubcommandContractMixin, unittest.TestCase):
+    """Rule A7 — the no-subcommand exit code is deliberate."""
+
+    # One-line usage to STDERR — see worker.cli._no_command_usage().
+    MODULE_PATH = "worker.cli"
+    EXPECTED_RC = 1
+    EXPECTED_STREAM = "stderr"
 
 if __name__ == "__main__":
     unittest.main()

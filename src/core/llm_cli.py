@@ -60,9 +60,9 @@ class LlmConfig:
     policies: Callable[[], str] | None = None
     agentic_filename: str = DEFAULT_AGENTIC_FILENAME
     domain_map_filename: str = DEFAULT_DOMAIN_MAP_FILENAME
-    inventory_filename: str = DEFAULT_INVENTORY_FILENAME
-    familiar_filename: str = DEFAULT_FAMILIAR_FILENAME
-    policies_filename: str = DEFAULT_POLICIES_FILENAME
+    inventory_filename: str | None = DEFAULT_INVENTORY_FILENAME
+    familiar_filename: str | None = DEFAULT_FAMILIAR_FILENAME
+    policies_filename: str | None = DEFAULT_POLICIES_FILENAME
 
 
 def make_app_llm_config(**kwargs) -> LlmConfig:

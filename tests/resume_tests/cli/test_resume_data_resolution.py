@@ -20,7 +20,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from core.cli_errors import CLIError
-from resume.cli.main import _resolve_data
+from resume.cli.helpers import _resolve_data
 
 
 def _args(**kw):
@@ -78,7 +78,7 @@ class TestResolveData(unittest.TestCase):
             base = Path(tmp) / "resume" / "brian"
             base.mkdir(parents=True)
             (base / "data.json").write_text("{}")
-            with patch("resume.cli.main.config_home", return_value=Path(tmp)):
+            with patch("resume.cli.helpers.config_home", return_value=Path(tmp)):
                 self.assertEqual(
                     _resolve_data(_args(data="/tmp/wins.json", profile="brian")),  # nosec B108 - test string only, not created or opened
                     "/tmp/wins.json",  # nosec B108 - test string only, not created or opened
@@ -90,7 +90,7 @@ class TestResolveData(unittest.TestCase):
             base.mkdir(parents=True)
             target = base / "data.json"
             target.write_text(json.dumps({"name": "Test"}))
-            with patch("resume.cli.main.config_home", return_value=Path(tmp)):
+            with patch("resume.cli.helpers.config_home", return_value=Path(tmp)):
                 self.assertEqual(_resolve_data(_args(profile="brian")), str(target))
 
     def test_resolves_yaml_variants(self):
@@ -102,7 +102,7 @@ class TestResolveData(unittest.TestCase):
                     base.mkdir(parents=True)
                     target = base / filename
                     target.write_text("name: Test\n")
-                    with patch("resume.cli.main.config_home", return_value=Path(tmp)):
+                    with patch("resume.cli.helpers.config_home", return_value=Path(tmp)):
                         self.assertEqual(
                             _resolve_data(_args(profile="p")), str(target)
                         )
@@ -114,25 +114,25 @@ class TestResolveData(unittest.TestCase):
             base.mkdir(parents=True)
             (base / "data.json").write_text("{}")
             (base / "data.yaml").write_text("name: y\n")
-            with patch("resume.cli.main.config_home", return_value=Path(tmp)):
+            with patch("resume.cli.helpers.config_home", return_value=Path(tmp)):
                 self.assertTrue(_resolve_data(_args(profile="p")).endswith("data.json"))
 
     def test_falls_back_to_default_profile(self):
         """No --profile means the default profile's directory."""
-        from resume.cli.main import DEFAULT_PROFILE
+        from resume.cli.args import DEFAULT_PROFILE
 
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp) / "resume" / DEFAULT_PROFILE
             base.mkdir(parents=True)
             target = base / "data.json"
             target.write_text("{}")
-            with patch("resume.cli.main.config_home", return_value=Path(tmp)):
+            with patch("resume.cli.helpers.config_home", return_value=Path(tmp)):
                 self.assertEqual(_resolve_data(_args()), str(target))
 
     def test_rejects_missing_profile_directory(self):
         """A clear CLIError, not a traceback or a silent empty render."""
         with tempfile.TemporaryDirectory() as tmp:
-            with patch("resume.cli.main.config_home", return_value=Path(tmp)):
+            with patch("resume.cli.helpers.config_home", return_value=Path(tmp)):
                 with self.assertRaises(CLIError) as ctx:
                     _resolve_data(_args(profile="nonexistent"))
         msg = str(ctx.exception)
@@ -144,7 +144,7 @@ class TestResolveData(unittest.TestCase):
         """An existing but empty profile directory is still an error."""
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / "resume" / "empty").mkdir(parents=True)
-            with patch("resume.cli.main.config_home", return_value=Path(tmp)):
+            with patch("resume.cli.helpers.config_home", return_value=Path(tmp)):
                 with self.assertRaises(CLIError):
                     _resolve_data(_args(profile="empty"))
 
@@ -158,7 +158,7 @@ class TestResolveData(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp) / "resume" / "p"
             (base / "data.json").mkdir(parents=True)
-            with patch("resume.cli.main.config_home", return_value=Path(tmp)):
+            with patch("resume.cli.helpers.config_home", return_value=Path(tmp)):
                 with self.assertRaises(CLIError):
                     _resolve_data(_args(profile="p"))
 
@@ -169,7 +169,7 @@ class TestResolveData(unittest.TestCase):
             (base / "data.json").mkdir(parents=True)
             target = base / "data.yaml"
             target.write_text("name: Test\n")
-            with patch("resume.cli.main.config_home", return_value=Path(tmp)):
+            with patch("resume.cli.helpers.config_home", return_value=Path(tmp)):
                 self.assertEqual(_resolve_data(_args(profile="p")), str(target))
 
 
@@ -231,7 +231,8 @@ class TestEveryDataCommandUsesTheResolver(unittest.TestCase):
         only set an output prefix after it began selecting the input file.
         Help text that misdescribes behaviour is how both survived review.
         """
-        from resume.cli.main import PROFILE_HELP_DATA, app
+        from resume.cli.args import PROFILE_HELP_DATA
+        from resume.cli.main import app
 
         data_commands = {"summarize", "render", "align", "candidate-init"}
         parser = app.build_parser()
@@ -281,7 +282,7 @@ class TestRejectsNonMappingDataFile(unittest.TestCase):
 
     def _load(self, text: str, suffix: str = ".yaml"):
         """Write ``text`` to a temp data file and run it through the loader."""
-        from resume.cli.main import _load_candidate_data
+        from resume.cli.helpers import _load_candidate_data
 
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / f"data{suffix}"

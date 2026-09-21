@@ -288,7 +288,7 @@ class TelemetryTranscriptsApp(App):
             "agents-table": self._show_agents_detail,
             "tips-table": self._show_tips_detail,
         }
-        handler = dispatch.get(table_id)
+        handler = dispatch.get(table_id or "")
         if handler:
             handler(row_idx)
 
@@ -303,7 +303,7 @@ class TelemetryTranscriptsApp(App):
             self.notify("No sessions found", severity="warning")
             return
 
-        def on_dismiss(session_id: str) -> None:
+        def on_dismiss(session_id: str | None) -> None:
             if session_id:
                 self._session_id = session_id
                 self._session_file = self._transcript.find_session_file(

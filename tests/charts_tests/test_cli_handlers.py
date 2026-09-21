@@ -681,12 +681,12 @@ class TestHandleReshape(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestMainDispatch(unittest.TestCase):
-    def test_no_command_returns_nonzero(self):
-        """main() with no subcommand prints help and returns 1."""
+    def test_no_command_prints_help_and_returns_zero(self):
+        """main() with no subcommand prints help and returns 0 (rule A7)."""
         from charts.cli import main
         with patch("argparse.ArgumentParser.print_help"):
             result = main([])
-        self.assertEqual(result, 1)
+        self.assertEqual(result, 0)
 
     def test_reshape_dispatch_end_to_end(self):
         """main(['reshape', ...]) reaches _handle_reshape and returns 0."""

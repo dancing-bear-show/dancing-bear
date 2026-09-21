@@ -29,7 +29,8 @@ _DESC_KEYS = ("file_path", "command", "pattern", "skill", "description")
 def _event_desc(evt: SessionEvent) -> str:
     """Extract a short description from a tool event's input."""
     inp = evt.tool_input or {}
-    desc = next((v for k in _DESC_KEYS if (v := inp.get(k))), "")
+    raw = next((v for k in _DESC_KEYS if (v := inp.get(k))), "")
+    desc = str(raw) if raw is not None else ""
     if "/" in desc:
         desc = desc.split("/")[-1]
     return desc[:30]

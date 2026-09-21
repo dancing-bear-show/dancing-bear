@@ -4,8 +4,12 @@ A YAML DAG runner for multi-step tasks. You describe a task as a set of
 **stages**; the engine works out what can run in parallel, spawns an agent per
 stage, and collects each stage's output files into a run **workspace**.
 
-52 workflows ship with the repo under `workflows/`. Run `./bin/workflow list`
-for the authoritative catalog. This doc does not restate it.
+Dozens of workflows ship with the repo under `workflows/`. Run
+`./bin/workflow list` (or `--format json` to count them) for the authoritative
+catalog — this doc deliberately does not restate a number, because a written one
+goes stale on the next merge. Note that not every YAML under `workflows/` is
+runnable: files marked `fragment: true` are includes, so a file count overstates
+the catalog.
 
 New to the repo? Start with [getting-started.md](getting-started.md) for setup.
 This doc assumes you can already run `./bin/workflow`.
@@ -304,7 +308,7 @@ prefixed with `outputs/`, `validation/`, `stages/`, or `dispatch/` is used as-is
 | `src/workflow/README.md` | module-level architecture and key modules |
 | `src/workflow/compiler.py` | topological sort, parallel groups, CLI compilation |
 | `src/workflow/dispatch.py` | per-kind agent prompt construction |
-| `workflows/` | 52 checked-in workflows to read as examples |
+| `workflows/` | the checked-in workflows, to read as examples |
 
 Related skills: `/select-workflow` to find the right one, `/write-workflow` to
 author a new one, `/validate-workflow` to check it before committing.

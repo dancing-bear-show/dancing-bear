@@ -330,6 +330,23 @@ class ResumeWriterBase(ABC):
         self.styles = StyleManager()
         self.text = TextFormatter()
 
+    @property
+    def _doc(self) -> Document:
+        """The Document, asserted present.
+
+        `self.doc` is None until `write()` constructs it, and every render
+        method runs from inside `write()` after that — so it is non-None at
+        each use site, but mypy cannot see that across method boundaries.
+        This narrows once, here, and raises with a usable message if a renderer
+        is ever called outside the write path rather than surfacing as an
+        AttributeError on None deep in a section renderer.
+        """
+        if self.doc is None:
+            raise RuntimeError(
+                "render called before write(): no Document has been created yet"
+            )
+        return self.doc
+
     def write(self, out_path: str, seed: dict[str, Any] | None = None) -> None:
         """Write resume to DOCX file.
 

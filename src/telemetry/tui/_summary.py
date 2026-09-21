@@ -90,7 +90,7 @@ def compute_summary(  # NOSONAR S3776 - flat aggregation; many generator express
     end_time = events[-1].timestamp if events else None
 
     return SessionSummary(
-        session_id=config.session_id,
+        session_id=config.session_id or "",
         project_path=config.project_path,
         start_time=start_time,
         end_time=end_time,

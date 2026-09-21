@@ -47,7 +47,8 @@ def main(argv: list[str] | None = None) -> int:
             "total_bytes": total_size,
             "files": file_sizes,
         }
-        return emit_one(output, "json")
+        emit_one(output, "json")
+        return 0
 
     print(f"Telemetry storage: {data_dir.path}")
 
@@ -56,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
         events_size = f"{file_sizes['events.jsonl']:,} B"
         spans_size = f"{file_sizes['spans.jsonl']:,} B"
         total_display = f"{total_size:,} B"
-        rows = [
+        rows: list[dict[str, object]] = [
             {"File": "metrics.jsonl", "Size": metrics_size},
             {"File": "events.jsonl", "Size": events_size},
             {"File": "spans.jsonl", "Size": spans_size},

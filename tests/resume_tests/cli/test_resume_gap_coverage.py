@@ -47,15 +47,15 @@ class TestCmdRenderUnit(unittest.TestCase):
             setattr(args, k, v)
         return args
 
-    @patch("resume.cli.main.write_resume_docx")
-    @patch("resume.cli.main._load_structure", return_value=None)
-    @patch("resume.cli.main._apply_filter_pipeline")
-    @patch("resume.cli.main.load_template", return_value={"sections": []})
-    @patch("resume.cli.main.read_yaml_or_json", return_value={"name": "Test"})
+    @patch("resume.cli.cmd_render.write_resume_docx")
+    @patch("resume.cli.cmd_render._load_structure", return_value=None)
+    @patch("resume.cli.cmd_render._apply_filter_pipeline")
+    @patch("resume.cli.cmd_render.load_template", return_value={"sections": []})
+    @patch("resume.cli.helpers.read_yaml_or_json", return_value={"name": "Test"})
     def test_happy_path_returns_zero(
         self, mock_read, mock_template, mock_filter, mock_structure, mock_write
     ) -> None:
-        from resume.cli.main import cmd_render
+        from resume.cli.cmd_render import cmd_render
 
         mock_filter.return_value = {"name": "Test"}
         args = self._make_args(out="out.docx")
@@ -63,15 +63,15 @@ class TestCmdRenderUnit(unittest.TestCase):
         self.assertEqual(result, 0)
         mock_write.assert_called_once()
 
-    @patch("resume.cli.main.write_resume_docx")
-    @patch("resume.cli.main._load_structure", return_value=None)
-    @patch("resume.cli.main._apply_filter_pipeline")
-    @patch("resume.cli.main.load_template", return_value={"sections": []})
-    @patch("resume.cli.main.read_yaml_or_json", return_value={"name": "Test"})
+    @patch("resume.cli.cmd_render.write_resume_docx")
+    @patch("resume.cli.cmd_render._load_structure", return_value=None)
+    @patch("resume.cli.cmd_render._apply_filter_pipeline")
+    @patch("resume.cli.cmd_render.load_template", return_value={"sections": []})
+    @patch("resume.cli.helpers.read_yaml_or_json", return_value={"name": "Test"})
     def test_calls_write_resume_docx_with_correct_args(
         self, mock_read, mock_template, mock_filter, mock_structure, mock_write
     ) -> None:
-        from resume.cli.main import cmd_render
+        from resume.cli.cmd_render import cmd_render
 
         mock_filter.return_value = {"name": "Test", "skills": ["Python"]}
         args = self._make_args(out="out.docx")
@@ -84,10 +84,10 @@ class TestCmdRenderUnit(unittest.TestCase):
         self.assertIn("seed", call_kwargs)
         self.assertIn("structure", call_kwargs)
 
-    @patch("resume.cli.main._apply_filter_pipeline")
-    @patch("resume.cli.main._load_structure", return_value=None)
-    @patch("resume.cli.main.load_template", return_value={})
-    @patch("resume.cli.main.read_yaml_or_json", return_value={"name": "Test"})
+    @patch("resume.cli.cmd_render._apply_filter_pipeline")
+    @patch("resume.cli.cmd_render._load_structure", return_value=None)
+    @patch("resume.cli.cmd_render.load_template", return_value={})
+    @patch("resume.cli.helpers.read_yaml_or_json", return_value={"name": "Test"})
     def test_pdf_output_raises_cli_error_exit_code_2(
         self, mock_read, mock_template, mock_structure, mock_filter
     ) -> None:
@@ -97,20 +97,20 @@ class TestCmdRenderUnit(unittest.TestCase):
         mock_filter.return_value = {"name": "Test"}
         args = self._make_args(out="out.pdf")
         with self.assertRaises(CLIError) as ctx:
-            from resume.cli.main import cmd_render
+            from resume.cli.cmd_render import cmd_render
             cmd_render(args)
         self.assertEqual(ctx.exception.code, ExitCode.USAGE)
         self.assertIn("export-pdf", str(ctx.exception))
 
-    @patch("resume.cli.main.write_resume_docx")
-    @patch("resume.cli.main._load_structure", return_value=None)
-    @patch("resume.cli.main._apply_filter_pipeline")
-    @patch("resume.cli.main.load_template", return_value={})
-    @patch("resume.cli.main.read_yaml_or_json", return_value={"name": "Test"})
+    @patch("resume.cli.cmd_render.write_resume_docx")
+    @patch("resume.cli.cmd_render._load_structure", return_value=None)
+    @patch("resume.cli.cmd_render._apply_filter_pipeline")
+    @patch("resume.cli.cmd_render.load_template", return_value={})
+    @patch("resume.cli.helpers.read_yaml_or_json", return_value={"name": "Test"})
     def test_min_priority_float_passed_to_filter(
         self, mock_read, mock_template, mock_filter, mock_structure, mock_write
     ) -> None:
-        from resume.cli.main import cmd_render
+        from resume.cli.cmd_render import cmd_render
 
         mock_filter.return_value = {"name": "Test"}
         args = self._make_args(out="out.docx", min_priority=0.7)
@@ -119,15 +119,15 @@ class TestCmdRenderUnit(unittest.TestCase):
         call_args = mock_filter.call_args
         self.assertEqual(call_args[0][2], 0.7)  # third positional arg is min_priority
 
-    @patch("resume.cli.main.write_resume_docx")
-    @patch("resume.cli.main._load_structure", return_value=None)
-    @patch("resume.cli.main._apply_filter_pipeline")
-    @patch("resume.cli.main.load_template", return_value={})
-    @patch("resume.cli.main.read_yaml_or_json", return_value={"name": "Test"})
+    @patch("resume.cli.cmd_render.write_resume_docx")
+    @patch("resume.cli.cmd_render._load_structure", return_value=None)
+    @patch("resume.cli.cmd_render._apply_filter_pipeline")
+    @patch("resume.cli.cmd_render.load_template", return_value={})
+    @patch("resume.cli.helpers.read_yaml_or_json", return_value={"name": "Test"})
     def test_none_min_priority_passed_as_none(
         self, mock_read, mock_template, mock_filter, mock_structure, mock_write
     ) -> None:
-        from resume.cli.main import cmd_render
+        from resume.cli.cmd_render import cmd_render
 
         mock_filter.return_value = {"name": "Test"}
         args = self._make_args(out="out.docx", min_priority=None)
@@ -158,16 +158,16 @@ class TestCmdAlignProfileOverlay(unittest.TestCase):
             setattr(args, k, v)
         return args
 
-    @patch("resume.cli.main.write_yaml_or_json")
-    @patch("resume.cli.main.align_candidate_to_job", return_value={"score": 80})
-    @patch("resume.cli.main.build_keyword_spec", return_value=({"python": 1}, {}))
-    @patch("resume.cli.main.load_job_config", return_value={"title": "Eng"})
-    @patch("resume.cli.main.apply_profile_overlays")
-    @patch("resume.cli.main.read_yaml_or_json", return_value={"name": "Test"})
+    @patch("resume.cli.cmd_align.write_yaml_or_json")
+    @patch("resume.cli.cmd_align.align_candidate_to_job", return_value={"score": 80})
+    @patch("resume.cli.cmd_align.build_keyword_spec", return_value=({"python": 1}, {}))
+    @patch("resume.cli.cmd_align.load_job_config", return_value={"title": "Eng"})
+    @patch("resume.cli.cmd_align.apply_profile_overlays")
+    @patch("resume.cli.helpers.read_yaml_or_json", return_value={"name": "Test"})
     def test_profile_overlay_applied_when_profile_set(
         self, mock_read, mock_overlay, mock_load_job, mock_build_kw, mock_align, mock_write
     ) -> None:
-        from resume.cli.main import cmd_align
+        from resume.cli.cmd_align import cmd_align
 
         mock_overlay.return_value = {"name": "Test", "overlaid": True}
         args = self._make_args(profile="myprofile")
@@ -178,16 +178,16 @@ class TestCmdAlignProfileOverlay(unittest.TestCase):
         align_call_data = mock_align.call_args[0][0]
         self.assertTrue(align_call_data.get("overlaid"))
 
-    @patch("resume.cli.main.write_yaml_or_json")
-    @patch("resume.cli.main.align_candidate_to_job", return_value={"score": 80})
-    @patch("resume.cli.main.build_keyword_spec", return_value=({"python": 1}, {}))
-    @patch("resume.cli.main.load_job_config", return_value={"title": "Eng"})
-    @patch("resume.cli.main.apply_profile_overlays")
-    @patch("resume.cli.main.read_yaml_or_json", return_value={"name": "Test"})
+    @patch("resume.cli.cmd_align.write_yaml_or_json")
+    @patch("resume.cli.cmd_align.align_candidate_to_job", return_value={"score": 80})
+    @patch("resume.cli.cmd_align.build_keyword_spec", return_value=({"python": 1}, {}))
+    @patch("resume.cli.cmd_align.load_job_config", return_value={"title": "Eng"})
+    @patch("resume.cli.cmd_align.apply_profile_overlays")
+    @patch("resume.cli.helpers.read_yaml_or_json", return_value={"name": "Test"})
     def test_profile_overlay_skipped_when_no_profile(
         self, mock_read, mock_overlay, mock_load_job, mock_build_kw, mock_align, mock_write
     ) -> None:
-        from resume.cli.main import cmd_align
+        from resume.cli.cmd_align import cmd_align
 
         args = self._make_args(profile=None)
         cmd_align(args)
@@ -214,13 +214,13 @@ class TestCmdCandidateInitProfileOverlay(unittest.TestCase):
             setattr(args, k, v)
         return args
 
-    @patch("resume.cli.main.write_yaml_or_json")
-    @patch("resume.cli.main.apply_profile_overlays")
-    @patch("resume.cli.main.read_yaml_or_json", return_value={"name": "Test", "skills": ["Python"]})
+    @patch("resume.cli.cmd_align.write_yaml_or_json")
+    @patch("resume.cli.cmd_align.apply_profile_overlays")
+    @patch("resume.cli.helpers.read_yaml_or_json", return_value={"name": "Test", "skills": ["Python"]})
     def test_profile_overlay_applied_when_profile_given(
         self, mock_read, mock_overlay, mock_write
     ) -> None:
-        from resume.cli.main import cmd_candidate_init
+        from resume.cli.cmd_align import cmd_candidate_init
 
         mock_overlay.return_value = {"name": "Test", "skills": ["Python", "Go"]}
         args = self._make_args(profile="myprofile")
@@ -228,13 +228,13 @@ class TestCmdCandidateInitProfileOverlay(unittest.TestCase):
         self.assertEqual(result, 0)
         mock_overlay.assert_called_once_with({"name": "Test", "skills": ["Python"]}, "myprofile")
 
-    @patch("resume.cli.main.write_yaml_or_json")
-    @patch("resume.cli.main.apply_profile_overlays")
-    @patch("resume.cli.main.read_yaml_or_json", return_value={"name": "Test", "skills": ["Python"]})
+    @patch("resume.cli.cmd_align.write_yaml_or_json")
+    @patch("resume.cli.cmd_align.apply_profile_overlays")
+    @patch("resume.cli.helpers.read_yaml_or_json", return_value={"name": "Test", "skills": ["Python"]})
     def test_no_overlay_when_profile_none(
         self, mock_read, mock_overlay, mock_write
     ) -> None:
-        from resume.cli.main import cmd_candidate_init
+        from resume.cli.cmd_align import cmd_candidate_init
 
         args = self._make_args(profile=None)
         cmd_candidate_init(args)
@@ -263,14 +263,14 @@ class TestCmdFilesTidyUnit(unittest.TestCase):
             setattr(args, k, v)
         return args
 
-    @patch("resume.cli.main.purge_temp_files")
-    @patch("resume.cli.main.execute_archive")
-    @patch("resume.cli.main.execute_delete")
-    @patch("resume.cli.main.build_tidy_plan")
+    @patch("resume.cli.cmd_files.purge_temp_files")
+    @patch("resume.cli.cmd_files.execute_archive")
+    @patch("resume.cli.cmd_files.execute_delete")
+    @patch("resume.cli.cmd_files.build_tidy_plan")
     def test_happy_path_archive_returns_zero(
         self, mock_plan, mock_delete, mock_archive, mock_purge
     ) -> None:
-        from resume.cli.main import cmd_files_tidy
+        from resume.cli.cmd_files import cmd_files_tidy
 
         plan = MagicMock()
         plan.move = [Path("old.json")]
@@ -282,14 +282,14 @@ class TestCmdFilesTidyUnit(unittest.TestCase):
         mock_delete.assert_not_called()
         mock_purge.assert_not_called()
 
-    @patch("resume.cli.main.purge_temp_files")
-    @patch("resume.cli.main.execute_archive")
-    @patch("resume.cli.main.execute_delete")
-    @patch("resume.cli.main.build_tidy_plan")
+    @patch("resume.cli.cmd_files.purge_temp_files")
+    @patch("resume.cli.cmd_files.execute_archive")
+    @patch("resume.cli.cmd_files.execute_delete")
+    @patch("resume.cli.cmd_files.build_tidy_plan")
     def test_delete_flag_calls_execute_delete_not_archive(
         self, mock_plan, mock_delete, mock_archive, mock_purge
     ) -> None:
-        from resume.cli.main import cmd_files_tidy
+        from resume.cli.cmd_files import cmd_files_tidy
 
         plan = MagicMock()
         plan.move = [Path("old.json")]
@@ -300,14 +300,14 @@ class TestCmdFilesTidyUnit(unittest.TestCase):
         mock_delete.assert_called_once()
         mock_archive.assert_not_called()
 
-    @patch("resume.cli.main.purge_temp_files")
-    @patch("resume.cli.main.execute_archive")
-    @patch("resume.cli.main.execute_delete")
-    @patch("resume.cli.main.build_tidy_plan")
+    @patch("resume.cli.cmd_files.purge_temp_files")
+    @patch("resume.cli.cmd_files.execute_archive")
+    @patch("resume.cli.cmd_files.execute_delete")
+    @patch("resume.cli.cmd_files.build_tidy_plan")
     def test_purge_temp_flag_calls_purge_temp_files(
         self, mock_plan, mock_delete, mock_archive, mock_purge
     ) -> None:
-        from resume.cli.main import cmd_files_tidy
+        from resume.cli.cmd_files import cmd_files_tidy
 
         plan = MagicMock()
         plan.move = []  # Nothing to archive/delete
@@ -319,14 +319,14 @@ class TestCmdFilesTidyUnit(unittest.TestCase):
         mock_archive.assert_not_called()
         mock_delete.assert_not_called()
 
-    @patch("resume.cli.main.purge_temp_files")
-    @patch("resume.cli.main.execute_archive")
-    @patch("resume.cli.main.execute_delete")
-    @patch("resume.cli.main.build_tidy_plan")
+    @patch("resume.cli.cmd_files.purge_temp_files")
+    @patch("resume.cli.cmd_files.execute_archive")
+    @patch("resume.cli.cmd_files.execute_delete")
+    @patch("resume.cli.cmd_files.build_tidy_plan")
     def test_empty_move_list_skips_archive_and_delete(
         self, mock_plan, mock_delete, mock_archive, mock_purge
     ) -> None:
-        from resume.cli.main import cmd_files_tidy
+        from resume.cli.cmd_files import cmd_files_tidy
 
         plan = MagicMock()
         plan.move = []
@@ -337,14 +337,14 @@ class TestCmdFilesTidyUnit(unittest.TestCase):
         mock_archive.assert_not_called()
         mock_delete.assert_not_called()
 
-    @patch("resume.cli.main.purge_temp_files")
-    @patch("resume.cli.main.execute_archive")
-    @patch("resume.cli.main.execute_delete")
-    @patch("resume.cli.main.build_tidy_plan")
+    @patch("resume.cli.cmd_files.purge_temp_files")
+    @patch("resume.cli.cmd_files.execute_archive")
+    @patch("resume.cli.cmd_files.execute_delete")
+    @patch("resume.cli.cmd_files.build_tidy_plan")
     def test_suffixes_parsed_and_passed_to_plan(
         self, mock_plan, mock_delete, mock_archive, mock_purge
     ) -> None:
-        from resume.cli.main import cmd_files_tidy
+        from resume.cli.cmd_files import cmd_files_tidy
 
         plan = MagicMock()
         plan.move = []
@@ -375,14 +375,14 @@ class TestCmdExperienceExportUnit(unittest.TestCase):
             setattr(args, k, v)
         return args
 
-    @patch("resume.cli.main.write_yaml_or_json")
-    @patch("resume.cli.main.build_experience_summary", return_value={"jobs": []})
-    @patch("resume.cli.main.apply_profile_overlays")
-    @patch("resume.cli.main.read_yaml_or_json", return_value={"name": "Test", "experience": []})
+    @patch("resume.cli.cmd_experience.write_yaml_or_json")
+    @patch("resume.cli.cmd_experience.build_experience_summary", return_value={"jobs": []})
+    @patch("resume.cli.cmd_experience.apply_profile_overlays")
+    @patch("resume.cli.helpers.read_yaml_or_json", return_value={"name": "Test", "experience": []})
     def test_data_path_happy_path_returns_zero(
         self, mock_read, mock_overlay, mock_summary, mock_write
     ) -> None:
-        from resume.cli.main import cmd_experience_export
+        from resume.cli.cmd_experience import cmd_experience_export
 
         mock_overlay.return_value = {"name": "Test", "experience": []}
         args = self._make_args(data="data.json", resume=None)
@@ -390,28 +390,28 @@ class TestCmdExperienceExportUnit(unittest.TestCase):
         self.assertEqual(result, 0)
         mock_write.assert_called_once()
 
-    @patch("resume.cli.main.write_yaml_or_json")
-    @patch("resume.cli.main.build_experience_summary", return_value={"jobs": []})
-    @patch("resume.cli.main.apply_profile_overlays")
-    @patch("resume.cli.main.read_yaml_or_json", return_value={"name": "Test"})
+    @patch("resume.cli.cmd_experience.write_yaml_or_json")
+    @patch("resume.cli.cmd_experience.build_experience_summary", return_value={"jobs": []})
+    @patch("resume.cli.cmd_experience.apply_profile_overlays")
+    @patch("resume.cli.helpers.read_yaml_or_json", return_value={"name": "Test"})
     def test_data_path_applies_profile_overlay_when_set(
         self, mock_read, mock_overlay, mock_summary, mock_write
     ) -> None:
-        from resume.cli.main import cmd_experience_export
+        from resume.cli.cmd_experience import cmd_experience_export
 
         mock_overlay.return_value = {"name": "Test", "overlaid": True}
         args = self._make_args(data="data.json", resume=None, profile="myprofile")
         cmd_experience_export(args)
         mock_overlay.assert_called_once_with({"name": "Test"}, "myprofile")
 
-    @patch("resume.cli.main.write_yaml_or_json")
-    @patch("resume.cli.main.build_experience_summary", return_value={"jobs": []})
-    @patch("resume.cli.main.parse_resume_text", return_value={"experience": []})
-    @patch("resume.cli.main.read_text_any", return_value="Resume text here")
+    @patch("resume.cli.cmd_experience.write_yaml_or_json")
+    @patch("resume.cli.cmd_experience.build_experience_summary", return_value={"jobs": []})
+    @patch("resume.cli.cmd_experience.parse_resume_text", return_value={"experience": []})
+    @patch("resume.cli.cmd_experience.read_text_any", return_value="Resume text here")
     def test_resume_text_path_parses_and_returns_zero(
         self, mock_read_any, mock_parse, mock_summary, mock_write
     ) -> None:
-        from resume.cli.main import cmd_experience_export
+        from resume.cli.cmd_experience import cmd_experience_export
 
         args = self._make_args(data=None, resume="resume.txt")
         result = cmd_experience_export(args)
@@ -419,14 +419,14 @@ class TestCmdExperienceExportUnit(unittest.TestCase):
         mock_parse.assert_called_once_with("Resume text here")
         mock_write.assert_called_once()
 
-    @patch("resume.cli.main.write_yaml_or_json")
-    @patch("resume.cli.main.build_experience_summary", return_value={"jobs": []})
-    @patch("resume.cli.main.read_text_any", return_value="")
+    @patch("resume.cli.cmd_experience.write_yaml_or_json")
+    @patch("resume.cli.cmd_experience.build_experience_summary", return_value={"jobs": []})
+    @patch("resume.cli.cmd_experience.read_text_any", return_value="")
     def test_resume_docx_path_dispatches_to_parse_resume_docx(
         self, mock_read_any, mock_summary, mock_write
     ) -> None:
         """DOCX resume path uses parse_resume_docx (lazy import inside function body)."""
-        from resume.cli.main import cmd_experience_export
+        from resume.cli.cmd_experience import cmd_experience_export
 
         args = self._make_args(data=None, resume="resume.docx")
         # parse_resume_docx is imported lazily inside cmd_experience_export;
@@ -438,7 +438,7 @@ class TestCmdExperienceExportUnit(unittest.TestCase):
 
     def test_missing_data_and_resume_raises_system_exit(self) -> None:
         """Missing both --data and --resume exits non-zero."""
-        from resume.cli.main import cmd_experience_export
+        from resume.cli.cmd_experience import cmd_experience_export
 
         args = self._make_args(data=None, resume=None)
         with self.assertRaises(SystemExit) as ctx:
@@ -467,7 +467,7 @@ class TestCmdExportPdfUnit(unittest.TestCase):
     def test_missing_docx_raises_cli_error_usage(self) -> None:
         """A missing --docx file must raise CLIError with ExitCode.USAGE."""
         from core.cli_errors import CLIError, ExitCode
-        from resume.cli.main import cmd_export_pdf
+        from resume.cli.cmd_docx import cmd_export_pdf
 
         args = self._make_args(docx_path="/nonexistent/path.docx", out="/tmp/out.pdf")  # nosec B108 - test path
         with self.assertRaises(CLIError) as ctx:
@@ -480,7 +480,7 @@ class TestCmdExportPdfUnit(unittest.TestCase):
         """A failed LibreOffice conversion must raise CLIError with ExitCode.ERROR."""
         from core.cli_errors import CLIError, ExitCode
         from resume.australian_rotate import ConversionFailure, ConversionResult
-        from resume.cli.main import cmd_export_pdf
+        from resume.cli.cmd_docx import cmd_export_pdf
 
         mock_convert.return_value = ConversionResult(
             ok=False, failure=ConversionFailure.CONVERTER_MISSING
@@ -501,7 +501,7 @@ class TestCmdExportPdfUnit(unittest.TestCase):
         import io
         from contextlib import redirect_stdout
         from resume.australian_rotate import ConversionResult
-        from resume.cli.main import cmd_export_pdf
+        from resume.cli.cmd_docx import cmd_export_pdf
 
         with tempfile.TemporaryDirectory() as tmpdir:
             docx_path = os.path.join(tmpdir, "resume.docx")
@@ -525,7 +525,7 @@ class TestCmdExportPdfUnit(unittest.TestCase):
         import io
         from contextlib import redirect_stdout
         from resume.australian_rotate import ConversionResult
-        from resume.cli.main import cmd_export_pdf
+        from resume.cli.cmd_docx import cmd_export_pdf
 
         with tempfile.TemporaryDirectory() as tmpdir:
             docx_path = os.path.join(tmpdir, "myresume.docx")

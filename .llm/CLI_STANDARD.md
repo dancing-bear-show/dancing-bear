@@ -24,18 +24,21 @@ uniform exception→exit-code mapping.
 `AppMeta` derives every fallback string (agentic, domain-map, inventory,
 familiarize) from one `app_id` + `purpose`. Hand-written fallback literals
 duplicate that derivation and drift from it.
-*Conformant (11):* apple_music, charts, diagrams, qlty, sheets, slides,
-telemetry, whatsapp, wifi, worker, workflow.
-*Non-conformant (7):* calendars, desk, mail, maker, phone, resume, schedule
-— each hand-writes the string. Five are byte-identical to what
-`AppMeta.agentic_fallback` generates, so the substitution is mechanical;
-`maker` hides it behind a constant (`FALLBACK_AGENTIC_HEADER`) imported at two
-call sites; `mail`'s is a bullet list that does not follow the format at all,
-so adopting `AppMeta` there **changes the emitted fallback text** and needs a
-check that nothing asserts on the old string.
+*Conformant (18):* every app. Confirm on merged `main` with
+`ls src/*/meta.py | wc -l` rather than trusting this line — it is a snapshot,
+not a gate, and it sat stale through three merges before anyone checked.
 
-Counts verified by `ls src/*/meta.py` after the apple_music fix landed. Re-run
-that command rather than trusting this list — it is a snapshot, not a gate.
+The last seven adopted in #332. Six were byte-identical substitutions,
+confirmed by diffing `AppMeta(...).agentic_fallback` against each app's live
+`assistant.fallback_banner`. Two carried a wrinkle worth remembering if a
+similar sweep comes up:
+
+- `maker`'s literal lived behind `FALLBACK_AGENTIC_HEADER`, imported at two
+  call sites. Identical in content, but the constant had to be deleted rather
+  than left as a dead alias.
+- `mail`'s was a bullet list `AppMeta` does not generate, so adopting it
+  **changed the emitted fallback text**. Safe only because nothing asserted on
+  the old string — checked before changing, not after.
 
 **S3. MUST dispatch through `run_with_assistant(...)` with a real `emit_func`**
 that builds a capsule. An `emit_func` that prints `assistant.fallback_banner`
@@ -50,12 +53,14 @@ emits the *failure* output unconditionally, by construction.
 
 Applies to **every app** for A1–A7.
 
-Proven by two contracts, not one:
+Proven by three contracts:
 - `tests/agentic_cli_contract.py` → `AgenticCLIContractMixin` — **A1–A5**
 - `tests/cli_separator_contract.py` → `SeparatorContractMixin` — **A6**
   (18 CLIApp apps; `telemetry` now adopts this contract)
+- `tests/cli_no_subcommand_contract.py` → `NoSubcommandContractMixin` — **A7**
+  (18 adopters; each declares its own expected exit code and stream)
 
-A7 is currently unguarded by any contract; it is a SHOULD for that reason.
+Every rule in this tier is now guarded by a contract.
 
 **A1. MUST exit 0 on `--agentic`** and announce `agentic: <app_id>` on line 1.
 
@@ -83,10 +88,35 @@ Only the *first* bare `--` is stripped; a later or trailing `--` is preserved
 `tests/core_tests/test_cli_framework.py::TestNormalizeArgv` and deliberately
 not repeated per app.
 
-**A7. SHOULD make no-subcommand behaviour deliberate** — either help + 0, or an
-explicit `on_no_command` preserving a legacy exit code. charts (1), diagrams (0),
-worker (1) and workflow (2) intentionally differ; the point is that the value is
-chosen, not accidental.
+**A7. MUST make no-subcommand behaviour deliberate** — help + 0 by default, or
+an explicit `on_no_command` whose non-zero code is *documented in the source*.
+Proven by `tests/cli_no_subcommand_contract.py` → `NoSubcommandContractMixin`
+(18 adopters), which pins each app's exit code **and which stream carries the
+output**.
+
+*Conformant (16):* help to stdout, exit 0 — every app except the two below.
+
+*Documented exceptions (2):* `worker` (1) and `workflow` (2) print a one-line
+usage to **stderr**. Both carry a docstring on `_no_command_usage()` saying they
+preserve legacy behaviour "since this is a public CLI surface". That written
+rationale is what makes them exceptions rather than drift.
+
+`charts` (was 1) and `telemetry` (was 2) were normalised to help + 0. Neither
+had any stated rationale: charts was a bare `return 1` predating the `src/` move
+(#147), and telemetry's 2 was incidental to Click, preserved by the argparse
+port without anyone choosing it. A7 asks that the value be *chosen*; an
+undocumented non-zero is the drift the rule exists to catch, so the fix was to
+align them rather than enshrine them.
+
+The **stream is part of the contract**, not just the code. help-on-stdout and
+usage-on-stderr are different interfaces, and an exit-code-only assertion cannot
+tell them apart — verified by probe: moving `worker`'s usage to stdout fails the
+contract with `'stdout' != 'stderr'` while its exit code stays 1.
+
+One framework inconsistency this surfaced, left as-is: `CLIApp.run()` returns
+`ExitCode.USAGE` (2) for a missing subcommand while `run_with_assistant()`
+returns 0. Every app here uses the latter, so the contract pins observed
+behaviour; reconciling the two is a separate change.
 
 ---
 

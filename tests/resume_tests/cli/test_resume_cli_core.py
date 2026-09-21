@@ -163,7 +163,7 @@ class TestResumeCLIResolveOut(unittest.TestCase):
 
     def test_resolve_out_with_explicit_path(self):
         """Test _resolve_out returns explicit --out path."""
-        from resume.cli.main import _resolve_out
+        from resume.cli.helpers import _resolve_out
         import argparse
 
         args = argparse.Namespace(out=test_path("test.json"), profile=None, out_dir="out")
@@ -172,7 +172,7 @@ class TestResumeCLIResolveOut(unittest.TestCase):
 
     def test_resolve_out_with_profile(self):
         """Test _resolve_out builds nested path with profile."""
-        from resume.cli.main import _resolve_out
+        from resume.cli.helpers import _resolve_out
         import argparse
 
         args = argparse.Namespace(out=None, profile="testprofile", out_dir="out")
@@ -182,7 +182,7 @@ class TestResumeCLIResolveOut(unittest.TestCase):
 
     def test_resolve_out_uses_default_profile(self):
         """Test _resolve_out uses DEFAULT_PROFILE when profile is None."""
-        from resume.cli.main import _resolve_out, DEFAULT_PROFILE
+        from resume.cli.helpers import _resolve_out, DEFAULT_PROFILE
         import argparse
 
         args = argparse.Namespace(out=None, profile=None, out_dir="out")
@@ -195,7 +195,7 @@ class TestResumeCLIHelpers(unittest.TestCase):
 
     def test_extend_seed_with_style_no_profile(self):
         """Test _extend_seed_with_style returns seed unchanged when no style profile."""
-        from resume.cli.main import _extend_seed_with_style
+        from resume.cli.helpers import _extend_seed_with_style
 
         seed = {"keywords": ["python", "aws"]}
         result = _extend_seed_with_style(seed, None)
@@ -203,7 +203,7 @@ class TestResumeCLIHelpers(unittest.TestCase):
 
     def test_extend_seed_with_style_nonexistent_file(self):
         """Test _extend_seed_with_style handles missing file gracefully."""
-        from resume.cli.main import _extend_seed_with_style
+        from resume.cli.helpers import _extend_seed_with_style
 
         seed = {"keywords": ["python"]}
         result = _extend_seed_with_style(seed, "/nonexistent/style.json")
@@ -212,7 +212,7 @@ class TestResumeCLIHelpers(unittest.TestCase):
 
     def test_extend_seed_with_style_merges_keywords(self):
         """Test _extend_seed_with_style merges style keywords into seed."""
-        from resume.cli.main import _extend_seed_with_style
+        from resume.cli.helpers import _extend_seed_with_style
 
         style_data = {
             "top_unigrams": ["docker", "kubernetes", "terraform"],
@@ -229,14 +229,14 @@ class TestResumeCLIHelpers(unittest.TestCase):
 
     def test_try_load_structure_missing_file(self):
         """Test _try_load_structure returns None for missing file."""
-        from resume.cli.main import _try_load_structure
+        from resume.cli.cmd_render import _try_load_structure
 
         result = _try_load_structure(Path("/nonexistent/structure.json"))
         self.assertIsNone(result)
 
     def test_try_load_structure_valid_file(self):
         """Test _try_load_structure loads valid structure file."""
-        from resume.cli.main import _try_load_structure
+        from resume.cli.cmd_render import _try_load_structure
 
         structure_data = {
             "sections": [
@@ -251,7 +251,7 @@ class TestResumeCLIHelpers(unittest.TestCase):
 
     def test_find_structure_in_dirs_not_found(self):
         """Test _find_structure_in_dirs returns None when no structure found."""
-        from resume.cli.main import _find_structure_in_dirs
+        from resume.cli.cmd_render import _find_structure_in_dirs
 
         with tempfile.TemporaryDirectory() as tmpdir:
             out_dirs = [Path(tmpdir)]
@@ -260,7 +260,7 @@ class TestResumeCLIHelpers(unittest.TestCase):
 
     def test_find_structure_in_dirs_nested_location(self):
         """Test _find_structure_in_dirs finds structure in nested profile dir."""
-        from resume.cli.main import _find_structure_in_dirs
+        from resume.cli.cmd_render import _find_structure_in_dirs
 
         structure_data = {"sections": [{"key": "summary", "title": "Summary"}]}
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -278,7 +278,7 @@ class TestResumeCLIHelpers(unittest.TestCase):
 
     def test_find_structure_in_dirs_legacy_location(self):
         """Test _find_structure_in_dirs finds structure in legacy flat naming."""
-        from resume.cli.main import _find_structure_in_dirs
+        from resume.cli.cmd_render import _find_structure_in_dirs
 
         structure_data = {"sections": [{"key": "education", "title": "Education"}]}
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -294,7 +294,7 @@ class TestResumeCLIHelpers(unittest.TestCase):
 
     def test_find_structure_in_dirs_prefers_nested_over_legacy(self):
         """Test _find_structure_in_dirs prefers the nested layout when both exist."""
-        from resume.cli.main import _find_structure_in_dirs
+        from resume.cli.cmd_render import _find_structure_in_dirs
         import json
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -308,7 +308,7 @@ class TestResumeCLIHelpers(unittest.TestCase):
 
     def test_find_structure_in_dirs_tries_multiple_extensions(self):
         """Test _find_structure_in_dirs finds a .yml structure file."""
-        from resume.cli.main import _find_structure_in_dirs
+        from resume.cli.cmd_render import _find_structure_in_dirs
 
         with tempfile.TemporaryDirectory() as tmpdir:
             profile_dir = Path(tmpdir) / "testprofile"
@@ -320,7 +320,7 @@ class TestResumeCLIHelpers(unittest.TestCase):
 
     def test_find_structure_in_dirs_searches_multiple_dirs(self):
         """Test _find_structure_in_dirs searches later dirs when earlier ones miss."""
-        from resume.cli.main import _find_structure_in_dirs
+        from resume.cli.cmd_render import _find_structure_in_dirs
         import json
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -338,7 +338,7 @@ class TestResumeCLIFindStructureInConfig(unittest.TestCase):
 
     def test_find_structure_in_config_not_found(self):
         """Test _find_structure_in_config returns None when not found."""
-        from resume.cli.main import _find_structure_in_config
+        from resume.cli.cmd_render import _find_structure_in_config
 
         result = _find_structure_in_config("nonexistent_profile_xyz")
         self.assertIsNone(result)
@@ -349,7 +349,7 @@ class TestResumeCLILoadStructure(unittest.TestCase):
 
     def test_load_structure_explicit_json(self):
         """Test _load_structure with explicit JSON path."""
-        from resume.cli.main import _load_structure
+        from resume.cli.cmd_render import _load_structure
         import argparse
 
         structure_data = {"sections": [{"key": "summary"}]}
@@ -365,7 +365,7 @@ class TestResumeCLILoadStructure(unittest.TestCase):
 
     def test_load_structure_no_profile_no_explicit(self):
         """Test _load_structure returns None with no profile and no explicit path."""
-        from resume.cli.main import _load_structure
+        from resume.cli.cmd_render import _load_structure
         import argparse
 
         args = argparse.Namespace(

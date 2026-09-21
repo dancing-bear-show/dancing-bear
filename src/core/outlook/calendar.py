@@ -264,6 +264,8 @@ class OutlookCalendarMixin(_OutlookCalendarHost):
         tz_final = self._resolve_tz(params.tz)
         cal_id = self._resolve_calendar_id(params.calendar_id, params.calendar_name)
 
+        if not params.range_start_date:
+            raise ValueError("RecurringEventCreationParams.range_start_date is required")
         pattern = _build_recurrence_pattern(params.repeat, params.interval, params.byday)
         rng = _build_recurrence_range(params.range_start_date, params.range_until, params.count)
 

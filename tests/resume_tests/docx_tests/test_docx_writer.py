@@ -381,7 +381,7 @@ class TestResolveGlyph(unittest.TestCase):
     def test_returns_the_default_glyph_without_config(self):
         from tests.resume_tests.fixtures import mock_docx_modules, make_fake_renderer
         with mock_docx_modules:
-            from resume.docx_renderers import BulletRenderer
+            from resume.docx_bullets import BulletRenderer
             renderer, _doc = make_fake_renderer(BulletRenderer)
             result = renderer.resolve_glyph(None)
         self.assertEqual(result, "•")

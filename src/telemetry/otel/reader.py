@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Protocol
 
 from core.fileutil import find_rotated_files, iter_rotated_jsonl
 from telemetry.otel.models import (
@@ -12,6 +13,13 @@ from telemetry.otel.models import (
     OTLPMetricsRecord,
     OTLPSpansRecord,
 )
+
+
+class _FromDict(Protocol):
+    """Structural type for classes with a from_dict class method."""
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> Any: ...
 
 # Filenames
 METRICS_FILE = "metrics.jsonl"
@@ -62,7 +70,7 @@ class OTLPReader:
         """Read all spans from spans.jsonl (and rotation files)."""
         return self._read_jsonl(self.data_dir.path / SPANS_FILE, OTLPSpansRecord)
 
-    def _read_jsonl(self, file_path: Path, record_class: type) -> list:
+    def _read_jsonl(self, file_path: Path, record_class: type[_FromDict]) -> list:
         """Read *file_path* plus rotation files, parsing into *record_class*; skip malformed lines."""
         records = []
         for data in iter_rotated_jsonl(file_path, tolerant=True):

@@ -5,15 +5,21 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from rumps import App as _AppBase
 
 try:
     import rumps
     _HAS_RUMPS = True
-    _AppBase = rumps.App
+    if not TYPE_CHECKING:
+        _AppBase = rumps.App
 except ImportError:
     _HAS_RUMPS = False
     rumps = None
-    _AppBase = object
+    if not TYPE_CHECKING:
+        _AppBase = object
 
 from telemetry.otel.menubar_provider import OtelDisplayData, OtelMenubarProvider
 from telemetry.ccpulse_reader import read_current as _read_ccpulse
@@ -21,7 +27,7 @@ from telemetry.models import SessionSummary
 from telemetry.providers.transcript import TranscriptProvider
 from core.format_utils import format_tokens as _format_tokens
 from telemetry.tui import format_cost as _format_cost
-from telemetry._menubar_budget import _budget_score
+from telemetry._menubar_budget import _budget_score, _safe_float
 from telemetry._menubar_config import (
     _DEFAULT_ICON_TEMPLATE,
     _DEFAULT_MONTHLY_BUDGET,
@@ -119,6 +125,7 @@ def _project_short(s: SessionSummary) -> str:
 
 class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBase):  # pragma: no cover
 
+    menu: Any  # rumps.App.menu property — unannotated in rumps source; declared here to silence has-type
     _DETAIL_SESSIONS = 2
 
     def __init__(self) -> None:
@@ -329,7 +336,7 @@ class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBa
         self._otel_window_idx = (self._otel_window_idx + 1) % len(_OTEL_WINDOWS)
         self._refresh(None)
 
-    def _refresh_once(self, sender: object) -> None:
+    def _refresh_once(self, sender: Any) -> None:
         sender.stop()
         self._refresh(sender)
 
@@ -422,14 +429,14 @@ class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBa
     def _load_avg_hourly(self) -> float:
         try:
             totals = self._transcript.get_windowed_totals(since=_window_since(30 * 86400))
-            return totals["cost"] / (30 * 24)
+            return _safe_float(totals["cost"], 0.0) / (30 * 24)
         except Exception:  # nosec B110 - transcript read failure falls back to 0.0
             return 0.0
 
     def _load_mtd_cost(self) -> float:
         try:
             totals = self._transcript.get_windowed_totals(since=_month_since())
-            return float(totals["cost"])
+            return _safe_float(totals["cost"], 0.0)
         except Exception:  # nosec B110 - transcript read failure falls back to 0.0
             return 0.0
 

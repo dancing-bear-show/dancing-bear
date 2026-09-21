@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 from tests.cli_separator_contract import SeparatorContractMixin
+from tests.cli_no_subcommand_contract import NoSubcommandContractMixin
 
 from apple_music import __main__ as cli
 from apple_music import cli as am_cli
@@ -191,6 +192,14 @@ class AppleMusicCLITests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("a2", stub.deleted)
 
+
+
+class TestAppleMusicNoSubcommand(NoSubcommandContractMixin, unittest.TestCase):
+    """Rule A7 — the no-subcommand exit code is deliberate."""
+
+    MODULE_PATH = "apple_music.__main__"
+    EXPECTED_RC = 0
+    EXPECTED_STREAM = "stdout"
 
 if __name__ == "__main__":
     unittest.main()

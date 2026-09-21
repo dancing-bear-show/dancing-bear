@@ -88,10 +88,11 @@ def _aggregate_by_resource(metrics: list, events: list, spans: list) -> dict:
     return resource_stats
 
 
-def _output_stats(stats: dict, title: str, format_type: str) -> int:
+def _output_stats(stats: dict, title: str, format_type: str) -> int:  # NOSONAR python:S3516 - always returns 0 by design; no error conditions
     """Output statistics in requested format."""
     if format_type == "json":
-        return emit_one(stats, "json")
+        emit_one(stats, "json")
+        return 0
     print(f"{title}:")
     print("-" * 60)
     for key, value in sorted(stats.items()):

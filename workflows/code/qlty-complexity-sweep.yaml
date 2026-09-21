@@ -1,22 +1,77 @@
 name: qlty-complexity-sweep
 version: "1.0"
 description: >
-  Sweep the codebase for qlty "High total complexity" (file-complexity) smells,
-  group flagged files by top-level source directory, fan out parallel
-  code-writer agents to split each into smaller focused modules with
-  backward-compatible re-exports, verify tests pass, validate no broken
-  imports, apply corrections if needed, recheck complexity + lint, then
-  present a human gate.
+  Sweep the codebase for qlty complexity findings — both file-level
+  ("High total complexity") and per-function (cognitive complexity,
+  function-complexity, nested-control-flow) — group them by top-level source
+  directory, fan out parallel code-writer agents to REDUCE complexity in
+  place, verify tests pass, validate that no call site was left dangling,
+  apply corrections if needed, recheck complexity + lint, then present a
+  human gate.
+
+  Default strategy is reduce-in-place, NOT splitting. qlty's file-complexity
+  score is a pure SUM of per-function cognitive complexity, with no
+  file-level structural term. Verified by controlled probe, twice with
+  different function bodies: N identical functions score N x k exactly, with
+  k fixed by the body (12 functions scored 192 and 24 scored 384 in one run,
+  k=16; an earlier run measured k=15). Perfectly linear either way, which is
+  the load-bearing part — the constant is body-dependent, so do not expect a
+  specific k.
+
+  So splitting a file lowers the score at the path you were looking at while
+  leaving total complexity unchanged: a 24-function file at 384 split into
+  two 12-function files yields 192 + 192, and BOTH halves stay flagged.
+  Flattening those same functions' nesting in place is what actually removes
+  the finding.
+
+  So the score at a given path can fall while nothing was actually fixed.
+  PR #152 ran a split-based sweep over 26 files, splitting 19 behind
+  re-export shims; of its 44 surviving files exactly one still carries a
+  complexity finding today, so that sweep's numbers did largely hold — the
+  argument against splitting is that it redistributes rather than reduces,
+  not that its gains evaporate. Judge a sweep by total complexity across the
+  siblings it creates, never by the original path's score alone.
+
+  Splitting is therefore permitted only where a file genuinely holds 2+
+  unrelated responsibility clusters — a design fix that happens to also move
+  score — never as the default response to a high number.
+
+  NO RE-EXPORT FACADES. When a split does happen, the original module is NOT
+  left behind as a backward-compatible re-export shim. Every call site is
+  updated directly, including unittest.mock.patch target strings and
+  string-keyed dispatch tables. This is a standing project rule, not a
+  preference.
 
   Unlike decompose-sweep (which discovers candidates by raw line count),
-  this workflow discovers candidates directly from qlty's file-complexity
-  smell score, so it also catches complexity-dense small files that a
+  this workflow discovers candidates directly from qlty's complexity
+  findings, so it also catches complexity-dense small files that a
   line-count threshold would miss.
 
   Never touches bin/* public entry points or renames existing public
-  CLI-facing modules. Only splits large files into siblings within the
-  same directory. Original files become thin re-export shims so external
-  imports never break.
+  CLI-facing modules.
+
+  ⚠️ UNRESOLVED CONFLICT WITH PROJECT POLICY — read before running.
+
+  This workflow's default strategy is a thin re-export shim, but CLAUDE.md
+  lists "maintaining backwards-compatible wrappers for internal APIs" under
+  **Avoid**, and says to update all call sites instead. Those are flatly
+  incompatible, and nothing here documents an exemption.
+
+  Two further reasons to prefer workflows/shared/complexity-reduce.yaml for
+  anything driven by a complexity number:
+
+    - Splitting does not reduce total complexity. qlty's file score is a pure
+      SUM of per-function scores with no file-level term, so moving functions
+      out lowers the flagged path while leaving the sum unchanged -- and both
+      halves often stay flagged. PR #152 ran a split-based sweep and 20 of the
+      files it CREATED are flagged again today.
+    - `qlty check`'s S3776 findings are per-FUNCTION. Splitting a file does
+      nothing for them; only in-place reduction clears them.
+
+  Use this workflow when a file genuinely holds unrelated responsibilities and
+  the split is a design fix that happens to move score. Do not use it as the
+  default response to a high number, and resolve the shim conflict above with
+  the repo owner before adopting its shim strategy.
 
   Stage dependency graph:
 
@@ -24,8 +79,11 @@ description: >
           |
     plan-splits  [human gate]
           |
-    decompose-groups × N  (parallel fan-out per directory group)
-          |
+    decompose-groups × N  (parallel fan-out per directory group,
+          |                isolation:worktree — edits land on
+          |                worktree-agent-* branches, NOT here)
+    merge-worktrees       (merges those branches; without it every
+          |                gate below runs against unchanged source)
     verify-tests
           |
     validate-imports
@@ -45,46 +103,346 @@ trigger:
   params:
     complexity_floor: "90"    # qlty file-complexity value at/above which a file is a candidate
     max_files: "30"           # cap on number of files to attempt in one sweep
-    pr_title: "refactor: split high-complexity modules flagged by qlty"
+    pr_title: "refactor: reduce complexity in modules flagged by qlty"
 
 workspace_dir: "{work_dir}/qlty-complexity-sweep"
 
 stages:
 
   # ===========================================================================
-  # G0: Discover candidate files via qlty smells — read-only scan
+  # G0: Discover candidate files via qlty smells + checks — read-only scan
   # ===========================================================================
 
   - name: discover-candidates
     kind: gather
     depends_on: []
     description: >
-      Run qlty's structural smell scan and extract every file flagged with
-      the "file-complexity" rule (message pattern "High total complexity
-      (count = N)"), at or above {complexity_floor}.
+      Collect every qlty complexity finding in the repo — file-level AND
+      per-function — and rank them into a candidate list.
 
-      Step 1 — run the scan:
-        ~/.qlty/bin/qlty smells --all --json > {workspace}/outputs/qlty-smells.json
+      Both scans are required and they return DISJOINT sets — neither is a
+      superset, so running only one hides the other. The split is by TOOL,
+      not by granularity: `qlty smells` runs the structure analyser and
+      reports file-complexity AND two per-function rules
+      (function-complexity, nested-control-flow); `qlty check` runs the
+      linters, of which only radarlint's python:S3776 is a complexity rule.
+      Do not assume "smells = file-level, check = per-function" — that is
+      wrong and it is how per-function findings get missed.
 
-      Step 2 — filter and sort:
-        Parse the JSON array. Keep entries where ruleKey == "file-complexity"
-        and value >= {complexity_floor}. Sort descending by value. Cap the
-        list at {max_files} entries (log how many were dropped by the cap,
-        if any).
+      Per-function findings are the higher-signal half: they name the exact
+      function to fix, which is what the reduce-in-place strategy acts on.
 
-      Step 3 — group by top-level source directory:
+      Step 1 — get the best available finding set (BOTH scans, stable, and
+      per-directory so the cap has less to crowd out):
+
+        The repo-wide sweep first, for the overall picture:
+          ./bin/qlty-assistant scan --rescan-until-stable --format json \
+            --rule file-complexity --rule function-complexity \
+            --rule nested-control-flow --rule python:S3776 \
+            > {workspace}/outputs/qlty-stable.json
+
+        Then ONE SCOPED SCAN PER top-level src/ directory, merged in:
+          for d in src/*/ ; do
+            ./bin/qlty-assistant scan --rescan-until-stable --format json \
+              --rule file-complexity --rule function-complexity \
+              --rule nested-control-flow --rule python:S3776 \
+              "$d" > "{workspace}/outputs/scoped-$(basename $d).json"
+          done
+
+      Step 1b — MERGE the scans into one file, and extract from that:
+        The scoped scans are worthless unless something reads them. Union
+        qlty-stable.json with every scoped-*.json by (file, line, rule) and
+        write the result to:
+
+          {workspace}/outputs/qlty-merged.json
+
+        Shape it like the wrapper's own output so Step 3 reads one format:
+          {
+            "findings": [ ...deduplicated union... ],
+            "counts_by_rule": { ...recomputed from the union... },
+            "total": <len(findings)>,
+            "sources": [
+              {"file": "qlty-stable.json", "scope": "all",
+               "stable": true, "degraded": false, "iterations": 3,
+               "total": 10},
+              {"file": "scoped-telemetry.json", "scope": "src/telemetry/",
+               "stable": true, "degraded": false, "iterations": 3,
+               "total": 4}
+            ],
+            "completeness": "best-effort",
+            "any_unstable": false,
+            "any_degraded": false
+          }
+
+        Preserve each source's stability and degradation status rather than
+        collapsing them: `any_unstable` / `any_degraded` are true if ANY
+        contributing scan was, and that must reach scan_errors. Collapsing
+        them to a single flag would let one unstable scoped scan hide inside
+        an otherwise stable union.
+
+        STEP 3 READS qlty-merged.json, NOT qlty-stable.json. A finding
+        recovered only by a scoped scan is exactly what the per-directory
+        pass exists to surface; extracting from the repo-wide file alone
+        discards it and silently defeats both the widened discovery and the
+        cap-pressure workaround.
+
+        The scoped scans are not redundant: `--rule` is a POST-SCAN filter
+        applied by
+        `ScanResult.filter_by_rules()` to the already-capped result set — the
+        flags are never passed to qlty itself. So the cap is applied across
+        ALL rules first, and unrelated findings (function-parameters,
+        similar-code, ripgrep comment markers) can crowd out the four rules
+        this stage wants. Narrowing the scan's INPUT with a path argument is
+        the only lever that actually reduces cap pressure. Confirmed: a
+        path-scoped stable scan of src/telemetry/ for python:S3776 alone
+        returned all 4 findings.
+
+        Do not plan from a one-shot raw scan. The wrapper merges `check` and
+        `smells` (disjoint sets) and re-scans until the identity set repeats.
+        Measured on this repo across all rules: a single unfiltered run
+        reported 19 findings where the stable union over the same tree was
+        36.
+
+        "stable": true is NOT a completeness guarantee — be honest about
+        this in the output. `Scanner._rescan()` documents that the union is
+        only "closer to the truth than the last run", and the JSON's own
+        note says the count "is not a completeness signal". Stability means
+        the identity set repeated for `dry_streak` iterations; findings the
+        cap hid on every iteration stay hidden. So:
+          - If "stable" is false or "degraded" is true, record it in
+            scan_errors and treat the list as incomplete.
+          - Even when stable, record "completeness": "best-effort" in
+            candidates.json along with the iteration count and the number of
+            scoped scans merged. Never describe the result as complete or
+            authoritative — a later stage reading "authoritative" will skip
+            checks it should still run.
+          - The recheck stages therefore re-scan rather than trusting this
+            list, and a file absent here is "not detected", not "clean".
+
+        The wrapper's normalized shape differs from raw qlty JSON: findings
+        live under "findings", each with "rule" (already namespace-stripped,
+        so cognitive complexity is "python:S3776"), "file", "line", "level",
+        "value", "message", and "other_locations". Counts per rule are in
+        "counts_by_rule". Read these fields, not the raw two-field
+        tool/ruleKey form.
+
+      Step 2 — OPTIONAL raw cross-check, for message text only:
+        The wrapper's normalized rows are sufficient for planning. If you
+        need a raw message the wrapper elided, you may additionally run:
+          ~/.qlty/bin/qlty smells --all --json > {workspace}/outputs/qlty-smells.json
+          ~/.qlty/bin/qlty check --all --json > {workspace}/outputs/qlty-check.json
+        Treat these as supplementary only. They are single capped runs and
+        MUST NOT be the source of the candidate list.
+
+        In raw output the rule identity is TWO SEPARATE fields — `tool` and
+        `ruleKey`. There is no combined "radarlint-python:python:S3776" key;
+        filtering on one matches zero rows.
+
+        Judge these by EXIT CODE, not by row count. Per the verified qlty
+        exit-code contract (CLI 0.640.0):
+          exit 0  — scan ran, no issues
+          exit 1  — scan ran, ISSUES FOUND (this is success, not failure)
+          exit 99 — hard error (not a repo, bad plugin)
+        Treat exit 99, or unparseable output, as an ERROR and say so. Never
+        record a failed scan as "clean" — an empty finding list from a parse
+        error and an empty list from a clean repo must never collapse to the
+        same result.
+
+        qlty caps findings per run and the cap is NONDETERMINISTIC: 16
+        identical runs on an unchanged tree have yielded 0-4 findings each
+        while the union was 22. A single clean scan proves nothing. Use
+        ./bin/qlty-assistant scan --rescan-until-stable for the authoritative
+        set, and do NOT use --filter to confirm a rule is absent — filtered
+        runs frequently report "no issues" in the same minute an unfiltered
+        run reports findings for that rule.
+
+      Step 3 — extract findings of interest from qlty-merged.json:
+
+        Read {workspace}/outputs/qlty-merged.json — the Step 1b union of the
+        repo-wide scan and every per-directory scoped scan. NOT
+        qlty-stable.json (which is only the repo-wide contributor, so
+        scoped-only findings would be dropped) and NOT the optional raw
+        files. Its rows are already namespace-normalized, so select on the
+        "rule" field alone:
+
+          rule == "file-complexity"      value >= {complexity_floor}
+                                         (message "High total complexity (count = N)")
+          rule == "function-complexity"  per-function; the function name is in
+                                         the message, the line in "line"
+                                         (message "Function with high complexity (count = N): <name>")
+          rule == "nested-control-flow"  deeply nested blocks
+                                         (message "Deeply nested control flow (level = N)")
+          rule == "python:S3776"         cognitive complexity; "value" is
+                                         EMPTY for this rule — its score is
+                                         only in the message
+                                         (message "Refactor this function to reduce its
+                                          Cognitive Complexity from N to the 15 allowed.")
+
+        Each of the four is already restricted by the --rule flags in Step 1,
+        so a row of another rule means the command was altered — re-run it as
+        written rather than filtering the difference out here.
+
+        Only if you fell back to the raw files does the two-field form apply:
+        there, rule identity is `tool` PLUS `ruleKey`, with no combined
+        "radarlint-python:python:S3776" key — filtering on one matches zero
+        rows, which then reads as "no findings" from a scan that actually
+        succeeded.
+
+        Note the overlap: function-complexity and python:S3776 report the same
+        underlying defect from two different tools, with different scores
+        (they count differently). Deduplicate so one defect is not planned
+        twice, and keep both scores — the S3776 message states the threshold,
+        which the qlty rule does not.
+
+        Deduplicate by (path, LINE), not by (path, function name). qlty
+        identifies a function by UNQUALIFIED name, so two classes in one file
+        that both define `run` are indistinguishable by name — keying on the
+        name merges two real defects into one and silently drops the second
+        from the plan. Verified: a file with `Alpha.run` and `Beta.run`, both
+        complex, yields two findings distinguished only by startLine (11 and
+        25); the nested-control-flow message carries no function name at all.
+
+        When matching a function-complexity finding to its python:S3776
+        counterpart, allow a small line offset — the two tools anchor to
+        slightly different lines (one to the `def`, one to the body) — and
+        match within the same enclosing function rather than demanding an
+        exact line equality. Record the qualified name (Class.method) in the
+        plan so the fixer is unambiguous about which one to target.
+
+        The per-function rules are the ones a file-complexity floor misses
+        entirely.
+
+        A file qualifies as a candidate if EITHER its file-complexity is at
+        or above {complexity_floor}, OR it carries one or more per-function
+        findings. A small file with one very complex function will not clear
+        the file floor and is still a valid, high-value candidate — record it
+        with file_complexity null and its function findings attached.
+
+      Step 3b — sanity-check the extraction before trusting it:
+        Do NOT test the wrapper's exit code for this. `./bin/qlty-assistant
+        scan` returns 0 whenever it successfully parsed a scan — with
+        findings or without — so an exit-based guard can never fire. Verified
+        both ways: a scoped scan returning 4 findings and a clean scan both
+        exit 0. (The exit-1-means-issues contract belongs to raw
+        `~/.qlty/bin/qlty`, not to the wrapper.)
+
+        Check the JSON's own fields instead:
+          a0. FIRST: validate the rule names, before trusting any empty
+             result. `--rule` silently yields zero findings for an unknown
+             name rather than erroring — `ScanResult.filter_by_rules()`
+             documents it ("An unknown rule name yields zero findings for
+             that rule rather than an error") and src/qlty/README.md repeats
+             it. So a typo in a --rule flag produces total 0, empty
+             counts_by_rule and "stable": true — byte-identical to a clean
+             tree. Verified: mistyping the four rules against src/telemetry/,
+             which really has 4 findings, returned exactly that.
+
+             Confirm every requested rule name is real before accepting an
+             empty scan:
+               ./bin/qlty-assistant rules
+             Every name you passed to --rule must appear in that table. A
+             name that does not is a COMMAND ERROR — record it in
+             "scan_errors" and stop. Never interpret an empty result from an
+             unvalidated rule set as a clean tree.
+
+          a. Compare LIKE WITH LIKE, in two separate checks, and use
+             INDEPENDENT counts — not numbers recomputed from the rows you
+             are validating. Step 1b recomputes counts_by_rule from the
+             merged set, so comparing your extraction against THAT is
+             circular: drop every finding during the merge, recompute, and
+             the two agree at zero with no scan_errors. Compare against each
+             SOURCE scan's own counts_by_rule (the "sources" array records
+             them per contributor), and confirm the merged identity set is a
+             superset of every source's rows before recomputing anything.
+
+             The raw per-rule counts are NOT comparable to your final
+             candidate rows, because extraction legitimately shrinks the set
+             twice: the {complexity_floor} predicate drops file-complexity
+             rows below the floor, and the (path, line) dedup collapses each
+             function-complexity / python:S3776 pair into one entry. Comparing
+             a raw sum against the post-dedup count therefore ALWAYS shows a
+             shortfall and would record a false scan_errors, aborting
+             plan-splits on a correct extraction.
+
+             Check 1 — SELECTION, before any floor filter or dedup. For each
+             of the four rules separately, the rows you selected for that rule
+             must equal the SUM of that rule's counts across the source scans
+             (deduplicated by (file, line, rule) across sources, since the
+             repo-wide and scoped scans overlap). A per-rule shortfall here
+             means you are selecting on the wrong field (see the rule-key note
+             in Step 3) — record it in "scan_errors" and say so plainly. This
+             is the check that catches a parse bug.
+
+             Check 2 — REDUCTION, after filtering and dedup. Every row you
+             dropped must be attributable: a file-complexity row below
+             {complexity_floor}, or the second member of a matched
+             (path, line) pair. Report the counts
+             (selected -> after-floor -> after-dedup) so the reduction is
+             auditable. An unexplained drop is a bug; an explained one is not.
+
+          b. Every Step 1 invocation passes the four --rule filters, so the
+             merged file contains ONLY candidate-rule rows. Therefore:
+               - A row whose rule is not one of the four is an ERROR, not
+                 noise to skip. It means the command was altered, the merge
+                 pulled in an unfiltered source, or you are reading the wrong
+                 file. Record it in "scan_errors".
+               - "total" > 0 with zero candidate rows is likewise an ERROR:
+                 with the filters applied, every counted row must be a
+                 candidate. Treating it as a legitimate "unrelated rows only"
+                 scan would let an omitted or misspelled --rule flag read as
+                 a clean candidate list — the exact false clean this stage
+                 exists to prevent.
+             A clean result requires ALL THREE of: every requested rule name
+             validated against `qlty-assistant rules` (step a0), total == 0,
+             and a counts_by_rule sum of zero across the four rules. Only
+             then is it a genuine clean tree rather than a failure.
+
+             The rule-name validation is load-bearing, not ceremony: without
+             it a mistyped --rule produces exactly the other two conditions
+             and this branch would declare a repo clean that is not.
+
+             (This corrects an earlier, looser version of this clause that
+             allowed unrelated rows. It was written for the raw unfiltered
+             scans, which are now only an optional cross-check — the
+             authoritative input is filtered.)
+          c. "degradations" — a non-empty array means a wire-format fallback
+             occurred. Record it; the run may be missing rules entirely.
+          d. Unparseable output, or a missing "findings" key, is an ERROR.
+             Record it. An empty finding list from a parse failure and an
+             empty list from a clean repo must never collapse to the same
+             result.
+
+        Also use `--expect-min N` when you have a prior expectation for the
+        tree: the wrapper exits nonzero on an implausibly small scan, which
+        is the one exit-code signal it does provide.
+
+      Step 4 — merge per-file and sort:
+        Key by path. Union the two sources so a file flagged by both appears
+        once, carrying both its file_complexity and its function_findings.
+        Sort descending by file_complexity when present, otherwise by the
+        highest single function complexity. Cap at {max_files} entries and
+        log how many were dropped by the cap.
+
+      Step 5 — group by top-level source directory:
         For each candidate path (e.g. "src/resume/parsing_experience.py"),
         the group key is the directory two levels down from repo root
         (e.g. "resume"). For "bin/*" paths, use "bin" as the group — but
         flag these for extra caution since bin/ entries are public CLI
         wrappers (see plan-splits DEFER guidance).
 
-      Step 4 — gather per-file responsibility hints:
+        Mark any candidate under src/maker/ as deferred here, with the reason
+        "outside no-facade gate coverage", rather than carrying it forward.
+        detect_facades.py prunes "maker" unconditionally, so the gate that
+        enforces this workflow's central rule is blind to that directory —
+        surfacing the candidate and deferring it at plan time is honest;
+        letting it reach a worker is not.
+
+      Step 6 — gather per-file responsibility hints:
         For each candidate, run:
           grep -n "^class \|^def " <file> | head -40
         Also record line_count via wc -l.
 
-      Step 5 — write {workspace}/outputs/analysis/candidates.json:
+      Step 7 — write {workspace}/outputs/analysis/candidates.json:
         {
           "complexity_floor": {complexity_floor},
           "scanned_at": "<ISO-8601 timestamp>",
@@ -92,16 +450,23 @@ stages:
             {
               "path": "src/resume/parsing_experience.py",
               "group": "resume",
-              "complexity": 208,
+              "file_complexity": 208,
               "line_count": 829,
-              "top_level_symbols": ["class ExperienceParser", "def parse_bullets", ...]
+              "function_findings": [
+                {"function": "parse_bullets", "tool": "radarlint-python", "rule": "python:S3776", "value": 31, "line": 142},
+                {"function": "parse_bullets", "tool": "qlty", "rule": "function-complexity", "value": 38, "line": 142}
+              ],
+              "top_level_symbols": ["class ExperienceParser", "def parse_bullets", "..."]
             }
           ],
-          "dropped_by_cap": <count of candidates beyond {max_files}>
+          "dropped_by_cap": 0,
+          "scan_errors": []
         }
 
       If no candidates are found: write candidates.json with an empty list
-      and a note "no files at or above complexity_floor — nothing to split".
+      and a note "no complexity findings at or above the floor — nothing to
+      do". Record any scan that errored in "scan_errors" rather than
+      silently reporting a clean tree.
     agent:
       role: researcher
       model: sonnet
@@ -112,13 +477,14 @@ stages:
         mode: generate
         description: >
           candidates.json written to {workspace}/outputs/analysis/ with the
-          complexity-ranked candidate list grouped by source directory.
+          complexity-ranked candidate list grouped by source directory,
+          carrying both file-level and per-function findings.
     required: true
     writes_to:
       - outputs/analysis/candidates.json
 
   # ===========================================================================
-  # G1: Plan splits — decide strategy per file, group by directory, risk-assess
+  # G1: Plan — decide strategy per file, group by directory, risk-assess
   # ===========================================================================
 
   - name: plan-splits
@@ -127,43 +493,93 @@ stages:
     reads_from: [discover-candidates]
     description: >
       Read {workspace}/outputs/analysis/candidates.json. For each candidate
-      file decide a split strategy, group candidates into directory batches,
-      and write the execution plan. Present the plan for human approval
-      before any files are modified.
+      file decide a remediation strategy, group candidates into directory
+      batches, and write the execution plan. Present the plan for human
+      approval before any files are modified.
 
-      Split strategies (apply the first that fits):
+      Step 0 — HALT on a failed scan, before planning anything:
+        If candidates.json has a non-empty "scan_errors" array, STOP. Write
+        {workspace}/outputs/design/plan.md containing only the scan_errors
+        content and the sentence "planning aborted: upstream scan failed",
+        set this stage's status to "failed", and do not write
+        domain-groups.json.
 
-        extract-submodules
-          — 2+ distinguishable responsibility clusters visible in top-level
-            symbols (e.g. field parsers vs. cross-record validators, or
-            renderers vs. data builders). Extract each cluster to a sibling
-            module in the same directory. Original file becomes a thin
-            re-export shim. This is the default strategy — prefer it.
+        Do not plan around a failed scan. A parse or filter failure upstream
+        yields an EMPTY candidate list, which is indistinguishable from a
+        genuinely clean repo — and an empty plan flows through the remaining
+        stages as a successful no-op sweep. That is the silent-false-clean
+        this workflow exists to avoid; scan_errors is the signal, so it has
+        to block here rather than merely being recorded.
 
-        extract-package
-          — File is large enough that extract-submodules would produce 4+
-            siblings, OR the module is already referenced as a package
-            boundary elsewhere. Convert the file into a package directory.
+        An empty "candidates" list WITH an empty scan_errors is the real
+        clean case: write a plan saying so and finish successfully.
 
-        DEFER
-          — Cannot cleanly split now. Valid reasons:
-              - Single monolithic function whose complexity comes from one
-                function, not many (splitting the file won't help — this
-                needs complexity reduction inside the function instead,
-                e.g. dispatch tables or early returns; note this and defer).
-              - Path is under bin/ (public CLI entry point — never split
-                or rename per project rules).
-              - Tight coupling through shared mutable state that would
-                require broad refactoring to untangle safely.
-            Record the reason; do not attempt the split.
+      Strategies (apply the first that fits):
 
-      Backward-compat rule (always applies):
-        The original file must remain as a thin re-export shim:
-          from .submodule import X, Y  # noqa: F401
-        Never rename classes or functions — only move them. Do not split
-        so granularly that modules become trivially small (a new sibling
-        under ~80 lines is a warning sign of over-fragmentation — prefer
-        fewer, more substantial siblings).
+        reduce-in-place  — THE DEFAULT. Expect the large majority of files
+          to land here.
+          — Complexity is concentrated in one or more individual functions:
+            long if/elif chains, deep nesting, multi-clause conditions,
+            oversized branch bodies. Lower each function's cognitive
+            complexity where it sits. No file is created, moved, or deleted,
+            so there are no call sites to update and no import risk at all.
+          — This is the ONLY strategy that reduces total complexity rather
+            than relocating it. Choose it unless the split test below is
+            clearly met.
+          — Per-function findings from candidates.json name the exact
+            functions to target. Record them in the plan.
+
+        split-by-responsibility  — THE EXCEPTION. Requires justification.
+          — Valid ONLY when the file genuinely holds 2+ UNRELATED
+            responsibility clusters (e.g. field parsers vs. cross-record
+            validators, or renderers vs. data builders) — that is, when the
+            split is a design fix that is worth making on its own merits and
+            happens to also move score.
+          — "The number is high" is NOT a justification. Splitting a
+            single-responsibility file redistributes complexity across
+            siblings and leaves both halves flagged.
+          — Every split MUST update all call sites directly. There is no
+            re-export shim to fall back on (see the no-facade rule below).
+          — Before proposing a split, check whether a test imports a symbol
+            you plan to move:
+              grep -rn "from <module_path> import\|import <module_path>" \
+                --include="*.py" tests/
+            A direct `from <module> import <symbol>` in a test is a real
+            import statement, and with no shim it would break. Fixing it
+            would mean editing test imports, which decompose-groups forbids.
+            If any hit names a symbol you planned to move, do NOT propose the
+            split — propose reduce-in-place instead and say why.
+          — Do not split so granularly that modules become trivially small.
+            A new sibling under ~80 lines is a sign of over-fragmentation.
+
+        DEFER — real blockers only.
+          — Path is under tests/ (test logic is immutable in this workflow;
+            only mock.patch target strings may be edited).
+          — Path is under bin/ (public CLI entry point — never split or
+            rename per project rules).
+          — Path is under src/maker/. CLAUDE.md lists it as a skip path, and
+            more importantly the no-facade gate CANNOT SEE IT:
+            detect_facades.py prunes "maker" unconditionally in iter_py()
+            (SKIP_PARTS, line 20). A split there could leave a re-export
+            facade while facades.json stays empty and the gate reports clean
+            — a silent violation of this workflow's central rule. Defer
+            rather than weakening the detector, which is excluded by project
+            policy, not by oversight.
+          — Tight coupling through shared mutable state that cannot be
+            untangled safely without a broad refactor.
+          — Note what DEFER is NOT for: "a single monolithic function holds
+            all the complexity" is the single most actionable case there is.
+            It is a textbook reduce-in-place target (dispatch table, guard
+            clauses, extracted predicates). Never defer for that reason.
+          Record the reason; do not attempt the change.
+
+      No-facade rule (always applies):
+        NEVER leave a backward-compatible re-export shim behind. Do not write
+        `from .submodule import X, Y  # noqa: F401` blocks in an emptied
+        module. When a symbol moves, every importer is rewritten to the new
+        path, and the original file is either deleted outright (if fully
+        emptied) or keeps only what genuinely still belongs there. Never
+        rename classes or functions — only move them.
 
       Directory grouping:
         Collect all non-DEFER files into directory buckets (the "group"
@@ -174,21 +590,25 @@ stages:
       Write {workspace}/outputs/design/plan.md:
 
         ## Qlty Complexity Sweep Plan
-        Candidates: <total> files at or above complexity {complexity_floor}
+        Candidates: <total> files carrying complexity findings
 
-        ### Files to Split
-        | File | Group | Complexity | Lines | Strategy | Proposed Siblings |
-        |------|-------|-----------|-------|----------|-------------------|
-        | src/resume/parsing_experience.py | resume | 208 | 829 | extract-submodules | parsing_experience_bullets.py, parsing_experience_dates.py |
-        ...
+        ### Files to Reduce In Place
+        | File | Group | File Cx | Lines | Target Functions | Techniques |
+        |------|-------|---------|-------|------------------|------------|
+        | src/resume/parsing_experience.py | resume | 208 | 829 | parse_bullets (31), _normalize (24) | dispatch table, guard clauses |
+
+        ### Files to Split (exception — justification required)
+        | File | Group | File Cx | Responsibility Clusters | Proposed Siblings | Why Splitting Beats Reducing |
+        |------|-------|---------|------------------------|-------------------|------------------------------|
 
         ### Deferred Files
         | File | Complexity | Reason |
         |------|-----------|--------|
 
         ### Risk Notes
-        Any files under bin/, or imported from many call sites — flag these
-        for extra import validation attention.
+        Any files under bin/, imported from many call sites, or named in a
+        string-keyed dispatch table — flag these for extra call-site
+        validation attention.
 
       Write {workspace}/outputs/design/domain-groups.json:
         {
@@ -198,36 +618,76 @@ stages:
               "files": [
                 {
                   "path": "src/resume/parsing_experience.py",
-                  "complexity": 208,
+                  "file_complexity": 208,
                   "line_count": 829,
-                  "strategy": "extract-submodules",
-                  "proposed_siblings": [
-                    "src/resume/parsing_experience_bullets.py",
-                    "src/resume/parsing_experience_dates.py"
-                  ]
+                  "strategy": "reduce-in-place",
+                  "justification": "complexity concentrated in 2 functions; single responsibility",
+                  "target_functions": [
+                    {"function": "parse_bullets", "value": 31, "techniques": ["dispatch table"]}
+                  ],
+                  "proposed_siblings": []
                 }
               ]
-            },
-            ...
+            }
           ]
         }
         The "items" key at the top level is required — it is the fan_out
-        source for decompose-groups.
+        source for decompose-groups. "proposed_siblings" is populated only
+        for split-by-responsibility entries; it stays empty otherwise.
 
       Present the plan. Ask the user:
         A) Approve — proceed with decompose-groups fan-out
         B) Adjust — specify files to exclude or strategy overrides
         C) Abort — stop without modifying anything
     agent:
+      # Grep and Bash are REQUIRED, not conveniences. The split test above
+      # cannot be performed without them: "before proposing a split, check
+      # whether a test imports a symbol you plan to move" needs a search
+      # across tests/, and validating the requested --rule names needs
+      # `./bin/qlty-assistant rules`. With only [Read, Write] the planner
+      # would have to approve the one strategy that rewrites imports while
+      # unable to check whether a test imports what it is about to move —
+      # silently skipping the gate that keeps splits out of test-coupled
+      # files.
       role: doc-writer
       model: sonnet
-      tools: [Read, Write]
+      tools: [Read, Write, Grep, Bash]
       access: read-write
     human_gate: true
     required: true
+    # Required for agent dispatch — see the note on verify-tests' outputs.
+    # This stage was already kind:propose before the compliance rewrite, so it
+    # has always taken the local no-op path under `./bin/workflow run`; the
+    # plan and the human gate were never produced there.
+    # ORDER MATTERS: domain-groups.json is listed FIRST in both lists because
+    # it is the fan_out source for decompose-groups. The skill resolves the
+    # fan-out source as "the output file from the fan_out.source stage"
+    # (.claude/skills/workflow/SKILL.md:741) — singular — and the dispatcher
+    # maps outputs/writes_to positionally, so a stage declaring two paths
+    # hands over whichever is first. With plan.md first the fan-out would
+    # parse MARKDOWN looking for a top-level "items" array, find none, and
+    # spawn zero workers.
+    #
+    # coverage-uplift.yaml carries the same note on prioritize-targets for
+    # the same reason. facade-elimination.yaml's classify-and-plan has
+    # plan.md first and is likely to have this bug.
+    outputs:
+      - name: domain-groups
+        mode: generate
+        description: >
+          Fan-out index written to
+          {workspace}/outputs/design/domain-groups.json, one entry per
+          directory group with its files and chosen strategies. Its top-level
+          "items" array is what fan_out `field: items` resolves against.
+      - name: plan
+        mode: generate
+        description: >
+          Execution plan written to {workspace}/outputs/design/plan.md —
+          per-file strategy, target functions, deferrals with reasons, and
+          call-site risk notes.
     writes_to:
-      - outputs/design/plan.md
       - outputs/design/domain-groups.json
+      - outputs/design/plan.md
 
   # ===========================================================================
   # G2: Decompose groups — parallel fan-out, one code-writer per directory group
@@ -244,60 +704,390 @@ stages:
 
       Each agent handles all files for its assigned {group}.
 
-      Step 1 — read the approved plan:
-        Read {workspace}/outputs/design/plan.md for the group's section.
-        Read {workspace}/outputs/design/domain-groups.json for the file list
-        and strategies for this group.
+      IMPORTANT — set PYTHONPATH explicitly before any python3 command:
+        export PYTHONPATH="$(pwd)/src"
+      This repo's venv may be editable-installed against a different
+      worktree; without this override you can silently import stale modules
+      from another checkout and chase false failures.
 
-      Step 2 — for each file in this group's "files" list:
+      Step 1 — read the approved plan FROM YOUR OWN INPUTS DIRECTORY:
+        You run in an isolated worktree and CANNOT read {workspace} — the
+        isolation boundary applies in both directions. The orchestrator
+        copies every upstream artifact under your own cwd, preserving its
+        relative path, before dispatching you:
+
+          <your-cwd>/inputs/outputs/design/plan.md
+          <your-cwd>/inputs/outputs/design/domain-groups.json
+
+        Use those absolute own-cwd paths. A bare relative path resolves
+        against the orchestrator's cwd (the shared repo tree), and
+        {workspace}/... is a directory you have no access to — following
+        either would leave you reading nothing and unable to plan your group.
+        If `inputs/` is empty or either file is missing, STOP and report it
+        rather than guessing at the plan.
+
+        Read plan.md for the group's section; read domain-groups.json for the
+        file list and strategies for this group. Handle ONLY entries whose
+        strategy is "reduce-in-place" or "split-by-responsibility". Skip any
+        entry marked "defer" — the justification explains why; do not
+        second-guess it.
+
+      Step 2 — for each "reduce-in-place" file (the expected majority):
 
         a. Read the file in full.
-        b. Identify the responsibility clusters that match the chosen strategy.
+        b. Target the functions named in "target_functions". Complexity
+           accrues from nesting depth and branch count, so apply these
+           techniques in order of yield:
 
-        For extract-submodules:
-          - Create sibling files in the same directory as the original file.
-          - Move each cluster's classes/functions to the appropriate sibling.
-          - Rewrite the original file as a thin re-export shim:
-              from .<sibling> import ClassName, function_name  # noqa: F401
-            Do NOT rename anything. Do NOT change function signatures.
-          - Preserve all module-level docstrings and __all__ declarations.
-          - Watch for circular imports: if sibling A needs a symbol also
-            being moved to sibling B, extract shared types/errors to a third
-            small sibling (e.g. <module>_errors.py) that both import from.
+           dispatch table
+             — A long if/elif chain (or match) mapping a value to a handler.
+               Replace with a module-level dict mapping key -> callable, then
+               a single lookup. Highest-yield transform in this codebase.
 
-        For extract-package:
-          - Create package directory <module>/ (same name as the original
-            file, minus .py) in place of the original file.
-          - Move the original file's content into <module>/__init__.py,
-            then split out submodules inside <module>/ per the proposed
-            siblings.
-          - Delete the original <module>.py file.
-          - <module>/__init__.py re-exports every symbol the original file
-            exposed.
+           guard clauses / early return
+             — Deeply nested if blocks where the body only runs in the happy
+               path. Invert the condition and return early to flatten
+               nesting. Each nesting level removed is a direct score drop.
 
-        After splitting each file:
-          c. Run a quick import smoke-check:
-               python3 -c "import <module_path>" 2>&1
-             (Derive module_path from the file path relative to src/: strip
-             the src/ prefix, replace / with ., strip .py.)
-             If the import fails, fix the re-export shim before moving on.
+           extract predicate
+             — A multi-clause boolean condition inline in an if. Extract to a
+               named helper (`def _is_eligible(...) -> bool:`) with a
+               docstring.
 
-          d. Run qlty on the new files + shim:
-               ~/.qlty/bin/qlty check <original_path> <sibling_paths...>
-             Confirm no new issues introduced.
+           extract branch body
+             — A branch body over ~15 lines. Extract to a private helper in
+               the SAME file. This moves complexity within the file and only
+               helps if it also removes nesting — do not extract purely to
+               shorten a function.
 
-      Step 3 — write per-group split summary to
-        {workspace}/outputs/{group}-splits.md:
-          ## {group} Splits
-          | Original File | Strategy | Siblings Created | Import Check |
-          |---------------|----------|-----------------|--------------|
-          | src/resume/parsing_experience.py | extract-submodules | parsing_experience_bullets.py, parsing_experience_dates.py | PASS |
-          ...
+           collapse duplicated branches
+             — Two branches differing only by a constant. Parameterize.
+
+        c. Semantic traps — these transforms are NOT unconditionally safe.
+           Check each before applying:
+
+           condition inversion (guard clauses)
+             — `if x:` is not the negation of `if x is None:`. Inverting a
+               truthiness test silently changes behavior when the value can
+               be 0, "", [], {{}}, or 0.0 — all falsy but not None. Read what
+               the condition actually distinguishes before inverting it.
+             — Early-returning out of a try/finally or a with-block changes
+               when cleanup runs. Do not hoist a return past either.
+
+           predicate extraction
+             — Python's `and`/`or` short-circuit. Extracting
+               `if a() and b():` into a helper receiving both values EAGERLY
+               evaluates b(), changing behavior when b() has a side effect,
+               raises, is expensive, or consumes an iterator. Pass callables
+               or keep the expression inline.
+             — Extracting a condition that mutates state (walrus, .pop(),
+               next()) changes evaluation order. Leave those inline.
+
+           dispatch table
+             — Table values are evaluated at module import time. A branch
+               body referencing a local or a late-bound global cannot simply
+               become a table entry; bind it as a function, not a call.
+             — An if/elif chain with overlapping conditions is ORDERED; a
+               dict lookup is not. Only convert chains whose conditions are
+               mutually exclusive equality tests on a single value.
+
+           If any of these applies and you cannot prove the transform is
+           behavior-preserving, skip it and note why. A file left at its
+           original score is a valid outcome; a silently broken one is not.
+
+        d. Confirm the file still imports:
+             python3 -c "import <module_path>" 2>&1
+
+           Derive module_path from the path relative to src/: strip the src/
+           prefix, replace / with ., strip .py — then SPECIAL-CASE
+           `__init__.py`, which must map to the PACKAGE, not to a
+           `.__init__` submodule:
+             src/mail/config_resolver.py  -> mail.config_resolver
+             src/mail/providers/__init__.py -> mail.providers   (NOT
+                                               mail.providers.__init__)
+           A definition inside a package's `__init__.py` has
+           `__module__ == "mail.providers"`, so addressing it as
+           `mail.providers.__init__` binds a second module object whose
+           contents can be attributed elsewhere — export parity would then
+           report every local definition as missing. Strip the trailing
+           `.__init__` after the mechanical conversion.
+
+        e. Re-score ALL FOUR rules, not just the file score:
+             ./bin/qlty-assistant scan --rescan-until-stable --format json \
+               --rule file-complexity --rule function-complexity \
+               --rule nested-control-flow --rule python:S3776 \
+               <path>
+
+           Do NOT use `--smells-only --rule file-complexity` here. Two
+           reasons it reports a false "cleared":
+             - `--smells-only` drops python:S3776 entirely, since that rule
+               comes from `qlty check`, not `smells`.
+             - Your candidate may have file_complexity: null and exist in the
+               plan ONLY because of a per-function finding. A file-complexity
+               scan of such a file returns nothing at all, which reads as
+               cleared while the finding that caused your work still stands.
+
+           Judge by the findings, not by an empty result: for each finding
+           this file was flagged for in domain-groups.json, confirm it is
+           gone or its value dropped. An empty result is "cleared" only when
+           the baseline findings for this file are accounted for. A nonzero
+           exit is a scan failure and must be reported.
+
+           Record before and after per finding. An honest "complexity is
+           irreducible without behavior change" beats a contrived refactor.
+
+      Step 3 — for each "split-by-responsibility" file (expected to be rare):
+
+        a. FIND EVERY CALL SITE BEFORE MOVING ANYTHING. This is not optional
+           and it is not a post-hoc check. With no re-export shim, a missed
+           call site is a hard runtime failure with no safety net.
+
+           i. Import statements — resolve with the AST, NOT a string grep.
+              A grep for `from <dotted.module> import` is RELATIVE-IMPORT
+              BLIND: `from .text_utils import x` inside
+              src/calendars/importer/ targets calendars.importer.text_utils
+              and shares no substring with it. It also misses lazy imports
+              nested inside function bodies, which live deeper than
+              tree.body.
+
+              This is not hypothetical in this repo. facade-elimination.yaml
+              records that on its first run a grep-based caller count
+              labelled 7 facades "zero callers — safe to delete outright";
+              every one had real callers, and deleting on that signal would
+              have broken the build in 7 places. A missed relative import in
+              a module no test imports fails silently.
+
+              `detect_facades.py` CANNOT do this inventory, despite
+              implementing the right resolver. Its `_record_import_from_node`
+              records a caller only when the resolved target is already a key
+              in its `facades` map (`if tgt in facades`), and that map holds
+              only modules that are ALREADY pure facades. A complex split
+              candidate is not a facade before the move and does not exist
+              after it, so it is never a key and the caller set comes back
+              empty — an empty result that looks exactly like "no callers".
+              Do not point at that script for this step.
+
+              What it does provide is the resolution logic to model:
+              `_resolve_relative_import(level, module, pkg)` for
+              ImportFrom.level, and `ast.walk` rather than `tree.body` so
+              lazy in-function imports are reached.
+
+              REQUIRED: produce an AST caller inventory for the target
+              module, or DO NOT SPLIT IT. Acceptable ways to get one:
+                - a reusable script under workflows/code/scripts/ that takes
+                  a target module and reports its callers, applying the same
+                  relative-import resolution and ast.walk (the right home for
+                  this — embedded Python in workflow YAML is a ratified
+                  project concern);
+                - an existing caller-inventory tool if one is added later.
+
+              If no AST inventory is available, DOWNGRADE the file to
+              reduce-in-place and record the downgrade. That is a correct
+              outcome: reduce-in-place moves nothing, so it has no call sites
+              to update and no import risk at all. Splitting on a
+              grep-derived inventory is the failure mode below, and a
+              downgrade is strictly better than a silent break.
+
+              Use grep ONLY as a cross-check, never as the inventory:
+                grep -rn "from <module_path> import\|import <module_path>" \
+                  --include="*.py" \
+                  --exclude-dir=.venv \
+                  --exclude-dir=.claude \
+                  --exclude-dir=personal_assistants.egg-info \
+                  src/ tests/ bin/
+              A hit the AST pass missed means your resolution is wrong. The
+              reverse — an AST caller the grep missed — is the expected case
+              and exactly why the grep alone is insufficient.
+
+              This is not hypothetical: facade-elimination.yaml records that
+              a grep-based count once labelled 7 facades "zero callers — safe
+              to delete outright", and every one had real callers.
+
+           ii. mock.patch TARGET STRINGS — the single most common failure
+               mode for this refactor in this repo. These are string
+               literals like:
+                 patch("resume.parsing_experience.ExperienceParser")
+               No import-graph analysis will ever catch them, and they fail
+               at TEST RUNTIME, not at import time — so the module imports
+               cleanly, the type checker is happy, and the break only
+               surfaces when that specific test runs. Grep explicitly:
+                 grep -rn "patch(" --include="*.py" tests/ | grep "<module_path>"
+                 grep -rn "mock.patch\|patch.object" --include="*.py" tests/ \
+                   | grep "<module_path>"
+
+           iii. __init__.py re-export lists — the package may already name
+                the symbol:
+                  grep -rn "<SymbolName>" --include="__init__.py" src/
+
+           iv. STRING-KEYED DISPATCH TABLES — the blind spot that
+               import-statement greps structurally cannot see. This repo
+               dispatches modules by dotted path stored as a STRING and
+               imports it at runtime. There is no import statement to find,
+               the table's own module still imports fine, and every check
+               above passes while the CLI path is broken. Confirmed
+               instances:
+                 src/core/llm_handlers.py            _APP_MODULES maps app -> "mail.llm_cli"
+                 src/core/assistant_cli.py           APP_MODULES + import_module + getattr(module, "main")
+                 src/telemetry/otel/cli/__init__.py  _SUBCOMMANDS maps subcommands to dotted paths
+                 src/maker/pipeline.py               getattr(mod, payload.entry_point) — attribute name is runtime data
+               For every module path that moves, search for it as a bare
+               quoted string across code AND config, not just as an import:
+                 grep -rn "['\"]<module_path>" \
+                   --include="*.py" --include="*.yaml" --include="*.yml" \
+                   --include="*.json" --include="*.toml" --include="*.md" \
+                   src/ tests/ bin/ .llm/ workflows/ pyproject.toml 2>/dev/null
+               Also check the parent package path — tables often name a
+               package rather than a module.
+
+           Record the full call-site inventory before editing. If the
+           inventory reveals a direct `from <module> import <symbol>` in a
+           test file, ABANDON the split for that file and reduce it in place
+           instead: fixing it would require editing test imports, which the
+           constraint below forbids. Record the downgrade in the summary.
+           This is a correct, expected outcome — not a failure.
+
+        b. Create sibling modules in the same directory, one per
+           responsibility cluster named in proposed_siblings. Move each
+           cluster's symbols to its sibling. Do NOT rename anything. Do NOT
+           change function signatures.
+
+        c. NO RE-EXPORT SHIM. Do not leave `# noqa: F401` re-export blocks
+           behind. The original module is either:
+             - deleted outright, if every symbol moved out of it, or
+             - left holding only what genuinely still belongs there.
+           Preserve module-level docstrings on whichever module now owns the
+           corresponding code. If the original declared __all__, move each
+           name into the __all__ of the module that now owns it.
+
+        d. Rewrite every call site found in step (a) to import from the new
+           module path, including every patch target string and every
+           string-table entry.
+
+        e. Watch for circular imports: if sibling A needs a symbol also
+           moving to sibling B, extract the shared type/error to a third
+           small sibling both import from.
+
+        f. Verify ZERO stale references remain. Re-run every grep from step
+           (a) against the OLD module path. Each must return no hits:
+             grep -rn "from <old_module> import\|import <old_module>" \
+               --include="*.py" src/ tests/ bin/
+             grep -rn "patch(" --include="*.py" tests/ | grep "<old_module>"
+             grep -rn "['\"]<old_module>" --include="*.py" --include="*.yaml" \
+               --include="*.json" src/ tests/ bin/ workflows/
+           Any hit is an unupdated call site. Fix it before moving on.
+
+        g. Confirm each new module imports:
+             python3 -c "import <new_module_path>" 2>&1
+
+      Step 4 — test-file constraint (applies to BOTH strategies):
+        You have Edit access to the whole tree, but the test suite is the
+        only independent evidence that a refactor preserved behavior.
+        Editing a test to accommodate a transform destroys that evidence.
+        If a test fails, the transform is wrong — revert the transform.
+
+        ONE NARROW EXCEPTION, for split entries only: when a symbol moves,
+        any unittest.mock.patch TARGET STRING naming it must be updated,
+        because this workflow leaves no re-export shim and patch targets
+        resolve at test runtime. You may edit ONLY the dotted path inside
+        patch(...) — never an assertion, never test logic, never a fixture,
+        never add or remove a test.
+
+        Reduce-in-place entries move nothing and therefore get NO exception
+        at all: tests/ stays completely untouched.
+
+      Step 5 — run this group's tests before handing off:
+        Determine the test directory:
+          - tests/{group}_tests/ if it exists
+          - else tests/{group}/
+          - else tests/test_{group}*.py at top level
+          - else note "no tests for {group}"
+        Run:
+          PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s <test_dir> -t . -p "test_*.py" -q 2>&1
+        Fix anything you broke before writing the summary.
+
+      Step 6 — run qlty on the files you touched that still EXIST:
+          for p in <touched paths>; do test -f "$p" && echo "$p"; done
+          ~/.qlty/bin/qlty check <the surviving paths>
+        Filter first: a split may have deleted the original module outright
+        (the no-facade rule leaves nothing behind), and a path-scoped qlty
+        command hard-errors on a missing file — failing this step on the
+        cleanest possible outcome. Confirm no new issues introduced.
+
+      Step 7 — write per-group summary to your OWN worktree, at the absolute
+      path <your-cwd>/outputs/{group}-splits.md:
+
+        This stage runs with isolation:worktree, so you are NOT permitted to
+        write the shared {workspace}. Use the absolute own-cwd path the
+        orchestrator injects; it copies your declared outputs back into
+        {workspace}/outputs/ after you finish and before any downstream stage
+        reads them. A bare relative path would resolve against the
+        orchestrator's cwd — the shared repo tree — and leak outside your
+        worktree, while writing {workspace}/... directly may simply fail.
+
+        Commit your source edits before finishing. `git merge` moves commits,
+        not uncommitted files: an isolated agent that edits and returns
+        without committing leaves nothing to merge, and the stage reports
+        success while no code lands.
+
+        Then PROVE no SOURCE edit is left uncommitted before you report:
+          git status --porcelain -- src/ bin/ tests/
+        Empty output is required for those paths.
+
+        Scope it to src/, bin/ and tests/ deliberately. A bare
+        `git status --porcelain` also reports your own
+        `outputs/{group}-splits.md`, which is UNTRACKED — `outputs/` is not
+        gitignored, and that summary is a workspace artifact the
+        orchestrator copies back rather than something you commit. Requiring
+        a globally clean tree would therefore fail every successful worker
+        before its source commit could be merged.
+
+        A non-empty result for those paths means at least one code edit is
+        uncommitted and will be DISCARDED when this worktree is torn down —
+        partially committed work is worse than none, because downstream
+        stages then test a tree missing part of your change and report green.
+        Commit the remainder (or revert it deliberately and say so in your
+        summary), then re-run the check. Do not report success with
+        uncommitted source; merge-worktrees FAILS the run when a file your
+        summary claims does not appear in git.
+
+        Content of <your-cwd>/outputs/{group}-splits.md:
+
+          ## {group} Complexity Reduction
+
+          Branch: <output of `git rev-parse --abbrev-ref HEAD` in your worktree>
+          Head:   <output of `git rev-parse HEAD` after your final commit>
+
+          Record BOTH before anything else. merge-worktrees merges only
+          branches a group actually claims — `worktree-agent-*` refs are not
+          cleaned up between runs, so the wildcard alone would sweep in stale
+          branches from earlier runs. If you do not report your branch here,
+          your work is treated as an unclaimed ref and is NOT merged.
+
+          | File | Strategy | Techniques / Siblings | Before | After | Import |
+          |------|----------|----------------------|--------|-------|--------|
+          | src/resume/parsing_experience.py | reduce-in-place | dispatch table, 3x guard clause | 208 | 54 | PASS |
+
+          ## Files Not Improved
+          | File | Before | After | Why |
+
+          ## Strategy Downgrades
+          | File | From | To | Blocking Reason |
+
+          ## Call Sites Updated (split entries only)
+          | Moved Symbol | Old Module | New Module | Importers | Patch Targets | String Tables |
     agent:
       role: code-writer
       model: sonnet
       tools: [Read, Write, Edit, Bash]
       access: read-write
+      # REQUIRED, not optional: this stage fans out one code-writer per
+      # directory group, all writing source concurrently. The orchestrator
+      # passes isolation to Agent() only when this field is present, so
+      # without it every worker edits the SAME checkout and their edits
+      # interleave — a second agent's write is based on a read that predates
+      # the first's, silently reverting it. The stage text below promises
+      # isolation:worktree; this is what makes that true.
+      isolation: worktree
     required: true
     fan_out:
       source: plan-splits
@@ -308,8 +1098,39 @@ stages:
       - name: group_splits
         mode: generate
         description: >
-          Per-group split summary written to {workspace}/outputs/{group}-splits.md.
-          Contains the list of files split, siblings created, and import check status.
+          Per-group reduction summary. The isolated worker writes it to
+          <its-cwd>/outputs/{group}-splits.md and the orchestrator copies it
+          back to {workspace}/outputs/{group}-splits.md, which is where
+          downstream stages read it. Contains files touched, techniques
+          applied, before/after scores, strategy downgrades, and the
+          call-site update ledger for any split entries.
+    # `{group}` IS substituted per fan-out item — this is the documented
+    # contract, not a workaround:
+    #   - FanOutSpec (src/workflow/models.py:242-245): the key is "substituted
+    #     into the stage description and output filenames".
+    #   - The /workflow skill (.claude/skills/workflow/SKILL.md:750-754)
+    #     builds each fan-out agent's prompt by substituting {fan_out.key}
+    #     into description AND writes_to.
+    #
+    # Substitution happens in the SKILL orchestrator at dispatch time, not in
+    # `compile`: the compiler stores writes_to verbatim and does not expand a
+    # fan-out stage into N stages at all (verified — `decompose-groups`
+    # appears once in the compiled manifest). Reading only the compiled output
+    # therefore makes the field look literal; it is not, at the point that
+    # matters.
+    #
+    # Same declaration as facade-elimination.yaml's eliminate-domains
+    # (`outputs/{domain}-elimination.md`), which is the established repo
+    # pattern for per-item fan-out artifacts.
+    #
+    # Downstream stages still DISCOVER these by glob rather than reconstructing
+    # filenames from domain-groups.json:
+    #     ls {workspace}/outputs/*-splits.md
+    # That is belt-and-braces, not a substitute for the contract: a glob finds
+    # whatever actually landed, and merge-worktrees cross-checks that set
+    # against domain-groups.json so a worker whose artifact never arrived
+    # FAILS the run by name instead of being silently skipped. verify-tests
+    # derives its group list the same way.
     writes_to:
       - outputs/{group}-splits.md
 
@@ -317,13 +1138,209 @@ stages:
   # G3: Verify tests — run test suite per touched group, fix failures up to 3 cycles
   # ===========================================================================
 
-  - name: verify-tests
-    kind: validate
+  - name: merge-worktrees
+    kind: execute
     depends_on: [decompose-groups]
     reads_from: [decompose-groups]
     description: >
-      Run the test suite for every group that was touched in decompose-groups
-      and confirm all tests still pass after the splits.
+      Merge every isolated worker's commits into this branch BEFORE anything
+      is verified. Without this stage the whole verification chain is
+      theatre: decompose-groups runs with isolation:worktree, so each worker
+      commits to its own `worktree-agent-<id>` branch and those edits are NOT
+      in this checkout. verify-tests, validate-imports and recheck would all
+      run against UNCHANGED source and pass without ever testing a single
+      reduction.
+
+      Step 0 — RECORD THE PRE-SWEEP COMMIT, before merging anything:
+          git rev-parse HEAD > {workspace}/outputs/pre-sweep-ref.txt
+          cat {workspace}/outputs/pre-sweep-ref.txt
+
+        Every downstream baseline comparison depends on this ref, and it must
+        be captured BEFORE the merges in Step 4. Once those land, HEAD is the
+        POST-refactor tree: `git show HEAD:<path>` returns the already-reduced
+        file (so a survivor is compared against itself and any lost export
+        passes), and a deleted original reads as "never existed in HEAD"
+        rather than as a file whose symbols must be accounted for.
+
+        Downstream stages refer to this ref as $PRE_SWEEP and must read it
+        from this file — never assume HEAD or HEAD~1, since the number of
+        merge commits varies with the number of groups:
+          PRE_SWEEP=$(cat {workspace}/outputs/pre-sweep-ref.txt)
+
+      Step 1 — confirm the per-group artifacts arrived:
+        Every group in {workspace}/outputs/design/domain-groups.json must
+        have a corresponding {workspace}/outputs/<group>-splits.md. The
+        orchestrator copies these back from each worker's own cwd at stage
+        completion, so a missing one means that worker failed or wrote to the
+        wrong path. FAIL this stage and name the group — do not proceed, and
+        do not merge a branch whose report never arrived.
+
+      Step 2 — identify THIS RUN's worker branches, not every matching name:
+        `git branch --list 'worktree-agent-*'` is NOT a safe branch set. Those
+        refs are not cleaned up automatically, so the wildcard also matches
+        branches left behind by earlier runs of this or any other isolated
+        workflow. Merging one of those would pull unrelated commits into this
+        branch — and it would pass the Step 3 empty-range check, because a
+        stale branch genuinely does have commits.
+
+        Build the set from what THIS run dispatched:
+          a. Each worker records its own branch in its group summary. Read
+             `<group>-splits.md` for every group in domain-groups.json and
+             take the branch name from there.
+          b. Cross-check against the wildcard listing. A branch matching
+             `worktree-agent-*` that NO group claims is stale or foreign:
+             report it and leave it alone. Never merge an unclaimed branch.
+          c. Restrict further by ancestry — every branch you merge must
+             descend from the pre-sweep ref recorded in Step 0:
+               git merge-base --is-ancestor "$PRE_SWEEP" worktree-agent-<id>
+             A branch that fails this predates the sweep and is not ours.
+
+        Expect exactly one claimed branch per dispatched group. A dispatched
+        group with no branch is a failed worker: record it and FAIL.
+
+      Step 3 — verify each branch actually has commits, before merging:
+          git log --oneline "$PRE_SWEEP"..worktree-agent-<id>
+        An EMPTY range means the agent edited its worktree and returned
+        without committing. `git merge` moves commits, not uncommitted files,
+        so merging an empty branch succeeds and reports success while no code
+        lands — the exact false green this stage exists to prevent. Treat an
+        empty range as a stage FAILURE naming that group.
+
+      Step 4 — merge, one branch at a time:
+          git merge --no-ff worktree-agent-<id> -m "merge group <group>"
+        Merge sequentially, never in parallel, so a genuine conflict surfaces
+        as a conflict with markers rather than a silent overwrite. Resolve any
+        conflict explicitly and record it; two groups touching a shared
+        module is plausible when a call site crossed a directory boundary.
+
+      Step 5 — prove the code actually landed:
+          git diff --name-only "$PRE_SWEEP"...HEAD
+        Use the ref recorded in Step 0, not a reflog- or offset-relative form
+        like HEAD@{N} or HEAD~N: the number of merge commits varies with the
+        group count, and a reflog reference is fragile across the stage's own
+        git operations.
+
+        Note this list can include DELETED paths — a full split removes the
+        original module under the no-facade rule. That is correct here, since
+        the point is the landed change set, but any downstream consumer that
+        passes these paths to a tool must filter to existing files first.
+
+        Establish the true file set from GIT, not from the workers' reports —
+        a report's file list is the worker's unverified self-claim. Compare
+        the two, and treat one direction as FATAL:
+
+          - A file a report CLAIMS that git does not show is a FAILURE, not a
+            note. It means the worker edited that file and never committed
+            it, so the change is stranded in an ephemeral worktree that is
+            about to be discarded. Every downstream stage would then test and
+            recheck a tree missing that edit — a false green on work that no
+            longer exists anywhere. FAIL this stage, naming the group and the
+            files.
+          - A file git shows that NO report mentions is recorded as a
+            discrepancy and reported to the human gate. It is suspicious (a
+            worker touched something it did not disclose) but the change did
+            land, so downstream verification still covers it.
+
+        Do not try to recover a stranded edit by copying it out of the
+        worker's worktree: the worker is gone, and the orchestrator only
+        merges commits. Failing loudly is the correct outcome — the run can
+        be retried, a silently missing reduction cannot be detected later.
+
+        Then check the changed-file count CONDITIONALLY, against whether
+        this run had work to do. Read
+        {workspace}/outputs/design/domain-groups.json first:
+
+          - "items" NON-EMPTY: at least one source file must have changed.
+            Zero changed files after a sweep that dispatched groups is a
+            FAILURE — the isolated edits never landed.
+          - "items" EMPTY (clean repo, or every candidate deferred): zero
+            commits and zero changed files are the CORRECT outcome. Write
+            merge-report.md recording "no-op: no groups dispatched", set
+            status success, and skip Steps 2-5 — there are no branches to
+            enumerate or merge.
+
+        An unconditional assertion here would fail the run BEFORE
+        verify-tests could reach its own no-op branch, making a clean repo
+        impossible to sweep. discover-candidates and plan-splits both treat
+        an empty candidate list with no scan_errors as a successful no-op;
+        this stage and verify-tests must agree with them, or the three
+        contradict each other and the agreeable outcome is unreachable.
+
+      Step 6 — write {workspace}/outputs/merge-report.md:
+        ## Worktree Merge
+        | Group | Branch | Commits | Merged | Conflicts | Files |
+        |-------|--------|---------|--------|-----------|-------|
+        | resume | worktree-agent-a1b2 | 3 | YES | none | 4 |
+
+        ## Discrepancies
+        | Group | Report Claimed | Git Shows | Note |
+
+        ## Totals
+        Groups dispatched: N   Branches merged: N   Source files changed: N
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    required: true
+    # Required for agent dispatch — see the note on verify-tests' outputs.
+    outputs:
+      - name: merge-report
+        mode: generate
+        description: >
+          Per-group merge ledger written to
+          {workspace}/outputs/merge-report.md: branch, commit count, merge
+          result, conflicts, and the git-derived file set compared against
+          each worker's self-reported list.
+    writes_to:
+      - outputs/merge-report.md
+      # The immutable pre-merge ref. Declared so downstream stages have it as
+      # a contract rather than a convention: validate-imports' export parity
+      # and verify-tests' test-constraint check are both vacuous against HEAD
+      # (post-merge) and only meaningful against this ref.
+      - outputs/pre-sweep-ref.txt
+
+  # ===========================================================================
+  # G3b: Verify tests — run test suite per touched group, post-merge
+  # ===========================================================================
+
+  - name: verify-tests
+    kind: execute
+    depends_on: [merge-worktrees]
+    reads_from: [merge-worktrees, decompose-groups]
+    description: >
+      Run the test suite for every group touched in decompose-groups and
+      confirm all tests still pass after the reductions.
+
+      PRECONDITION — merge-worktrees must have merged the workers' commits
+      into this branch. Confirm before testing anything:
+        PRE_SWEEP=$(cat {workspace}/outputs/pre-sweep-ref.txt)
+        git log --oneline "$PRE_SWEEP"..HEAD
+        git diff --name-only "$PRE_SWEEP"...HEAD
+      Use the recorded ref, not HEAD~1 — one merge commit per group means the
+      offset is wrong for any run with more than one group.
+
+      Branch on whether this run had any work to do. Read
+      {workspace}/outputs/design/domain-groups.json first:
+
+        NO-OP RUN — "items" is empty (a clean repo, or every candidate
+        deferred). Zero commits and zero changed files are the CORRECT
+        outcome, not a failure. Write test-results.md recording
+        "no-op: no groups dispatched, nothing to verify", set status success,
+        and skip the per-group runs. Do NOT fail: discover-candidates and
+        plan-splits both treat an empty candidate list with no scan_errors as
+        a successful no-op, and failing here would make a clean repo
+        impossible to sweep.
+
+        REAL RUN — "items" is non-empty. Zero reduction commits or zero
+        changed source files now means the isolated edits never landed, and a
+        green suite would prove nothing. Cross-check
+        {workspace}/outputs/merge-report.md and FAIL, naming the groups that
+        produced no commits.
+
+      Still run the FULL suite in the no-op case if any commit exists at all
+      (an earlier stage may have touched something); the skip applies only to
+      the per-group loop, which has no groups to loop over.
 
       IMPORTANT — set PYTHONPATH explicitly before running any test command:
         export PYTHONPATH="$(pwd)/src"
@@ -344,147 +1361,685 @@ stages:
 
         Run per-group discovery using the resolved test directory:
           PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s <resolved_test_dir> -t . -p "test_*.py" -q 2>&1
+        Record the resolved test dir in the results table — later stages
+        reuse this exact path rather than re-deriving it.
 
-        Fix failures up to 3 cycles per group:
-          - Import error: the re-export shim is missing an import or has a
-            wrong path. Fix the shim, re-run.
-          - AttributeError / NameError: a symbol was moved but not re-exported.
-            Add it to the shim's import list.
-          - Other failures: read the relevant source and test files to diagnose.
-          - After each fix: re-run the per-group test command.
-          - If still failing after 3 fix cycles: mark group as FAIL and
-            document the blocker — do not abort other groups.
+        HARD CONSTRAINT — you MUST NOT create, delete, or modify any file
+        under tests/, with the single narrow exception of a mock.patch target
+        string for a symbol that moved in a split. "Make the suite green" is
+        NOT the goal; "prove the refactor preserved behavior" is, and a green
+        suite only means that if the tests are untouched.
+
+        Fix failures up to 3 cycles per group, in src/ or bin/ only:
+          - AttributeError / NameError on a moved symbol: a call site or a
+            mock.patch target was missed. Fix the call site in src/, or
+            update the patch target's dotted path.
+          - ImportError on a module that was split: an importer still names
+            the old path. Update the importer — do NOT add a re-export shim
+            to the old module. Shims are forbidden by project rule.
+          - Behavior change: the refactor was not behavior-preserving.
+            Revert that specific transform. The test encodes the contract —
+            it is the transform that is wrong, never the test.
+          - After each fix, re-run. If still failing after 3 cycles, mark the
+            group FAIL and document the blocker — do not abort other groups.
+            Leaving a documented failure is correct; editing a test to hide
+            it is not.
 
       Step 3 — run the full suite to catch cross-group regressions:
-        PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests -t . -q 2>&1 | tail -10
+        PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests -t . -q > /tmp/full-suite.log 2>&1; echo "EXIT=$?"
+        grep -E "Ran [0-9]+ tests" /tmp/full-suite.log
+        grep -E "^(OK|FAILED)" /tmp/full-suite.log
+
+        Redirect to a file and read EXIT — do NOT pipe the test command into
+        `tail`. A pipeline returns the exit status of its LAST element, so
+        `... | tail -20` reports tail's success and a failing suite reads as
+        green (unless the shell happens to have `pipefail` set, which is not
+        guaranteed here).
+
+        Two further traps, both of which produce a false green:
+          - unittest writes `Ran N tests`, `OK` and `FAILED` to STDERR, so the
+            `2>&1` is required or the verdict vanishes with the failures.
+          - EXIT=0 is not by itself evidence the suite ran. If there is no
+            `Ran N tests` line the suite did not execute — re-run, do not
+            record a baseline. Do not anchor that grep to column 0: the line
+            is often preceded by progress dots.
+
+        A refactor in one directory can break another directory's mocks, so
+        the full suite is required.
+
+        Confirm the test constraint was honored. Compare against the
+        PRE-SWEEP commit, not the working tree:
+
+          PRE_SWEEP=$(cat {workspace}/outputs/pre-sweep-ref.txt)
+          git diff --name-only "$PRE_SWEEP"...HEAD -- tests/
+          git diff -U0 "$PRE_SWEEP"...HEAD -- tests/
+          git status --short --untracked-files=all -- tests/
+
+        A bare `git diff -- tests/` is useless here. The workers were
+        REQUIRED to commit before handing off, and merge-worktrees has merged
+        those commits, so the working tree is clean and a plain diff shows
+        nothing — including a forbidden assertion change that is now sitting
+        in a merged commit. Diffing against $PRE_SWEEP is what makes
+        committed test edits visible.
+
+        The `git status` line is still needed on top: it catches an untracked
+        file created after the merge, which no commit-range diff would show.
+
+        The second is not redundant. `git diff` does not list untracked
+        files, so a newly ADDED test file is invisible to it — an agent could
+        create tests/new_test.py to make a failure disappear and both the
+        name-only and -U0 checks would still look clean. Verified: with an
+        untracked file present, `git diff --name-only` showed only the
+        modified path while `git status --short -uall` showed its `??` entry.
+
+        Reject any `??` path under tests/ outright: creating a test file is a
+        violation of this stage's constraint regardless of content.
+
+        For groups with NO split entries the range diff MUST print nothing
+        and `git status` MUST show no tests/ entries at all. For split
+        entries, the only acceptable change is a file whose sole edit is a
+        mock.patch target string — read the -U0 range diff above and confirm
+        every changed line is a dotted path inside patch(...).
+
+        Any assertion, fixture, or test-logic change is a violation. Because
+        the edit is already committed and merged, reverting it means a new
+        commit against the offending paths — `git checkout -- tests/` will
+        NOT undo it:
+          git checkout "$PRE_SWEEP" -- tests/<path>
+        Then delete any created file, re-run, and record it.
 
       Step 4 — write {workspace}/validation/test-results.md:
         | Group | Test Dir | Tests Run | Status | Notes |
         |-------|----------|-----------|--------|-------|
         | resume | tests/resume_tests/ | 47 | PASS | |
-        | wifi | tests/wifi_tests/ | 23 | FAIL | ImportError: cannot import DiagnosticsRunner |
-        ...
+        | wifi | tests/wifi_tests/ | 23 | FAIL | AttributeError: DiagnosticsRunner |
         Full suite: PASS|FAIL
+
+      Acceptance criteria — this stage is not done until all hold:
+        - Full unittest discover (with PYTHONPATH=src) exits 0 AND prints a
+          "Ran N tests" summary line
+        - All per-group test runs pass, or each failure is documented with
+          its blocker
+        - No test file was created, deleted, or had its logic changed,
+          measured against the PRE-SWEEP ref rather than the working tree
+          (the workers committed and those commits are merged, so a bare
+          `git diff -- tests/` is clean even when a test was edited). For
+          groups with no split entries,
+          git diff --name-only "$PRE_SWEEP"...HEAD -- tests/ prints nothing
+          and git status --short -uall -- tests/ shows no entries; for split
+          entries the only permitted change is a mock.patch target string
+          (verify with git diff -U0 "$PRE_SWEEP"...HEAD -- tests/)
+        - No import error was resolved by adding a re-export shim to an
+          emptied module; every fix updated the call site instead
+        - No behavior change was introduced by the refactor
     agent:
       role: code-writer
       model: sonnet
       tools: [Read, Edit, Bash]
       access: read-write
+    # NOTE on this validation block and the two like it (validate-imports,
+    # recheck): `build_dispatch_instruction()` sets is_validation and
+    # validation_strategy only for kind:validate, and `_validate()` is the
+    # only prompt builder that reads validation.criteria/max_revisions. On a
+    # kind:execute stage this block is therefore NOT delivered to the agent
+    # and grants no validator or revision gate.
+    #
+    # It is kept deliberately, for two reasons: `./bin/workflow lint` and the
+    # human reader both use it as the stage's declared contract, and a future
+    # engine change that honours criteria on non-validate kinds would pick it
+    # up. The ENFORCEABLE copy is the "Acceptance criteria" list inside the
+    # description above, which every prompt builder does deliver.
+    #
+    # The two lists MUST stay in sync. If you edit one, edit the other — and
+    # do not "simplify" by deleting the description copy, which is the only
+    # one that reaches the agent.
     validation:
       strategy: deliverable
       criteria:
         - Full unittest discover (with PYTHONPATH=src) exits 0
         - All per-group test runs pass or failures are documented with blockers
-        - No new import errors introduced by splits
+        - No test file was created, deleted, or had its logic changed,
+          measured against the PRE-SWEEP ref rather than the working tree
+          (the workers committed and those commits are merged, so a bare
+          `git diff -- tests/` is clean even when a test was edited). For
+          groups with no split entries,
+          git diff --name-only "$PRE_SWEEP"...HEAD -- tests/ prints nothing
+          and git status --short -uall -- tests/ shows no entries; for split
+          entries the only permitted change is a mock.patch target string
+          (verify with git diff -U0 "$PRE_SWEEP"...HEAD -- tests/)
+        - No import error was resolved by adding a re-export shim to an
+          emptied module; every fix updated the call site instead
+        - No behavior changes introduced by the refactor
       max_revisions: 3
     required: true
+    # An `outputs:` entry with mode:generate is REQUIRED, not decorative.
+    # dispatchers._needs_agent() routes a stage to the agent dispatcher only
+    # when kind is validate/sub-workflow OR some output is generate/template.
+    # This stage is kind:execute (so its description reaches the prompt), so
+    # without this block `./bin/workflow run` sends it to LocalDispatcher,
+    # which runs no commands and reports success — silently skipping the test
+    # gate entirely.
+    outputs:
+      - name: test-results
+        mode: generate
+        description: >
+          Per-group test results table written to
+          {workspace}/validation/test-results.md, plus the full-suite verdict.
     writes_to:
       - validation/test-results.md
 
   # ===========================================================================
-  # G4: Validate imports — confirm all split modules importable, no broken imports
+  # G4: Validate imports — no-facade call-site parity check
   # ===========================================================================
 
   - name: validate-imports
-    kind: validate
+    kind: execute
     depends_on: [verify-tests]
     reads_from: [verify-tests, decompose-groups]
     description: >
-      Confirm that every new sibling module and every rewritten re-export
-      shim is importable, and that no existing importer of the original
-      module is broken.
+      Confirm every touched module still imports and that no call site was
+      left dangling. This stage matters more than it would in a shim-based
+      refactor: with no backward-compat re-export layer, a missed call site
+      is a hard runtime failure with no safety net.
 
       IMPORTANT: export PYTHONPATH="$(pwd)/src" before any python3 -c import
       check, for the same reason noted in verify-tests.
 
-      Step 1 — collect all split artifacts:
-        Read {workspace}/outputs/*-splits.md to enumerate every file that was
-        created or modified.
-        Also read {workspace}/outputs/design/domain-groups.json for the full
-        list of original files and their proposed siblings.
+      Step 1 — enumerate what changed:
+        Read {workspace}/outputs/*-splits.md for every file created,
+        modified, or deleted.
+        Read {workspace}/outputs/design/domain-groups.json for the planned
+        file list, strategies, and proposed siblings.
+        Run, against the PRE-SWEEP ref rather than the worktree:
+          PRE_SWEEP=$(cat {workspace}/outputs/pre-sweep-ref.txt)
+          git diff --name-only "$PRE_SWEEP"...HEAD
 
-      Step 2 — smoke-import each new module:
-        For each new sibling file created:
+        A bare `git diff --name-only` returns NOTHING here. The workers
+        committed, merge-worktrees merged those commits, and the worktree is
+        therefore clean — so the command that claims to "establish the file
+        set from Git" would establish an empty set and this cross-reference
+        would validate nothing.
+
+        Cross-reference: every file in the range diff should be accounted for
+        in a group summary. Flag anything unexpected. Note the range includes
+        DELETED paths, which is correct — a full split removes the original
+        under the no-facade rule — but filter to existing files before
+        passing any of them to a tool.
+
+      Step 2 — import every touched module:
+        For each modified or created .py file:
           python3 -c "import <module_path>" 2>&1
-        For each rewritten re-export shim, verify full export parity — do NOT
-        rely on plan.md's top-level symbol list (candidates.json only
-        captured the first 40 class/def names as a planning hint):
-          a. Get the complete pre-split symbol set from git history:
-               git show HEAD:<module_path> | grep -n "^class \|^def "
-          b. Get the shim's actual exported symbols:
-               python3 -c "import <module_path>; print([n for n in dir(<module_path>) if not n.startswith('_')])"
-          c. Diff the two sets. Any pre-split symbol missing from the shim's
-             dir() output is a broken export — fix the shim's import list.
 
-      Step 2b — also verify __all__ if the original file declared one:
-        If the pre-split file defined __all__, confirm the shim's __all__
-        (or its transitively re-exported __all__) contains the same names.
+      Step 3 — export parity against the PRE-SWEEP commit (never HEAD):
+        Confirm no public symbol silently vanished. Do NOT rely on plan.md's
+        symbol list (candidates.json captured only the first 40 class/def
+        names as a planning hint).
 
-      Step 3 — check downstream importers:
-        For each original file that was split, grep the codebase for
-        existing import statements:
-          grep -rn "from <module_path> import\|import <module_path>" \
-            --include="*.py" \
-            --exclude-dir=.venv \
-            --exclude-dir=.claude \
-            --exclude-dir=personal_assistants.egg-info
-        For each found importer: confirm it still resolves correctly:
-          python3 -c "from <module_path> import <SymbolName>" 2>&1
+        Read the baseline ref first:
+          PRE_SWEEP=$(cat {workspace}/outputs/pre-sweep-ref.txt)
 
-      Step 4 — run qlty on all modified files:
-        ~/.qlty/bin/qlty check <list of modified .py files>
-        Note any new issues introduced by the splits.
+        Use $PRE_SWEEP, NOT HEAD, for every baseline lookup. merge-worktrees
+        has already merged the workers' commits, so HEAD is the POST-refactor
+        tree. Against HEAD this whole step is vacuous: `git show HEAD:<path>`
+        returns the already-reduced file, so a survivor is compared against
+        itself and a genuinely lost export passes; and a deleted original
+        looks like it never existed rather than like a file whose symbols must
+        all be accounted for.
 
-      Step 5 — re-run the complexity scan to confirm improvement:
-        ./bin/qlty-assistant scan --smells-only --rule file-complexity \
-          --format csv
-        Compare against {workspace}/outputs/analysis/candidates.json:
-        confirm every split original file's new complexity (if it still
-        appears at all) is lower than its pre-split value, and ideally
-        below {complexity_floor}.
+        Compare against $PRE_SWEEP ONLY for files that existed there. A
+        sibling created by a split has no blob at that ref, so
+        `git show $PRE_SWEEP:<new-path>` fails with "does not exist" —
+        running it over every touched file turns any valid split into a false
+        validation failure. Partition first:
+          git ls-tree -r --name-only "$PRE_SWEEP" -- <path>   # non-empty => pre-existing
 
-      Step 6 — write {workspace}/validation/import-check.json:
+        a. For each PRE-EXISTING touched file, extract the SAME symbol set on
+           both sides. The two sides must agree on what counts, or the
+           comparison produces noise in both directions:
+             - `grep "^class \|^def "` includes PRIVATE names (`_helper`) that
+               `dir()` filtering by `not n.startswith("_")` excludes, so every
+               ordinary private helper reads as a missing export.
+             - that grep also MISSES `async def`, so public coroutines are
+               never checked at all.
+
+           Use the dedicated script for both sides — it applies one predicate
+           (public top-level classes and functions, async included, that the
+           module itself defines), so the sets are directly comparable:
+
+           The baseline, for every file that existed at $PRE_SWEEP:
+             git show "$PRE_SWEEP:<path>" > /tmp/pre-sweep-version.py
+             python3 workflows/code/scripts/public_symbols.py \
+               --source /tmp/pre-sweep-version.py > /tmp/before.txt
+
+           Then branch on whether the file SURVIVED the refactor. Check first:
+             test -f <path> && echo SURVIVED || echo DELETED
+
+           SURVIVED — compare only the symbols the original still OWNS, then
+           verify the moved ones separately:
+             PYTHONPATH="$PWD/src" python3 workflows/code/scripts/public_symbols.py \
+               --module <m> > /tmp/after.txt
+
+             # Subtract the planned moved symbols (from domain-groups.json's
+             # proposed_siblings for this file) before diffing:
+             comm -23 /tmp/before.txt /tmp/moved.txt > /tmp/expected.txt
+             diff /tmp/expected.txt /tmp/after.txt
+
+           A bare `diff /tmp/before.txt /tmp/after.txt` is WRONG for any
+           partial split: every symbol moved to a sibling is legitimately
+           absent from after.txt, so the diff reports a difference and the
+           step fails before reaching the moved-symbol exception below. That
+           would make a valid split unprovable. Subtract the planned moves
+           first; each subtracted symbol must then be confirmed at its
+           destination in Step 3b — absence from the original is only
+           acceptable when presence at the new home is demonstrated.
+
+           If a symbol is missing from after.txt and NOT in the planned
+           moves, that is the real regression this step exists to catch.
+
+           DELETED — do NOT run `--module <m>` on it. The module no longer
+           exists, so the script exits 1 by design (it must not report "no
+           symbols" for an unimportable module), and the run would fail here
+           before ever reaching the deleted-original allowance in Step 3b.
+           Instead verify each baseline symbol at its new home:
+             for each name in /tmp/before.txt:
+               PYTHONPATH="$PWD/src" python3 -c "from <new_module> import <name>"
+           Every name in the baseline must resolve from some destination
+           module named in the plan. A baseline symbol that resolves nowhere
+           is a lost export — that is the regression this step exists to
+           catch, and deleting the original does not excuse it.
+
+           It is covered by tests/test_public_symbols.py, including a test
+           that both modes agree on the same module. Do not reimplement it
+           inline: embedded Python in workflow YAML is a ratified critical
+           concern in this repo, and a second copy drifts from the tested one.
+
+           Both exclusions it applies are load-bearing. Private names are
+           dropped on BOTH sides (a raw `grep "^def "` keeps them, so every
+           ordinary private helper would read as a missing export), `async
+           def` is included (that grep missed it, so public coroutines went
+           unchecked), and imported-then-re-exported names plus imported
+           submodules are excluded (a bare `dir()` lists them, masking a
+           genuinely deleted definition behind an unrelated import).
+
+           Any pre-existing public symbol now missing is a regression UNLESS
+           it moved in a split AND every call site was updated to its new
+           home — verify the new home exports it (Step 3b).
+
+        b. For each MOVED symbol, verify it at its destination instead of at
+           the original path:
+             python3 -c "from <new_module> import <Symbol>; print('ok')"
+
+           The union of symbols across the original path (whatever it still
+           holds) and its new siblings must cover **/tmp/before.txt — the
+           PRE-SWEEP baseline**, never HEAD's public set. Covering HEAD is
+           circular: HEAD is the post-refactor tree, so a symbol deleted by
+           the refactor is absent from the target by definition and the
+           check passes on exactly the loss it should catch.
+
+           Concretely, every name in /tmp/before.txt must resolve from either
+           the original module or one of its siblings:
+             comm -23 /tmp/before.txt /tmp/resolved-anywhere.txt
+           Non-empty output is a lost export. An original file deleted
+           outright is fine provided every one of ITS baseline symbols
+           resolves from a new home and no call site still names the old path
+           (Step 4).
+
+        c. NEWLY CREATED files have no PRE-SWEEP baseline, so there is
+           nothing to compare — only the Step 2 import check and the Step 3b
+           destination checks apply. Do not report them as missing exports.
+
+        If a pre-existing file declared __all__, confirm every name still
+        resolves from whichever module now owns it.
+
+      Step 4 — hunt dangling references (split entries only):
+        For every symbol that changed modules, all three of these must
+        return ZERO hits on the OLD path.
+
+        USE FIXED-STRING SEARCHES (`grep -F`) FOR ALL THREE. A module path
+        interpolated into a regex makes every dot a wildcard, so checking
+        `mail.foo` also matches `mailXfoo`. Verified: `grep "import mail.foo"`
+        matches the line `import mailXfoo`, while `grep -F` correctly does
+        not. A false hit here either blocks a valid run or triggers a rewrite
+        of a reference that does not exist. Where an alternation is needed,
+        run two fixed-string passes rather than one regex.
+
+        a. Import statements — two fixed-string passes, not one alternation:
+             grep -rFn "from <old_module> import" \
+               --include="*.py" \
+               --exclude-dir=.venv \
+               --exclude-dir=.claude \
+               --exclude-dir=personal_assistants.egg-info \
+               src/ tests/ bin/
+             grep -rFn "import <old_module>" \
+               --include="*.py" \
+               --exclude-dir=.venv \
+               --exclude-dir=.claude \
+               --exclude-dir=personal_assistants.egg-info \
+               src/ tests/ bin/
+
+        b. mock.patch target strings — the failure mode import checks
+           structurally cannot catch, because they are string literals
+           resolved at TEST RUNTIME:
+             grep -rn "patch(" --include="*.py" tests/ | grep -F "<old_module>"
+           The second grep is `-F`: the module path's dots would otherwise be
+           wildcards. A stale patch target passes every import check and
+           fails only when that one test runs.
+
+        c. String-keyed dispatch tables and config references — no import
+           statement exists to find, and the table's own module imports
+           fine, so every other check passes while the CLI path is broken.
+           Two fixed-string passes, one per quote style, rather than a
+           character class around a regex-interpolated path:
+             grep -rFn "'<old_module>" \
+               --include="*.py" --include="*.yaml" --include="*.yml" \
+               --include="*.json" --include="*.toml" \
+               src/ tests/ bin/ .llm/ pyproject.toml 2>/dev/null
+             grep -rFn '"<old_module>' \
+               --include="*.py" --include="*.yaml" --include="*.yml" \
+               --include="*.json" --include="*.toml" \
+               src/ tests/ bin/ .llm/ pyproject.toml 2>/dev/null
+
+           Note what is NOT searched here, and why. `workflows/` and `*.md`
+           are excluded because they contain INSTRUCTIONAL prose that quotes
+           module paths as examples — this very file mentions "mail.llm_cli"
+           three times as a documented dispatcher entry and a known
+           false-positive facade. Splitting such a module would make those
+           mentions read as stale call sites and block an otherwise valid
+           run. Runtime dispatch tables live under src/, tests/, bin/, .llm/
+           and pyproject.toml; those are the paths that can actually break.
+
+           If a workflow YAML genuinely holds a runtime dotted path (a
+           `fan_out.script`, a CLI command string), search it deliberately
+           and read each hit rather than treating a raw count as a failure.
+           Also check the parent package path. Known tables in this repo:
+             src/core/llm_handlers.py, src/core/assistant_cli.py,
+             src/telemetry/otel/cli/__init__.py, src/maker/pipeline.py
+
+        Then exercise the dispatchers for any touched group:
+          ./bin/llm --app <app> --help
+          ./bin/telemetry otel --help
+        A nonzero exit or traceback here is a real failure even if the whole
+        unit-test suite is green.
+
+      Step 5 — bin/ entry point smoke check:
+        If any touched module is reachable from bin/, run the wrapper's
+        --help to confirm it still starts:
+          ./bin/<wrapper> --help >/dev/null 2>&1; echo "exit=$?"
+
+      Step 6 — confirm no re-export facade was introduced:
+        Any module emptied by a split must NOT have been rewritten as a
+        re-export shim.
+
+        Detect this STRUCTURALLY, not by grepping for one comment spelling.
+        `grep "noqa: F401"` misses every other way to write the same facade:
+        a bare `from .sibling import X` with no suppression, an `__all__`
+        re-export list, `import ... as ...` aliases, or a different linter
+        directive. A shim in any of those forms would leave facades_detected
+        empty and pass the gate.
+
+        Use the EXISTING tested detector. Do NOT write an AST check inline
+        here: `workflows/code/scripts/detect_facades.py` already implements
+        exactly this ("imports > 0 AND defs == 0 AND other == 0"), is covered
+        by `tests/test_detect_facades.py`, and is reused byte-identically by
+        `facade-elimination.yaml`. Embedding Python in workflow YAML is a
+        ratified project concern, and a second copy of this logic would drift
+        from the tested one. Its resolver also handles four symbol-binding
+        forms a naive implementation misses, each a real miss found during a
+        dry run against this repo.
+
+          INCLUDE_INIT=true PYTHONPATH="$PWD/src" \
+            python3 workflows/code/scripts/detect_facades.py \
+            > {workspace}/validation/facades.json
+
+        INCLUDE_INIT=true is REQUIRED here. The detector defaults it to false
+        and then skips every `__init__.py` outright, but a split can leave a
+        package's `__init__.py` as a pure re-export shim — and this stage
+        elsewhere explicitly requires checking `__init__.py` re-export lists.
+        Without the override the gate cannot see the very shim it is meant to
+        catch. Confirm the output's "include_init": true before trusting it.
+
+        It walks src/ and emits {"total_facades": N, "facades": [...]} with a
+        "module" field per entry. Other env override: DOMAINS.
+
+        Interpreting the result — compare against the BASELINE, never zero:
+          a. With INCLUDE_INIT=true the baseline on origin/main is 11
+             modules, because re-export-only `__init__.py` files are a normal
+             package idiom in this repo and are NOT violations:
+               calendars.outlook_pipelines.__init__  charts.__init__
+               charts.types.__init__  mail.llm_cli  qlty.__init__
+               resume.cli.__init__  sheets.__init__  slides.__init__
+               wifi.__init__  worker.__init__  workflow.__init__
+             Re-run the detector on origin/main to refresh that list rather
+             than trusting this one if the tree has moved on. A gate that
+             demanded zero would fail every run.
+          b. Any module in "facades" that was NOT in the baseline, and that
+             this sweep touched, is a project-rule violation — record it in
+             facades_detected and fail the stage. That includes a newly
+             emptied `__init__.py`, which is the case the override exists
+             for.
+          c. Pre-existing entries are not this sweep's doing. `mail.llm_cli`
+             in particular is a KNOWN FALSE POSITIVE: it is a live
+             `llm --app mail` dispatch target reached through a string
+             literal, so it is structurally a facade but not removable. Do
+             not report it as introduced, and do not "fix" it.
+
+        A module that legitimately still owns code will have definitions and
+        is not a facade, however many imports it also carries.
+
+      Step 7 — run qlty on the modified files that still EXIST:
+          for p in <modified .py files>; do test -f "$p" && echo "$p"; done
+          ~/.qlty/bin/qlty check <the surviving paths>
+        Filter first — `git diff --name-only` lists DELETED paths too, and a
+        full split removes the original module under the no-facade rule. A
+        path-scoped qlty command hard-errors on a missing file. Note any new
+        issues introduced.
+
+      Step 8 — re-run the complexity scan to confirm real improvement:
+        Re-scan ALL FOUR candidate rules, not just the file score. A small
+        file can sit below {complexity_floor} on file-complexity while still
+        breaching python:S3776, function-complexity, or nested-control-flow —
+        exactly the per-function case discover-candidates was widened to
+        catch. Rechecking only file-complexity would report improvement on a
+        file that is still flagged.
+
+        Do NOT pass --smells-only here: python:S3776 comes from `qlty check`,
+        so --smells-only silently drops it. Scan the TOUCHED PATHS, which
+        also keeps the cap off this gate:
+
+          ./bin/qlty-assistant scan --rescan-until-stable --format json \
+            --rule file-complexity --rule function-complexity \
+            --rule nested-control-flow --rule python:S3776 \
+            <EXISTING touched paths, plus every new sibling> \
+            > {workspace}/validation/recheck-scan.json
+
+        Filter the path list to files that still exist before running it:
+          for p in <touched paths>; do test -f "$p" && echo "$p"; done
+        A full split deletes the original module under the no-facade rule, so
+        the touched list can name a path that is gone — and a path-scoped
+        qlty command hard-errors on a missing file, failing this gate on the
+        cleanest possible outcome.
+
+        Use `--format json`, never `csv` — lowercase, as the commands above
+        and below spell it. argparse rejects `--format JSON` with
+        "invalid choice: 'JSON' (choose from 'text', 'json', 'md', 'csv')",
+        so a literal copy of an uppercase spelling fails before the scan
+        runs. The CSV renderer emits finding rows
+        ONLY — it carries no "stable", "degraded", "degradations" or
+        "iterations" field (verified: a `--rescan-until-stable --format csv`
+        run contains zero occurrences of either word). Since the wrapper
+        exits 0 whether or not stability was reached, a CSV-reading gate
+        cannot tell a stable scan from one that exhausted its iterations or
+        degraded to a SARIF fallback — so it would compare an incomplete
+        result and still report IMPROVED. BLOCK the gate when "stable" is
+        false or "degraded" is true, and record it rather than proceeding.
+
+        --rule is repeatable but only filters output, so the path arguments
+        are what actually narrow the scan. --rescan-until-stable is
+        required: a single capped run can omit findings, and this gate must
+        not pass because a finding happened not to be reported this time.
+
+        The `value` field is EMPTY for python:S3776 — that rule carries its
+        score only in the message text ("from N to the 15 allowed"). Parse
+        the message for it rather than reading `value`.
+
+        Compare PER BASELINE FINDING, not per file score. Every finding in
+        candidates.json that triggered work on a file must be shown to have
+        disappeared or improved:
+
+          a. For each baseline finding (file, line, rule, value), locate its
+             counterpart in the post-scan result. Match within the same
+             enclosing function and allow the small cross-tool line offset
+             documented in discover-candidates — do not demand exact line
+             equality, since a reduce-in-place edit moves lines.
+          b. ABSENCE IS NOT PROOF OF RESOLUTION. discover-candidates
+             establishes that a stable qlty result is best-effort, never
+             complete — the per-run cap can hide a finding on every
+             iteration. A batched scan over many touched paths makes that
+             MORE likely, so reading "not in the output" as GONE would let an
+             unresolved function pass this gate.
+
+             To claim GONE, the finding's absence must come from a scan that
+             could actually have seen it: re-scan THAT ONE FILE for THAT ONE
+             rule, stable, and confirm the file was in scope:
+               ./bin/qlty-assistant scan --rescan-until-stable --format json \
+                 --rule <rule> <that file>
+             A per-file per-rule scan has almost no cap pressure, so absence
+             there is meaningful. Absent from the batch AND absent from the
+             confirming scan -> resolved. Absent from the batch but present
+             in the confirming scan -> NOT resolved; the batch hid it.
+
+             If the confirming scan reports "stable": false or "degraded":
+             true, treat the finding as UNVERIFIED and BLOCK — do not record
+             it as resolved and do not record it as failed; say the gate
+             could not verify it.
+          c. Present with a LOWER value -> improved. Present with an
+             UNCHANGED or HIGHER value -> NOT improved, even if the file's
+             file-complexity score fell.
+          d. A file whose file-complexity dropped while a per-function
+             finding it was flagged for still stands is NOT improved. This is
+             the symmetrical hole to the discovery one: candidates can
+             qualify on a per-function finding with file_complexity null, so
+             a gate that only compares file scores never checks the finding
+             that caused the work.
+          e. Any per-function finding that is NEW relative to baseline is a
+             regression, regardless of file score.
+
+        For split files, also check the SUM of file-complexity across the
+        original path plus all new siblings — a split that halves one path
+        while the sum is unchanged has relocated complexity, not reduced it,
+        and must be reported as "relocated", not "improved".
+
+      Step 9 — write {workspace}/validation/import-check.json:
         {
           "new_modules": [
             { "path": "src/resume/parsing_experience_bullets.py", "importable": true, "issues": [] }
           ],
-          "shims": [
-            {
-              "path": "src/resume/parsing_experience.py",
-              "importable": true,
-              "symbols_exported": ["ExperienceParser", "parse_bullets"],
-              "symbols_expected": ["ExperienceParser", "parse_bullets"],
-              "match": true
-            }
+          "export_parity": [
+            { "path": "src/resume/parsing_experience.py", "missing_symbols": [], "match": true }
           ],
-          "downstream_importers": [
+          "call_sites_updated": [
             {
               "importer": "src/resume/cli/main.py",
-              "imports": "from resume.parsing_experience import ExperienceParser",
+              "old_import": "from resume.parsing_experience import ExperienceParser",
+              "new_import": "from resume.parsing_experience_bullets import ExperienceParser",
+              "resolves": true
+            },
+            {
+              "importer": "tests/resume_tests/test_parsing.py",
+              "old_import": "patch(\"resume.parsing_experience.ExperienceParser\")",
+              "new_import": "patch(\"resume.parsing_experience_bullets.ExperienceParser\")",
               "resolves": true
             }
           ],
+          "stale_references": [],
+          "facades_detected": [],
+          "bin_entrypoints_ok": true,
           "qlty_issues": [],
           "complexity_after": [
-            { "path": "src/resume/parsing_experience.py", "before": 208, "after": 40 }
+            { "path": "src/resume/parsing_experience.py", "before": 208, "after": 54, "verdict": "REDUCED|RELOCATED" }
           ],
           "overall": "PASS|ISSUES"
         }
+        "stale_references" and "facades_detected" MUST both be empty arrays
+        for this stage to pass. Any entry in either is a blocking failure.
+
+      REPORTING CONTRACT — this stage REPORTS findings; it does not block on
+      them. Set status "success" whenever the audit itself completed, even
+      when it found stale references or facades, and record every finding in
+      import-check.json with "overall": "ISSUES".
+
+      This is not leniency. The orchestrator halts the run before dependent
+      stages when a REQUIRED stage reports failed
+      (src/workflow/orchestrator.py:220-222), and this stage is required. If
+      it failed on the findings it exists to surface, apply-corrections — the
+      stage whose entire job is fixing dangling call sites and import errors
+      — would never run, and recheck would never confirm the repair. The gate
+      that must not be passed is recheck, after corrections; this stage's job
+      is to produce an accurate, complete finding list for that repair to act
+      on.
+
+      Report status "failed" ONLY when the audit could not be performed: an
+      unreadable upstream artifact, a scan that errored, a missing
+      pre-sweep-ref.txt. An audit that ran and found problems is a successful
+      audit.
+
+      Completion criteria — the AUDIT is not done until all hold:
+        - Every touched module was import-checked and the result recorded
+        - Export parity was computed for every pre-existing touched file, and
+          every moved symbol was checked at its destination
+        - The three stale-reference searches ran over src/, tests/ and bin/:
+          import statements (AST-resolved), mock.patch target strings, and
+          string-keyed dispatch tables
+        - The facade detector ran with INCLUDE_INIT=true and its result was
+          compared against the recorded baseline
+        - Dispatcher CLIs and bin/ entry points for touched groups were
+          started and their exit recorded
+        - import-check.json lists every finding, with "overall" set to PASS
+          only when stale_references and facades_detected are both empty
+        - No critical qlty issues on modified files
+        - Complexity genuinely decreased; a split whose sibling sum is
+          unchanged is reported as RELOCATED, not REDUCED
     agent:
       role: unit-validator
       model: sonnet
       tools: [Bash, Read, Write]
       access: read-only
+    # These criteria describe a COMPLETE AUDIT, not a clean result. A stale
+    # reference or facade is a finding to record and hand to
+    # apply-corrections, never a reason to report this required stage failed
+    # — that would halt the run before the correction stage could act. The
+    # blocking gate is `recheck`, after corrections.
     validation:
       strategy: unit
       criteria:
-        - All new sibling modules import without error
-        - All re-export shims export the same symbol set as the original files
-        - All downstream importers of original module paths still resolve
+        - Every touched module was import-checked and the outcome recorded
+        - Export parity was computed for every pre-existing touched file, and
+          every moved symbol checked at its destination
+        - All three stale-reference searches ran (AST-resolved imports,
+          mock.patch target strings, string-keyed dispatch tables) over src/,
+          tests/ and bin/, with every hit recorded in stale_references
+        - The facade detector ran with INCLUDE_INIT=true and its output was
+          compared against the recorded baseline, with any new entry recorded
+          in facades_detected
+        - Dispatcher CLIs and bin/ entry points for touched groups were
+          started and their exit status recorded
+        - The overall field is PASS only when stale_references and
+          facades_detected are both empty; otherwise ISSUES, with the stage
+          still reporting success because the audit completed
         - No critical qlty issues on modified files
-        - Complexity score for every split file decreased
+        - Complexity genuinely decreased; a split whose sibling sum is
+          unchanged is reported as RELOCATED, not REDUCED
       max_revisions: 1
     required: true
+    # Required for agent dispatch — see the note on verify-tests' outputs.
+    outputs:
+      - name: import-check
+        mode: generate
+        description: >
+          Call-site audit written to
+          {workspace}/validation/import-check.json: updated call sites,
+          stale_references, facades_detected, and the per-rule complexity
+          recheck.
     writes_to:
       - validation/import-check.json
 
@@ -500,6 +2055,8 @@ stages:
       Fix any remaining failures surfaced by validate-imports or verify-tests
       that were not already resolved.
 
+      IMPORTANT: export PYTHONPATH="$(pwd)/src" before any python3 command.
+
       Step 1 — check if corrections are needed:
         Read {workspace}/validation/import-check.json.
         Read {workspace}/validation/test-results.md.
@@ -507,25 +2064,44 @@ stages:
         FAIL groups: write "no corrections needed" to
         {workspace}/validation/corrections-applied.md and exit.
 
-      Step 2 — fix import issues:
-        For each entry in import-check.json where importable == false or
-        match == false:
-          - Read the shim file and the sibling it should re-export from.
-          - Fix the import statement.
+      Step 2 — fix dangling call sites:
+        For each entry in import-check.json "stale_references":
+          - Read the referencing file and the module that now owns the
+            symbol.
+          - Update the reference to the new path. For an import statement,
+            rewrite the import. For a mock.patch target string, rewrite only
+            the dotted path inside patch(...). For a string-table entry,
+            update the quoted path.
+          - NEVER fix a dangling reference by adding a re-export shim to the
+            old module. That is the forbidden pattern this workflow exists to
+            avoid; update the call site instead.
           - Re-run: python3 -c "import <module_path>" 2>&1
           - Confirm green before moving on.
 
-      Step 3 — fix test failures:
+      Step 3 — remove any detected facade:
+        For each entry in "facades_detected": delete the re-export block and
+        update whatever still imported through it to name the real module.
+
+      Step 4 — fix import failures:
+        For each entry where importable == false or match == false:
+          - Read the module and diagnose. Missing symbol, circular import,
+            and wrong relative path are the common causes.
+          - For a circular import, extract the shared type to a small third
+            module both sides import from.
+
+      Step 5 — fix test failures:
         For each group marked FAIL in test-results.md:
           - Read the failure output and the relevant source/test files.
-          - Apply the minimal fix (usually a missing re-export or wrong
-            import path).
+          - Apply the minimal fix in src/ or bin/. The test-file constraint
+            from decompose-groups still applies: no test may be created,
+            deleted, or have its logic changed; only a mock.patch dotted path
+            may be edited.
           - Re-run using the "Test Dir" column recorded for this group in
             test-results.md:
               PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s <test_dir_from_table> -t . -q 2>&1
           - Up to 2 additional fix cycles per group.
 
-      Step 4 — write {workspace}/validation/corrections-applied.md:
+      Step 6 — write {workspace}/validation/corrections-applied.md:
         ## Corrections Applied
         | Issue | File | Fix | Result |
         |-------|------|-----|--------|
@@ -549,53 +2125,213 @@ stages:
   # ===========================================================================
 
   - name: recheck
-    kind: validate
+    kind: execute
     depends_on: [apply-corrections]
     reads_from: [apply-corrections]
     description: >
-      Run the full test suite, qlty lint, and qlty complexity smell scan on
-      all modified files one final time. Escalate to code-writer-opus if any
+      Run the full test suite, qlty lint, and the qlty complexity scan on all
+      modified files one final time. Escalate to code-writer-opus if any
       check is still failing.
 
       Step 1 — full test suite:
-        PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests -t . -q 2>&1
+        PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests -t . -q > /tmp/recheck-suite.log 2>&1; echo "EXIT=$?"
+        grep -E "Ran [0-9]+ tests" /tmp/recheck-suite.log
+        grep -E "^(OK|FAILED)" /tmp/recheck-suite.log
 
-        If exit != 0:
+        Three things this form gets right, each of which otherwise yields a
+        false green:
+          - The log file gives the greps an INPUT. A bare
+            `grep -E "Ran [0-9]+ tests"` with no file argument reads stdin and
+            blocks, or inspects nothing — it cannot verify a run whose output
+            already went to the terminal.
+          - No `^` anchor on the "Ran" grep: unittest prefixes that line with
+            progress dots, so anchoring to column 0 misses it and a completed
+            run looks like it never finished.
+          - EXIT is read from a non-piped command. Do not pipe the test
+            command into `tail`/`head`; a pipeline returns its LAST element's
+            status, so a failing suite reports success.
+
+        The `2>&1` is required: unittest writes `Ran N tests`, `OK` and
+        `FAILED` to stderr. No "Ran N tests" line means the suite did not
+        run — re-run it, do not record a verdict.
+
+        If EXIT != 0:
           Record failure output to {workspace}/validation/recheck-test-failure.txt.
-          Attempt one targeted fix: read the failure output, identify the
-          failing test, fix the underlying import or re-export issue.
-          Re-run once. If still failing: set test_status "FAIL" and document
-          the blocker. The human gate will decide whether to proceed.
+          Attempt one targeted fix in src/ or bin/ only. Re-run once. If
+          still failing: set test_status "FAIL" and document the blocker. The
+          human gate decides whether to proceed.
 
       Step 2 — qlty lint on all files touched by decompose-groups:
         Enumerate modified files by reading {workspace}/outputs/*-splits.md
-        for all sibling paths and original shim paths.
-        ~/.qlty/bin/qlty check <space-separated list of .py files>
+        plus the pre-sweep range diff — NOT a bare `git diff --name-only`,
+        which returns nothing once the worker commits are merged and the
+        worktree is clean:
+          PRE_SWEEP=$(cat {workspace}/outputs/pre-sweep-ref.txt)
+          git diff --name-only "$PRE_SWEEP"...HEAD
+        Then filter to files that still exist, since the range lists deleted
+        originals and a path-scoped qlty command hard-errors on a missing
+        file:
+          for p in <the enumerated paths>; do test -f "$p" && echo "$p"; done
+        ~/.qlty/bin/qlty check <the surviving .py files>
 
-        If qlty reports critical issues: attempt auto-fix:
+        If qlty reports critical issues, attempt auto-fix:
           ~/.qlty/bin/qlty check --fix <file>
-        Re-run to confirm clean.
+        Re-run to confirm clean. Remember the per-run cap is
+        nondeterministic — prefer
+        ./bin/qlty-assistant scan --rescan-until-stable over trusting a
+        single clean result.
 
       Step 3 — qlty complexity recheck:
-        ./bin/qlty-assistant scan --smells-only --rule file-complexity \
-          --format csv
-        Confirm no file touched by this sweep still exceeds its pre-split
-        complexity value. It is acceptable for a split file to still appear
-        in the list (e.g. at 55-60) as long as it's a clear improvement and
-        in line with the rest of the codebase's untouched files — do not
-        chase zero.
+        Re-scan ALL FOUR candidate rules — a file can clear the
+        file-complexity floor while still breaching a per-function rule, and
+        checking only the file score would report improvement on a file that
+        is still flagged. Do NOT use --smells-only: python:S3776 comes from
+        `qlty check` and would be dropped.
+
+          ./bin/qlty-assistant scan --rescan-until-stable --format json \
+            --rule file-complexity --rule function-complexity \
+            --rule nested-control-flow --rule python:S3776 \
+            <EXISTING touched paths, plus every new sibling> \
+            > {workspace}/validation/final-scan.json
+
+        FILTER THE PATH LIST TO FILES THAT STILL EXIST first:
+          for p in <touched paths>; do test -f "$p" && echo "$p"; done
+        A full split legitimately DELETES the original module (the no-facade
+        rule leaves nothing behind), so the touched-file list can name a path
+        that is gone. Passing it to a path-scoped qlty command is a hard scan
+        error, which would fail this gate on the cleanest possible outcome.
+
+        JSON, not csv — this is the LAST gate before the human sees a
+        commit recommendation, and CSV carries no "stable"/"degraded"/
+        "iterations" metadata. Without those fields this stage cannot tell a
+        genuine stable result from a rescan that exhausted its iterations or
+        fell back in wire format, and would write complexity_status:
+        IMPROVED off an incomplete comparison. Block on "stable": false or
+        "degraded": true and record it in the recheck output; do not accept
+        the scan.
+
+        Pass the touched paths: `--rule` only filters output, so path
+        arguments are the sole lever that keeps the per-run cap from hiding a
+        finding this gate is meant to catch.
+
+        The `value` field is empty for python:S3776; its score lives in the
+        message ("from N to the 15 allowed").
+
+        Confirm, PER BASELINE FINDING rather than per file score, that every
+        finding which triggered work has disappeared or improved — matching
+        within the same enclosing function with the documented line offset,
+        since a reduce-in-place edit shifts lines. A file whose
+        file-complexity fell while the per-function finding it was flagged
+        for still stands at an unchanged value is NOT improved. Also confirm
+        no file exceeds its pre-change value on any of the four rules, and
+        that no NEW per-function finding appeared.
+
+        ABSENCE IS NOT RESOLUTION here either. This batched scan covers many
+        paths at once, so the per-run cap can hide an unresolved finding on
+        every iteration — and a stable result is best-effort, not complete.
+        Before recording any baseline finding as resolved because it is
+        missing from this output, confirm it with a per-file per-rule scan:
+          ./bin/qlty-assistant scan --rescan-until-stable --format json \
+            --rule <rule> <that file>
+        Absent from both -> resolved. Present in the narrow scan -> the batch
+        hid it, so NOT resolved. Narrow scan unstable or degraded -> the gate
+        could not verify it: report UNVERIFIED and block, rather than writing
+        IMPROVED off an unproven absence.
+        For split files, compare the SUM across the original path and all
+        new siblings against the original score: if the sum is unchanged,
+        complexity was relocated, not reduced — record that verdict honestly.
+        It is acceptable for a reduced file to still appear in the list (e.g.
+        at 55-60) as long as it is a clear improvement and in line with the
+        rest of the codebase — do not chase zero.
+
+      Step 3b — RE-RUN the import and facade validation. This is required,
+      not optional, and it is the only fresh evidence for the import/facade
+      acceptance criterion below.
+
+        validate-imports ran BEFORE apply-corrections, and
+        apply-corrections is permitted to edit imports, rewrite call sites
+        and delete modules. Its output is therefore stale by the time this
+        stage runs: a partial correction, or a re-export shim introduced
+        while fixing an import error, would leave import-check.json green
+        while the tree is broken. Tests, lint and complexity do not cover
+        this — a shim makes imports work, which is exactly why the project
+        forbids it, so a green suite is evidence FOR the defect, not against.
+
+        Re-run the three checks that can regress under correction:
+
+          a. Export parity for every pre-existing touched file, against the
+             pre-sweep ref (not HEAD):
+               PRE_SWEEP=$(cat {workspace}/outputs/pre-sweep-ref.txt)
+             Same procedure as validate-imports Step 3, including the
+             survived/deleted branch.
+
+          b. The three stale-reference searches over src/, tests/ and bin/:
+             AST-resolved imports, mock.patch target strings, and
+             string-keyed dispatch tables. Every one must return zero hits on
+             an old module path.
+
+          c. The facade detector, with the override and baseline comparison:
+               INCLUDE_INIT=true PYTHONPATH="$PWD/src" \
+                 python3 workflows/code/scripts/detect_facades.py \
+                 > {workspace}/validation/facades-final.json
+             Compare against the recorded baseline exactly as
+             validate-imports does. A facade that is new relative to baseline
+             and touched by this sweep is a blocking failure here — unlike in
+             validate-imports, which reports rather than blocks.
+
+        Write the outcome to {workspace}/validation/import-check-final.json
+        in the same shape as import-check.json. THIS file, not the pre-
+        correction one, is what the acceptance criterion and
+        `ready_for_commit` consume.
+
+        If apply-corrections did not run (import-check.json reported
+        "overall": "PASS" and no test failures), say so and reuse its result
+        — but state explicitly that no corrections were applied, rather than
+        silently skipping the re-validation.
 
       Step 4 — write {workspace}/validation/recheck.json:
         {
           "test_exit": 0,
           "test_status": "PASS|FAIL",
+          "tests_ran": 1203,
           "qlty_exit": 0,
           "qlty_status": "PASS|ISSUES",
           "qlty_issues": [],
-          "complexity_status": "IMPROVED|REGRESSED",
+          "complexity_status": "IMPROVED|RELOCATED|REGRESSED",
+          "import_check_final": "PASS|ISSUES",
+          "corrections_applied": true,
           "unresolved_failures": [],
-          "ready_for_commit": true|false
+          "ready_for_commit": false
         }
+
+        `ready_for_commit` is DERIVED, never asserted. It may be true only
+        when ALL of these hold, and it is false the moment any one does not:
+          test_status == "PASS"
+          qlty_status == "PASS"
+          complexity_status == "IMPROVED"   (RELOCATED and REGRESSED both
+                                             block — relocation is not a fix)
+          import_check_final == "PASS"      (from Step 3b's FRESH run, never
+                                             from the pre-correction
+                                             import-check.json)
+          unresolved_failures == []
+        The example above shows false deliberately: an agent that copies the
+        schema verbatim must hand the human gate a NON-commit-ready result,
+        not a green one it never earned. Compute the flag from the four
+        fields and state which one blocked it when false.
+
+      Acceptance criteria — this stage is not done until all hold:
+        - Full unittest discover exits 0 and prints a "Ran N tests" summary
+          line (the exit code alone is not evidence the suite ran)
+        - qlty check exits 0 on all modified files
+        - No file touched by this sweep has a higher complexity score than
+          before
+        - Split files report the sibling-sum verdict, not just the original
+          path's new score
+        - No unresolved import errors, dangling call sites, or re-export
+          facades remain — evidenced by Step 3b's FRESH import-and-facade
+          re-run written to import-check-final.json, never by the
+          pre-correction import-check.json, which apply-corrections may have
+          invalidated
     agent:
       role: unit-validator
       model: sonnet
@@ -604,21 +2340,60 @@ stages:
     validation:
       strategy: unit
       criteria:
-        - Full unittest discover exits 0
+        - Full unittest discover exits 0 and prints a "Ran N tests" summary line
         - qlty check exits 0 on all modified files
         - No file touched by this sweep has a higher complexity score than before
-        - No unresolved import errors remain
+        - Split files report the sibling-sum verdict, not just the original
+          path's new score
+        - No unresolved import errors, dangling call sites, or re-export
+          facades remain — evidenced by Step 3b's FRESH import-and-facade
+          re-run written to import-check-final.json, never by the
+          pre-correction import-check.json, which apply-corrections may have
+          invalidated
       max_revisions: 1
     required: true
+    # Required for agent dispatch — see the note on verify-tests' outputs.
+    # Without it the final tests/lint/complexity recheck no-ops and the human
+    # gate receives a stale or absent recheck.json.
+    outputs:
+      - name: recheck
+        mode: generate
+        description: >
+          Final verification written to {workspace}/validation/recheck.json:
+          test and lint status, the per-rule before/after complexity
+          comparison with REDUCED / RELOCATED / REGRESSED per file, and the
+          derived ready_for_commit flag.
+      # Declared as a real output, not just described in Step 3b. Without it
+      # the completion contract does not require the post-correction audit to
+      # exist, so an agent could omit the file while the stage still reports
+      # success — and ready_for_commit consumes it, so its absence would be
+      # indistinguishable from a passing audit.
+      - name: import-check-final
+        mode: generate
+        description: >
+          Post-correction import and facade audit written to
+          {workspace}/validation/import-check-final.json — export parity,
+          stale_references, and facades_detected re-run AFTER
+          apply-corrections. This is the only trustworthy import/facade
+          result at this point; the pre-correction import-check.json may have
+          been invalidated by the corrections themselves.
     writes_to:
       - validation/recheck.json
+      - validation/import-check-final.json
 
   # ===========================================================================
   # G7: Human gate — present results and ask to commit / open PR
   # ===========================================================================
 
+  # kind is `propose`, not `validate`, deliberately. This stage presents
+  # results and collects a decision; it verifies nothing. More importantly,
+  # dispatch._validate() builds its prompt from validation.criteria and never
+  # reads stage.spec.description, so as a validate stage with zero criteria
+  # this one would dispatch an agent with no instructions at all. `propose`
+  # routes through _action() -> _header(), which passes the description
+  # through as the ## Task section.
   - name: human-gate
-    kind: validate
+    kind: propose
     human_gate: true
     depends_on: [recheck]
     reads_from: [recheck, plan-splits, apply-corrections]
@@ -627,18 +2402,33 @@ stages:
       to proceed.
 
       Read and display:
-        {workspace}/outputs/design/plan.md                  — approved split plan
-        {workspace}/validation/test-results.md             — per-group test outcomes
-        {workspace}/validation/import-check.json           — import + complexity validation
-        {workspace}/validation/corrections-applied.md      — what was fixed
-        {workspace}/validation/recheck.json                — final lint + test + complexity status
+        {workspace}/outputs/merge-report.md                 — branches merged, per group
+        {workspace}/outputs/design/plan.md                  — approved plan
+        {workspace}/validation/test-results.md              — per-group test outcomes
+        {workspace}/validation/corrections-applied.md       — what was fixed
+        {workspace}/validation/import-check-final.json      — POST-correction call-site + facade audit
+        {workspace}/validation/recheck.json                 — final lint + test + complexity status
+
+      Display import-check-final.json, NOT the pre-correction
+      import-check.json. apply-corrections runs after that earlier audit and
+      may edit call sites or introduce a facade while fixing an import error,
+      so presenting the old green result would show the human an audit that
+      no longer describes the tree. recheck Step 3b re-runs the export
+      parity, stale-reference and facade checks specifically to produce the
+      final file; this gate must consume it.
+
+      If you want the earlier audit for contrast, label it explicitly as
+      pre-correction rather than listing the two interchangeably.
 
       Surface:
-        - Groups split successfully vs. failed
+        - Groups reduced successfully vs. failed
+        - Strategy downgrades (split -> reduce-in-place) and why
         - Files deferred (with reasons from plan.md)
         - Test status: PASS / FAIL with blocker details
         - Lint status: PASS / ISSUES
-        - Complexity before/after per split file
+        - Complexity before/after per file, and for any split the
+          sibling-sum verdict (REDUCED vs RELOCATED)
+        - Confirmation that zero re-export facades were introduced
 
       Ask the user:
         A) Commit and open PR — stage all modified files and run /open-pr
@@ -652,5 +2442,16 @@ stages:
       tools: [Read, Write]
       access: read-only
     required: true
+    # Required for agent dispatch — see the note on verify-tests' outputs.
+    # `propose` is not in _needs_agent()'s kind list either, so without this
+    # the human-gate prompt is never dispatched and the run records a
+    # successful local stage with no summary and no commit decision.
+    outputs:
+      - name: human-gate-decision
+        mode: generate
+        description: >
+          Human-gate summary written to
+          {workspace}/validation/human-gate-decision.md: what changed, what
+          was verified, and the commit / open-PR recommendation.
     writes_to:
       - validation/human-gate-decision.md

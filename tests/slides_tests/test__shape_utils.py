@@ -8,6 +8,7 @@ from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.util import Inches
 
 from slides._shape_utils import ShapeUtilsMixin
+from slides.generator import SlideGenerator
 
 
 def _make_shape(
@@ -343,3 +344,148 @@ class TestSetSlideTitleInheritStyle(unittest.TestCase):
         self.assertEqual(new_run.text, "Sub")
         # _style_run should have been called for the subtitle run
         mixin._style_run.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Tests via SlideGenerator (integration-level; mixin called through unified class)
+# ---------------------------------------------------------------------------
+
+
+class TestSlideWidthFallback(unittest.TestCase):
+    """Cover _slide_width fallback paths (lines 201-203)."""
+
+    def test_fallback_when_not_int(self) -> None:
+        """When slide_width is not an int, returns Inches(10) fallback."""
+        slide = MagicMock()
+        slide.part.package.presentation.slide_width = "not_an_int"
+
+        result = SlideGenerator._slide_width(slide)
+
+        self.assertEqual(result, Inches(10))
+
+    def test_fallback_on_attribute_error(self) -> None:
+        """When accessing slide_width raises AttributeError, returns Inches(10) fallback."""
+        slide = MagicMock(spec=[])
+
+        result = SlideGenerator._slide_width(slide)
+
+        self.assertEqual(result, Inches(10))
+
+    def test_fallback_on_type_error(self) -> None:
+        """When accessing slide_width raises TypeError, returns Inches(10) fallback."""
+        from unittest.mock import PropertyMock
+        slide = MagicMock()
+        pres_type = type(slide.part.package.presentation)
+        pres_type.slide_width = PropertyMock(
+            side_effect=TypeError("not subscriptable")
+        )
+        self.addCleanup(lambda: delattr(pres_type, "slide_width"))
+
+        result = SlideGenerator._slide_width(slide)
+
+        self.assertEqual(result, Inches(10))
+
+
+class TestRemoveUnusedPlaceholdersNoTextFrame(unittest.TestCase):
+    """Cover branch 663->667: placeholder without text_frame is removed."""
+
+    def setUp(self) -> None:
+        self.generator = SlideGenerator(template_path="/fake/template.pptx")
+
+    def test_placeholder_without_text_frame_is_removed(self) -> None:
+        """Non-title placeholder with has_text_frame=False is removed."""
+        mock_title = MagicMock()
+        mock_title.is_placeholder = True
+        mock_title.placeholder_format.idx = 0
+
+        mock_no_tf = MagicMock()
+        mock_no_tf.is_placeholder = True
+        mock_no_tf.placeholder_format.idx = 5
+        mock_no_tf.has_text_frame = False
+
+        mock_slide = MagicMock()
+        mock_slide.shapes = [mock_title, mock_no_tf]
+
+        self.generator._remove_unused_placeholders(mock_slide)
+
+        mock_no_tf._element.getparent().remove.assert_called_once_with(
+            mock_no_tf._element
+        )
+
+
+class TestRemoveUnusedPlaceholdersDigitKeep(unittest.TestCase):
+    """Cover the digit-check continue branch in _remove_unused_placeholders (line 666)."""
+
+    def setUp(self) -> None:
+        self.generator = SlideGenerator(template_path="/fake/template.pptx")
+
+    def test_keeps_page_number_placeholder(self) -> None:
+        """Placeholder with digit-only text is kept (page number)."""
+        mock_title = MagicMock()
+        mock_title.is_placeholder = True
+        mock_title.placeholder_format.idx = 0
+
+        mock_page_num = MagicMock()
+        mock_page_num.is_placeholder = True
+        mock_page_num.placeholder_format.idx = 12
+        mock_page_num.has_text_frame = True
+        mock_para = MagicMock()
+        mock_para.text = "3"
+        mock_page_num.text_frame.paragraphs = [mock_para]
+
+        mock_other = MagicMock()
+        mock_other.is_placeholder = True
+        mock_other.placeholder_format.idx = 1
+        mock_other.has_text_frame = True
+        mock_other_para = MagicMock()
+        mock_other_para.text = "Subtitle text"
+        mock_other.text_frame.paragraphs = [mock_other_para]
+
+        mock_slide = MagicMock()
+        mock_slide.shapes = [mock_title, mock_page_num, mock_other]
+
+        self.generator._remove_unused_placeholders(mock_slide)
+
+        mock_page_num._element.getparent.assert_not_called()
+        mock_other._element.getparent().remove.assert_called_once_with(
+            mock_other._element
+        )
+
+
+class TestRepositionTextboxTypeError(unittest.TestCase):
+    """Cover _reposition_textbox TypeError/ValueError (lines 312-313)."""
+
+    def setUp(self) -> None:
+        self.generator = SlideGenerator(template_path="/fake/template.pptx")
+
+    def test_type_error_in_top_conversion_is_handled(self) -> None:
+        """_reposition_textbox handles TypeError when shape.top is not numeric."""
+        mock_shape = MagicMock()
+        mock_shape.is_placeholder = False
+        mock_shape.shape_type = MSO_SHAPE_TYPE.TEXT_BOX
+        type(mock_shape).top = property(
+            lambda self: MagicMock(__int__=MagicMock(side_effect=TypeError("not numeric")))
+        )
+
+        mock_slide = MagicMock()
+        mock_slide.shapes = [mock_shape]
+
+        self.generator._reposition_textbox(mock_slide, 1.0, 10.0)
+
+    def test_value_error_in_top_conversion_is_handled(self) -> None:
+        """_reposition_textbox handles ValueError when shape.top cannot be converted."""
+        mock_shape = MagicMock()
+        mock_shape.is_placeholder = False
+        mock_shape.shape_type = MSO_SHAPE_TYPE.TEXT_BOX
+        type(mock_shape).top = property(
+            lambda self: MagicMock(__int__=MagicMock(side_effect=ValueError("invalid")))
+        )
+
+        mock_slide = MagicMock()
+        mock_slide.shapes = [mock_shape]
+
+        self.generator._reposition_textbox(mock_slide, 1.0, 10.0)
+
+
+if __name__ == "__main__":
+    unittest.main()

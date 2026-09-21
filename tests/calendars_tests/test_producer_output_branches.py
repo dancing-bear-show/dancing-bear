@@ -36,7 +36,7 @@ class TestGmailSweepTopProducerOutPath(unittest.TestCase):
     """Tests for GmailSweepTopProducer._produce_success with out_path set."""
 
     def test_produce_no_senders_prints_no_stats(self):
-        from calendars.gmail_pipelines import GmailSweepTopProducer, GmailSweepTopResult
+        from calendars.gmail_pipeline_sweep_top import GmailSweepTopProducer, GmailSweepTopResult
         payload = GmailSweepTopResult(top_senders=[], freq_days=30, inbox_only=True, out_path=None)
         env = ResultEnvelope(status="success", payload=payload)
         buf = io.StringIO()
@@ -45,7 +45,7 @@ class TestGmailSweepTopProducerOutPath(unittest.TestCase):
         self.assertIn("No sender stats available", buf.getvalue())
 
     def test_produce_with_out_path_writes_filters_yaml(self):
-        from calendars.gmail_pipelines import GmailSweepTopProducer, GmailSweepTopResult
+        from calendars.gmail_pipeline_sweep_top import GmailSweepTopProducer, GmailSweepTopResult
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = Path(tmpdir) / "filters.yaml"
             payload = GmailSweepTopResult(
@@ -68,7 +68,7 @@ class TestGmailSweepTopProducerOutPath(unittest.TestCase):
             self.assertIn("spam@example.com", content)
 
     def test_produce_with_senders_no_out_path(self):
-        from calendars.gmail_pipelines import GmailSweepTopProducer, GmailSweepTopResult
+        from calendars.gmail_pipeline_sweep_top import GmailSweepTopProducer, GmailSweepTopResult
         payload = GmailSweepTopResult(
             top_senders=[("sender@example.com", 5)],
             freq_days=7,

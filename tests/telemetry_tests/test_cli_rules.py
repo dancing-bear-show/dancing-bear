@@ -29,7 +29,7 @@ def _run_main(argv: list[str]) -> tuple[int, str]:
     try:
         with contextlib.redirect_stdout(buf):
             rc = main(argv)
-    except SystemExit as e:
+    except SystemExit as e:  # NOSONAR - argparse --help exits by design; re-raising would defeat the helper
         rc = e.code if isinstance(e.code, int) else 0
     return rc, buf.getvalue()
 
@@ -199,6 +199,7 @@ class TestRulesCommand(unittest.TestCase):
             with patch("telemetry.rules.validate_rules", return_value=errors):
                 rc, out = _run_main(["rules", "--validate"])
         self.assertNotEqual(rc, 0)
+        self.assertIn("avoidable.bash-as-grep: enabled must be boolean", out)
 
 
 # ---------------------------------------------------------------------------
@@ -220,6 +221,7 @@ class TestHistoryCommand(unittest.TestCase):
             MockProvider.return_value.get_sessions.return_value = [s]
             rc, out = _run_main(["history", "--days", "3"])
         self.assertEqual(rc, 0)
+        self.assertIn("Sessions", out)
 
     def test_model_split_on_slash(self):
         s = _make_session_summary(model="anthropic/claude-sonnet-4-6")
@@ -291,12 +293,13 @@ class TestSessionsCommand(unittest.TestCase):
             MockProvider.return_value.get_sessions.return_value = [s]
             rc, out = _run_main(["sessions", "--since", "7d", "--format", "table"])
         self.assertEqual(rc, 0)
+        self.assertIn("Sessions", out)
 
     def test_projects_dir_passed_to_provider(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
                 MockProvider.return_value.get_sessions.return_value = []
-                rc, out = _run_main(["sessions", "--since", "7d", "--projects-dir", tmpdir])
+                rc, _ = _run_main(["sessions", "--since", "7d", "--projects-dir", tmpdir])
             self.assertEqual(rc, 0)
             self.assertIsNotNone(MockProvider.call_args)
 
@@ -337,6 +340,7 @@ class TestAgentsCommand(unittest.TestCase):
             MockProvider.return_value.aggregate_agents.return_value = rows
             rc, out = _run_main(["agents", "--since", "7d", "--format", "table"])
         self.assertEqual(rc, 0)
+        self.assertIn("Agent usage", out)
 
     def test_model_filter(self):
         rows = [
@@ -469,6 +473,7 @@ class TestCostBreakdownCommand(unittest.TestCase):
             MockProvider.return_value.aggregate_agents.return_value = rows
             rc, out = _run_main(["cost-breakdown", "--since", "7d", "--format", "table", "--group-by", "agent"])
         self.assertEqual(rc, 0)
+        self.assertIn("Cost breakdown by agent", out)
 
     def test_group_by_day_table(self):
         now = datetime.now(tz=timezone.utc)
@@ -478,6 +483,7 @@ class TestCostBreakdownCommand(unittest.TestCase):
             MockProvider.return_value.get_sessions.return_value = [s]
             rc, out = _run_main(["cost-breakdown", "--since", "7d", "--format", "table", "--group-by", "day"])
         self.assertEqual(rc, 0)
+        self.assertIn("Cost breakdown by day", out)
 
     def test_limit_applied(self):
         rows = [
@@ -503,7 +509,7 @@ class TestCostBreakdownCommand(unittest.TestCase):
         s.start_time = None
         with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
             MockProvider.return_value.get_sessions.return_value = [s]
-            rc, out = _run_main(["cost-breakdown", "--since", "7d", "--group-by", "day"])
+            rc, _ = _run_main(["cost-breakdown", "--since", "7d", "--group-by", "day"])
         self.assertEqual(rc, 0)
 
 
@@ -563,7 +569,7 @@ class TestMainCLI(unittest.TestCase):
 class TestOtelCommand(unittest.TestCase):
     def test_otel_delegates_to_otel_main(self):
         with patch("telemetry.otel.cli.main", return_value=0) as mock_otel_main:
-            rc, out = _run_main(["otel", "help"])
+            rc, _ = _run_main(["otel", "help"])
         self.assertEqual(rc, 0)
         mock_otel_main.assert_called_once_with(["help"])
 

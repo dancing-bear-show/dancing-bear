@@ -11,7 +11,8 @@ import sys
 from dataclasses import dataclass
 from typing import Any
 
-from .docx_renderers import HeaderRenderer, ListSectionRenderer
+from .docx_header import HeaderRenderer
+from .docx_list_sections import ListSectionRenderer
 from .render_config import HeaderLineConfig
 from .schema import ExperienceEntry, PriorityItem, Resume
 

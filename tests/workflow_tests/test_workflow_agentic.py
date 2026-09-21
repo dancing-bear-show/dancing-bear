@@ -22,6 +22,7 @@ from unittest.mock import patch
 from tests.agentic_builder_contract import AgenticBuilderContractMixin
 from tests.agentic_cli_contract import AgenticCLIContractMixin
 from tests.cli_separator_contract import SeparatorContractMixin
+from tests.cli_no_subcommand_contract import NoSubcommandContractMixin
 
 
 class TestWorkflowAgenticBuilder(AgenticBuilderContractMixin, unittest.TestCase):
@@ -91,6 +92,15 @@ class TestWorkflowSeparatorCLI(SeparatorContractMixin, unittest.TestCase):
 
     MODULE_PATH = "workflow.cli"
     APP_ID = "workflow"
+
+
+class TestWorkflowNoSubcommand(NoSubcommandContractMixin, unittest.TestCase):
+    """Rule A7 — the no-subcommand exit code is deliberate."""
+
+    # One-line usage to STDERR with rc=2.
+    MODULE_PATH = "workflow.cli"
+    EXPECTED_RC = 2
+    EXPECTED_STREAM = "stderr"
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,6 @@
 """Live stats renderer (_StatsRenderer), run_stats, and print_summary entry points."""
 
-from rich.console import Console
+from rich.console import Console, ConsoleRenderable
 from rich.panel import Panel
 
 from telemetry.blame import BlameEngine
@@ -50,7 +50,7 @@ class _StatsRenderer:
         if self.resolved_session_id and self.session_file is None:
             self.session_file = self.transcript.find_session_file(self.resolved_session_id)
 
-    def build(self) -> object:
+    def build(self) -> ConsoleRenderable:
         """Return a Rich renderable for the current session state."""
         self._resolve_session()
 

@@ -136,7 +136,7 @@ def _emit_json(data: OtelDisplayData, window: str = "24h") -> int:
     sk = data.skills
     sp = data.session_patterns
 
-    payload = {
+    payload: dict[str, object] = {
         "source": "otel",
         "window": window,
         "usage": {
@@ -203,8 +203,9 @@ def _emit_json(data: OtelDisplayData, window: str = "24h") -> int:
     }
     wf_cost = _get_workflow_runs_cost_24h()
     if wf_cost is not None:
-        payload["workflow_runs_cost_24h"] = round(wf_cost, 4)
-    return emit_one(payload, fmt="json")
+        payload["workflow_runs_cost_24h"] = float(round(wf_cost, 4))
+    emit_one(payload, fmt="json")
+    return 0
 
 
 def _emit_table(data: OtelDisplayData, window: str = "24h") -> int:

@@ -294,6 +294,9 @@ def cmd_from_yaml(args) -> int:
     mermaid_text, err = _convert_yaml_spec(spec)
     if err:
         return err
+    if mermaid_text is None:
+        print("Error: diagram conversion returned no output", file=sys.stderr)
+        return 1
 
     if getattr(args, "embedded", False):
         mermaid_text = f"```mermaid\n{mermaid_text}\n```"

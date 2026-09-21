@@ -2,7 +2,8 @@
 
 This module re-exports all pipeline components from their implementation modules:
 - pipeline_base.py: Shared utilities and base classes
-- gmail_pipelines.py: Gmail-related pipelines
+- gmail_types.py, gmail_pipeline_receipts.py, gmail_pipeline_scan_classes.py,
+  gmail_pipeline_mail_list.py, gmail_pipeline_sweep_top.py: Gmail-related pipelines
 - outlook_pipelines.py: Outlook-related pipelines
 """
 from __future__ import annotations
@@ -22,8 +23,8 @@ from .pipeline_base import (
 )
 
 # Re-export Gmail pipelines
-from .gmail_pipelines import (
-    CalendarEvent,
+from .gmail_types import CalendarEvent
+from .gmail_pipeline_receipts import (
     GmailReceiptsRequest,
     GmailReceiptsRequestConsumer,
     GmailScanResult,
@@ -32,16 +33,22 @@ from .gmail_pipelines import (
     GmailPlanResult,
     GmailPlanProducer,
     GmailReceiptsProcessor,
+)
+from .gmail_pipeline_scan_classes import (
     GmailScanClassesRequest,
     GmailScanClassesRequestConsumer,
     GmailScanClassesResult,
     GmailScanClassesProcessor,
     GmailScanClassesProducer,
+)
+from .gmail_pipeline_mail_list import (
     GmailMailListRequest,
     GmailMailListRequestConsumer,
     GmailMailListResult,
     GmailMailListProcessor,
     GmailMailListProducer,
+)
+from .gmail_pipeline_sweep_top import (
     GmailSweepTopRequest,
     GmailSweepTopRequestConsumer,
     GmailSweepTopResult,

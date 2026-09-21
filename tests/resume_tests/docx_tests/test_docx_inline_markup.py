@@ -38,7 +38,7 @@ class TestBulletRendererMarkup(unittest.TestCase):
     """Markup resolves to runs through the shared bullet mechanism."""
 
     def _get_renderer(self):
-        from resume.docx_renderers import BulletRenderer
+        from resume.docx_bullets import BulletRenderer
         return make_fake_renderer(BulletRenderer)
 
     def test_bold_markup_becomes_a_bold_run(self):
@@ -119,7 +119,7 @@ class TestMarkupAndKeywordBolding(unittest.TestCase):
     """Markup and keyword bolding compose without fighting or double-wrapping."""
 
     def _get_renderer(self):
-        from resume.docx_renderers import BulletRenderer
+        from resume.docx_bullets import BulletRenderer
         return make_fake_renderer(BulletRenderer)
 
     def test_keyword_inside_bold_markup_stays_one_run(self):
@@ -338,7 +338,7 @@ class TestChromeIgnoresMarkup(unittest.TestCase):
 
     def test_group_titles_are_not_parsed(self):
         from tests.fakes.docx import FakeDocument
-        from resume.docx_renderers import HeaderRenderer
+        from resume.docx_header import HeaderRenderer
         doc = FakeDocument()
         HeaderRenderer(doc).add_group_title("**Languages**", {})
         self.assertIn("**Languages**", all_text(doc))

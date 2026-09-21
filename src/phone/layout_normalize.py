@@ -138,8 +138,8 @@ def to_yaml_export(layout: NormalizedLayout) -> dict[str, Any]:
     return export
 
 
-def _add_app_location(loc: dict[str, str], bid: str, location: str) -> None:
-    """Add app to location map if not already present."""
+def _add_app_location(loc: dict[str, str], bid: str | None, location: str) -> None:
+    """Add app to location map if not already present.  Silently skips None bundle IDs."""
     if bid and bid not in loc:
         loc[bid] = location
 

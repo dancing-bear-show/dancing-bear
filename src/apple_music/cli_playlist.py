@@ -536,6 +536,9 @@ def _delete_duplicate_playlists(
     """Delete a list of duplicate playlists and return their IDs."""
     deleted = []
     for p in remove:
-        client.delete_playlist(p.get("id"))
-        deleted.append(p.get("id"))
+        pid = p.get("id")
+        if not isinstance(pid, str) or not pid:
+            continue
+        client.delete_playlist(pid)
+        deleted.append(pid)
     return deleted

@@ -154,6 +154,29 @@ test_patterns = [
 [smells]
 mode = "comment"
 
+# ---- identical_code / duplication is NOT tunable, and NOT a CI gate ----
+#
+# `qlty smells` reports duplication; `qlty check` (what CI runs) does not.
+# A duplication finding in triage output therefore blocks nothing.
+#
+# Every documented knob for it was probed and none works. Recorded here so the
+# next person does not repeat the search:
+#   [smells.duplication] threshold      -> "not part of the supported
+#                                          configuration and will be ignored"
+#   smells.duplication_threshold        -> same warning
+#   [smells.identical_code] nodes_threshold -> same warning
+#   [smells.identical_code] enabled = false -> ACCEPTED SILENTLY, still reports
+#   # qlty-ignore(duplication) comment  -> no effect; it only perturbs the
+#                                          matched region (mass 105 -> 69)
+# Only exclude_patterns suppresses it, and that is top-level: it would drop the
+# file from ruff and bandit too. Not worth it for a duplication finding that
+# never reaches CI.
+#
+# CAUTION when probing this: appending a second `[smells]` table is a TOML
+# duplicate-key error, and qlty responds by printing "✔ No issues" with exit 0.
+# A broken config is indistinguishable from a clean scan. Read the full output,
+# not just a grep for the finding.
+
 # file_complexity is the SUM of every function's complexity in a file, so it
 # scales with function count, not with how complex any single function is.
 # At the default threshold of 50 it flagged 63 files whose median size was only

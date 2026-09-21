@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from calendars.gmail_pipelines import CalendarEvent
+from calendars.gmail_types import CalendarEvent
 from calendars.outlook_pipelines.export import (
     _SUPPORTED_PATTERNS,
     _convert_one_off,

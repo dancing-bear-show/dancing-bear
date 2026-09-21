@@ -176,10 +176,13 @@ def _coerce_poll_interval(raw: dict) -> int:
 
 def _resolve_sections(raw: dict) -> tuple[dict, bool]:
     """Merge stored sections over defaults. Returns (sections, needs_migration)."""
-    stored_sections = raw.get("sections")
-    needs_migration = not isinstance(stored_sections, dict)
+    _raw_sections = raw.get("sections")
+    needs_migration = not isinstance(_raw_sections, dict)
     if needs_migration:
-        stored_sections = _migrate_flat_keys(raw)
+        stored_sections: dict = _migrate_flat_keys(raw)
+    else:
+        # isinstance(_raw_sections, dict) is guaranteed by `not needs_migration`
+        stored_sections = _raw_sections if isinstance(_raw_sections, dict) else {}
 
     sections: dict = {
         name: _merge_section(defaults, stored_sections.get(name, {}))

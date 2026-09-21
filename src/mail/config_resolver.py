@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import overload
 
 from core.constants import credential_ini_paths, read_credential_ini_merged, _config_roots
 
@@ -18,7 +19,21 @@ DEFAULT_OUTLOOK_TOKEN = os.path.join(_DEFAULT_CONFIG_DIR, "outlook_token.json")
 DEFAULT_OUTLOOK_FLOW = os.path.join(_DEFAULT_CONFIG_DIR, "msal_flow.json")
 
 
+# Bodies are `...` on the def line, not `pass` on its own. A CodeQL rule
+# suggested `pass` ("statement has no effect"); that trades one finding for
+# three -- radarlint S1186 (empty body) plus two uncovered lines, because an
+# overload declaration is unreachable at runtime by construction. `...` keeps
+# the body on the def line, where it is neither a separate statement nor a
+# separately measured one. Measured in PR #328: the `pass` form dropped the
+# coverage diff from 100% to 95.1% on exactly those lines.
+@overload
+def expand_path(path: str) -> str: ...
+@overload
+def expand_path(path: None) -> None: ...
+@overload
+def expand_path(path: str | None) -> str | None: ...
 def expand_path(path: str | None) -> str | None:
+    """Expand ``~`` in *path*.  Returns the same type as received (str→str, None→None)."""
     if not path:
         return path
     return os.path.expanduser(path)

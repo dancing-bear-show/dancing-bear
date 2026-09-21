@@ -10,9 +10,13 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from telemetry.otel.cost_models import ToolErrorSummary
 from telemetry.otel.reader import OTLPDataDir, OTLPReader
+
+if TYPE_CHECKING:
+    from telemetry.otel.models import OTLPEvent
 
 
 @dataclass
@@ -65,13 +69,13 @@ def _accumulate_tool_events(
 
 
 def _process_tool_event(
-    event: object, tools: dict[str, _ToolAccumulator]
+    event: OTLPEvent, tools: dict[str, _ToolAccumulator]
 ) -> None:
     """Process a single tool_result event into accumulators."""
-    tool_name = event.get_attr("tool_name") or "unknown"  # type: ignore[union-attr]
+    tool_name = event.get_attr("tool_name") or "unknown"
     session_id = (
-        event.get_attr("session.id")  # type: ignore[union-attr]
-        or event.get_attr("session_id")  # type: ignore[union-attr]
+        event.get_attr("session.id")
+        or event.get_attr("session_id")
         or "unknown"
     )
 
@@ -79,11 +83,11 @@ def _process_tool_event(
     acc.total_calls += 1
     acc.sessions.add(session_id)
 
-    success_val = event.get_attr("success")  # type: ignore[union-attr]
+    success_val = event.get_attr("success")
     if success_val in ("false", "False", False):
         acc.failures += 1
 
-    dur = event.get_attr_as_float("duration_ms")  # type: ignore[union-attr]
+    dur = event.get_attr_as_float("duration_ms")
     if dur is not None and dur > 0:
         acc.durations.append(dur)
 

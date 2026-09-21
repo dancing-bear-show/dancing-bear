@@ -52,7 +52,7 @@ title: Telemetry — data sources and command routing
 ---
 flowchart TB
     bin["./bin/telemetry"]
-    cli_main["cli.py → cli_sessions.py\n(click group)"]
+    cli_main["cli.py → cli_sessions.py\n(argparse CLIApp)"]
     subgraph cmds["CLI Commands"]
         c_cost["cost / cost-breakdown\nagents / sessions / history"]
         c_live["live / stats / summary\n(Textual TUI)"]
@@ -83,9 +83,9 @@ flowchart TB
 ## Key Modules
 
 - `cli.py` — thin shim; imports from `cli_sessions.py` and `cli_formatters.py`
-- `cli_sessions.py` — click command group; all top-level subcommands
+- `cli_sessions.py` — argparse `CLIApp`; all top-level subcommands
 - `cli_formatters.py` — pure formatting helpers; no I/O side effects
-- `_cli_sessions.py`, `_cli_agents.py` — click command implementations
+- `_cli_sessions.py`, `_cli_agents.py` — subcommand implementations
 - `providers/transcript.py` — `TranscriptProvider`; parses Claude Code JSONL under `~/.claude/projects`
 - `parser.py`, `_transcript_record_parser.py` — transcript record parsing
 - `parse_transcripts.py` / `parse_transcripts_io.py` / `parse_transcripts_emit.py` — `parse-transcripts` command

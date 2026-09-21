@@ -10,6 +10,7 @@ from core.cli_errors import CLIError
 from core.cli_output import emit_one
 from core.format_utils import format_tokens as _fmt_tokens
 from core.text_utils import truncate_text
+from telemetry._menubar_budget import _safe_float, _safe_int
 
 if TYPE_CHECKING:
     from telemetry.models import AgentTokenRow, SessionSummary
@@ -256,17 +257,17 @@ def _build_breakdown_table(
     title = f"Cost breakdown by {group_by} ({since})"
     table = Table(show_header=True, header_style="bold", title=title, show_footer=True)
 
-    total_cost = sum(float(r["est_cost"]) for r in rows)
+    total_cost = sum(_safe_float(r["est_cost"], 0.0) for r in rows)
 
     if group_by == "agent":
         table.add_column("Agent", style="cyan", no_wrap=True, footer="TOTAL")
-        table.add_column("Calls", justify="right", footer=str(sum(int(r["calls"]) for r in rows)))  # type: ignore[arg-type]
+        table.add_column("Calls", justify="right", footer=str(sum(_safe_int(r["calls"], 0) for r in rows)))
         table.add_column(_COL_EST_COST, justify="right", footer=f"${total_cost:.4f}")
         for r in rows:
             table.add_row(
                 str(r["agent"]),
                 str(r["calls"]),
-                f"${float(r['est_cost']):.4f}",
+                f"${_safe_float(r['est_cost'], 0.0):.4f}",
             )
     else:
         table.add_column("Day", style="cyan", no_wrap=True, footer="TOTAL")
@@ -274,7 +275,7 @@ def _build_breakdown_table(
         for r in rows:
             table.add_row(
                 str(r["day"]),
-                f"${float(r['est_cost']):.4f}",
+                f"${_safe_float(r['est_cost'], 0.0):.4f}",
             )
 
     return table

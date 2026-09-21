@@ -8,7 +8,7 @@ Provides renderers for sections that delegate directly to render_simple_list:
 from __future__ import annotations
 
 from .docx_links import add_hyperlink, display_url, normalize_link_url
-from .docx_renderers import ListSectionRenderer
+from .docx_list_sections import ListSectionRenderer
 from .schema import Presentation, Resume
 
 

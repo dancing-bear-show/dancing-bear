@@ -117,5 +117,39 @@ class TestPickMatchingSong(unittest.TestCase):
         self.assertIsNotNone(_pick_matching_song(results, "M83"))
 
 
+
+class TestDeleteDuplicatePlaylists(unittest.TestCase):
+    """_delete_duplicate_playlists skips non-string and None ids."""
+
+    def test_skips_none_id(self):
+        from apple_music.cli_playlist import _delete_duplicate_playlists
+        from tests.apple_music_tests.fixtures import FakeAppleMusicClient
+
+        client = FakeAppleMusicClient(storefront="us", playlists=[])
+        result = _delete_duplicate_playlists(client, [{"title": "Mix"}])  # no id key
+        self.assertEqual(result, [])
+        self.assertEqual(client.deleted, [])
+
+    def test_skips_non_string_id(self):
+        from apple_music.cli_playlist import _delete_duplicate_playlists
+        from tests.apple_music_tests.fixtures import FakeAppleMusicClient
+
+        # An int id (from JSON parsing without schema validation) must be skipped,
+        # not forwarded as a stringified path like "123" to the delete endpoint.
+        client = FakeAppleMusicClient(storefront="us", playlists=[])
+        result = _delete_duplicate_playlists(client, [{"id": 123, "title": "Mix"}])
+        self.assertEqual(result, [])
+        self.assertEqual(client.deleted, [])
+
+    def test_deletes_valid_string_id(self):
+        from apple_music.cli_playlist import _delete_duplicate_playlists
+        from tests.apple_music_tests.fixtures import FakeAppleMusicClient
+
+        client = FakeAppleMusicClient(storefront="us", playlists=[])
+        result = _delete_duplicate_playlists(client, [{"id": "pl-abc", "title": "Mix"}])
+        self.assertEqual(result, ["pl-abc"])
+        self.assertIn("pl-abc", client.deleted)
+
+
 if __name__ == "__main__":
     unittest.main()

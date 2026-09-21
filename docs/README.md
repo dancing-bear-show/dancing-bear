@@ -8,7 +8,7 @@ Guided, newcomer-friendly documentation for dancing-bear. Start at the top.
 | [Why CLIs, Not MCP](why-clis-not-mcp.md) | You want the design thesis — why capabilities are CLIs rather than an MCP server. |
 | [Features](features.md) | You're asking "what can this actually do for me?" |
 | [Architecture](architecture.md) | You're about to change code and need to know how the pieces fit. |
-| [Workflow Engine](workflow-engine.md) | You want to run or author one of the 52 YAML DAG workflows. |
+| [Workflow Engine](workflow-engine.md) | You want to run or author one of the checked-in YAML DAG workflows. |
 
 ## Reference docs
 
