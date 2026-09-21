@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 
 from core.cli_framework import CLIApp
-from core.cli_framework_types import Argument
 from core.textio import write_text
 
 from ..io_utils import write_yaml_or_json
@@ -56,6 +55,5 @@ def register_summarize_commands(app: CLIApp) -> None:
         (("--profile",), {"help": PROFILE_HELP_DATA}),
         (("--out-dir",), {"help": OUT_DIR_HELP}),
     ]
-    for flags, kwargs in reversed(_ARGS):
-        app._pending_arguments.append(Argument(flags, kwargs))
+    app.add_arguments(_ARGS)
     app.command("summarize", help="Build heuristically-derived summary output")(cmd_summarize)

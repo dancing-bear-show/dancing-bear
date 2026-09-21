@@ -15,6 +15,16 @@ from .schema import _Item
 _logger = logging.getLogger(__name__)
 
 
+def join_name_desc(name: str, desc: str, desc_sep: str) -> str:
+    """Join a name and description, omitting the separator when desc is empty.
+
+    Callers differ in how they clean the halves — some clean the joined result,
+    others each half independently — so this joins only and leaves cleaning to
+    the caller.
+    """
+    return f"{name}{desc_sep}{desc}" if desc else name
+
+
 class ListSectionRenderer:
     """Renders simple list sections (interests, languages, etc.)."""
 
@@ -129,8 +139,7 @@ class ListSectionRenderer:
         """
         if not name:
             return None
-        text = f"{name}{desc_sep}{desc}" if desc else name
-        return self.text.clean_inline(text)
+        return self.text.clean_inline(join_name_desc(name, desc, desc_sep))
 
     def render_simple_list(
         self,

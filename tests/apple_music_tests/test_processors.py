@@ -421,7 +421,7 @@ class TestExportProcessorSad(unittest.TestCase):
     def test_exception_during_track_fetch_returns_error(self):
         class _TrackBrokenClient:
             def list_library_playlists(self, limit=None):
-                return [{"id": "pl-1", "attributes": {"name": "Mix"}}]
+                return [make_playlist("pl-1", "Mix")]
 
             def list_playlist_tracks(self, playlist_id, limit=None):
                 raise RuntimeError("track API error")

@@ -1,6 +1,7 @@
-"""apple_music CLI — re-export shim.
+"""apple_music CLI — argument parsing and command handlers.
 
-Implementation lives in:
+Owns main(), the CLIApp wiring, and the token/ping/list/tracks/export/create/
+dedupe handlers. Supporting pieces it draws on:
   - apple_music.cli_helpers: auth, client factory, JSON output helpers, PlaylistCreationConfig
   - apple_music.cli_models: typed result and request dataclasses
   - apple_music.cli_pipeline: processors, producers, and output plumbing

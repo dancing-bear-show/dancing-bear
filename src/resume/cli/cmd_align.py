@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from core.cli_framework import CLIApp
-from core.cli_framework_types import Argument
 
 from ..io_utils import write_yaml_or_json
 from ..job import load_job_config, build_keyword_spec
@@ -95,8 +94,7 @@ def register_align_commands(app: CLIApp) -> None:
         (("--profile",), {"help": PROFILE_HELP_DATA}),
         (("--out-dir",), {"help": OUT_DIR_HELP}),
     ]
-    for flags, kwargs in reversed(_ALIGN_ARGS):
-        app._pending_arguments.append(Argument(flags, kwargs))
+    app.add_arguments(_ALIGN_ARGS)
     app.command("align", help="Align unified candidate data with a job posting YAML/JSON")(cmd_align)
 
     _CANDIDATE_INIT_ARGS: list[tuple[tuple[str, ...], dict[str, Any]]] = [
@@ -107,6 +105,5 @@ def register_align_commands(app: CLIApp) -> None:
         (("--profile",), {"help": PROFILE_HELP_DATA}),
         (("--out-dir",), {"help": OUT_DIR_HELP}),
     ]
-    for flags, kwargs in reversed(_CANDIDATE_INIT_ARGS):
-        app._pending_arguments.append(Argument(flags, kwargs))
+    app.add_arguments(_CANDIDATE_INIT_ARGS)
     app.command("candidate-init", help="Generate a candidate skills YAML from unified data")(cmd_candidate_init)

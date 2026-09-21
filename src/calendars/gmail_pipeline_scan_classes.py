@@ -9,7 +9,7 @@ from typing import Any
 from core.pipeline import SafeProcessor
 from core.text_utils import html_to_text
 
-from .gmail_service import GmailService, QueryParams
+from .gmail_service import QueryParams
 from .scan_common import (
     DEFAULT_CLASS_SUBJECT,
     RANGE_PAT,
@@ -23,7 +23,7 @@ from .scan_common import (
 from .pipeline_base import (
     BaseProducer,
     GmailAuth,
-    GmailServiceBuilder,
+    GmailServiceBuilderMixin,
     RequestConsumer,
     dedupe_events,
     DAY_MAP,
@@ -67,28 +67,30 @@ class GmailScanClassesResult:
     out_path: Path | None
 
 
-class GmailScanClassesProcessor(SafeProcessor[GmailScanClassesRequest, GmailScanClassesResult]):
+class GmailScanClassesProcessor(
+    GmailServiceBuilderMixin, SafeProcessor[GmailScanClassesRequest, GmailScanClassesResult]
+):
     def __init__(self, service_builder=None) -> None:
         from .scan_common import MetaParserConfig
 
-        self._service_builder = service_builder or self._default_service_builder
+        super().__init__(service_builder)
         self._day_map = DAY_MAP
         self._range_pat = RANGE_PAT
         self._month_map = MONTH_MAP
         self._meta_config = MetaParserConfig()
 
-    def _default_service_builder(self, auth: GmailAuth):
-        return GmailServiceBuilder.build(auth)
-
     def _process_safe(self, payload: GmailScanClassesRequest) -> GmailScanClassesResult:
         svc = self._service_builder(payload.auth)
-        query = GmailService.build_query_from_params(QueryParams(
-            explicit=payload.query,
-            from_text=payload.from_text,
-            days=payload.days,
-            inbox_only=payload.inbox_only,
-        ))
-        ids = svc.list_message_ids(query=query, max_pages=payload.pages, page_size=payload.page_size)
+        ids = svc.query_and_list_ids(
+            QueryParams(
+                explicit=payload.query,
+                from_text=payload.from_text,
+                days=payload.days,
+                inbox_only=payload.inbox_only,
+            ),
+            max_pages=payload.pages,
+            page_size=payload.page_size,
+        )
         if not ids:
             return GmailScanClassesResult(events=[], message_count=0, out_path=payload.out_path)
         extracted: list[dict[str, Any]] = []

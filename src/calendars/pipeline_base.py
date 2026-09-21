@@ -5,6 +5,7 @@ Provides shared functionality for Gmail and Outlook pipelines.
 from __future__ import annotations
 
 import datetime as _dt
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -16,12 +17,12 @@ from core.constants import DAY_START_TIME, DAY_END_TIME
 
 from .gmail_service import GmailService
 
-# Re-export for backward compatibility
 __all__ = [
     "RequestConsumer",
     "BaseProducer",
     "GmailAuth",
     "GmailServiceBuilder",
+    "GmailServiceBuilderMixin",
     "DateWindowResolver",
     "check_service_required",
     "to_iso_str",
@@ -29,6 +30,7 @@ __all__ = [
     "parse_month",
     "DAY_MAP",
     "MONTH_MAP",
+    "load_schedule_sources",
 ]
 
 # Error message constant
@@ -67,6 +69,25 @@ class GmailServiceBuilder:
             token_path=auth.token,
             service_cls=service_cls or GmailService,
         )
+
+
+class GmailServiceBuilderMixin:
+    """Shared __init__ / default service-builder for Gmail pipeline processors.
+
+    Subclasses accept an optional service_builder override (for tests) and
+    fall back to GmailServiceBuilder.build. Pass service_cls to fix the
+    builder to a specific service class (e.g. receipts pipeline).
+    """
+
+    _service_cls: Any = None
+
+    def __init__(
+        self, service_builder: Callable[[GmailAuth], Any] | None = None
+    ) -> None:
+        self._service_builder = service_builder or self._default_service_builder
+
+    def _default_service_builder(self, auth: GmailAuth) -> Any:
+        return GmailServiceBuilder.build(auth, service_cls=self._service_cls)
 
 
 class DateWindowResolver:
@@ -135,3 +156,23 @@ def dedupe_events(events: list[dict[str, Any]], key_fn=None) -> list[dict[str, A
         Deduplicated list of events.
     """
     return dedupe(events, key_fn or _default_event_key)
+
+
+def load_schedule_sources(
+    sources: Iterable[str], kind: str | None
+) -> list[dict[str, Any]]:
+    """Load schedule items from multiple sources, normalized to event dicts."""
+    from calendars.importer import load_schedule
+    from calendars.model import normalize_event
+
+    out: list[dict[str, Any]] = []
+    for src in sources:
+        items = load_schedule(src, kind)
+        for it in items:
+            ev = {
+                "subject": getattr(it, "subject", None),
+                "start": getattr(it, "start_iso", None),
+                "end": getattr(it, "end_iso", None),
+            }
+            out.append(normalize_event(ev))
+    return out

@@ -21,7 +21,7 @@ __all__ = [
     "FakeCalendarService",
     "FakeGoogleCalendarService",
     "NoOpProducer",
-    "make_mock_processor",
+    "make_mock_processor_class",
 ]
 
 
@@ -68,8 +68,13 @@ class NoOpProducer:
         pass  # intentionally empty stub - no-op for pipeline testing
 
 
-def make_mock_processor(envelope):
-    """Create a mock processor that returns the given envelope.
+def make_mock_processor_class(envelope):
+    """Create a mock processor CLASS that returns the given envelope.
+
+    Distinct from ``tests.fixtures.make_mock_processor``, which returns a
+    configured MagicMock *instance*. ``run_pipeline`` instantiates the
+    processor itself, so it needs the class; the two are not interchangeable
+    and previously shared a name.
 
     Args:
         envelope: The ResultEnvelope to return from process()

@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 
 from core.cli_framework import CLIApp
-from core.cli_framework_types import Argument
 
 from ..schema import CandidateData
 from ..parsing_linkedin import parse_linkedin_text
@@ -35,6 +34,5 @@ def register_extract_commands(app: CLIApp) -> None:
         (("--profile",), {"help": PROFILE_HELP_OUT}),
         (("--out-dir",), {"help": OUT_DIR_HELP}),
     ]
-    for flags, kwargs in reversed(_ARGS):
-        app._pending_arguments.append(Argument(flags, kwargs))
+    app.add_arguments(_ARGS)
     app.command("extract", help="Parse LinkedIn and resume sources and produce unified data (YAML/JSON)")(cmd_extract)

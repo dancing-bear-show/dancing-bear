@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .docx_header import HeaderRenderer
-from .docx_list_sections import ListSectionRenderer
+from .docx_list_sections import ListSectionRenderer, join_name_desc
 from .schema import PriorityItem, Resume, SkillGroup, SkillGroupItem
 
 
@@ -107,8 +107,9 @@ def _labeled_item(item: Any, show_desc: bool, desc_sep: str) -> LabeledItem:
 
     name = item.name.strip()
     desc = item.desc.strip() if (item.desc and show_desc) else ""
-    text = f"{name}{desc_sep}{desc}" if desc else name
-    return LabeledItem(name=name, desc=desc, text=text, sep=desc_sep)
+    return LabeledItem(
+        name=name, desc=desc, text=join_name_desc(name, desc, desc_sep), sep=desc_sep
+    )
 
 
 class SummarySectionRenderer(ListSectionRenderer):
@@ -308,7 +309,7 @@ class SkillsSectionRenderer(ListSectionRenderer):
             desc = self.text.clean_inline(item.desc)
             if not name and not desc:
                 continue
-            text = f"{name}{desc_sep}{desc}" if desc else name
+            text = join_name_desc(name, desc, desc_sep)
             normalized.append(LabeledItem(name=name, desc=desc, text=text, sep=desc_sep))
         return normalized
 
@@ -476,7 +477,7 @@ class TechnologiesSectionRenderer(SkillsSectionRenderer):
 
         name = self.text.clean_inline(item.name)
         desc = self.text.clean_inline(item.desc)
-        text = f"{name}{desc_sep}{desc}" if desc else name
+        text = join_name_desc(name, desc, desc_sep)
         return LabeledItem(name=name, desc=desc, text=text, sep=desc_sep)
 
     def _normalize_group_tech_items(

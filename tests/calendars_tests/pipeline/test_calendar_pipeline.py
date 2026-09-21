@@ -7,51 +7,67 @@ from unittest import TestCase
 from unittest.mock import MagicMock
 
 from tests.fixtures import test_path, write_yaml
-from tests.calendars_tests.fixtures import NoOpProducer, make_mock_processor
+from tests.calendars_tests.fixtures import NoOpProducer, make_mock_processor_class
 
 from core.pipeline import ResultEnvelope
-from calendars.pipeline import (
-    BaseProducer,
-    RequestConsumer,
-    GmailAuth,
-    GmailPlanProducer,
-    GmailPlanResult,
+from calendars.pipeline_base import BaseProducer, RequestConsumer, GmailAuth
+from calendars.gmail_pipeline_receipts import (
+    GmailScanProducer,
+    GmailScanResult,
     GmailReceiptsProcessor,
     GmailReceiptsRequest,
     GmailReceiptsRequestConsumer,
+)
+from calendars.gmail_pipeline_scan_classes import (
     GmailScanClassesProcessor,
     GmailScanClassesProducer,
     GmailScanClassesRequest,
     GmailScanClassesRequestConsumer,
+)
+from calendars.gmail_pipeline_mail_list import (
     GmailMailListProcessor,
     GmailMailListProducer,
     GmailMailListRequest,
     GmailMailListRequestConsumer,
+)
+from calendars.gmail_pipeline_sweep_top import (
     GmailSweepTopProcessor,
     GmailSweepTopProducer,
     GmailSweepTopRequest,
     GmailSweepTopRequestConsumer,
+)
+from calendars.outlook_pipelines.verify import (
     OutlookVerifyProcessor,
     OutlookVerifyProducer,
     OutlookVerifyRequest,
     OutlookVerifyResult,
     OutlookVerifyRequestConsumer,
+)
+from calendars.outlook_pipelines.add import (
     OutlookAddProcessor,
     OutlookAddProducer,
     OutlookAddRequest,
     OutlookAddRequestConsumer,
+)
+from calendars.outlook_pipelines.dedup import (
     OutlookDedupProcessor,
     OutlookDedupProducer,
     OutlookDedupRequest,
     OutlookDedupRequestConsumer,
+)
+from calendars.outlook_pipelines.remove import (
     OutlookRemoveProcessor,
     OutlookRemoveProducer,
     OutlookRemoveRequest,
     OutlookRemoveRequestConsumer,
+)
+from calendars.outlook_pipelines.reminders import (
     OutlookRemindersProcessor,
     OutlookRemindersProducer,
     OutlookRemindersRequest,
     OutlookRemindersRequestConsumer,
+)
+from calendars.outlook_pipelines.settings import (
     OutlookSettingsProcessor,
     OutlookSettingsProducer,
     OutlookSettingsRequest,
@@ -66,6 +82,7 @@ class CalendarPipelineTests(TestCase):
     def _make_service(self, texts):
         svc = MagicMock()
         svc.list_message_ids.return_value = list(texts.keys())
+        svc.query_and_list_ids.return_value = list(texts.keys())
         svc.get_message_text.side_effect = lambda mid: texts[mid]
         return svc
 
@@ -164,7 +181,7 @@ Tuesday from 6:00 pm to 6:30 pm"""
         self.assertFalse(env.ok())
     def test_mail_list_processor_and_producer(self):
         svc = MagicMock()
-        svc.list_message_ids.return_value = ["m1"]
+        svc.query_and_list_ids.return_value = ["m1"]
         svc.get_message_text.return_value = "Hello\nSecond line"
         request = GmailMailListRequest(
             auth=GmailAuth(None, None, None, None),
@@ -194,13 +211,13 @@ Tuesday from 6:00 pm to 6:30 pm"""
             inbox_only=False,
         )
         svc = MagicMock()
-        svc.list_message_ids.side_effect = RuntimeError("boom")
+        svc.query_and_list_ids.side_effect = RuntimeError("boom")
         processor = GmailMailListProcessor(service_builder=lambda _auth: svc)
         env = processor.process(GmailMailListRequestConsumer(request).consume())
         self.assertFalse(env.ok())
     def test_sweep_top_processor_and_producer(self):
         svc = MagicMock()
-        svc.list_message_ids.return_value = ["m1", "m2"]
+        svc.query_and_list_ids.return_value = ["m1", "m2"]
         svc.get_message.side_effect = [
             {"payload": {"headers": [{"name": "From", "value": "User <u@example.com>"}]}},
             {"from": "foo@example.com"},
@@ -237,7 +254,7 @@ Tuesday from 6:00 pm to 6:30 pm"""
             out_path=None,
         )
         svc = MagicMock()
-        svc.list_message_ids.side_effect = RuntimeError("boom")
+        svc.query_and_list_ids.side_effect = RuntimeError("boom")
         processor = GmailSweepTopProcessor(service_builder=lambda _auth: svc)
         env = processor.process(GmailSweepTopRequestConsumer(request).consume())
         self.assertFalse(env.ok())
@@ -260,11 +277,11 @@ Tuesday from 6:00 pm to 6:30 pm"""
     def test_plan_producer_writes_yaml(self):
         with tempfile.TemporaryDirectory() as tmp:
             out_path = Path(tmp) / "plan.yaml"
-            payload = GmailPlanResult(document={"events": []}, out_path=out_path)
+            payload = GmailScanResult(document={"events": []}, out_path=out_path)
             env = ResultEnvelope(status="success", payload=payload)
             buf = io.StringIO()
             with redirect_stdout(buf):
-                GmailPlanProducer().produce(env)
+                GmailScanProducer().produce(env)
             self.assertTrue(out_path.exists())
             self.assertIn("Wrote 0 events", buf.getvalue())
 
@@ -848,7 +865,7 @@ class RunPipelineTests(TestCase):
         """run_pipeline() returns 0 when processor returns success."""
         from core.pipeline import run_pipeline
 
-        processor = make_mock_processor(ResultEnvelope(status="success", payload={"data": "test"}))
+        processor = make_mock_processor_class(ResultEnvelope(status="success", payload={"data": "test"}))
         result = run_pipeline({"test": 123}, processor, NoOpProducer)
         self.assertEqual(0, result)
 
@@ -856,7 +873,7 @@ class RunPipelineTests(TestCase):
         """run_pipeline() returns error code from diagnostics on failure."""
         from core.pipeline import run_pipeline
 
-        processor = make_mock_processor(ResultEnvelope(status="error", diagnostics={"code": 42, "message": "fail"}))
+        processor = make_mock_processor_class(ResultEnvelope(status="error", diagnostics={"code": 42, "message": "fail"}))
         result = run_pipeline({}, processor, NoOpProducer)
         self.assertEqual(42, result)
 
@@ -864,7 +881,7 @@ class RunPipelineTests(TestCase):
         """run_pipeline() returns 2 when error has no code in diagnostics."""
         from core.pipeline import run_pipeline
 
-        processor = make_mock_processor(ResultEnvelope(status="error", diagnostics={"message": "fail"}))
+        processor = make_mock_processor_class(ResultEnvelope(status="error", diagnostics={"message": "fail"}))
         result = run_pipeline({}, processor, NoOpProducer)
         self.assertEqual(2, result)
 

@@ -12,11 +12,13 @@ from __future__ import annotations
 
 import argparse
 import ast
+import importlib
 import inspect
 import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 from core.cli_errors import CLIError
@@ -30,19 +32,41 @@ def _args(**kw):
     return ns
 
 
-def _direct_args_data_calls(source: str | None = None) -> list[int]:
+def _command_modules() -> list[Any]:
+    """Every module that defines a resume CLI command.
+
+    PR #367 moved the commands out of ``main.py`` into per-command modules.
+    Scanning only ``main.py`` after that leaves the guard below reading a file
+    with no commands in it, so it passes no matter what the commands do.
+    """
+    package = importlib.import_module("resume.cli")
+    package_dir = Path(str(package.__file__)).parent
+    modules = [
+        importlib.import_module(f"resume.cli.{path.stem}")
+        for path in sorted(package_dir.glob("cmd_*.py"))
+    ]
+    modules.append(importlib.import_module("resume.cli.helpers"))
+    return modules
+
+
+def _scan_command_modules() -> list[str]:
+    """Return ``file:line`` for every offending call across the command modules."""
+    offenders: list[str] = []
+    for module in _command_modules():
+        name = Path(str(module.__file__)).name
+        for line in _direct_args_data_calls(inspect.getsource(module)):
+            offenders.append(f"{name}:{line}")
+    return offenders
+
+
+def _direct_args_data_calls(source: str) -> list[int]:
     """Return line numbers of ``read_yaml_or_json(args.data)`` call nodes.
 
     Walks the AST rather than scanning text: a call split across lines is
     invisible to a substring search, and the same characters inside a comment
-    or docstring are not a call at all. ``source`` defaults to the resume CLI
-    module.
+    or docstring are not a call at all. Takes one module's source; use
+    ``_scan_command_modules`` to sweep every command module.
     """
-    if source is None:
-        from resume.cli import main as cli_main
-
-        source = inspect.getsource(cli_main)
-
     offenders: list[int] = []
     for node in ast.walk(ast.parse(source)):
         if not isinstance(node, ast.Call):
@@ -190,7 +214,7 @@ class TestEveryDataCommandUsesTheResolver(unittest.TestCase):
         across lines is missed entirely, and the same text inside a comment or
         docstring (this docstring, for instance) reads as a violation.
         """
-        offenders = _direct_args_data_calls()
+        offenders = _scan_command_modules()
         self.assertEqual(
             offenders,
             [],

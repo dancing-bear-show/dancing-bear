@@ -377,7 +377,7 @@ class TestGmailScanClassesProcessorCoverageGaps(unittest.TestCase):
     def test_no_ids_returns_empty_result(self):
         """Empty id list returns result with 0 events and 0 message_count. (line 319)"""
         svc = MagicMock()
-        svc.list_message_ids.return_value = []
+        svc.query_and_list_ids.return_value = []
         request = _make_classes_request()
         processor = GmailScanClassesProcessor(service_builder=lambda _auth: svc)
 
@@ -392,7 +392,7 @@ class TestGmailScanClassesProcessorCoverageGaps(unittest.TestCase):
         """Exception during get_message_text is skipped; remaining messages process. (lines 324-325)"""
         good = "Student: Bruce Sherwin Schedule: lesson Monday from 5:00 pm to 5:30 pm"
         svc = MagicMock()
-        svc.list_message_ids.return_value = ["m-bad", "m-good"]
+        svc.query_and_list_ids.return_value = ["m-bad", "m-good"]
         svc.get_message_text.side_effect = [RuntimeError("timeout"), good]
         request = _make_classes_request()
         processor = GmailScanClassesProcessor(service_builder=lambda _auth: svc)
@@ -405,7 +405,7 @@ class TestGmailScanClassesProcessorCoverageGaps(unittest.TestCase):
     def test_ids_present_but_no_schedule_lines_found(self):
         """Messages parsed but no schedule regex matches -> empty events, message_count>0. (line 329)"""
         svc = MagicMock()
-        svc.list_message_ids.return_value = ["m1"]
+        svc.query_and_list_ids.return_value = ["m1"]
         svc.get_message_text.return_value = "Nothing schedule-like here"
         request = _make_classes_request()
         processor = GmailScanClassesProcessor(service_builder=lambda _auth: svc)
@@ -419,7 +419,7 @@ class TestGmailScanClassesProcessorCoverageGaps(unittest.TestCase):
     def test_happy_path_events_found(self):
         """Schedule text parsed -> non-empty events, message_count matches. (line 336)"""
         svc = MagicMock()
-        svc.list_message_ids.return_value = ["m1", "m2"]
+        svc.query_and_list_ids.return_value = ["m1", "m2"]
         svc.get_message_text.side_effect = [
             "Student: Bruce Sherwin Schedule: lesson Monday from 5:00 pm to 5:30 pm",
             "Tuesday from 6:00 pm to 6:30 pm",
@@ -577,7 +577,7 @@ class TestGmailMailListProcessorCoverageGaps(unittest.TestCase):
     def test_no_ids_returns_empty_messages(self):
         """Empty id list returns empty messages result. (line 423)"""
         svc = MagicMock()
-        svc.list_message_ids.return_value = []
+        svc.query_and_list_ids.return_value = []
         request = _make_mail_list_request()
         processor = GmailMailListProcessor(service_builder=lambda _auth: svc)
 
@@ -590,7 +590,7 @@ class TestGmailMailListProcessorCoverageGaps(unittest.TestCase):
     def test_get_message_text_exception_stored_as_error_snippet(self):
         """Exception during get_message_text stored as a snippet, not re-raised. (line 435)"""
         svc = MagicMock()
-        svc.list_message_ids.return_value = ["m1"]
+        svc.query_and_list_ids.return_value = ["m1"]
         svc.get_message_text.side_effect = RuntimeError("connection reset")
         request = _make_mail_list_request()
         processor = GmailMailListProcessor(service_builder=lambda _auth: svc)
@@ -606,7 +606,7 @@ class TestGmailMailListProcessorCoverageGaps(unittest.TestCase):
     def test_happy_path_returns_snippet_from_first_line(self):
         """Happy path: first line of message text is returned as snippet."""
         svc = MagicMock()
-        svc.list_message_ids.return_value = ["m1"]
+        svc.query_and_list_ids.return_value = ["m1"]
         svc.get_message_text.return_value = "First line\nSecond line"
         request = _make_mail_list_request()
         processor = GmailMailListProcessor(service_builder=lambda _auth: svc)
@@ -663,7 +663,7 @@ class TestGmailSweepTopProcessorCoverageGaps(unittest.TestCase):
     def test_no_ids_returns_empty_top_senders(self):
         """Empty id list returns top_senders=[]. (line 492)"""
         svc = MagicMock()
-        svc.list_message_ids.return_value = []
+        svc.query_and_list_ids.return_value = []
         request = _make_sweep_top_request()
         processor = GmailSweepTopProcessor(service_builder=lambda _auth: svc)
 
@@ -676,7 +676,7 @@ class TestGmailSweepTopProcessorCoverageGaps(unittest.TestCase):
     def test_get_message_raises_sender_counted_as_none(self):
         """get_message raising causes _extract_sender to return None, not crash. (line 504)"""
         svc = MagicMock()
-        svc.list_message_ids.return_value = ["m1"]
+        svc.query_and_list_ids.return_value = ["m1"]
         svc.get_message.side_effect = RuntimeError("forbidden")
         request = _make_sweep_top_request()
         processor = GmailSweepTopProcessor(service_builder=lambda _auth: svc)
@@ -690,7 +690,7 @@ class TestGmailSweepTopProcessorCoverageGaps(unittest.TestCase):
     def test_happy_path_sender_counted(self):
         """Happy path: get_message returns valid From header, sender is counted."""
         svc = MagicMock()
-        svc.list_message_ids.return_value = ["m1"]
+        svc.query_and_list_ids.return_value = ["m1"]
         svc.get_message.return_value = {
             "payload": {"headers": [{"name": "From", "value": "Alice <alice@example.com>"}]}
         }

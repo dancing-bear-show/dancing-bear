@@ -11,7 +11,6 @@ from typing import Any, Callable
 
 from core.cli_errors import CLIError, ExitCode
 from core.cli_framework import CLIApp
-from core.cli_framework_types import Argument
 from core.paths import output_dir
 
 from ..io_utils import read_yaml_or_json, write_yaml_or_json
@@ -152,8 +151,7 @@ def register_render_commands(app: CLIApp) -> None:
         (("--profile",), {"help": PROFILE_HELP_DATA}),
         (("--out-dir",), {"help": OUT_DIR_HELP}),
     ]
-    for flags, kwargs in reversed(_RENDER_ARGS):
-        app._pending_arguments.append(Argument(flags, kwargs))
+    app.add_arguments(_RENDER_ARGS)
     app.command("render", help="Render a DOCX resume from unified data with a YAML/JSON template")(cmd_render)
 
     _STRUCTURE_ARGS: list[tuple[tuple[str, ...], dict[str, Any]]] = [
@@ -162,6 +160,5 @@ def register_render_commands(app: CLIApp) -> None:
         (("--profile",), {"help": PROFILE_HELP_OUT}),
         (("--out-dir",), {"help": OUT_DIR_HELP}),
     ]
-    for flags, kwargs in reversed(_STRUCTURE_ARGS):
-        app._pending_arguments.append(Argument(flags, kwargs))
+    app.add_arguments(_STRUCTURE_ARGS)
     app.command("structure", help="Infer section order and headings from a reference DOCX resume")(cmd_structure)

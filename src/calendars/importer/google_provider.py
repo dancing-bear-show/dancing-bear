@@ -184,6 +184,41 @@ def _reject_rrule_params(params: dict[str, str], freq: str) -> dict[str, Any] | 
     return None
 
 
+@dataclass(frozen=True)
+class _UntilCountResult:
+    """Outcome of parsing the UNTIL/COUNT portion of an RRULE.
+
+    `skip` is the skip-record fields (merged into the caller's skipped entry)
+    when the value was malformed; range/count are the parsed values otherwise.
+    """
+
+    range_dict: dict[str, str] | None = None
+    count: int | None = None
+    skip: dict[str, Any] | None = None
+
+
+def _parse_until_or_count(params: dict[str, str], start: str) -> _UntilCountResult:
+    """Parse the UNTIL or COUNT portion of RRULE params.
+
+    A malformed COUNT dropped silently turns a bounded series into an
+    unbounded one on re-import, so parse failures are reported via `skip`
+    rather than swallowed.
+    """
+    if "UNTIL" in params:
+        until_date = _until_to_date(params["UNTIL"])
+        range_start = start.split("T")[0] if "T" in start else start
+        return _UntilCountResult(range_dict={"start_date": range_start, "until": until_date})
+    if "COUNT" in params:
+        try:
+            return _UntilCountResult(count=int(params["COUNT"]))
+        except ValueError:
+            return _UntilCountResult(skip={
+                "reason": "malformed_count",
+                "value": str(params["COUNT"]),
+            })
+    return _UntilCountResult()
+
+
 # ---------------------------------------------------------------------------
 # Provider
 # ---------------------------------------------------------------------------
@@ -401,27 +436,12 @@ class GoogleCalendarProvider:
             return None
 
         # UNTIL / COUNT
-        range_dict: dict[str, str] | None = None
-        count: int | None = None
-
-        if "UNTIL" in params:
-            until_date = _until_to_date(params["UNTIL"])
-            # range start_date from the event start
-            range_start = ctx.start.split("T")[0] if "T" in ctx.start else ctx.start
-            range_dict = {"start_date": range_start, "until": until_date}
-        elif "COUNT" in params:
-            # A malformed COUNT dropped silently turns a bounded series into an
-            # unbounded one on re-import. Skip and record.
-            try:
-                count = int(params["COUNT"])
-            except ValueError:
-                self.skipped.append({
-                    "id": ctx.ev_id,
-                    "subject": ctx.subject,
-                    "reason": "malformed_count",
-                    "value": str(params["COUNT"]),
-                })
-                return None
+        until_count = _parse_until_or_count(params, ctx.start)
+        if until_count.skip is not None:
+            self.skipped.append({"id": ctx.ev_id, "subject": ctx.subject, **until_count.skip})
+            return None
+        range_dict = until_count.range_dict
+        count = until_count.count
 
         # EXDATE lines
         exdates = _collect_exdates_from_recurrence(ctx.recurrence)

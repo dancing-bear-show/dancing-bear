@@ -7,23 +7,31 @@ from unittest import TestCase
 from unittest.mock import MagicMock
 
 from calendars.outlook_service import EventCreationParams
-from calendars.pipeline import (
+from calendars.outlook_pipelines.schedule_import import (
     OutlookScheduleImportProcessor,
     OutlookScheduleImportProducer,
     OutlookScheduleImportRequest,
     OutlookScheduleImportRequestConsumer,
+)
+from calendars.outlook_pipelines.events import (
     OutlookListOneOffsProcessor,
     OutlookListOneOffsProducer,
     OutlookListOneOffsRequest,
     OutlookListOneOffsRequestConsumer,
+)
+from calendars.outlook_pipelines.share import (
     OutlookCalendarShareProcessor,
     OutlookCalendarShareProducer,
     OutlookCalendarShareRequest,
     OutlookCalendarShareRequestConsumer,
+)
+from calendars.outlook_pipelines.mail import (
     OutlookMailListProcessor,
     OutlookMailListProducer,
     OutlookMailListRequest,
     OutlookMailListRequestConsumer,
+)
+from calendars.outlook_pipelines.add_event import (
     OutlookAddEventProcessor,
     OutlookAddEventProducer,
     OutlookAddEventRequest,

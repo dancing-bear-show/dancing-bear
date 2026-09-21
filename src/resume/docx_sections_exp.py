@@ -7,7 +7,7 @@ Extracted from docx_sections. Provides:
 """
 from __future__ import annotations
 
-import sys
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -16,10 +16,16 @@ from .docx_list_sections import ListSectionRenderer
 from .render_config import HeaderLineConfig
 from .schema import ExperienceEntry, PriorityItem, Resume
 
+_logger = logging.getLogger(__name__)
+
 
 def _warn(msg: str) -> None:
-    """Emit a renderer warning to stderr."""
-    print(f"resume: {msg}", file=sys.stderr)
+    """Emit a renderer warning.
+
+    Keeps the ``resume:`` prefix the CLI has always printed, so the text a
+    user sees is unchanged now that these go through logging.
+    """
+    _logger.warning("resume: %s", msg)
 
 
 @dataclass

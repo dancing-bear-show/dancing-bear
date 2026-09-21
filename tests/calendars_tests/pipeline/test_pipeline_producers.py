@@ -7,11 +7,13 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import MagicMock
 
-from calendars.pipeline import (
+from calendars.outlook_pipelines.verify import (
     OutlookVerifyProcessor,
     OutlookVerifyProducer,
     OutlookVerifyRequest,
     OutlookVerifyRequestConsumer,
+)
+from calendars.outlook_pipelines.dedup import (
     OutlookDedupProcessor,
     OutlookDedupProducer,
     OutlookDedupRequest,

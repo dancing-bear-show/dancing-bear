@@ -14,6 +14,14 @@ from typing import Optional
 
 from .models import RuleStrategy, Tier
 
+_COMPLEXITY_SWEEP = "workflows/code/qlty-complexity-sweep.yaml"
+
+#: Appended to the rationales that cite the sweep, so the path is written once
+#: rather than restated in each. Not every rule in _COMPLEXITY_SWEEP_RULES uses
+#: it: function-complexity's rationale does not mention the sweep, and saying so
+#: there would be a wording change rather than a deduplication.
+_SWEEP_TOOLING = f"Existing tooling: {_COMPLEXITY_SWEEP}."
+
 # Ordered worst-first for stable rendering; the tier decides handling.
 _STRATEGIES: tuple[RuleStrategy, ...] = (
     RuleStrategy(
@@ -28,8 +36,7 @@ _STRATEGIES: tuple[RuleStrategy, ...] = (
             "a file redistributes it across siblings rather than reducing it "
             "-- both halves stay flagged. Only per-function reduction removes "
             "it. Split only when a file holds genuinely unrelated "
-            "responsibilities. Existing tooling: "
-            "workflows/code/qlty-complexity-sweep.yaml."
+            f"responsibilities. {_SWEEP_TOOLING}"
         ),
     ),
     RuleStrategy(
@@ -54,7 +61,7 @@ _STRATEGIES: tuple[RuleStrategy, ...] = (
             "merges two real findings into one. Allow a small line offset when "
             "pairing the two rules, since they anchor to slightly different "
             "lines. Unlike the qlty rule, the message states the threshold. "
-            "Existing tooling: workflows/code/qlty-complexity-sweep.yaml."
+            f"{_SWEEP_TOOLING}"
         ),
     ),
     RuleStrategy(
@@ -66,8 +73,7 @@ _STRATEGIES: tuple[RuleStrategy, ...] = (
         ),
         rationale=(
             "Usually the same defect the complexity rules flag, seen from the "
-            "nesting angle, and it clears alongside them. Existing tooling: "
-            "workflows/code/qlty-complexity-sweep.yaml."
+            f"nesting angle, and it clears alongside them. {_SWEEP_TOOLING}"
         ),
     ),
     RuleStrategy(
@@ -147,8 +153,6 @@ _UNKNOWN_ACTION = (
     "No strategy recorded. Read the finding before acting; do not assume it is "
     "actionable."
 )
-
-_COMPLEXITY_SWEEP = "workflows/code/qlty-complexity-sweep.yaml"
 
 # Rules the complexity sweep actually discovers and remediates. It runs both
 # scans because they return DISJOINT sets -- but the split is by TOOL, not by
