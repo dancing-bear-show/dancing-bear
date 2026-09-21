@@ -371,6 +371,26 @@ class AbsoluteRootTests(TreeMixin):
         found, _ = module_callers.callers_of("pkg.sub.target", [str(self.tmp / "src")])
         self.assertEqual([Path(p).name for p in found], ["rel_caller.py"])
 
+    def test_module_path_is_callable_at_all(self):
+        # Regression guard for a NameError shipped to main: an edit added an
+        # abs_cwd branch and REPLACED the two lines defining abs_path and
+        # abs_root, so every call raised. The existing tests all caught it,
+        # but only through callers_of() several frames up — this one names
+        # the failure directly so the next such edit is unambiguous.
+        self.assertEqual(module_callers.module_path("src/pkg/mod.py", "src"), "pkg.mod")
+
+    def test_file_outside_src_root_falls_back_to_cwd(self):
+        # The abs_cwd branch that arrived with the broken edit does real work:
+        # a file under cwd but outside src_root is named relative to cwd
+        # rather than by its full filesystem path.
+        import os
+
+        self._write("proj/pkg/mod.py", "X = 1\n")
+        self.assertEqual(
+            module_callers.module_path(str(self.tmp / "proj" / "pkg" / "mod.py"), "src"),
+            "proj.pkg.mod",
+        )
+
     def test_module_path_handles_an_absolute_file(self):
         self.assertEqual(
             module_callers.module_path(str(self.tmp / "src" / "pkg" / "sub" / "mod.py"), "src"),
