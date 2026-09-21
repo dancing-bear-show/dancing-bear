@@ -274,6 +274,59 @@ class TestResolveFolderPath(OutlookMailTestBase):
             "resolve_folder_path POSTed -- it must never create a folder",
         )
 
+    @patch("core.outlook._mail_folders._requests")
+    def test_bypasses_a_stale_cached_snapshot(self, mock_requests_fn):
+        """It must read FRESH, not serve whatever is cached.
+
+        Raised in review on this PR. The first cut passed ``ttl=0``, believing that
+        forced a fresh listing. ``cfg_get_json`` documents 0 as "no expiry check"
+        and guards on ``if ttl > 0``, so 0 serves an entry of ANY age -- the exact
+        opposite. Probed with a 2-hour-old snapshot: zero Graph calls, and ``""``
+        returned for a folder that exists, leaving the plan/apply parity gap this
+        method was added to close exactly as it was.
+
+        ``bypass_cache`` skips the cache READ outright. ``clear_cache`` would also
+        work but wipes the whole provider cache, including unrelated rule caches.
+
+        This test is the one whose absence let that through: the parity tests in
+        tests/mail_tests/ mock this method, and the other tests here stub
+        ``list_all_folders``, so nothing exercised the real cache path.
+        """
+        client = FakeMailClient()
+        # Plant a stale snapshot that does NOT contain the folder.
+        client._cfg_cache["folders_all"] = [
+            {"id": "id-old", "displayName": "OldName", "parentFolderId": None},
+        ]
+        self._mock_tree(mock_requests_fn)
+
+        got = client.resolve_folder_path("Archive/News")
+
+        self.assertEqual(
+            got, "id-news",
+            "the stale cached snapshot was served instead of a fresh listing",
+        )
+
+    @patch("core.outlook._mail_folders._requests")
+    def test_fresh_false_reuses_the_cache(self, mock_requests_fn):
+        """Contrast: ``fresh=False`` deliberately reuses the cached map.
+
+        Pins that the bypass is opt-out rather than unconditional, so a caller that
+        wants the cheap cached read still has one.
+        """
+        client = FakeMailClient()
+        client._cfg_cache["folders_all"] = [
+            {"id": "id-cached", "displayName": "Cached", "parentFolderId": None},
+        ]
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+
+        got = client.resolve_folder_path("Cached", fresh=False)
+
+        self.assertEqual(got, "id-cached")
+        self.assertEqual(
+            mock_requests.get.call_count, 0,
+            "fresh=False still hit Graph; the cache was not reused",
+        )
+
     def test_empty_path_raises(self):
         """Matches ``ensure_folder_path``: an empty path is a caller error.
 

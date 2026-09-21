@@ -102,6 +102,21 @@ def _all_unmappable_ids(index: dict[str, list[str]] | None) -> set[str]:
     return {rid for ids in index.values() for rid in ids}
 
 
+def _as_id_set(protected: Any) -> set[str]:
+    """Normalise a protected-id result to a set of ids.
+
+    The channel carries either a LIST (the case-only and unmappable paths, which
+    must protect every duplicate copy) or a bare string id (the reconcile-failure
+    paths, which concern exactly one live rule).  None/empty means nothing to
+    protect.
+    """
+    if not protected:
+        return set()
+    if isinstance(protected, str):
+        return {protected}
+    return {rid for rid in protected if rid}
+
+
 #: Sentinel distinguishing "this spec is not protected, carry on" from a genuine
 #: protected-id of ``None`` ("protected, but the live rule's id was not found").
 #: Both outcomes are reachable, and collapsing them to None would make an
@@ -233,7 +248,8 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
                 dry_run=payload.dry_run,
             )
             created, reconciled, failed, desired_keys, reconciled_rule_ids = self._create_desired_rules(
-                desired, existing, ctx, payload.dry_run, payload.reconcile
+                desired, existing, ctx, payload.dry_run, payload.reconcile,
+                all_rules=existing_rules,
             )
             deleted = (
                 self._delete_missing_rules(
@@ -428,23 +444,41 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
             return key, False, False, True, protect_id
         return None  # "no_match"
 
-    def _find_live_rule_id_by_norm_key(
-        self, criteria: dict[str, Any], action: dict[str, Any], existing: dict[str, Any]
-    ) -> str | None:
-        """Find the id of the live rule whose case-normalised key matches the desired spec.
+    def _find_live_rule_ids_by_norm_key(
+        self,
+        criteria: dict[str, Any],
+        action: dict[str, Any],
+        existing: dict[str, Any],
+        all_rules: list[dict[str, Any]] | None = None,
+    ) -> list[str]:
+        """Ids of EVERY live rule whose case-normalised key matches the desired spec.
 
         Used for the case-only no-op path in ``_create_rule_if_new`` so that
-        ``--delete-missing`` can be told to skip the live rule: it already has
-        the correct action; only criteria case differs from the desired spec.
+        ``--delete-missing`` skips those live rules: they already have the correct
+        action, and only criteria case differs from the desired spec.
+
+        Returns a list, and searches ``all_rules`` when supplied, because both
+        "one id" and "the collapsed map" are wrong once ``--delete-missing``
+        iterates every live rule.  A mailbox with duplicate copies of an
+        already-correct rule collapses to one entry in ``existing``; protecting
+        only that one left the other copies as delete candidates whose RAW
+        canonical key (UPPERCASE criteria) never matches the desired lowercase
+        key.  Probed: three correct duplicates, two DELETED.
+
+        Same principle as ``_build_unmappable_criteria_index``: protection is per
+        live rule, not per collapsed key.
         """
         target = _norm_create_rule_key(criteria, action)
-        for live_rule in existing.values():
-            if _norm_create_rule_key(
+        candidates = all_rules if all_rules is not None else list(existing.values())
+        return [
+            rid
+            for live_rule in candidates
+            if (rid := live_rule.get("id"))
+            and _norm_create_rule_key(
                 live_rule.get("criteria") or {},
                 live_rule.get("action") or {},
-            ) == target:
-                return live_rule.get("id")
-        return None
+            ) == target
+        ]
 
     def _protected_live_rule_id(
         self,
@@ -453,8 +487,9 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         existing: dict[str, Any],
         norm_existing_keys: set[str] | None,
         unmappable_index: dict[str, list[str]] | None,
+        all_rules: list[dict[str, Any]] | None = None,
     ) -> Any:
-        """Id of a live rule that already owns these criteria, or ``_NOT_PROTECTED``.
+        """Ids of live rules that already own these criteria, or ``_NOT_PROTECTED``.
 
         Two reconcile-only cases mean "leave the live rule alone and create
         nothing".  Both return an id for the protected set that
@@ -471,9 +506,15 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
            compares the live ``_canon_rule`` key against the lowercase desired
            key, never matches, and deletes a correct rule.
 
-        Returns ``_NOT_PROTECTED`` -- not None -- when neither applies. A
-        protected id of None is itself meaningful ("protected, id not found"), so
-        the two must stay distinguishable.
+        Returns a LIST of ids (possibly empty, meaning "protected but no id
+        found"), or ``_NOT_PROTECTED`` when neither case applies. A list because a
+        mailbox can hold several copies of an already-correct rule and every one
+        of them needs protecting -- see ``_find_live_rule_ids_by_norm_key``.
+
+        ``_NOT_PROTECTED`` is a distinct sentinel rather than an empty list: the
+        two mean different things ("create this spec" vs "skip it, nothing to
+        protect") and collapsing them would silently skip rules the user asked
+        for.
         """
         if unmappable_index:
             unmappable_ids = unmappable_index.get(_criteria_key(criteria))
@@ -483,11 +524,16 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
                 # is already in the protected set, seeded up front by
                 # `_create_desired_rules` -- deliberately not left to this
                 # per-spec path, which an earlier check can return before.
-                return unmappable_ids[0]
+                # Every id, not just the first: each copy is individually
+                # un-recreatable, and with --delete-missing iterating all live
+                # rules, an unprotected copy is a delete candidate.
+                return list(unmappable_ids)
 
         if norm_existing_keys is not None:
             if _norm_create_rule_key(criteria, action) in norm_existing_keys:
-                return self._find_live_rule_id_by_norm_key(criteria, action, existing)
+                return self._find_live_rule_ids_by_norm_key(
+                    criteria, action, existing, all_rules
+                )
 
         return _NOT_PROTECTED
 
@@ -500,7 +546,8 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         reconcile_index: dict[str, Any] | None = None,
         norm_existing_keys: set[str] | None = None,
         unmappable_index: dict[str, list[str]] | None = None,
-    ) -> tuple[str, bool, bool, bool, str | None] | None:
+        all_rules: list[dict[str, Any]] | None = None,
+    ) -> tuple[str, bool, bool, bool, Any] | None:
         """Build criteria/action/key for one spec and create it if missing.
 
         Returns (key, was_created, was_reconciled, was_failed, protected_rule_id)
@@ -549,11 +596,11 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         if key in existing:
             return key, False, False, False, None
 
-        protected_id = self._protected_live_rule_id(
-            criteria, action, existing, norm_existing_keys, unmappable_index
+        protected_ids = self._protected_live_rule_id(
+            criteria, action, existing, norm_existing_keys, unmappable_index, all_rules
         )
-        if protected_id is not _NOT_PROTECTED:
-            return key, False, False, False, protected_id
+        if protected_ids is not _NOT_PROTECTED:
+            return key, False, False, False, protected_ids
 
         # Reconcile path: check whether criteria match a live rule with a
         # different action (action-change case). When reconcile_index is None
@@ -623,6 +670,7 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         ctx: RuleContext,
         dry_run: bool,
         reconcile: bool = False,
+        all_rules: list[dict[str, Any]] | None = None,
     ) -> tuple[int, int, int, set[str], set[str]]:
         """Create rules from desired specs that don't exist.
 
@@ -666,11 +714,11 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         for spec in desired:
             result = self._create_rule_if_new(
                 spec, existing, ctx, dry_run, reconcile_index, norm_existing_keys,
-                unmappable_index,
+                unmappable_index, all_rules,
             )
             if result is None:
                 continue
-            key, was_created, was_reconciled, was_failed, protected_id = result
+            key, was_created, was_reconciled, was_failed, protected = result
             desired_keys.add(key)
             if was_created:
                 created += 1
@@ -688,8 +736,7 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
             #   - create_failed: the rule was already deleted during reconcile,
             #     so a second delete has nothing to remove and would tally the
             #     same rule twice (Failed: 1 AND Deleted: 1).
-            if protected_id:
-                reconciled_rule_ids_set.add(protected_id)
+            reconciled_rule_ids_set.update(_as_id_set(protected))
 
         return created, reconciled, failed, desired_keys, reconciled_rule_ids_set
 

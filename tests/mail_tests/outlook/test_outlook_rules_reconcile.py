@@ -2375,6 +2375,48 @@ class TestExactDuplicateRulesAreAllDeleted(unittest.TestCase):
         self.assertEqual(deleted, [])
         self.assertEqual(envelope.payload.deleted, 0)
 
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_case_only_duplicates_are_all_protected(self, mock_norm, mock_load):
+        """Duplicate copies of an ALREADY-CORRECT rule must all survive.
+
+        Raised in review on this PR, and a defect the full-list iteration
+        introduced. ``_protected_live_rule_id`` found one id via the collapsed
+        ``existing``, but every copy's RAW canonical key (UPPERCASE criteria, as
+        Outlook stores it) differs from the desired lowercase key -- so with the
+        delete pass now seeing every live rule, the unprotected copies became
+        delete candidates. Probed: three correct rules, TWO DELETED.
+
+        Protection is per live rule, the same principle as
+        ``_build_unmappable_criteria_index``. The fix trades nothing: the
+        duplicates-are-deleted case above still holds.
+        """
+        mock_load.return_value = {"filters": []}
+        # Desired action matches the live action exactly; only casing differs.
+        mock_norm.return_value = [{
+            "match": {"from": "nintendo.net"},
+            "action": {"forward": "games@other.com"},
+        }]
+        live = [
+            {"id": f"dup-{i}", "criteria": {"from": "NINTENDO.NET"},
+             "action": {"forward": "games@other.com"}}
+            for i in (1, 2, 3)
+        ]
+        client = _make_client(list_filters=[dict(r) for r in live])
+        client.resolve_folder_path.return_value = ""
+
+        envelope = OutlookRulesSyncProcessor().process(
+            _sync_payload(client, reconcile=True, delete_missing=True, dry_run=False)
+        )
+
+        self.assertEqual(
+            [c.args[0] for c in client.delete_filter.call_args_list], [],
+            "a correct rule was deleted because only one duplicate was protected",
+        )
+        self.assertEqual(envelope.payload.deleted, 0)
+        self.assertEqual(envelope.payload.created, 0)
+        self.assertEqual(client.create_filter.call_count, 0)
+
     def test_caller_supplied_keys_are_honoured(self):
         """`_delete_missing_rules` must not ignore the keys it was handed.
 
