@@ -266,6 +266,55 @@ class WalkErrorTests(TreeMixin):
         self.assertIn("INCOMPLETE", err.getvalue())
 
 
+class AbsoluteRootTests(TreeMixin):
+    """An absolute --roots must behave like a relative one.
+
+    os.walk over an absolute root yields absolute filenames, which never start
+    with "src/", so the whole filesystem path became the dotted module name
+    (".var.folders...tmpXXXX.src.pkg.mod"). Relative imports in those files
+    then resolved against a nonsense package and their callers vanished —
+    while the scan still exited 0 and reported complete.
+    """
+
+    def test_absolute_root_finds_the_same_callers(self):
+        self._write("src/pkg/sub/rel_caller.py", "from .target import thing\n")
+        self._write("src/abs_caller.py", "from pkg.sub.target import thing\n")
+
+        relative, _ = module_callers.callers_of("pkg.sub.target", ["src"])
+        absolute, _ = module_callers.callers_of("pkg.sub.target", [str(self.tmp / "src")])
+
+        self.assertEqual(len(absolute), len(relative), "absolute root lost callers")
+        self.assertEqual(
+            sorted(Path(p).name for p in absolute),
+            sorted(Path(p).name for p in relative),
+        )
+
+    def test_absolute_root_resolves_relative_imports(self):
+        # The relative-import caller is the one the bug dropped; the absolute
+        # import was found either way, so asserting on the count alone would
+        # have passed against the broken code.
+        self._write("src/pkg/sub/rel_caller.py", "from .target import thing\n")
+        found, _ = module_callers.callers_of("pkg.sub.target", [str(self.tmp / "src")])
+        self.assertEqual([Path(p).name for p in found], ["rel_caller.py"])
+
+    def test_module_path_handles_an_absolute_file(self):
+        self.assertEqual(
+            module_callers.module_path(str(self.tmp / "src" / "pkg" / "sub" / "mod.py"), "src"),
+            "pkg.sub.mod",
+        )
+
+    def test_module_path_handles_an_absolute_src_root(self):
+        self.assertEqual(
+            module_callers.module_path(
+                str(self.tmp / "src" / "pkg" / "mod.py"), str(self.tmp / "src")
+            ),
+            "pkg.mod",
+        )
+
+    def test_relative_path_still_resolves(self):
+        self.assertEqual(module_callers.module_path("src/pkg/mod.py", "src"), "pkg.mod")
+
+
 class ModulePathTests(unittest.TestCase):
     def test_init_maps_to_the_package(self):
         # Not pkg.providers.__init__, which would bind a second module object.

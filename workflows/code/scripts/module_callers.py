@@ -97,8 +97,25 @@ def module_path(path: str, src_root: str = "src") -> str:
     a ``.__init__`` submodule: definitions in that file carry
     ``__module__ == "mail.providers"``, so the phantom submodule would bind a
     second module object).
+
+    *path* and *src_root* are compared as resolved absolute paths, so an
+    absolute ``--roots`` works with the default relative ``--src-root``. A
+    textual ``startswith`` check missed that case: ``os.walk`` over an
+    absolute root yields absolute filenames, which never start with ``src/``,
+    so the whole filesystem path became the dotted name
+    (``.var.folders.…tmpXXXX.src.pkg.mod``). Every relative import inside such
+    a file then resolved against a nonsense package and its callers vanished
+    — while the scan still exited 0 and reported complete.
     """
-    rel = os.path.relpath(path, src_root) if path.startswith(src_root + os.sep) else path
+    # realpath, not abspath: abspath does not resolve symlinks, so a checkout
+    # reached through one (/var -> /private/var on macOS, or a symlinked
+    # worktree) compares unequal and falls through to the broken branch.
+    abs_path = os.path.realpath(path)
+    abs_root = os.path.realpath(src_root)
+    if abs_path == abs_root or abs_path.startswith(abs_root + os.sep):
+        rel = os.path.relpath(abs_path, abs_root)
+    else:
+        rel = path
     dotted = rel[:-3].replace(os.sep, ".") if rel.endswith(".py") else rel
     if dotted.endswith(".__init__"):
         dotted = dotted[: -len(".__init__")]

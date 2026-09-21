@@ -2248,32 +2248,53 @@ stages:
         Double the underscores BEFORE replacing separators. A bare
         `tr '/' '_'` is not injective: src/a_b.py and src/a/b.py both become
         src_a_b.py, so the second scan silently overwrites the first and one
-        file's evidence vanishes from the very gate that is supposed to
-        prove completeness. Escaping first keeps the mapping one-to-one
+        file's evidence is lost. Escaping first keeps the mapping one-to-one
         (src_a__b.py vs src_a_b.py).
 
-        This is the same discipline Step 3 already applies to complexity
-        findings ("ABSENCE IS NOT RESOLUTION"), applied to lint. Write PASS
-        only when the batch is clean AND every per-file scan is clean AND
-        every one of them reports stable true / degraded false.
+        Per-file scanning REDUCES cap pressure. It does NOT prove
+        completeness, and no arrangement of scans can: src/qlty/scanner.py
+        states plainly that "nothing in qlty's output says a run was capped",
+        so a file whose findings exceed the cap yields a stable, non-degraded,
+        possibly EMPTY result that is indistinguishable from a genuinely clean
+        one. Per-file scanning makes that less likely, not impossible. Do not
+        describe it, here or in the output, as proving anything.
 
-        Write qlty_status: UNVERIFIED, with the reason in
-        qlty_unverified_reason, whenever completeness cannot be established:
-        any scan reporting "stable": false or "degraded": true, or a per-file
-        scan that could not be run. Not PASS, which would assert a
-        completeness the tool never established, and not ISSUES, which would
-        claim the gate ran and found something. UNVERIFIED blocks
-        ready_for_commit exactly as ISSUES does.
+        THEREFORE A CLEAN LINT SCAN IS NEVER PASS. qlty_status is:
 
-        If a per-file scan surfaces a finding the batch did not, the batch
-        was capped: record qlty_status ISSUES on the per-file evidence and
-        note the discrepancy in qlty_issues, since it also means the batched
-        result cannot be trusted for the files not yet confirmed.
+          ISSUES      any scan — batch or per-file — reported a finding.
+                      A finding that only the per-file scan surfaced also
+                      means the batch was capped, so note that in
+                      qlty_issues: the batched result is then untrustworthy
+                      for every file not yet individually confirmed.
 
-        If the scan reports critical issues, attempt auto-fix:
+          UNVERIFIED  everything else, INCLUDING the all-clean case. The
+                      scanner cannot distinguish "no findings exist" from
+                      "the cap hid them", so a clean result is an absence of
+                      evidence and is recorded as such, with the reason in
+                      qlty_unverified_reason. Also UNVERIFIED when any scan
+                      reports "stable": false or "degraded": true, or a
+                      per-file scan could not be run.
+
+          PASS        only on evidence qlty itself does not provide. Leave
+                      this to a human or to a future scanner that reports
+                      whether a run was capped. An agent must not write it.
+
+        UNVERIFIED blocks ready_for_commit exactly as ISSUES does, so the
+        practical effect is that lint never green-lights a commit on its own
+        — which is correct, because it never could. The stage's job is to
+        surface findings and to state honestly what it could not establish,
+        not to certify cleanliness it has no way to measure.
+
+        If any scan reports critical issues, attempt auto-fix:
           ~/.qlty/bin/qlty check --fix <file>
-        then re-run the STABLE scan above to confirm. A clean raw `check`
-        after a fix is not evidence the issue is gone.
+        A fix REWRITES the file, so every scan artifact taken before it —
+        the batch result AND every per-file JSON — now describes code that no
+        longer exists. Deriving qlty_status from that stale evidence would
+        report on the pre-fix file. After the LAST fix in this step, discard
+        the artifacts and re-run BOTH from scratch: the batched scan and the
+        complete per-file loop above, over the full surviving file list, not
+        only the fixed files. Derive qlty_status solely from the post-fix
+        results. A clean raw `check` after a fix is not evidence of anything.
 
       Step 3 — qlty complexity recheck:
         Re-scan ALL FOUR candidate rules — a file can clear the
@@ -2421,8 +2442,19 @@ stages:
         `ready_for_commit` is DERIVED, never asserted. It may be true only
         when ALL of these hold, and it is false the moment any one does not:
           test_status == "PASS"
-          qlty_status == "PASS"              (ISSUES and UNVERIFIED both
-                                              block)
+          qlty_status != "ISSUES"           (a real finding blocks. An
+                                             all-clean lint scan is
+                                             UNVERIFIED, never PASS — see
+                                             Step 2 — so requiring PASS here
+                                             would make ready_for_commit
+                                             unreachable, which is as useless
+                                             as a gate that always passes.
+                                             UNVERIFIED means "no finding
+                                             surfaced, and the scanner cannot
+                                             say whether the cap hid one";
+                                             the stage MUST say so at the
+                                             human gate rather than implying
+                                             the lint is clean.)
           complexity_status == "IMPROVED"   (RELOCATED, REGRESSED and
                                              UNVERIFIED all block —
                                              relocation is not a fix, and an
@@ -2440,11 +2472,13 @@ stages:
       Acceptance criteria — this stage is not done until all hold:
         - Full unittest discover exits 0 and prints a "Ran N tests" summary
           line (the exit code alone is not evidence the suite ran)
-        - qlty_status is PASS — which requires the batched scan clean AND a
-          clean per-file scan for every surviving file, each stable and
-          non-degraded. A zero exit from `qlty check` is NOT this criterion:
-          a capped or unstable run also exits 0, and that case is UNVERIFIED,
-          which fails this criterion exactly as ISSUES does.
+        - qlty_status is not ISSUES, AND the evidence behind it is post-fix
+          and complete: the batched scan plus a per-file scan for every
+          surviving file, each stable and non-degraded, all re-run after the
+          last `qlty check --fix`. An all-clean result is UNVERIFIED rather
+          than PASS (Step 2), so this criterion is about the absence of
+          findings and the freshness of the evidence, never about a zero exit
+          code — a capped run exits 0 too.
         - complexity_status is IMPROVED. RELOCATED, REGRESSED and UNVERIFIED
           all fail it.
         - ready_for_commit was DERIVED from those fields, not asserted, and
@@ -2467,10 +2501,11 @@ stages:
       strategy: unit
       criteria:
         - Full unittest discover exits 0 and prints a "Ran N tests" summary line
-        - qlty_status is PASS — batched scan clean AND every per-file scan
-          clean, each stable and non-degraded. A zero exit from `qlty check`
-          does not satisfy this; a capped run exits 0 too and is UNVERIFIED,
-          which fails exactly as ISSUES does.
+        - qlty_status is not ISSUES, resting on post-fix evidence — the
+          batched scan plus every per-file scan, each stable and
+          non-degraded, all re-run after the last `qlty check --fix`.
+          All-clean is UNVERIFIED rather than PASS, and a zero exit from
+          `qlty check` satisfies nothing, since a capped run exits 0 too.
         - complexity_status is IMPROVED (RELOCATED, REGRESSED, UNVERIFIED all fail)
         - ready_for_commit was derived from those fields, not asserted
         - No file touched by this sweep has a higher complexity score than before
