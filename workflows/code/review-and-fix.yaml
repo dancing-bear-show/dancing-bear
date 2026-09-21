@@ -166,7 +166,6 @@ stages:
 
   - name: fix-code
     kind: execute
-    mode: worker_queue
     depends_on: [triage-findings]
     reads_from: [triage-findings, fetch-pr-context]
     description: >
@@ -181,7 +180,8 @@ stages:
         3. Apply the fix using the Edit tool. Keep the change minimal — fix only
            what the finding identifies; do not refactor surrounding code.
         4. After editing, run ruff on the changed file:
-             Bash tool: bin/ruff-resolve.sh check --fix {file}
+             Bash tool: bin/ruff-resolve.sh check --fix <the file from item["file"]>
+           Substitute the actual path — this is not a workflow parameter.
            If ruff reports new errors unrelated to the fix, leave them — do not
            introduce scope creep.
         5. If item["finding_id"] maps to a test file in outputs/changed-files.txt,
@@ -213,6 +213,10 @@ stages:
       model: sonnet
       tools: [Read, Edit, Bash]
       access: read-write
+      # Runs concurrently with fix-tests and fix-qlty, and overlaps them by
+      # file: a qlty finding and a code finding routinely land in the same
+      # source file. Sharing one tree lets those edits interleave.
+      isolation: worktree
     required: true
     writes_to:
       - outputs/fix/fix-code-results.json
@@ -223,7 +227,6 @@ stages:
 
   - name: fix-tests
     kind: execute
-    mode: worker_queue
     depends_on: [triage-findings]
     reads_from: [triage-findings, fetch-pr-context]
     description: >
@@ -261,6 +264,9 @@ stages:
       model: sonnet
       tools: [Read, Edit, Write, Bash]
       access: read-write
+      # Concurrent with fix-code and fix-qlty; needs its own tree so test
+      # edits cannot interleave with source edits mid-run.
+      isolation: worktree
     required: true
     writes_to:
       - outputs/fix/fix-tests-results.json
@@ -316,6 +322,8 @@ stages:
       model: sonnet
       tools: [Read, Edit, Bash, Write]
       access: read-write
+      # Concurrent with fix-code, which edits the same source files.
+      isolation: worktree
     required: true
     writes_to:
       - outputs/fix/fix-sq-results.json
