@@ -332,6 +332,24 @@ stages:
            record lacking a cost attribute is handled gracefully by the cost
            rollups, since local inference will emit tokens but no dollars.
 
+      BASELINE GENERATION — do this only if `{model_tag}` is ALREADY present
+      in `ollama list` (never pull here; install owns that). Run exactly one
+      tiny generation against {ollama_host} asking for a unified diff on a
+      three-line snippet you supply inline, and record VERBATIM:
+        - whether the response is a bare diff or is wrapped in prose and/or a
+          ```diff fence
+        - whether it starts with `---`/`+++` or `diff --git`
+        - whether the hunk headers are well-formed
+        - the wall-clock duration
+      This is the single most valuable thing this stage can produce, and
+      nothing else in the workflow can substitute for it: the design stage is
+      otherwise choosing the prompt's output instruction, the diff extraction
+      strategy and every patch-cap threshold without ever having seen what
+      this model actually emits. Keep it tiny — one small snippet, short
+      timeout. If the model is absent, record
+      "baseline: unavailable (model not installed)" and say plainly in
+      survey.json that the design's diff-format assumptions are unvalidated.
+
       Also probe the live machine (Bash, read-only — install nothing here):
         command -v ollama || echo "ollama: absent"
         ollama list 2>/dev/null || echo "ollama daemon: not responding"
@@ -351,7 +369,8 @@ stages:
           "output_dir_api": "...",
           "test_layout": {"dir": "...", "mocking_style": "..."},
           "telemetry": {"record_envelopes": ["..."], "value_keys": ["..."], "attribute_nesting": "...", "data_dir_env_var": "...", "collector_ports": {"grpc": N, "http": N}, "port_override_env_var": "...", "cost_absent_handling": "..."},
-          "machine": {"ollama_installed": true|false, "ollama_responding": true|false, "model_present": true|false, "worker_agent_loaded": true|false, "memory_gb": N}
+          "machine": {"ollama_installed": true|false, "ollama_responding": true|false, "model_present": true|false, "worker_agent_loaded": true|false, "memory_gb": N},
+          "baseline_generation": {"available": true|false, "unavailable_reason": "..." | null, "raw_response_excerpt": "...", "is_bare_diff": true|false, "wrapped_in_fence": true|false, "wrapped_in_prose": true|false, "header_style": "---/+++|diff --git|other", "hunk_headers_wellformed": true|false, "duration_ms": N}
         }
 
       Record what you actually found. If the reaper has no timestamp field at
@@ -404,7 +423,15 @@ stages:
          A multi-KB diff inline makes `worker show` unreadable — weigh that
          against a second artifact to track. Pick one and justify it.
 
-      2. PROMPT CONSTRUCTION. How file contents become a prompt: delimiters,
+      2. PROMPT CONSTRUCTION. Start from survey.json's baseline_generation:
+         if it is available, it tells you what this model ACTUALLY emits —
+         bare diff, fenced, or wrapped in prose — and your diff-extraction
+         strategy must handle exactly that rather than an assumed format.
+         Cite the observed values. If the baseline was unavailable, say so
+         explicitly here and design extraction defensively (tolerate a fence
+         and surrounding prose), because you are guessing.
+
+         Then: how file contents become a prompt — delimiters,
          whether line numbers are included, the instruction to emit a unified
          diff and nothing else, and the total context budget. Note the model's
          context window and what happens when the files exceed it — truncate,
@@ -876,6 +903,18 @@ stages:
            succeed. Telemetry export is best-effort: swallow its errors,
            never let an export failure change the job's outcome, and never
            retry the job because telemetry failed.
+
+      NO PLACEHOLDERS IN THE SHIPPED CONTRACT. The schema below is written
+      with "..." and N to show SHAPE. Every one of those must be replaced
+      with a real value before you finish. impl-handler and impl-tests both
+      build directly against these fields — a test suite written against
+      "lock_path": "..." is a suite asserting nothing, and it will look
+      complete. Before writing the file, re-read it and confirm no literal
+      "...", no bare N, and no "TBD" remains in any field the guards depend
+      on: every threshold, every terminal/deferred string, every path.
+      Where you genuinely cannot decide a value, write the value you
+      recommend and note the uncertainty in design.md — never leave the
+      placeholder for a downstream stage to interpret.
 
       Finally, populate contract.json's files_to_create and files_to_modify
       with the exact repo paths this design implies — they are what merge-impl
