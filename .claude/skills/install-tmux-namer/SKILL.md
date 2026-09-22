@@ -20,9 +20,15 @@ What it does on every prompt
 (`configs/llm/tmux-session-namer.py:50-95`):
 
 - Appends the **first 120 characters of the prompt** to
-  `~/.cache/claude/prompts-<session-id>.txt`, trimmed to the last 200 lines.
-  The directory is created `0700` and the file opened `0600`, so it is
-  user-private — but it is still prompt text at rest on disk.
+  `$XDG_CACHE_HOME/claude/prompts-<session-id>.txt`, falling back to
+  `~/.cache/claude/...` when `XDG_CACHE_HOME` is unset
+  (`tmux-session-namer.py:51`). Trimmed to the last 200 lines. The directory is
+  created `0700` and the file opened `0600`, so it is user-private — but it is
+  still prompt text at rest on disk.
+
+  Resolve the real path before asking, so consent names the actual location:
+
+      python3 -I -S -c "import os; print(os.path.join(os.environ.get('XDG_CACHE_HOME', os.path.expanduser('~/.cache')), 'claude'))"
 - Every 20th prompt, sends **the last 20 recorded lines** to `claude -p` to
   generate the session name. That is an outbound model call containing those
   prompt fragments.
@@ -32,7 +38,7 @@ other PII, and this capture does not distinguish them. Say this plainly, in
 these terms, and install only on an explicit yes:
 
 > This hook saves the first 120 characters of every prompt to
-> ~/.cache/claude/prompts-*.txt and sends the last 20 of them to `claude -p`
+> <the resolved cache path>/prompts-*.txt and sends the last 20 of them to `claude -p`
 > every 20th prompt, to generate the session name. Prompt text can include
 > secrets or personal data. Install it? (y/n)
 
@@ -42,7 +48,10 @@ current hook has no redaction or disable switch and that adding one is a change
 to `configs/llm/tmux-session-namer.py`, not something this skill can configure.
 
 To remove it later: delete the `UserPromptSubmit` entry from
-`~/.claude/settings.json`, then `rm -f ~/.cache/claude/prompts-*.txt`.
+`~/.claude/settings.json`, then delete the captured prompts from the resolved
+cache directory:
+
+    rm -f "$(python3 -I -S -c "import os; print(os.path.join(os.environ.get('XDG_CACHE_HOME', os.path.expanduser('~/.cache')), 'claude'))")"/prompts-*.txt
 
 ## Step 1: Check Prerequisites
 
@@ -97,9 +106,62 @@ Use the Write/Edit tool to run this patch script, or execute it directly via Bas
 
 ```bash
 python3 -I -S - << 'PY'
-import json, os, sys
+import json, os, shutil, stat, sys, tempfile
 
 settings_path = os.path.expanduser("~/.claude/settings.json")
+
+
+def save_settings(data):
+    """Replace settings.json atomically, preserving its mode.
+
+    `open(path, "w")` truncates the live file before writing a byte, so an
+    interruption or a full disk mid-dump leaves the user's GLOBAL Claude
+    settings empty or half-written. Serialise to a temp file in the same
+    directory (same filesystem, so os.replace is atomic), fsync it, then
+    rename over the original — a crash at any point leaves the old file intact.
+    """
+    directory = os.path.dirname(settings_path) or "."
+    os.makedirs(directory, exist_ok=True)
+
+    # Sweep any .settings-*.tmp orphaned by a previous hard kill. The except
+    # path below cleans up on a normal exception, but a SIGKILL or os._exit
+    # skips it, and those stragglers otherwise accumulate silently.
+    for stale in os.listdir(directory):
+        if stale.startswith(".settings-") and stale.endswith(".tmp"):
+            try:
+                os.unlink(os.path.join(directory, stale))
+            except OSError:  # nosec B110 - best-effort sweep; never block the write
+                pass
+
+    try:
+        original_mode = stat.S_IMODE(os.stat(settings_path).st_mode)
+    except FileNotFoundError:
+        original_mode = 0o600
+
+    fd, tmp = tempfile.mkstemp(dir=directory, prefix=".settings-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp, original_mode)
+        os.replace(tmp, settings_path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:  # nosec B110 - temp cleanup is best-effort; original error re-raised
+            pass
+        raise
+
+
+def backup_settings():
+    """Keep a timestamped copy before the first modification."""
+    if not os.path.exists(settings_path):
+        return None
+    import time
+    dest = f"{settings_path}.bak.{time.strftime('%Y%m%d%H%M%S')}"
+    shutil.copy2(settings_path, dest)
+    return dest
 
 if not os.path.exists(settings_path):
     settings = {}
@@ -143,9 +205,11 @@ for entry in existing:
 
 if upgraded:
     hooks["UserPromptSubmit"] = existing
-    with open(settings_path, "w") as f:
-        json.dump(settings, f, indent=2)
+    backup = backup_settings()
+    save_settings(settings)
     print("Upgraded the existing UserPromptSubmit hook to the isolated form")
+    if backup:
+        print(f"Previous settings saved to {backup}")
 elif already_wired:
     print("UserPromptSubmit hook already present and isolated — skipping")
 else:
@@ -153,9 +217,11 @@ else:
         "hooks": [{"type": "command", "async": True, "command": hook_command}]
     })
     hooks["UserPromptSubmit"] = existing
-    with open(settings_path, "w") as f:
-        json.dump(settings, f, indent=2)
+    backup = backup_settings()
+    save_settings(settings)
     print("Added UserPromptSubmit hook to ~/.claude/settings.json")
+    if backup:
+        print(f"Previous settings saved to {backup}")
 PY
 ```
 
@@ -200,12 +266,33 @@ fi
 ls -la ~/.claude/hooks/tmux-session-namer.py
 
 # Confirm hook is in settings
+# Assert the ISOLATED form specifically. Matching only the script name would
+# report success for a stale bare-`python3` entry — i.e. it would pass in exactly
+# the case this installer exists to correct. Also assert there is exactly one
+# wiring, since a duplicate means the namer runs twice per prompt.
 python3 -I -S -c "
-import json, os
+import json, os, sys
 s = json.load(open(os.path.expanduser('~/.claude/settings.json')))
 hooks = s.get('hooks', {}).get('UserPromptSubmit', [])
 cmds = [h.get('command','') for e in hooks for h in e.get('hooks',[])]
-print('Hook wired:', any('tmux-session-namer' in c for c in cmds))
+namer = [c for c in cmds if 'tmux-session-namer' in c]
+
+if len(namer) == 0:
+    print('FAIL: hook not wired'); sys.exit(1)
+if len(namer) > 1:
+    print(f'FAIL: {len(namer)} namer hooks wired — it would run {len(namer)}x per prompt')
+    for c in namer:
+        print('  ', c)
+    sys.exit(1)
+
+cmd = namer[0]
+missing = [f for f in ('-I', '-S') if f not in cmd.split()]
+if missing:
+    print('FAIL: wired but NOT isolated - missing', ' '.join(missing))
+    print('      ', cmd)
+    sys.exit(1)
+
+print('Hook wired and isolated:', cmd)
 "
 
 # Confirm tmux is reachable, if we are inside it. Outside tmux this is expected
@@ -237,7 +324,9 @@ The hook runs on the next prompt, but only renames the session once the prompt
 count for this session reaches a multiple of 20 (configs/llm/tmux-session-namer.py:82).
 
 It records the first 120 characters of each prompt to
-`~/.cache/claude/prompts-*.txt` and sends the last 20 to `claude -p` on each
-20th prompt. To undo: remove the `UserPromptSubmit` entry from
-`~/.claude/settings.json` and `rm -f ~/.cache/claude/prompts-*.txt`.
+`<resolved cache dir>/prompts-*.txt` — report the path you resolved in Step 0,
+not a hard-coded `~/.cache`, since the hook honours `XDG_CACHE_HOME` — and sends
+the last 20 to `claude -p` on each 20th prompt. To undo: remove the
+`UserPromptSubmit` entry from `~/.claude/settings.json` and delete that
+directory's `prompts-*.txt`.
 ```
