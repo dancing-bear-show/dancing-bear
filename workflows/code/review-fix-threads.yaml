@@ -285,21 +285,39 @@ stages:
       the fetch. The other 7 were perfectly real ids belonging to OTHER
       threads, so "does this id exist?" waved them all through. A shifted id
       does not error at resolve time; it succeeds, against the wrong thread.
-      What identifies a thread is its (path, line) pair, and the only valid
-      test is whether the id triage attached to that pair is the id the fetch
-      attached to it.
+      What identifies a thread is its id; (path, line) is derived from it and
+      is NOT unique. So the test has two halves: the id must exist in the
+      fetch, and the content the fetch recorded under that id must be the
+      content triage acted on. Coordinates are a useful cross-check but
+      cannot stand alone — see step 1b for the swap they cannot detect.
 
       threads.json is authoritative. For every entry in triage.json:
 
         1. Build an id -> (path, line) map from threads.json, keyed BY THREAD
            ID. Do not build the reverse; see step 4 for why (path, line) is
            not a key at all.
+        1b. Extend that map to id -> (path, line, body_fingerprint), where
+           the fingerprint is a stable hash of the thread's FIRST comment
+           body (for example sha256 of the body with whitespace collapsed).
+           Coordinates alone cannot complete this check: two threads sharing
+           one (path, line) — which step 4(ii) documents as real and observed
+           on this very PR — can have their ids SWAPPED, and a coordinate
+           comparison passes for both while each fix posts to the other's
+           thread. The body is what actually distinguishes them, and triage
+           already carries it, so nothing extra needs fetching.
+
         2. For each triage entry, look up ITS OWN thread_id in that map:
-             - present, and the recorded (path, line) matches the entry's:
-               correct. Leave it alone.
+             - present, coordinates match, AND the fingerprint of the body
+               triage recorded matches the fetch's: correct. Leave it alone.
+             - present, coordinates match, but the BODY does not: this is the
+               swap case. HALT the stage and report both ids — do not guess
+               which way round they belong, and do not fall back to
+               coordinates, because coordinates are exactly what cannot tell
+               these two apart.
              - present, but the coordinates differ: the entry was mislabelled.
                Trust the FETCH's coordinates — the id is the identity and the
-               line is derived from it.
+               line is derived from it. Still verify the fingerprint; a
+               mismatch here is a swap too, not a relabelling.
              - absent from the map entirely: corrupt or fabricated.
         3. For an absent id, HALT the whole stage and report it. Do NOT try to
            recover it from its (path, line): several threads can share one

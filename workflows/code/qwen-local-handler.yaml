@@ -267,6 +267,33 @@ stages:
     depends_on: []
     reads_from: []
     description: >
+      STEP 0 — VALIDATE {job_type} BEFORE ANYTHING ELSE. This is the first
+      stage in the DAG, so it is the only place a check can land ahead of
+      every isolated implementation stage. {job_type} is caller-overridable
+      via --params and is interpolated into `git commit -m` in three later
+      stages; a value containing a quote or `$(...)` executes there, inside
+      an isolated worktree, long before the install stage's own parameter
+      gate runs.
+
+      Validate it the way the install stage validates {ollama_host} — from
+      the file the ENGINE wrote, so the value never becomes shell source.
+      Any mechanism that embeds it in shell text is defeatable, a heredoc
+      included (probe-disproven: a newline plus the delimiter closes it and
+      executes the remainder while the regex then passes on the remnant):
+
+        python3 -c 'import json,re,sys,pathlib; v=json.loads(pathlib.Path(sys.argv[1]).read_text())["trigger_params"]["job_type"]; sys.exit(0 if re.fullmatch(r"[a-z][a-z0-9_]{2,40}", v) else 1)' {workspace}/manifest.json
+
+      Branch on the EXIT STATUS, not on echoed text. If it fails, ABORT the
+      whole run here — write survey.json with {"aborted": true,
+      "reason": "job_type failed validation"} and report the stage FAILED so
+      no downstream stage is scheduled. Do not sanitize or auto-correct: an
+      override with shell metacharacters is a caller error to report.
+
+      The pattern is deliberately narrower than "no metacharacters": a job
+      type is a queue registry key, so lowercase, digits and underscore is
+      the whole legitimate alphabet. Anything else is either an attack or a
+      typo, and both should stop the run.
+
       Read the real code and record exact signatures. Do not infer the queue's
       behaviour from this description — the point of this stage is to catch
       drift between it and the tree.
@@ -1304,7 +1331,7 @@ stages:
       is doing work you could have done for free here:
 
         after C2:  git add src/worker/qwen.py src/worker/handlers.py
-                   git commit -m "feat(worker): register {job_type} handler with input confinement"
+                   git commit -m "feat(worker): register the handler with input confinement"
         after C5:  git add src/worker/qwen.py
                    git commit -m "feat(worker): add Ollama transport, patch validation and concurrency guards"
         after C6:  chmod +x bin/qwen
@@ -1661,7 +1688,7 @@ stages:
       still reports success. As your final action before writing the result
       JSON, stage the test files this stage created BY NAME (never
       `git add -A`) and commit:
-        git commit -m "test(worker): cover {job_type} handler, retry map and heartbeat"
+        git commit -m "test(worker): cover the handler, retry map and heartbeat"
       Confirm with `git log --oneline -1` and record the SHA below.
 
       Write <your-cwd>/outputs/tests-impl.json (NOT {workspace} — see the
@@ -2146,24 +2173,48 @@ stages:
         that reads them from there cannot be followed. An earlier revision of
         this file said exactly that and was wrong.
 
-        The value only exists as text the engine pasted here, so get it out of
-        the command line before testing it:
-          1. Write it to a file using a heredoc whose delimiter is SINGLE
-             QUOTED, which suppresses every expansion inside the body:
-               cat > "$TMPDIR/qwen-host" <<'RAW'
-               {ollama_host}
-               RAW
-             The quoted delimiter is what makes this safe: with `<<RAW` the
-             shell would still expand $() inside the body.
-          2. Read the FILE with a regex, never interpolating the value into
-             the program text:
-               python3 -c 'import re,sys,pathlib; v=pathlib.Path(sys.argv[1]).read_text().strip(); sys.exit(0 if re.fullmatch(r"https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?", v) else 1)' "$TMPDIR/qwen-host"
-          3. Branch on the EXIT STATUS, not on echoed text — `|| echo
-             "REJECTED"` leaves the pipeline status 0 and the stage carries on
-             with a rejected value.
-        Apply the same three steps to {model_tag}. State in install.json which
-        mechanism you used, and abort before any command runs if either
-        pattern fails:
+        NO QUOTING STYLE FIXES THIS, INCLUDING A HEREDOC. An earlier revision
+        of this file prescribed writing the value to a file with a
+        single-quoted delimiter (`<<'RAW'`). That is also broken, and was
+        disproven by probe: the engine substitutes the value into the script
+        TEXT before bash ever parses it, so a value containing a newline, the
+        literal delimiter, and more script closes the heredoc early and runs
+        the remainder. Measured — `http://ok\nRAW\ntouch /tmp/PWNED\n...`
+        created the file, and the regex then PASSED on the truncated remnant,
+        so the check reported success after arbitrary code had already run.
+        That is the worst possible outcome: an inert guard that looks green.
+
+        The lesson is general. Any mechanism that embeds the untrusted value
+        into shell source is defeated by some encoding of that value. The
+        value must never become shell source at all.
+
+        USE THE FILE THE ENGINE ALREADY WROTE. `init-workspace` serialises
+        every trigger param into `{workspace}/manifest.json` under
+        `trigger_params`, via json.dump — so the value is DATA on disk, and it
+        never passed through a shell on the way there. Read it from there and
+        validate it in Python:
+
+          python3 -c 'import json,re,sys,pathlib; v=json.loads(pathlib.Path(sys.argv[1]).read_text())["trigger_params"]["ollama_host"]; sys.exit(0 if re.fullmatch(r"https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?", v) else 1)' {workspace}/manifest.json
+
+        Note what is and is not interpolated: the PATH to manifest.json is a
+        workspace path the engine controls, and the untrusted value appears
+        nowhere in the command. Verified end to end — the heredoc-escape
+        payload above reaches manifest.json byte-for-byte intact, nothing
+        executes during init-workspace, and the validator rejects it.
+
+        Then branch on the EXIT STATUS, not on echoed text — `|| echo
+        "REJECTED"` leaves the pipeline status 0 and the stage carries on with
+        a rejected value.
+
+        (Do NOT reach for os.environ either: the engine never exports trigger
+        params to the environment — resolve_params (compiler.py:382-391)
+        substitutes them into the description TEXT, and nothing in
+        src/workflow/ calls os.environ[...] or putenv. A still earlier
+        revision said exactly that and was unfollowable.)
+
+        Apply the same check to {model_tag}, reading it from the same file.
+        State in install.json which mechanism you used, and abort before any
+        command runs if either pattern fails:
           ollama_host: ^https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?$
           model_tag:   ^[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)?$
         If either is rejected, abort the stage immediately: write

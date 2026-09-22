@@ -105,7 +105,16 @@ stages:
       Then probe the CLI as it exists today:
         ./bin/worker enqueue --help
       and record the current --type choices. "{job_type}" must NOT be among
-      them yet; if it already is, this demo has been run before — say so.
+      them yet; if it already is, say so and set
+      `job_type_already_registered` true.
+
+      That flag is a STOP signal, not a note. This stage is read-only so it
+      cannot do the aborting itself, but write-handler's STEP 0 reads the
+      flag and refuses to proceed on it — because `{job_type}` is
+      caller-overridable and an existing key such as `run_cli` would make the
+      REGISTRY line REPLACE a built-in handler for every job of that type,
+      which the orchestrator would then merge. Record it accurately; a false
+      negative here disables that guard.
 
       Write {workspace}/outputs/analysis/seam.json:
         {
@@ -149,6 +158,39 @@ stages:
     depends_on: [read-the-seam]
     reads_from: [read-the-seam]
     description: >
+      STEP 0 — VALIDATE THE PARAMS BEFORE YOU WRITE ANYTHING. Both
+      `{handler_module}` and `{job_type}` are caller-overridable via --params,
+      and this stage creates a file at the path one of them names. A check
+      placed later — next to the `git add` line, say — runs after the Write
+      has already happened, which protects the wrong thing.
+
+      Read both from the file the ENGINE wrote, so neither ever becomes shell
+      source (a heredoc does not help: probe-disproven, since a newline plus
+      the delimiter closes it and runs the remainder while the regex then
+      passes on the remnant):
+
+        python3 -c 'import json,re,sys,pathlib; p=json.loads(pathlib.Path(sys.argv[1]).read_text())["trigger_params"]; m=p["handler_module"]; t=p["job_type"]; sys.exit(0 if re.fullmatch(r"src/worker/[a-z][a-z0-9_]{2,40}\.py", m) and re.fullmatch(r"[a-z][a-z0-9_]{2,40}", t) else 1)' {workspace}/manifest.json
+
+      Branch on the EXIT STATUS. Then apply two checks the regex cannot make:
+
+        1. THE MODULE MUST NOT ALREADY EXIST. The pattern above still matches
+           real production files — `src/worker/handlers.py`, `queue_ops.py`,
+           `job_runtime.py`. This stage creates a NEW module, so an existing
+           path is always wrong, and overwriting shared worker code here would
+           be merged into the branch by the orchestrator. If the file exists,
+           ABORT; do not overwrite and do not pick a different name.
+
+        2. THE JOB TYPE MUST NOT ALREADY BE REGISTERED. read-the-seam records
+           `job_type_already_registered`; read it from
+           `<your-cwd>/inputs/outputs/analysis/seam.json`. If it is true, the
+           key names an existing handler — `run_cli` and `run_shell` both
+           match the pattern — and writing the REGISTRY line would REPLACE a
+           built-in handler for every job of that type. ABORT.
+
+      On any of these, write handler.json with {"aborted": true, "reason":
+      "..."} and report the stage FAILED. Do not sanitize a rejected value:
+      an override that names production code is a caller error to report.
+
       Implement a minimal "{job_type}" handler against the contract recorded
       in read-the-seam's output.
 
@@ -209,20 +251,13 @@ stages:
       COMMITS, not uncommitted files. If you return with edits uncommitted,
       the merge succeeds against an empty branch, this stage reports success,
       and everything you wrote is silently lost. So as your final action:
-      VALIDATE BOTH PARAMS FIRST — they are caller-overridable and land in a
-      git command line. `{handler_module}` unquoted in `git add` accepts a
-      value like `-A` (which stages everything, defeating the by-name rule
-      right below) or `path; other-command`. `{job_type}` sits inside a
-      double-quoted commit message, and double quotes do NOT stop `$(...)`
-      or a closing `"` — verified: `"h$(echo PWNED)"` runs the subshell.
-      Before running either command, check:
-        handler_module: ^src/worker/[A-Za-z0-9_]+\.py$   (a real repo path,
-                        never starting with `-`)
-        job_type:       ^[a-z][a-z0-9_]*$
-      Abort the stage if either fails; do not sanitize a bad value.
+      Both params were validated at the TOP of this stage, before the Create
+      step — see STEP 0 there. That ordering is the point: a check placed
+      here would run after the agent had already written to whatever path
+      `{handler_module}` names.
 
         git add {handler_module} src/worker/handlers.py
-        git commit -m "feat(worker): add {job_type} demo handler"
+        git commit -m "feat(worker): add the demo handler"
       Stage the files by name — never `git add -A`, which would sweep up
       other agents' work in a shared tree. Confirm with `git log --oneline -1`
       and record the SHA below.
@@ -290,8 +325,24 @@ stages:
 
       Read outputs/handler.json for commit_sha. If it is null or absent, the
       agent never committed and its work is gone: FAIL this stage and say so
-      plainly. Otherwise confirm the commit actually landed:
-        git merge-base --is-ancestor <commit_sha> HEAD
+      plainly.
+
+      VALIDATE IT BEFORE IT REACHES A COMMAND LINE. handler.json is written
+      by an agent, so commit_sha is not trustworthy input merely because a
+      stage of ours produced it — a confused or compromised agent can put
+      anything in that field, and it goes straight into a git invocation
+      below. Require a full 40-character hex SHA and nothing else:
+
+        python3 -c 'import json,re,sys,pathlib; v=json.loads(pathlib.Path(sys.argv[1]).read_text()).get("commit_sha") or ""; sys.exit(0 if re.fullmatch(r"[0-9a-f]{40}", v) else 1)' {workspace}/outputs/handler.json
+
+      Branch on the EXIT STATUS. A short SHA, a ref name, or anything with a
+      space or shell metacharacter FAILS this stage — do not resolve it, do
+      not truncate it, do not retry with a rev-parse. Only the interpolated
+      PATH below is engine-controlled; the value itself must be proven inert
+      before it appears anywhere.
+
+      Then confirm the commit actually landed:
+        git merge-base --is-ancestor <the validated commit_sha> HEAD
       A non-zero exit means the orchestrator did not merge that branch —
       report it as unmerged; do not merge it yourself. Then confirm
       {handler_module} and src/worker/handlers.py exist in the working tree
@@ -400,11 +451,23 @@ stages:
           would cycle indefinitely" and note that its behaviour is covered by
           the handler's unit tests instead. A skipped case with a stated
           reason is an honest demo result.
-        - Otherwise (no daemon running): run it, then immediately drain it to
-          a terminal state so it cannot cycle later — re-enqueue-free, just
-          `./bin/worker run-once --max 1` repeatedly under the Step 3 safety
-          gate until its attempts exhaust and it lands in error/. Record the
-          number of drains it took.
+        - Otherwise (no daemon running): run it ONCE to observe the deferral,
+          then leave it pending and say so.
+
+          Do NOT try to drain it to a terminal state. An earlier revision of
+          this file said to run `run-once` repeatedly "until its attempts
+          exhaust and it lands in error/", which cannot happen: the
+          `deferred-` branch in job_runtime.py:155-158 calls
+          `_undo_retry_attempt` after every requeue, restoring the attempt
+          count by design. The job would defer forever and the loop would
+          never terminate — the instruction was a dead end, and following it
+          literally is worse than leaving the job pending.
+
+          Since `worker` has no delete-by-id, the honest options are to leave
+          one pending job behind (recording it, so the reader can remove it)
+          or to skip the case. Prefer the skip above whenever the daemon is
+          loaded; this branch exists only for a quiet queue, where a single
+          pending job cycles nothing because nothing is polling.
 
       Record in verified.json which path you took for (c), and that the
       remaining "{job_type}" jobs sit in done/ and error/ as inert records —
@@ -418,7 +481,7 @@ stages:
           "cases": [
             {"case": "success",  "job_id": "...", "final_state": "done",    "attempts_before": N, "attempts_after": N, "as_expected": true|false},
             {"case": "terminal", "job_id": "...", "final_state": "error",   "attempts_before": N, "attempts_after": N, "as_expected": true|false},
-            {"case": "deferred", "disposition": "not-run-daemon-active|drained-to-error", "job_id": "..." | null, "final_state": "not-run|error", "attempts_before": N|null, "attempts_after": N|null, "drains_required": N|null, "as_expected": true|false},
+            {"case": "deferred", "disposition": "not-run-daemon-active|observed-left-pending", "job_id": "..." | null, "final_state": "not-run|pending", "attempts_before": N|null, "attempts_after": N|null, "as_expected": true|false},
             {"case": "plain",    "job_id": "...", "final_state": "pending", "attempts_before": N, "attempts_after": N, "as_expected": true|false}
           ],
           "cleanup": {"jobs_left_in_queue": ["<success_id>", "<terminal_id>", "<plain_id>"], "deferred_job_disposition": "not-run|drained-to-error", "reason": "no id-scoped delete or queue-root override exists; see stage description. The deferred job is NEVER left pending — it would cycle forever under a running daemon."},
