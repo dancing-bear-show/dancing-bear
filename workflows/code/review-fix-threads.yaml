@@ -298,10 +298,27 @@ stages:
         3. An entry whose (path, line) is absent from threads.json cannot be
            repaired: it names no real thread. HALT the whole stage and report
            it. Do not drop it silently and do not guess.
-        4. PR-level entries (path null, or resolvable false) have no line to
-           pair on. Check only that their id, if present, exists in the fetch;
-           an entry with a null thread_id is expected there and is fine.
-        5. Rewrite triage.json in place, recording "_id_repairs" as a list of
+        4. (path, line) IS NOT UNIQUE, and assuming it is will halt a healthy
+           run. GitHub returns line: null for every OUTDATED thread, so a file
+           with several outdated threads yields several entries keyed
+           (path, null) — a naive map keeps only the last and reports the rest
+           as mismatched. On the round-2 fetch of PR #391 that produced 11
+           false mismatches against a fetch that was provably correct.
+           So: build the map ONLY from entries whose line is not null, and
+           pair-check only those. For an entry with line null — outdated, or
+           PR-level with a null path — fall back to checking that its id
+           exists in the fetch's id set, which is the strongest test available
+           when there is no line to pair on.
+        5. A NULL thread_id IS LEGITIMATE — skip it, never halt on it. A
+           review-body or issue-comment finding has no thread to anchor to,
+           yet it CAN carry a path and line quoted from the prose. Checking
+           "has a line, so it must pair" therefore halts a healthy run on a
+           perfectly good finding: observed on PR #391 round 2, where
+           Copilot's review body named workflows/demo/qwen-job-type.yaml:289
+           with no thread anchor at all. Test the null id FIRST, before the
+           line check. Such an entry is fixable but never resolvable, so
+           carry it with resolvable false.
+        6. Rewrite triage.json in place, recording "_id_repairs" as a list of
            (old, new, path, line) so the run is auditable.
 
       Then assert both, and fail the stage if either does not hold:

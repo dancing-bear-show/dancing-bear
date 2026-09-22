@@ -353,7 +353,11 @@ stages:
       Also probe the live machine (Bash, read-only — install nothing here):
         command -v ollama || echo "ollama: absent"
         ollama list 2>/dev/null || echo "ollama daemon: not responding"
-        curl -sS -m 3 -f -o /dev/null {ollama_host}/api/tags && echo "http: ok" || echo "http: unreachable"
+        curl -sS -m 3 -f -o /dev/null "{ollama_host}/api/tags" && echo "http: ok" || echo "http: unreachable"
+        (quoted — {ollama_host} is a caller-overridable trigger param
+        substituted with no validation by the workflow engine; the install
+        stage's Step 0 is the canonical validation gate, but this probe reads
+        the same unvalidated value, so it is quoted here too)
         launchctl list 2>/dev/null | grep -i dancing-bear || echo "no dancing-bear agents loaded"
         sysctl -n hw.memsize
 
@@ -985,8 +989,24 @@ stages:
     depends_on: [design]
     reads_from: [design, survey]
     description: >
+      ISOLATION BOUNDARY — this stage and every stage below marked
+      `isolation: worktree` runs in its OWN git worktree, not the shared
+      {workspace}. Its upstream inputs are copied in before it starts, under
+      `<your-cwd>/inputs/`, preserving each upstream stage's relative path —
+      so design's `outputs/design/contract.json` arrives at
+      `<your-cwd>/inputs/outputs/design/contract.json`, and survey's
+      `outputs/analysis/survey.json` arrives at
+      `<your-cwd>/inputs/outputs/analysis/survey.json`. A bare or
+      `{workspace}`-rooted path resolves against the orchestrator's shared
+      tree instead, which this agent cannot see. Likewise its OWN outputs must
+      be written under `<your-cwd>/outputs/...`, never to {workspace} — the
+      orchestrator copies them back after the stage completes. Every path
+      below in this and other isolated stages is written accordingly.
+
       Implement the "{job_type}" handler exactly as approved in
-      {workspace}/outputs/design/contract.json.
+      <your-cwd>/inputs/outputs/design/contract.json (see the survey artifact
+      at <your-cwd>/inputs/outputs/analysis/survey.json for the recorded
+      handler_contract, retry_protocol and telemetry shape this must match).
 
       File ownership — this stage runs in parallel with impl-heartbeat and
       impl-tests. Touch ONLY:
@@ -1178,6 +1198,13 @@ stages:
                    git commit -m "feat(worker): add Ollama transport, patch validation and concurrency guards"
         after C6:  chmod +x bin/qwen
                    git add src/worker/qwen_telemetry.py bin/qwen
+                   Wiring qwen_telemetry.py into the handler means editing
+                   src/worker/qwen.py itself (the call site that invokes the
+                   emitter). If C6 touched qwen.py, `git add` it here too —
+                   `git status --porcelain src/worker/qwen.py` after the C6
+                   checkpoint tells you whether it did. Any C6 edit to
+                   qwen.py left out of this commit is uncommitted and lost
+                   when the orchestrator merges only commits.
                    git commit -m "feat(worker): add qwen entry point and OTLP telemetry"
 
       Stage files by name, never `git add -A`. The chmod matters: a wrapper
@@ -1189,7 +1216,9 @@ stages:
       Then confirm the commit exists with `git log --oneline -1` and record
       its SHA in the JSON below.
 
-      Write {workspace}/outputs/handler-impl.json:
+      Write <your-cwd>/outputs/handler-impl.json (your own worktree cwd, per
+      the isolation boundary stated above — the orchestrator copies this back
+      into {workspace}/outputs/ after the stage completes):
         {
           "files_created": [...], "files_modified": [...],
           "registry_key": "{job_type}", "commit_sha": "<the LAST sha>",
@@ -1738,7 +1767,10 @@ stages:
       A test that stays green against a deliberately broken implementation is
       the single most important finding this stage can produce.
 
-      Write {workspace}/validation/test-review.json:
+      Write <your-cwd>/validation/test-review.json (your own worktree cwd —
+      this stage is isolation: worktree too, per the isolation boundary
+      stated at impl-handler above; the orchestrator copies this back into
+      {workspace}/validation/ after the stage completes):
         {
           "tests_reviewed": N,
           "findings": [
@@ -1929,6 +1961,32 @@ stages:
       stop. Installing on top of code that does not pass its own tests is how
       a broken daemon ends up running at boot.
 
+      Step 0 — VALIDATE {ollama_host} AND {model_tag} BEFORE FIRST USE. Both
+      are trigger params, substituted directly into the shell commands below
+      with no quoting by the workflow engine (resolve_params in
+      src/workflow/compiler.py is plain string replacement — it does not
+      validate or quote). A caller can override either at `--execute` time,
+      so nothing upstream guarantees they are safe to interpolate into a
+      shell command; validating here costs nothing and closes that off before
+      Step 2 or Step 3 ever runs a command.
+        - `{ollama_host}` must match a strict http(s) URL shape: scheme
+          `http` or `https`, then `://`, then a host (and optional `:port`),
+          with no whitespace, quotes, backticks, `$`, `;`, `|`, `&`, or
+          newline anywhere in the value.
+        - `{model_tag}` must match a model-tag grammar: `name[:tag]`, each
+          part alphanumeric plus `.`, `-`, `_`, at most one `:` separating
+          name and tag, no whitespace, quotes, backticks, `$`, `;`, `|`, `&`,
+          or newline.
+        A quick check that enforces both without writing a one-off validator:
+          printf '%s' "{ollama_host}" | grep -Eq '^https?://[A-Za-z0-9.-]+(:[0-9]+)?$' || echo "REJECTED: ollama_host"
+          printf '%s' "{model_tag}"   | grep -Eq '^[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)?$' || echo "REJECTED: model_tag"
+        If either is rejected, abort the stage immediately: write
+        {workspace}/validation/install.json with skipped=true and a
+        skip_reason naming which param failed and its (redacted if
+        necessary) value, and do not proceed to Step 1. Do not attempt to
+        sanitize or auto-correct a rejected value — an override with shell
+        metacharacters is a caller error to report, not silently fix.
+
       Step 1 — Ollama binary.
         Check:  command -v ollama
         Act:    brew install ollama
@@ -1936,17 +1994,22 @@ stages:
         already satisfied, whatever its version.
 
       Step 2 — Ollama server reachable.
-        Check:  curl -sS -m 5 -f -o /dev/null {ollama_host}/api/tags
-                (-f turns a non-2xx status into a non-zero exit, so no curl
+        Check:  curl -sS -m 5 -f -o /dev/null "{ollama_host}/api/tags"
+                (quoted — {ollama_host} is a trigger param; see Step 0. -f
+                turns a non-2xx status into a non-zero exit, so no curl
                 format string is needed — exit 0 means the server is up)
         Act:    start the server in the background (`ollama serve`), then poll
-                the same check until it returns 200, up to ~30s.
+                the same quoted check until it returns 200, up to ~30s.
         If it already returns 200, do NOT start a second server and do NOT
         restart the running one — something else may be using it.
 
       Step 3 — Model present.
-        Check:  ollama list | grep -F '{model_tag}'
-        Act:    ollama pull {model_tag}
+        Check:  ollama list | grep -F -- "{model_tag}"
+                (quoted, and `--` ends option parsing so a tag that happened
+                to start with `-` cannot be read as a grep flag)
+        Act:    ollama pull -- "{model_tag}"
+                (quoted the same way, for the same reason — both {model_tag}
+                uses reach a shell; see Step 0)
         This is a multi-GB download. Never pull when the check already matches.
 
         Then RECORD THE DIGEST, whether or not you pulled. `{model_tag}` is a
@@ -2308,14 +2371,34 @@ stages:
            user's. Both outcomes corrupt this check: one makes you read a job
            you did not drain, the other burns an attempt on someone's work.
 
-           So: first re-read the job by id (`./bin/worker show <job_id>`). If
-           the daemon already moved it to done/ or error/, that IS a valid
-           end-to-end drain — record that the daemon processed it and skip
-           run-once entirely. Only if it is still pending do you call
-           `./bin/worker run-once --max 1`, and afterwards you must confirm
-           the job you read back is the id you enqueued. If run-once drained
-           a different job, say so and re-check yours rather than reporting
-           its result as your own.
+           CHECKING AFTERWARDS IS NOT ENOUGH, and this is the part that needs
+           care: `run-once` has no id or type selector, so by the time you
+           notice it drained the wrong job, you have already executed a real
+           job of the user's and consumed one of its attempts. Detecting the
+           mismatch repairs the REPORT, not the damage. The precondition must
+           be made safe before you run it at all.
+
+           So, in this order:
+
+           a. Re-read your job by id (`./bin/worker show <job_id>`). If the
+              daemon already moved it to done/ or error/, that IS a valid
+              end-to-end drain — record that the daemon processed it and skip
+              run-once entirely. This is the preferred path.
+
+           b. If it is still pending, check what else is pending BEFORE
+              draining: `./bin/worker list`. If the pending count is 1, your
+              job is unambiguously the head and `./bin/worker run-once --max 1`
+              is safe. Run it.
+
+           c. If anything else is pending, do NOT run run-once. You cannot
+              target your job and must not execute someone else's. Either
+              wait briefly and re-check (a) in case the daemon takes yours, or
+              record the check as "not-verifiable — queue contended, N other
+              jobs pending" and move on. A skipped check reported honestly is
+              worth more than a green one bought by burning a stranger's job.
+
+           d. Whichever path ran, confirm the job you read back is the id you
+              enqueued before reporting its result as yours.
 
            Do not start a daemon here, and do not sleep-poll in a loop; if a
            wait is needed, bound it.

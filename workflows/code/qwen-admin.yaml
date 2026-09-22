@@ -85,9 +85,10 @@ description: >
     A4  Every applied action re-checked its precondition immediately before
         running, and any whose precondition no longer held was skipped and
         recorded.
-    A5  The post-action health re-check shows no layer that was up is now
-        down. This is the one that matters most: a run that fixes a stale
-        lock but stops the daemon is a net loss, and must be reported as one.
+    A5  The post-action health re-check shows no layer — of all eight in
+        health.json, not a fixed subset — that was up is now down. This is
+        the one that matters most: a run that fixes a stale lock but stops
+        the daemon is a net loss, and must be reported as one.
     A6  The report distinguishes what was OBSERVED from what was PROPOSED
         from what was APPLIED. A proposed action reported as taken is the
         failure mode this workflow must never have.
@@ -120,6 +121,17 @@ stages:
     depends_on: []
     reads_from: []
     description: >
+      VALIDATE {ollama_host} BEFORE USING IT IN ANY COMMAND BELOW. It is a
+      trigger param, and nothing in the workflow engine validates or quotes
+      it before substitution — treat it as untrusted. Confirm it matches a
+      strict http(s) URL shape: scheme `http://` or `https://`, a host,
+      optional `:port`, no path required, and none of these characters
+      anywhere in it: space, `'`, `"`, backtick, `$`, `;`, `|`, `&`, newline.
+      If it does not match, ABORT this stage immediately with a clear
+      message naming the offending value — do not run any command against
+      it. Once validated, still pass it double-quoted everywhere it reaches
+      a shell command, never bare.
+
       READ-ONLY. Probe every layer and stop nothing. Record what you find,
       including "down" — a down layer is a finding, not a thing to fix here.
 
@@ -131,7 +143,7 @@ stages:
       the diagnosis far more than knowing one is broken:
 
         1. Ollama binary:   command -v ollama
-        2. Ollama server:   curl -sS -m 5 -f -o /dev/null {ollama_host}/api/tags
+        2. Ollama server:   curl -sS -m 5 -f -o /dev/null "{ollama_host}/api/tags"
                             (-f makes a non-2xx a non-zero exit; exit 0 = up)
         3. Model loaded:    ollama ps
                             (distinguishes "installed" from "resident in
@@ -143,8 +155,9 @@ stages:
                             exit status. Record the exit status if present.
         5. Queue reachable: ./bin/worker list
         6. Collector:       ./bin/telemetry otel health
-        7. Round trip:      a minimal generate call against {ollama_host}
-                            with a trivial prompt and a short timeout, to
+        7. Round trip:      a minimal generate call against "{ollama_host}"
+                            (quoted, as validated above) with a trivial
+                            prompt and a short timeout, to
                             prove the server answers rather than merely
                             accepting connections. Keep it tiny — this is a
                             liveness probe, not a benchmark.
@@ -606,17 +619,32 @@ stages:
           output. If one fails, stop and record it — do not continue down the
           list hoping the rest work.
 
-      After applying, re-run the cheap health probes (layers 2, 4, 5 from the
-      health stage) to confirm nothing got worse. If a layer that was up is
-      now down, say so prominently — that is the worst outcome of this
-      workflow and must not be buried under a list of successful actions.
+      After applying, re-run every layer's probe that health.json recorded as
+      up — not a fixed subset. Read health.json's "layers" array and its
+      per-layer "up" values first; for each layer that was up, re-run that
+      same layer's probe from the health stage above (e.g. if
+      concurrency_lock was up, re-check the lock; if model_resident was up,
+      re-run `ollama ps`) and compare its new state against the recorded
+      before-state. A layer that was already down before remediation is not
+      re-probed here — remediate did not claim to fix it unless it is one of
+      the approved actions, and re-probing it tells you nothing about
+      whether this run made anything WORSE. This is a verification pass, not
+      a re-diagnosis: re-probe each layer's existing check, do not re-run
+      the full analytical reasoning (e.g. the SUSPECT-lock cross-checks) —
+      only whether up became down. If ANY previously-up layer is now down,
+      say so prominently — that is the worst outcome of this workflow and
+      must not be buried under a list of successful actions.
 
       Write validation/remediation.json:
         {
           "approved": ["a1", "a3"] | [],
           "applied": [{"id": "a1", "command": "...", "exit_code": N, "output": "...", "precondition_still_held": true|false, "ok": true|false}],
           "skipped": [{"id": "...", "reason": "..."}],
-          "post_check": {"layers": [...], "anything_worse": true|false, "detail": "..."},
+          "post_check": {
+            "layers_compared": [{"layer": "...", "was_up": true, "now_up": true|false, "regressed": true|false, "detail": "..."}],
+            "anything_worse": true|false,
+            "detail": "..."
+          },
           "all_ok": true|false
         }
     agent:

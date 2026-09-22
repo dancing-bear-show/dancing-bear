@@ -140,7 +140,22 @@ stages:
     reads_from: [read-the-seam]
     description: >
       Implement a minimal "{job_type}" handler against the contract recorded
-      in outputs/analysis/seam.json.
+      in read-the-seam's output.
+
+      THIS STAGE IS ISOLATED (`isolation: worktree`): you run in your own
+      worktree, not in the shared {workspace}. Per .claude/skills/workflow/SKILL.md
+      rule 7a, the orchestrator copies every upstream output into
+      `<your-cwd>/inputs/`, preserving its relative path — it does NOT put
+      anything under {workspace}, which you cannot reach from here. So
+      read-the-seam's `outputs/analysis/seam.json` arrives at
+      `<your-cwd>/inputs/outputs/analysis/seam.json`, NOT at
+      `{workspace}/outputs/analysis/seam.json` and NOT at a bare
+      `outputs/analysis/seam.json` relative to some other directory. Read it
+      from `<your-cwd>/inputs/outputs/analysis/seam.json`. This is the general
+      rule for every isolated stage, not a one-off: an isolated agent's inputs
+      always land under `inputs/<the upstream stage's own writes_to path>`
+      relative to its own cwd, because rule 7a copies inputs in rather than
+      giving the agent access to the shared tree.
 
       Deliberately trivial behaviour, so the demo teaches the WIRING rather
       than the payload: the handler echoes back the payload's "message" key.
@@ -180,7 +195,16 @@ stages:
       other agents' work in a shared tree. Confirm with `git log --oneline -1`
       and record the SHA below.
 
-      Write {workspace}/outputs/handler.json:
+      Write handler.json to `<your-cwd>/outputs/handler.json` — NOT to
+      `{workspace}/outputs/handler.json`, which is unreachable from here for
+      the same reason your inputs are not there. Per rule 7b, the
+      orchestrator copies this stage's declared `writes_to` files from your
+      cwd into `{workspace}` as part of completing this stage, before any
+      dependent stage is released. Writing to a literal `{workspace}` path
+      instead would write into the shared tree from inside your isolated
+      worktree filesystem view — at best a no-op, at worst a file the
+      orchestrator's copy-back step never looks for and downstream stages
+      never see.
         {"files_created": [...], "files_modified": [...], "registry_key": "{job_type}", "commit_sha": "...", "retry_cases": ["terminal", "deferred", "plain"]}
     agent:
       role: code-writer
@@ -283,10 +307,23 @@ stages:
            Expect: attempts incremented and the job re-queued to pending
            with a future not_before, not moved to error/ on the first try.
 
-      Step 4 — clean up after yourself. This demo writes real jobs into the
-      real queue. Remove only the jobs you created, by id. Do not run a bare
-      `./bin/worker purge`: it accepts only --older-than and --folders, with
-      no type or id filter, so it would delete every job type's history.
+      Step 4 — leave the four jobs where they are; do not attempt to remove
+      them. This demo writes real jobs into the real, shared queue at
+      `~/Library/Application Support/dancing-bear/queue` — `worker`'s queue
+      root is a hardcoded constant (`src/worker/_helpers.py`'s
+      `get_worker_state_dir`) with no CLI flag or env var to point it
+      elsewhere for this run, so there is no isolated queue to tear down
+      after. Deleting by id is equally not available: `worker show <id>` and
+      `worker retry <id>` are the only id-scoped commands, and neither
+      deletes; `worker purge` deletes by age (`--older-than`) and folder
+      (`--folders`) only, with no id or job-type filter, so running it here
+      would delete every job type's history, not just this demo's four jobs.
+      Record in verified.json that the four "{job_type}" jobs (one per retry
+      class) remain in done/error/pending as a known, accepted cost of
+      running this demo against the real queue. If you want them gone later,
+      run this manually, understanding it prunes ALL job types older than the
+      window, not just these:
+        ./bin/worker purge --older-than 0d --folders done,error
 
       Write {workspace}/validation/verified.json:
         {
@@ -298,7 +335,7 @@ stages:
             {"case": "deferred", "job_id": "...", "final_state": "pending", "attempts_before": N, "attempts_after": N, "as_expected": true|false},
             {"case": "plain",    "job_id": "...", "final_state": "pending", "attempts_before": N, "attempts_after": N, "as_expected": true|false}
           ],
-          "cleanup": {"jobs_removed": [...], "bare_purge_used": false},
+          "cleanup": {"jobs_left_in_queue": ["<success_id>", "<terminal_id>", "<deferred_id>", "<plain_id>"], "reason": "no id-scoped delete or queue-root override exists; see stage description"},
           "verified": true|false
         }
 

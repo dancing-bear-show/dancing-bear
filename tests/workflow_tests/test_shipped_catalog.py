@@ -170,6 +170,48 @@ def _instructs_commit(description: str) -> bool:
     )
 
 
+def _has_validation_block(stage: dict) -> bool:
+    """Return True if a kind:validate stage declares validation.criteria.
+
+    The positive form of the check in
+    ``test_validate_stages_declare_a_validation_block`` — used both there and
+    by the baseline-rot check below so the two can never disagree about what
+    counts as compliant.
+    """
+    validation = stage.get("validation")
+    return bool(isinstance(validation, dict) and validation.get("criteria"))
+
+
+def _has_short_description(stage: dict) -> bool:
+    """Return True if a kind:validate stage's description is within budget.
+
+    The positive form of the check in
+    ``test_long_contracts_do_not_live_on_validate_stages``.
+    """
+    return len(str(stage.get("description") or "")) <= _CONTRACT_DESCRIPTION_CHARS
+
+
+def _commits(stage: dict) -> bool:
+    """Return True if an isolated stage's description satisfies the commit gate.
+
+    The positive form of the check in
+    ``test_isolated_stages_mention_committing``.
+    """
+    return _instructs_commit(str(stage.get("description") or ""))
+
+
+# Maps each baseline category to the predicate that decides whether a stage
+# is currently COMPLIANT with the rule it was grandfathered against. Shared
+# by the live gates above and TestBaselineDoesNotRot below: if these ever
+# drift from what a gate actually checks, the baseline-rot test and the gate
+# it mirrors can silently disagree.
+_CATEGORY_COMPLIANCE: dict[str, tuple] = {
+    "validate_stage_missing_validation_block": (_iter_validate_stages, _has_validation_block),
+    "validate_stage_long_description": (_iter_validate_stages, _has_short_description),
+    "isolated_stage_without_commit": (_iter_isolated_stages, _commits),
+}
+
+
 class TestShippedCatalogLints(unittest.TestCase):
     """Every shipped workflow must lint clean."""
 
@@ -261,9 +303,7 @@ class TestValidateKindContractNotDropped(unittest.TestCase):
         offenders: list[str] = []
         for path, stage in _iter_validate_stages():
             key = _stage_key(path, stage.get("name"))
-            validation = stage.get("validation")
-            has_criteria = isinstance(validation, dict) and validation.get("criteria")
-            if not has_criteria and key not in grandfathered:
+            if not _has_validation_block(stage) and key not in grandfathered:
                 offenders.append(key)
         self.assertEqual(
             offenders,
@@ -287,8 +327,8 @@ class TestValidateKindContractNotDropped(unittest.TestCase):
         offenders: list[str] = []
         for path, stage in _iter_validate_stages():
             key = _stage_key(path, stage.get("name"))
-            size = len(str(stage.get("description") or ""))
-            if size > _CONTRACT_DESCRIPTION_CHARS and key not in grandfathered:
+            if not _has_short_description(stage) and key not in grandfathered:
+                size = len(str(stage.get("description") or ""))
                 offenders.append(f"{key} ({size} chars)")
         self.assertEqual(
             offenders,
@@ -317,7 +357,7 @@ class TestIsolatedStagesCommit(unittest.TestCase):
         offenders = [
             _stage_key(path, stage.get("name"))
             for path, stage in _iter_isolated_stages()
-            if not _instructs_commit(str(stage.get("description") or ""))
+            if not _commits(stage)
             and _stage_key(path, stage.get("name")) not in grandfathered
         ]
         self.assertEqual(
@@ -355,6 +395,40 @@ class TestBaselineDoesNotRot(unittest.TestCase):
             "baseline entries name stages that no longer exist — remove "
             "these lines from shipped_catalog_baseline.json:\n  "
             + "\n  ".join(stale),
+        )
+
+    def test_every_baselined_entry_is_still_a_violation(self) -> None:
+        """A baselined stage that has since been fixed must be removed.
+
+        The deleted-stage check above only catches a baseline entry whose
+        file or stage disappeared. It says nothing about a stage that still
+        exists but no longer breaks the rule it was grandfathered for — that
+        entry is just as stale, and left alone the baseline can only shrink
+        by deletion, never by the repair the ratchet exists to reward. This
+        recomputes each category's own compliance predicate (the same one
+        the live gate above uses, via ``_CATEGORY_COMPLIANCE``) against the
+        stage the entry names, so the two checks cannot silently disagree.
+        """
+        stale: list[str] = []
+        for category, entries in _baseline().items():
+            mapping = _CATEGORY_COMPLIANCE.get(category)
+            if mapping is None:
+                # Unknown category: nothing to recompute against, and the
+                # deleted-stage check already covers referential staleness.
+                continue
+            iterate, is_compliant = mapping
+            by_key = {_stage_key(path, stage.get("name")): stage for path, stage in iterate()}
+            for entry in sorted(entries):
+                stage = by_key.get(entry)
+                if stage is not None and is_compliant(stage):
+                    stale.append(f"{category}: {entry}")
+        self.assertEqual(
+            stale,
+            [],
+            "baseline entries no longer represent a violation — the stage "
+            "was fixed but stays grandfathered, so the ratchet never forces "
+            "its removal. Delete these lines from "
+            "shipped_catalog_baseline.json:\n  " + "\n  ".join(stale),
         )
 
 
