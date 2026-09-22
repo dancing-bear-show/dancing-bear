@@ -203,6 +203,28 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
   `S602`), `# NOSONAR` takes SonarQube codes (`S3776`, `S3516`). A SonarQube code
   in a `# noqa:` suppresses nothing and makes ruff warn on every run
 
+**Dead code (vulture):**
+- `make deadcode` runs vulture 2.16 against `[tool.vulture]` in
+  `pyproject.toml`. The baseline is **0 findings** and CI has a blocking
+  `deadcode` job, so new dead code fails the build.
+- **Every suppression mechanism is repo-wide except one.** `ignore_names` is
+  global by construction — and so is a whitelist module, which is the trap. A
+  whitelist is vulture's documented mechanism and *looks* path-scoped because
+  it sits beside the file it covers, but it is just source that vulture scans:
+  reading a name there clears it everywhere. Suppressing `rect` for one PDF
+  fixture also blinded the scan to `src/diagrams/`, which uses that name 28
+  times.
+- The only line-scoped suppression is a trailing `# noqa`. Note
+  `# vulture: ignore` does **nothing** — it is not a supported form.
+- **Vulture auto-reads `pyproject.toml` from the CWD even without `--config`.**
+  Its `paths` key then overrides any path you pass, so `vulture src/one/file.py`
+  run from the repo root silently rescans the configured paths instead. A
+  single-file check must run from outside the repo with an absolute path.
+- Probe any suppression rather than reasoning about it: plant a dead symbol of
+  that name in an unrelated module and confirm it is still reported. Use a
+  *live* (referenced) class — vulture reports a dead class and stops, so a dead
+  class masks whether the attribute inside it was suppressed.
+
 **Type checking (mypy):**
 - `make typecheck` is unchanged and still **report-only** — it prints findings
   and exits 0. Two targets alongside it *do* block:
