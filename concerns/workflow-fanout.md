@@ -90,10 +90,10 @@ general workflow concerns live in `workflow.md`.
 - **example**: A `validate-concerns` stage uses `kind: validate` and puts the required findings schema plus `{index}` fan-out token in `description`. The validate path builds a generic 'return findings as a JSON array' prompt — the `description` block is dropped. Fix: switch to `kind: execute` and move the contract into a dedicated `outputs` block.
 
 ### writes-to-double-outputs-prefix
-- **severity**: major
-- **check**: Verify that `writes_to` entries do not begin with `outputs/` — these paths are already relative to `{workspace}/outputs/`, so an `outputs/` prefix resolves to `{workspace}/outputs/outputs/...`, causing output-validation mismatches with downstream `reads_from` declarations.
-- **triggers**: `writes_to` list entries that begin with the literal string `outputs/`; corresponding stage descriptions or downstream stages that reference the same file without the `outputs/` prefix.
-- **example**: `writes_to: ["outputs/manifest.json"]` resolves to `{workspace}/outputs/outputs/manifest.json`, but the next stage reads `{workspace}/outputs/manifest.json`. Post-group output verification finds the file missing and marks the stage failed. Fix: drop the prefix — `writes_to: ["manifest.json"]`.
+- **severity**: RESOLVED — no longer a defect; retained so the claim is not re-derived from stale copies of this file.
+- **status**: The engine special-cases the workspace subdirectories, so an `outputs/` prefix does NOT double. Verified 2026-09-22 against `src/workflow/dispatch.py`: `_WORKSPACE_SUBDIRS = ("outputs/", "validation/", "stages/", "dispatch/")`, and `_write_paths()` emits `{root}/{f}` for any entry starting with one of those prefixes, falling back to `{root}/outputs/{f}` only for a bare filename. `src/workflow/orchestrator.py` guards the same prefixes when copying isolated-agent outputs back. `.claude/skills/workflow/SKILL.md` documents this resolution rule and agrees.
+- **check**: None. Both spellings are correct: `writes_to: ["manifest.json"]` and `writes_to: ["outputs/manifest.json"]` resolve to the same `{workspace}/outputs/manifest.json`. Do not "fix" a workflow by stripping the prefix on the strength of this entry.
+- **note**: If you are reading this because a stage's output really did land in the wrong place, look elsewhere — the likeliest cause is an isolated stage writing to its own cwd without the orchestrator copying it back (see the isolation protocol in SKILL.md), not prefix doubling.
 
 ### isolated-agent-path-protocol
 - **severity**: critical

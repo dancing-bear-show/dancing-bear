@@ -71,8 +71,9 @@ stages:
       File access rules: Read for file contents, Glob for discovery. Bash is
       for live system state only.
 
-      Probe each layer independently — do not short-circuit, since knowing
-      that three of four layers are healthy narrows the diagnosis:
+      Probe all seven layers independently — do not short-circuit at the
+      first failure, since knowing that six of seven are healthy narrows the
+      diagnosis far more than knowing one is broken:
 
         1. Ollama binary:   command -v ollama
         2. Ollama server:   curl -sS -m 5 -f -o /dev/null {ollama_host}/api/tags
@@ -347,6 +348,21 @@ stages:
            burn the queue. Never requeue without a --match filter.
         e) Purge done/error jobs older than {purge_older_than}:
            ./bin/worker purge. Never purge pending or processing.
+
+           BLAST RADIUS — state this verbatim in the proposal, every time:
+           `worker purge` accepts only --older-than and --folders. It has no
+           --type, no --match, no lane filter of any kind (unlike
+           requeue-errors, which has --limit/--match/--since). It therefore
+           deletes the done/ and error/ history of EVERY job type —
+           run_cli, run_shell and workflow_stage included — not just the
+           {job_type} lane this workflow is about. Deletion is irreversible.
+
+           Never describe this action as purging qwen jobs, in the proposal
+           or at the human gate. Describe it as a repo-wide purge of all job
+           history older than the threshold, because that is what it does.
+           If the finding that motivated it is qwen-lane-specific, say so and
+           say plainly that no scoped purge exists — then let the human decide
+           whether a repo-wide purge is an acceptable way to address it.
         f) Delete orphaned patch artifacts whose job no longer exists.
 
       Explicitly NOT allowlisted, and always reported as manual steps:
@@ -398,7 +414,7 @@ stages:
     kind: execute
     human_gate: true
     depends_on: [triage]
-    reads_from: [triage, health, models, queue-lane]
+    reads_from: [triage, health]
     description: >
       Read {workspace}/analysis/triage.json. If nothing_to_do is true, write a
       no-op record and stop.

@@ -18,10 +18,33 @@ description: >
   a single-machine single-daemon queue does not need.
 
   The one real gap beanstalkd would have closed is long-job liveness: a 14B
-  patch job can run for minutes, and reap_stale_processing_jobs is a flat
-  timeout with no heartbeat, so a slow-but-healthy job can be reaped mid-flight
-  and retried while the first copy is still running. That is fixed here inside
-  the existing queue (stage impl-heartbeat), not by swapping the queue out.
+  patch job can run for minutes, and the queue has no heartbeat, so a
+  slow-but-healthy job risks being cut off mid-flight. That is addressed here
+  inside the existing queue (stage impl-heartbeat), not by swapping the queue
+  out.
+
+  WHICH mechanism actually bounds a long job is NOT assumed by this workflow,
+  because the obvious answer is wrong. An adversarial review of an earlier
+  draft established, against the source:
+
+    - reap_stale_processing_jobs measures age from `processing_started_at`
+      (queue_ops.py `_reap_resolve_start_time`), fixed at claim time — so a
+      heartbeat field COULD fix the reaper, and that was this workflow's
+      original premise.
+    - But `_reap_one_job` returns None when `effective_timeout <= 0`, and the
+      shipped configs/launchd/com.dancing-bear.worker.plist passes no
+      `--job-timeout` at all. Under the installed configuration the reaper
+      therefore never fires: the premise does not reproduce.
+    - The real ceiling is job_runtime.py's `_join_with_timeout`, an in-process
+      thread join on `_effective_job_timeout` that NO heartbeat write can
+      extend, plus the per-job `timeout_sec` that job_runtime injects into the
+      handler's own payload as `timeout`.
+
+  So the survey stage records BOTH paths and the design stage must state which
+  one bounds a long qwen job under the shipped plist BEFORE specifying any
+  field. The design gate is where that decision gets made and approved —
+  including the option of dropping the heartbeat entirely if the reaper is not
+  the constraint. Do not re-adopt the original premise without re-deriving it.
 
   Job contract (decided up front, not up for re-litigation in the design
   stage): a qwen job produces a PATCH and never applies it. The model's
@@ -41,15 +64,24 @@ description: >
         |                |                |
         +----------------+----------------+
         |
-    adversarial-test-review                  (G3 — Opus attacks the suite; teeth-tests it)
+    merge-impl                               (G3 — land the 3 branches into one tree)
         |
-    integrate                                (G4 — act on findings, then lint/typecheck/suite)
+    adversarial-test-review                  (G4 — Opus attacks the suite; teeth-tests it)
         |
-    install                                  (G5 — idempotent: ollama, model, worker launchd)
+    integrate                                (G5 — act on findings, then lint/typecheck/suite)
         |
-    verify                                   (G6 — real job through the real queue)
+    install                                  (G6 — idempotent: ollama, model, worker launchd)
         |
-    report                                   (G7 — summary + how to use it)
+    verify                                   (G7 — real job through the real queue)
+        |
+    report                                   (G8 — summary + how to use it)
+
+  merge-impl is a stage of its own rather than integrate's first paragraph
+  because two later stages need the merged tree. An isolated agent's edits do
+  not merge back automatically, and `git merge` moves commits, not files — so
+  each impl stage commits to its own worktree branch and merge-impl lands
+  them, failing loudly when a stage produced no commit rather than reporting
+  a green stage over lost work.
 
   The adversarial review at G3 exists because a passing test suite is not
   evidence of a working one. It asks the inverse question — what mutation of
@@ -109,10 +141,26 @@ stages:
            attempts/max_attempts are read. This is the retry protocol the new
            handler must speak.
         3. src/worker/queue_ops.py — the Job dataclass fields (note
-           timeout_sec), enqueue/start_processing/finish/retry, and crucially
-           reap_stale_processing_jobs: record exactly how it decides a
-           processing job is stale, which timestamp field it reads, and what
-           it does to the job. This is what impl-heartbeat must change.
+           timeout_sec), enqueue/start_processing/finish/retry, and the
+           reaper: `reap_stale_processing_jobs`, `_reap_one_job`,
+           `_reap_resolve_start_time`, `_reap_effective_timeout`. Record
+           which timestamp field decides staleness, and record the exact
+           condition under which the reaper does NOTHING (read the
+           `effective_timeout <= 0` branch and say what value makes it fire).
+        3b. THE SECOND TIMEOUT PATH — do not skip this; the workflow's
+           original premise was wrong because it did. Read
+           src/worker/job_runtime.py: `_effective_job_timeout`,
+           `_join_with_timeout`, `DaemonRunner._process_batch`, and the place
+           where `timeout_sec` is injected into the job payload as `timeout`.
+           This is an in-process thread deadline that no heartbeat write can
+           extend. Record it as a separate mechanism from the reaper.
+        3c. THE SHIPPED CONFIGURATION — read
+           configs/launchd/com.dancing-bear.worker.plist's ProgramArguments
+           and record VERBATIM which daemon flags it passes. Then state
+           plainly, from 3, 3b and this: under the installed configuration,
+           which mechanism (if either) actually terminates a 20-minute job?
+           If the answer is "neither", say so — that is a valid and important
+           finding, and the design stage depends on it.
         4. src/worker/cli.py — how `enqueue --type` derives its choices from
            HANDLERS.keys(), so a new registry entry appears in the CLI
            automatically.
@@ -152,7 +200,9 @@ stages:
         {
           "handler_contract": {"signature": "...", "return": "...", "registry_line": "..."},
           "retry_protocol": {"deferred_prefix": "...", "terminal_prefix": "...", "plain_failure": "..."},
-          "reaper": {"function": "...", "timestamp_field": "...", "staleness_rule": "...", "action": "..."},
+          "reaper": {"function": "...", "timestamp_field": "...", "staleness_rule": "...", "action": "...", "no_op_condition": "..."},
+          "inprocess_timeout": {"function": "...", "deadline_source": "...", "extendable_by_heartbeat": true|false, "payload_injection": "..."},
+          "shipped_plist": {"daemon_flags": ["..."], "job_timeout_passed": true|false, "what_actually_bounds_a_long_job": "reaper|join_timeout|per_job_timeout_sec|nothing"},
           "job_fields": ["id", "type", "..."],
           "launchd": {"template": "...", "placeholders": ["..."], "installer_idempotent": true|false},
           "output_dir_api": "...",
@@ -224,13 +274,42 @@ stages:
          principle is that re-sampling can plausibly fix a bad generation but
          cannot fix a missing model.
 
-      4. HEARTBEAT. Given the reaper's actual staleness rule from the survey,
-         specify the smallest change that stops a healthy long-running job from
-         being reaped: which field the handler writes while waiting, how often,
-         and how the reaper must read it. State explicitly what happens to
-         existing run_cli/run_shell jobs that never write that field — the
-         change must be backward compatible, since they are the queue's current
-         users.
+      4. LONG-JOB LIVENESS. Decide, do not assume — an earlier draft of this
+         workflow asserted the reaper was the constraint and was wrong.
+
+         FIRST, answer from survey.json's reaper / inprocess_timeout /
+         shipped_plist sections: under the SHIPPED plist, what actually
+         terminates a 20-minute qwen job? State the answer explicitly and cite
+         the fields you read. Then pick exactly one route:
+
+         (a) NOTHING terminates it (the reaper is a no-op because no
+             --job-timeout is passed, and no per-job timeout_sec is set).
+             Then a heartbeat fixes a problem that does not occur, and the
+             honest design is to DROP the heartbeat: say so, recommend
+             removing the impl-heartbeat stage from this run, and note the
+             latent risk — the moment someone adds --job-timeout to the plist
+             or sets timeout_sec, the reaper starts firing on long jobs.
+             Specify the heartbeat as a documented follow-up, not as work to
+             do now. Choosing this is a success, not a failure of the stage.
+
+         (b) THE REAPER binds (a timeout is in play via --job-timeout or a
+             per-job timeout_sec). Then specify the smallest change that keeps
+             a live job alive: which field the handler writes while waiting,
+             how often, and how `_reap_resolve_start_time` must consult it.
+
+         (c) THE IN-PROCESS JOIN binds (`_join_with_timeout`). Then say
+             plainly that a heartbeat field CANNOT fix this — the deadline is
+             computed in the daemon thread, not from the job file — and
+             specify what would: a larger per-job timeout_sec for this job
+             type, or a change to how `_effective_job_timeout` is derived.
+             Do not specify a heartbeat field for this case; it would be
+             decoration.
+
+         For (b) or (c), state explicitly what happens to existing
+         run_cli/run_shell/workflow_stage jobs that never write the new field.
+         Backward compatibility is the whole risk: they are the queue's
+         current users, and a missing field must mean exactly what it means
+         today, not "immediately stale" or "never stale".
 
       5. OLLAMA TRANSPORT. Confirm stdlib urllib against {ollama_host} (no new
          dependency — the repo is dependency-light). Specify the endpoint,
@@ -369,8 +448,21 @@ stages:
           job — and carry the nosec comment the repo requires on a
           deliberately broad except, explaining the intent.
 
+      COMMIT BEFORE FINISHING — this is not optional and not a formality.
+      You run in your own git worktree on a `worktree-agent-*` branch. The
+      orchestrator merges your work with `git merge`, and git merge moves
+      COMMITS, not uncommitted files. If you return with edits uncommitted,
+      the merge succeeds against an empty branch, this stage reports success,
+      and every line you wrote is silently lost. So, as your final action
+      before writing the result JSON:
+        git add src/worker/qwen.py src/worker/qwen_telemetry.py src/worker/handlers.py
+        git commit -m "feat(worker): add {job_type} handler with OTLP emit"
+      Stage only the files this stage owns, by name — never `git add -A`.
+      Then confirm the commit exists with `git log --oneline -1` and record
+      its SHA in the JSON below.
+
       Write {workspace}/outputs/handler-impl.json:
-        {"files_created": [...], "files_modified": [...], "registry_key": "{job_type}", "notes": "..."}
+        {"files_created": [...], "files_modified": [...], "registry_key": "{job_type}", "commit_sha": "...", "notes": "..."}
     agent:
       role: code-writer
       model: sonnet
@@ -395,7 +487,21 @@ stages:
     depends_on: [design]
     reads_from: [design, survey]
     description: >
-      Implement the heartbeat change from contract.json's "heartbeat" section,
+      FIRST, read contract.json's heartbeat/liveness section and check which
+      route the approved design chose. If it chose route (a) — nothing
+      currently terminates a long job, so no change is warranted — then make
+      NO code change. Write outputs/heartbeat-impl.json with
+      {"files_modified": [], "route": "a-no-change", "reason": "<cite the
+      design>", "commit_sha": null} and finish. Do not invent a heartbeat to
+      justify this stage's existence; a no-op here is the correct outcome of
+      that decision, and integrate is told to expect it.
+
+      If the design chose route (c) — the in-process join is the constraint —
+      implement what the design specified for that (per-job timeout_sec
+      derivation), NOT a heartbeat field, which cannot affect an in-process
+      thread deadline.
+
+      Otherwise (route b), implement the heartbeat change from contract.json,
       so a healthy long-running job is not reaped mid-flight.
 
       File ownership — parallel with impl-handler and impl-tests. Touch ONLY:
@@ -419,8 +525,19 @@ stages:
           field. Read-modify-write only the heartbeat timestamp.
         - Keep the existing nosec/logging conventions.
 
+      COMMIT BEFORE FINISHING — not optional. You run in your own git
+      worktree on a `worktree-agent-*` branch, and the orchestrator merges
+      with `git merge`, which moves COMMITS, not uncommitted files. Return
+      with edits uncommitted and the merge succeeds against an empty branch
+      while this stage reports success — your work is lost silently. As your
+      final action before writing the result JSON:
+        git add src/worker/queue_ops.py src/worker/job_runtime.py
+        git commit -m "fix(worker): keep a live long-running job from being reaped"
+      Stage only the files this stage owns, by name — never `git add -A`.
+      Confirm with `git log --oneline -1` and record the SHA below.
+
       Write {workspace}/outputs/heartbeat-impl.json:
-        {"files_modified": [...], "helper_name": "...", "fallback_behaviour": "...", "notes": "..."}
+        {"files_modified": [...], "helper_name": "...", "fallback_behaviour": "...", "commit_sha": "...", "notes": "..."}
     agent:
       role: code-writer
       model: sonnet
@@ -492,8 +609,18 @@ stages:
       Assert behaviour, never import-only coverage. Do not write a test whose
       sole purpose is to raise a coverage number.
 
+      COMMIT BEFORE FINISHING — not optional. You run in your own git
+      worktree on a `worktree-agent-*` branch, and the orchestrator merges
+      with `git merge`, which moves COMMITS, not uncommitted files. An
+      uncommitted test suite is merged as nothing at all, while this stage
+      still reports success. As your final action before writing the result
+      JSON, stage the test files this stage created BY NAME (never
+      `git add -A`) and commit:
+        git commit -m "test(worker): cover {job_type} handler, retry map and heartbeat"
+      Confirm with `git log --oneline -1` and record the SHA below.
+
       Write {workspace}/outputs/tests-impl.json:
-        {"test_files": [...], "test_count": N, "retry_map_rows_covered": N, "notes": "..."}
+        {"test_files": [...], "test_count": N, "retry_map_rows_covered": N, "commit_sha": "...", "notes": "..."}
     agent:
       role: tester
       model: sonnet
@@ -511,22 +638,104 @@ stages:
       - outputs/tests-impl.json
 
   # ===========================================================================
-  # G3: Adversarial test review — attack the suite before trusting it
+  # G3: Merge — land the three isolated branches into one tree
+  # ===========================================================================
+  - name: merge-impl
+    kind: execute
+    depends_on: [impl-handler, impl-heartbeat, impl-tests]
+    reads_from: [impl-handler, impl-heartbeat, impl-tests]
+    description: >
+      Land the three implementation branches so every later stage sees one
+      coherent tree. This stage exists on its own because both
+      adversarial-test-review and integrate need the merged result — folding
+      the merge into integrate would leave the review stage reading three
+      separate ephemeral worktrees, which is to say nothing at all.
+
+      For each of impl-handler, impl-heartbeat and impl-tests:
+
+        1. Read its result JSON (outputs/handler-impl.json,
+           outputs/heartbeat-impl.json, outputs/tests-impl.json) and take the
+           commit_sha it recorded.
+        2. If commit_sha is null or absent, check whether the stage legitimately
+           made no change — impl-heartbeat records route "a-no-change" when the
+           approved design chose to ship no liveness fix. That is a valid empty
+           result: record it and move on.
+        3. Otherwise a missing commit_sha means the agent edited its worktree
+           and never committed, so there is nothing to merge and its work is
+           gone. FAIL this stage and say so plainly; do not proceed as if the
+           code exists.
+        4. Verify the branch actually carries commits before merging:
+             git log --oneline <this-branch>..worktree-agent-<id>
+           An empty result here is the silent-loss case — treat it as failure,
+           not as a clean no-op.
+        5. Merge it:
+             git merge --no-ff worktree-agent-<id> -m "merge stage <name>"
+
+      Resolve any conflict in favour of the approved contract in
+      design/contract.json. The three stages were partitioned by file
+      (qwen.py + qwen_telemetry.py + the registry line / queue_ops.py +
+      job_runtime.py / tests only), so a conflict means a stage wrote outside
+      its lane — record which one and what it touched, since that is a real
+      finding about the partitioning, not just a merge chore.
+
+      Then confirm the merged tree is coherent:
+        git status --porcelain
+        git log --oneline -5
+      and verify every file named in the three result JSONs now exists at its
+      repo path.
+
+      Write {workspace}/validation/merge.json:
+        {
+          "merged": [{"stage": "...", "branch": "...", "commit_sha": "...", "commits": N}],
+          "no_change_stages": [{"stage": "...", "reason": "..."}],
+          "missing_commits": [{"stage": "...", "detail": "..."}],
+          "conflicts": [{"file": "...", "between": ["...", "..."], "resolution": "..."}],
+          "files_present": [...],
+          "files_missing": [...],
+          "all_landed": true|false
+        }
+      all_landed is true only when every stage either merged successfully or
+      is a recorded legitimate no-change.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Bash, Read, Write, Edit]
+      access: read-write
+    required: true
+    outputs:
+      - name: merge_record
+        mode: generate
+        description: >
+          merge.json recording each branch merged with its commit SHA, any
+          stage that produced no commit, and whether every expected file is
+          present in the merged tree.
+    writes_to:
+      - validation/merge.json
+    validates_output:
+      - path: validation/merge.json
+        checks: [is_json, has_key:merged, has_key:all_landed]
+
+  # ===========================================================================
+  # G4: Adversarial test review — attack the suite before trusting it
   # ===========================================================================
   - name: adversarial-test-review
-    kind: validate
-    depends_on: [impl-handler, impl-heartbeat, impl-tests]
-    reads_from: [impl-tests, impl-handler, impl-heartbeat, design, survey]
+    kind: execute
+    depends_on: [merge-impl]
+    reads_from: [merge-impl, impl-tests, impl-handler, impl-heartbeat, design, survey]
     description: >
       Adversarial review of the test suite. You are NOT checking that tests
       pass — a suite of vacuous tests passes perfectly. You are looking for
       tests that would stay green while the code is broken. Be hostile; a
       balanced review is a failed review here.
 
-      The three impl stages ran in isolated worktrees, so read their files
-      from the paths recorded in handler-impl.json, heartbeat-impl.json and
-      tests-impl.json. If a file is unreadable from here, record it as
-      "could not review" rather than assuming it is fine.
+      This stage runs AFTER merge-impl, so all three implementation branches
+      are merged into one tree and their files are readable by their normal
+      repo paths. You also run in your OWN worktree (isolation: worktree),
+      which is what makes the teeth test below safe: the source you break is
+      your private copy, not the shared tree other agents are using.
+      If a file named in handler-impl.json / heartbeat-impl.json /
+      tests-impl.json is still unreadable, record it as "could not review"
+      and set verdict "needs-work" — do not silently review nothing.
 
       For EVERY test, answer one question: what mutation of the source would
       this test fail to catch? Then hunt specifically for these failure modes,
@@ -584,13 +793,25 @@ stages:
          Missing coverage is a finding.
 
       Then run the teeth test on the highest-value cases. For the two or three
-      tests that matter most (happy path, one terminal-prefix case, the
-      heartbeat freshness case): temporarily break the SOURCE in the obvious
-      way, run just that test, and confirm it goes red. Revert immediately —
-      use `git diff` to prove the tree is unchanged before finishing, and say
-      so in the record. A test that stays green against a deliberately broken
-      implementation is the single most important finding this stage can
-      produce.
+      tests that matter most (happy path, one terminal-prefix case, and the
+      liveness case if the design shipped one): temporarily break the SOURCE
+      in the obvious way, run just that test, and confirm it goes red.
+
+      This is safe here and ONLY here: you are in your own isolated worktree,
+      so the break is confined to your private copy. Never do this in a shared
+      tree. Constraints:
+        - Break one thing at a time and restore it before the next.
+        - Restore with `git checkout -- <file>` (an exact revert), not by
+          retyping what you think the line said.
+        - After each restore run `git status --porcelain` and record its
+          VERBATIM output in the record below. Empty output is the proof; a
+          self-asserted "restored: true" is not.
+        - Never commit from this stage. If you cannot restore a file cleanly,
+          stop, set verdict "needs-work", and say exactly which file is dirty
+          — a dirty worktree here is discarded, but a silent one is a lie.
+
+      A test that stays green against a deliberately broken implementation is
+      the single most important finding this stage can produce.
 
       Write {workspace}/validation/test-review.json:
         {
@@ -602,7 +823,7 @@ stages:
           ],
           "retry_map_rows_without_exact_prefix_test": [...],
           "sad_paths_missing": [...],
-          "teeth_test": [{"test": "...", "mutation": "...", "went_red": true|false, "tree_restored": true|false}],
+          "teeth_test": [{"test": "...", "mutation": "...", "went_red": true|false, "git_status_after_restore": "<verbatim porcelain output; empty string means clean>"}],
           "verdict": "sound|needs-work"
         }
 
@@ -614,8 +835,14 @@ stages:
     agent:
       role: critic
       model: opus
-      tools: [Read, Glob, Grep, Bash, Write]
-      access: read-only
+      tools: [Read, Glob, Grep, Bash, Write, Edit]
+      # read-write + worktree isolation is what makes the teeth test legitimate:
+      # the stage must mutate source to prove a test has teeth, and isolation
+      # confines that mutation to a throwaway copy. Declaring it read-only
+      # while instructing it to edit source would be a contract the engine
+      # cannot enforce and other agents cannot rely on.
+      access: read-write
+      isolation: worktree
     required: true
     outputs:
       - name: test_review
@@ -633,15 +860,15 @@ stages:
   # G4: Integrate — merge the three worktrees, then run the real gates
   # ===========================================================================
   - name: integrate
-    kind: validate
-    depends_on: [impl-handler, impl-heartbeat, impl-tests, adversarial-test-review]
-    reads_from: [impl-handler, impl-heartbeat, impl-tests, adversarial-test-review, design]
+    kind: execute
+    depends_on: [merge-impl, adversarial-test-review]
+    reads_from: [merge-impl, adversarial-test-review, impl-handler, impl-heartbeat, impl-tests, design]
     description: >
-      The three implementation stages ran in ISOLATED WORKTREES. Their edits do
-      NOT merge back automatically. Before anything else, copy each stage's
-      files into this branch's worktree and confirm with `git status` that all
-      of them landed. A stage that reports success but whose file is absent
-      here has produced nothing — say so rather than proceeding.
+      merge-impl has already landed the three implementation branches, so you
+      are working in one coherent tree. Read validation/merge.json first: if
+      all_landed is false, or files_missing is non-empty, STOP and report —
+      running gates against a tree that is missing half the implementation
+      produces a meaningless green.
 
       Then reconcile drift: impl-tests wrote against contract.json while the
       implementation was being written in parallel. Where they disagree, fix
@@ -684,9 +911,19 @@ stages:
              git diff --name-only main...HEAD > /tmp/qwen-changed.txt
              git diff --name-only >> /tmp/qwen-changed.txt
              sort -u /tmp/qwen-changed.txt
-           then run ~/.qlty/bin/qlty check with those paths listed out.
-           Use --rescan-until-stable: qlty caps findings per run and the cap is
-           nondeterministic, so a single clean scan proves nothing.
+           then run the scan over those paths, listed out explicitly.
+
+           Use `./bin/qlty-assistant scan --rescan-until-stable <paths>` for
+           this, NOT raw `~/.qlty/bin/qlty check`. qlty caps findings per run
+           and the cap is nondeterministic — 16 identical runs on an unchanged
+           tree have yielded 0-4 findings each against a union of 22 — so a
+           single clean scan proves nothing. `--rescan-until-stable` is a flag
+           on the repo's qlty-assistant wrapper; raw `qlty check` does not
+           accept it and will fail on an unknown argument.
+
+           Do not use `--filter` to confirm a finding is gone: a filtered run
+           frequently reports "No issues" in the same minute an unfiltered one
+           reports findings.
 
         4. make typecheck-changed — blocks on any error in a file that was
            clean at baseline. src/worker/qwen.py is new, so it is not
@@ -696,9 +933,22 @@ stages:
       broken. A partially-green result reported as success is worse than a
       failure — state the actual state.
 
+      Before writing your result, self-check every one of these. Each must be
+      true, or the corresponding field in integrate.json must record why not:
+        - merge.json reported all_landed true with no files_missing.
+        - worker and core import from THIS checkout, not the main checkout.
+        - A literal "Ran N tests" line was captured from make test's output.
+        - The test count is no lower than impl-tests reported — review
+          findings only ever add tests, so a drop means tests were removed or
+          the suite did not fully run.
+        - Every blocking finding in test-review.json is either fixed or listed
+          in review_findings_deferred with a reason.
+        - all_gates_passed is true ONLY if tests, qlty and typecheck-changed
+          each actually passed. Do not set it true on a partial run.
+
       Write {workspace}/validation/integrate.json:
         {
-          "files_landed": [...],
+          "merge_verified": true|false,
           "import_paths_correct": true|false,
           "tests": {"ran": N, "failures": N, "errors": N, "summary_line": "..."},
           "qlty": {"clean": true|false, "findings": [...]},
@@ -713,28 +963,19 @@ stages:
       model: sonnet
       tools: [Read, Write, Edit, Bash, Glob, Grep]
       access: read-write
-    validation:
-      strategy: unit
-      criteria:
-        - Every file reported by the three impl stages is present in this worktree per git status
-        - worker and core import from this checkout, not the main checkout
-        - A literal "Ran N tests" line was captured from make test output
-        - Every blocking finding in test-review.json is either fixed or listed in review_findings_deferred with a reason
-        - The test count ran is no lower than impl-tests reported, since review findings only add tests
-        - all_gates_passed is true only if tests, qlty and typecheck-changed each actually passed
-      max_revisions: 2
     required: true
     outputs:
       - name: integration
         mode: generate
         description: >
-          integrate.json recording landed files, verbatim gate results, and
-          any contract drift reconciled between tests and implementation.
+          integrate.json recording verbatim gate results, review findings
+          acted on, and any contract drift reconciled between tests and
+          implementation.
     writes_to:
       - validation/integrate.json
     validates_output:
       - path: validation/integrate.json
-        checks: [is_json, has_key:files_landed, has_key:tests, has_key:all_gates_passed]
+        checks: [is_json, has_key:merge_verified, has_key:tests, has_key:all_gates_passed]
 
   # ===========================================================================
   # G5: Install — idempotent, check-then-act, full stack
@@ -742,7 +983,7 @@ stages:
   - name: install
     kind: execute
     depends_on: [integrate]
-    reads_from: [integrate, survey, design]
+    reads_from: [integrate, survey]
     description: >
       Install the full stack. EVERY step is check-then-act: check state first,
       act only if the check fails, and report each step as "already satisfied"
@@ -781,15 +1022,35 @@ stages:
 
       Step 4 — Worker launchd agent.
         Check:  launchctl list | grep -F com.dancing-bear.worker
-        Act:    ./bin/worker-install-launchd
-        The survey recorded whether that installer is itself idempotent (it
-        unloads before loading). If it is, running it again is safe but still
-        unnecessary — only run it when the check shows the agent is absent.
-        Never install a launchd agent pointing at THIS worktree: a temporary
-        worktree path in a plist becomes a permanently broken agent once the
-        worktree is removed. Resolve the main checkout path and use it; if the
-        agent is absent and you cannot determine the main checkout path,
-        record that as a manual step rather than installing a bad plist.
+        If it is already loaded, this step is already satisfied. Do NOT
+        reinstall, reload or restart a healthy agent.
+
+        If it is absent, mind this trap before acting:
+        `bin/worker-install-launchd` derives its REPO_ROOT from its own
+        location (`SCRIPT_DIR` via BASH_SOURCE, then `..`) and seds that into
+        the plist's ProgramArguments[0] AND WorkingDirectory. There is no flag
+        or env var to override it. So running `./bin/worker-install-launchd`
+        from THIS worktree bakes an ephemeral
+        `.claude/worktrees/<name>/bin/worker` path into
+        ~/Library/LaunchAgents — and because the plist sets RunAtLoad and
+        KeepAlive true, that becomes a permanently crash-looping agent the
+        moment the worktree is pruned. You must not do that.
+
+        Act:    resolve the MAIN checkout and run ITS copy by absolute path.
+                Resolve it with:
+                  git rev-parse --git-common-dir
+                (the main checkout is that path's parent when it ends in
+                /.git), cross-checked against `git worktree list`, whose first
+                row is the main working tree. Then run:
+                  <main-checkout>/bin/worker-install-launchd
+                Afterwards, read back ~/Library/LaunchAgents/com.dancing-bear.worker.plist
+                and CONFIRM the path it contains is the main checkout and
+                contains no ".claude/worktrees" segment. Record that check.
+
+        If you cannot resolve the main checkout, or the readback shows a
+        worktree path, do not leave it installed: report it under
+        manual_steps_required with the exact command for the user to run
+        themselves. An unresolvable path is a manual step, never a guess.
 
       Step 5 — Queue directories.
         Check:  the queue root from survey.json (get_worker_state_dir) exists
@@ -837,11 +1098,16 @@ stages:
   # G6: Verify — a real job through the real queue, plus an idempotence re-run
   # ===========================================================================
   - name: verify
-    kind: validate
+    kind: execute
     depends_on: [install]
     reads_from: [install, design, integrate]
     description: >
       Prove the stack works end to end, and prove the install is idempotent.
+
+      This stage MUTATES live state — it enqueues real jobs into the real
+      queue and drains them — which is why it is declared read-write. Keep
+      that mutation to the minimum the checks below require: never requeue,
+      purge, or delete anything, and never touch a job you did not enqueue.
 
       Read {workspace}/validation/install.json. If skipped or all_ok is false,
       record what could not be verified and why — do not fabricate a pass.
@@ -862,13 +1128,39 @@ stages:
            "{job_type}" must appear in --type's choices, since they derive
            from HANDLERS.keys(). If it does not, the registry line never
            landed — stop and report that.
+
+           Note this proves the CLI process sees the handler, not that the
+           DAEMON does. A launchd daemon started before the merge is running
+           the old code and has no "{job_type}" in its registry, so it would
+           fail the job as an unknown handler — which job_runtime treats as a
+           terminal failure, no retry. If the daemon was already running
+           before this workflow merged the handler, record that it needs a
+           restart (`launchctl kickstart -k gui/$(id -u)/com.dancing-bear.worker`)
+           and say whether you did it. A verify that passes only because the
+           daemon happened to be freshly started is not reproducible.
         2. Enqueue a small, real job against a file that exists in this
            checkout, with an instruction whose correct answer is obvious and
            checkable (e.g. add a docstring to one small function). Capture the
            job id.
-        3. Drain it with a single `./bin/worker run-once --max 1`. Do not
-           start a daemon and do not sleep-poll in a loop; if a wait is needed,
-           bound it.
+        3. Drain it — but mind the race. If the launchd daemon installed at
+           the previous stage is running, it is polling this same queue every
+           5 seconds with --max-per-tick 8, so it may claim your job before
+           you do, and `run-once --max 1` takes whatever sits at the head of
+           the priority order, which may be an unrelated real job of the
+           user's. Both outcomes corrupt this check: one makes you read a job
+           you did not drain, the other burns an attempt on someone's work.
+
+           So: first re-read the job by id (`./bin/worker show <job_id>`). If
+           the daemon already moved it to done/ or error/, that IS a valid
+           end-to-end drain — record that the daemon processed it and skip
+           run-once entirely. Only if it is still pending do you call
+           `./bin/worker run-once --max 1`, and afterwards you must confirm
+           the job you read back is the id you enqueued. If run-once drained
+           a different job, say so and re-check yours rather than reporting
+           its result as your own.
+
+           Do not start a daemon here, and do not sleep-poll in a loop; if a
+           wait is needed, bound it.
         4. Read the result: ./bin/worker show <job_id>
         5. Assert against contract.json's result_schema: the job is in done/
            (not error/), the result carries a patch, and the patch passes
@@ -907,21 +1199,28 @@ stages:
           "verified": true|false,
           "failures": [...]
         }
+      Before writing your result, self-check each of these; every one must
+      hold or verify.json must record why it does not:
+        - The idempotence checks were actually re-run, and each reported
+          already-satisfied.
+        - A real job was enqueued through ./bin/worker and its id recorded,
+          and the job you read back is that same id.
+        - The resulting patch was validated with `git apply --check` and NOT
+          applied.
+        - An existing run_shell job still completes, proving no regression in
+          the shared queue code.
+        - Telemetry was either confirmed queryable via ./bin/telemetry otel,
+          or recorded as not-verifiable with the collector down — never
+          assumed either way.
+        - verified is true only if checks A, B and C genuinely passed. D may
+          be not-verifiable without failing the stage.
     agent:
-      role: unit-validator
+      role: code-writer
       model: sonnet
       tools: [Bash, Read, Write]
-      access: read-only
-    validation:
-      strategy: unit
-      criteria:
-        - Idempotence checks were re-run and each reported already-satisfied
-        - A real job was enqueued through ./bin/worker and its id recorded
-        - The resulting patch was validated with git apply --check and NOT applied
-        - An existing run_shell job still completes, proving no queue regression
-        - Telemetry was either confirmed queryable via ./bin/telemetry otel, or recorded as not-verifiable with the collector down — never assumed
-        - verified is true only if checks A, B and C genuinely passed (D may be not-verifiable)
-      max_revisions: 1
+      # read-write because Checks B and C enqueue and drain real jobs; the
+      # stage is scoped to touch only jobs it created itself.
+      access: read-write
     required: true
     outputs:
       - name: verification

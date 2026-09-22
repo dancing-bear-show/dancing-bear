@@ -1,0 +1,280 @@
+name: qwen-job-type
+version: "1.0"
+description: >
+  Minimal worked example of adding a HANDLER-BACKED job type to the worker
+  queue — the pattern workflows/code/qwen-local-handler.yaml uses at full
+  scale. Copy this file as the starting point for a new job type.
+
+  The two existing demos cover a different thing: worker-queue-stage.yaml and
+  worker-queue-fanout.yaml show how a workflow STAGE is dispatched to the
+  queue (executor: worker_queue), which runs shell commands through the
+  existing workflow_stage handler. Neither shows how to register a NEW entry
+  in worker/handlers.py's REGISTRY so `./bin/worker enqueue --type <yours>`
+  becomes a thing at all. That is what this demo is for.
+
+  What you get by registering a handler, rather than rebuilding any of it:
+  priority ordering, not_before scheduling, attempts/backoff, the
+  deferred-/terminal- outcome protocol, max_inflight clamping, stale-job
+  reaping, and the whole `worker list/status/show/retry/purge` CLI. The
+  `--type` choices in `worker enqueue --help` derive from HANDLERS.keys(), so
+  a registered handler appears in the CLI automatically.
+
+  Stage dependency graph:
+
+    read-the-seam                (G0 — record the real handler contract)
+        |
+    write-handler                (G1 — isolated; implement + COMMIT)
+        |
+    land-and-verify              (G2 — merge, then drive it through the CLI)
+
+  THREE THINGS THIS DEMO EXISTS TO TEACH, each of which is a defect that has
+  actually shipped in this repo:
+
+  1. An `isolation: worktree` stage MUST instruct its agent to commit.
+     `git merge` moves commits, not uncommitted files — an agent that edits
+     and returns without committing leaves nothing to merge, the merge
+     succeeds against an empty branch, and the stage reports success while
+     the code is silently lost. See write-handler's description.
+
+  2. A stage whose contract lives in `description` must NOT be
+     `kind: validate`. dispatch.py's `_validate()` builds its prompt from
+     `validation.criteria` alone and never reads the description, so a
+     validate stage carrying a real contract ships one no agent ever sees —
+     and `./bin/workflow lint` stays green. Every stage here is
+     `kind: gather` or `kind: execute` for that reason.
+
+  3. A handler speaks the retry protocol through its RETURN STRING, not
+     through exceptions. `terminal-` means never retry; `deferred-` means
+     re-queue without consuming an attempt; anything else retries with
+     backoff until max_attempts. Misclassifying a permanent failure as a
+     plain one makes the daemon retry it forever.
+
+  Run it:
+    ./bin/workflow run workflows/demo/qwen-job-type.yaml --execute
+
+metadata:
+  author: dancing-bear
+  created: "2026-09-22"
+
+trigger:
+  source: manual
+  params:
+    job_type: "demo_echo"
+    handler_module: "src/worker/demo_echo.py"
+
+workspace_dir: "{work_dir}/qwen-job-type-demo"
+
+stages:
+  # ===========================================================================
+  # G0: Read the seam — record the real contract instead of assuming it
+  # ===========================================================================
+  - name: read-the-seam
+    kind: gather
+    depends_on: []
+    reads_from: []
+    description: >
+      Record the handler contract from source, so the next stage implements
+      against what the code does rather than what this file says about it.
+
+      File access rules: use the Read tool (not cat/head/tail) and Glob (not
+      find/ls). Bash is for CLI probes only.
+
+      Read and record:
+        1. src/worker/handlers.py — the HandlerFn type alias, the exact
+           (bool, object) return contract, and how REGISTRY is populated at
+           the bottom of the file. Note the `# nosec` convention on any
+           subprocess call site.
+        2. src/worker/job_runtime.py — `_handle_outcome`. Record verbatim how
+           a returned string starting "deferred-" and "terminal-" is treated
+           differently from any other failure string, and where attempts and
+           max_attempts are read.
+        3. src/worker/cli.py — the `enqueue` command, showing that --type's
+           choices come from HANDLERS.keys().
+        4. src/worker/queue_ops.py — the Job dataclass fields.
+
+      Then probe the CLI as it exists today:
+        ./bin/worker enqueue --help
+      and record the current --type choices. "{job_type}" must NOT be among
+      them yet; if it already is, this demo has been run before — say so.
+
+      Write {workspace}/analysis/seam.json:
+        {
+          "handler_signature": "...",
+          "return_contract": "...",
+          "registry_pattern": "...",
+          "retry_protocol": {"terminal_prefix": "...", "deferred_prefix": "...", "plain_failure": "..."},
+          "job_fields": ["..."],
+          "current_types": ["..."],
+          "job_type_already_registered": true|false
+        }
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Glob, Grep, Bash, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: seam
+        mode: generate
+        description: >
+          seam.json recording the handler signature, return contract, registry
+          pattern and retry prefixes read from source.
+    writes_to:
+      - analysis/seam.json
+    validates_output:
+      - path: analysis/seam.json
+        checks: [is_json, has_key:handler_signature, has_key:retry_protocol]
+
+  # ===========================================================================
+  # G1: Write the handler — isolated worktree, and it MUST commit
+  # ===========================================================================
+  - name: write-handler
+    kind: execute
+    depends_on: [read-the-seam]
+    reads_from: [read-the-seam]
+    description: >
+      Implement a minimal "{job_type}" handler against the contract recorded
+      in analysis/seam.json.
+
+      Deliberately trivial behaviour, so the demo teaches the WIRING rather
+      than the payload: the handler echoes back the payload's "message" key.
+
+      Create {handler_module}:
+        - A `handle_demo_echo(job: dict[str, object]) -> tuple[bool, object]`
+          matching the HandlerFn signature from seam.json.
+        - Read `payload["message"]`. On success return
+          (True, {"echoed": message, "length": len(message)}).
+        - Demonstrate ALL THREE retry classes, since this is the part authors
+          get wrong:
+            * missing/empty "message" -> return (False, "terminal-no-message")
+              — a malformed payload will never become valid on retry, so
+              retrying it burns attempts for nothing.
+            * payload sets "defer": true -> return (False, "deferred-demo")
+              — re-queued without consuming an attempt.
+            * payload sets "fail": true -> return (False, "transient failure")
+              — a plain string, which retries with backoff.
+          Use the EXACT prefixes from seam.json's retry_protocol; a misspelled
+          prefix silently degrades to a plain retry.
+        - Full type annotations. A new file is not grandfathered by the mypy
+          baseline, so it must be clean.
+
+      Then register it in src/worker/handlers.py, following the existing
+      pattern at the bottom of that file — an import plus a REGISTRY entry
+      keyed "{job_type}". Touch nothing else in that file.
+
+      COMMIT BEFORE FINISHING — this is the single most important instruction
+      in this demo. You run in your own git worktree on a `worktree-agent-*`
+      branch. The orchestrator merges your work with `git merge`, which moves
+      COMMITS, not uncommitted files. If you return with edits uncommitted,
+      the merge succeeds against an empty branch, this stage reports success,
+      and everything you wrote is silently lost. So as your final action:
+        git add {handler_module} src/worker/handlers.py
+        git commit -m "feat(worker): add {job_type} demo handler"
+      Stage the files by name — never `git add -A`, which would sweep up
+      other agents' work in a shared tree. Confirm with `git log --oneline -1`
+      and record the SHA below.
+
+      Write {workspace}/outputs/handler.json:
+        {"files_created": [...], "files_modified": [...], "registry_key": "{job_type}", "commit_sha": "...", "retry_cases": ["terminal", "deferred", "plain"]}
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash, Glob, Grep]
+      access: read-write
+      isolation: worktree
+    required: true
+    outputs:
+      - name: handler
+        mode: generate
+        description: >
+          The handler module and its REGISTRY entry, committed to the agent's
+          worktree branch; handler.json records the files and the commit SHA.
+    writes_to:
+      - outputs/handler.json
+    validates_output:
+      - path: outputs/handler.json
+        checks: [is_json, has_key:commit_sha, has_key:registry_key]
+
+  # ===========================================================================
+  # G2: Land it and drive it through the real CLI
+  # ===========================================================================
+  - name: land-and-verify
+    kind: execute
+    depends_on: [write-handler]
+    reads_from: [write-handler, read-the-seam]
+    description: >
+      Merge the handler branch, then prove the registration works by driving
+      the real CLI — not by importing the handler directly in Python, which
+      would skip the wiring this demo is about.
+
+      Step 1 — land it. Read outputs/handler.json for commit_sha. If it is
+      null or absent, the agent never committed and its work is gone: FAIL
+      this stage and say so plainly rather than proceeding. Otherwise verify
+      the branch carries commits and merge it:
+        git log --oneline <this-branch>..worktree-agent-<id>
+        git merge --no-ff worktree-agent-<id> -m "merge stage write-handler"
+      An empty log is the silent-loss case — treat it as a failure.
+
+      Step 2 — confirm the CLI sees it:
+        ./bin/worker enqueue --help
+      "{job_type}" must now appear in --type's choices. If not, the REGISTRY
+      entry did not land — stop and report.
+
+      Step 3 — exercise all three retry classes through the queue. For each,
+      enqueue and drain with `./bin/worker run-once --max 1`, then read the
+      job back with `./bin/worker show <id>`:
+
+        a) Success: --payload-json '{"message": "hello"}'
+           Expect: job in done/, result carries echoed + length.
+        b) Terminal: --payload-json '{}'
+           Expect: job in error/ after ONE attempt. This is the important
+           one — confirm attempts did not climb to max_attempts, which is
+           what proves the terminal- prefix was honoured rather than the
+           failure being treated as retryable.
+        c) Plain failure: --payload-json '{"message": "x", "fail": true}'
+           Expect: attempts incremented and the job re-queued to pending
+           with a future not_before, not moved to error/ on the first try.
+
+      Note if the launchd daemon is running it polls the same queue every 5s
+      and may claim a job before run-once does. Check the job by id first; if
+      the daemon already processed it, that is still a valid drain — record
+      which path handled it.
+
+      Step 4 — clean up after yourself. This demo writes real jobs into the
+      real queue. Remove only the jobs you created, by id. Do not run a bare
+      `./bin/worker purge`: it accepts only --older-than and --folders, with
+      no type or id filter, so it would delete every job type's history.
+
+      Write {workspace}/validation/verified.json:
+        {
+          "merged": {"branch": "...", "commit_sha": "...", "commits": N},
+          "type_in_cli": true|false,
+          "cases": [
+            {"case": "success",  "job_id": "...", "final_state": "done",    "attempts": N, "as_expected": true|false},
+            {"case": "terminal", "job_id": "...", "final_state": "error",   "attempts": N, "as_expected": true|false},
+            {"case": "plain",    "job_id": "...", "final_state": "pending", "attempts": N, "as_expected": true|false}
+          ],
+          "cleanup": {"jobs_removed": [...], "bare_purge_used": false},
+          "verified": true|false
+        }
+
+      verified is true only if the type appeared in the CLI and all three
+      cases behaved as expected — in particular, only if the terminal case
+      stopped after one attempt.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Bash, Read, Write, Edit]
+      access: read-write
+    required: true
+    outputs:
+      - name: verified
+        mode: generate
+        description: >
+          verified.json recording the merge, the CLI registration check, and
+          one drained job per retry class with its attempt count.
+    writes_to:
+      - validation/verified.json
+    validates_output:
+      - path: validation/verified.json
+        checks: [is_json, has_key:cases, has_key:verified]
