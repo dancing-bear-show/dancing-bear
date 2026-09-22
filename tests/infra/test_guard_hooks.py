@@ -35,6 +35,7 @@ not a silent pass.
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess  # nosec B404 - runs trusted in-repo shell suites
@@ -183,6 +184,110 @@ class TestGuardHookSuites(unittest.TestCase):
         # Guards the guard: an emptied SUITES would make the assertEqual above pass
         # against an emptied directory and run nothing at all.
         self.assertTrue(SUITES, msg="SUITES is empty -- no hook suite would run")
+
+
+class TestGuardHooksAreWired(unittest.TestCase):
+    """The guards must be WIRED, not merely present and passing their suites.
+
+    Everything else in this file exercises the hook scripts by piping payloads at
+    them directly. That proves each SCRIPT works. It says nothing about whether
+    the harness ever invokes them -- and the two are independent.
+
+    That gap was not hypothetical. ``block-destructive-bash.sh`` and
+    ``block-protected-paths.sh`` shipped with suites, a README, and **no
+    ``PreToolUse`` entry in any settings file**. Every protection in them was
+    dormant, while this suite reported green, because a passing script test and a
+    live hook are different claims. Deleting the settings block today would
+    reproduce exactly that state: all hook cases green, all guards off.
+
+    So these tests assert the wiring itself.
+    """
+
+    SETTINGS = repo_root() / ".claude" / "settings.json"
+
+    # Every hook script that must be reachable from a PreToolUse entry, with the
+    # tools its matcher has to cover. Keyed by script name so a renamed script
+    # fails here rather than silently dropping its coverage.
+    REQUIRED_HOOKS = {
+        "block-destructive-bash.sh": {"Bash"},
+        "block-protected-paths.sh": {"Write", "Edit"},
+        "block-readonly-role-writes.sh": {"Write", "Edit", "Bash"},
+    }
+
+    def _pre_tool_use(self) -> list[dict]:
+        self.assertTrue(self.SETTINGS.is_file(), f"missing {self.SETTINGS}")
+        data = json.loads(self.SETTINGS.read_text(encoding="utf-8"))
+        hooks = data.get("hooks", {})
+        entries = hooks.get("PreToolUse")
+        self.assertIsInstance(
+            entries,
+            list,
+            msg=(
+                "no PreToolUse block in .claude/settings.json -- the guard hooks are "
+                "dormant. Their own suites will still pass; that is the point of this "
+                "test."
+            ),
+        )
+        return entries
+
+    def test_every_guard_script_is_wired(self) -> None:
+        """Each guard has a PreToolUse entry naming it."""
+        entries = self._pre_tool_use()
+        wired = {
+            script
+            for entry in entries
+            for hook in entry.get("hooks", [])
+            for script in self.REQUIRED_HOOKS
+            if script in hook.get("command", "")
+        }
+        missing = set(self.REQUIRED_HOOKS) - wired
+        self.assertEqual(
+            missing,
+            set(),
+            msg=(
+                f"these guard scripts exist but no PreToolUse entry invokes them: "
+                f"{sorted(missing)}. They would never run."
+            ),
+        )
+
+    def test_each_matcher_covers_the_tools_its_guard_needs(self) -> None:
+        """A wired hook whose matcher omits a tool is half-dormant.
+
+        ``block-readonly-role-writes.sh`` was wired as ``Write`` only while its
+        Bash branch existed, so `echo x > src/mail/cli.py` walked straight past a
+        guard that was, by the previous test's standard, correctly wired.
+        """
+        entries = self._pre_tool_use()
+        for entry in entries:
+            matcher = entry.get("matcher", "")
+            tools = set(matcher.split("|")) if matcher else set()
+            for hook in entry.get("hooks", []):
+                command = hook.get("command", "")
+                for script, needed in self.REQUIRED_HOOKS.items():
+                    if script not in command:
+                        continue
+                    self.assertLessEqual(
+                        needed,
+                        tools,
+                        msg=(
+                            f"{script} is wired with matcher {matcher!r}, which does "
+                            f"not cover {sorted(needed - tools)}. The guard would be "
+                            f"silently inactive for those tools."
+                        ),
+                    )
+
+    def test_wired_commands_point_at_files_that_exist(self) -> None:
+        """A wired path that does not resolve is a guard that cannot run."""
+        entries = self._pre_tool_use()
+        for entry in entries:
+            for hook in entry.get("hooks", []):
+                command = hook.get("command", "")
+                for script in self.REQUIRED_HOOKS:
+                    if script in command:
+                        self.assertTrue(
+                            (HOOKS_DIR / script).is_file(),
+                            msg=f"{script} is wired but missing from {HOOKS_DIR}",
+                        )
 
 
 def _attach(name: str) -> None:

@@ -149,20 +149,34 @@ fi
 # tree. The script lives at <repo>/.claude/hooks/, so <repo> is two levels up.
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd) || REPO_ROOT=""
 
-# Tracked source trees a read-only-contract agent must never modify, even when a caller
-# names one as an output. A prompt naming src/foo.py as a stage output is misconfigured,
-# not authorization -- that is the exact case round 3 of #392 found.
-SOURCE_PREFIXES=(
-  "src/"
-  "tests/"
-  "bin/"
-  "configs/"
-  "workflows/"
-  ".claude/"
-  ".github/"
-  "concerns/"
-  "docs/"
-  ".llm/"
+# Tracked trees a read-only-contract agent must never modify, even when a caller names
+# one as an output. A prompt naming src/foo.py as a stage output is misconfigured, not
+# authorization -- that is the exact case round 3 of #392 found.
+#
+# Stored WITHOUT a trailing slash, and matched both as the bare directory AND as a
+# prefix of its contents. The earlier version stored "src/" and tested prefixes only,
+# so `rm -rf src/` was blocked while `rm -rf src` -- one character shorter, and the
+# spelling that actually removes the tree -- was allowed. A guard that refuses the
+# careful spelling and permits the destructive one is worse than no guard, because it
+# reads as protection. The suite now pins both spellings for every entry.
+#
+# `config` and `.qlty` are here because they are tracked configuration this repo really
+# has: config/filters_unified.example.yaml and .qlty/qlty.toml. Listing only `configs/`
+# missed both, so a read-only role could rewrite the lint configuration that judges its
+# own branch. Verified with `git ls-files config/ .qlty/`, not assumed.
+SOURCE_TREES=(
+  "src"
+  "tests"
+  "bin"
+  "config"
+  "configs"
+  "workflows"
+  ".claude"
+  ".github"
+  ".qlty"
+  "concerns"
+  "docs"
+  ".llm"
 )
 
 # Repo-root files that are build/lint/CI configuration rather than run artifacts.
@@ -188,10 +202,32 @@ classify_path() {
   local p="$1"
   local rel="$p"
 
+  # Collapse `/./` segments before anything else looks at the path. `a/./b` and `a/b`
+  # name the same file, and every guarded-prefix test below is textual, so a single
+  # inserted `/./` walked straight past it: `<repo>/./src/mail/cli.py` reduced to
+  # `./src/mail/cli.py`, which does not start with `src/`. Both the Write branch and
+  # the redirect branch were bypassable that way. Review found it; the suite pins it.
+  #
+  # Looped rather than one substitution because the collapse happens in stages --
+  # a single pass over `a/././b` leaves `a/./b`, which still defeats the prefix test.
+  # Each iteration strictly shortens the string, so this terminates.
+  while [ "$p" != "${p//\/.\//\/}" ]; do
+    p="${p//\/.\//\/}"
+  done
+  # The leading `./` form has no slash in front of it to match the rule above.
+  while [ "${p#./}" != "$p" ]; do
+    p="${p#./}"
+  done
+  rel="$p"
+
   case "$p" in
     /*)
       if [ -n "$REPO_ROOT" ] && [ "${p#"$REPO_ROOT"/}" != "$p" ]; then
         rel="${p#"$REPO_ROOT"/}"
+        # The repo-relative remainder can itself begin `./` once the prefix comes off.
+        while [ "${rel#./}" != "$rel" ]; do
+          rel="${rel#./}"
+        done
       else
         # An absolute path outside this repo is not this repo's tracked source. The
         # scratchpad and /tmp artifacts land here, which is the intended allow.
@@ -199,7 +235,6 @@ classify_path() {
         return
       fi
       ;;
-    ./*) rel="${p#./}" ;;
   esac
 
   # `..` can walk out of an artifact directory and back into source: a path like
@@ -210,10 +245,21 @@ classify_path() {
     *..*) printf "guarded:a path containing '..', which can resolve back into source"; return ;;
   esac
 
+  # Strip a trailing slash so `src/` and `src` reach the same comparison. Without
+  # this the bare-directory arm below would miss the `src/` spelling.
+  local bare="${rel%/}"
+
   local q
-  for q in "${SOURCE_PREFIXES[@]}"; do
-    if [ "${rel#"$q"}" != "$rel" ]; then
-      printf 'guarded:tracked source (matches %s)' "$q"
+  for q in "${SOURCE_TREES[@]}"; do
+    # Two arms, and BOTH are needed. The prefix arm alone was the `rm -rf src` hole:
+    # `src/mail/cli.py` starts with `src/`, but the token `src` does not, so the
+    # command that removes the whole tree was the one that got through.
+    if [ "$bare" = "$q" ]; then
+      printf 'guarded:the tracked directory %s itself' "$q"
+      return
+    fi
+    if [ "${rel#"$q"/}" != "$rel" ]; then
+      printf 'guarded:tracked source (under %s/)' "$q"
       return
     fi
   done
@@ -263,17 +309,25 @@ if [ "$TOOL" = "Bash" ]; then
   # is why both halves are asserted.
   #
   # So a token is judged only where it is a WRITE TARGET:
-  #   * the operand of an output redirect (`> path`, `>> path`, `>| path`), or
+  #   * the operand of an output redirect (`> path`, `>> path`, `>| path`, `>& path`), or
   #   * an operand of a command word that is unambiguously mutating.
   #
   # The command-word list is the weak part and is knowingly incomplete -- see the SCOPE
   # note at the top. `/bin/sed` is handled by matching on the basename, but a mutating
   # tool nobody listed still passes. That is the documented limit, not an oversight.
 
-  # 1. Redirect targets. Normalise `>path`, `> path`, `>>path`, `>|path` to a marker
-  #    plus the token, so the target is identifiable whatever the spacing.
+  # 1. Redirect targets. Normalise every output-redirect spelling to a `>` marker plus
+  #    the token, so the target is identifiable whatever the operator and spacing.
+  #
+  #    `>&` MUST be rewritten before the generic `>` arm. Left to the generic arm,
+  #    `echo x >&src/mail/cli.py` becomes `> &src/mail/cli.py` -- the token still
+  #    carries a leading `&`, so classify_path judges "&src/mail/cli.py", matches
+  #    nothing, and the write goes through. Review found that live; the suite pins it.
+  #    (`>&1` and friends are digits, not paths, so they classify as ok and cost
+  #    nothing.)
   redir=${CMD//>>/ >}
   redir=${redir//>|/ >}
+  redir=${redir//>&/ >}
   redir=${redir//>/ > }
   targets=""
   prev=""

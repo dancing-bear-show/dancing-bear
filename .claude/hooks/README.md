@@ -161,11 +161,28 @@ restricted. A role not on the read-only list (`code-writer`, `tester`, `ci-fixer
 `doc-writer`, `thread-fixer`, `workflow-author`, …) is expected to write source and is
 allowed through.
 
-Guarded prefixes: `src/`, `tests/`, `bin/`, `configs/`, `workflows/`, `.claude/`,
-`.github/`, `concerns/`, `docs/`, `.llm/`, plus repo-root build config (`Makefile`,
-`pyproject.toml`, `typecheck-baseline.json`, …). Refused **even when a prompt names
-one as a stage output** — a prompt naming a source path as an artifact is
-misconfigured, not authorization.
+Guarded trees: `src`, `tests`, `bin`, `config`, `configs`, `workflows`, `.claude`,
+`.github`, `.qlty`, `concerns`, `docs`, `.llm`, plus repo-root build config
+(`Makefile`, `pyproject.toml`, `typecheck-baseline.json`, …). Refused **even when a
+prompt names one as a stage output** — a prompt naming a source path as an artifact
+is misconfigured, not authorization.
+
+Each tree is matched **both as the bare directory and as a prefix of its contents**,
+which is not a detail. An earlier version stored `"src/"` and tested prefixes only,
+so `rm -rf src/` was blocked while `rm -rf src` — one character shorter, and the
+spelling that actually removes the tree — was allowed. A guard that refuses the
+careful spelling and permits the destructive one is worse than none, because it reads
+as protection. Both spellings are pinned in the suite for every tree.
+
+`./` segments are collapsed before any of that runs, for the same reason: the prefix
+tests are textual, so `<repo>/./src/mail/cli.py` reduced to `./src/mail/cli.py`, which
+does not start with `src/` — one inserted `/./` bypassed the guard on both the Write
+and the redirect path. The collapse loops rather than substituting once, because
+`a/././b` reduces to `a/./b` in a single pass and still defeats the test.
+
+`config` and `.qlty` are listed alongside `configs` because this repo really has
+`config/filters_unified.example.yaml` and `.qlty/qlty.toml`; guarding only `configs/`
+left a read-only role able to rewrite the lint configuration judging its own branch.
 
 **The two tool paths are not equally strong, and the file says so:**
 
@@ -176,11 +193,16 @@ misconfigured, not authorization.
 
 The Bash branch exists because the Write-only version was trivially bypassable —
 `echo x > src/mail/cli.py` never reached the hook. It judges a token only where it is
-a **write target**: the operand of an output redirect, or an operand of a listed
-mutating command (`sed`, `tee`, `cp`, `mv`, `rm`, `patch`, …). That is narrower than
-its siblings' bare operand scan on purpose: reading and running the repo is a
-researcher's entire job, and an indiscriminate scan blocked `cat src/mail/cli.py` and
-`grep -rn AppMeta src/`.
+a **write target**: the operand of an output redirect (`>`, `>>`, `>|`, `>&`), or an
+operand of a listed mutating command (`sed`, `tee`, `cp`, `mv`, `rm`, `patch`, …).
+That is narrower than its siblings' bare operand scan on purpose: reading and running
+the repo is a researcher's entire job, and an indiscriminate scan blocked
+`cat src/mail/cli.py` and `grep -rn AppMeta src/`.
+
+`>&` is normalised **before** the generic `>`. Left to the generic arm,
+`echo x >&src/mail/cli.py` yields a token still carrying its leading `&`, which
+matches no guarded path — so the redirect went through. The fd-duplication spellings
+(`2>&1`) are digits rather than paths and stay allowed.
 
 A mutating tool nobody listed still passes, as does a path in a variable or one
 assembled at runtime. Those are asserted as ALLOW in the suite's `KNOWN GAPS` section
@@ -409,6 +431,14 @@ bash .claude/hooks/tests/statusline.test.sh
 Exit 0 = all pass, 1 = any failure. Each prints `ok`/`FAIL` per case and a final
 count plus `ALL PASS`. Pass a path as argument 1 to test an installed copy instead of
 the repo one:
+
+**The suites test the scripts; `TestGuardHooksAreWired` tests the wiring.** Those are
+different claims, and only the second one catches a deleted `PreToolUse` block — the
+state these guards sat in before PR #395, with every suite green. That class asserts
+each guard has an entry, that each matcher covers the tools its guard needs (a
+`Write`-only matcher on a guard with a Bash branch is half-dormant), and that every
+wired path resolves. Verified by breaking the wiring three ways and confirming each
+is caught.
 
 ```bash
 bash .claude/hooks/tests/block-destructive-bash.test.sh ~/.claude/hooks/block-destructive-bash.sh

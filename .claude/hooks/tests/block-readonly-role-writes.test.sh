@@ -244,6 +244,70 @@ run_raw BLOCK "researcher bash, command whitespace only" \
   '{"agent_type":"researcher","tool_name":"Bash","tool_input":{"command":"   "}}'
 
 echo
+echo "--- the bare directory token itself: must BLOCK ---"
+# `rm -rf src/` was blocked while `rm -rf src` was allowed -- one character between
+# refusal and deleting the tree. The prefix test matched "src/" only, so the token
+# that names the directory never matched. Both spellings are pinned for every tree.
+for d in src tests bin config configs workflows .claude .github .qlty concerns docs .llm; do
+  run_bash BLOCK researcher "rm -rf $d"
+  run_bash BLOCK researcher "rm -rf $d/"
+done
+run_bash BLOCK researcher "mv src /tmp/elsewhere"
+run_bash BLOCK researcher "mv tests /tmp/elsewhere"
+run_bash BLOCK Plan "rm -rf workflows"
+run BLOCK researcher "src"
+run BLOCK researcher "tests"
+# A directory whose NAME merely starts with a guarded name is not that directory.
+run_bash ALLOW researcher "rm -rf srcfoo"
+run_bash ALLOW researcher "rm -rf /tmp/src"
+run ALLOW researcher "/tmp/src/out.json"
+
+echo
+echo "--- tracked configuration trees: must BLOCK ---"
+# Both confirmed tracked with `git ls-files`: config/filters_unified.example.yaml and
+# .qlty/qlty.toml. Only `configs/` was listed, so a read-only role could rewrite the
+# lint configuration that judges its own branch.
+run BLOCK researcher "config/filters_unified.example.yaml"
+run BLOCK researcher ".qlty/qlty.toml"
+run_bash BLOCK researcher "echo x > config/filters_unified.example.yaml"
+run_bash BLOCK researcher "sed -i '' 's/a/b/' .qlty/qlty.toml"
+run BLOCK Plan "configs/launchd.plist"
+
+echo
+echo "--- the >& redirect form: must BLOCK ---"
+# `echo x >&src/mail/cli.py` left the token as `&src/mail/cli.py` under the generic
+# `>` normalisation, so nothing classified the path. `>&` is now rewritten first.
+run_bash BLOCK researcher "echo x >&src/mail/cli.py"
+run_bash BLOCK researcher "echo x >& src/mail/cli.py"
+run_bash BLOCK researcher "echo x >&tests/test_x.py"
+# The fd-duplication spellings are digits, not paths, and must stay allowed.
+run_bash ALLOW researcher "make test >&1"
+run_bash ALLOW researcher "./bin/workflow list 2>&1"
+run_bash ALLOW researcher "grep -rn AppMeta src/ 2>&1 | head"
+
+echo
+echo "--- './' segments must not defeat the prefix test: must BLOCK ---"
+# `a/./b` and `a/b` name the same file, but every guarded-prefix test is textual, so
+# one inserted `/./` was enough to walk past all of them -- on Write AND on a redirect.
+# The collapse loops in the hook are what these pin.
+run BLOCK researcher "$REPO_ROOT/./src/mail/cli.py"
+run BLOCK researcher "$REPO_ROOT/././src/mail/cli.py"
+run BLOCK researcher "$REPO_ROOT/./tests/test_x.py"
+run BLOCK researcher "./src/mail/cli.py"
+run BLOCK researcher "././src/mail/cli.py"
+run BLOCK researcher "./././bin/mail-assistant"
+run_bash BLOCK researcher "echo x > $REPO_ROOT/./src/mail/cli.py"
+run_bash BLOCK researcher "echo x > ././src/mail/cli.py"
+run_bash BLOCK researcher "sed -i '' 's/a/b/' ./src/mail/cli.py"
+# The bare-directory arm must survive the collapse too.
+run_bash BLOCK researcher "rm -rf ./src"
+run_bash BLOCK researcher "rm -rf $REPO_ROOT/./src"
+# A './' path that is NOT guarded still has to be allowed -- the collapse must not
+# turn every relative path into a refusal.
+run ALLOW researcher "./analysis/findings.json"
+run ALLOW researcher "././outputs/report.json"
+
+echo
 echo "--- KNOWN GAPS: documented, not fixed (see the SCOPE note in the hook) ---"
 # These are ALLOWed by design. A string matcher cannot evaluate what the shell will do
 # to the string, and block-destructive-bash.sh's header records four adversarial rounds
