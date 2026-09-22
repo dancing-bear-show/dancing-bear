@@ -77,7 +77,8 @@ if (
 # to the FRONT of sys.path. A membership test is not enough -- if our src/ is on
 # the path but sits behind another checkout's, that one wins and the guard is a
 # no-op.
-SRC_ROOT = Path(_pathrepair.force_own_src_first(_REPO_ROOT))
+# Called for its side effect; the returned path is not needed here.
+_pathrepair.force_own_src_first(_REPO_ROOT)
 
 # --- BEGIN GENERATED SECTION (bin/_gen_wrappers.py) ---
 # fmt: off
