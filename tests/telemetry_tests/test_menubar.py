@@ -24,28 +24,43 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import telemetry.menubar as menubar
+from telemetry._menubar_budget import (
+    _budget_score as _impl_budget_score,
+    _safe_float as _impl_safe_float,
+    _safe_int as _impl_safe_int,
+)
+from telemetry._menubar_display import _sparkline as _impl_sparkline
+from telemetry._menubar_renderers import (
+    _icon_substitutions as _impl_icon_substitutions,
+    _render_icon_plain as _impl_render_icon_plain,
+)
 
 
 class TestMenubarReExports(unittest.TestCase):
-    """Verify public names re-exported from menubar module are accessible."""
+    """Verify public names re-exported from menubar module are accessible.
 
-    def test_budget_score_accessible(self) -> None:
-        self.assertTrue(callable(menubar._budget_score))
+    menubar.py re-exports these names purely so tests elsewhere can patch
+    their dependencies via `telemetry.menubar.<name>` (see the module
+    docstring). The guarantee worth pinning is that the attribute on
+    `menubar` really IS the implementation function from its owning
+    submodule — not merely present and callable, which a broken or
+    rebound re-export could also satisfy. assertIs against the name
+    imported directly from the defining module fails if the re-export is
+    dropped, rebound to something else, or silently shadowed.
+    """
 
-    def test_safe_float_accessible(self) -> None:
-        self.assertTrue(callable(menubar._safe_float))
-
-    def test_safe_int_accessible(self) -> None:
-        self.assertTrue(callable(menubar._safe_int))
-
-    def test_icon_substitutions_accessible(self) -> None:
-        self.assertTrue(callable(menubar._icon_substitutions))
-
-    def test_render_icon_plain_accessible(self) -> None:
-        self.assertTrue(callable(menubar._render_icon_plain))
-
-    def test_sparkline_accessible(self) -> None:
-        self.assertTrue(callable(menubar._sparkline))
+    def test_reexported_names_are_identical_to_implementation(self) -> None:
+        surface = {
+            "_budget_score": _impl_budget_score,
+            "_safe_float": _impl_safe_float,
+            "_safe_int": _impl_safe_int,
+            "_icon_substitutions": _impl_icon_substitutions,
+            "_render_icon_plain": _impl_render_icon_plain,
+            "_sparkline": _impl_sparkline,
+        }
+        for name, impl in surface.items():
+            with self.subTest(name=name):
+                self.assertIs(getattr(menubar, name), impl)
 
     def test_has_appkit_is_bool(self) -> None:
         self.assertIsInstance(menubar._HAS_APPKIT, bool)

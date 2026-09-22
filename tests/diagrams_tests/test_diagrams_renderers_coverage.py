@@ -528,6 +528,55 @@ class TestCmdRender(unittest.TestCase):
                 rc = cmd_render(args)
         self.assertEqual(rc, 1)
 
+    def test_success_path_invokes_run_pipeline_and_returns_0(self):
+        """Valid input reaches the success path: run_pipeline is invoked with a
+        RenderRequest built from args, and its return value (0) is passed
+        straight through as cmd_render's exit code.
+
+        This is the happy-path counterpart the 4 sad-path tests above never
+        reach — all four return early at lines 138-142 (missing binary,
+        missing file, empty input, stdin-tty), before line 144's local
+        `from core.pipeline import run_pipeline` import and line 158's call.
+        Patching core.pipeline.run_pipeline (the point of use: cmd_render's
+        local import re-resolves this name from core.pipeline at call time)
+        lets us assert both the exit code and the RenderRequest contents
+        without touching the filesystem or shelling out.
+        """
+        from diagrams.cli import cmd_render
+        from diagrams.renderers import RenderDiagramProcessor, RenderDiagramProducer, RenderRequest
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".mmd", delete=False) as f:
+            f.write("flowchart LR\n    A-->B")
+            tmp = f.name
+        try:
+            args = self._make_args(input_path=tmp, output="/tmp/out.svg")  # nosec B108 - test only
+            args.format = "svg"
+            args.theme = "dark"
+            args.background = "white"
+            args.width = 800
+            args.height = 600
+
+            with patch("core.pipeline.run_pipeline", return_value=0) as mock_run_pipeline:
+                rc = cmd_render(args)
+
+            self.assertEqual(rc, 0)
+            mock_run_pipeline.assert_called_once()
+            call_args = mock_run_pipeline.call_args[0]
+            request, processor_cls, producer_cls = call_args
+            self.assertIsInstance(request, RenderRequest)
+            self.assertEqual(request.source, "flowchart LR\n    A-->B")
+            self.assertEqual(request.output, "/tmp/out.svg")  # nosec B108 - test only
+            self.assertEqual(request.output_format, "svg")
+            self.assertEqual(request.theme, "dark")
+            self.assertEqual(request.background, "white")
+            self.assertEqual(request.width, 800)
+            self.assertEqual(request.height, 600)
+            self.assertEqual(request.timeout, 60)
+            self.assertIs(processor_cls, RenderDiagramProcessor)
+            self.assertIs(producer_cls, RenderDiagramProducer)
+        finally:
+            Path(tmp).unlink(missing_ok=True)
+
 
 # ---------------------------------------------------------------------------
 # cli.py — cmd_validate (lines 150-177)

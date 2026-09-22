@@ -602,8 +602,15 @@ class TestWorkerQueueDispatcherHandlerRegistered(unittest.TestCase):
         self.assertIn(WorkerQueueDispatcher.JOB_TYPE, REGISTRY)
 
     def test_registry_handler_is_callable(self) -> None:
-        from worker.handlers import REGISTRY
-        self.assertTrue(callable(REGISTRY[WorkerQueueDispatcher.JOB_TYPE]))
+        from worker.handlers import REGISTRY, handle_workflow_stage
+
+        handler = REGISTRY[WorkerQueueDispatcher.JOB_TYPE]
+        self.assertIs(handler, handle_workflow_stage)
+
+        job = {"payload": {"workflow_name": "wf", "stage_name": "s", "stage_index": 0}}
+        ok, detail = handler(job)
+        self.assertFalse(ok)
+        self.assertEqual(detail, "workflow_stage job has neither script nor cli_commands")
 
 
 # ---------------------------------------------------------------------------

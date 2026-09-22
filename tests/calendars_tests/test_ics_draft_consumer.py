@@ -783,6 +783,48 @@ class TestGmailClientWiring(unittest.TestCase):
         client_cls.assert_not_called()
 
 
+class TestGmailServiceFromArgs(unittest.TestCase):
+    """GmailService.from_args() wraps whatever the provider factory returns.
+
+    Regression coverage for the read-only scan wrapper alongside
+    TestGmailClientWiring above: from_args is what CLI parsers actually call
+    to build a GmailService, but nothing previously drove it directly.
+    """
+
+    def test_from_args_wraps_provider_from_factory(self):
+        """Success path: the built service wraps the exact provider returned."""
+        import argparse
+
+        from calendars.gmail_service import GmailService
+
+        sentinel_provider = object()
+        args = argparse.Namespace(profile="mail.gmail_personal")
+        with patch(
+            "mail.utils.cli_helpers.gmail_provider_from_args",
+            return_value=sentinel_provider,
+        ):
+            service = GmailService.from_args(args)
+
+        self.assertIsInstance(service, GmailService)
+        self.assertIs(service.provider, sentinel_provider)
+
+    def test_from_args_propagates_provider_factory_error(self):
+        """Failure path: an error building the provider is not swallowed."""
+        import argparse
+
+        from calendars.gmail_service import GmailService
+
+        args = argparse.Namespace(profile="missing.profile")
+        with patch(
+            "mail.utils.cli_helpers.gmail_provider_from_args",
+            side_effect=RuntimeError("no credentials profile"),
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                GmailService.from_args(args)
+
+        self.assertIn("no credentials profile", str(ctx.exception))
+
+
 class TestCLIIcsDraftCommand(unittest.TestCase):
     """`outlook ics-draft` is reachable through the real parser with correct dests."""
 
