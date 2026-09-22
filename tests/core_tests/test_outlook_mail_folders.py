@@ -170,6 +170,56 @@ class TestListAllFolders(OutlookMailTestBase):
         with self.assertRaises(requests.exceptions.HTTPError):
             FakeMailClient().list_all_folders()
 
+    @patch("core.outlook._mail_folders._requests")
+    def test_bypass_cache_skips_the_read_and_still_writes(self, mock_requests_fn):
+        """``bypass_cache=True`` ignores a cached snapshot but refreshes it.
+
+        Asserted directly here rather than only through ``resolve_folder_path``:
+        the flag's contract is "skip the READ, keep the WRITE", and the write half
+        is what lets later callers reuse the fresh listing instead of every
+        uncached destination triggering its own tree walk.
+        """
+        client = FakeMailClient()
+        client._cfg_cache["folders_all"] = [
+            {"id": "stale-id", "displayName": "Stale", "parentFolderId": None},
+        ]
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.side_effect = [
+            make_mock_response({"value": FOLDERS_LIST}),
+        ] + [make_mock_response({"value": []}) for _ in FOLDERS_LIST]
+
+        result = client.list_all_folders(bypass_cache=True)
+
+        self.assertEqual(
+            sorted(f["id"] for f in result), sorted(f["id"] for f in FOLDERS_LIST),
+            "the stale cached snapshot was returned instead of a fresh listing",
+        )
+        # The write still happened, so the next caller need not walk again.
+        self.assertEqual(
+            sorted(f["id"] for f in client._cfg_cache["folders_all"]),
+            sorted(f["id"] for f in FOLDERS_LIST),
+        )
+
+    @patch("core.outlook._mail_folders._requests")
+    def test_default_still_reads_the_cache(self, mock_requests_fn):
+        """Contrast: without the flag, a cached snapshot is reused as before.
+
+        Pins that ``bypass_cache`` is opt-in — a default that skipped the cache
+        would turn every folder lookup in the codebase into a full tree walk.
+        """
+        client = FakeMailClient()
+        cached = [{"id": "cached-id", "displayName": "Cached", "parentFolderId": None}]
+        client._cfg_cache["folders_all"] = list(cached)
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+
+        result = client.list_all_folders()
+
+        self.assertEqual(result, cached)
+        self.assertEqual(
+            mock_requests.get.call_count, 0,
+            "the default path hit Graph; the cache was not reused",
+        )
+
 
 class TestGetFolderPathMap(OutlookMailTestBase):
     """Tests for get_folder_path_map method."""
