@@ -323,6 +323,22 @@ def _resolve_script_token(tok, home):
     return os.path.normpath(path)
 
 
+# Interpreter options that are terminal for our purposes: once python sees
+# one of these, it runs code/a module, never a script file, so no operand
+# after it can be "our path" running as a script. Checked per-letter so a
+# combined cluster like `-Ic` is still caught.
+_TERMINAL_OPT_LETTERS = frozenset("cm")
+
+# Short options that consume the NEXT token as their own argument (the next
+# token is never the script operand). Long forms that do the same, unless
+# `=`-joined with their value.
+_ARG_TAKING_SHORT = frozenset("WX")
+_ARG_TAKING_LONG = frozenset({"--check-hash-based-pycs"})
+
+# Short options that take no argument and may appear combined, e.g. `-IS`.
+_NOARG_SHORT = frozenset("ISEubBdOqvstxP")
+
+
 def _python_script_operand(cmd):
     """Return the script operand of a python invocation in `cmd`, or None.
 
@@ -335,9 +351,15 @@ def _python_script_operand(cmd):
         - skip a leading `env` (a common shebang-less prefix)
         - the next token's basename must look like python: `python`,
           `python3`, `python3.11`, etc.
-        - skip interpreter flags after it (`-I`, `-S`, `-E`, `-u`, and any
-          other `-`-prefixed token — argparse-style short flags), since none
-          of those consume a following value in this invocation form
+        - walk interpreter options by ARITY, not by "starts with -":
+            - `-c` / `-m` (alone or in a combined cluster like `-Ic`) mean
+              python is running code or a module, never a script file —
+              return None immediately, regardless of what follows
+            - `-W`, `-X`, `--check-hash-based-pycs` consume the NEXT token
+              as their own argument (unless `=`-joined for the long form),
+              so that token is never the script operand
+            - `-I -S -E -u -b -B -d -O -q -v -s -t -x -P` take no argument
+              and may appear combined (`-IS`)
         - the first remaining non-flag token is the script operand
 
     Uses shlex so a quoted path with spaces tokenises correctly; falls back
@@ -367,8 +389,26 @@ def _python_script_operand(cmd):
     if not re.match(r"^python3?(\.\d+)?$", interp):
         return None
     i += 1
-    while i < len(tokens) and tokens[i].startswith("-"):
-        i += 1
+    while i < len(tokens) and tokens[i].startswith("-") and tokens[i] != "-":
+        tok = tokens[i]
+        long_name = tok.split("=", 1)[0]
+        if long_name in _ARG_TAKING_LONG:
+            if "=" not in tok:
+                i += 1
+            i += 1
+            continue
+        letters = tok[1:]
+        if any(ch in _TERMINAL_OPT_LETTERS for ch in letters):
+            return None
+        if len(letters) == 1 and letters in _ARG_TAKING_SHORT:
+            i += 2
+            continue
+        if letters and all(ch in _NOARG_SHORT for ch in letters):
+            i += 1
+            continue
+        # Unrecognized option shape: don't guess at its arity — bail rather
+        # than risk treating its argument as the script operand.
+        return None
     if i >= len(tokens):
         return None
     return tokens[i]
@@ -529,6 +569,15 @@ cmds = [h.get('command','') for e in hooks for h in e.get('hooks',[])]
 _home = os.path.expanduser('~')
 _target = os.path.normpath(os.path.join(_home, '.claude', 'hooks', 'tmux-session-namer.py'))
 
+# Same arity table as the patch script's is_managed_hook / _python_script_operand
+# — must not diverge from it. -c/-m are terminal (python runs code/a module, not
+# a script); -W/-X/--check-hash-based-pycs consume the NEXT token as their own
+# argument; the rest are argument-free and may appear combined (-IS).
+_TERMINAL_OPT_LETTERS = frozenset('cm')
+_ARG_TAKING_SHORT = frozenset('WX')
+_ARG_TAKING_LONG = frozenset({'--check-hash-based-pycs'})
+_NOARG_SHORT = frozenset('ISEubBdOqvstxP')
+
 
 def _script_operand(cmd):
     try:
@@ -543,8 +592,24 @@ def _script_operand(cmd):
     if not re.match(r'^python3?(\.\d+)?\$', os.path.basename(tokens[i])):
         return None
     i += 1
-    while i < len(tokens) and tokens[i].startswith('-'):
-        i += 1
+    while i < len(tokens) and tokens[i].startswith('-') and tokens[i] != '-':
+        tok = tokens[i]
+        long_name = tok.split('=', 1)[0]
+        if long_name in _ARG_TAKING_LONG:
+            if '=' not in tok:
+                i += 1
+            i += 1
+            continue
+        letters = tok[1:]
+        if any(ch in _TERMINAL_OPT_LETTERS for ch in letters):
+            return None
+        if len(letters) == 1 and letters in _ARG_TAKING_SHORT:
+            i += 2
+            continue
+        if letters and all(ch in _NOARG_SHORT for ch in letters):
+            i += 1
+            continue
+        return None
     return tokens[i] if i < len(tokens) else None
 
 

@@ -157,7 +157,48 @@ class TestHookMatcher(unittest.TestCase):
                 cmd = f"{prefix} ~/.claude/hooks/tmux-session-namer.py"
                 self.assertTrue(self.is_managed(cmd))
 
+    def test_matches_past_flags_that_consume_an_argument(self) -> None:
+        """Some interpreter options take an operand of their own.
+
+        Treating every `-...` token as argument-free makes the option's operand
+        look like the script name, so a real invocation of ours goes unrecognised
+        and the installer appends a SECOND hook beside it.
+        """
+        for flags in (
+            "-W ignore",
+            "-X faulthandler",
+            "--check-hash-based-pycs default",
+            "-I -S -W ignore",
+        ):
+            with self.subTest(flags=flags):
+                cmd = f"python3 {flags} ~/.claude/hooks/tmux-session-namer.py"
+                self.assertTrue(
+                    self.is_managed(cmd),
+                    f"missed a real invocation through {flags!r} — the installer "
+                    "would append a duplicate hook",
+                )
+
     # -- must NOT match: a file we do not own --------------------------------
+
+    def test_rejects_the_path_as_another_options_operand(self) -> None:
+        """`-c` takes code and `-m` takes a module name, not a script to run.
+
+        A command that merely NAMES our path as one of those operands is not
+        running it, and this matcher gates a rewrite — so claiming it would
+        destroy someone else's command.
+        """
+        cases = [
+            "python3 -c '~/.claude/hooks/tmux-session-namer.py'",
+            'python3 -c "~/.claude/hooks/tmux-session-namer.py"',
+            "python3 -m ~/.claude/hooks/tmux-session-namer.py",
+            "python3 -W ~/.claude/hooks/tmux-session-namer.py",
+        ]
+        for cmd in cases:
+            with self.subTest(cmd=cmd):
+                self.assertFalse(
+                    self.is_managed(cmd),
+                    f"would rewrite a command that only names the path: {cmd!r}",
+                )
 
     def test_rejects_same_name_in_another_directory(self) -> None:
         """A basename comparison alone wrongly claims these."""
