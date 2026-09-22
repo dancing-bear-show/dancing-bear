@@ -177,9 +177,19 @@ stages:
           (True, {"echoed": message, "length": len(message)}).
         - Demonstrate ALL THREE retry classes, since this is the part authors
           get wrong:
-            * missing/empty "message" -> return (False, "terminal-no-message")
+            * missing, empty, or NOT A STRING -> return
+              (False, "terminal-no-message")
               — a malformed payload will never become valid on retry, so
               retrying it burns attempts for nothing.
+
+              Check the TYPE, not just presence: `isinstance(message, str)`.
+              A payload is JSON from an untrusted enqueuer, so `{"message":
+              123}` is as reachable as a missing key. Without the type check
+              it reaches `len(message)`, raises TypeError out of the handler,
+              and the daemon classifies an uncaught exception as a RETRYABLE
+              failure — so the one case this demo exists to teach as terminal
+              is the one it would get wrong, and it would burn every attempt
+              re-raising the identical error. Validate before you measure.
             * payload sets "defer": true -> return (False, "deferred-demo")
               — re-queued without consuming an attempt.
             * payload sets "fail": true -> return (False, "transient failure")

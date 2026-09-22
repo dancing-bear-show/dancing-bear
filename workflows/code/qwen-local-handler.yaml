@@ -546,9 +546,37 @@ stages:
            - STALE LOCK RECOVERY is mandatory. A daemon killed mid-generation
              leaves the lock file behind, and a lock nothing can ever acquire
              turns every future qwen job into a permanent no-op. Write the
-             holder's PID and an ISO timestamp into the file, and treat a
-             lock as stale when its PID is not alive or its age exceeds a
-             stated ceiling. Say exactly how you check liveness.
+             holder's PID and an ISO timestamp into the file, and say exactly
+             how you check liveness.
+
+             AGE ALONE IS NOT STALENESS. Reclaim on a DEAD holder PID. Do NOT
+             reclaim solely because the lock is older than the ceiling while
+             its holder is still alive — a 14B generation on CPU legitimately
+             runs longer than any ceiling short enough to be useful, so an
+             age-only rule reclaims the lock out from under a running job and
+             produces exactly the concurrent generation the lock exists to
+             prevent. That is worse than the deadlock it was meant to fix:
+             the deadlock is visible and the double generation is not.
+
+             So the contract is:
+               - holder PID not alive                 -> STALE, reclaim
+               - holder alive, age within ceiling     -> HELD, wait
+               - holder alive, age beyond ceiling     -> SUSPECT, do NOT
+                 reclaim on age. A recycled PID can make a dead holder look
+                 alive, so liveness alone is not proof either. Resolve it
+                 with a second signal before reclaiming: read the holder's
+                 command line and confirm it is a worker process, and check
+                 whether the {job_type} lane actually has anything in
+                 processing/. A live PID that is not a worker, or an empty
+                 processing/ lane, means the lock is orphaned and may be
+                 reclaimed. Otherwise leave it alone and defer.
+
+             This is the SAME three-way classification the admin workflow's
+             health probe reports (qwen-admin.yaml, "Concurrency guard").
+             They must agree: if you change the rule here, change it there.
+             A handler that reclaims on age while the probe calls the same
+             lock healthy will look correct from both sides while silently
+             running two models at once.
 
          CONTENTION BEHAVIOUR — block, but BOUNDED, and the ceiling must be
          enforced BY THE HANDLER'S OWN WAIT LOOP. Do not rely on any daemon
@@ -1091,10 +1119,27 @@ stages:
         C1  IMPORTS AND REGISTERS. Create qwen.py with the handler function
             signature and a stub body returning a terminal "not implemented"
             string, plus the REGISTRY line. Verify:
-              python3 -c "import worker.handlers as h; print(sorted(h.REGISTRY))"
-            "{job_type}" must appear. This proves the seam works before any
-            logic exists — and it is the single most common thing to get
-            wrong, since a bad import breaks the whole worker CLI.
+
+              PYTHONPATH="$PWD/src" python3 -c "import worker, worker.handlers as h; print(worker.__file__); print(sorted(h.REGISTRY))"
+
+            "{job_type}" must appear, AND the printed worker.__file__ must be
+            under YOUR worktree.
+
+            NEVER use a bare `python3 -c "import worker..."` here. Measured
+            from a worktree on 2026-09-22, the bare form resolves `worker` to
+            the MAIN CHECKOUT's src — not because of anything inherited, but
+            because that is where the active editable install points. The
+            registry check would then pass against a tree that does not
+            contain the qwen.py you just wrote, reporting the seam as broken,
+            or (worse, once main has the handler) reporting it as working
+            when your branch's version is what failed to import.
+
+            Prepending `$PWD/src` fixes it and also wins against an inherited
+            foreign PYTHONPATH, since PYTHONPATH entries are searched in
+            order. Both facts were verified by probe; do not substitute
+            `-E`, `-I` or `-P`, which strip the fix rather than the problem.
+            `make check-env` asserts the same property and is the cheaper
+            check when you only need a yes/no.
         C2  GUARDS REJECT. Implement input confinement and the payload
             validation, still with no model call. Verify by calling the
             handler directly in-process with a disallowed path and with a
@@ -1319,10 +1364,19 @@ stages:
     depends_on: [design]
     reads_from: [design, survey]
     description: >
-      FIRST, read contract.json's heartbeat/liveness section and check which
+      ISOLATION BOUNDARY — this stage runs in its OWN git worktree and cannot
+      see the shared {workspace} in either direction. Read every input from
+      `<your-cwd>/inputs/`, preserving the upstream relative path, and write
+      every output under `<your-cwd>/outputs/`. A bare or `{workspace}`-rooted
+      path resolves against the orchestrator's shared tree, which this agent
+      cannot read or write; the orchestrator copies your outputs back after
+      the stage completes.
+
+      FIRST, read `<your-cwd>/inputs/outputs/design/contract.json`'s
+      heartbeat/liveness section and check which
       route the approved design chose. If it chose route (a) — nothing
       currently terminates a long job, so no change is warranted — then make
-      NO code change. Write outputs/heartbeat-impl.json with
+      NO code change. Write <your-cwd>/outputs/heartbeat-impl.json with
       {"files_modified": [], "route": "a-no-change", "reason": "<cite the
       design>", "commit_sha": null} and finish. Do not invent a heartbeat to
       justify this stage's existence; a no-op here is the correct outcome of
@@ -1389,7 +1443,8 @@ stages:
       Stage only the files this stage owns, by name — never `git add -A`.
       Confirm with `git log --oneline -1` and record the SHA below.
 
-      Write {workspace}/outputs/heartbeat-impl.json:
+      Write <your-cwd>/outputs/heartbeat-impl.json (NOT {workspace} — see the
+      isolation boundary above):
         {"files_modified": [...], "helper_name": "...", "fallback_behaviour": "...", "commit_sha": "...", "checkpoints": [{"id": "existing-suite-green", "passed": true|false, "command": "...", "evidence": "<the Ran N tests line>"}], "notes": "..."}
     agent:
       role: code-writer
@@ -1415,7 +1470,16 @@ stages:
     depends_on: [design]
     reads_from: [design, survey]
     description: >
-      Write tests against the contract in {workspace}/outputs/design/contract.json.
+      ISOLATION BOUNDARY — this stage runs in its OWN git worktree and cannot
+      see the shared {workspace} in either direction. Read every input from
+      `<your-cwd>/inputs/`, preserving the upstream relative path, and write
+      every output under `<your-cwd>/outputs/`. A bare or `{workspace}`-rooted
+      path resolves against the orchestrator's shared tree, which this agent
+      cannot read or write; the orchestrator copies your outputs back after
+      the stage completes.
+
+      Write tests against the contract in
+      `<your-cwd>/inputs/outputs/design/contract.json`.
       This stage runs in PARALLEL with the two implementation stages, so the
       implementation does not exist yet in this worktree — that is intentional.
       Write to the contract's signatures. The integrate stage reconciles any
@@ -1600,7 +1664,8 @@ stages:
         git commit -m "test(worker): cover {job_type} handler, retry map and heartbeat"
       Confirm with `git log --oneline -1` and record the SHA below.
 
-      Write {workspace}/outputs/tests-impl.json:
+      Write <your-cwd>/outputs/tests-impl.json (NOT {workspace} — see the
+      isolation boundary above):
         {"test_files": [...], "test_count": N, "retry_map_rows_covered": N, "liveness_route_tested": "a|b|c", "commit_sha": "...", "checkpoints": [{"id": "tests-collect", "passed": true|false, "command": "...", "evidence": "..."}], "notes": "..."}
       "liveness_route_tested" must match the route contract.json recorded, so
       merge-impl and acceptance can tell an intentional absence of heartbeat
@@ -1927,13 +1992,18 @@ stages:
 
       Then run the real gates, in this order, and record verbatim output:
 
-        1. Prove imports resolve to THIS checkout before trusting any result —
-           an inherited PYTHONPATH silently resolves worker/core to the main
-           checkout and yields a false green:
+        1. Prove imports resolve to THIS checkout before trusting any result.
+           A bare `python3 -c "import worker"` from a worktree resolves to the
+           MAIN CHECKOUT's src — verified by probe on 2026-09-22, with no
+           inherited PYTHONPATH involved; the active editable install simply
+           points there. An inherited PYTHONPATH is a second way to get the
+           same false green. Both are defeated by prepending this tree:
              make check-env
-             python3 -c "import worker, core; print(worker.__file__); print(core.__file__)"
+             PYTHONPATH="$PWD/src" python3 -c "import worker, core; print(worker.__file__); print(core.__file__)"
            Both paths must be under this worktree. If not, stop and report —
-           nothing below this line means anything otherwise.
+           nothing below this line means anything otherwise. Do not "simplify"
+           this to a bare python3, and do not reach for -E/-I/-P: those strip
+           the prefix that makes it correct, not the condition that breaks it.
 
         2. Full suite. Exit code alone is NOT evidence the suite ran; a
            concurrent venv race can exit 0 having run nothing:
@@ -2458,11 +2528,18 @@ stages:
            landed — stop and report that.
 
            Run this from THIS worktree, so the CLI imports the code this run
-           built. Confirm it first — an inherited PYTHONPATH silently resolves
-           `worker` to another checkout:
-             python3 -c "import worker; print(worker.__file__)"
+           built. Confirm it first — a bare `python3 -c "import worker"` from
+           a worktree resolves to the MAIN CHECKOUT (probe-verified
+           2026-09-22, no inherited PYTHONPATH needed), and an inherited
+           PYTHONPATH can redirect it elsewhere again:
+             PYTHONPATH="$PWD/src" python3 -c "import worker; print(worker.__file__)"
            The path must be under this worktree's src/. If it is not, stop:
            nothing below proves anything about this run's code.
+
+           Note the `./bin/worker` wrapper does NOT have this problem — it
+           resolves its repo root through the symlink and inserts that src/
+           itself. The bare interpreter is the hazard, so the check above
+           exists to confirm the ENVIRONMENT, not the wrapper.
 
            This proves the CLI process sees the handler. It does NOT prove
            the DAEMON does, and per install.json's daemon_serves_this_code
@@ -2590,7 +2667,27 @@ stages:
       the lock logic; this proves it under the real daemon, which is where
       the 8-wide batch actually happens.
 
-      Enqueue TWO {job_type} jobs back to back, then drain. Read both back by
+      Enqueue TWO {job_type} jobs back to back, then drain — under the SAME
+      queue-contention gate as Checks B and C, adjusted for two jobs. This
+      check needs `run-once --max 2`, which widens the blast radius rather
+      than narrowing it: `run-once` has no id or type selector, so on a
+      contended queue it can claim two of the user's unrelated jobs, consume
+      their attempts, and leave this stage reporting on jobs it never
+      enqueued.
+        a. Read both jobs back by id first. If the daemon already handled
+           them, that is a valid drain — prefer it, and skip run-once.
+        b. Otherwise check `./bin/worker list`. Drain with
+           `./bin/worker run-once --max 2` ONLY when YOUR TWO jobs are
+           unambiguously the only pending entries.
+        c. If anything else is pending, do NOT drain. Record the check as
+           "not-verifiable — queue contended" and set concurrency_guard.held
+           to null rather than true. An unproven guard must never be
+           reported as a held one; this is the guard whose failure means two
+           14B models in memory at once.
+        d. Confirm the two jobs you read back carry the two ids you
+           enqueued, before drawing any conclusion from their outcomes.
+
+      Read both back by
       id and confirm the model was never generating for both at once — the
       evidence is that one job completed and the other returned the
       "deferred-" busy string from contract.json and was re-queued with its

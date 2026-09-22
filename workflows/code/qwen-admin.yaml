@@ -172,26 +172,61 @@ stages:
                             exit status. Record the exit status if present.
         5. Queue reachable: ./bin/worker list
         6. Collector:       ./bin/telemetry otel health
-        7. Round trip:      a minimal generate call against "{ollama_host}"
-                            (quoted, as validated above) with a trivial
-                            prompt and a short timeout, to
-                            prove the server answers rather than merely
-                            accepting connections. Keep it tiny — this is a
-                            liveness probe, not a benchmark.
+        7. Round trip:      prove the server answers rather than merely
+                            accepting connections.
+
+                            DO THE LOCK CHECK (step 8) FIRST, and branch on
+                            it. A generate call issued here does NOT go
+                            through the handler, so it does not take the
+                            handler's exclusive lock — run it while a real
+                            qwen job is generating and the machine holds two
+                            14B models at once. That is the precise OOM /
+                            swap condition this workflow gets invoked to
+                            diagnose, so an unconditional probe can cause
+                            the fault it is investigating, and does so most
+                            readily on a busy queue where it matters most.
+
+                              - lock ABSENT -> issue the generate call, with
+                                a trivial prompt and a short timeout. Keep
+                                it tiny: this is a liveness probe, not a
+                                benchmark.
+                              - lock HELD or SUSPECT -> do NOT generate. Use
+                                a request that loads no model: GET /api/tags
+                                against "{ollama_host}" (validated above)
+                                answers from the server without touching
+                                weights. Record the round trip as
+                                "skipped — lock held, server reachable via
+                                /api/tags" so the report distinguishes it
+                                from an untested server.
+
+                            Report which branch ran. A probe that silently
+                            degraded to /api/tags is weaker evidence than a
+                            real generation, and the report must not present
+                            the two as equivalent.
         8. Concurrency guard: the qwen handler holds an exclusive lock around
                             the model call, because the daemon's
                             --max-inflight is a GLOBAL cap with no per-type
                             awareness and would otherwise allow several
                             simultaneous generations. Check the lock file
                             under the worker state dir:
+                            These three cases are exhaustive and mutually
+                            exclusive — classify on the holder's LIVENESS
+                            first, and only then on age. Age alone never
+                            makes a lock stale: a 14B generation on CPU
+                            legitimately outruns any useful ceiling, so an
+                            age-first rule authorises deleting the lock of a
+                            job that is still generating. The handler
+                            contract states the same rule
+                            (qwen-local-handler.yaml, STALE LOCK RECOVERY);
+                            they must agree.
                               - absent  -> healthy, nothing running
                               - present, LIVE holder pid, age within the
                                 staleness ceiling -> a job is generating
                                 right now; healthy, not a fault
-                              - present with a DEAD holder pid, or older than
-                                its staleness ceiling -> STALE. A stale lock
-                                silently defers every qwen job, and the queue
-                                looks fine while nothing progresses.
+                              - present with a DEAD holder pid -> STALE,
+                                whatever its age. A stale lock silently
+                                defers every qwen job, and the queue looks
+                                fine while nothing progresses.
                               - present, LIVE holder pid, but age BEYOND the
                                 staleness ceiling -> SUSPECT. Liveness alone
                                 is not proof: a recycled PID makes a dead
@@ -352,6 +387,27 @@ stages:
         - ERROR CLUSTERING: group error/ jobs by their error text. Report the
           top failure modes with counts. A cluster of identical errors is a
           systemic problem; scattered singletons are usually not.
+
+          NEVER COPY RAW ERROR TEXT INTO THE REPORT. Queue error strings are
+          arbitrary: a SafeProcessor traceback, a subprocess's stderr, or a
+          handler's exception message can carry file contents, argv, or
+          credential-shaped values. The qwen handler's own masking contract
+          does not help here — error/ holds jobs from every job_type, written
+          by handlers that never agreed to it, and this stage reads whatever
+          is already on disk.
+
+          Emit a derived signature instead of the message:
+            - the exception class or the first line only, truncated to ~120
+              characters, with any run of 20+ non-space characters replaced
+              by <redacted> (that is the shape a token or key takes)
+            - drop absolute paths to their basename
+            - a stable hash of the full text for grouping, so identical
+              errors still cluster without the text being reproduced
+
+          If a cluster cannot be characterised without quoting it, report the
+          count and the job ids and say the text was withheld. An operator
+          can read the job file directly; a report that gets pasted into a PR
+          or a chat cannot be un-shared.
         - RETRY EXHAUSTION: jobs that hit max_attempts. Note which retry
           classification they went through — a job retrying a condition the
           design marked "terminal" means the handler is misclassifying, which
@@ -498,6 +554,27 @@ stages:
            once: ./bin/worker requeue-errors with --limit and --match.
            Never requeue a systemic cluster — it will fail identically and
            burn the queue. Never requeue without a --match filter.
+
+           LANE SCOPING — `requeue-errors` has NO job-type filter. `--match`
+           is a plain substring test against the ENTIRE JSON record, so an
+           error-text match alone will also requeue run_cli, run_shell and
+           workflow_stage jobs that happen to contain the same text — a
+           timeout or connection-refused string is not distinctive, and this
+           workflow is scoped to the {job_type} lane only.
+
+           `--match` is repeatable and the filters are ANDed, so always pass
+           TWO: one for the error cluster and one pinning the job type.
+
+             ./bin/worker requeue-errors --limit N \
+               --match '"job_type": "{job_type}"' \
+               --match '<the error-cluster substring>'
+
+           Confirm the exact spelling of the type field against one real
+           record (`./bin/worker list --format json`, or read a file under
+           error/) before proposing the command — a `--match` that matches
+           nothing silently requeues nothing, and a mis-spelled one silently
+           drops the lane scoping while still appearing to filter. State in
+           the proposal how many records each filter pair matched.
         b) Purge done/error jobs older than {purge_older_than}:
            ./bin/worker purge. Never purge pending or processing.
 

@@ -26,6 +26,7 @@ from pathlib import Path
 
 import yaml
 
+from workflow.compiler import compile_workflow
 from workflow.linter import lint_workflow
 from workflow.parser import parse_workflow
 
@@ -251,19 +252,53 @@ class TestShippedCatalogLints(unittest.TestCase):
 class TestShippedCatalogParses(unittest.TestCase):
     """Every non-fragment workflow must parse into a coherent DAG."""
 
-    def test_non_fragments_parse(self) -> None:
-        """A runnable workflow must parse without raising."""
+    def test_non_fragments_parse_and_compile(self) -> None:
+        """A runnable workflow must parse AND compile without raising.
+
+        Parsing alone is too weak a gate to claim the catalog is sound: a
+        definition can parse cleanly and still fail at ``compile_workflow``,
+        which is the first thing a real run does. Compiling here costs a few
+        milliseconds per file and is pure — it resolves refs and computes
+        parallel groups, it does not execute anything — so the gate covers
+        the whole static path a user hits before any agent is spawned.
+
+        Verified by injecting a defect rather than assumed: replacing a real
+        ``when:`` expression with an unparseable one fails this test with
+        ``WorkflowCompileError`` while the parse-only gate stayed green.
+        Note the failure has to come through ``spec.outputs`` or ``when`` —
+        an unknown top-level key such as a bare ``template:`` is dropped by
+        the parser and reaches no compile check at all, so it is not a
+        defect this gate can see.
+        """
         for path in _catalog_files():
             raw = _load_raw(path)
             if _is_fragment(raw):
                 continue
             with self.subTest(workflow=str(path.relative_to(REPO_ROOT))):
-                # parse_workflow raises WorkflowParseError on a bad definition;
-                # letting it propagate here is the assertion.
+                # parse_workflow raises WorkflowParseError and compile_workflow
+                # raises WorkflowCompileError on a bad definition; letting
+                # either propagate here is the assertion.
                 defn = parse_workflow(path)
                 self.assertTrue(
                     defn.stages,
                     f"{path.relative_to(REPO_ROOT)} parsed to zero stages",
+                )
+                manifest = compile_workflow(defn, project_root=REPO_ROOT)
+                self.assertEqual(
+                    set(manifest.resolved_stages),
+                    {s.name for s in defn.stages},
+                    f"{path.relative_to(REPO_ROOT)}: compile dropped or "
+                    "invented stages relative to the parsed definition",
+                )
+                # Every stage must land in a parallel group. A stage missing
+                # from the schedule never runs, and the run still reports
+                # success — the quietest possible failure.
+                scheduled = {n for group in manifest.parallel_groups for n in group}
+                self.assertEqual(
+                    scheduled,
+                    set(manifest.resolved_stages),
+                    f"{path.relative_to(REPO_ROOT)}: stages resolved but "
+                    "never scheduled into a parallel group",
                 )
 
     def test_depends_on_references_a_real_stage(self) -> None:
@@ -409,14 +444,22 @@ class TestBaselineDoesNotRot(unittest.TestCase):
         the live gate above uses, via ``_CATEGORY_COMPLIANCE``) against the
         stage the entry names, so the two checks cannot silently disagree.
         """
+        unknown = sorted(set(_baseline()) - set(_CATEGORY_COMPLIANCE))
+        self.assertEqual(
+            unknown,
+            [],
+            "baseline declares categories with no compliance predicate: "
+            f"{unknown}. Such a category is never recomputed here and is "
+            "consulted by no live gate, so violations moved into it are "
+            "grandfathered permanently — the ratchet can be bypassed simply "
+            "by inventing a category name. Add the category to "
+            "_CATEGORY_COMPLIANCE alongside the gate that enforces it, or "
+            "delete it from shipped_catalog_baseline.json.",
+        )
+
         stale: list[str] = []
         for category, entries in _baseline().items():
-            mapping = _CATEGORY_COMPLIANCE.get(category)
-            if mapping is None:
-                # Unknown category: nothing to recompute against, and the
-                # deleted-stage check already covers referential staleness.
-                continue
-            iterate, is_compliant = mapping
+            iterate, is_compliant = _CATEGORY_COMPLIANCE[category]
             by_key = {_stage_key(path, stage.get("name")): stage for path, stage in iterate()}
             for entry in sorted(entries):
                 stage = by_key.get(entry)
