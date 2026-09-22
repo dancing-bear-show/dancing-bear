@@ -49,7 +49,8 @@ trigger:
     shards_dir: ""          # REQUIRED: outputs/shards from a categorize-test-cases run
     max_files: "20"         # hard cap on test files touched this run
     classes: "A,B,C"        # which defect classes to rectify
-    min_happy: "3"          # class C: only symbols with >= this many sad tests
+    min_sad: "3"          # class C: min sad tests a symbol needs to qualify as
+                          # a happy-path gap (it must have zero happy tests)
 
 stages:
   # ===========================================================================
@@ -84,7 +85,7 @@ stages:
       across all shards. Select symbols where no targeting method carries
       "happy" and none carries "sad" (i.e. only unassigned methods point at it).
 
-      CLASS C — happy-path gaps. Select symbols with >= {min_happy} methods
+      CLASS C — happy-path gaps. Select symbols with >= {min_sad} methods
       carrying "sad" and ZERO carrying "happy": the failure modes are tested
       and the success path is not.
 
