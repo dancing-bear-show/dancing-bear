@@ -260,7 +260,7 @@ stages:
       role: researcher
       model: sonnet
       tools: [Bash, Read, Write]
-      access: read-only
+      access: read-write
     outputs:
       - name: spec
         mode: generate
@@ -367,7 +367,7 @@ stages:
       role: reviewer
       model: sonnet
       tools: [Read, Write]
-      access: read-only
+      access: read-write
     validation:
       strategy: unit
       criteria:
@@ -749,7 +749,7 @@ stages:
       role: reviewer
       model: sonnet
       tools: [Read, Bash, Write]
-      access: read-only
+      access: read-write
     validation:
       strategy: unit
       criteria:
@@ -1014,7 +1014,7 @@ stages:
       role: doc-writer
       model: sonnet
       tools: [Read, Bash, Write]
-      access: read-only
+      access: read-write
     required: true
     writes_to:
       - validation/human-gate-summary.md

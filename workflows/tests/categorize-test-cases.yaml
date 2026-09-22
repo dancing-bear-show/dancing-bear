@@ -92,7 +92,7 @@ stages:
       role: researcher
       model: haiku
       tools: [Read, Write]
-      access: read-only
+      access: read-write
     outputs:
       - name: batch-list
         mode: generate
@@ -174,7 +174,7 @@ stages:
       role: reviewer
       model: sonnet
       tools: [Read, Write, Grep]
-      access: read-only
+      access: read-write
     required: true
     fan_out:
       source: partition-batches
@@ -252,7 +252,7 @@ stages:
       role: reviewer
       model: sonnet
       tools: [Read, Write, Bash]
-      access: read-only
+      access: read-write
     required: true
     outputs:
       - name: classification
@@ -304,7 +304,7 @@ stages:
       role: reviewer
       model: sonnet
       tools: [Read, Write, Bash]
-      access: read-only
+      access: read-write
     required: true
     validates_output:
       - path: outputs/sad-path-gaps.json

@@ -18,7 +18,9 @@ Look at the last few messages in context to understand the current task.
 **Before choosing a name, check whether a PR exists for the current branch:**
 
 ```bash
-pr_number=$(gh pr view --json number -q .number 2>/dev/null)
+# GITHUB_TOKEN= forces gh to use its own keyring credentials; a stale token in
+# the environment silently breaks auth.
+pr_number=$(GITHUB_TOKEN= gh pr view --json number -q .number 2>/dev/null)
 ```
 
 - If `$pr_number` is non-empty, prefer `pr-<NUMBER>-<topic>` (e.g. `pr-42-gmail-filters`).

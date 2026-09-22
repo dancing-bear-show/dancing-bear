@@ -116,9 +116,13 @@ def save_settings(data):
 
     `open(path, "w")` truncates the live file before writing a byte, so an
     interruption or a full disk mid-dump leaves the user's GLOBAL Claude
-    settings empty or half-written. Serialise to a temp file in the same
-    directory (same filesystem, so os.replace is atomic), fsync it, then
-    rename over the original — a crash at any point leaves the old file intact.
+    settings empty or half-written — destroying every hook, permission and env
+    var they have configured. Serialise to a temp file in the same directory
+    (same filesystem, so os.replace is atomic), fsync it, then rename over the
+    original — a crash at any point leaves the old file intact.
+
+    Mirrors core.fileutil.atomic_write_json, inlined because this script runs
+    standalone under `python3 -I -S` and cannot import repo modules.
     """
     directory = os.path.dirname(settings_path) or "."
     os.makedirs(directory, exist_ok=True)

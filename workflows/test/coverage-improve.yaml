@@ -114,7 +114,7 @@ stages:
       role: researcher
       model: haiku
       tools: [Bash, Read, Write]
-      access: read-only
+      access: read-write
     required: true
     writes_to:
       - design/work-list.json

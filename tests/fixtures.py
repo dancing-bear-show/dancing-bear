@@ -313,29 +313,6 @@ def make_mock_envelope(ok: bool = True, result: Any = None, error: Optional[str]
     return envelope
 
 
-def make_mock_processor(envelope=None, ok: bool = True, result: Any = None):
-    """Factory for creating Processor mocks with a pre-configured envelope.
-
-    Args:
-        envelope: Optional pre-built envelope (if None, creates one using ok/result)
-        ok: Whether the envelope should indicate success
-        result: The result payload for the envelope
-
-    Returns:
-        MagicMock configured as a Processor
-
-    Example:
-        processor = make_mock_processor(ok=True, result=stats)
-        with patch("module.MyProcessor", return_value=processor):
-            run_command(args)
-    """
-    if envelope is None:
-        envelope = make_mock_envelope(ok=ok, result=result)
-    processor = MagicMock()
-    processor.process.return_value = envelope
-    return processor
-
-
 def make_path_mock(true_paths: set):
     """Return an ``_cli_path_exists``-shaped callable that is True only for the given paths.
 

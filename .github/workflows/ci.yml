@@ -58,6 +58,34 @@ jobs:
           cat typecheck-baseline.json
           echo "NOTE: printed for diagnosis only — nothing was committed."
 
+  # Vulture runs as its own job rather than inside `qlty`, which does not carry
+  # a dead-code linter, and outside `tests`, which has no reason to pay for it.
+  # The baseline is 0 findings, so this is a real gate: vulture exits 3 when it
+  # reports anything, and `make deadcode` propagates that. Adding genuinely dead
+  # code fails here; a false positive is suppressed by name in
+  # [tool.vulture].ignore_names in pyproject.toml, alongside the existing
+  # entries that document each way Python defeats static analysis (registry
+  # dispatch, string-keyed reads, framework reflection, library protocols).
+  deadcode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install
+        # vulture parses source; it never imports it, so the package's runtime
+        # dependencies are not needed here. Installing vulture alone keeps this
+        # job a fraction of the others' setup cost.
+        run: |
+          python -m pip install -U pip
+          python -m pip install "vulture==2.16"
+      - name: Find dead code (blocking)
+        # Not `make deadcode`: that target depends on `venv` and reinstalls the
+        # full editable package, which this job deliberately skips.
+        run: python -m vulture --config pyproject.toml
+
   tests:
     runs-on: ubuntu-latest
     steps:
@@ -87,7 +115,10 @@ jobs:
           # [slides] pulls python-pptx for the same reason: tests/slides_tests
           # imports it at collection time, so omitting it fails the suite before
           # a single test runs.
-          python -m pip install -e ".[tui,slides]"
+          # [pdf] pulls PyMuPDF for src/core/pdf_forms.py and the fixture
+          # generators under tests/receipts_fixtures/. This job installs these
+          # extras rather than [dev], so declaring it there did not reach here.
+          python -m pip install -e ".[tui,slides,pdf]"
           python -m pip install coverage
       - name: Verify imports resolve to this checkout
         run: |

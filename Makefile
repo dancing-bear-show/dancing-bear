@@ -21,7 +21,11 @@ venv:
 	# fresh clone, and makes coverage silently report those modules as 0%.
 	# [slides] pulls python-pptx for the same reason: tests/slides_tests imports
 	# it directly, so omitting it fails 603 tests on a fresh clone.
-	$(PY) -m pip install -e ".[tui,slides]"
+	# [pdf] pulls PyMuPDF, which src/core/pdf_forms.py and the fixture
+	# generators under tests/receipts_fixtures/ need. Declaring it in [dev]
+	# alone was not enough: this target installs the extras below, not [dev],
+	# so a clean checkout still had no fitz.
+	$(PY) -m pip install -e ".[tui,slides,pdf]"
 	# Ensure wrappers are executable
 	chmod +x bin/* 2>/dev/null || true
 

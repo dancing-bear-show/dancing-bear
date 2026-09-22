@@ -55,7 +55,7 @@ one, and only turns red once a newly added module is imported by name.
 - Hand-rolling `setUp`/`tearDown` temp-dir machinery — inherit `TempDirMixin`
   from `tests/fixtures.py` (see `test-reimplements-shared-fixture` in
   `concerns/tests.md`). Same for `capture_stdout`, `temp_yaml_file`,
-  `temp_json_file`, `temp_csv`, `make_mock_envelope`, `make_mock_processor`
+  `temp_json_file`, `temp_csv`, `make_mock_envelope`
 - Manual construction of Gmail/Outlook API response dicts
 - Generic `assertTrue(x == y)` instead of `assertEqual(x, y)`
 - Tests that hit real APIs or read real credentials files

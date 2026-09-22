@@ -98,15 +98,30 @@ dev = [
   # an undeclared optional dep reports 0% coverage indistinguishably from
   # untested code (the [tui] extra hit this trap once; see CLAUDE.md).
   "personal-assistants[slides]",
+  # Self-reference so PyMuPDF is present wherever tests and coverage run. The
+  # fitz-dependent half of src/core/pdf_forms.py (_widget_index, set_text_field,
+  # fill_text_fields, set_checkbox) and both PDF fixture generators under
+  # tests/receipts_fixtures/ are unrunnable without it — the same
+  # undeclared-optional-dep trap as [tui] and [slides].
+  "personal-assistants[pdf]",
 ]
-# Note: pdfplumber depends on pdfminer.six==20251107 (vulnerable version)
-# Keep as optional but not recommended for security-sensitive use
+# pdfplumber backs the table-extraction branch in
+# src/calendars/importer/pdf_parser.py, imported lazily with a regex fallback.
+#
+# The floor is >=0.11.10 rather than >=0.11.0 because pdfplumber pins an exact
+# pdfminer.six, and that pin varies across the 0.11 series: 0.11.0-0.11.5 pin
+# 20231228, 0.11.6 pins 20250327, 0.11.7 pins 20250506, 0.11.8 pins 20251107,
+# 0.11.9 pins 20251230, and 0.11.10 pins 20260107. Only 0.11.10 matches the
+# pdfminer.six==20260107 required directly above, so a looser floor either
+# fails to resolve or — worse, if the direct pin is ever relaxed — installs
+# 20251107, the version SECURITY.md flags for the pickle/CMap issue. Raise this
+# floor in step with the direct pdfminer.six pin.
 #
 # PyMuPDF backs the AcroForm field helpers in src/core/pdf_forms.py, used to
 # fill insurance/government PDF templates. Imported lazily there so the core
 # CLIs stay dependency-light.
 pdf = [
-  "pdfplumber>=0.11.0",
+  "pdfplumber>=0.11.10",
   "PyMuPDF>=1.24.0",
 ]
 
@@ -133,14 +148,14 @@ slides = "slides.__main__:main"
 # no .py files, so a directory-wide scan adds no build-metadata noise.
 paths = ["bin", "tests", "src"]
 min_confidence = 60
-exclude = [
-  # Pure dataclass/enum schema modules populated by parsers via
-  # dict-unpacking or Enum(value_str) construction: every field reads as
-  # "unused" to vulture even though the schema is fully consumed at
-  # runtime. Field-level false positives here vastly outnumber any real
-  # dead code, so these files are reviewed by hand instead.
-  "src/workflow/models.py", "src/telemetry/otel/models.py",
-]
+# src/workflow/models.py and src/telemetry/otel/models.py were previously
+# excluded here wholesale: both are pure dataclass/enum schema modules
+# populated by parsers via dict-unpacking or Enum(value_str) construction, so
+# most fields read as "unused" even though the schema is fully consumed at
+# runtime. They now carry a per-line `# noqa` on each false positive instead,
+# so vulture still scans the rest of each file for real dead code — a
+# whole-file exclusion also hid 11 methods and properties, well beyond the
+# dataclass fields the exclusion was written for.
 ignore_decorators = [
   # CLIApp dispatch (src/core/cli_framework.py): the framework invokes these by
   # registry, not by direct call. Named for Click historically; the telemetry

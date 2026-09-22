@@ -99,7 +99,7 @@ stages:
       role: researcher
       model: sonnet
       tools: [Read, Write]
-      access: read-only
+      access: read-write
     required: true
     outputs:
       - name: hotspots
@@ -188,7 +188,7 @@ stages:
       role: doc-writer
       model: sonnet
       tools: [Read, Write, Grep, Glob]
-      access: read-only
+      access: read-write
     required: true
     outputs:
       - name: proposed_changes
@@ -334,7 +334,7 @@ stages:
       role: doc-writer
       model: sonnet
       tools: [Read, Write]
-      access: read-only
+      access: read-write
     required: true
     outputs:
       - name: final_report

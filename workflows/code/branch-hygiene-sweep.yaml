@@ -500,7 +500,7 @@ stages:
       role: researcher
       model: sonnet
       tools: [Bash, Read, Write]
-      access: read-only
+      access: read-write
     required: true
     outputs:
       - name: buckets
@@ -526,7 +526,7 @@ stages:
       model: sonnet  # sonnet required: distinguishing a rebase-merged PR from a
                      # genuinely unmerged branch is judgment, not lookup.
       tools: [Read, Bash, Grep, Write]
-      access: read-only
+      access: read-write
     depends_on: [classify-buckets]
     reads_from: [classify-buckets, gather-inventory]
     fan_out:
@@ -640,7 +640,7 @@ stages:
       role: cross-unit-validator
       model: sonnet
       tools: [Read, Bash, Grep, Write]
-      access: read-only
+      access: read-write
     description: >
       Cross-unit consistency check across all bucket findings. Verify no branch
       appears in two buckets, no deletion candidate has a descendant, no candidate
@@ -752,7 +752,7 @@ stages:
       role: reviewer
       model: sonnet
       tools: [Read, Write]
-      access: read-only
+      access: read-write
     description: >
       Present the deletion plan and require explicit approval before anything is
       removed. NOTE: kind:validate prompts are built by dispatch.py's _validate(),
@@ -1066,7 +1066,7 @@ stages:
       role: unit-validator
       model: sonnet
       tools: [Read, Bash, Grep, Write]
-      access: read-only
+      access: read-write
     description: >
       Confirm the post-deletion tree matches the approved plan. The binding
       contract is in validation.criteria below.

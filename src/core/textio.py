@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+
+from core.pathguard import require_path
+
 __all__ = ["read_text", "write_text"]
 
 
@@ -15,5 +18,6 @@ def read_text(path: Path, default: str | None = "") -> str | None:
 
 def write_text(path: Path, content: str) -> None:
     """Write UTF-8 text, creating parent directories automatically."""
+    path = require_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")

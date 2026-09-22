@@ -110,7 +110,7 @@ stages:
       role: researcher
       model: sonnet
       tools: [Read, Write]
-      access: read-only
+      access: read-write
     required: true
     outputs:
       - name: patterns
@@ -188,7 +188,7 @@ stages:
       role: doc-writer
       model: sonnet
       tools: [Read, Write]
-      access: read-only
+      access: read-write
     required: true
     outputs:
       - name: workflow_proposal
@@ -333,7 +333,7 @@ stages:
       role: doc-writer
       model: sonnet
       tools: [Read, Write]
-      access: read-only
+      access: read-write
     required: true
     outputs:
       - name: final_report

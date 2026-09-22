@@ -471,7 +471,7 @@ stages:
       role: researcher
       model: sonnet
       tools: [Bash, Read, Write]
-      access: read-only
+      access: read-write
     outputs:
       - name: candidates
         mode: generate
@@ -2034,7 +2034,7 @@ stages:
       role: unit-validator
       model: sonnet
       tools: [Bash, Read, Write]
-      access: read-only
+      access: read-write
     # These criteria describe a COMPLETE AUDIT, not a clean result. A stale
     # reference or facade is a finding to record and hand to
     # apply-corrections, never a reason to report this required stage failed
@@ -2648,7 +2648,7 @@ stages:
       role: doc-writer
       model: sonnet
       tools: [Read, Write]
-      access: read-only
+      access: read-write
     required: true
     # Required for agent dispatch — see the note on verify-tests' outputs.
     # `propose` is not in _needs_agent()'s kind list either, so without this

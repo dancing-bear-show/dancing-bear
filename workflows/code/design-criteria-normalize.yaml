@@ -107,7 +107,7 @@ stages:
       role: researcher
       model: sonnet
       tools: [Read, Write]
-      access: read-only
+      access: read-write
     required: true
     writes_to:
       - context/scoped-findings.json
@@ -311,7 +311,7 @@ stages:
           tests/{domain}_tests/fixtures.py (or shared_fixtures.py /
           helpers.py). If it does not exist and this domain now has 3+ test
           files, create one modeled on tests/fixtures.py's
-          TempDirMixin/make_mock_envelope/make_mock_processor pattern before
+          TempDirMixin/make_mock_envelope pattern before
           writing new tests, so new tests use it instead of inline setup.
 
         C8 (happy/sad path) — for every SafeProcessor/BaseProducer pair
@@ -566,7 +566,7 @@ stages:
       role: unit-validator
       model: sonnet
       tools: [Bash, Read, Write]
-      access: read-only
+      access: read-write
     validation:
       strategy: unit
       criteria:
@@ -714,7 +714,7 @@ stages:
       role: reviewer
       model: opus
       tools: [Read, Bash, Grep, Write]
-      access: read-only
+      access: read-write
     validation:
       strategy: unit
       criteria:
@@ -771,7 +771,7 @@ stages:
       role: doc-writer
       model: sonnet
       tools: [Read, Write]
-      access: read-only
+      access: read-write
     required: true
     writes_to:
       - validation/human-gate-decision.md
