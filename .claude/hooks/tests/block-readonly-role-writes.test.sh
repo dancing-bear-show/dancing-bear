@@ -45,6 +45,15 @@ run_raw() { # run_raw <BLOCK|ALLOW> <label> <raw-json>
   _record "$expect" "$(_classify "$rc")" "$label"
 }
 
+run_bash() { # run_bash <BLOCK|ALLOW> <agent_type> <command>
+  local expect="$1" agent="$2" cmd="$3" rc
+  jq -n --arg a "$agent" --arg c "$cmd" \
+    '{agent_type:$a,tool_name:"Bash",tool_input:{command:$c}}' \
+    | bash "$HOOK" >/dev/null 2>&1
+  rc=$?
+  _record "$expect" "$(_classify "$rc")" "bash[$agent]: $cmd"
+}
+
 echo "--- read-only roles writing tracked source: must BLOCK ---"
 run BLOCK researcher "src/mail/cli.py"
 run BLOCK researcher "tests/mail_tests/test_cli.py"
@@ -168,5 +177,87 @@ echo "--- unknown role: treated as write-capable, ALLOW ---"
 # A role this hook has never heard of is not assumed read-only. The READONLY_ROLES
 # list is the allowlist-of-restriction; guessing would block legitimate new roles.
 run ALLOW some-future-role "src/mail/cli.py"
+
+echo
+echo "--- Bash routes into tracked source: must BLOCK ---"
+# The Write-only version of this hook was trivially bypassable: every one of these
+# reached the shell untouched, because `researcher` and `Plan` both still have Bash.
+# Review caught it; these are the negative tests that pin the fix.
+run_bash BLOCK researcher "echo 'x = 1' > src/mail/cli.py"
+run_bash BLOCK researcher "echo 'x = 1' >> src/mail/cli.py"
+run_bash BLOCK researcher "sed -i '' 's/foo/bar/' src/mail/cli.py"
+run_bash BLOCK researcher "printf 'x' > tests/workflow_tests/test_linter.py"
+run_bash BLOCK researcher "cp /tmp/evil.py src/mail/cli.py"
+run_bash BLOCK researcher "tee src/mail/cli.py < /tmp/evil.py"
+run_bash BLOCK researcher "cat /tmp/x > bin/mail-assistant"
+run_bash BLOCK Plan "sed -i '' 's/a/b/' workflows/code/open-pr.yaml"
+run_bash BLOCK reviewer "rm src/core/paths.py"
+run_bash BLOCK researcher "mv /tmp/x .claude/agents/researcher.md"
+run_bash BLOCK researcher "touch concerns/new-concern.md"
+# A qualified or escaped spelling of a listed mutator is matched on its basename.
+run_bash BLOCK researcher "/bin/sed -i '' 's/a/b/' src/mail/cli.py"
+# A later segment is judged on its own command word -- a harmless first half must not
+# vouch for a mutating second half.
+run_bash BLOCK researcher "cat README.md && sed -i '' 's/a/b/' src/mail/cli.py"
+# Repo-root config files are guarded the same way.
+run_bash BLOCK researcher "echo x > Makefile"
+run_bash BLOCK researcher "echo x > typecheck-baseline.json"
+# '..' traversal back into source.
+run_bash BLOCK researcher "echo x > outputs/../src/mail/cli.py"
+# Absolute in-repo spelling must be judged like the relative one.
+run_bash BLOCK researcher "echo x > $REPO_ROOT/src/mail/cli.py"
+
+echo
+echo "--- Bash that must still be ALLOWED ---"
+# A guard that blocks ordinary work is as broken as one that blocks nothing. Reading
+# source is the researcher's whole job, so reads must survive.
+run_bash ALLOW researcher "cat src/mail/cli.py"
+run_bash ALLOW researcher "grep -rn 'AppMeta' src/"
+run_bash ALLOW researcher "rg --files src/"
+run_bash ALLOW researcher "make test"
+run_bash ALLOW researcher "./bin/workflow list"
+run_bash ALLOW researcher "git status"
+run_bash ALLOW researcher "git diff --name-only main...HEAD"
+run_bash ALLOW researcher "python3 -m unittest tests.workflow_tests.test_linter"
+run_bash ALLOW researcher "echo '{}' > /tmp/ws/analysis/findings.json"
+run_bash ALLOW researcher "echo '{}' > analysis/findings.json"
+run_bash ALLOW Plan "echo '# plan' > /tmp/ws/design/plan.md"
+# Write-capable roles are untouched on the Bash path too.
+run_bash ALLOW code-writer "echo 'x = 1' > src/mail/cli.py"
+run_bash ALLOW tester "sed -i '' 's/a/b/' tests/test_x.py"
+run_bash ALLOW ci-fixer "echo x > src/workflow/runner.py"
+# Main session: no agent_type, never restricted.
+run_raw ALLOW "main session bash into src/" \
+  '{"tool_name":"Bash","tool_input":{"command":"echo x > src/mail/cli.py"}}'
+
+echo
+echo "--- Bash malformed payloads: must fail CLOSED ---"
+run_raw BLOCK "researcher bash, command missing" \
+  '{"agent_type":"researcher","tool_name":"Bash","tool_input":{}}'
+run_raw BLOCK "researcher bash, command null" \
+  '{"agent_type":"researcher","tool_name":"Bash","tool_input":{"command":null}}'
+run_raw BLOCK "researcher bash, command is an object" \
+  '{"agent_type":"researcher","tool_name":"Bash","tool_input":{"command":{}}}'
+run_raw BLOCK "researcher bash, command empty" \
+  '{"agent_type":"researcher","tool_name":"Bash","tool_input":{"command":""}}'
+run_raw BLOCK "researcher bash, command whitespace only" \
+  '{"agent_type":"researcher","tool_name":"Bash","tool_input":{"command":"   "}}'
+
+echo
+echo "--- KNOWN GAPS: documented, not fixed (see the SCOPE note in the hook) ---"
+# These are ALLOWed by design. A string matcher cannot evaluate what the shell will do
+# to the string, and block-destructive-bash.sh's header records four adversarial rounds
+# and 68 findings establishing that widening the matcher does not converge.
+#
+# They are asserted rather than omitted so the gap is visible and a future change that
+# closes one of them shows up as a failing expectation to update -- not as a silent
+# improvement nobody noticed, and not as a hole nobody wrote down.
+run_bash ALLOW researcher "P=src/mail/cli.py; echo x > \$P"
+run_bash ALLOW researcher "python3 -c \"open('src/mail/cli.py','w').write('x')\""
+run_bash ALLOW researcher "echo x > src\${IFS}/mail/cli.py"
+# A mutating tool that is not in the command-word list. The list can never be
+# complete -- that is the reason the SCOPE note calls the Bash branch weak, and the
+# reason the strong guarantee is claimed only for Write/Edit.
+run_bash ALLOW researcher "some-unknown-tool --out src/mail/cli.py"
 
 _summary "block-readonly-role-writes"

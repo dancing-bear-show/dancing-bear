@@ -1,7 +1,8 @@
 # Claude Code guard hooks
 
-Three scripts: two PreToolUse guards that block access to this repo's credential
-files and to destructive commands, plus a statusline renderer.
+Four scripts: three PreToolUse guards — two that block access to this repo's
+credential files and to destructive commands, one that stops a read-only-contract
+agent from modifying tracked source — plus a statusline renderer.
 
 ## What these hooks are, and what they are not
 
@@ -141,6 +142,49 @@ Reads `.tool_input.file_path` and blocks writes to the same credential set, plus
 Protected **directory** segments (`.ssh/`, `.gnupg/`, `.aws/`, `.git/`) are checked
 **before** the template carve-out. A filename that looks like a template must never
 vouch for the directory it sits in — `.ssh/.env.example` is a write into `.ssh/`.
+
+### `block-readonly-role-writes.sh` — PreToolUse, matcher `Write|Edit|Bash`
+
+A different concern from its two siblings: they protect *secrets*, this one protects
+*source* from a particular class of caller.
+
+Several agent roles (`researcher`, `Plan`, `reviewer`, `critic`, `fact-checker`,
+`unit-validator`, `cross-unit-validator`, `haiku-reviewer`, `Explore`) have a
+definition in `.claude/agents/` stating they never modify source, while still being
+granted `Write` so they can produce their stage outputs. PR #392 spent three review
+rounds trying to make that stick in prose, and each round's wording opened the next
+round's hole. Prose is applied by a model; a hook is applied by the harness.
+
+This hook keys on **`agent_type`** in the PreToolUse payload — the spawning role name.
+The main session has no `agent_type`, so a user driving the session directly is never
+restricted. A role not on the read-only list (`code-writer`, `tester`, `ci-fixer`,
+`doc-writer`, `thread-fixer`, `workflow-author`, …) is expected to write source and is
+allowed through.
+
+Guarded prefixes: `src/`, `tests/`, `bin/`, `configs/`, `workflows/`, `.claude/`,
+`.github/`, `concerns/`, `docs/`, `.llm/`, plus repo-root build config (`Makefile`,
+`pyproject.toml`, `typecheck-baseline.json`, …). Refused **even when a prompt names
+one as a stage output** — a prompt naming a source path as an artifact is
+misconfigured, not authorization.
+
+**The two tool paths are not equally strong, and the file says so:**
+
+| Path | Strength | Why |
+|---|---|---|
+| `Write` / `Edit` | **strong** | `.tool_input.file_path` is one string; the path judged is the path written |
+| `Bash` | **weak** | Matches a command string, with all the limits in [Known gaps](#known-gaps-wont-fix) |
+
+The Bash branch exists because the Write-only version was trivially bypassable —
+`echo x > src/mail/cli.py` never reached the hook. It judges a token only where it is
+a **write target**: the operand of an output redirect, or an operand of a listed
+mutating command (`sed`, `tee`, `cp`, `mv`, `rm`, `patch`, …). That is narrower than
+its siblings' bare operand scan on purpose: reading and running the repo is a
+researcher's entire job, and an indiscriminate scan blocked `cat src/mail/cli.py` and
+`grep -rn AppMeta src/`.
+
+A mutating tool nobody listed still passes, as does a path in a variable or one
+assembled at runtime. Those are asserted as ALLOW in the suite's `KNOWN GAPS` section
+so the boundary is written down rather than discovered.
 
 ### Protected files
 
@@ -358,6 +402,7 @@ or one at a time:
 ```bash
 bash .claude/hooks/tests/block-destructive-bash.test.sh
 bash .claude/hooks/tests/block-protected-paths.test.sh
+bash .claude/hooks/tests/block-readonly-role-writes.test.sh
 bash .claude/hooks/tests/statusline.test.sh
 ```
 
@@ -410,8 +455,14 @@ working hook look broken.
 
 ## Wiring into settings.json
 
-Not wired automatically — apply this yourself. Copy the scripts to `~/.claude/hooks/`
-for global coverage, or reference them in-repo for this project only.
+**This repo's `.claude/settings.json` now wires all three guards**, so a session in
+this checkout gets them with no action. That was not always true: the two credential
+guards shipped with tests and documentation but **no `PreToolUse` entry anywhere**, so
+every protection in them sat dormant until PR #395. A passing hook test suite proves
+the *script* works, not that the *hook runs* — to check whether a guard is live, read
+the `hooks` block of `.claude/settings.json`, not the presence of the script.
+
+For a global install, or for another project, apply this yourself:
 
 ```json
 {
@@ -427,6 +478,12 @@ for global coverage, or reference them in-repo for this project only.
         "matcher": "Write|Edit",
         "hooks": [
           { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/block-protected-paths.sh\"" }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|Bash",
+        "hooks": [
+          { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/block-readonly-role-writes.sh\"" }
         ]
       }
     ]
