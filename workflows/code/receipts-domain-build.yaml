@@ -441,7 +441,7 @@ stages:
       role: researcher
       model: sonnet
       tools: [Bash, Read, Write]
-      access: read-only
+      access: read-write
     outputs:
       - name: interfaces
         mode: generate
@@ -549,7 +549,7 @@ stages:
       role: reviewer
       model: sonnet
       tools: [Read, Write]
-      access: read-only
+      access: read-write
     outputs:
       - name: interface-critique
         mode: generate
@@ -1322,7 +1322,7 @@ stages:
       role: reviewer
       model: sonnet
       tools: [Read, Bash, Write]
-      access: read-only
+      access: read-write
     outputs:
       - name: integration-review
         mode: generate
@@ -1776,7 +1776,7 @@ stages:
       role: doc-writer
       model: sonnet
       tools: [Read, Bash, Write]
-      access: read-only
+      access: read-write
     required: true
     writes_to:
       - outputs/human-gate-summary.md

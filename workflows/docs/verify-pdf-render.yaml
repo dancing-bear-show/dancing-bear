@@ -107,7 +107,7 @@ stages:
       role: researcher
       model: sonnet
       tools: [Read, Bash, Write]
-      access: read-only
+      access: read-write
     outputs:
       - name: inventory
         mode: generate
@@ -176,7 +176,7 @@ stages:
       role: reviewer
       model: sonnet
       tools: [Read, Bash, Write]
-      access: read-only
+      access: read-write
     outputs:
       - name: pdf_findings
         mode: generate
@@ -223,7 +223,7 @@ stages:
       role: doc-writer
       model: sonnet
       tools: [Read, Bash, Write]
-      access: read-only
+      access: read-write
     outputs:
       - name: render_report
         mode: generate

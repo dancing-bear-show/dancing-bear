@@ -67,7 +67,7 @@ stages:
       role: researcher
       model: sonnet
       tools: [Write]
-      access: read-only
+      access: read-write
     depends_on: []
     required: true
     outputs:

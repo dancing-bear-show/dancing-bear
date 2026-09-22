@@ -313,17 +313,36 @@ worktree-agent-*` step will fail because no such branch was ever created.
 
 Map the resolved `role` (see the accessor table above) to `subagent_type`:
 
+The mapping is identity for every role: `subagent_type` is the role name. Keep
+one row per file in `.claude/agents/`, so a stage naming any defined role can be
+spawned. A role missing from this table is a `KeyError` at
+`ROLE_MAP[role]` — the stage dies before writing any output, which looks like an
+agent failure rather than a missing table row.
+
 | Agent Role | subagent_type |
 |------------|---------------|
 | `researcher` | `researcher` |
 | `code-writer` | `code-writer` |
+| `code-writer-opus` | `code-writer-opus` |
 | `doc-writer` | `doc-writer` |
 | `reviewer` | `reviewer` |
 | `tester` | `tester` |
+| `tester-opus` | `tester-opus` |
 | `critic` | `critic` |
 | `unit-validator` | `unit-validator` |
 | `cross-unit-validator` | `cross-unit-validator` |
 | `fact-checker` | `fact-checker` |
+| `Plan` | `Plan` |
+| `Explore` | `Explore` |
+| `ci-fixer` | `ci-fixer` |
+| `haiku-reviewer` | `haiku-reviewer` |
+| `thread-fixer` | `thread-fixer` |
+| `workflow-author` | `workflow-author` |
+
+`Plan`, `thread-fixer`, and `workflow-author` were missing here while live
+stages already used them — `plan-remediation` in
+`workflows/code/cli-standard-conformance.yaml` is `required: true` and assigns
+`role: Plan`. When adding an agent definition, add its row at the same time.
 
 If the resolved `model` is set explicitly in the YAML, pass `model=` on the
 Agent call. Otherwise omit it and inherit the session model.
