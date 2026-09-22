@@ -383,8 +383,6 @@ class AbsoluteRootTests(TreeMixin):
         # The abs_cwd branch that arrived with the broken edit does real work:
         # a file under cwd but outside src_root is named relative to cwd
         # rather than by its full filesystem path.
-        import os
-
         self._write("proj/pkg/mod.py", "X = 1\n")
         self.assertEqual(
             module_callers.module_path(str(self.tmp / "proj" / "pkg" / "mod.py"), "src"),
