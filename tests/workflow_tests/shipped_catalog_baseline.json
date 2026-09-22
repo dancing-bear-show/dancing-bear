@@ -85,5 +85,16 @@
     "workflows/code/cli-standard-conformance.yaml::fix-meta",
     "workflows/resume/consolidate-schema.yaml::impl-pdf",
     "workflows/resume/consolidate-schema.yaml::test-pdf"
+  ],
+  "reads_from_upstream_without_writes_to": [
+    "workflows/code/code-review.yaml::concern-sweep-merge->concern-sweep",
+    "workflows/code/code-review.yaml::consolidate->validate-concerns",
+    "workflows/code/code-review.yaml::validate-concerns->concern-sweep",
+    "workflows/code/coverage-uplift.yaml::review-concern-sweep-merge->review-concern-sweep",
+    "workflows/code/coverage-uplift.yaml::review-consolidate->review-validate-concerns",
+    "workflows/code/coverage-uplift.yaml::review-validate-concerns->review-concern-sweep",
+    "workflows/code/review-and-fix.yaml::concern-sweep-merge->concern-sweep",
+    "workflows/code/review-and-fix.yaml::consolidate->validate-concerns",
+    "workflows/code/review-and-fix.yaml::validate-concerns->concern-sweep"
   ]
 }

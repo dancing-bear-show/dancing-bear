@@ -26,7 +26,7 @@ from pathlib import Path
 
 import yaml
 
-from workflow.compiler import compile_workflow
+from workflow.compiler import compile_workflow, validate_dag_contracts
 from workflow.linter import lint_workflow
 from workflow.parser import parse_workflow
 
@@ -171,6 +171,46 @@ def _instructs_commit(description: str) -> bool:
     )
 
 
+def _iter_contract_warning_pairs() -> Iterator[tuple[Path, dict]]:
+    """Yield one synthetic ``(path, stage-like dict)`` per reads_from pair.
+
+    Shaped to match the other iterators so ``TestBaselineDoesNotRot`` can key
+    it with ``_stage_key`` unchanged: ``name`` is ``stage->upstream``, which
+    is the granularity a contract warning actually has (a stage can read from
+    several upstreams and be wrong about only one). ``declares_outputs`` is
+    what the predicate below reads.
+    """
+    for path in _catalog_files():
+        if _is_fragment(_load_raw(path)):
+            continue
+        # Must go through parse_workflow, not the raw YAML: a workflow with an
+        # `include:` gets its stages from a fragment, so a raw read sees none
+        # of them and the pair keys silently come back empty. The live gate
+        # uses the parser, so this must too or the two cannot agree.
+        defn = parse_workflow(path)
+        by_name = {s.name: s for s in defn.stages}
+        for stage in defn.stages:
+            for upstream_name in stage.reads_from:
+                upstream = by_name.get(upstream_name)
+                if upstream is None:
+                    # A dangling reads_from is a different gate's finding.
+                    continue
+                yield path, {
+                    "name": f"{stage.name}->{upstream_name}",
+                    "declares_outputs": bool(upstream.writes_to),
+                }
+
+
+def _upstream_declares_outputs(pair: dict) -> bool:
+    """Return True when the upstream of this reads_from pair has writes_to.
+
+    The positive form of ``test_no_new_reads_from_contract_warnings``: a pair
+    is compliant once its upstream declares outputs, so a baseline entry for
+    a repaired pair is reported as stale.
+    """
+    return bool(pair.get("declares_outputs"))
+
+
 def _has_validation_block(stage: dict) -> bool:
     """Return True if a kind:validate stage declares validation.criteria.
 
@@ -210,6 +250,10 @@ _CATEGORY_COMPLIANCE: dict[str, tuple] = {
     "validate_stage_missing_validation_block": (_iter_validate_stages, _has_validation_block),
     "validate_stage_long_description": (_iter_validate_stages, _has_short_description),
     "isolated_stage_without_commit": (_iter_isolated_stages, _commits),
+    "reads_from_upstream_without_writes_to": (
+        _iter_contract_warning_pairs,
+        _upstream_declares_outputs,
+    ),
 }
 
 
@@ -300,6 +344,40 @@ class TestShippedCatalogParses(unittest.TestCase):
                     f"{path.relative_to(REPO_ROOT)}: stages resolved but "
                     "never scheduled into a parallel group",
                 )
+
+    def test_no_new_reads_from_contract_warnings(self) -> None:
+        """A stage reading an upstream that declares no outputs gets nothing.
+
+        ``compile_workflow`` does NOT run this check — ``validate_dag_contracts``
+        is a separate function the CLI calls on its own, so the compile gate
+        above passes a workflow whose ``reads_from`` names an upstream with no
+        ``writes_to``. That stage's agent then receives an empty input and
+        produces confident output from nothing, which is the quiet failure
+        this catalog test exists to prevent.
+
+        Ratcheted rather than strict: 9 such warnings ship today across 3
+        files, so the gate blocks NEW ones and leaves those to be repaired on
+        their own schedule. Key is ``file::stage->upstream``.
+        """
+        baselined = _baseline().get("reads_from_upstream_without_writes_to", set())
+        new: list[str] = []
+        for path in _catalog_files():
+            raw = _load_raw(path)
+            if _is_fragment(raw):
+                continue
+            defn = parse_workflow(path)
+            rel = path.relative_to(REPO_ROOT)
+            for warning in validate_dag_contracts(defn):
+                key = f"{rel}::{warning.stage}->{warning.upstream}"
+                if key not in baselined:
+                    new.append(f"{key}: {warning.message}")
+        self.assertEqual(
+            new,
+            [],
+            "new reads_from contract warnings — the upstream stage declares "
+            "no writes_to, so the downstream agent reads an empty input:\n  "
+            + "\n  ".join(new),
+        )
 
     def test_depends_on_references_a_real_stage(self) -> None:
         """A dangling depends_on silently drops a stage from the DAG."""
@@ -415,12 +493,30 @@ class TestBaselineDoesNotRot(unittest.TestCase):
     """
 
     def test_every_baselined_entry_still_names_a_real_stage(self) -> None:
-        """A baseline entry pointing at a deleted file or stage is stale."""
-        known = {
-            _stage_key(path, stage.get("name")) for path, stage in _iter_stages()
-        }
+        """A baseline entry pointing at a deleted file or stage is stale.
+
+        Resolves each category against ITS OWN iterator from
+        ``_CATEGORY_COMPLIANCE`` rather than against a single stage list.
+        Categories do not all key by stage: the reads_from contract category
+        keys by ``stage->upstream``, because a stage can read from several
+        upstreams and be wrong about only one. Checking those keys against a
+        set of bare stage names reports every one of them as a deleted stage.
+        """
         stale: list[str] = []
         for category, entries in _baseline().items():
+            self.assertIn(
+                category,
+                _CATEGORY_COMPLIANCE,
+                f"baseline category {category!r} has no entry in "
+                "_CATEGORY_COMPLIANCE, so its keys cannot be resolved. "
+                "test_every_baselined_entry_is_still_a_violation reports this "
+                "as the ratchet bypass it is; failing here first would only "
+                "raise a confusing KeyError.",
+            )
+            iterate, _ = _CATEGORY_COMPLIANCE[category]
+            known = {
+                _stage_key(path, item.get("name")) for path, item in iterate()
+            }
             stale.extend(
                 f"{category}: {entry}" for entry in sorted(entries - known)
             )

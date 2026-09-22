@@ -361,9 +361,27 @@ stages:
            record lacking a cost attribute is handled gracefully by the cost
            rollups, since local inference will emit tokens but no dollars.
 
-      BASELINE GENERATION — do this only if `{model_tag}` is ALREADY present
-      in `ollama list` (never pull here; install owns that). Run exactly one
-      tiny generation against {ollama_host} asking for a unified diff on a
+      BASELINE GENERATION — VALIDATE {ollama_host} AND {model_tag} FIRST.
+      This is the first live probe in the whole workflow, and it reaches a
+      caller-supplied host and tag before the install stage's Step 0 gate has
+      ever run. `resolve_params` is raw string replacement, so an override
+      arrives here unchecked; a stage documented as read-only would then make
+      a network call to — or run a shell command containing — whatever the
+      caller passed.
+
+      Apply the SAME check STEP 0 above applies to {job_type}, against the
+      same file, for both params:
+        ollama_host: ^https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?$
+        model_tag:   ^[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)?$
+      Branch on the exit status. If either fails, SKIP the baseline entirely
+      and record it as not-run with the reason — do not abort the survey,
+      which is otherwise pure reading and still worth having, and do not
+      "fix" the value. The install stage will fail the same check later and
+      report it as the caller error it is.
+
+      Then, only if both pass: do this only if `{model_tag}` is ALREADY
+      present in `ollama list` (never pull here; install owns that). Run
+      exactly one tiny generation against {ollama_host} asking for a diff on a
       three-line snippet you supply inline, and record VERBATIM:
         - whether the response is a bare diff or is wrapped in prose and/or a
           ```diff fence

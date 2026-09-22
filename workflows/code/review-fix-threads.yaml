@@ -214,6 +214,21 @@ stages:
       the two sets and fix any difference by re-reading threads.json — never
       by adjusting an id to look right.
 
+      CARRY `body_fingerprint` FOR EVERY ENTRY. Compute it from the thread's
+      FIRST comment body in threads.json — sha256 over the body with runs of
+      whitespace collapsed to single spaces — and copy it verbatim into the
+      entry. Do NOT derive it from `ask`, which is your paraphrase and would
+      fingerprint your own text rather than the reviewer's.
+
+      This is what the next stage's id-integrity gate compares against, and
+      it is the ONLY field that can distinguish two threads anchored to the
+      same (path, line): coordinates match for both, so a swapped pair passes
+      every other check while each fix posts to the wrong thread. An entry
+      without this field forces that gate to either invent a value or fall
+      back to coordinates, which is the defect it exists to catch. For a
+      null-id entry (a review-body or issue-comment finding) write null —
+      there is no thread body to hash, and the gate skips those by design.
+
       Step 5 — write {workspace}/outputs/triage.json:
         {
           "pr_number": "{pr_number}",
@@ -229,6 +244,7 @@ stages:
               "directive": "fix",
               "severity": "correctness|security|maintainability|style",
               "ask": "one sentence stating precisely what the reviewer wants",
+              "body_fingerprint": "sha256 of the thread's FIRST comment body, whitespace collapsed",
               "reason": "why this directive — required for reject/moot/defer",
               "evidence": "file:line facts, required for reject",
               "resolvable": true
