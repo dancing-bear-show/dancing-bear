@@ -843,10 +843,36 @@ stages:
       text, and its absence means the run is not ready to post.
 
       Step 1a0 — ID COHERENCE GATE, before any posting decision. Read
-      {workspace}/outputs/threads.json and build an id -> (path, line) map
-      keyed BY THREAD ID. For every thread you are about to reply to or
-      resolve, its id must appear in that map AND the coordinates you hold
-      for it must match what the fetch recorded.
+      {workspace}/outputs/threads.json and build an
+      id -> (path, line, body_fingerprint) map keyed BY THREAD ID, using the
+      SAME fingerprint definition as fix-dispatch Step 1b: sha256 over the
+      thread's FIRST comment body with runs of whitespace collapsed to single
+      spaces. For every thread you are about to reply to or resolve, its id
+      must appear in that map AND both the coordinates and the fingerprint
+      you hold for it must match what the fetch recorded.
+
+      THE FINGERPRINT HALF IS NOT OPTIONAL HERE. Step 1b explains in full why
+      coordinates cannot stand alone; the short version is that two threads
+      can share one (path, line), so a swapped pair matches on coordinates
+      both ways round. What this gate adds is position: it runs immediately
+      before reply and resolve, which are irreversible and land under the
+      author's name. It is the last chance to catch a swap that any earlier
+      stage let through — and repeating only the weaker half of Step 1b's
+      check here would let exactly the failure Step 1b was written for reach
+      production unchallenged.
+
+      Compare fingerprints only for entries whose thread_id is NON-NULL, as
+      Step 1b's companion rule requires. A null id is legitimate — a
+      review-body or issue-comment finding has no thread to hash — and such
+      entries are unresolvable anyway, so they are excluded from both the
+      existence and the fingerprint assertions rather than failing them.
+
+      On a coordinates-match-but-fingerprint-differs result, HALT. Do not
+      guess which way round the pair belongs, and do not fall back to
+      coordinates: coordinates are precisely what cannot tell these two
+      apart, so "falling back" to them means answering the question with the
+      one signal already known to be blind to it — it would convert a
+      detected swap into a silent one and resolve the neighbour's thread.
 
       Key by id, never by (path, line). The id is the identity; the
       coordinates are derived and are NOT unique — outdated threads all

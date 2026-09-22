@@ -186,36 +186,64 @@ stages:
         5. Queue reachable: ./bin/worker list
         6. Collector:       ./bin/telemetry otel health
         7. Round trip:      prove the server answers rather than merely
-                            accepting connections.
+                            accepting connections — WITHOUT GENERATING.
 
-                            DO THE LOCK CHECK (step 8) FIRST, and branch on
-                            it. A generate call issued here does NOT go
-                            through the handler, so it does not take the
-                            handler's exclusive lock — run it while a real
-                            qwen job is generating and the machine holds two
-                            14B models at once. That is the precise OOM /
-                            swap condition this workflow gets invoked to
-                            diagnose, so an unconditional probe can cause
-                            the fault it is investigating, and does so most
-                            readily on a busy queue where it matters most.
+                            NEVER ISSUE A GENERATE CALL FROM THIS STAGE.
+                            Not even a tiny one, and not even when the lock
+                            looks absent. A generate call issued here does
+                            NOT go through the handler, so it does not take
+                            the handler's exclusive lock — run it while a
+                            real qwen job is generating and the machine
+                            holds two 14B models at once. That is the
+                            precise OOM / swap condition this workflow gets
+                            invoked to diagnose, so the probe would cause
+                            the fault it is investigating, most readily on
+                            a busy queue where it matters most.
 
-                              - lock ABSENT -> issue the generate call, with
-                                a trivial prompt and a short timeout. Keep
-                                it tiny: this is a liveness probe, not a
-                                benchmark.
-                              - lock HELD or SUSPECT -> do NOT generate. Use
-                                a request that loads no model: GET /api/tags
-                                against "{ollama_host}" (validated above)
-                                answers from the server without touching
-                                weights. Record the round trip as
-                                "skipped — lock held, server reachable via
-                                /api/tags" so the report distinguishes it
-                                from an untested server.
+                            A LOCK CHECK DOES NOT MAKE IT SAFE. An earlier
+                            revision read the lock first and generated only
+                            when it was absent. That is a TOCTOU race, not
+                            a fix: the check and the generation are separate
+                            operations, and a qwen worker can claim a job
+                            and acquire the lock in the gap between them.
+                            Because the probe bypasses the lock rather than
+                            contending for it, nothing serialises the two —
+                            so ordering the check first only narrows the
+                            window, it never closes it. The only way to
+                            close it would be to acquire the SAME lock
+                            atomically, which this stage must not do: the
+                            lock belongs to the handler, and a read-only
+                            probe that takes it can block a real job or
+                            leave a lock behind if the stage dies.
 
-                            Report which branch ran. A probe that silently
-                            degraded to /api/tags is weaker evidence than a
-                            real generation, and the report must not present
-                            the two as equivalent.
+                            So: use a request that loads no model. GET
+                            /api/tags against "{ollama_host}" (validated
+                            above) answers from the server process without
+                            touching weights, which is safe to issue at any
+                            time regardless of lock state.
+
+                              curl -sS -m 5 -f "{ollama_host}/api/tags"
+
+                            BE HONEST ABOUT WHAT THIS PROVES. It shows the
+                            server process is alive and serving its API. It
+                            does NOT prove the model can be loaded, that
+                            generation succeeds, or anything about
+                            generation latency. Record the round trip as
+                            "server reachable via /api/tags — generation NOT
+                            probed (read-only stage)" and set "latency_ms"
+                            to the /api/tags latency only, never presenting
+                            it as a generation time.
+
+                            This is a deliberate limit of a read-only
+                            stage, not a degraded fallback: a real
+                            generation is not something a read-only health
+                            probe can safely perform, so it is out of scope
+                            here rather than conditionally attempted. If a
+                            caller needs generation proven end to end, that
+                            belongs in a stage that goes through the
+                            handler and takes its lock. Nothing downstream
+                            may report a generation as verified by this
+                            workflow.
         8. Concurrency guard: the qwen handler holds an exclusive lock around
                             the model call, because the daemon's
                             --max-inflight is a GLOBAL cap with no per-type
@@ -270,7 +298,7 @@ stages:
             {"layer": "worker_daemon",  "up": true|false, "detail": "...", "exit_status": "..." | null},
             {"layer": "queue",          "up": true|false, "detail": "..."},
             {"layer": "collector",      "up": true|false, "detail": "..."},
-            {"layer": "round_trip",     "up": true|false, "detail": "...", "latency_ms": N | null},
+            {"layer": "round_trip",     "up": true|false, "detail": "...", "latency_ms": N | null, "probe": "api_tags", "generation_probed": false},
             {"layer": "concurrency_lock", "up": true|false, "detail": "...", "lock_present": true|false, "holder_pid": N | null, "holder_alive": true|false|null, "holder_is_worker": true|false|null, "lane_processing": N, "age_sec": N | null, "verdict": "absent|active|SUSPECT|STALE"}
           ],
           "memory": {"total_gb": N, "pressure": "..."},
@@ -280,6 +308,13 @@ stages:
       For concurrency_lock, "up" means the guard is in a sane state — absent
       or actively held within its ceiling. Both STALE and SUSPECT are
       up=false.
+
+      For round_trip, "generation_probed" is ALWAYS false and "probe" is
+      always "api_tags" — this stage never generates (step 7). They are
+      recorded explicitly, rather than left implicit, so that a later reader
+      of health.json cannot mistake a served /api/tags for proof that the
+      model loads or that generation works. "up" therefore means "the server
+      answered its API", nothing stronger.
 
       model_resident is INFORMATIONAL and its "up" is always null. Report
       residency in the separate "resident" field instead. A cold model is
