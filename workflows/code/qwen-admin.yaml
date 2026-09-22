@@ -504,6 +504,28 @@ stages:
           nothing deletes the diffs they point at, so this grows forever
           without a retention pass. Report total size and the orphan count
           (patches whose job id is in neither done/ nor error/).
+
+          ENUMERATE THEM, do not just count them. Aggregate counts cannot be
+          acted on: allowlist item (c) deletes ONE artifact, remediate is
+          forbidden from trusting a proposal-supplied path, and it can only
+          re-derive a path from an identifier that something upstream
+          actually emitted. A count of 12 names no target, so the action
+          would be unexecutable — approved at the gate and then impossible
+          to carry out.
+
+          So populate `orphaned_items` with one entry per orphan:
+            - `job_id`  — the id parsed from the artifact, which is what
+              remediate re-derives the path FROM. This is the identifier;
+              the path is not.
+            - `relative_name` — the artifact's name relative to the output
+              dir, recorded for the report and for matching, never used as
+              a path to unlink directly.
+            - `size_mb`
+          Cap the list at the 50 largest and say so if you truncate, with
+          the full count in `orphaned`; the point is actionable targets, not
+          a complete inventory. If the design stored patches inline rather
+          than as files, write an empty list and set orphaned to 0 — do not
+          invent entries to fill the field.
         - LANE DEPTH vs the admission cap: count pending + processing for
           "{job_type}" only and compare against the cap the handler's
           contract declares. Because the lane runs one job at a time, report
@@ -520,7 +542,7 @@ stages:
           "error_clusters": [{"error_signature": "...", "count": N, "example_id": "...", "looks_systemic": true|false}],
           "retry_exhausted": [{"id": "...", "attempts": N, "error_signature": "<derived/redacted, or the literal string withheld>", "suggests_misclassification": true|false}],
           "throughput": {"qwen_avg_ms": N, "other_avg_ms": N, "sample_size": N},
-          "patch_artifacts": {"dir": "...", "count": N, "total_mb": N, "orphaned": N},
+          "patch_artifacts": {"dir": "...", "count": N, "total_mb": N, "orphaned": N, "orphaned_items": [{"job_id": "...", "relative_name": "...", "size_mb": N}]},
           "lane_depth": {"pending": N, "processing": N, "cap": N | null, "over_cap": true|false, "estimated_drain_minutes": N | null},
           "needs_attention": true|false
         }
@@ -742,6 +764,24 @@ stages:
            whether a repo-wide purge is an acceptable way to address it.
         c) Delete orphaned patch artifacts whose job no longer exists.
 
+           PROPOSE ONE ACTION PER ARTIFACT, each naming a `job_id` taken
+           verbatim from queue-lane's `patch_artifacts.orphaned_items`. Put
+           it in the proposal's own field (not inside the command string),
+           because remediate re-derives the path from the id and is
+           forbidden from trusting a proposal-supplied path.
+
+           A proposal whose job_id is absent from `orphaned_items`, or which
+           names a path instead of an id, is not approvable — remediate will
+           reject it as a mismatch. Do not propose a bulk "delete all N
+           orphans" action: the allowlist item deletes one artifact, and a
+           bulk form would have to be expanded by remediate into targets
+           nobody approved individually.
+
+           If `orphaned_items` is empty, propose nothing here, whatever the
+           `orphaned` count says. A non-zero count with an empty list means
+           the enumeration was truncated or unavailable — report that as a
+           finding, not as a licence to delete something unnamed.
+
            PATH BOUNDARY — required before any deletion, no exceptions:
            resolve the artifact's path with symlinks followed (realpath) and
            confirm the resolved path is a regular file located UNDER
@@ -801,7 +841,7 @@ stages:
       Write outputs/analysis/triage.json:
         {
           "findings": [{"rank": N, "severity": "blocking|degraded|hygiene", "finding": "...", "source": "health.json|models.json|queue.json|spend.json", "evidence": "..."}],
-          "proposed_actions": [{"id": "a1", "action": "...", "command": "...", "addresses_finding": N, "allowlist_item": "a|b|c|d", "destructive": true|false, "reversible": true|false, "if_diagnosis_wrong": "..."}],
+          "proposed_actions": [{"id": "a1", "action": "...", "command": "...", "params": {"job_id": "... (item c only)", "limit": N, "match_cluster": "...", "folders": "done|error"}, "addresses_finding": N, "allowlist_item": "a|b|c|d", "destructive": true|false, "reversible": true|false, "if_diagnosis_wrong": "..."}],
           "manual_steps": [{"step": "...", "why_not_automated": "..."}],
           "nothing_to_do": true|false
         }
@@ -920,11 +960,21 @@ stages:
           FOR c AND d THE PATH IS NOT THE PROPOSAL'S TO GIVE. Both are file
           deletions, so accepting a triage-supplied path is accepting an
           arbitrary unlink from a record influenced by queue-controlled text.
-            - c) take only the artifact's JOB ID from the proposal, re-derive
-              the path yourself, then apply item (c)'s own boundary checks in
-              full: realpath-resolve, confirm a regular file under
+            - c) take only the artifact's JOB ID from the proposal, and
+              confirm that id appears in queue-lane's
+              `patch_artifacts.orphaned_items` — that list is the only
+              source of legitimate targets, so an id absent from it is a
+              mismatch and the action does not run. Re-derive the path
+              yourself from the id, then apply item (c)'s own boundary
+              checks in full: realpath-resolve, confirm a regular file under
               core.paths.output_dir() for this domain, and re-confirm the job
               is still orphaned immediately before unlinking.
+
+              If the proposal carries a path and no id, or an id you cannot
+              find in `orphaned_items`, record it under manual_steps. Do not
+              fall back to the path: the whole point of taking an id is that
+              a proposal-supplied path is influenced by queue-controlled
+              text, and accepting it on a miss reinstates exactly that.
             - d) take NO path from the proposal at all. The lock path is
               fixed — compute it from get_worker_state_dir() the same way the
               handler does. A proposal naming any other path is a mismatch,
