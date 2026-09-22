@@ -19,6 +19,7 @@ not that the agents it spawns do the right thing.
 from __future__ import annotations
 
 import json
+import re
 import unittest
 from collections.abc import Iterator
 from pathlib import Path
@@ -44,6 +45,23 @@ _DESCRIPTION_DROPPING_KINDS = frozenset({"validate"})
 # deliberately generous: the point is to catch stages carrying a multi-step
 # protocol, not to police wording.
 _CONTRACT_DESCRIPTION_CHARS = 600
+
+# Affirmative commit instructions used by shipped isolated stages: an
+# imperative "commit ... (before) finish/done" (matching "COMMIT BEFORE
+# FINISHING", "Commit your edits before you finish", etc.) or a literal
+# `git commit` invocation. Merely containing the substring "commit" is not
+# enough — a stage can mention committing only to forbid it (see
+# _NEGATIVE_COMMIT_RE below), which must not satisfy this check.
+_AFFIRMATIVE_COMMIT_RE = re.compile(
+    r"commit\b[^.]{0,80}\bfinish|\bgit\s+commit\b", re.IGNORECASE | re.DOTALL
+)
+
+# An explicit opt-out: the stage is isolated but must not commit (e.g. a
+# read-only review stage that would corrupt a shared tree if it did). This is
+# a legitimate pattern, not the violation the gate exists to catch.
+_NEGATIVE_COMMIT_RE = re.compile(
+    r"(never|do not|don't|must not)\s+commit", re.IGNORECASE
+)
 
 
 def _catalog_files() -> list[Path]:
@@ -134,6 +152,22 @@ def _load_raw(path: Path) -> dict:
 def _is_fragment(raw: dict) -> bool:
     """Return True for include-only fragments, which cannot stand alone."""
     return bool(raw.get("fragment"))
+
+
+def _instructs_commit(description: str) -> bool:
+    """Return True if an isolated stage's description satisfies the commit gate.
+
+    A stage passes either by giving an affirmative commit instruction (an
+    imperative "commit ... finish" or a literal `git commit`) or by
+    explicitly declaring it must never commit — a legitimate opt-out for a
+    read-only isolated stage. The substring "commit" alone proves neither:
+    a stage can say "Never commit from this stage" and contain it while
+    giving no instruction to commit at all.
+    """
+    return bool(
+        _AFFIRMATIVE_COMMIT_RE.search(description)
+        or _NEGATIVE_COMMIT_RE.search(description)
+    )
 
 
 class TestShippedCatalogLints(unittest.TestCase):
@@ -283,7 +317,7 @@ class TestIsolatedStagesCommit(unittest.TestCase):
         offenders = [
             _stage_key(path, stage.get("name"))
             for path, stage in _iter_isolated_stages()
-            if "commit" not in str(stage.get("description") or "").lower()
+            if not _instructs_commit(str(stage.get("description") or ""))
             and _stage_key(path, stage.get("name")) not in grandfathered
         ]
         self.assertEqual(

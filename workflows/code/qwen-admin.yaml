@@ -44,9 +44,9 @@ description: >
         |              |                |             |
         +--------------+----------------+-------------+
         |
-    triage                                   (G1 — rank findings, propose bounded actions)
+    triage  [human gate]                     (G1 — rank findings, propose bounded actions)
         |
-    remediate  [human gate]                  (G2 — apply only approved, allowlisted actions)
+    remediate                                (G2 — apply only approved, allowlisted actions)
         |
     report                                   (G3 — state, what changed, what to watch)
 
@@ -183,7 +183,7 @@ stages:
       a 14B model on a loaded machine is the usual cause of slow generations,
       and it is worth distinguishing from a broken stack.
 
-      Write {workspace}/analysis/health.json:
+      Write outputs/analysis/health.json:
         {
           "layers": [
             {"layer": "ollama_binary",  "up": true|false, "detail": "..."},
@@ -215,9 +215,9 @@ stages:
           health.json recording up/down state for all eight layers, memory
           pressure, and the first layer that is down.
     writes_to:
-      - analysis/health.json
+      - outputs/analysis/health.json
     validates_output:
-      - path: analysis/health.json
+      - path: outputs/analysis/health.json
         checks: [is_json, has_key:layers, has_key:all_up]
 
   # ===========================================================================
@@ -248,7 +248,7 @@ stages:
           Worth surfacing, since they are often accidental.
         - Total disk used by models vs free space on the volume.
 
-      Write {workspace}/analysis/models.json:
+      Write outputs/analysis/models.json:
         {
           "installed": [{"name": "...", "size_gb": N, "modified": "...", "is_configured_tag": true|false}],
           "configured_tag_present": true|false,
@@ -270,9 +270,9 @@ stages:
           models.json inventorying installed models, disk use, headroom, and
           reclaim candidates (candidates only — no deletion proposed).
     writes_to:
-      - analysis/models.json
+      - outputs/analysis/models.json
     validates_output:
-      - path: analysis/models.json
+      - path: outputs/analysis/models.json
         checks: [is_json, has_key:installed, has_key:configured_tag_present]
 
   # ===========================================================================
@@ -341,7 +341,7 @@ stages:
           duration, not just a count — "47 queued (~6h at 7m median)" tells
           the user something a bare number does not.
 
-      Write {workspace}/analysis/queue.json:
+      Write outputs/analysis/queue.json:
         {
           "counts": {"pending": N, "processing": N, "done": N, "error": N},
           "qwen_lane": {"pending": N, "processing": N, "done": N, "error": N},
@@ -367,9 +367,9 @@ stages:
           queue.json with per-lane counts, stuck jobs split by heartbeat
           freshness, clustered error signatures, and throughput.
     writes_to:
-      - analysis/queue.json
+      - outputs/analysis/queue.json
     validates_output:
-      - path: analysis/queue.json
+      - path: outputs/analysis/queue.json
         checks: [is_json, has_key:counts, has_key:qwen_lane, has_key:needs_attention]
 
   # ===========================================================================
@@ -404,7 +404,7 @@ stages:
       contradict the design and corrupt any comparison against Claude Code
       spend. If a comparison is useful, compare TIME.
 
-      Write {workspace}/analysis/spend.json:
+      Write outputs/analysis/spend.json:
         {
           "available": true|false,
           "unavailable_reason": "..." | null,
@@ -427,9 +427,9 @@ stages:
           spend.json with job counts by outcome, duration distribution and
           trend over the window — or an explicit unavailable record.
     writes_to:
-      - analysis/spend.json
+      - outputs/analysis/spend.json
     validates_output:
-      - path: analysis/spend.json
+      - path: outputs/analysis/spend.json
         checks: [is_json, has_key:available, has_key:jobs]
 
   # ===========================================================================
@@ -437,6 +437,7 @@ stages:
   # ===========================================================================
   - name: triage
     kind: propose
+    human_gate: true
     depends_on: [health, models, queue-lane, spend]
     reads_from: [health, models, queue-lane, spend]
     description: >
@@ -463,15 +464,11 @@ stages:
         6. Hygiene — old done/error jobs, orphaned patch artifacts.
 
       PROPOSE ONLY FROM THIS ALLOWLIST. Anything else is a manual step:
-        a) Start the Ollama server (only if health says it is down).
-        b) Pull {model_tag} (only if models.json says it is absent).
-        c) Load the worker launchd agent (only if it is absent — never
-           reload or restart a loaded, healthy one).
-        d) Requeue error jobs whose cluster is NOT systemic, bounded and
+        a) Requeue error jobs whose cluster is NOT systemic, bounded and
            once: ./bin/worker requeue-errors with --limit and --match.
            Never requeue a systemic cluster — it will fail identically and
            burn the queue. Never requeue without a --match filter.
-        e) Purge done/error jobs older than {purge_older_than}:
+        b) Purge done/error jobs older than {purge_older_than}:
            ./bin/worker purge. Never purge pending or processing.
 
            BLAST RADIUS — state this verbatim in the proposal, every time:
@@ -488,9 +485,19 @@ stages:
            If the finding that motivated it is qwen-lane-specific, say so and
            say plainly that no scoped purge exists — then let the human decide
            whether a repo-wide purge is an acceptable way to address it.
-        f) Delete orphaned patch artifacts whose job no longer exists.
+        c) Delete orphaned patch artifacts whose job no longer exists.
 
-        g) Remove a STALE concurrency lock — only when health.json's
+           PATH BOUNDARY — required before any deletion, no exceptions:
+           resolve the artifact's path with symlinks followed (realpath) and
+           confirm the resolved path is a regular file located UNDER
+           core.paths.output_dir() for this domain. Immediately before
+           unlinking, re-confirm the job is still orphaned — the job may have
+           reappeared between triage and remediate. Anything that fails
+           either check (resolves outside the domain output dir, is not a
+           regular file, or is no longer orphaned) is reported as a manual
+           step, never deleted.
+
+        d) Remove a STALE concurrency lock — only when health.json's
            concurrency_lock layer reports verdict "STALE", meaning its holder
            pid is dead or it has outlived its staleness ceiling. This
            unblocks a qwen lane that is silently deferring every job.
@@ -511,24 +518,29 @@ stages:
            what this workflow's model is expected to produce.
 
       Explicitly NOT allowlisted, and always reported as manual steps:
-        deleting any model; killing or editing a job in processing/; editing
-        or reloading a plist; restarting a healthy daemon; changing handler
-        configuration; anything touching another project's containers.
+        starting the Ollama server; pulling {model_tag}; loading the worker
+        launchd agent — these are qwen-local-handler.yaml's job: doing them
+        here would bypass that workflow's idempotence checks and its
+        launchd-path safeguards, and this workflow scopes to day-to-day
+        admin, not install; deleting any model; killing or editing a job in
+        processing/; editing or reloading a plist; restarting a healthy
+        daemon; changing handler configuration; anything touching another
+        project's containers.
 
       For each proposed action give: the exact command, which finding it
       addresses with its source file, whether it is reversible, and what it
       would affect if the diagnosis is wrong. Mark anything that deletes or
       discards data as destructive: true.
 
-      Write {workspace}/analysis/triage.json:
+      Write outputs/analysis/triage.json:
         {
           "findings": [{"rank": N, "severity": "blocking|degraded|hygiene", "finding": "...", "source": "health.json|models.json|queue.json|spend.json", "evidence": "..."}],
-          "proposed_actions": [{"id": "a1", "action": "...", "command": "...", "addresses_finding": N, "allowlist_item": "a|b|c|d|e|f", "destructive": true|false, "reversible": true|false, "if_diagnosis_wrong": "..."}],
+          "proposed_actions": [{"id": "a1", "action": "...", "command": "...", "addresses_finding": N, "allowlist_item": "a|b|c|d", "destructive": true|false, "reversible": true|false, "if_diagnosis_wrong": "..."}],
           "manual_steps": [{"step": "...", "why_not_automated": "..."}],
           "nothing_to_do": true|false
         }
 
-      and {workspace}/design/triage.md — a readable summary with the findings
+      and outputs/design/triage.md — a readable summary with the findings
       ranked, the proposed commands, and the manual steps.
 
       If everything is healthy, set nothing_to_do true and say so plainly.
@@ -546,22 +558,25 @@ stages:
           triage.json and triage.md ranking findings and proposing only
           allowlisted, cited, reversibility-labelled actions.
     writes_to:
-      - analysis/triage.json
-      - design/triage.md
+      - outputs/analysis/triage.json
+      - outputs/design/triage.md
     validates_output:
-      - path: analysis/triage.json
+      - path: outputs/analysis/triage.json
         checks: [is_json, has_key:findings, has_key:proposed_actions, has_key:nothing_to_do]
 
   # ===========================================================================
   # G2: Remediate — apply only what the human approved
   # ===========================================================================
   - name: remediate
-    kind: execute
-    human_gate: true
+    kind: publish
     depends_on: [triage]
     reads_from: [triage, health]
     description: >
-      Read {workspace}/analysis/triage.json. If nothing_to_do is true, write a
+      Approval for the actions applied here came from the human gate on the
+      triage stage — apply ONLY actions approved there, re-checking each
+      precondition immediately before acting.
+
+      Read outputs/analysis/triage.json. If nothing_to_do is true, write a
       no-op record and stop.
 
       Otherwise present the proposed actions to the user, grouped by severity,
@@ -596,7 +611,7 @@ stages:
       now down, say so prominently — that is the worst outcome of this
       workflow and must not be buried under a list of successful actions.
 
-      Write {workspace}/validation/remediation.json:
+      Write validation/remediation.json:
         {
           "approved": ["a1", "a3"] | [],
           "applied": [{"id": "a1", "command": "...", "exit_code": N, "output": "...", "precondition_still_held": true|false, "ok": true|false}],
@@ -630,7 +645,7 @@ stages:
     depends_on: [remediate]
     reads_from: [remediate, triage, health, models, queue-lane, spend]
     description: >
-      Read every prior output and write {workspace}/validation/report.md.
+      Read every prior output and write validation/report.md.
       Cite stage files; do not restate a proposed action as a completed one.
 
       ## Qwen Admin Report — <date>

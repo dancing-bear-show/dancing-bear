@@ -703,6 +703,13 @@ stages:
       {workspace}, never into tests/. Any committed fixture must be synthetic.
 
       Verify with `make test`.
+
+      COMMIT BEFORE FINISHING. You run in your own git worktree; `git merge`
+      moves commits, not uncommitted files. If you edit files and return
+      without committing, the downstream merge-worktrees stage finds an empty
+      branch and your work is silently lost while this stage still reports
+      success. Stage the test files you created by name — never `git add -A` —
+      and commit them before you finish.
     agent:
       role: tester
       model: sonnet

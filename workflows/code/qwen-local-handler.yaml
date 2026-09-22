@@ -357,7 +357,7 @@ stages:
         launchctl list 2>/dev/null | grep -i dancing-bear || echo "no dancing-bear agents loaded"
         sysctl -n hw.memsize
 
-      Write {workspace}/analysis/survey.json:
+      Write {workspace}/outputs/analysis/survey.json:
         {
           "handler_contract": {"signature": "...", "return": "...", "registry_line": "..."},
           "retry_protocol": {"deferred_prefix": "...", "terminal_prefix": "...", "plain_failure": "..."},
@@ -385,12 +385,12 @@ stages:
       - name: survey
         mode: generate
         description: >
-          survey.json written to {workspace}/analysis/ recording exact
+          survey.json written to {workspace}/outputs/analysis/ recording exact
           handler/retry/reaper contracts read from source, plus live machine state.
     writes_to:
-      - analysis/survey.json
+      - outputs/analysis/survey.json
     validates_output:
-      - path: analysis/survey.json
+      - path: outputs/analysis/survey.json
         checks: [is_json, has_key:handler_contract, has_key:retry_protocol, has_key:reaper, has_key:machine]
 
   # ===========================================================================
@@ -402,7 +402,7 @@ stages:
     depends_on: [survey]
     reads_from: [survey]
     description: >
-      Read {workspace}/analysis/survey.json and write a concrete design. Cite
+      Read {workspace}/outputs/analysis/survey.json and write a concrete design. Cite
       the survey for every claim about existing behaviour — do not restate this
       YAML's description as if it were evidence.
 
@@ -924,8 +924,8 @@ stages:
       registry line; impl-heartbeat owns the queue/runtime files; impl-tests
       owns tests only), so list each path under the stage that will own it.
 
-      Write {workspace}/design/design.md with one section per item above, and
-      {workspace}/design/contract.json:
+      Write {workspace}/outputs/design/design.md with one section per item above, and
+      {workspace}/outputs/design/contract.json:
         {
           "job_type": "{job_type}",
           "payload_schema": {...},
@@ -967,14 +967,14 @@ stages:
       - name: design_doc
         mode: generate
         description: >
-          design.md and contract.json written to {workspace}/design/ —
+          design.md and contract.json written to {workspace}/outputs/design/ —
           payload/result schema, prompt construction, retry taxonomy,
           heartbeat change, and transport, each cited to survey.json.
     writes_to:
-      - design/design.md
-      - design/contract.json
+      - outputs/design/design.md
+      - outputs/design/contract.json
     validates_output:
-      - path: design/contract.json
+      - path: outputs/design/contract.json
         checks: [is_json, has_key:payload_schema, has_key:result_schema, has_key:retry_map, has_key:heartbeat, has_key:files_to_create]
 
   # ===========================================================================
@@ -986,7 +986,7 @@ stages:
     reads_from: [design, survey]
     description: >
       Implement the "{job_type}" handler exactly as approved in
-      {workspace}/design/contract.json.
+      {workspace}/outputs/design/contract.json.
 
       File ownership — this stage runs in parallel with impl-heartbeat and
       impl-tests. Touch ONLY:
@@ -1063,11 +1063,23 @@ stages:
         - Never log or echo the prompt's file contents at INFO or above.
         - Type-annotate everything: a new file must be clean under mypy, since
           the ratchet blocks on any error in a file that was clean at baseline.
-        - Call the heartbeat helper from impl-heartbeat while waiting on the
-          model. That stage is running in parallel, so take the helper's name
-          and signature from contract.json's heartbeat section, not from the
-          other worktree. If integrate finds the signature drifted, it
-          reconciles — do not guess and do not silently skip the call.
+        - LIVENESS CALL, gated on the route contract.json's liveness section
+          recorded — do not call a helper unconditionally, since under route
+          (a) none exists:
+            * Route (b): call the heartbeat helper from impl-heartbeat while
+              waiting on the model. That stage is running in parallel, so
+              take the helper's name and signature from contract.json's
+              heartbeat section, not from the other worktree. If integrate
+              finds the signature drifted, it reconciles — do not guess and
+              do not silently skip the call.
+            * Route (a): impl-heartbeat ships no helper (it records
+              "a-no-change"). Do not invent one or call anything — there is
+              nothing to call, and inventing a helper here would silently
+              re-introduce the heartbeat the design stage explicitly dropped.
+            * Route (c): the fix is a per-job timeout on the model call
+              derived from timeout_sec, per contract.json's transport
+              section — not a heartbeat call. No liveness helper exists to
+              call under this route either.
         - CONCURRENCY GUARD, per contract.json's "concurrency" section. The
           queue's max-inflight is global, so this lock is the ONLY thing
           preventing 8 simultaneous generations from exhausting memory.
@@ -1296,7 +1308,7 @@ stages:
     depends_on: [design]
     reads_from: [design, survey]
     description: >
-      Write tests against the contract in {workspace}/design/contract.json.
+      Write tests against the contract in {workspace}/outputs/design/contract.json.
       This stage runs in PARALLEL with the two implementation stages, so the
       implementation does not exist yet in this worktree — that is intentional.
       Write to the contract's signatures. The integrate stage reconciles any
@@ -1312,11 +1324,29 @@ stages:
           each asserting the EXACT outcome string prefix. A test that accepts
           "any failure" would pass even if the handler mapped a missing model
           to an infinite retry loop — assert the prefix.
-        - HEARTBEAT: the reaper does NOT reap a job whose heartbeat is fresh;
-          it DOES reap one whose heartbeat is stale.
+        - LIVENESS, gated on the route recorded in contract.json's heartbeat/
+          liveness section — fresh/stale heartbeat tests cannot exist under
+          routes (a) or (c), where no heartbeat field is ever written:
+            * Route (b): HEARTBEAT — the reaper does NOT reap a job whose
+              heartbeat is fresh; it DOES reap one whose heartbeat is stale.
+            * Route (a): no heartbeat tests. Instead, require a test asserting
+              the EXISTING reaper behaviour is UNCHANGED — a job record built
+              exactly as run_cli/run_shell build it today still reaps (or does
+              not) on the same condition it did before this workflow touched
+              anything. The backward-compatibility case still matters even
+              though no heartbeat field exists to test.
+            * Route (c): require tests for whatever the design specified for
+              the in-process join fix instead (e.g. the per-job timeout_sec
+              derivation) — not a heartbeat test, which would assert nothing
+              under this route.
+          Record which route you wrote tests for in tests-impl.json (see
+          below) so merge-impl and acceptance can tell an intentional absence
+          of heartbeat tests from a missing test.
         - BACKWARD COMPATIBILITY: a job record with no heartbeat field is
           treated exactly as before. Construct it as the existing handlers do,
-          with no heartbeat key at all.
+          with no heartbeat key at all. This applies under every route, since
+          run_cli/run_shell/workflow_stage jobs never write the field
+          regardless of which liveness route was chosen.
         - Patch validation: a response whose diff fails `git apply --check` is
           reported as such and not silently treated as a success.
         - TELEMETRY SHAPE: the emitted OTLP payload parses back through
@@ -1329,11 +1359,15 @@ stages:
           export to raise), the job still returns success and its result is
           unchanged. This is the test that stops a telemetry outage from
           taking out the queue.
-        - HEARTBEAT IS ACTUALLY CALLED: assert the handler invokes the
-          heartbeat helper during a long generation — assert call_count on a
-          mock, not merely that the job succeeded. A job that never
-          heartbeats succeeds fine in a fast test and gets reaped in
-          production.
+        - LIVENESS CALL ACTUALLY HAPPENS — route (b) only: assert the handler
+          invokes the heartbeat helper during a long generation — assert
+          call_count on a mock, not merely that the job succeeded. A job that
+          never heartbeats succeeds fine in a fast test and gets reaped in
+          production. Under route (a), write no such test — there is no
+          helper to call, and asserting call_count on a nonexistent helper
+          would either fail to import or assert nothing. Under route (c),
+          assert instead whatever the design specified there (e.g. that the
+          per-job timeout_sec was derived and passed through).
         - CONCURRENCY — the guard that protects the machine, so test it
           properly:
             * With the lock already held, the handler returns the exact
@@ -1455,7 +1489,10 @@ stages:
       Confirm with `git log --oneline -1` and record the SHA below.
 
       Write {workspace}/outputs/tests-impl.json:
-        {"test_files": [...], "test_count": N, "retry_map_rows_covered": N, "commit_sha": "...", "checkpoints": [{"id": "tests-collect", "passed": true|false, "command": "...", "evidence": "..."}], "notes": "..."}
+        {"test_files": [...], "test_count": N, "retry_map_rows_covered": N, "liveness_route_tested": "a|b|c", "commit_sha": "...", "checkpoints": [{"id": "tests-collect", "passed": true|false, "command": "...", "evidence": "..."}], "notes": "..."}
+      "liveness_route_tested" must match the route contract.json recorded, so
+      merge-impl and acceptance can tell an intentional absence of heartbeat
+      tests (route a or c) from a missing test.
 
       CHECKPOINT: before committing, confirm your tests at least COLLECT and
       run — a test file with an import error or a syntax slip contributes
@@ -1869,10 +1906,17 @@ stages:
   # G6: Install — idempotent, check-then-act, full stack
   # ===========================================================================
   - name: install
-    kind: execute
+    kind: publish
     depends_on: [integrate]
     reads_from: [integrate, survey]
     description: >
+      Declared kind: publish, not execute — every step below creates external
+      resource state outside this workspace (a brew-installed binary, a
+      running Ollama server, a multi-GB pulled model, a loaded launchd agent),
+      and the workflow skill's convention authorizes exactly that class of
+      side effect only from a publish stage. Declaring it publish keeps the
+      convention and the behaviour in agreement.
+
       Install the full stack. EVERY step is check-then-act: check state first,
       act only if the check fails, and report each step as "already satisfied"
       or "changed". A second consecutive run of this stage must change nothing
@@ -2329,12 +2373,28 @@ stages:
 
       Enqueue TWO {job_type} jobs back to back, then drain. Read both back by
       id and confirm the model was never generating for both at once — the
-      evidence is that one of these holds:
-        - one job completed and the other returned the "deferred-" busy
-          string from contract.json and was re-queued with its attempts
-          UNCHANGED (read the attempts field on both), or
-        - they completed sequentially, with the second job's start timestamp
-          at or after the first job's finish.
+      evidence is that one job completed and the other returned the
+      "deferred-" busy string from contract.json and was re-queued with its
+      attempts UNCHANGED (read the attempts field on both).
+
+      Do NOT accept "they completed sequentially, with the second job's start
+      timestamp at or after the first job's finish" as evidence — that branch
+      was deliberately removed and must not be re-added. queue_ops.py's
+      start_processing() records processing_started_at at CLAIM time, before
+      the handler ever attempts the concurrency lock, so two jobs claimed in
+      the same tick have overlapping-or-ordered timestamps whether or not the
+      lock actually serialized their model calls. A timestamp comparison
+      cannot distinguish "the lock worked" from "the lock did nothing and the
+      jobs happened to be processed in claim order." The explicit
+      deferred-outcome branch above is the only evidence that actually proves
+      the lock was held and honoured.
+
+      If the design's telemetry emits per-job model-call start/end spans (not
+      queue timestamps), you may cite those as an alternative: two spans with
+      non-overlapping model-call intervals is real evidence, because the span
+      brackets the model call itself rather than the claim. Do not substitute
+      any other timestamp source for the deferred-outcome check.
+
       If both ran concurrently, that is a blocking failure — say so plainly
       rather than reporting a green end-to-end run. Keep this to two jobs:
       the point is to prove the guard, not to stress the machine.
@@ -2342,7 +2402,7 @@ stages:
       Write {workspace}/validation/verify.json:
         {
           "guards_live": {"explain_mode": {"job_id": "...", "model_called": false, "reported": [...]}, "path_confinement": {"job_id": "...", "outcome": "terminal-path-not-allowed", "attempts": N, "contents_leaked": false}, "held": true|false},
-          "concurrency_guard": {"jobs": ["...", "..."], "outcome": "one-deferred|sequential|CONCURRENT", "attempts_unchanged_on_deferred": true|false, "held": true|false},
+          "concurrency_guard": {"jobs": ["...", "..."], "outcome": "one-deferred|span-non-overlapping|CONCURRENT", "attempts_unchanged_on_deferred": true|false, "held": true|false},
           "idempotence": {"all_already_satisfied": true|false, "checks": [...]},
           "job_flow": {"type_in_cli_choices": true|false, "job_id": "...", "final_state": "done|error|...", "patch_present": true|false, "git_apply_check_passed": true|false, "patch_path": "..."},
           "regression": {"run_shell_ok": true|false, "detail": "..."},

@@ -25,7 +25,7 @@ description: >
         |
     write-handler                (G1 — isolated; implement + COMMIT)
         |
-    land-and-verify              (G2 — merge, then drive it through the CLI)
+    land-and-verify              (G2 — verify the merge landed, drive the CLI)
 
   THREE THINGS THIS DEMO EXISTS TO TEACH, each of which is a defect that has
   actually shipped in this repo:
@@ -97,7 +97,7 @@ stages:
       and record the current --type choices. "{job_type}" must NOT be among
       them yet; if it already is, this demo has been run before — say so.
 
-      Write {workspace}/analysis/seam.json:
+      Write {workspace}/outputs/analysis/seam.json:
         {
           "handler_signature": "...",
           "return_contract": "...",
@@ -119,10 +119,16 @@ stages:
         description: >
           seam.json recording the handler signature, return contract, registry
           pattern and retry prefixes read from source.
+    # A writes_to entry not already rooted under outputs/ validation/ stages/
+    # or dispatch/ is resolved to {workspace}/outputs/<entry> by
+    # src/workflow/dispatch.py's _write_paths (_WORKSPACE_SUBDIRS). Declare
+    # the entry with the outputs/ prefix already on it, matching the
+    # description above, so the declared path and the resolved path are the
+    # same string — copy this pattern rather than a bare relative path.
     writes_to:
-      - analysis/seam.json
+      - outputs/analysis/seam.json
     validates_output:
-      - path: analysis/seam.json
+      - path: outputs/analysis/seam.json
         checks: [is_json, has_key:handler_signature, has_key:retry_protocol]
 
   # ===========================================================================
@@ -134,7 +140,7 @@ stages:
     reads_from: [read-the-seam]
     description: >
       Implement a minimal "{job_type}" handler against the contract recorded
-      in analysis/seam.json.
+      in outputs/analysis/seam.json.
 
       Deliberately trivial behaviour, so the demo teaches the WIRING rather
       than the payload: the handler echoes back the payload's "message" key.
@@ -203,26 +209,58 @@ stages:
     depends_on: [write-handler]
     reads_from: [write-handler, read-the-seam]
     description: >
-      Merge the handler branch, then prove the registration works by driving
-      the real CLI — not by importing the handler directly in Python, which
-      would skip the wiring this demo is about.
+      VERIFY that write-handler's commit landed, then prove the registration
+      works by driving the real CLI — not by importing the handler directly
+      in Python, which would skip the wiring this demo is about.
 
-      Step 1 — land it. Read outputs/handler.json for commit_sha. If it is
-      null or absent, the agent never committed and its work is gone: FAIL
-      this stage and say so plainly rather than proceeding. Otherwise verify
-      the branch carries commits and merge it:
-        git log --oneline <this-branch>..worktree-agent-<id>
-        git merge --no-ff worktree-agent-<id> -m "merge stage write-handler"
-      An empty log is the silent-loss case — treat it as a failure.
+      Step 1 — verify it landed. Do NOT merge anything here — that is the
+      whole point of this step. .claude/skills/workflow/SKILL.md rule 7
+      assigns copy-back and the branch merge to the ORCHESTRATOR, as part of
+      write-handler's own completion, before this stage is ever released. By
+      the time land-and-verify runs, worktree-agent-<id> is already merged,
+      so `git log <this-branch>..worktree-agent-<id>` is EMPTY on a correct
+      run — that is what a successful merge looks like, not the silent-loss
+      case. An earlier draft of this stage ran `git merge` itself and treated
+      that empty range as the failure to detect, which would fail a run
+      exactly when everything went right. (The same defect was found and
+      fixed in workflows/code/qwen-local-handler.yaml's merge-impl stage;
+      this step mirrors that stage's reasoning.)
+
+      Read outputs/handler.json for commit_sha. If it is null or absent, the
+      agent never committed and its work is gone: FAIL this stage and say so
+      plainly. Otherwise confirm the commit actually landed:
+        git merge-base --is-ancestor <commit_sha> HEAD
+      A non-zero exit means the orchestrator did not merge that branch —
+      report it as unmerged; do not merge it yourself. Then confirm
+      {handler_module} and src/worker/handlers.py exist in the working tree
+      and are tracked by git (`git ls-files --error-unmatch <path>`) — a file
+      present but untracked did not come from a merge.
 
       Step 2 — confirm the CLI sees it:
         ./bin/worker enqueue --help
       "{job_type}" must now appear in --type's choices. If not, the REGISTRY
       entry did not land — stop and report.
 
-      Step 3 — exercise all three retry classes through the queue. For each,
-      enqueue and drain with `./bin/worker run-once --max 1`, then read the
-      job back with `./bin/worker show <id>`:
+      Step 3 — exercise all FOUR retry classes through the queue: success,
+      terminal, deferred, and plain failure. For each, enqueue and capture
+      the returned job id, then drain with `./bin/worker run-once --max 1`.
+
+      `run-once --max 1` processes the QUEUE HEAD, not the job you just
+      enqueued — enqueue/run-once has no --id scoping, and list_pending sorts
+      globally by (priority, enqueued_at) with no type filter. If anything
+      else is pending, run-once may drain a different job entirely. So after
+      every drain: read back your job by id with `./bin/worker show <id>` and
+      confirm it is the one you enqueued (compare job_type/payload, not just
+      "something drained"). If `show` reports a different job progressed
+      instead of yours, say so explicitly and run `run-once --max 1` again
+      rather than reporting the other job's outcome as if it were this case's
+      result.
+
+      Note if the launchd daemon is running it polls the same queue every 5s
+      and may claim your job before run-once does. Check the job by id first;
+      if `./bin/worker show <id>` already shows it done/errored/re-queued,
+      that is a valid drain via the daemon, not a failure of this step —
+      record which path (run-once vs daemon) actually handled it.
 
         a) Success: --payload-json '{"message": "hello"}'
            Expect: job in done/, result carries echoed + length.
@@ -231,14 +269,19 @@ stages:
            one — confirm attempts did not climb to max_attempts, which is
            what proves the terminal- prefix was honoured rather than the
            failure being treated as retryable.
-        c) Plain failure: --payload-json '{"message": "x", "fail": true}'
+        c) Deferred: --payload-json '{"message": "x", "defer": true}'
+           Expect: job back in pending/ with attempts UNCHANGED from before
+           this drain (not incremented, not reset to 0 — the same number it
+           had going in). The unchanged count is the entire point of the
+           deferred- protocol: job_runtime's _handle_outcome calls
+           _undo_retry_attempt to restore the pre-drain attempts after a
+           deferred- requeue, precisely so a defer never consumes a retry.
+           Asserting only "it did not complete" would also pass for a plain
+           retry, which increments attempts — record the before/after
+           attempts count for this case to prove it did NOT change.
+        d) Plain failure: --payload-json '{"message": "x", "fail": true}'
            Expect: attempts incremented and the job re-queued to pending
            with a future not_before, not moved to error/ on the first try.
-
-      Note if the launchd daemon is running it polls the same queue every 5s
-      and may claim a job before run-once does. Check the job by id first; if
-      the daemon already processed it, that is still a valid drain — record
-      which path handled it.
 
       Step 4 — clean up after yourself. This demo writes real jobs into the
       real queue. Remove only the jobs you created, by id. Do not run a bare
@@ -247,20 +290,22 @@ stages:
 
       Write {workspace}/validation/verified.json:
         {
-          "merged": {"branch": "...", "commit_sha": "...", "commits": N},
+          "landed": {"commit_sha": "...", "is_ancestor_of_head": true|false, "files_tracked": true|false},
           "type_in_cli": true|false,
           "cases": [
-            {"case": "success",  "job_id": "...", "final_state": "done",    "attempts": N, "as_expected": true|false},
-            {"case": "terminal", "job_id": "...", "final_state": "error",   "attempts": N, "as_expected": true|false},
-            {"case": "plain",    "job_id": "...", "final_state": "pending", "attempts": N, "as_expected": true|false}
+            {"case": "success",  "job_id": "...", "final_state": "done",    "attempts_before": N, "attempts_after": N, "as_expected": true|false},
+            {"case": "terminal", "job_id": "...", "final_state": "error",   "attempts_before": N, "attempts_after": N, "as_expected": true|false},
+            {"case": "deferred", "job_id": "...", "final_state": "pending", "attempts_before": N, "attempts_after": N, "as_expected": true|false},
+            {"case": "plain",    "job_id": "...", "final_state": "pending", "attempts_before": N, "attempts_after": N, "as_expected": true|false}
           ],
           "cleanup": {"jobs_removed": [...], "bare_purge_used": false},
           "verified": true|false
         }
 
-      verified is true only if the type appeared in the CLI and all three
-      cases behaved as expected — in particular, only if the terminal case
-      stopped after one attempt.
+      verified is true only if the commit is an ancestor of HEAD, the type
+      appeared in the CLI, and all four cases behaved as expected — in
+      particular, only if the terminal case stopped after one attempt AND the
+      deferred case's attempts_after equals its attempts_before.
     agent:
       role: code-writer
       model: sonnet
@@ -271,8 +316,9 @@ stages:
       - name: verified
         mode: generate
         description: >
-          verified.json recording the merge, the CLI registration check, and
-          one drained job per retry class with its attempt count.
+          verified.json recording the ancestry check, the CLI registration
+          check, and one id-scoped drained job per retry class (success,
+          terminal, deferred, plain) with its attempt count before and after.
     writes_to:
       - validation/verified.json
     validates_output:
