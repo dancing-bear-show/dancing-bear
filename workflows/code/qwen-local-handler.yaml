@@ -397,6 +397,22 @@ stages:
           worker daemon is loaded and running, SKIP the baseline and record
           "baseline: skipped (live {job_type} lane — would risk concurrent
           model load)".
+        - THE QUEUE CHECK IS ITSELF A TOCTOU, so treat it as a filter and not
+          a guarantee: a job can be claimed between the check and the
+          generate. Two things make that residual risk acceptable here, and
+          both must hold — if either does not, SKIP:
+            (i) the check must find the lane EMPTY and the daemon NOT
+                loaded. An idle-but-loaded daemon can claim a job at its next
+                poll, so "loaded" is a skip, not a pass.
+            (ii) the generation must be tiny — one small snippet, short
+                timeout — so the exposure is seconds rather than minutes,
+                and a collision degrades to slow rather than to swap-death.
+          This is a bounded read-only probe on an idle machine, not a
+          destructive action; that is why a narrowed window is acceptable
+          here and was NOT acceptable for the lock delete in qwen-admin,
+          which is irreversible and can start a second generation outright.
+          Do not cite this paragraph as precedent for narrowing a race on
+          anything destructive.
         - On a re-run against an already-installed stack, prefer driving one
           real job through the installed handler over probing Ollama
           directly: that path takes the lock and is what the admin workflow
