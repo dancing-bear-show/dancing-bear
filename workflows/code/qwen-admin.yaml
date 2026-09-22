@@ -123,14 +123,31 @@ stages:
     description: >
       VALIDATE {ollama_host} BEFORE USING IT IN ANY COMMAND BELOW. It is a
       trigger param, and nothing in the workflow engine validates or quotes
-      it before substitution — treat it as untrusted. Confirm it matches a
-      strict http(s) URL shape: scheme `http://` or `https://`, a host,
-      optional `:port`, no path required, and none of these characters
-      anywhere in it: space, `'`, `"`, backtick, `$`, `;`, `|`, `&`, newline.
-      If it does not match, ABORT this stage immediately with a clear
-      message naming the offending value — do not run any command against
-      it. Once validated, still pass it double-quoted everywhere it reaches
-      a shell command, never bare.
+      it before substitution — treat it as untrusted.
+
+      QUOTING IS NOT THE CONTROL. An earlier revision of this stage ended by
+      saying "pass it double-quoted everywhere", which does not work: double
+      quotes do NOT stop `$(...)` or backtick expansion, and a value
+      containing `"` closes the quoting and appends arbitrary commands.
+      Verified directly — `"http://host$(echo PWNED)/api"` runs the subshell.
+      A quoted-but-unvalidated value executes caller-supplied code inside a
+      stage this workflow documents as read-only.
+
+      Use the same mechanism qwen-local-handler.yaml's install stage uses, so
+      the two files do not drift:
+        1. Get the value out of the command line first, with a heredoc whose
+           delimiter is SINGLE QUOTED (that is what suppresses expansion;
+           `<<RAW` unquoted still expands `$()` — verified both ways):
+             cat > "$TMPDIR/qwen-admin-host" <<'RAW'
+             {ollama_host}
+             RAW
+        2. Test the FILE with a regex, never interpolating the value into the
+           program text:
+             python3 -c 'import re,sys,pathlib; v=pathlib.Path(sys.argv[1]).read_text().strip(); sys.exit(0 if re.fullmatch(r"https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?", v) else 1)' "$TMPDIR/qwen-admin-host"
+        3. Branch on the EXIT STATUS. `|| echo "REJECTED"` leaves the status 0
+           and the stage would carry on with a rejected value.
+      If it does not match, ABORT this stage immediately with a clear message
+      naming the offending value — do not run any command against it.
 
       READ-ONLY. Probe every layer and stop nothing. Record what you find,
       including "down" — a down layer is a finding, not a thing to fix here.

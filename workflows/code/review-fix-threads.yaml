@@ -291,13 +291,20 @@ stages:
 
       threads.json is authoritative. For every entry in triage.json:
 
-        1. Build a (path, line) -> id map and the id set from threads.json.
-        2. Look up the entry's own (path, line). If the mapped id differs from
-           the entry's thread_id, the entry is CORRUPT — whether or not its id
-           exists somewhere in the fetch. Replace it with the mapped id.
-        3. An entry whose (path, line) is absent from threads.json cannot be
-           repaired: it names no real thread. HALT the whole stage and report
-           it. Do not drop it silently and do not guess.
+        1. Build an id -> (path, line) map from threads.json, keyed BY THREAD
+           ID. Do not build the reverse; see step 4 for why (path, line) is
+           not a key at all.
+        2. For each triage entry, look up ITS OWN thread_id in that map:
+             - present, and the recorded (path, line) matches the entry's:
+               correct. Leave it alone.
+             - present, but the coordinates differ: the entry was mislabelled.
+               Trust the FETCH's coordinates — the id is the identity and the
+               line is derived from it.
+             - absent from the map entirely: corrupt or fabricated.
+        3. For an absent id, HALT the whole stage and report it. Do NOT try to
+           recover it from its (path, line): several threads can share one
+           line, so there is no single right answer and a guess would resolve
+           somebody else's thread. Do not drop it silently either.
         4. (path, line) IS NOT A UNIQUE KEY, in two separate ways, and
            assuming it is will either halt a healthy run or — worse — "repair"
            a correct id into a wrong one.
@@ -314,20 +321,8 @@ stages:
                threads both anchored to
                workflows/demo/qwen-job-type.yaml:193.
 
-           So do NOT build a (path, line) -> id map at all. Build the
-           reverse — id -> (path, line) — from the fetch, and verify each
-           triage entry by looking up ITS OWN id:
-             - id present in the fetch, and its recorded (path, line) equals
-               the entry's: correct, leave it alone.
-             - id present but the coordinates differ: the entry was
-               mislabelled — trust the FETCH's coordinates, since the id is
-               the identity and the line is derived.
-             - id absent from the fetch entirely: corrupt or fabricated.
-               There is no safe automatic repair when a line maps to several
-               threads, so HALT and report rather than guessing which one was
-               meant.
-           This direction is safe because a thread_id IS unique; (path, line)
-           never was.
+           That is why steps 1-3 above key by id and never by (path, line):
+           a thread_id IS unique, and the coordinates never were.
         5. A NULL thread_id IS LEGITIMATE — skip it, never halt on it. A
            review-body or issue-comment finding has no thread to anchor to,
            yet it CAN carry a path and line quoted from the prose. Checking

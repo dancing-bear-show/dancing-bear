@@ -2069,10 +2069,29 @@ stages:
         runs the subshell. The check must never be a shell string built
         around the untrusted value.
 
-        Validate OUT of the shell instead — read the value as data and test
-        it with a regex, e.g. a short python3 -c that takes the value from
-        os.environ (exported once by the runner) or from a file, never
-        interpolated into the program text. State in install.json which
+        Validate OUT of the shell instead. Do NOT reach for os.environ: the
+        engine never exports trigger params to the environment — resolve_params
+        (compiler.py:382-391) substitutes them into the description TEXT, and
+        nothing in src/workflow/ calls os.environ[...] or putenv — so advice
+        that reads them from there cannot be followed. An earlier revision of
+        this file said exactly that and was wrong.
+
+        The value only exists as text the engine pasted here, so get it out of
+        the command line before testing it:
+          1. Write it to a file using a heredoc whose delimiter is SINGLE
+             QUOTED, which suppresses every expansion inside the body:
+               cat > "$TMPDIR/qwen-host" <<'RAW'
+               {ollama_host}
+               RAW
+             The quoted delimiter is what makes this safe: with `<<RAW` the
+             shell would still expand $() inside the body.
+          2. Read the FILE with a regex, never interpolating the value into
+             the program text:
+               python3 -c 'import re,sys,pathlib; v=pathlib.Path(sys.argv[1]).read_text().strip(); sys.exit(0 if re.fullmatch(r"https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?", v) else 1)' "$TMPDIR/qwen-host"
+          3. Branch on the EXIT STATUS, not on echoed text — `|| echo
+             "REJECTED"` leaves the pipeline status 0 and the stage carries on
+             with a rejected value.
+        Apply the same three steps to {model_tag}. State in install.json which
         mechanism you used, and abort before any command runs if either
         pattern fails:
           ollama_host: ^https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?$

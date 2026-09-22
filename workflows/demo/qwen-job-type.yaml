@@ -27,7 +27,7 @@ description: >
         |
     land-and-verify              (G2 — verify the merge landed, drive the CLI)
 
-  THREE THINGS THIS DEMO EXISTS TO TEACH, each of which is a defect that has
+  FOUR THINGS THIS DEMO EXISTS TO TEACH, each of which is a defect that has
   actually shipped in this repo:
 
   1. An `isolation: worktree` stage MUST instruct its agent to commit.
@@ -40,8 +40,18 @@ description: >
      `kind: validate`. dispatch.py's `_validate()` builds its prompt from
      `validation.criteria` alone and never reads the description, so a
      validate stage carrying a real contract ships one no agent ever sees —
-     and `./bin/workflow lint` stays green. Every stage here is
-     `kind: gather` or `kind: execute` for that reason.
+     and `./bin/workflow lint` stays green. No stage here is
+     `kind: validate` for that reason.
+
+  4. A stage that changes state OUTSIDE the workspace must be
+     `kind: publish`, not `kind: execute`. The workflow skill's convention
+     authorizes external side effects only from publish stages, and the
+     prompt generated for an execute stage tells the agent there are none —
+     so an execute stage that touches the real queue both forbids and
+     requires its own actions. `land-and-verify` enqueues and drains real
+     jobs, which is why it is publish; `read-the-seam` and `write-handler`
+     stay gather and execute because they only read source and write inside
+     their own worktree.
 
   3. A handler speaks the retry protocol through its RETURN STRING, not
      through exceptions. `terminal-` means never retry; `deferred-` means
@@ -299,6 +309,14 @@ stages:
 
         ./bin/worker list
 
+      RUN THE CASES IN THIS ORDER: a) success, b) terminal, d) plain failure,
+      then c) deferred LAST. Case (c) is the only one that ends with a job
+      still pending, so running it earlier makes the pending count permanently
+      greater than 1 and the guard below then blocks every later case — the
+      plain-failure case would never drain at all. Ordering deferred last
+      keeps the guard satisfiable for the cases that precede it. (The letters
+      keep their original meaning below; only the execution order changes.)
+
       If the pending count is 1, your job is unambiguously the head and
       `./bin/worker run-once --max 1` is safe — run it. If anything else is
       pending, do NOT run run-once: either wait briefly and re-check whether
@@ -390,10 +408,10 @@ stages:
           "cases": [
             {"case": "success",  "job_id": "...", "final_state": "done",    "attempts_before": N, "attempts_after": N, "as_expected": true|false},
             {"case": "terminal", "job_id": "...", "final_state": "error",   "attempts_before": N, "attempts_after": N, "as_expected": true|false},
-            {"case": "deferred", "job_id": "...", "final_state": "pending", "attempts_before": N, "attempts_after": N, "as_expected": true|false},
+            {"case": "deferred", "disposition": "not-run-daemon-active|drained-to-error", "job_id": "..." | null, "final_state": "not-run|error", "attempts_before": N|null, "attempts_after": N|null, "drains_required": N|null, "as_expected": true|false},
             {"case": "plain",    "job_id": "...", "final_state": "pending", "attempts_before": N, "attempts_after": N, "as_expected": true|false}
           ],
-          "cleanup": {"jobs_left_in_queue": ["<success_id>", "<terminal_id>", "<deferred_id>", "<plain_id>"], "reason": "no id-scoped delete or queue-root override exists; see stage description"},
+          "cleanup": {"jobs_left_in_queue": ["<success_id>", "<terminal_id>", "<plain_id>"], "deferred_job_disposition": "not-run|drained-to-error", "reason": "no id-scoped delete or queue-root override exists; see stage description. The deferred job is NEVER left pending — it would cycle forever under a running daemon."},
           "verified": true|false
         }
 
