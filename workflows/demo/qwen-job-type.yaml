@@ -189,6 +189,18 @@ stages:
       COMMITS, not uncommitted files. If you return with edits uncommitted,
       the merge succeeds against an empty branch, this stage reports success,
       and everything you wrote is silently lost. So as your final action:
+      VALIDATE BOTH PARAMS FIRST — they are caller-overridable and land in a
+      git command line. `{handler_module}` unquoted in `git add` accepts a
+      value like `-A` (which stages everything, defeating the by-name rule
+      right below) or `path; other-command`. `{job_type}` sits inside a
+      double-quoted commit message, and double quotes do NOT stop `$(...)`
+      or a closing `"` — verified: `"h$(echo PWNED)"` runs the subshell.
+      Before running either command, check:
+        handler_module: ^src/worker/[A-Za-z0-9_]+\.py$   (a real repo path,
+                        never starting with `-`)
+        job_type:       ^[a-z][a-z0-9_]*$
+      Abort the stage if either fails; do not sanitize a bad value.
+
         git add {handler_module} src/worker/handlers.py
         git commit -m "feat(worker): add {job_type} demo handler"
       Stage the files by name — never `git add -A`, which would sweep up
@@ -337,12 +349,39 @@ stages:
       deletes; `worker purge` deletes by age (`--older-than`) and folder
       (`--folders`) only, with no id or job-type filter, so running it here
       would delete every job type's history, not just this demo's four jobs.
-      Record in verified.json that the four "{job_type}" jobs (one per retry
-      class) remain in done/error/pending as a known, accepted cost of
-      running this demo against the real queue. If you want them gone later,
-      run this manually, understanding it prunes ALL job types older than the
-      window, not just these:
-        ./bin/worker purge --older-than 0d --folders done,error
+      TWO OF THE FOUR ARE NOT INERT, and that is the part worth stating
+      plainly rather than filing under "accepted cost". Cases (c) and (d)
+      end in PENDING, not done/ or error/:
+        - (d) plain failure retries with backoff until max_attempts, then
+          lands in error/ — bounded, self-limiting, fine.
+        - (c) deferred is NOT bounded. The deferred- protocol restores
+          attempts on every requeue (that is its whole point), so if the
+          launchd daemon is running it will pick this job up every poll,
+          defer it, requeue it, and repeat — indefinitely, at the daemon's
+          interval, for as long as the machine is up. A demo must not leave
+          a perpetual background workload in a user's queue.
+
+      So before finishing, deal with case (c) explicitly. `worker` has no
+      delete-by-id — `show` and `retry` are the only id-scoped commands, and
+      `purge` filters by age and folder only (`--older-than`, `--folders`),
+      never by id or type, so it cannot target this demo's jobs and would
+      delete every job type's history if run. Given that, do ONE of:
+        - Preferred: do not run case (c) against a live queue at all when
+          `launchctl list | grep -F com.dancing-bear.worker` shows the daemon
+          loaded. Record case (c) as "not-run — daemon active, deferred job
+          would cycle indefinitely" and note that its behaviour is covered by
+          the handler's unit tests instead. A skipped case with a stated
+          reason is an honest demo result.
+        - Otherwise (no daemon running): run it, then immediately drain it to
+          a terminal state so it cannot cycle later — re-enqueue-free, just
+          `./bin/worker run-once --max 1` repeatedly under the Step 3 safety
+          gate until its attempts exhaust and it lands in error/. Record the
+          number of drains it took.
+
+      Record in verified.json which path you took for (c), and that the
+      remaining "{job_type}" jobs sit in done/ and error/ as inert records —
+      a known cost of running this demo against the real queue. Those two are
+      genuinely harmless: nothing re-runs a job in done/ or error/.
 
       Write {workspace}/validation/verified.json:
         {

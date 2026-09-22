@@ -298,17 +298,36 @@ stages:
         3. An entry whose (path, line) is absent from threads.json cannot be
            repaired: it names no real thread. HALT the whole stage and report
            it. Do not drop it silently and do not guess.
-        4. (path, line) IS NOT UNIQUE, and assuming it is will halt a healthy
-           run. GitHub returns line: null for every OUTDATED thread, so a file
-           with several outdated threads yields several entries keyed
-           (path, null) — a naive map keeps only the last and reports the rest
-           as mismatched. On the round-2 fetch of PR #391 that produced 11
-           false mismatches against a fetch that was provably correct.
-           So: build the map ONLY from entries whose line is not null, and
-           pair-check only those. For an entry with line null — outdated, or
-           PR-level with a null path — fall back to checking that its id
-           exists in the fetch's id set, which is the strongest test available
-           when there is no line to pair on.
+        4. (path, line) IS NOT A UNIQUE KEY, in two separate ways, and
+           assuming it is will either halt a healthy run or — worse — "repair"
+           a correct id into a wrong one.
+
+           (i) OUTDATED threads all carry line: null. A file with several of
+               them yields several entries keyed (path, null); a naive map
+               keeps the last and reports the rest as mismatched. On PR #391
+               round 2 that produced 11 false mismatches against a fetch that
+               was provably correct.
+           (ii) MULTIPLE LIVE THREADS CAN SHARE ONE LINE. GitHub allows
+               independent threads anchored to the same line, and a multi-line
+               thread reports only its END line, so two threads differing in
+               start_line collide too. Observed on this very PR: two distinct
+               threads both anchored to
+               workflows/demo/qwen-job-type.yaml:193.
+
+           So do NOT build a (path, line) -> id map at all. Build the
+           reverse — id -> (path, line) — from the fetch, and verify each
+           triage entry by looking up ITS OWN id:
+             - id present in the fetch, and its recorded (path, line) equals
+               the entry's: correct, leave it alone.
+             - id present but the coordinates differ: the entry was
+               mislabelled — trust the FETCH's coordinates, since the id is
+               the identity and the line is derived.
+             - id absent from the fetch entirely: corrupt or fabricated.
+               There is no safe automatic repair when a line maps to several
+               threads, so HALT and report rather than guessing which one was
+               meant.
+           This direction is safe because a thread_id IS unique; (path, line)
+           never was.
         5. A NULL thread_id IS LEGITIMATE — skip it, never halt on it. A
            review-body or issue-comment finding has no thread to anchor to,
            yet it CAN carry a path and line quoted from the prose. Checking
@@ -772,13 +791,23 @@ stages:
       unattended run says something nobody reviewed; check-prose owns that
       text, and its absence means the run is not ready to post.
 
-      Step 1a0 — ID PAIRING GATE, before any posting decision. Read
-      {workspace}/outputs/threads.json and build a (path, line) -> thread_id
-      map. For every thread you are about to reply to or resolve, the id must
-      be the one the fetch paired with that same (path, line).
+      Step 1a0 — ID COHERENCE GATE, before any posting decision. Read
+      {workspace}/outputs/threads.json and build an id -> (path, line) map
+      keyed BY THREAD ID. For every thread you are about to reply to or
+      resolve, its id must appear in that map AND the coordinates you hold
+      for it must match what the fetch recorded.
 
-      Check the PAIRING, not mere existence. On the observed run, 7 of the 8
-      corrupt ids were real ids belonging to other threads — they pass any
+      Key by id, never by (path, line). The id is the identity; the
+      coordinates are derived and are NOT unique — outdated threads all
+      report line: null, and GitHub allows several independent threads on one
+      line (a multi-line thread reports only its end line, so two threads
+      with different start_lines collide as well). Observed on PR #391: two
+      distinct threads both anchored to
+      workflows/demo/qwen-job-type.yaml:193. A (path, line) -> id map would
+      silently keep one of them.
+
+      Check COHERENCE, not mere existence. On the observed corruption, 7 of
+      the 8 bad ids were real ids belonging to other threads — they pass any
       "does this id exist?" test and then resolve SUCCESSFULLY, against the
       wrong thread. Only one was fabricated and would have errored. So an
       existence check catches the harmless failure and misses the harmful one:

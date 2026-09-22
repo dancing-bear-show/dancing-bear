@@ -94,8 +94,10 @@ description: >
                          denylist, checked by parsing the diff.
     redaction          — anything derived from payload content passes through
                          core.secrets.mask_text before reaching the result or
-                         telemetry, and file contents are never persisted to
-                         either.
+                         telemetry, neither of which carries file contents.
+                         The PATCH does, by design — a diff quotes its input
+                         verbatim — so the artifact's location outside the
+                         checkout is the boundary that matters. See 5f.
     concurrency lock   — see below; the memory guard of the set.
     memory precheck    — headroom the lock cannot see.
     disk precheck      — a full disk turns atomic_write_json into a partial
@@ -353,11 +355,33 @@ stages:
       Also probe the live machine (Bash, read-only — install nothing here):
         command -v ollama || echo "ollama: absent"
         ollama list 2>/dev/null || echo "ollama daemon: not responding"
+        VALIDATE {ollama_host} BEFORE IT REACHES ANY SHELL. This is the first
+        stage that touches it, so the check belongs here — not only in
+        install.
+
+        QUOTING IS NOT THE CONTROL, and an earlier revision of this file wrongly
+        said it was. Double quotes do NOT stop `$(...)` or backtick expansion,
+        and a value containing a double quote closes the quoting and appends
+        arbitrary commands. Verified directly:
+          value  http://host$(echo PWNED)/api   inside "..."  ->  the
+          subshell RUNS and the output becomes http://hostPWNED/api.
+        So a quoted-but-unvalidated substitution executes caller-supplied
+        code during a stage documented as read-only.
+
+        Do this instead, in order:
+          1. Read the value and check it against a strict allowlist pattern
+             BEFORE constructing any command:
+               ^https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?$
+             Reject anything else — any space, quote, backtick, $, ;, |, &,
+             newline or path segment. ABORT the stage with the offending
+             value shown, rather than continuing with a narrowed version.
+          2. Only after it passes, use it. Prefer passing it as a separate
+             argv element rather than interpolating into a command string;
+             where the description shows a shell line, treat the validated
+             value as the only thing that may be substituted into it.
+        Record in survey.json that the validation ran and what it accepted.
+
         curl -sS -m 3 -f -o /dev/null "{ollama_host}/api/tags" && echo "http: ok" || echo "http: unreachable"
-        (quoted — {ollama_host} is a caller-overridable trigger param
-        substituted with no validation by the workflow engine; the install
-        stage's Step 0 is the canonical validation gate, but this probe reads
-        the same unvalidated value, so it is quoted here too)
         launchctl list 2>/dev/null | grep -i dancing-bear || echo "no dancing-bear agents loaded"
         sysctl -n hw.memsize
 
@@ -1178,9 +1202,18 @@ stages:
           in the result on EVERY job, pass or fail, so a reviewer sees the
           size before opening the diff.
         - REDACTION, per contract.json's "redaction". Every string derived
-          from payload content that reaches the result or telemetry goes
-          through core.secrets.mask_text first. File contents themselves are
-          never persisted to either — counts, paths and durations only.
+          from payload content that reaches the RESULT or TELEMETRY goes
+          through core.secrets.mask_text first, and those two carry counts,
+          paths and durations only — never file contents.
+          Be precise about the one place contents DO reach disk, because an
+          earlier revision of this file overclaimed and the design (item 5f)
+          already corrects it: the PATCH is the product, and a unified diff
+          carries context lines lifted verbatim from the input files. So
+          "file contents are never persisted" is false as a blanket claim.
+          What is true: the prompt is never persisted, and contents reach
+          disk only inside the patch artifact — which is why that artifact's
+          location outside the checkout is a confidentiality boundary, not a
+          tidiness preference. Do not restate the blanket claim anywhere.
         - DISK PRECHECK, per contract.json's "disk_guard", before writing the
           patch. Fails open like the memory guard.
         - MODEL PINNING, per contract.json's "model_pinning": read the
@@ -2027,9 +2060,23 @@ stages:
           part alphanumeric plus `.`, `-`, `_`, at most one `:` separating
           name and tag, no whitespace, quotes, backticks, `$`, `;`, `|`, `&`,
           or newline.
-        A quick check that enforces both without writing a one-off validator:
-          printf '%s' "{ollama_host}" | grep -Eq '^https?://[A-Za-z0-9.-]+(:[0-9]+)?$' || echo "REJECTED: ollama_host"
-          printf '%s' "{model_tag}"   | grep -Eq '^[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)?$' || echo "REJECTED: model_tag"
+        DO NOT VALIDATE BY SUBSTITUTING INTO A SHELL COMMAND. The obvious
+        form — `printf '%s' "{ollama_host}" | grep -Eq ...` — already loses:
+        the engine pastes the raw value into that command line, so a value
+        containing `$(...)`, a backtick, or a `"` executes while the
+        "validator" is being constructed. Double quotes do not prevent
+        command substitution; verified directly, `"http://h$(echo PWNED)"`
+        runs the subshell. The check must never be a shell string built
+        around the untrusted value.
+
+        Validate OUT of the shell instead — read the value as data and test
+        it with a regex, e.g. a short python3 -c that takes the value from
+        os.environ (exported once by the runner) or from a file, never
+        interpolated into the program text. State in install.json which
+        mechanism you used, and abort before any command runs if either
+        pattern fails:
+          ollama_host: ^https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?$
+          model_tag:   ^[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)?$
         If either is rejected, abort the stage immediately: write
         {workspace}/validation/install.json with skipped=true and a
         skip_reason naming which param failed and its (redacted if
@@ -2464,9 +2511,24 @@ stages:
            contract is that patches are produced for review, never applied.
 
       Check C — NO REGRESSION IN EXISTING JOB TYPES. The heartbeat change
-      touched shared queue code. Enqueue and drain one trivial run_shell job
+      touched shared queue code. Enqueue one trivial run_shell job
       (something like `echo ok`) and confirm it still completes into done/.
       A green qwen job with a broken run_shell path is a net loss.
+
+      DRAIN IT THE SAME WAY CHECK B DOES — the safety gate is not optional
+      here just because the job is trivial. A bare `./bin/worker run-once`
+      defaults to --max 5 and takes whatever sits at the head of the global
+      priority order, so it can execute up to five unrelated jobs of the
+      user's and consume their attempts, while this check is only trying to
+      prove run_shell still works. Reuse Check B's sequence exactly:
+        a. read your job back by id first — if the daemon already handled it,
+           that is a valid drain and you are done;
+        b. otherwise check `./bin/worker list` and drain with
+           `./bin/worker run-once --max 1` ONLY when your job is
+           unambiguously the single pending entry;
+        c. if anything else is pending, record this check as
+           "not-verifiable — queue contended" rather than draining;
+        d. confirm the job you read back is the id you enqueued.
 
       Check D — TELEMETRY LANDED AND IS QUERYABLE. Run
       `./bin/telemetry otel health` first. If the collector is not running,
