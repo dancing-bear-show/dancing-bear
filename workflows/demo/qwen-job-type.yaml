@@ -59,8 +59,18 @@ description: >
      backoff until max_attempts. Misclassifying a permanent failure as a
      plain one makes the daemon retry it forever.
 
-  Run it:
-    ./bin/workflow run workflows/demo/qwen-job-type.yaml --execute
+  Run it through the /workflow SKILL, not the CLI:
+
+    /workflow --workflow workflows/demo/qwen-job-type.yaml --execute
+
+  `./bin/workflow run --execute` is NOT the execution path for a workflow
+  whose stages need agents. It writes the dispatch files, returns a run in
+  status=pending, and exits — it never spawns the agents, so nothing creates
+  the handler and nothing drives the queue. Every stage here is agent-backed,
+  so the CLI form stops before any of the work happens while reporting a
+  successful invocation. That failure mode is quiet, which is why this demo
+  names the skill instead. Use the CLI for `parse`, `compile`, `lint` and
+  `list`, which are genuinely CLI operations.
 
 metadata:
   author: dancing-bear
@@ -562,14 +572,29 @@ stages:
             {"case": "deferred", "disposition": "not-run-daemon-active|observed-left-pending", "job_id": "..." | null, "final_state": "not-run|pending", "attempts_before": N|null, "attempts_after": N|null, "as_expected": true|false},
             {"case": "plain",    "job_id": "...", "final_state": "pending", "attempts_before": N, "attempts_after": N, "as_expected": true|false}
           ],
-          "cleanup": {"jobs_left_in_queue": ["<success_id>", "<terminal_id>", "<plain_id>"], "deferred_job_disposition": "not-run|drained-to-error", "reason": "no id-scoped delete or queue-root override exists; see stage description. The deferred job is NEVER left pending — it would cycle forever under a running daemon."},
+          "cleanup": {"jobs_left_in_queue": ["<success_id>", "<terminal_id>", "<plain_id>", "<deferred_id if observed-left-pending>"], "deferred_job_disposition": "not-run-daemon-active|observed-left-pending", "reason": "no id-scoped delete or queue-root override exists; see stage description. Under a LOADED daemon the deferred case is not run at all, because a deferred job would cycle forever. On a quiet queue it is observed once and left pending, which cycles nothing because nothing is polling — record its id above so the reader can remove it."},
           "verified": true|false
         }
 
       verified is true only if the commit is an ancestor of HEAD, the type
-      appeared in the CLI, and all four cases behaved as expected — in
-      particular, only if the terminal case stopped after one attempt AND the
-      deferred case's attempts_after equals its attempts_before.
+      appeared in the CLI, and every case that RAN behaved as expected — in
+      particular, only if the terminal case stopped after one attempt.
+
+      The deferred case is conditional, so its predicate is conditional too:
+        - disposition "observed-left-pending" (quiet queue): attempts_after
+          must equal attempts_before. That equality is the whole point of the
+          deferred- protocol and is the only thing that distinguishes it from
+          an ordinary retry.
+        - disposition "not-run-daemon-active": the case was deliberately
+          skipped, attempts_before and attempts_after are both null, and
+          verified is NOT failed for it. Record as_expected true with the
+          skip reason.
+
+      Do not require an equality between two nulls, and do not report a
+      skipped case as verified behaviour. A run that skips the deferred case
+      on a live queue and says so is a truthful, successful run; one that
+      claims to have proven the attempt-restoration without executing it is
+      not.
     agent:
       role: code-writer
       model: sonnet
