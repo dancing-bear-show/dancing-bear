@@ -364,5 +364,88 @@ class TestDomainLlmConfigOverrides(unittest.TestCase):
         self.assertEqual(llm_config.description, "Custom description")
 
 
+class TestRunSubcommandInvariant(unittest.TestCase):
+    """Pin the invariant that makes run()'s ``func is None`` guard defensive.
+
+    ``run()`` ends with::
+
+        func = getattr(args, "func", None)
+        if func is None:
+            parser.print_help()
+            return 0
+        return int(func(args))
+
+    That guard is currently unreachable through ``_build_app_parser``: the
+    subparsers action is ``required=True``, so a missing subcommand exits 2
+    inside argparse, and every registered subcommand calls ``set_defaults(func=...)``.
+    The guard is worth KEEPING — ``run`` is public (``mail.llm_cli.run``
+    re-exports it) and a caller could supply a parser built another way, where
+    dropping it would turn a help message into an ``AttributeError``.
+
+    What these tests pin is the reason it stays dead: if someone drops
+    ``required=True`` or adds a subcommand without a ``func`` default, the
+    guard silently becomes live and a usage error turns into a success exit.
+    That is a behaviour change worth failing on.
+    """
+
+    def _parser(self):
+        from core.llm_cli import LlmConfig, _build_app_parser
+
+        return _build_app_parser(
+            LlmConfig(prog="llm-probe", description="probe", agentic=lambda: "x")
+        )
+
+    def _subparsers_action(self, parser):
+        for action in parser._actions:
+            if getattr(action, "choices", None):
+                return action
+        self.fail("no subparsers action found on the parser")
+        return None  # unreachable: self.fail always raises
+
+    def test_subcommand_is_required(self):
+        action = self._subparsers_action(self._parser())
+        self.assertTrue(
+            action.required,
+            "subparsers must stay required=True; without it a bare invocation "
+            "reaches run()'s func-is-None guard and exits 0 instead of 2",
+        )
+
+    def test_every_subcommand_sets_a_callable_func_default(self):
+        action = self._subparsers_action(self._parser())
+        self.assertTrue(action.choices, "expected at least one subcommand")
+        for name, subparser in action.choices.items():
+            with self.subTest(subcommand=name):
+                self.assertIn(
+                    "func",
+                    subparser._defaults,
+                    f"subcommand {name!r} has no func default, so run() would "
+                    f"print help and return 0 instead of executing it",
+                )
+                # Presence alone is too weak: run() guards on `func is None`,
+                # so set_defaults(func=None) would keep this key present, take
+                # the guard, and return 0 without dispatching. Assert the
+                # stored default is actually dispatchable.
+                func = subparser._defaults["func"]
+                self.assertIsNotNone(
+                    func,
+                    f"subcommand {name!r} has func=None, so run() would take "
+                    f"its func-is-None guard and return 0 without dispatching",
+                )
+                self.assertTrue(
+                    callable(func),
+                    f"subcommand {name!r} has a non-callable func default "
+                    f"({func!r}); run() would raise on int(func(args))",
+                )
+
+    def test_missing_subcommand_exits_two_rather_than_printing_help(self):
+        parser = self._parser()
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as ctx:
+                parser.parse_args([])
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertIn("required", stderr.getvalue())
+
+
 if __name__ == '__main__':
     unittest.main()
