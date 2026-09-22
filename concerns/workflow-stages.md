@@ -131,7 +131,7 @@ Fragment, include, sub-workflow, and skill-sync concerns are in `workflow-fragme
 - **severity**: minor
 - **check**: Verify that stages whose entire workload is one or two trivial CLI or shell commands use `executor: inline` rather than spawning an agent. Stages that only run `./bin/` commands or `gh` operations require no synthesis, judgment, or multi-step reasoning — spawning an agent wastes resources and introduces unnecessary latency.
 - **triggers**: Workflow YAML stages that (a) have no `executor: inline` set, (b) whose `description` contains nothing but a single `./bin/` or `gh` command (possibly preceded by a `Read` of one file), and (c) whose `tools` list is limited to `[Bash]` or `[Read, Bash]` with no `Edit`, `Write`, or `Glob` needed for reasoning.
-- **example**: A `post-comments` stage whose description is entirely "read decision.txt then run `./bin/github pr-review-comment N --body-file /tmp/body.txt`" is assigned `role: doc-writer` and spawns a full agent. The stage produces no synthesized output — only a side-effect CLI call. Fix: add `executor: inline` so the orchestrator runs the command directly. Auth checks, comment posting, and other single-step CLI stages are canonical inline candidates.
+- **example**: A `post-comments` stage whose description is entirely "read decision.txt then run `GITHUB_TOKEN= gh pr comment N --body-file /tmp/body.txt`" is assigned `role: doc-writer` and spawns a full agent. The stage produces no synthesized output — only a side-effect CLI call. Fix: add `executor: inline` so the orchestrator runs the command directly. Auth checks, comment posting, and other single-step CLI stages are canonical inline candidates.
 
 ### verify-stage-missing-pythonpath
 - **severity**: major

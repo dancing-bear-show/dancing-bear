@@ -107,16 +107,21 @@ dev = [
 ]
 # pdfplumber backs the table-extraction branch in
 # src/calendars/importer/pdf_parser.py, imported lazily with a regex fallback.
-# It previously pinned pdfminer.six==20251107, a vulnerable version, which is
-# why this extra was kept out of [dev]; current pdfplumber requires
-# pdfminer.six==20260107 — the same version already pinned in the core
-# dependencies above — so that conflict no longer applies.
+#
+# The floor is >=0.11.10 rather than >=0.11.0 because pdfplumber pins an exact
+# pdfminer.six, and that pin varies across the 0.11 series: 0.11.0-0.11.5 pin
+# 20231228, 0.11.6 pins 20250327, 0.11.7 pins 20250506, 0.11.8 pins 20251107,
+# 0.11.9 pins 20251230, and 0.11.10 pins 20260107. Only 0.11.10 matches the
+# pdfminer.six==20260107 required directly above, so a looser floor either
+# fails to resolve or — worse, if the direct pin is ever relaxed — installs
+# 20251107, the version SECURITY.md flags for the pickle/CMap issue. Raise this
+# floor in step with the direct pdfminer.six pin.
 #
 # PyMuPDF backs the AcroForm field helpers in src/core/pdf_forms.py, used to
 # fill insurance/government PDF templates. Imported lazily there so the core
 # CLIs stay dependency-light.
 pdf = [
-  "pdfplumber>=0.11.0",
+  "pdfplumber>=0.11.10",
   "PyMuPDF>=1.24.0",
 ]
 
