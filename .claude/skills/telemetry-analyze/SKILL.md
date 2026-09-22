@@ -131,7 +131,11 @@ claims are arithmetically correct.
 
 - Transcript data lives in `~/.claude/projects/` — always available, no collector needed
 - The `telemetry` module source is at `src/telemetry/` (the `telemetry/` directory at the repo root is stale `__pycache__` only)
-- dancing-bear does not have a `rules` subcommand or waste-classification system; focus analysis on cost and tool-call counts
+- `telemetry rules` manages *classification* rules (`--init` scaffolds
+  `~/.telemetry-transcripts/rules.yaml`, `--validate` checks them, `--explain NAME`
+  shows one). There is no waste-classification system behind it, so for cost and
+  efficiency questions focus on cost and tool-call counts rather than expecting
+  `rules` to label waste for you.
 
 ## Related Skills
 
