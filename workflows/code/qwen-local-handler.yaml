@@ -72,9 +72,23 @@ description: >
         |
     install                                  (G6 — idempotent: ollama, model, worker launchd)
         |
-    verify                                   (G7 — real job through the real queue)
+    validate-config                          (G7 — installed config matches the design)
         |
-    report                                   (G8 — summary + how to use it)
+    verify                                   (G8 — real job through the real queue)
+        |
+    report                                   (G9 — summary + how to use it)
+
+  CONCURRENCY IS A SAFETY PROPERTY HERE, not a tuning preference. The queue
+  runs jobs on real threads (job_runtime `_process_batch`) and the shipped
+  plist sets `--max-per-tick 8 --max-inflight 8`. Those caps are GLOBAL —
+  `_calculate_allowed_jobs` has no per-type awareness — so without a guard
+  the daemon will happily start 8 simultaneous 14B generations and exhaust
+  the machine's memory. The handler therefore takes an exclusive lock around
+  the model call, holding qwen to one at a time while leaving cheap job types
+  (run_cli, run_shell, workflow_stage) their full parallelism. A memory
+  precheck covers what the lock cannot see: headroom consumed by everything
+  else on the machine. validate-config then confirms, after install, that the
+  configuration those guards assume is the configuration actually on disk.
 
   merge-impl is a stage of its own rather than integrate's first paragraph
   because two later stages need the merged tree. An isolated agent's edits do
@@ -110,6 +124,13 @@ trigger:
     model_tag: "qwen2.5-coder:14b"
     ollama_host: "http://localhost:11434"
     job_type: "qwen_patch"
+    # Approximate resident size of {model_tag} at Q4 quantization, used by the
+    # memory precheck. The survey verifies this against `ollama list` rather
+    # than trusting it — override when changing model_tag.
+    model_resident_gb: "9"
+    # Safety margin above the model size before a generation is allowed to
+    # start, leaving room for the OS and whatever else is running.
+    memory_margin_gb: "4"
 
 workspace_dir: "{work_dir}/qwen-local-handler"
 
@@ -316,6 +337,76 @@ stages:
          request body, how the timeout is derived from the job's timeout_sec,
          and how a connection failure is distinguished from a slow generation.
 
+      5b. CONCURRENCY GUARD — the single most important safety property of
+         this handler, because the queue provides no protection here.
+
+         THE PROBLEM, verified against source and the shipped config:
+           - job_runtime.py's `_process_batch` starts a real threading.Thread
+             per job, so jobs in one tick run genuinely concurrently.
+           - The shipped plist passes `--max-per-tick 8 --max-inflight 8`, and
+             `_calculate_allowed_jobs` counts everything in processing/ with
+             NO notion of job type. Both caps are global.
+           - Therefore nothing prevents 8 simultaneous {model_tag}
+             generations. At roughly {model_resident_gb} GB resident each,
+             that is far beyond this machine's memory and means swapping,
+             an OOM kill, or a stalled system — not merely slow jobs.
+
+         THE REQUIREMENT: at most ONE {job_type} job may call the model at a
+         time, without constraining run_cli / run_shell / workflow_stage,
+         which are cheap and should keep their 8-wide parallelism.
+
+         Specify a handler-side exclusive lock, held only around the model
+         call (never around the whole handler — patch validation and
+         telemetry must not hold it):
+           - A lock file under the worker state dir (see survey's
+             get_worker_state_dir), NOT in the repo.
+           - Acquired with an atomic primitive — O_CREAT|O_EXCL, or fcntl
+             flock. Do not implement check-then-create; two jobs starting in
+             the same tick will race it.
+           - STALE LOCK RECOVERY is mandatory. A daemon killed mid-generation
+             leaves the lock file behind, and a lock nothing can ever acquire
+             turns every future qwen job into a permanent no-op. Write the
+             holder's PID and an ISO timestamp into the file, and treat a
+             lock as stale when its PID is not alive or its age exceeds a
+             stated ceiling. Say exactly how you check liveness.
+
+         CONTENTION BEHAVIOUR — block, but BOUNDED. A bare block is unsafe
+         here and the reason is specific: `_join_with_timeout` (job_runtime.py
+         line ~380) calls a plain `t.join()` with no timeout whenever
+         job_timeout <= 0, which is the shipped default since the plist passes
+         no --job-timeout. So if 8 qwen jobs arrive in one tick, 1 generates
+         and 7 block forever, the tick never completes, and the whole daemon
+         hangs — taking every other job type with it. Specify instead:
+           - Wait for the lock up to a bounded ceiling (state the value and
+             justify it against a realistic generation time for {model_tag}).
+           - On acquiring it within the ceiling: proceed normally.
+           - On timing out: return "deferred-qwen-busy" so the job goes back
+             to pending WITHOUT consuming an attempt (survey's retry_protocol
+             confirms `_handle_outcome` calls `_undo_retry_attempt` for the
+             deferred- prefix). A waiting job must never exhaust
+             max_attempts just because the machine was busy.
+           - Never hold a queue slot indefinitely.
+
+      5c. MEMORY PRECHECK. The lock caps concurrent qwen jobs, but it cannot
+         see the rest of the machine — a build, a browser, or another model
+         can consume the headroom a single {model_tag} needs, and the failure
+         mode there is swapping rather than a clean error.
+
+         Before acquiring the lock, compare available memory against the
+         model's resident size plus a stated safety margin. If there is not
+         enough, return "deferred-low-memory" — the same no-attempt-consumed
+         path as above — rather than starting a generation that will thrash.
+
+         State how you read available memory on this platform and cite it;
+         do not assume a Linux-only source such as /proc/meminfo, since the
+         survey records this as a macOS host. If you cannot measure it
+         reliably, say so and make the precheck a no-op with a logged
+         warning rather than guessing a number — a wrong memory reading that
+         defers every job is worse than no precheck at all.
+
+         Record both guards in contract.json so impl-handler implements
+         exactly what was approved and impl-tests can assert against it.
+
       6. TELEMETRY. Local inference must be visible in `./bin/telemetry otel`
          alongside Claude Code usage, so a qwen job emits OTLP like any other
          work. The survey recorded the existing pipeline; design against it:
@@ -363,6 +454,8 @@ stages:
           "heartbeat": {"field": "...", "interval_sec": N, "reaper_change": "...", "backward_compatible": "..."},
           "transport": {"endpoint": "...", "method": "...", "timeout_derivation": "..."},
           "telemetry": {"endpoint_env_var": "...", "span_name": "...", "attributes": ["..."], "metrics": ["..."], "emits_cost": false, "failure_is_nonfatal": "..."},
+          "concurrency": {"lock_path": "...", "primitive": "O_EXCL|flock", "scope": "model call only", "wait_ceiling_sec": N, "on_timeout": "deferred-qwen-busy", "stale_detection": "...", "stale_ceiling_sec": N},
+          "memory_guard": {"source": "...", "model_resident_gb": N, "margin_gb": N, "on_insufficient": "deferred-low-memory", "unavailable_fallback": "no-op with warning"},
           "files_to_create": ["..."],
           "files_to_modify": ["..."]
         }
@@ -439,6 +532,19 @@ stages:
           and signature from contract.json's heartbeat section, not from the
           other worktree. If integrate finds the signature drifted, it
           reconciles — do not guess and do not silently skip the call.
+        - CONCURRENCY GUARD, per contract.json's "concurrency" section. The
+          queue's max-inflight is global, so this lock is the ONLY thing
+          preventing 8 simultaneous generations from exhausting memory.
+          Implement it exactly as approved: an atomic acquire (never
+          check-then-create), held around the model call ONLY, released in a
+          `finally` so a raised exception cannot strand it. Detect and
+          reclaim a stale lock as specified. On wait-timeout return the exact
+          "deferred-" string from the contract — a misspelled prefix degrades
+          to a plain retry and burns the job's attempts.
+        - MEMORY PRECHECK, per contract.json's "memory_guard" section, before
+          acquiring the lock. If the memory source is unavailable, log a
+          warning and proceed — never defer every job on an unreadable
+          reading.
         - TELEMETRY (qwen_telemetry.py), per contract.json's telemetry section:
           emit one OTLP span per job matching the record shape recorded in
           survey.json, over stdlib urllib, to the endpoint resolved from the
@@ -600,6 +706,29 @@ stages:
           mock, not merely that the job succeeded. A job that never
           heartbeats succeeds fine in a fast test and gets reaped in
           production.
+        - CONCURRENCY — the guard that protects the machine, so test it
+          properly:
+            * With the lock already held, the handler returns the exact
+              "deferred-" string from contract.json. Assert the full prefix,
+              not just that it failed.
+            * The model is NOT called while the lock is held — assert
+              call_count on the transport mock is 0. A test that only checks
+              the return value would pass even if the handler generated
+              anyway and discarded the result, which is the exact memory
+              blowup this guard exists to prevent.
+            * The lock is released after a SUCCESSFUL job, so a second job
+              can acquire it.
+            * The lock is released when the model call RAISES — the failure
+              path is what strands a lock in production. Prove it by making
+              the transport raise, then asserting a subsequent job acquires.
+            * A stale lock (dead PID, or older than the ceiling) is
+              reclaimed rather than blocking forever.
+        - MEMORY PRECHECK: with available memory mocked below the threshold,
+          the handler returns "deferred-low-memory" AND does not call the
+          model (assert call_count 0). With memory ample, it proceeds. With
+          the memory source unavailable/raising, it proceeds with a warning
+          rather than deferring — assert that explicitly, since a precheck
+          that fails closed would silently stop every qwen job.
 
       Mocking: no network and no real model in tests. Mock at the HTTP
       boundary, matching the style recorded in the survey's test_layout.
@@ -1095,12 +1224,128 @@ stages:
         checks: [is_json, has_key:steps, has_key:all_ok]
 
   # ===========================================================================
-  # G6: Verify — a real job through the real queue, plus an idempotence re-run
+  # G7: Validate config — the installed configuration must match the design
+  # ===========================================================================
+  - name: validate-config
+    kind: execute
+    depends_on: [install]
+    reads_from: [install, design, survey]
+    description: >
+      Check that the configuration the running system will actually use
+      matches what the design assumed. Installing successfully is not the
+      same as being configured correctly, and every item below is a case
+      where the install can report ok while the system behaves wrongly.
+
+      READ-ONLY. Report mismatches; do not fix them here. A fix belongs in
+      install (so it is idempotent and re-runnable) or in the user's hands,
+      not in a validation stage that would make the problem invisible on the
+      next run.
+
+      Check 1 — DAEMON CONCURRENCY vs the qwen guard.
+        Read the installed plist at
+        ~/Library/LaunchAgents/com.dancing-bear.worker.plist and record its
+        ProgramArguments verbatim. Note --max-per-tick and --max-inflight.
+        These are GLOBAL caps with no per-type awareness, so the daemon will
+        start that many jobs of ANY type concurrently. Cross-check against
+        contract.json's "concurrency" section: the handler-side lock is what
+        holds qwen to one at a time, so confirm the approved lock design was
+        actually implemented (grep the merged source for the lock path /
+        primitive named in the contract). If the daemon allows N>1 and the
+        lock is absent, that is a BLOCKING finding — it is the configuration
+        that lets N concurrent 14B generations exhaust memory.
+
+      Check 2 — THE LOCK PATH IS WRITABLE AND CORRECTLY LOCATED.
+        Resolve the lock path from contract.json. Confirm its parent
+        directory exists and is writable, and that it is under the worker
+        state dir, NOT inside the repo checkout. A lock file in the repo is
+        wrong twice over: it can be committed, and it does not survive as a
+        cross-process guard the way a state-dir path does. Do not create the
+        lock file itself — only verify the location is usable.
+
+      Check 3 — NO STALE LOCK IS PRESENT RIGHT NOW.
+        If the lock file already exists before any job has run, something
+        left it behind. Record its contents (PID, timestamp) and whether the
+        PID is alive. A stale lock present at install time would silently
+        defer every qwen job forever. Report it; do not delete it — say what
+        the user should run to clear it.
+
+      Check 4 — MEMORY HEADROOM vs the model.
+        Read available memory using the same source contract.json's
+        "memory_guard" names, and compare to model_resident_gb +
+        memory_margin_gb. Report whether a single generation can run right
+        now. This is a snapshot, not a guarantee — say so. If total machine
+        memory cannot accommodate even one generation plus margin, that is a
+        blocking finding: the model tag is wrong for this hardware and the
+        user should pick a smaller one.
+
+      Check 5 — TIMEOUT PATHS ARE COHERENT.
+        From survey.json's shipped_plist section and the installed plist,
+        record whether --job-timeout is passed. Then state the consequence
+        plainly, because the two settings interact:
+          - No --job-timeout (the shipped default): the reaper never fires,
+            and `_join_with_timeout` joins with no deadline. A wedged
+            generation hangs its thread indefinitely.
+          - With --job-timeout set: both the reaper and the in-process join
+            become live, and any liveness design from the design stage must
+            actually handle them.
+        Cross-check against whichever route contract.json's liveness section
+        chose. If the design assumed one configuration and the plist has the
+        other, that is a blocking mismatch — this is exactly the class of
+        wrong assumption that an earlier draft of this workflow shipped.
+
+      Check 6 — OLLAMA'S OWN CONCURRENCY SETTINGS.
+        Record whether OLLAMA_NUM_PARALLEL and OLLAMA_MAX_LOADED_MODELS are
+        set in the environment the server runs under, and their values if so.
+        Do not assume defaults — read them, and if they are unset say
+        "unset (server default, not verified here)" rather than guessing a
+        number. These bound how the server itself handles simultaneous
+        requests, independently of our lock; note any value that would allow
+        more parallelism than the handler's guard intends.
+
+      Write {workspace}/validation/config-validation.json:
+        {
+          "checks": [
+            {"check": "daemon_concurrency",  "passed": true|false, "blocking": true|false, "detail": "...", "observed": {"max_per_tick": N, "max_inflight": N, "lock_implemented": true|false}},
+            {"check": "lock_path_usable",    "passed": true|false, "blocking": true|false, "detail": "...", "path": "...", "inside_repo": true|false},
+            {"check": "no_stale_lock",       "passed": true|false, "blocking": false,      "detail": "...", "lock_present": true|false, "holder_pid_alive": true|false|null},
+            {"check": "memory_headroom",     "passed": true|false, "blocking": true|false, "detail": "...", "available_gb": N, "required_gb": N},
+            {"check": "timeout_coherent",    "passed": true|false, "blocking": true|false, "detail": "...", "job_timeout_passed": true|false, "design_route": "..."},
+            {"check": "ollama_concurrency",  "passed": true|false, "blocking": false,      "detail": "...", "num_parallel": "...", "max_loaded_models": "..."}
+          ],
+          "blocking_failures": [...],
+          "config_valid": true|false,
+          "remediation": [{"finding": "...", "fix": "...", "who": "install-stage|user"}]
+        }
+
+      config_valid is true only when no check with blocking true failed.
+      Report honestly: a check you could not perform is passed=false with a
+      detail saying why, never passed=true by default.
+    agent:
+      role: unit-validator
+      model: sonnet
+      tools: [Bash, Read, Grep, Glob, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: config_validation
+        mode: generate
+        description: >
+          config-validation.json recording whether the installed daemon
+          config, lock location, memory headroom, timeout settings and
+          Ollama concurrency match what the design assumed.
+    writes_to:
+      - validation/config-validation.json
+    validates_output:
+      - path: validation/config-validation.json
+        checks: [is_json, has_key:checks, has_key:config_valid]
+
+  # ===========================================================================
+  # G8: Verify — a real job through the real queue, plus an idempotence re-run
   # ===========================================================================
   - name: verify
     kind: execute
-    depends_on: [install]
-    reads_from: [install, design, integrate]
+    depends_on: [validate-config]
+    reads_from: [validate-config, install, design, integrate]
     description: >
       Prove the stack works end to end, and prove the install is idempotent.
 
@@ -1108,6 +1353,13 @@ stages:
       queue and drains them — which is why it is declared read-write. Keep
       that mutation to the minimum the checks below require: never requeue,
       purge, or delete anything, and never touch a job you did not enqueue.
+
+      Read {workspace}/validation/config-validation.json FIRST. If
+      config_valid is false, do NOT enqueue anything: a blocking config
+      failure means the guards this workflow relies on are not in place, and
+      running a real generation could be exactly the memory event the guard
+      exists to prevent. Record the blocking findings, write verified=false
+      with a clear reason, and stop.
 
       Read {workspace}/validation/install.json. If skipped or all_ok is false,
       record what could not be verified and why — do not fabricate a pass.
@@ -1190,8 +1442,25 @@ stages:
           existing query is a regression in the telemetry CLI, not a
           telemetry success — report it as a failure.
 
+      Check E — THE CONCURRENCY GUARD ACTUALLY HOLDS, live. Unit tests prove
+      the lock logic; this proves it under the real daemon, which is where
+      the 8-wide batch actually happens.
+
+      Enqueue TWO {job_type} jobs back to back, then drain. Read both back by
+      id and confirm the model was never generating for both at once — the
+      evidence is that one of these holds:
+        - one job completed and the other returned the "deferred-" busy
+          string from contract.json and was re-queued with its attempts
+          UNCHANGED (read the attempts field on both), or
+        - they completed sequentially, with the second job's start timestamp
+          at or after the first job's finish.
+      If both ran concurrently, that is a blocking failure — say so plainly
+      rather than reporting a green end-to-end run. Keep this to two jobs:
+      the point is to prove the guard, not to stress the machine.
+
       Write {workspace}/validation/verify.json:
         {
+          "concurrency_guard": {"jobs": ["...", "..."], "outcome": "one-deferred|sequential|CONCURRENT", "attempts_unchanged_on_deferred": true|false, "held": true|false},
           "idempotence": {"all_already_satisfied": true|false, "checks": [...]},
           "job_flow": {"type_in_cli_choices": true|false, "job_id": "...", "final_state": "done|error|...", "patch_present": true|false, "git_apply_check_passed": true|false, "patch_path": "..."},
           "regression": {"run_shell_ok": true|false, "detail": "..."},
@@ -1212,8 +1481,9 @@ stages:
         - Telemetry was either confirmed queryable via ./bin/telemetry otel,
           or recorded as not-verifiable with the collector down — never
           assumed either way.
-        - verified is true only if checks A, B and C genuinely passed. D may
-          be not-verifiable without failing the stage.
+        - The concurrency guard was exercised with two real jobs and held.
+        - verified is true only if checks A, B, C and E genuinely passed. D
+          may be not-verifiable without failing the stage.
     agent:
       role: code-writer
       model: sonnet
@@ -1240,7 +1510,7 @@ stages:
   - name: report
     kind: propose
     depends_on: [verify]
-    reads_from: [verify, install, integrate, design, survey]
+    reads_from: [verify, validate-config, install, integrate, design, survey]
     description: >
       Read every prior stage output and write {workspace}/validation/report.md.
       Cite the stage files for each claim; do not restate intent as outcome.
@@ -1264,6 +1534,14 @@ stages:
       ### Install state
       One row per install.json step: already-satisfied vs changed. List
       manual_steps_required prominently if non-empty.
+
+      ### Configuration
+      One row per config-validation.json check. Lead with any blocking
+      failure. State the daemon's max-inflight alongside the handler lock,
+      since the pair is what bounds concurrent generations — and say plainly
+      that the queue's caps are global, so the lock is the only per-type
+      protection. Include the memory headroom snapshot and note it is a
+      snapshot. List remediation entries with who owns each.
 
       ### Verification
       Idempotence, the end-to-end job (id, final state, patch path), and the

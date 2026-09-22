@@ -93,6 +93,23 @@ stages:
                             prove the server answers rather than merely
                             accepting connections. Keep it tiny — this is a
                             liveness probe, not a benchmark.
+        8. Concurrency guard: the qwen handler holds an exclusive lock around
+                            the model call, because the daemon's
+                            --max-inflight is a GLOBAL cap with no per-type
+                            awareness and would otherwise allow several
+                            simultaneous generations. Check the lock file
+                            under the worker state dir:
+                              - absent  -> healthy, nothing running
+                              - present with a LIVE holder pid -> a job is
+                                generating right now; healthy, not a fault
+                              - present with a DEAD holder pid, or older than
+                                its staleness ceiling -> STALE. This is the
+                                important case: a stale lock silently defers
+                                every qwen job forever, and the queue looks
+                                fine while nothing progresses.
+                            Record the pid, its liveness, and the file's age.
+                            Do not delete it here — this stage is read-only;
+                            triage proposes the removal.
 
       Record the machine's memory pressure too (vm_stat, sysctl -n hw.memsize):
       a 14B model on a loaded machine is the usual cause of slow generations,
@@ -107,12 +124,15 @@ stages:
             {"layer": "worker_daemon",  "up": true|false, "detail": "...", "exit_status": "..." | null},
             {"layer": "queue",          "up": true|false, "detail": "..."},
             {"layer": "collector",      "up": true|false, "detail": "..."},
-            {"layer": "round_trip",     "up": true|false, "detail": "...", "latency_ms": N | null}
+            {"layer": "round_trip",     "up": true|false, "detail": "...", "latency_ms": N | null},
+            {"layer": "concurrency_lock", "up": true|false, "detail": "...", "lock_present": true|false, "holder_pid": N | null, "holder_alive": true|false|null, "age_sec": N | null, "verdict": "absent|active|STALE"}
           ],
           "memory": {"total_gb": N, "pressure": "..."},
           "all_up": true|false,
           "first_down_layer": "..." | null
         }
+      For concurrency_lock, "up" means the guard is in a sane state — absent
+      or actively held. A STALE lock is up=false.
     agent:
       role: researcher
       model: sonnet
@@ -328,14 +348,20 @@ stages:
         1. Stack down — any layer in health.json that is down and blocks work.
            The configured model being absent belongs here: every qwen job
            fails terminally without it.
-        2. Systemic errors — an error_cluster with looks_systemic true, or any
+        2. A STALE concurrency lock (health.json's concurrency_lock verdict
+           "STALE"). Rank it here, just below a down stack, because its
+           symptom is deceptive: the queue is healthy, jobs enqueue fine, and
+           nothing errors — they simply defer forever. A lane that looks idle
+           but is actually blocked is easy to misread as "no work to do".
+
+        3. Systemic errors — an error_cluster with looks_systemic true, or any
            retry_exhausted entry with suggests_misclassification true. These
            are code bugs; they are reported, never "fixed" by requeuing.
-        3. Genuinely stuck jobs — stuck_jobs with verdict genuinely-stuck.
+        4. Genuinely stuck jobs — stuck_jobs with verdict genuinely-stuck.
            Never propose action on an alive-slow job.
-        4. Disk pressure — only when free_disk_gb is genuinely low. Do not
+        5. Disk pressure — only when free_disk_gb is genuinely low. Do not
            propose reclaiming disk that is not scarce.
-        5. Hygiene — old done/error jobs, orphaned patch artifacts.
+        6. Hygiene — old done/error jobs, orphaned patch artifacts.
 
       PROPOSE ONLY FROM THIS ALLOWLIST. Anything else is a manual step:
         a) Start the Ollama server (only if health says it is down).
@@ -364,6 +390,17 @@ stages:
            say plainly that no scoped purge exists — then let the human decide
            whether a repo-wide purge is an acceptable way to address it.
         f) Delete orphaned patch artifacts whose job no longer exists.
+
+        g) Remove a STALE concurrency lock — only when health.json's
+           concurrency_lock layer reports verdict "STALE", meaning its holder
+           pid is dead or it has outlived its staleness ceiling. This
+           unblocks a qwen lane that is silently deferring every job.
+
+           NEVER propose this for verdict "active": a live holder means a
+           generation is in flight, and deleting its lock lets a second job
+           start alongside it — which is precisely the memory blowup the lock
+           exists to prevent. If the pid is alive, the correct action is to
+           wait, and the correct proposal is none.
 
       Explicitly NOT allowlisted, and always reported as manual steps:
         deleting any model; killing or editing a job in processing/; editing
