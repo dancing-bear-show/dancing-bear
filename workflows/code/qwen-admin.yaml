@@ -946,7 +946,19 @@ stages:
           two freely. Read both from {workspace}/manifest.json and check them
           before building any command — same mechanism as the health stage:
             job_type:         ^[a-z][a-z0-9_]{2,40}$
-            purge_older_than: ^[0-9]{1,5}[dhm]$
+            purge_older_than: ^[1-9][0-9]{0,4}[dhm]$
+
+          NOTE THE LEADING [1-9]: A ZERO WINDOW DELETES EVERYTHING. A pattern
+          of `[0-9]{1,5}[dhm]` accepts `0d`, `0h` and `0m`, and
+          core.date_utils.parse_window turns each into a zero timedelta —
+          so `worker purge --older-than 0d` matches every record in the
+          selected done/ and error/ folders, for every job type, and the
+          deletion is irreversible. That is the blast radius described above
+          with no age limit at all, and it would read in the proposal as an
+          ordinary approved purge. Reject a zero window; do not clamp it to
+          a default, because a caller who passed 0d meant something and
+          silently substituting 30d is its own surprise.
+
           A `purge_older_than` of `7d; rm -rf ~` matches neither and must
           stop the run. Substitute `<retention>` from the validated value.
 

@@ -80,11 +80,23 @@ def _baseline() -> dict[str, set[str]]:
     mypy (typecheck-baseline.json and its legacy_files).
     """
     raw = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
-    return {
-        key: set(value)
-        for key, value in raw.items()
-        if not key.startswith("_") and isinstance(value, list)
-    }
+    categories = {k: v for k, v in raw.items() if not k.startswith("_")}
+
+    # Fail on a malformed category rather than skipping it. An
+    # ``isinstance(value, list)`` filter here would silently drop any category
+    # whose value is not a list, and a dropped category is consulted by no
+    # gate and by no rot check — so a malformed or newly added one bypasses
+    # the whole ratchet while every test stays green. Underscore-prefixed keys
+    # are metadata and are excluded above by design.
+    malformed = sorted(k for k, v in categories.items() if not isinstance(v, list))
+    if malformed:
+        raise AssertionError(
+            f"baseline categories are not lists: {malformed}. A non-list "
+            "category is silently ignored by every gate, which makes the "
+            "ratchet bypassable. Fix the shape in "
+            f"{BASELINE_PATH.name} (metadata keys must start with '_')."
+        )
+    return {key: set(value) for key, value in categories.items()}
 
 
 def _stage_key(path: Path, stage_name: object) -> str:

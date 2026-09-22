@@ -379,9 +379,43 @@ stages:
       "fix" the value. The install stage will fail the same check later and
       report it as the caller error it is.
 
-      Then, only if both pass: do this only if `{model_tag}` is ALREADY
-      present in `ollama list` (never pull here; install owns that). Run
-      exactly one tiny generation against {ollama_host} asking for a diff on a
+      THIS PROBE GENERATES, AND THAT MAKES IT THE ONE EXCEPTION IN THE PAIR.
+      qwen-admin's health stage was changed to never generate, because a
+      read-only probe that loads a second 14B model can cause the OOM it is
+      meant to diagnose. The same hazard exists here and cannot be dodged the
+      same way: there is no `/api/tags` substitute for "what does this model's
+      diff output actually look like", which is the one thing this stage
+      exists to learn and the design stage cannot proceed honestly without.
+
+      So generate, but only when it is demonstrably safe, and skip rather than
+      race:
+        - The handler and its exclusive lock DO NOT EXIST YET at survey time —
+          this stage runs before any of it is built — so there is no lock to
+          take and nothing to serialise against. Check instead whether the
+          queue could produce a competing generation: if a `{job_type}` lane
+          already exists with anything in pending/ or processing/, or the
+          worker daemon is loaded and running, SKIP the baseline and record
+          "baseline: skipped (live {job_type} lane — would risk concurrent
+          model load)".
+        - On a re-run against an already-installed stack, prefer driving one
+          real job through the installed handler over probing Ollama
+          directly: that path takes the lock and is what the admin workflow
+          assumes.
+        - `ollama ps` before and after; if a model was already resident and
+          busy, skip.
+
+      Record which branch ran in survey.json, and never present a skipped
+      baseline as an obtained one — an unvalidated diff-format assumption is
+      a stated gap, and the design stage is told to treat it as one.
+
+      Then, only if both params pass AND the safety check above allows it: do
+      this only if `{model_tag}` is ALREADY present in `ollama list` (never
+      pull here; install owns that). Take the host value from the validated
+      manifest read rather than re-interpolating the raw `{ollama_host}`
+      token into the command — the engine's substitution is raw text
+      replacement, so re-typing the token here reintroduces the unvalidated
+      value into shell source after the check that was supposed to be the
+      boundary. Run exactly one tiny generation asking for a diff on a
       three-line snippet you supply inline, and record VERBATIM:
         - whether the response is a bare diff or is wrapped in prose and/or a
           ```diff fence

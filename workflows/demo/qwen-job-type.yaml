@@ -43,7 +43,7 @@ description: >
      and `./bin/workflow lint` stays green. No stage here is
      `kind: validate` for that reason.
 
-  4. A stage that changes state OUTSIDE the workspace must be
+  3. A stage that changes state OUTSIDE the workspace must be
      `kind: publish`, not `kind: execute`. The workflow skill's convention
      authorizes external side effects only from publish stages, and the
      prompt generated for an execute stage tells the agent there are none —
@@ -53,7 +53,7 @@ description: >
      stay gather and execute because they only read source and write inside
      their own worktree.
 
-  3. A handler speaks the retry protocol through its RETURN STRING, not
+  4. A handler speaks the retry protocol through its RETURN STRING, not
      through exceptions. `terminal-` means never retry; `deferred-` means
      re-queue without consuming an attempt; anything else retries with
      backoff until max_attempts. Misclassifying a permanent failure as a
@@ -279,7 +279,16 @@ stages:
       Create {handler_module}:
         - A `handle_demo_echo(job: dict[str, object]) -> tuple[bool, object]`
           matching the HandlerFn signature from seam.json.
-        - Read `payload["message"]`. On success return
+        - EXTRACT THE PAYLOAD FIRST. A HandlerFn receives the COMPLETE JOB
+          RECORD, not a payload: the signature is
+          `(job: dict[str, object]) -> tuple[bool, object]`, and every real
+          handler starts with `payload = dict(job.get("payload") or {})`
+          (see src/worker/handlers.py:179). There is no `payload` variable
+          in scope until you make one. Skipping this line leaves `payload`
+          undefined, so the handler raises NameError — which the daemon
+          classifies as a RETRYABLE failure, burning every attempt on the
+          very case this demo teaches as terminal.
+        - Then read `message = payload.get("message")`. On success return
           (True, {"echoed": message, "length": len(message)}).
         - Demonstrate ALL THREE retry classes, since this is the part authors
           get wrong:
@@ -461,14 +470,17 @@ stages:
       that is a valid drain via the daemon, not a failure of this step —
       record which path (run-once vs daemon) actually handled it.
 
-        a) Success: --payload-json '{"message": "hello"}'
+        a) Success:
+             ./bin/worker enqueue --type "{job_type}" --payload-json '{"message": "hello"}'
            Expect: job in done/, result carries echoed + length.
-        b) Terminal: --payload-json '{}'
+        b) Terminal:
+             ./bin/worker enqueue --type "{job_type}" --payload-json '{}'
            Expect: job in error/ after ONE attempt. This is the important
            one — confirm attempts did not climb to max_attempts, which is
            what proves the terminal- prefix was honoured rather than the
            failure being treated as retryable.
-        c) Deferred: --payload-json '{"message": "x", "defer": true}'
+        c) Deferred:
+             ./bin/worker enqueue --type "{job_type}" --payload-json '{"message": "x", "defer": true}'
            Expect: job back in pending/ with attempts UNCHANGED from before
            this drain (not incremented, not reset to 0 — the same number it
            had going in). The unchanged count is the entire point of the
@@ -478,7 +490,8 @@ stages:
            Asserting only "it did not complete" would also pass for a plain
            retry, which increments attempts — record the before/after
            attempts count for this case to prove it did NOT change.
-        d) Plain failure: --payload-json '{"message": "x", "fail": true}'
+        d) Plain failure:
+             ./bin/worker enqueue --type "{job_type}" --payload-json '{"message": "x", "fail": true}'
            Expect: attempts incremented and the job re-queued to pending
            with a future not_before, not moved to error/ on the first try.
 
