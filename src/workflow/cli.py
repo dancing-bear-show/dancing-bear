@@ -1,10 +1,9 @@
 """Workflow engine CLI — thin shim.
 
 The ``app`` (CLIApp) wiring and ``main`` live here; command handlers and cache
-logic are in ``cli_dispatch`` and ``cli_compile``.  The ``_cmd_*``/``_build_*``
-helpers re-exported below remain importable from this module for backwards
-compatibility; ``build_parser()`` and ``_add_format_argument()`` were removed
-as part of the CLIApp migration (no code outside this module referenced them).
+logic are in ``cli_dispatch`` and ``cli_compile``.  Only the ``_cmd_*`` handlers
+this module actually dispatches to are imported — import anything else from the
+module that defines it.
 
 Built on ``core.cli_framework.CLIApp``, matching the pattern used by the other
 domain CLIs (mail, calendar, schedule, resume, phone, whatsapp, desk, wifi,
@@ -30,23 +29,8 @@ from core.cli_framework import CLIApp
 from core.cli_output import emit_one, emit_rows
 from workflow.meta import META
 
-# ---------------------------------------------------------------------------
-# Re-exports from sibling modules (backwards-compat shim)
-# ---------------------------------------------------------------------------
-
-from workflow.cli_compile import (  # noqa: F401
-    _build_compile_payload,
-    _compile_cache_path,
-    _fragment_bytes,
-    _render_compile_output,
-    _try_read_cached_compile,
-    _write_once,
-    _cmd_compile,
-)
-from workflow.cli_dispatch import (  # noqa: F401
-    _build_plan_json,
-    _build_resolved_params,
-    _build_stage_row,
+from workflow.cli_compile import _cmd_compile
+from workflow.cli_dispatch import (
     _cmd_init_workspace,
     _cmd_lint,
     _cmd_list,
@@ -55,15 +39,6 @@ from workflow.cli_dispatch import (  # noqa: F401
     _cmd_run,
     _cmd_status,
     _cmd_validate_fragment,
-    _confirm_execution,
-    _generate_run_id,
-    _load_definition,
-    _load_manifest,
-    _parse_params,
-    _resolve_base_dir,
-    _stage_names_from_manifest,
-    _stage_names_from_plan,
-    _TERMINAL_SUCCESS,
 )
 
 _PATH_HELP = "Path to workflow YAML file"

@@ -9,13 +9,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import re
 import sys
 from pathlib import Path
 
 from core.fileutil import write_once
 from workflow.cli_helpers import check_workflow_path
-from workflow.compiler import resolve_params, validate_dag_contracts
+from workflow.compiler import match_when_expression, validate_dag_contracts
 from workflow.include import extract_include_entries, resolve_fragment_path
 
 
@@ -126,31 +125,17 @@ def _write_once(path: Path, content: bytes) -> None:
 def _eval_when_for_manifest(when: str | None, params: dict[str, str]) -> bool:
     """Whether a stage's ``when`` holds, for the compiled manifest.
 
-    Mirrors ``orchestrator._eval_when`` exactly, including its "unresolved
-    placeholder is left as-is" behaviour, so the manifest cannot disagree with
-    the runtime about which branch executes. An unrecognised expression
-    returns True (run it) rather than raising: the compiler already rejects
-    malformed ``when`` clauses via ``_validate_when``, and a manifest field is
-    not the place to fail a build.
+    Shares ``compiler.match_when_expression`` with ``orchestrator._eval_when``
+    so the manifest cannot disagree with the runtime about which branch
+    executes. An unrecognised expression returns True (run it) rather than
+    raising: the compiler already rejects malformed ``when`` clauses via
+    ``_validate_when``, and a manifest field is not the place to fail a build.
     """
     if when is None:
         return True
 
-    # .strip() to match both _validate_when (which validates the stripped
-    # form) and orchestrator._eval_when. Without it this returned its
-    # permissive fallback True for a padded expression that the runtime
-    # rejected outright — the manifest advertising a branch that cannot run.
-    expr = resolve_params(when, params).strip()
-
-    m = re.fullmatch(r'"(.*?)"\s+does not contain\s+"(.*?)"', expr)
-    if m:
-        return m.group(2) not in m.group(1)
-
-    m = re.fullmatch(r'"(.*?)"\s+contains\s+"(.*?)"', expr)
-    if m:
-        return m.group(2) in m.group(1)
-
-    return True
+    result = match_when_expression(when, params)
+    return True if result is None else result
 
 
 def _parse_param_overrides(raw: list[str] | None) -> dict[str, str]:

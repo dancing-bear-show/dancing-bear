@@ -13,7 +13,6 @@ from .models import WorkflowDefinition
 from .include import (
     FragmentContext,
     collect_include_params,
-    parse_fragment,  # re-exported for backward compat — keep in __all__
     _parse_include,
     _expand_includes,
 )
@@ -30,7 +29,6 @@ __all__ = [
     "WorkflowParseError",
     "parse_workflow",
     "parse_workflow_str",
-    "parse_fragment",
 ]
 
 _REQUIRED_TOP_KEYS = ("name", "version", "description", "trigger", "stages")

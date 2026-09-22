@@ -8,7 +8,6 @@ human gates.
 from __future__ import annotations
 
 import logging
-import re
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,7 +27,7 @@ from workflow.models import (
     WorkflowRun,
     make_stage_result,
 )
-from workflow.compiler import resolve_params
+from workflow.compiler import match_when_expression
 from workflow.persistence import (
     init_workspace,
     list_stage_results,
@@ -271,18 +270,9 @@ class WorkflowOrchestrator:
         if when is None:
             return True
 
-        # .strip() because _validate_when accepts surrounding whitespace
-        # (it validates `spec.when.strip()`), so a padded expression compiles
-        # cleanly and would then raise here at dispatch time.
-        expr = resolve_params(when, params).strip()
-
-        m = re.fullmatch(r'"(.*?)"\s+does not contain\s+"(.*?)"', expr)
-        if m:
-            return m.group(2) not in m.group(1)
-
-        m = re.fullmatch(r'"(.*?)"\s+contains\s+"(.*?)"', expr)
-        if m:
-            return m.group(2) in m.group(1)
+        result = match_when_expression(when, params)
+        if result is not None:
+            return result
 
         raise WorkflowExecutionError(
             f"Unrecognised 'when' expression at runtime"

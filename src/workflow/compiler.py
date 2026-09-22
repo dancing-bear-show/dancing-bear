@@ -390,3 +390,34 @@ def resolve_params(template: str, params: dict[str, str]) -> str:
         result = result.replace(f"{{{key}}}", value)
     return result
 
+
+def match_when_expression(when: str, params: dict[str, str]) -> bool | None:
+    """Evaluate a stage ``when`` expression, or ``None`` if no form matched.
+
+    Supported forms:
+    - ``'"{param}" does not contain "value"'`` → value not in resolved_param
+    - ``'"{param}" contains "value"'``         → value in resolved_param
+
+    Returning ``None`` rather than deciding lets each caller supply its own
+    fallback: the orchestrator raises (an unrecognised expression at dispatch
+    time is a bug that must surface), while the compiled manifest defaults to
+    running the stage (a manifest field is not the place to fail a build).
+    Both callers must agree on the *recognised* forms or the manifest's
+    ``will_run`` silently disagrees with what the runtime executes, so the
+    matching lives here once rather than being mirrored by hand.
+
+    ``.strip()`` because ``_validate_when`` validates the stripped form, so a
+    padded expression compiles cleanly and must evaluate the same way here.
+    """
+    expr = resolve_params(when, params).strip()
+
+    m = re.fullmatch(r'"(.*?)"\s+does not contain\s+"(.*?)"', expr)
+    if m:
+        return m.group(2) not in m.group(1)
+
+    m = re.fullmatch(r'"(.*?)"\s+contains\s+"(.*?)"', expr)
+    if m:
+        return m.group(2) in m.group(1)
+
+    return None
+

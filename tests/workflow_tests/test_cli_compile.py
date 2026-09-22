@@ -710,13 +710,13 @@ class TestWhenWhitespace(unittest.TestCase):
         )
 
     def test_runtime_evaluator_accepts_padding(self):
-        import re
+        # Call the shared matcher both evaluators use rather than re-stating
+        # its regex here: a copy of the pattern in the test would keep passing
+        # if the real one changed, which is the drift this test exists to catch.
+        from workflow.compiler import match_when_expression
 
-        from workflow.compiler import resolve_params
-
-        expr = resolve_params(self._PADDED, {"mode": "fast"}).strip()
-        matched = re.fullmatch(r'"(.*?)"\s+contains\s+"(.*?)"', expr)
-        self.assertIsNotNone(matched, "runtime regex must match the stripped form")
+        self.assertIs(match_when_expression(self._PADDED, {"mode": "fast"}), True)
+        self.assertIs(match_when_expression(self._PADDED, {"mode": "slow"}), False)
 
     def test_validate_when_accepts_padding(self):
         # The premise: if the compiler rejected padding, there would be no
@@ -724,6 +724,55 @@ class TestWhenWhitespace(unittest.TestCase):
         from workflow.compiler import _WHEN_PATTERN
 
         self.assertIsNotNone(_WHEN_PATTERN.fullmatch(self._PADDED.strip()))
+
+
+class TestSharedWhenMatcher(unittest.TestCase):
+    """match_when_expression is the single source both evaluators share.
+
+    The manifest evaluator and orchestrator._eval_when previously each carried
+    their own copy of the two regexes, with only a docstring ("Mirrors
+    orchestrator._eval_when exactly") holding them in sync. They now call this
+    one function and differ only in what they do with an unmatched expression,
+    so that difference is what these tests pin.
+    """
+
+    def test_recognised_forms(self):
+        from workflow.compiler import match_when_expression
+
+        params = {"skip": "coverage,security"}
+        cases = [
+            ('"{skip}" contains "coverage"', True),
+            ('"{skip}" contains "reuse"', False),
+            ('"{skip}" does not contain "reuse"', True),
+            ('"{skip}" does not contain "coverage"', False),
+        ]
+        for expr, expected in cases:
+            with self.subTest(expr=expr):
+                self.assertIs(match_when_expression(expr, params), expected)
+
+    def test_unrecognised_form_returns_none(self):
+        # None, not a bool: each caller supplies its own fallback, and a bool
+        # here would silently impose one of them on both.
+        from workflow.compiler import match_when_expression
+
+        self.assertIsNone(match_when_expression("not an expression", {}))
+
+    def test_callers_keep_their_divergent_fallbacks(self):
+        from workflow.cli_compile import _eval_when_for_manifest
+        from workflow.orchestrator import (
+            WorkflowExecutionError,
+            WorkflowOrchestrator,
+        )
+
+        bogus = "not an expression"
+        # The manifest is permissive: a manifest field is not the place to
+        # fail a build.
+        self.assertTrue(_eval_when_for_manifest(bogus, {}))
+        # The runtime is strict: reaching dispatch with an unparseable
+        # expression means _validate_when let a bug through.
+        orch = WorkflowOrchestrator.__new__(WorkflowOrchestrator)
+        with self.assertRaises(WorkflowExecutionError):
+            orch._eval_when(bogus, {})
 
 
 class TestManifestHonoursParamOverrides(unittest.TestCase):
