@@ -98,9 +98,19 @@ dev = [
   # an undeclared optional dep reports 0% coverage indistinguishably from
   # untested code (the [tui] extra hit this trap once; see CLAUDE.md).
   "personal-assistants[slides]",
+  # Self-reference so PyMuPDF is present wherever tests and coverage run. The
+  # fitz-dependent half of src/core/pdf_forms.py (_widget_index, set_text_field,
+  # fill_text_fields, set_checkbox) and both PDF fixture generators under
+  # tests/receipts_fixtures/ are unrunnable without it — the same
+  # undeclared-optional-dep trap as [tui] and [slides].
+  "personal-assistants[pdf]",
 ]
-# Note: pdfplumber depends on pdfminer.six==20251107 (vulnerable version)
-# Keep as optional but not recommended for security-sensitive use
+# pdfplumber backs the table-extraction branch in
+# src/calendars/importer/pdf_parser.py, imported lazily with a regex fallback.
+# It previously pinned pdfminer.six==20251107, a vulnerable version, which is
+# why this extra was kept out of [dev]; current pdfplumber requires
+# pdfminer.six==20260107 — the same version already pinned in the core
+# dependencies above — so that conflict no longer applies.
 #
 # PyMuPDF backs the AcroForm field helpers in src/core/pdf_forms.py, used to
 # fill insurance/government PDF templates. Imported lazily there so the core
