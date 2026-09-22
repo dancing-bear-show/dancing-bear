@@ -229,7 +229,13 @@ stages:
   # G2: Land it and drive it through the real CLI
   # ===========================================================================
   - name: land-and-verify
-    kind: execute
+    # publish, not execute: this stage enqueues and drains REAL jobs in the
+    # user's queue, which is an external state change. The skill's convention
+    # authorizes those only from a publish stage, and the generated execute
+    # prompt tells the agent there are none — so declaring execute would both
+    # forbid and require the same queue operations. Copy this reasoning, not
+    # just the keyword, when adapting this demo.
+    kind: publish
     depends_on: [write-handler]
     reads_from: [write-handler, read-the-seam]
     description: >
@@ -271,14 +277,27 @@ stages:
 
       `run-once --max 1` processes the QUEUE HEAD, not the job you just
       enqueued — enqueue/run-once has no --id scoping, and list_pending sorts
-      globally by (priority, enqueued_at) with no type filter. If anything
-      else is pending, run-once may drain a different job entirely. So after
-      every drain: read back your job by id with `./bin/worker show <id>` and
-      confirm it is the one you enqueued (compare job_type/payload, not just
-      "something drained"). If `show` reports a different job progressed
-      instead of yours, say so explicitly and run `run-once --max 1` again
-      rather than reporting the other job's outcome as if it were this case's
-      result.
+      globally by (priority, enqueued_at) with no type filter.
+
+      CHECK BEFORE YOU DRAIN, NOT ONLY AFTER. Reading the job back afterwards
+      catches a WRONG REPORT, but by then you have already executed a real job
+      of the user's and consumed one of its attempts — the damage is done and
+      is not undoable. This is a demo run against the live queue, so it must
+      not burn a stranger's work to prove a point. Before each drain:
+
+        ./bin/worker list
+
+      If the pending count is 1, your job is unambiguously the head and
+      `./bin/worker run-once --max 1` is safe — run it. If anything else is
+      pending, do NOT run run-once: either wait briefly and re-check whether
+      the daemon took yours, or record this case as
+      "not-verified — queue contended, N other jobs pending" and continue to
+      the next one. A case skipped for a stated reason is a fine demo result;
+      draining someone else's job is not.
+
+      After any drain, still read your job back by id with
+      `./bin/worker show <id>` and confirm it is the one you enqueued (compare
+      job_type/payload, not just "something drained").
 
       Note if the launchd daemon is running it polls the same queue every 5s
       and may claim your job before run-once does. Check the job by id first;

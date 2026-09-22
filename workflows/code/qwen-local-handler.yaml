@@ -583,13 +583,44 @@ stages:
          stays just under the free-space floor. In each case the lane looks
          idle, nothing errors, and no attempt is ever consumed.
 
-         Specify a deferral counter:
-           - A payload field (e.g. "deferrals") the handler increments on
-             every deferred return, and which — unlike `attempts` — is NOT
-             reset by `_undo_retry_attempt`. Say explicitly how it survives
-             that reset: `_undo_retry_attempt` rewrites only the attempts
-             field, so a separate key in the payload persists, but state
-             this rather than assuming it.
+         A PAYLOAD FIELD CANNOT CARRY THIS COUNTER, and an earlier draft of
+         this design got it wrong in exactly the way it warned against. The
+         handler can mutate `job["payload"]` in memory, but nothing writes
+         that back: `_handle_outcome` calls `q.retry(proc_path, ...)`, and
+         `retry` (queue_ops.py:206) starts with
+         `data = safe_load_json(job_path, ...)` — it RELOADS the job from
+         disk and writes only attempts, not_before, updated_at and
+         last_error. `_undo_retry_attempt` then rewrites attempts alone. The
+         handler's increment is discarded on every single deferral, so a
+         naive "deferrals" payload key never exceeds 1 and
+         terminal-deferral-limit is unreachable. The guard would look
+         present and do nothing.
+
+         So the counter must live somewhere the retry path actually writes,
+         or be derived from state the queue already persists. Survey the
+         options and pick one, stating the mechanism explicitly:
+           (a) Derive it — `retry` DOES persist `last_error`, and a deferred
+               outcome sets it to the "deferred-…" string. Counting requires
+               history the job record does not keep, so this alone gives you
+               "the last outcome was a deferral", not a count. Say so if you
+               choose it, and pair it with a wall-clock bound instead: the
+               queue persists enqueued_at and updated_at, so "deferred and
+               first enqueued more than N minutes ago" is a bound the
+               existing fields CAN express.
+           (b) Side-channel — the handler owns a file under the worker state
+               dir keyed by job id, incremented before it returns deferred.
+               This works without touching shared queue code, but the
+               handler must clean it up on success or terminal exit, or the
+               directory grows without bound.
+           (c) Extend the queue — add the field to `retry`'s preserved set in
+               queue_ops. The honest option, and the only one that makes the
+               counter a first-class queue concept, but it edits shared code
+               every job type depends on and therefore belongs to
+               impl-heartbeat's file ownership, not impl-handler's.
+         Whichever you choose, VERIFY it against the real code path before
+         writing the contract: construct the job record the way `retry`
+         leaves it and confirm your field survives. Do not assume
+         persistence — that assumption is what made the first attempt inert.
            - A ceiling. Past it, return "terminal-deferral-limit" with the
              reason that caused the deferrals, so the job lands in error/
              where `worker status` and qwen-admin can see it. A job that
@@ -941,7 +972,7 @@ stages:
           "telemetry": {"endpoint_env_var": "...", "span_name": "...", "attributes": ["..."], "metrics": ["..."], "emits_cost": false, "failure_is_nonfatal": "..."},
           "concurrency": {"lock_path": "...", "primitive": "O_EXCL|flock", "scope": "model call only", "wait_ceiling_sec": N, "on_timeout": "deferred-qwen-busy", "stale_detection": "...", "stale_ceiling_sec": N},
           "memory_guard": {"source": "...", "model_resident_gb": N, "margin_gb": N, "on_insufficient": "deferred-low-memory", "unavailable_fallback": "no-op with warning"},
-          "deferral_bound": {"field": "deferrals", "survives_undo_retry": "...", "ceiling": N, "on_exceeded": "terminal-deferral-limit", "reasons_counted_separately": true},
+          "deferral_bound": {"mechanism": "derived-wallclock|side-channel-file|queue-field", "where_persisted": "<the exact file/field the retry path actually writes>", "verified_against": "<how you proved it survives queue_ops.retry reloading from disk>", "ceiling": N, "ceiling_unit": "count|minutes", "on_exceeded": "terminal-deferral-limit", "reasons_counted_separately": true, "cleanup": "<required for side-channel: when the entry is removed>"},
           "input_confinement": {"allowlist_dirs": ["..."], "denylist": ["..."], "resolution": "realpath+symlink", "check_before_open": true, "toctou": "closed-via-fd|accepted-with-rationale", "max_file_bytes": N, "on_violation": "terminal-path-not-allowed", "logs_contents": false},
           "patch_caps": {"max_files": N, "max_lines": N, "denied_prefixes": ["..."], "on_breach": "terminal-patch-too-broad", "records_size_always": true},
           "redaction": {"helper": "core.secrets.mask_text", "applies_to": ["..."], "prompt_never_persisted": true, "contents_reach_disk_only_in": "the patch artifact", "patch_dir_outside_checkout": true, "exception_boundary": "handler catches and returns a masked content-free string; job_runtime's envelope.diagnostics path is NOT masked", "known_limit": "pattern-based; no novel secret formats"},
@@ -1123,15 +1154,17 @@ stages:
           the repo root; use Path.resolve() plus a proper containment test
           (is_relative_to or equivalent), never a string prefix. Never log or
           echo the contents of a rejected file — the path alone.
-        - DEFERRAL BOUND, per contract.json's "deferral_bound". Increment the
-          counter on EVERY deferred return (busy, low-memory, low-disk), and
-          past the ceiling return the terminal string instead. Without this a
-          deferred job is unbounded: job_runtime's `_undo_retry_attempt`
-          resets `attempts`, and neither the reaper nor purge looks at a job
-          cycling through pending. Keep the counter in the payload, and
-          verify it actually survives `_undo_retry_attempt` rather than
-          assuming — that function rewrites the attempts field, so read it
-          and confirm what else it touches.
+        - DEFERRAL BOUND, per contract.json's "deferral_bound", implemented
+          with the EXACT mechanism the contract records — not a payload key.
+          A payload mutation does not persist: `q.retry` reloads the job from
+          disk (queue_ops.py:206) and writes only attempts, not_before,
+          updated_at and last_error, so an in-memory increment is discarded
+          every time and the ceiling is never reached. Whatever mechanism the
+          design chose, prove it survives a real retry cycle before relying
+          on it. Without a working bound a deferred job is unbounded:
+          `_undo_retry_attempt` resets attempts, and neither the reaper
+          (processing/ only) nor purge (done/ and error/ only) can see a job
+          cycling through pending.
         - EXCEPTION BOUNDARY, per contract.json's redaction section: catch
           exceptions at the handler boundary and return your own masked,
           content-free failure string. An exception that escapes into
@@ -1278,8 +1311,20 @@ stages:
 
       CHECKPOINT BEFORE COMMITTING (record it in heartbeat-impl.json's
       "checkpoints"): after making the change, run the EXISTING worker tests
-      and confirm they still pass:
-        make test 2>&1 | grep -E "^Ran [0-9]+ tests|^OK|^FAILED"
+      and confirm they still pass. CAPTURE THE EXIT STATUS SEPARATELY from
+      the summary line — piping straight into grep reports GREP's status, and
+      a failing suite still prints "Ran N tests" and "FAILED", so the grep
+      succeeds and the checkpoint records a false green on a red suite:
+
+        make test > /tmp/heartbeat-check.log 2>&1; echo "EXIT=$?"
+        grep -E "^Ran [0-9]+ tests|^OK|^FAILED" /tmp/heartbeat-check.log
+
+      The checkpoint passes only when EXIT=0 AND a "Ran N tests" line is
+      present. EXIT=0 with no summary line means the suite never ran (a
+      concurrent venv race can produce exactly that); a summary line with a
+      non-zero exit means it ran and failed. Record both values, not a
+      verdict.
+
       You are editing shared queue code that every job type depends on, so a
       green existing suite is the evidence that matters far more than any new
       test. If the suite was already failing before your change, say so with
@@ -1464,15 +1509,20 @@ stages:
           test that only checks the job failed would pass while the content
           reached the job record through job_runtime's unmasked diagnostics
           path.
-        - DEFERRAL BOUND: with the lock permanently held, the handler defers
-          repeatedly and then, past the ceiling, returns
-          "terminal-deferral-limit" — assert the exact prefix and assert it
-          happens at the specified count, not merely eventually. Also assert
-          the deferral counter is NOT reset across a simulated
-          `_undo_retry_attempt` (construct the job record the way that
-          function leaves it), since the whole bound depends on surviving
-          that reset. And assert the terminal result names the dominant
-          deferral reason, so the error record is actionable.
+        - DEFERRAL BOUND — test the PERSISTENCE first, because that is where
+          the first design failed. Drive the counter through a REAL retry
+          cycle, not a simulated one: call the actual `queue_ops.retry`
+          against a temp queue root, then `_undo_retry_attempt`, then read the
+          job back off disk and assert the counter is still there. A test
+          that keeps the job dict in memory between deferrals passes against
+          a mechanism that persists nothing, which is exactly the bug
+          (`retry` reloads from disk and writes only attempts, not_before,
+          updated_at, last_error).
+          Then, with the lock permanently held, assert the handler returns
+          "terminal-deferral-limit" AT the specified ceiling — the exact
+          prefix, at the exact count, not merely eventually — and that the
+          terminal result names the dominant deferral reason so the error
+          record is actionable.
         - ADMISSION CAP: only if contract.json's enforced_at is
           "handler-side". Assert the excess job returns
           "terminal-lane-over-capacity" and that a job of ANOTHER type at the
@@ -2298,7 +2348,12 @@ stages:
   # G8: Verify — a real job through the real queue, plus an idempotence re-run
   # ===========================================================================
   - name: verify
-    kind: execute
+    # publish, not execute: this stage enqueues and drains REAL jobs in the
+    # user's queue. The skill's convention authorizes external state changes
+    # only from a publish stage, and the generated execute prompt tells the
+    # agent there are none — which would contradict the checks below. install
+    # is publish for the same reason.
+    kind: publish
     depends_on: [validate-config]
     reads_from: [validate-config, install, design, integrate]
     description: >
