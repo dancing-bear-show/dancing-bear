@@ -286,7 +286,13 @@ make test > /tmp/t.log 2>&1; echo "EXIT=$?"; grep -E "^Ran [0-9]+ tests" /tmp/t.
 editing.** The symptom is a command that shows the old output while your edit is
 plainly in the file, which looks exactly like "the fix didn't work."
 
-**`./bin/*` and `make` are now both safe. A bare `python3` is not.**
+**`./bin/*` and `make` now resolve imports correctly. A bare `python3` does
+not.** Read that as a correctness guarantee, not a security boundary: the repair
+fixes *which checkout a module comes from*, and nothing more. A foreign
+`sitecustomize.py` still executes under every Python wrapper — see the
+`sitecustomize` note below — because Python runs it before any Python-level
+guard can exist. If `PYTHONPATH` names a checkout you would not run code from,
+the wrappers do not make that safe; fix the environment.
 
 The repair lives in one place, `bin/_pathrepair.py`, and every entry point loads
 it by explicit filesystem path rather than by `import` — a module whose job is to
@@ -301,12 +307,21 @@ survive), rewrites the variable so the re-exec and any child process inherit the
 correction, and then forces its own `src/` to the *front* of `sys.path`. Set
 `DANCING_BEAR_PATH_DEBUG=1` to see what was dropped.
 
-Coverage is all of `bin/`, by two different routes: the generated wrappers are
-symlinks to `bin/_router.py`, while `bin/llm` and `bin/path-guard` are standalone
-scripts that call the same shared module. Both routes are pinned by
-`tests/infra/test_pathrepair_shared.py` and `tests/infra/test_router_pythonpath.py`,
-including end-to-end cases that execute the real binaries. Revert the repair and
-those suites go red.
+Coverage is **every `bin/` entry point that imports a repo module**, by two
+routes: the generated wrappers are symlinks to `bin/_router.py`, while `bin/llm`
+and `bin/path-guard` are standalone scripts calling the same shared module. Both
+are pinned by `tests/infra/test_pathrepair_shared.py` and
+`tests/infra/test_router_pythonpath.py`, including end-to-end cases that execute
+the real binaries. Revert the repair and those suites go red.
+
+That is narrower than "all of `bin/`", which an earlier revision claimed.
+`pr-assistant`, `code-review-log-findings.py`, `code-review-backfill-log.py`,
+`check_test_discovery.py`, `mypy_ratchet.py` and `uuidgen-pair` are Python entry
+points with no repair wired in — deliberately, because none of them import a
+repo module, so there is nothing for a foreign checkout to shadow. Audited by
+grepping every `bin/` file with a Python shebang for repo imports; re-run that
+before adding one. They remain exposed to the `sitecustomize` hole like every
+other interpreter, which is not something the repair can close.
 
 `bin/llm` and `bin/path-guard` were **not** covered until #368's follow-up commit:
 they kept the old membership-only guard while the router had moved on. With a

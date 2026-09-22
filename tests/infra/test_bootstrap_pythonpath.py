@@ -260,16 +260,19 @@ class EnvPrefixIsNotAnExecutionSinkTests(unittest.TestCase):
 
     def test_injected_commands_are_rejected(self) -> None:
         """Each of these would otherwise run in CI with the suite's privileges."""
-        for hostile in [
-            'if touch /tmp/pwned; PYTHONPATH="$(pwd)/src" '
-            '.venv/bin/python -c "import mail" 2>/dev/null; then',
-            'if PYTHONPATH="$(pwd)/src" && touch /tmp/pwned '
-            '.venv/bin/python -c "import mail" 2>/dev/null; then',
-            'if PYTHONPATH="$(cat /etc/passwd)" '
-            '.venv/bin/python -c "import mail" 2>/dev/null; then',
-            'if PYTHONPATH="`id`" '
-            '.venv/bin/python -c "import mail" 2>/dev/null; then',
+        # Built by substitution rather than written out: adjacent string
+        # literals across lines read as a missing comma to CodeQL, and in a
+        # list of shell payloads a genuinely missing comma would silently merge
+        # two cases into one and drop a test.
+        tail = '.venv/bin/python -c "import mail" 2>/dev/null; then'
+        for prefix in [
+            'touch /tmp/pwned; PYTHONPATH="$(pwd)/src"',
+            'PYTHONPATH="$(pwd)/src" && touch /tmp/pwned',
+            'PYTHONPATH="$(cat /etc/passwd)"',
+            'PYTHONPATH="`id`"',
+            'PYTHONPATH="$(pwd)/src" | tee /tmp/pwned',
         ]:
+            hostile = f"if {prefix} {tail}"
             with self.subTest(line=hostile):
                 with self.assertRaises(AssertionError) as caught:
                     self._replay_with_verify_line(hostile)
