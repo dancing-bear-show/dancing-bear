@@ -17,9 +17,9 @@ The hook must:
 
 from __future__ import annotations
 
+import ast
 import json
 import os
-import re
 import subprocess  # nosec B404 - runs extracted hook snippet, reviewed below
 import tempfile
 import time
@@ -528,30 +528,70 @@ class TestSessionStartHookIsolatedFlags(unittest.TestCase):
             self.assertIn("systemMessage", payload)
 
 
+def _top_level_import_names(source: str) -> list[str]:
+    """Return the top-level module names a snippet imports.
+
+    Parses *source* with ``ast`` and walks ``Import``/``ImportFrom`` nodes,
+    so the result reflects what Python actually imports — including
+    ``from x import y``, parenthesised imports, and aliases — rather than a
+    regex approximation that a multi-line character class can run past the
+    end of the intended statement.
+    """
+    tree = ast.parse(source)
+    names: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                names.append(alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names.append(node.module.split(".")[0])
+    return names
+
+
 class TestSessionStartHookStdlibOnly(unittest.TestCase):
     """The hook uses only stdlib modules available under -I -S."""
 
+    STDLIB_MODULES = {
+        "subprocess", "json", "os", "time", "uuid",
+        "sys", "re", "pathlib", "collections", "functools",
+        "itertools", "math", "datetime", "io", "typing",
+    }
+
     def test_imports_are_stdlib_only(self) -> None:
         """All imports in the snippet are standard-library modules."""
-        # Extract import names from the snippet
-        imported = re.findall(r"^import\s+([\w,\s]+)", SNIPPET, re.MULTILINE)
-        names: list[str] = []
-        for line in imported:
-            for name in line.split(","):
-                names.append(name.strip().split()[0])
-
-        stdlib_modules = {
-            "subprocess", "json", "os", "time", "uuid",
-            "sys", "re", "pathlib", "collections", "functools",
-            "itertools", "math", "datetime", "io", "typing",
-        }
+        names = _top_level_import_names(SNIPPET)
+        self.assertTrue(names, "no imports found in snippet — extraction may be broken")
         for name in names:
             self.assertIn(
                 name,
-                stdlib_modules,
+                self.STDLIB_MODULES,
                 f"snippet imports {name!r} which is not stdlib — "
                 "the hook runs under -I -S and cannot import third-party packages",
             )
+
+    def test_import_extraction_catches_a_non_stdlib_import(self) -> None:
+        """Teeth-check: a non-stdlib import in a copy of the snippet must fail.
+
+        Proves the AST-based extraction actually inspects import statements
+        rather than trivially passing — the same failure mode that let the
+        old ``[\\w,\\s]+`` regex over-capture past a newline and silently miss
+        a real check. Appends ``import requests`` to a COPY of the real
+        snippet body (never mutates ``SNIPPET`` itself) and asserts the
+        allowlist check would now reject it.
+        """
+        poisoned = SNIPPET + "\nimport requests\n"
+        names = _top_level_import_names(poisoned)
+        self.assertIn(
+            "requests",
+            names,
+            "extraction did not see the injected non-stdlib import — "
+            "the teeth-check itself is broken",
+        )
+        self.assertNotIn(
+            "requests",
+            self.STDLIB_MODULES,
+            "sanity check: 'requests' must not already be in the allowlist",
+        )
 
 
 if __name__ == "__main__":

@@ -140,16 +140,35 @@ try:
     # concurrent process waits rather than racing us between read and write.
     fd = os.open(counter_file, os.O_RDWR | os.O_CREAT, 0o600)
     try:
+        # If we cannot obtain the lock, we cannot honestly claim the cadence is
+        # serialized: the installer registers this hook with `async: true`, so
+        # two overlapping prompts could both read/increment/write the same
+        # value and both fire `claude -p`. Treat lock failure exactly like
+        # counter-write failure — skip the rename for this prompt — rather
+        # than proceeding unlocked. The counter itself still gets written
+        # below (unlocked in that case) so the cadence is not lost permanently.
+        locked = False
         try:
             import fcntl
 
             fcntl.flock(fd, fcntl.LOCK_EX)
-        except (ImportError, OSError):  # nosec B110 - no flock (e.g. some network FS): proceed unlocked
-            pass
+            locked = True
+        except (ImportError, OSError):  # nosec B112 - no flock (e.g. some network FS): skip rename, not the write
+            locked = False
 
         raw = os.read(fd, 64).decode("utf-8", "replace").strip()
+        # A value this hook could not have written is corruption, not data:
+        # - negative: this hook only ever writes stored + 1 starting from a
+        #   non-negative seed, so a leading "-" cannot be ours.
+        # - truncated: os.read(fd, 64) caps the read at 64 bytes, so a longer
+        #   digit string was cut mid-number rather than fully read; treating
+        #   it as valid would count up from a wrong, truncated base.
+        # Either case reseeds from the history length exactly like a
+        # non-numeric value does.
         try:
             stored = int(raw)
+            if stored < 0 or len(raw) >= 64:
+                raise ValueError("counter value could not have been written by this hook")
         except ValueError:
             # Empty (just created) or corrupt: seed from the history length. `lines`
             # already includes the prompt appended above, so subtract it, or this
@@ -161,7 +180,10 @@ try:
         os.truncate(fd, 0)
         os.write(fd, str(nxt).encode("utf-8"))
         os.fsync(fd)
-        count = nxt  # only set once the value is durably on disk
+        # Only claim a usable count when the write was both durable AND
+        # serialized by the lock. An unlocked write still updates the counter
+        # (so the cadence is not lost) but must not open the rename gate.
+        count = nxt if locked else None
     finally:
         os.close(fd)
 except OSError:

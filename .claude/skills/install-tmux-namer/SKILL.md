@@ -26,9 +26,14 @@ What it does on every prompt
   created `0700` and the file opened `0600`, so it is user-private — but it is
   still prompt text at rest on disk.
 
-  Resolve the real path before asking, so consent names the actual location:
+  Resolve the real path before asking, so consent names the actual location.
+  This must match the hook's own fallback exactly
+  (`tmux-session-namer.py:70-73`): an empty `XDG_CACHE_HOME` counts as unset
+  per the XDG spec, and a set-but-relative value is rejected too, since
+  joining it would land under the current working directory rather than the
+  user's home:
 
-      python3 -I -S -c "import os; print(os.path.join(os.environ.get('XDG_CACHE_HOME', os.path.expanduser('~/.cache')), 'claude'))"
+      python3 -I -S -c "import os; _xdg = os.environ.get('XDG_CACHE_HOME') or ''; _xdg = _xdg if os.path.isabs(_xdg) else os.path.expanduser('~/.cache'); print(os.path.join(_xdg, 'claude'))"
 - Every 20th prompt, sends **the last 20 recorded lines** to `claude -p` to
   generate the session name. That is an outbound model call containing those
   prompt fragments.
@@ -51,7 +56,7 @@ To remove it later: delete the `UserPromptSubmit` entry from
 `~/.claude/settings.json`, then delete the captured prompts from the resolved
 cache directory:
 
-    cache="$(python3 -I -S -c "import os; print(os.path.join(os.environ.get('XDG_CACHE_HOME', os.path.expanduser('~/.cache')), 'claude'))")"
+    cache="$(python3 -I -S -c "import os; _xdg = os.environ.get('XDG_CACHE_HOME') or ''; _xdg = _xdg if os.path.isabs(_xdg) else os.path.expanduser('~/.cache'); print(os.path.join(_xdg, 'claude'))")"
     rm -f "$cache"/prompts-*.txt "$cache"/count-*.txt
 
 (The hook also keeps a `count-<session>.txt` alongside each history file — a
@@ -85,6 +90,20 @@ setup runs outside tmux, and refusing there makes it fail for no reason.
 set -e
 
 mkdir -p ~/.claude/hooks
+
+# Refuse to overwrite a symlinked hook. `cp` follows a symlink and writes
+# through it to the LINK'S TARGET — a dotfiles-managed file, or someone's own
+# custom hook pointed at from this path. Silently unlinking and replacing it
+# (or backing it up and writing through it anyway) would clobber content this
+# skill does not own and cannot restore. Abort and tell the user exactly what
+# it points at so they can resolve it themselves.
+if [ -L ~/.claude/hooks/tmux-session-namer.py ]; then
+  target=$(readlink ~/.claude/hooks/tmux-session-namer.py)
+  echo "ABORT: ~/.claude/hooks/tmux-session-namer.py is a symlink to $target"
+  echo "Refusing to overwrite it — cp would write through the link and modify that target in place."
+  echo "Resolve this yourself: either update $target directly, or remove the symlink and re-run this skill to install a regular file."
+  exit 1
+fi
 
 # Check if already installed
 if [ -f ~/.claude/hooks/tmux-session-namer.py ]; then
@@ -128,7 +147,7 @@ Use the Write/Edit tool to run this patch script, or execute it directly via Bas
 
 ```bash
 python3 -I -S - << 'PY'
-import json, os, shutil, stat, sys, tempfile
+import contextlib, json, os, re, shlex, shutil, stat, sys, tempfile, time
 
 settings_path = os.path.expanduser("~/.claude/settings.json")
 # Follow a symlink to its target before touching anything. os.replace() acts on
@@ -137,8 +156,76 @@ settings_path = os.path.expanduser("~/.claude/settings.json")
 # while reporting success.
 settings_path = os.path.realpath(settings_path)
 
+# Orphaned .settings-*.tmp files older than this are certainly stale: no run of
+# this script holds one open for anywhere near this long. Anything younger
+# might belong to a concurrent installer that is still mid-write, so the sweep
+# below must never touch it.
+STALE_TMP_AGE_SECONDS = 300
 
-def save_settings(data):
+try:
+    import fcntl
+except ImportError:  # nosec B110 - some filesystems/platforms cannot lock; see _locked() below
+    fcntl = None
+
+
+@contextlib.contextmanager
+def _locked(path):
+    """Hold an exclusive lock across the whole read-modify-write, sweep
+    included, so two concurrent installers cannot interleave.
+
+    Without this, two installs can each read the same settings.json, each
+    compute a different append/upgrade, and the second save_settings()
+    silently clobbers the first's change (lost update) — and the orphan sweep
+    can unlink a temp file a concurrent run is still writing, so its later
+    os.replace() fails with FileNotFoundError.
+
+    If fcntl is unavailable (guarded above), prefer running unlocked over
+    failing the install outright, but the caller must then skip the sweep —
+    it is only safe to remove a stale temp file while holding this lock.
+    """
+    if fcntl is None:
+        yield False
+        return
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    lock_path = path + ".lock"
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        try:
+            yield True
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
+def _sweep_stale_temp_files(directory):
+    """Remove only .settings-*.tmp files old enough to be certainly orphaned.
+
+    Must run only while holding the lock from _locked(): removing ANY
+    .settings-*.tmp unconditionally (the earlier version of this sweep) can
+    delete a concurrent invocation's still-live temp file, and its later
+    os.replace() then fails because the source is gone.
+    """
+    now = time.time()
+    for stale in os.listdir(directory):
+        if not (stale.startswith(".settings-") and stale.endswith(".tmp")):
+            continue
+        candidate = os.path.join(directory, stale)
+        try:
+            age = now - os.stat(candidate).st_mtime
+        except OSError:  # nosec B110 - vanished between listdir and stat; nothing to sweep
+            continue
+        if age < STALE_TMP_AGE_SECONDS:
+            continue  # too young to be certainly stale — may be a live concurrent write
+        try:
+            os.unlink(candidate)
+        except OSError:  # nosec B110 - best-effort sweep; never block the write
+            pass
+
+
+def save_settings(data, *, sweep):
     """Replace settings.json atomically, preserving its mode.
 
     `open(path, "w")` truncates the live file before writing a byte, so an
@@ -150,19 +237,15 @@ def save_settings(data):
 
     Mirrors core.fileutil.atomic_write_json, inlined because this script runs
     standalone under `python3 -I -S` and cannot import repo modules.
+
+    `sweep` is True only when the caller holds the exclusive lock — skip the
+    sweep entirely when it does not, rather than sweeping unsafely.
     """
     directory = os.path.dirname(settings_path) or "."
     os.makedirs(directory, exist_ok=True)
 
-    # Sweep any .settings-*.tmp orphaned by a previous hard kill. The except
-    # path below cleans up on a normal exception, but a SIGKILL or os._exit
-    # skips it, and those stragglers otherwise accumulate silently.
-    for stale in os.listdir(directory):
-        if stale.startswith(".settings-") and stale.endswith(".tmp"):
-            try:
-                os.unlink(os.path.join(directory, stale))
-            except OSError:  # nosec B110 - best-effort sweep; never block the write
-                pass
+    if sweep:
+        _sweep_stale_temp_files(directory)
 
     try:
         original_mode = stat.S_IMODE(os.stat(settings_path).st_mode)
@@ -189,25 +272,23 @@ def backup_settings():
     """Keep a timestamped copy before the first modification."""
     if not os.path.exists(settings_path):
         return None
-    import time
     dest = f"{settings_path}.bak.{time.strftime('%Y%m%d%H%M%S')}"
     shutil.copy2(settings_path, dest)
     return dest
 
-if not os.path.exists(settings_path):
-    settings = {}
-elif os.path.getsize(settings_path) == 0:
-    settings = {}
-else:
+
+def _read_settings():
+    if not os.path.exists(settings_path):
+        return {}
+    if os.path.getsize(settings_path) == 0:
+        return {}
     try:
         with open(settings_path) as f:
-            settings = json.load(f)
+            return json.load(f)
     except json.JSONDecodeError as e:
         print(f"ERROR: {settings_path} contains invalid JSON: {e}", file=sys.stderr)
         sys.exit(1)
 
-hooks = settings.setdefault("hooks", {})
-existing = hooks.get("UserPromptSubmit", [])
 
 # -I -S for the same reason the heredocs above use it, but the exposure here is
 # longer-lived: this command runs on EVERY prompt for as long as the hook stays
@@ -230,73 +311,163 @@ hook_command = "python3 -I -S ~/.claude/hooks/tmux-session-namer.py 2>/dev/null 
 HOOK_PATH = "~/.claude/hooks/tmux-session-namer.py"
 
 
+def _resolve_script_token(tok, home):
+    """Expand $HOME / ${HOME} / ~ in a single shlex token; return None if
+    the result is not an absolute path (a bare relative path cannot be shown
+    to be ours: Claude Code gives the hook no guaranteed working directory)."""
+    path = tok.replace("${HOME}", home).replace("$HOME", home)
+    if path.startswith("~"):
+        path = home + path[1:]
+    if not os.path.isabs(path):
+        return None
+    return os.path.normpath(path)
+
+
+def _python_script_operand(cmd):
+    """Return the script operand of a python invocation in `cmd`, or None.
+
+    A path token appearing ANYWHERE in a command is not evidence the command
+    RUNS it — `echo <path>`, `cat <path>` and `grep <path> file` all contain
+    the exact path as a token without executing it. The only safe signal is
+    the path being the script argument handed to a python interpreter, so
+    this walks the tokens instead of scanning for a matching one:
+
+        - skip a leading `env` (a common shebang-less prefix)
+        - the next token's basename must look like python: `python`,
+          `python3`, `python3.11`, etc.
+        - skip interpreter flags after it (`-I`, `-S`, `-E`, `-u`, and any
+          other `-`-prefixed token — argparse-style short flags), since none
+          of those consume a following value in this invocation form
+        - the first remaining non-flag token is the script operand
+
+    Uses shlex so a quoted path with spaces tokenises correctly; falls back
+    to str.split() if shlex chokes on unbalanced quotes (best-effort — a
+    command that doesn't even tokenise cleanly gets no match).
+
+    Imports shlex/re locally: this function is extracted and exec'd in
+    isolation by tests/infra/test_tmux_session_namer.py, which only injects
+    `os` into that namespace, so a module-level import would NameError there
+    even though the full script (which does import them at the top) never
+    hits this path.
+    """
+    import re
+    import shlex
+
+    try:
+        tokens = shlex.split(cmd)
+    except ValueError:
+        tokens = cmd.split()
+
+    i = 0
+    if i < len(tokens) and tokens[i] == "env":
+        i += 1
+    if i >= len(tokens):
+        return None
+    interp = os.path.basename(tokens[i])
+    if not re.match(r"^python3?(\.\d+)?$", interp):
+        return None
+    i += 1
+    while i < len(tokens) and tokens[i].startswith("-"):
+        i += 1
+    if i >= len(tokens):
+        return None
+    return tokens[i]
+
+
 def is_managed_hook(cmd):
-    """True only for a command that runs OUR installed script.
+    """True only for a command that RUNS our installed script.
 
     This loop REWRITES whatever it matches, so both error directions are
     damaging: a false positive replaces someone else's hook, a false negative
-    leaves a stale entry wired and appends a duplicate beside it. Three earlier
-    versions each fixed one direction and broke the other —
+    leaves a stale entry wired and appends a duplicate beside it. Four earlier
+    versions each fixed one direction and broke another —
 
         substring 'tmux-session-namer' in cmd   also matched ...-custom.py
         token in (HOOK_PATH, expanduser(...))   missed $HOME and absolute forms
         basename(token) == basename(target)     matched /tmp/tmux-session-namer.py
+        any token resolving to our path         matched `echo <path>`, `cat <path>`
 
-    — so resolve each candidate token to an absolute path and compare the whole
-    thing. Covered by tests/infra/test_tmux_session_namer.py, which tables the
-    spellings that must match against the same-named files that must not.
+    — so this only accepts the path when it is the script OPERAND of a
+    recognized python invocation (see `_python_script_operand`), then resolves
+    that operand to an absolute path and compares the whole thing. Covered by
+    tests/infra/test_tmux_session_namer.py, which tables the spellings that
+    must match against the same-named files, and the non-executing commands,
+    that must not.
     """
     home = os.path.expanduser("~")
     target = os.path.normpath(
         os.path.join(home, ".claude", "hooks", "tmux-session-namer.py")
     )
-    for tok in cmd.split():
-        if not tok.endswith(".py"):
-            continue
-        path = tok.replace("${HOME}", home).replace("$HOME", home)
-        if path.startswith("~"):
-            path = home + path[1:]
-        # A bare relative path cannot be shown to be ours: Claude Code gives the
-        # hook no guaranteed working directory, so do not claim it.
-        if not os.path.isabs(path):
-            continue
-        if os.path.normpath(path) == target:
-            return True
-    return False
+    operand = _python_script_operand(cmd)
+    if operand is None:
+        return False
+    path = _resolve_script_token(operand, home)
+    return path is not None and path == target
 
 
 upgraded = False
-already_wired = False
-for entry in existing:
-    for h in entry.get("hooks", []):
-        cmd = h.get("command", "")
-        if not is_managed_hook(cmd):
-            continue
-        if cmd == hook_command:
-            already_wired = True
-        else:
-            h["command"] = hook_command
-            upgraded = True
+removed_count = 0
 
-if upgraded:
-    hooks["UserPromptSubmit"] = existing
-    backup = backup_settings()
-    save_settings(settings)
-    print("Upgraded the existing UserPromptSubmit hook to the isolated form")
-    if backup:
-        print(f"Previous settings saved to {backup}")
-elif already_wired:
-    print("UserPromptSubmit hook already present and isolated — skipping")
-else:
-    existing.append({
-        "hooks": [{"type": "command", "async": True, "command": hook_command}]
-    })
-    hooks["UserPromptSubmit"] = existing
-    backup = backup_settings()
-    save_settings(settings)
-    print("Added UserPromptSubmit hook to ~/.claude/settings.json")
-    if backup:
-        print(f"Previous settings saved to {backup}")
+# Hold the lock across the ENTIRE read-modify-write, sweep included. Locking
+# only around save_settings() would still let two installers both read the
+# same settings, both compute an append, and the second write silently
+# overwrite the first's change (lost update) — the read has to be inside the
+# critical section too.
+with _locked(settings_path) as have_lock:
+    settings = _read_settings()
+    hooks = settings.setdefault("hooks", {})
+    existing = hooks.get("UserPromptSubmit", [])
+
+    # Find every managed entry first, keep exactly ONE, and drop the rest.
+    # An earlier installer version could append a second managed hook via an
+    # exact-string comparison that missed the first; if both survive, the
+    # namer runs twice per prompt and the duplicate is only noticed by Step 5
+    # AFTER it has already been (re-)persisted. Collect matches before
+    # mutating anything, so the keep/remove decision is made on a stable view
+    # rather than on a list this same loop is editing.
+    matches = [
+        (entry, h)
+        for entry in existing
+        for h in entry.get("hooks", [])
+        if is_managed_hook(h.get("command", ""))
+    ]
+
+    if matches:
+        keep_entry, keep_hook = matches[0]
+        if keep_hook.get("command", "") != hook_command:
+            upgraded = True
+        keep_hook["command"] = hook_command
+        for entry, h in matches[1:]:
+            entry["hooks"].remove(h)
+            removed_count += 1
+        # Drop any entry left with no hooks at all — only ours removed, never
+        # a sibling command that happened to share the entry.
+        existing[:] = [e for e in existing if e.get("hooks")]
+        hooks["UserPromptSubmit"] = existing
+        backup = backup_settings()
+        save_settings(settings, sweep=have_lock)
+        if removed_count:
+            print(
+                f"Removed {removed_count} duplicate managed hook "
+                f"{'entry' if removed_count == 1 else 'entries'}; kept one, "
+                "wired to the isolated form"
+            )
+        elif upgraded:
+            print("Upgraded the existing UserPromptSubmit hook to the isolated form")
+        else:
+            print("UserPromptSubmit hook already present and isolated — skipping")
+        if backup:
+            print(f"Previous settings saved to {backup}")
+    else:
+        existing.append({
+            "hooks": [{"type": "command", "async": True, "command": hook_command}]
+        })
+        hooks["UserPromptSubmit"] = existing
+        backup = backup_settings()
+        save_settings(settings, sweep=have_lock)
+        print("Added UserPromptSubmit hook to ~/.claude/settings.json")
+        if backup:
+            print(f"Previous settings saved to {backup}")
 PY
 ```
 
@@ -346,27 +517,45 @@ ls -la ~/.claude/hooks/tmux-session-namer.py
 # the case this installer exists to correct. Also assert there is exactly one
 # wiring, since a duplicate means the namer runs twice per prompt.
 python3 -I -S -c "
-import json, os, sys
+import json, os, re, shlex, sys
 s = json.load(open(os.path.expanduser('~/.claude/settings.json')))
 hooks = s.get('hooks', {}).get('UserPromptSubmit', [])
 cmds = [h.get('command','') for e in hooks for h in e.get('hooks',[])]
-# Resolve each .py token to an absolute path and compare the whole path, the
-# same rule the patch script uses. A substring also matches an unrelated
-# ...-custom.py; a basename comparison also matches /tmp/tmux-session-namer.py.
+# Same rule the patch script's is_managed_hook uses — must not diverge from
+# it. A path token appearing anywhere in the command is not evidence the
+# command RUNS it ('echo <path>', 'cat <path>' both contain the token without
+# executing it), so only accept the path as the script operand of a
+# recognized python invocation.
 _home = os.path.expanduser('~')
 _target = os.path.normpath(os.path.join(_home, '.claude', 'hooks', 'tmux-session-namer.py'))
 
 
+def _script_operand(cmd):
+    try:
+        tokens = shlex.split(cmd)
+    except ValueError:
+        tokens = cmd.split()
+    i = 0
+    if i < len(tokens) and tokens[i] == 'env':
+        i += 1
+    if i >= len(tokens):
+        return None
+    if not re.match(r'^python3?(\.\d+)?\$', os.path.basename(tokens[i])):
+        return None
+    i += 1
+    while i < len(tokens) and tokens[i].startswith('-'):
+        i += 1
+    return tokens[i] if i < len(tokens) else None
+
+
 def _is_ours(cmd):
-    for t in cmd.split():
-        if not t.endswith('.py'):
-            continue
-        p = t.replace('\${HOME}', _home).replace('\$HOME', _home)
-        if p.startswith('~'):
-            p = _home + p[1:]
-        if os.path.isabs(p) and os.path.normpath(p) == _target:
-            return True
-    return False
+    tok = _script_operand(cmd)
+    if tok is None:
+        return False
+    p = tok.replace('\${HOME}', _home).replace('\$HOME', _home)
+    if p.startswith('~'):
+        p = _home + p[1:]
+    return os.path.isabs(p) and os.path.normpath(p) == _target
 
 
 namer = [c for c in cmds if _is_ours(c)]

@@ -51,8 +51,13 @@ fi
 
 # The generator's output is random, so collisions were effectively impossible.
 # The fallback is DETERMINISTIC — the same caller name yields the same branch —
-# so two worktrees from one name would fail with "a branch named X already
-# exists". Suffix until free, which keeps the hook usable rather than erroring.
+# so two worktrees from one name would collide with "a branch named X already
+# exists". This cheap pre-check picks a plausible free name to try first, but
+# it is only a first guess: the check-then-act gap between it and the actual
+# `git worktree add` below is a real TOCTOU race under concurrent invocations
+# (two overlapping calls can both observe the same name as free). Correctness
+# does not depend on this loop — it exists only to make the common case not
+# need a retry.
 if git show-ref --verify --quiet "refs/heads/$NAME" 2>/dev/null; then
   base="$NAME"
   n=2
@@ -68,10 +73,36 @@ fi
 # what directory the hook subprocess happens to be launched from.
 COMMON_DIR=$(git rev-parse --git-common-dir 2>/dev/null) || exit 1
 REPO_ROOT=$(cd "$(dirname "$COMMON_DIR")" && pwd)
-WPATH="$REPO_ROOT/.claude/worktrees/$NAME"
 
 mkdir -p "$REPO_ROOT/.claude/worktrees"
-git -C "$REPO_ROOT" worktree add -b "$NAME" "$WPATH" HEAD >/dev/null
+
+# `git worktree add -b` is the only atomic arbiter available here, so it — not
+# the pre-check above — is what actually resolves the race: two concurrent
+# invocations that both picked the same NAME will have exactly one `add`
+# succeed and the other fail on the branch/path collision, and the loser
+# retries with a fresh candidate. `|| true` on the add is required, not
+# defensive noise: `set -e` would otherwise abort the whole script on the
+# first collision, before the retry below ever runs — the same dead-code trap
+# documented above for the name generator.
+base="$NAME"
+attempt=1
+max_attempts=20
+while :; do
+  WPATH="$REPO_ROOT/.claude/worktrees/$NAME"
+  if git -C "$REPO_ROOT" worktree add -b "$NAME" "$WPATH" HEAD >/dev/null 2>/dev/null; then
+    break
+  fi
+  attempt=$((attempt + 1))
+  if [ "$attempt" -gt "$max_attempts" ]; then
+    # Unique by construction: timestamp + PID cannot collide with a prior
+    # attempt from this or any other process.
+    NAME="${base}-$(date +%s)-$$"
+    WPATH="$REPO_ROOT/.claude/worktrees/$NAME"
+    git -C "$REPO_ROOT" worktree add -b "$NAME" "$WPATH" HEAD >/dev/null
+    break
+  fi
+  NAME="${base}-${attempt}-$$"
+done
 
 # Deliberately NOT running `direnv allow` here.
 #

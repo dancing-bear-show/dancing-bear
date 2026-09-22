@@ -89,7 +89,14 @@ class TestNameWorktreeHookHappyPath(unittest.TestCase):
     ) -> None:
         proc = _run_hook(self.repo, json.dumps({"name": "whatever"}))
 
-        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(
+            proc.returncode,
+            0,
+            f"hook exited nonzero (stderr: {proc.stderr!r}); note this runs "
+            "the REAL name generator, which reads /usr/share/dict/words — "
+            "see TestNameWorktreeHookBothBranches below for a host-independent "
+            "check that forces both the generator and fallback paths",
+        )
         lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
         self.assertTrue(lines, "hook printed nothing on stdout")
         printed_path = Path(lines[-1])
@@ -110,6 +117,8 @@ class TestNameWorktreeHookHappyPath(unittest.TestCase):
         self.assertEqual(
             printed_path.parent,
             (self.repo / ".claude" / "worktrees").resolve(),
+            f"worktree {printed_path} was not created directly under "
+            f"{self.repo}/.claude/worktrees as the hook contract requires",
         )
 
     def test_output_is_plain_text_not_json(self) -> None:
@@ -324,29 +333,26 @@ class TestNameWorktreeHookNotAGitRepo(unittest.TestCase):
             self.assertFalse((not_a_repo / ".claude").exists())
 
 
-class TestNameWorktreeHookFallbackIsUnreachable(unittest.TestCase):
-    """Documents a real bug: the `NAME_IN` fallback can never run.
+class TestNameWorktreeHookGeneratorFailureFallsBack(unittest.TestCase):
+    """Current contract: when the dict-based generator fails, the hook falls
+    back to the sanitised caller-supplied name rather than blocking.
 
-    The header/inline comments promise that when dict-based name generation
-    fails, the script falls back to the caller-supplied name:
+        NAME=$(python3 -I -S -c "..." 2>/dev/null) || true
+        [ -z "$NAME" ] && NAME="$(sanitise "$NAME_IN")"
 
-        NAME=$(python3 -I -S -c "..." 2>/dev/null)
-        [ -z "$NAME" ] && NAME="$NAME_IN"
-
-    But the script also runs under `set -euo pipefail`. `2>/dev/null` only
-    silences python3's stderr - it does not change its exit status, and a
-    command substitution's exit status IS the assignment's exit status. When
-    `python3` exits nonzero (e.g. `/usr/share/dict/words` is missing, or any
-    other failure inside the snippet), `set -e` kills the whole script at the
-    `NAME=$(...)` line itself, before the `[ -z "$NAME" ]` fallback check is
-    ever reached. The fallback line is dead code - confirmed with `bash -x`:
-    the trace stops at `NAME=` with nothing after it.
-
-    So on a machine where `/usr/share/dict/words` is absent (this script's
-    only source of names), the hook does not gracefully fall back to the
-    caller's name - it exits nonzero and blocks worktree creation entirely.
-    This class pins the ACTUAL behaviour (hard failure), not the commented
-    intent (graceful fallback), and is a bug report, not a fix.
+    History (was true, is fixed — see the hook's own comments for the
+    current explanation): this class used to be named
+    `TestNameWorktreeHookFallbackIsUnreachable` and pinned the OPPOSITE of
+    what it pins now. The script runs under `set -euo pipefail`, and a
+    command substitution's exit status is the assignment's exit status — so
+    without the `|| true` that now guards `NAME=$(...)`, `set -e` killed the
+    whole script at that line, before the `[ -z "$NAME" ]` fallback check was
+    ever reached. On a machine where `/usr/share/dict/words` is absent (a
+    stock Linux CI runner, unlike this repo's macOS dev hosts), the hook did
+    not gracefully fall back — it exited nonzero and blocked worktree
+    creation entirely. That defect is fixed; the fallback below is real and
+    exercised on every run of this class, not just where the dict happens to
+    be missing.
 
     Forcing generation to fail without editing the hook: point $PATH at a
     directory whose `python3` unconditionally exits nonzero, so the script's
@@ -384,13 +390,10 @@ class TestNameWorktreeHookFallbackIsUnreachable(unittest.TestCase):
     def test_a_failing_generator_falls_back_to_the_caller_name(self) -> None:
         """A failing name generator must fall back, not block worktree creation.
 
-        This test previously pinned the opposite — the fallback was dead code,
-        because `set -euo pipefail` aborts the script at a command substitution
-        that exits non-zero, so the `[ -z "$NAME" ]` line after it never ran.
-        Its failure message said to update it if the fallback became reachable,
-        which is exactly what happened: `/usr/share/dict/words` does not exist on
-        a stock Linux runner, so the generator fails there for real and this
-        defect was turning CI red.
+        See the class docstring: this used to be a bug report pinning the
+        opposite (hard failure), until `/usr/share/dict/words` turned out to
+        be absent on stock Linux CI runners for real, the fallback was fixed,
+        and this test was updated to assert the current, working contract.
         """
         proc = self._run_with_broken_python3(
             json.dumps({"name": "fallback-safe-name"})
@@ -429,6 +432,123 @@ class TestNameWorktreeHookFallbackIsUnreachable(unittest.TestCase):
                 self.assertFalse(produced.startswith("-"), f"leading dash: {produced!r}")
                 if forbidden:
                     self.assertNotIn(forbidden, produced)
+
+
+class TestNameWorktreeHookBothBranches(unittest.TestCase):
+    """Pairs the generator branch and the fallback branch side by side for
+    the happy-path 'creates a worktree and prints its path' scenario, so a
+    reviewer or CI failure names which branch ran instead of leaving it to
+    whatever `/usr/share/dict/words` happens to be on the host.
+
+    Copilot review PRRT_kwDOQr1kjM6k8hh5 on PR #388 pointed out that the
+    original happy-path tests invoked the real hook and so silently took
+    whichever branch the host provided — on a host missing the dict file the
+    test's *meaning* changed with no visible signal. The underlying hook bug
+    that review described (a missing dict aborting the whole script via
+    `set -e`) is fixed; see TestNameWorktreeHookGeneratorFailureFallsBack for
+    that history and for the fallback's own correctness assertions (it falls
+    back at all, and it sanitises a hostile caller name) — this class does
+    NOT repeat those. Its only job is the generator-branch/fallback-branch
+    PAIRING: proving the happy path holds on both, labelled, in one place,
+    so "does the happy path work" has a single host-independent answer
+    instead of depending on which branch a given CI runner takes.
+    """
+
+    def setUp(self) -> None:
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.repo = _make_sandbox_repo(Path(self._td.name, "repo"))
+
+    def test_generator_branch_creates_a_worktree_when_dict_is_available(
+        self,
+    ) -> None:
+        """Real environment, unforced: the dict-based generator path.
+
+        Skips with a named reason rather than asserting on a shape the host
+        cannot produce — this test's whole point is to check the generator
+        branch specifically, not "some" branch.
+        """
+        if not os.path.isfile("/usr/share/dict/words"):
+            self.skipTest(
+                "generator branch requires /usr/share/dict/words, absent on this host"
+            )
+
+        proc = _run_hook(self.repo, json.dumps({"name": "caller-name-ignored"}))
+
+        self.assertEqual(
+            proc.returncode,
+            0,
+            f"generator branch: hook exited nonzero: {proc.stderr!r}",
+        )
+        printed_path = Path(proc.stdout.splitlines()[-1])
+        produced = printed_path.name
+        self.assertTrue(
+            printed_path.is_dir(),
+            f"generator branch: no worktree created at {printed_path}",
+        )
+        self.assertRegex(
+            produced,
+            _GENERATED_NAME_RE,
+            f"generator branch: expected the dict-based '3 random nouns' "
+            f"shape but got {produced!r} — did the hook silently fall back "
+            "even though the dict file exists?",
+        )
+        self.assertNotEqual(
+            produced,
+            "caller-name-ignored",
+            "generator branch: produced name equals the caller-supplied name, "
+            "meaning the fallback ran instead of the generator",
+        )
+
+    def test_fallback_branch_creates_a_worktree_when_generator_is_forced_to_fail(
+        self,
+    ) -> None:
+        """Generator forced to fail via a shimmed `python3`: the fallback path.
+
+        Reuses the same fake-python3-on-PATH technique as
+        TestNameWorktreeHookGeneratorFailureFallsBack.
+        test_a_failing_generator_falls_back_to_the_caller_name, which already
+        owns "does the fallback work at all" — this test does not re-assert
+        that in isolation. Its purpose here is narrower: pairing this branch
+        with test_generator_branch_creates_a_worktree_when_dict_is_available
+        above so the happy-path scenario is checked on both branches side by
+        side, with the branch named in the result either way.
+        """
+        fake_bin = Path(self._td.name, "fake_bin_both_branches")
+        fake_bin.mkdir()
+        fake_python3 = fake_bin / "python3"
+        fake_python3.write_text("#!/bin/sh\nexit 1\n")
+        fake_python3.chmod(0o755)
+        real_path = os.environ.get("PATH", "")
+        env = {**os.environ, "PATH": f"{fake_bin}{os.pathsep}{real_path}"}
+
+        proc = subprocess.run(  # nosec B603 B607 - in-repo script, sandbox repo
+            ["bash", str(HOOK)],
+            input=json.dumps({"name": "fallback-branch-name"}),
+            capture_output=True,
+            text=True,
+            cwd=str(self.repo),
+            env=env,
+            timeout=30,
+        )
+
+        self.assertEqual(
+            proc.returncode,
+            0,
+            f"fallback branch: hook exited nonzero with generator forced to "
+            f"fail: {proc.stderr!r}",
+        )
+        printed_path = Path(proc.stdout.splitlines()[-1])
+        self.assertTrue(
+            printed_path.is_dir(),
+            f"fallback branch: no worktree created at {printed_path}",
+        )
+        self.assertEqual(
+            printed_path.name,
+            "fallback-branch-name",
+            "fallback branch: expected the sanitised caller name, got "
+            f"{printed_path.name!r} — did the generator run despite being shimmed?",
+        )
 
 
 class TestNameWorktreeHookScriptItself(unittest.TestCase):
