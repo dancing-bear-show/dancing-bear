@@ -197,13 +197,16 @@ def _resolve_folder_for_action(path: str, ctx: RuleContext) -> str:
     if cached:
         return cached
 
+    # Exceptions PROPAGATE here too -- see `_resolve_folder_id`. An auth or
+    # transport failure is not evidence a folder is absent, and a preview that
+    # guesses from a failed read is worse than one that errors.
     resolver = getattr(ctx.client, "resolve_folder_path", None)
     if resolver is not None:
-        try:
-            live = resolver(path)
-        except Exception:  # nosec B110 - preview must degrade, never fail the run
-            live = ""
+        live = resolver(path)
         if live:
+            # Memoise, so N uncached destinations do not mean N tree walks and
+            # `_format_plan_action` can still name the destination.
+            ctx.folder_map[path] = live
             return live
 
     return path
@@ -309,13 +312,25 @@ def _resolve_folder_id(path: str, folder_map: dict[str, str], client: Any = None
         # otherwise left plan keying the rule on 'Archive/News' while apply keyed
         # it on the real Graph id -- plan reported "Would create" for a rule the
         # live run treated as a no-op. Probed on #359 and deferred from it.
+        #
+        # Exceptions deliberately PROPAGATE. An auth or transport failure is not
+        # evidence that a folder is absent; swallowing it returned the path, and
+        # the preview then reported "Would create" for a folder it simply could
+        # not see. A preview that invents a conclusion from a failed read is worse
+        # than one that errors -- the processor's envelope turns this into a
+        # diagnostic the user can act on. `resolve_folder_path` already returns ""
+        # for a genuine miss, so there is no ambiguity to absorb here.
         resolver = getattr(client, "resolve_folder_path", None)
         if resolver is not None:
-            try:
-                live = resolver(path)
-            except Exception:  # nosec B110 - preview must degrade, never fail the run
-                live = ""
+            live = resolver(path)
             if live:
+                # Memoise into the caller's map. Two reasons, both raised in
+                # review: without it every uncached destination triggers its own
+                # full tree walk (N destinations, N traversals, throttling risk),
+                # and `_format_plan_action` reverse-maps this same dict to display
+                # a destination -- so an unrecorded id printed as the opaque Graph
+                # id instead of 'Archive/News'.
+                folder_map[path] = live
                 return live
     return path
 

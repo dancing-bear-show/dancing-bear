@@ -377,6 +377,24 @@ class TestResolveFolderPath(OutlookMailTestBase):
             "fresh=False still hit Graph; the cache was not reused",
         )
 
+    @patch("core.outlook._mail_folders._requests")
+    def test_normalises_the_path_like_ensure_folder_path(self, mock_requests_fn):
+        """Redundant separators resolve, matching ``ensure_folder_path``.
+
+        Raised in review: ``ensure_folder_path`` filters empty segments before
+        resolving, but this lookup used the raw string as the map key. So
+        ``Archive//News``, ``Archive/News/`` and ``/Archive/News`` all reported the
+        folder absent while the live apply resolved them fine -- reintroducing the
+        preview/apply divergence this method exists to close.
+        """
+        for raw in ("Archive//News", "Archive/News/", "/Archive/News"):
+            with self.subTest(path=raw):
+                self._mock_tree(mock_requests_fn)
+                self.assertEqual(
+                    FakeMailClient().resolve_folder_path(raw), "id-news",
+                    f"{raw!r} reported the folder absent",
+                )
+
     def test_empty_path_raises(self):
         """Matches ``ensure_folder_path``: an empty path is a caller error.
 

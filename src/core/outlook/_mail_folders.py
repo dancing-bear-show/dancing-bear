@@ -227,9 +227,15 @@ class FoldersMixin:
         Callers that genuinely want the cached map already have
         ``get_folder_path_map``; pass ``fresh=False`` here to reuse it.
         """
-        if not [p for p in (path or "").split("/") if p]:
+        # Normalise exactly as ``ensure_folder_path`` does before resolving, so
+        # both sides agree on what a path means.  Without this, `Archive//News`,
+        # `Archive/News/` and `/Archive/News` all missed the map lookup and
+        # reported the folder absent, while the live apply resolved them fine --
+        # reintroducing the preview/apply divergence this method exists to close.
+        parts = [p for p in (path or "").split("/") if p]
+        if not parts:
             raise ValueError("Folder path is empty")
-        return self.get_folder_path_map(ttl=ttl, bypass_cache=fresh).get(path, "")
+        return self.get_folder_path_map(ttl=ttl, bypass_cache=fresh).get("/".join(parts), "")
 
     def ensure_folder_path(self: "_FoldersHost", path: str) -> str:
         """Ensure a nested folder path exists and return the leaf folder id.

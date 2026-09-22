@@ -2301,5 +2301,109 @@ class TestExistingFolderCacheMissParity(unittest.TestCase):
         self.assertIn("Archive/News", env.payload.plan_items[0])
 
 
+# ---------------------------------------------------------------------------
+# Live folder lookups: memoise, and do not guess from a failed read
+# ---------------------------------------------------------------------------
+
+class TestLiveFolderLookupBehaviour(unittest.TestCase):
+    """Three review findings on the live ``resolve_folder_path`` fallback.
+
+    All three are about a preview that reaches the network: it must be cheap,
+    honest, and able to name what it found.
+    """
+
+    REAL_ID = "id-news"
+
+    class _Counting:
+        """Client whose resolver counts calls and knows one folder."""
+
+        def __init__(self, known=("Archive/News",)):
+            self.calls = 0
+            self._known = set(known)
+
+        def resolve_folder_path(self, path, ttl=600, fresh=True):
+            self.calls += 1
+            return "id-news" if path in self._known else ""
+
+    class _Failing:
+        """Client whose resolver raises, as an auth or transport failure would."""
+
+        def resolve_folder_path(self, path, ttl=600, fresh=True):
+            raise RuntimeError("401 Unauthorized")
+
+    def test_resolved_id_is_memoised_in_folder_map(self):
+        """A repeated destination costs one lookup, not two.
+
+        Each call is a full folder-tree walk, so N uncached destinations meant N
+        traversals in one preview, with real throttling risk.
+        """
+        from mail.outlook.processors_rules_helpers import RuleContext, _resolve_folder_id
+
+        client = self._Counting()
+        ctx = RuleContext.for_plan({}, {}, True, client)
+
+        for path in ("Archive/News", "Archive/News", "Archive/News"):
+            _resolve_folder_id(path, ctx.folder_map, ctx.client)
+
+        self.assertEqual(
+            client.calls, 1,
+            "the same destination triggered more than one full tree walk",
+        )
+
+    def test_resolved_id_lands_in_the_map_for_display(self):
+        """``_format_plan_action`` reverse-maps ``folder_map`` to name a destination.
+
+        An unrecorded id printed as the opaque Graph id (`folder-real-id`) instead
+        of `Archive/News`, which makes a plan item unreadable.
+        """
+        from mail.outlook.processors_rules_helpers import RuleContext, _resolve_folder_id
+
+        folder_map: dict[str, str] = {}
+        ctx = RuleContext.for_plan({}, folder_map, True, self._Counting())
+
+        _resolve_folder_id("Archive/News", ctx.folder_map, ctx.client)
+
+        self.assertEqual(folder_map.get("Archive/News"), self.REAL_ID)
+
+    def test_a_failed_lookup_is_not_treated_as_absent(self):
+        """An auth/transport failure must propagate, not become "would create".
+
+        Swallowing the exception returned the path, so the preview reported
+        ``Would create`` for a folder it simply could not see -- a conclusion
+        invented from a failed read. ``resolve_folder_path`` already returns ""
+        for a genuine miss, so there is no ambiguity to absorb.
+        """
+        from mail.outlook.processors_rules_helpers import RuleContext, _resolve_folder_id
+
+        ctx = RuleContext.for_plan({}, {}, True, self._Failing())
+
+        with self.assertRaises(RuntimeError):
+            _resolve_folder_id("Archive/News", ctx.folder_map, ctx.client)
+
+    @patch("core.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_plan_surfaces_a_lookup_failure_as_a_diagnostic(self, mock_norm, mock_load):
+        """End to end: the propagated error becomes an error envelope, not a crash.
+
+        Propagating is only correct if the processor turns it into something the
+        user can act on -- otherwise the fix trades a wrong answer for a traceback.
+        """
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = [{
+            "match": {"from": "news.example"},
+            "action": {"moveToFolder": "Archive/News"},
+        }]
+        client = _make_client()
+        client.resolve_folder_path.side_effect = RuntimeError("401 Unauthorized")
+        payload = OutlookRulesPlanPayload(
+            client=client, config_path="/test.yaml", move_to_folders=True, reconcile=False,
+        )
+
+        envelope = OutlookRulesPlanProcessor().process(payload)
+
+        self.assertEqual(envelope.status, "error")
+        self.assertIn("401", (envelope.diagnostics or {}).get("error", ""))
+
+
 if __name__ == "__main__":
     unittest.main()
