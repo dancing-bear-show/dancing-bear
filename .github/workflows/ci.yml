@@ -115,7 +115,10 @@ jobs:
           # [slides] pulls python-pptx for the same reason: tests/slides_tests
           # imports it at collection time, so omitting it fails the suite before
           # a single test runs.
-          python -m pip install -e ".[tui,slides]"
+          # [pdf] pulls PyMuPDF for src/core/pdf_forms.py and the fixture
+          # generators under tests/receipts_fixtures/. This job installs these
+          # extras rather than [dev], so declaring it there did not reach here.
+          python -m pip install -e ".[tui,slides,pdf]"
           python -m pip install coverage
       - name: Verify imports resolve to this checkout
         run: |
