@@ -17,6 +17,7 @@ from workflow.linter import (
     LintWarning,
     _compute_dag_depth,
     _extract_var_refs,
+    _roles_that_cannot_write,
     lint_workflow,
 )
 
@@ -268,6 +269,141 @@ class TestCheckInlineExecutor(unittest.TestCase):
             result = lint_workflow(wf)
             self.assertFalse(result.valid)
             self.assertTrue(any("inline" in e.message for e in result.errors))
+
+
+class TestRolesThatCannotWrite(unittest.TestCase):
+    """_roles_that_cannot_write reads the agent definitions rather than guessing.
+
+    Driven from a temp directory rather than the repo's real .claude/agents/, so
+    these stay true when a role's frontmatter changes -- which is the whole point
+    of deriving the set instead of hardcoding it.
+    """
+
+    def _agents_dir(self, tmp_dir: str, defs: dict[str, str]) -> Path:
+        d = Path(tmp_dir) / "agents"
+        d.mkdir()
+        for name, disallowed in defs.items():
+            (d / f"{name}.md").write_text(
+                f"---\nname: {name}\ndisallowedTools: {disallowed}\n---\n\n# {name}\n",
+                encoding="utf-8",
+            )
+        return d
+
+    def test_role_disallowing_write_is_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            d = self._agents_dir(tmp_dir, {"Explore": "Agent, Edit, Write, NotebookEdit"})
+            self.assertEqual(_roles_that_cannot_write(d), frozenset({"Explore"}))
+
+    def test_role_allowing_write_is_not_reported(self) -> None:
+        # The post-#392 researcher shape: Edit disallowed, Write permitted.
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            d = self._agents_dir(tmp_dir, {"researcher": "Edit, NotebookEdit"})
+            self.assertEqual(_roles_that_cannot_write(d), frozenset())
+
+    def test_substring_does_not_false_positive(self) -> None:
+        # "NotebookEdit" contains no bare "Write", but a naive substring test on
+        # a name like "WriteSomething" would match. Tokens are compared, not text.
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            d = self._agents_dir(tmp_dir, {"r": "NotebookEdit, WriteSomethingElse"})
+            self.assertEqual(_roles_that_cannot_write(d), frozenset())
+
+    def test_missing_directory_returns_empty(self) -> None:
+        # Linting from outside a checkout must degrade to "no warnings", not raise.
+        self.assertEqual(
+            _roles_that_cannot_write(Path("/no/such/agents/dir")), frozenset()
+        )
+
+
+def _access_yaml(*, role: str, tools: str, access: str = "") -> str:
+    access_line = f"      access: {access}\n" if access else ""
+    return f"""\
+name: access-wf
+version: "1.0"
+description: Test workflow
+trigger:
+  source: manual
+stages:
+  - name: work
+    kind: gather
+    description: Do the thing
+    agent:
+      role: {role}
+      tools: [{tools}]
+{access_line}"""
+
+
+class TestCheckAgentAccess(unittest.TestCase):
+    """access: is documentation, not enforcement -- the linter says so out loud."""
+
+    def _lint(self, yaml_str: str) -> LintResult:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            wf = Path(tmp_dir) / "wf.yaml"
+            wf.write_text(yaml_str, encoding="utf-8")
+            return lint_workflow(wf)
+
+    def _access_warnings(self, result: LintResult) -> list[LintWarning]:
+        return [w for w in result.warnings if w.field == "agent.access"]
+
+    def test_read_only_listing_write_warns(self) -> None:
+        result = self._lint(
+            _access_yaml(role="researcher", tools="Bash, Read, Write", access="read-only")
+        )
+        warnings = self._access_warnings(result)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("read-only", warnings[0].message)
+        self.assertIn("Write", warnings[0].message)
+        # A warning, never an error: 87 stages carried this shape and still ran.
+        self.assertTrue(result.valid)
+
+    def test_read_only_listing_edit_warns(self) -> None:
+        result = self._lint(
+            _access_yaml(role="reviewer", tools="Read, Edit", access="read-only")
+        )
+        self.assertEqual(len(self._access_warnings(result)), 1)
+
+    def test_read_write_listing_write_is_clean(self) -> None:
+        result = self._lint(
+            _access_yaml(role="researcher", tools="Bash, Read, Write", access="read-write")
+        )
+        self.assertEqual(self._access_warnings(result), [])
+
+    def test_omitted_access_does_not_warn(self) -> None:
+        """A stage that declares no access: is claiming nothing.
+
+        access defaults to read_only when the key is absent, so warning on the
+        default would fire on every minimal stage in the tree -- and it broke a
+        --strict lint fixture that was legitimately clean.
+        """
+        result = self._lint(_access_yaml(role="researcher", tools="Bash, Read"))
+        self.assertEqual(self._access_warnings(result), [])
+
+    def test_read_only_without_write_tools_is_clean(self) -> None:
+        result = self._lint(
+            _access_yaml(role="researcher", tools="Bash, Read", access="read-only")
+        )
+        self.assertEqual(self._access_warnings(result), [])
+
+    def test_read_write_on_role_that_cannot_write_warns(self) -> None:
+        """The unsatisfiable-stage case: the run stalls on a missing output.
+
+        Explore still disallows Write, so a stage assigning it read-write is
+        declaring a capability the role does not have.
+        """
+        result = self._lint(
+            _access_yaml(role="Explore", tools="Read", access="read-write")
+        )
+        warnings = self._access_warnings(result)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("cannot produce its outputs", warnings[0].message)
+
+    def test_warning_names_the_agent_definition_file(self) -> None:
+        """The message must point at the real gate, not at the YAML."""
+        result = self._lint(
+            _access_yaml(role="researcher", tools="Read, Write", access="read-only")
+        )
+        self.assertIn(
+            ".claude/agents/researcher.md", self._access_warnings(result)[0].message
+        )
 
 
 if __name__ == "__main__":

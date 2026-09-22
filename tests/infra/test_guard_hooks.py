@@ -50,6 +50,7 @@ TESTS_DIR = HOOKS_DIR / "tests"
 SUITES = (
     "block-destructive-bash.test.sh",
     "block-protected-paths.test.sh",
+    "block-readonly-role-writes.test.sh",
     "statusline.test.sh",
 )
 

@@ -428,6 +428,7 @@ stages:
       role: code-writer
       model: sonnet
       tools: [Bash, Read, Write, Edit]
+      access: read-write
       isolation: worktree
     required: false
     writes_to:
@@ -484,6 +485,7 @@ stages:
       role: tester
       model: sonnet
       tools: [Bash, Read, Write, Edit]
+      access: read-write
       isolation: worktree
     required: true
     writes_to:
@@ -530,6 +532,7 @@ stages:
       role: tester
       model: sonnet
       tools: [Bash, Read, Write, Edit]
+      access: read-write
       isolation: worktree
     required: false
     writes_to:
@@ -758,6 +761,7 @@ stages:
       role: doc-writer
       model: sonnet
       tools: [Bash, Read, Write]
+      access: read-write
     required: true
 
 include:

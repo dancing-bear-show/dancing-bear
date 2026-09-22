@@ -11,6 +11,8 @@ Additional checks beyond the parser:
   as errors.
 - ``./bin/<cli> <subcommand>`` patterns in stage descriptions are validated
   against the actual CLI binaries when ``check_commands=True``.
+- ``agent.access`` is cross-checked against the role's agent definition, because
+  the field restricts nothing at runtime. See ``_check_agent_access``.
 """
 
 from __future__ import annotations
@@ -162,6 +164,7 @@ def lint_workflow(path: str | Path, *, check_commands: bool = False) -> LintResu
     _check_var_refs(defn, result)
     _check_fan_out_worker_queue(defn, result)
     _check_inline_executor(defn, result)
+    _check_agent_access(defn, result)
 
     if check_commands:
         _check_cli_commands(defn, result)
@@ -300,6 +303,115 @@ def _check_inline_executor(defn: object, result: LintResult) -> None:
                         "executor='inline' is incompatible with fan_out — "
                         "inline stages run synchronously in the orchestrator; "
                         "use executor='agent' for fan-out stages"
+                    ),
+                )
+            )
+
+
+_AGENTS_DIR = Path(__file__).resolve().parents[2] / ".claude" / "agents"
+
+# Tools whose presence in `disallowedTools:` means the role cannot create files.
+_WRITE_TOOL = "Write"
+
+
+def _roles_that_cannot_write(agents_dir: Path | None = None) -> frozenset[str]:
+    """Return role names whose agent definition disallows the Write tool.
+
+    Derived from the definitions on disk rather than hardcoded. A hardcoded list
+    goes stale the moment someone edits frontmatter -- which is exactly what
+    happened in PR #392, where `researcher` and `Plan` both changed and every
+    reader working from memory got the wrong answer.
+
+    Returns an empty set if the directory is missing, so linting a workflow from
+    outside a checkout degrades to "no access warnings" rather than raising.
+    """
+    d = agents_dir if agents_dir is not None else _AGENTS_DIR
+    if not d.is_dir():
+        return frozenset()
+    blocked: set[str] = set()
+    for md in d.glob("*.md"):
+        try:
+            text = md.read_text(encoding="utf-8", errors="replace")
+        except OSError:  # nosec B112 - an unreadable agent file is not a lint failure
+            continue
+        for line in text.splitlines():
+            if not line.startswith("disallowedTools:"):
+                continue
+            tools = {t.strip() for t in line.split(":", 1)[1].split(",")}
+            if _WRITE_TOOL in tools:
+                blocked.add(md.stem)
+            break
+    return frozenset(blocked)
+
+
+def _check_agent_access(defn: object, result: LintResult) -> None:
+    """Warn where a stage's ``access:`` disagrees with what its role can do.
+
+    ``access`` is parsed and validated in ``parser_fields.py`` and stored on
+    ``AgentSpec`` -- and then read by nothing. No code in ``src/`` grants or
+    restricts anything based on it, and the same is true of a stage's ``tools:``
+    list. Both are documentation.
+
+    That matters because reviewers reasonably read ``access: read-only`` as a
+    guarantee and file it as a security finding when a stage writes anyway. The
+    only real gate is the ``disallowedTools:`` frontmatter in
+    ``.claude/agents/<role>.md``.
+
+    Two disagreements are worth surfacing, and they fail in opposite directions:
+
+    * ``read-only`` on a stage that lists Write/Edit in ``tools:`` -- the
+      declaration implies a restriction that does not exist.
+    * ``read-write`` on a stage whose role CANNOT write -- the stage is
+      unsatisfiable: it will gather its data and then be unable to emit any of
+      it, stalling the run on a missing required output.
+
+    Deliberately NOT warned: ``read-only`` on a stage that merely *has* a
+    Write-capable role but declares no write tools. ``access`` defaults to
+    ``read_only`` when the key is absent, so the parsed spec cannot distinguish
+    "declared read-only" from "said nothing" -- and after #392 relaxed
+    ``researcher``, almost every role can write. Warning on that shape fires on
+    any stage that omits ``access`` entirely, including a minimal two-line
+    gather stage that is claiming nothing. That is noise, and it broke a
+    ``--strict`` lint fixture that was legitimately clean.
+
+    Warnings rather than errors: 87 stages carried the first shape before #392
+    and the tree still ran, so failing the lint would break every existing
+    workflow over a field that changes no behaviour.
+    """
+    from workflow.models import AgentAccess, WorkflowDefinition
+
+    if not isinstance(defn, WorkflowDefinition):
+        return
+    cannot_write = _roles_that_cannot_write()
+    for stage in defn.stages:
+        agent = getattr(stage, "agent", None)
+        if agent is None:
+            continue
+        role = agent.role
+        write_tools = sorted(t for t in agent.tools if t in {"Write", "Edit"})
+
+        if agent.access == AgentAccess.read_only and write_tools:
+            result.warnings.append(
+                LintWarning(
+                    stage=stage.name,
+                    field="agent.access",
+                    message=(
+                        f"declares access: read-only but lists {write_tools} in tools "
+                        f"— access is not enforced at runtime (nothing reads it), so "
+                        f"this restricts nothing; the real gate is disallowedTools in "
+                        f".claude/agents/{role}.md"
+                    ),
+                )
+            )
+        elif agent.access == AgentAccess.read_write and role in cannot_write:
+            result.warnings.append(
+                LintWarning(
+                    stage=stage.name,
+                    field="agent.access",
+                    message=(
+                        f"declares access: read-write but role '{role}' disallows the "
+                        f"Write tool (.claude/agents/{role}.md), so this stage cannot "
+                        f"produce its outputs — use a Write-capable role"
                     ),
                 )
             )
