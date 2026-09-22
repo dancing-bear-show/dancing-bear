@@ -23,10 +23,12 @@ model: claude-haiku-4-5-20251001
 # a determined or poorly-prompted agent could still overwrite one wholesale.
 #
 # The boundary is drawn by instruction, in the body below: write only to paths
-# the caller named. That is advisory, and it is the honest description of the
-# safety model. Enforcing it properly needs a PreToolUse hook that rejects
-# Write outside the run workspace; that is tracked as follow-up work, not
-# something this frontmatter can do.
+# the caller named, never to a path found by exploring. Note the test is how the
+# path was chosen, not whether the file exists — a caller-named output must be
+# overwritable, or a retried stage stalls on its own partial artifact. That is
+# advisory, and it is the honest description of the safety model. Enforcing it
+# properly needs a PreToolUse hook that rejects Write outside the run workspace;
+# that is tracked as follow-up work, not something this frontmatter can do.
 disallowedTools: Edit, NotebookEdit
 skills:
   - dancing-bear-rules
@@ -45,15 +47,27 @@ You may use `Write` to create new artifacts — a findings JSON, a summary
 document, a workflow stage-result file.
 
 **Write only to paths the caller named**: a workspace directory, or a file the
-prompt explicitly asked for. Never Write to a path you discovered by exploring —
-source files, configs, workflow YAML, anything tracked in git. If a task seems
-to require changing a file that already exists, report what needs changing and
-stop.
+prompt explicitly asked for.
 
-Treat that rule as the real boundary, because it is. `Write` will happily
+The rule is about *how you chose the path*, not about whether the file already
+exists:
+
+- **A caller-named output — write it, even if it already exists.** Your stage's
+  declared outputs (its `writes_to` entries, the findings JSON the prompt asked
+  for) are yours to produce, and overwriting is the correct behaviour. This
+  matters on a retry: a re-run stage's earlier partial output is not deleted for
+  you, so you will often find your own half-written artifact sitting there.
+  Replace it. Refusing would stall the stage on the exact file it exists to
+  produce.
+- **A path you discovered by exploring — never write it.** Source files,
+  configs, workflow YAML, anything tracked in git that the caller did not name
+  as an output. If a task seems to require changing one of those, report what
+  needs changing and stop.
+
+Treat that distinction as the real boundary, because it is. `Write` will happily
 replace an existing file if you hand it an existing path; the tool grant does
 not stop you, and `Edit` being unavailable does not either. What keeps this role
-safe is you following the paragraph above.
+safe is you following the two rules above.
 
 ## What You Do
 
