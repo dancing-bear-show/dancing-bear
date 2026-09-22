@@ -825,7 +825,12 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
             existing_map = {_canon_rule(r): r for r in existing_rules}
             plan_items, would_reconcile = self._build_plan_items(
                 desired, existing_keys, existing_map, name_to_id, folder_map,
-                payload.move_to_folders, payload.reconcile
+                payload.move_to_folders, payload.reconcile,
+                # Read-only client, for non-mutating folder lookups only. Without
+                # it plan falls back to the folder path string on a cache miss
+                # while sync resolves the real Graph id, so the two key the same
+                # rule differently and plan promises a create sync will not make.
+                client,
             )
 
             return ResultEnvelope(
@@ -915,6 +920,7 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
         folder_map: dict[str, str],
         move_to_folders: bool,
         reconcile: bool = False,
+        client: Any = None,
     ) -> tuple[list[str], int]:
         """Build plan items for rules that would be created or reconciled.
 
@@ -933,7 +939,7 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
         """
         plan_items = []
         would_reconcile = 0
-        ctx = RuleContext.for_plan(name_to_id, folder_map, move_to_folders)
+        ctx = RuleContext.for_plan(name_to_id, folder_map, move_to_folders, client)
 
         # Build the same indexes that sync uses so plan and apply classify each
         # desired rule identically.

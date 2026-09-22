@@ -170,6 +170,56 @@ class TestListAllFolders(OutlookMailTestBase):
         with self.assertRaises(requests.exceptions.HTTPError):
             FakeMailClient().list_all_folders()
 
+    @patch("core.outlook._mail_folders._requests")
+    def test_bypass_cache_skips_the_read_and_still_writes(self, mock_requests_fn):
+        """``bypass_cache=True`` ignores a cached snapshot but refreshes it.
+
+        Asserted directly here rather than only through ``resolve_folder_path``:
+        the flag's contract is "skip the READ, keep the WRITE", and the write half
+        is what lets later callers reuse the fresh listing instead of every
+        uncached destination triggering its own tree walk.
+        """
+        client = FakeMailClient()
+        client._cfg_cache["folders_all"] = [
+            {"id": "stale-id", "displayName": "Stale", "parentFolderId": None},
+        ]
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.side_effect = [
+            make_mock_response({"value": FOLDERS_LIST}),
+        ] + [make_mock_response({"value": []}) for _ in FOLDERS_LIST]
+
+        result = client.list_all_folders(bypass_cache=True)
+
+        self.assertEqual(
+            sorted(f["id"] for f in result), sorted(f["id"] for f in FOLDERS_LIST),
+            "the stale cached snapshot was returned instead of a fresh listing",
+        )
+        # The write still happened, so the next caller need not walk again.
+        self.assertEqual(
+            sorted(f["id"] for f in client._cfg_cache["folders_all"]),
+            sorted(f["id"] for f in FOLDERS_LIST),
+        )
+
+    @patch("core.outlook._mail_folders._requests")
+    def test_default_still_reads_the_cache(self, mock_requests_fn):
+        """Contrast: without the flag, a cached snapshot is reused as before.
+
+        Pins that ``bypass_cache`` is opt-in — a default that skipped the cache
+        would turn every folder lookup in the codebase into a full tree walk.
+        """
+        client = FakeMailClient()
+        cached = [{"id": "cached-id", "displayName": "Cached", "parentFolderId": None}]
+        client._cfg_cache["folders_all"] = list(cached)
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+
+        result = client.list_all_folders()
+
+        self.assertEqual(result, cached)
+        self.assertEqual(
+            mock_requests.get.call_count, 0,
+            "the default path hit Graph; the cache was not reused",
+        )
+
 
 class TestGetFolderPathMap(OutlookMailTestBase):
     """Tests for get_folder_path_map method."""
@@ -201,6 +251,224 @@ class TestGetFolderPathMap(OutlookMailTestBase):
 
         self.assertEqual(result.get("B/A"), "a-id")
         self.assertEqual(result.get("A/B"), "b-id")
+
+
+class TestResolveFolderPath(OutlookMailTestBase):
+    """``resolve_folder_path``: look up a folder path WITHOUT creating anything.
+
+    The non-mutating counterpart to ``ensure_folder_path``, added for callers that
+    must not change the mailbox -- previews above all. ``rules.plan`` and
+    ``rules.sync --dry-run`` previously fell back to the folder path string on a
+    cache miss while the apply resolved the real Graph id, so the two keyed the
+    same rule differently and the preview reported ``Would create`` for a rule the
+    live run treated as a no-op.
+
+    Tested against the real implementation rather than a stub: the parity tests in
+    tests/mail_tests/outlook/ mock this method, which proves the wiring but says
+    nothing about the method itself.
+    """
+
+    #: Archive/News nested under Archive, plus one top-level folder.
+    FOLDERS = [
+        {"id": "id-archive", "displayName": "Archive", "parentFolderId": None},
+        {"id": "id-news", "displayName": "News", "parentFolderId": "id-archive"},
+        {"id": "id-flat", "displayName": "Receipts", "parentFolderId": None},
+    ]
+
+    def _mock_tree(self, mock_requests_fn):
+        """Serve the folder tree, then empty child listings for the BFS walk."""
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.side_effect = [
+            make_mock_response({"value": list(self.FOLDERS)}),
+        ] + [make_mock_response({"value": []}) for _ in range(len(self.FOLDERS))]
+        return mock_requests
+
+    @patch("core.outlook._mail_folders._requests")
+    def test_resolves_a_nested_path(self, mock_requests_fn):
+        self._mock_tree(mock_requests_fn)
+
+        self.assertEqual(FakeMailClient().resolve_folder_path("Archive/News"), "id-news")
+
+    @patch("core.outlook._mail_folders._requests")
+    def test_resolves_a_flat_path(self, mock_requests_fn):
+        self._mock_tree(mock_requests_fn)
+
+        self.assertEqual(FakeMailClient().resolve_folder_path("Receipts"), "id-flat")
+
+    @patch("core.outlook._mail_folders._requests")
+    def test_absent_path_returns_empty_string(self, mock_requests_fn):
+        """A missing folder resolves to "" -- never a created folder, never a guess.
+
+        Callers distinguish "" from an id to decide whether the apply would have to
+        create the folder, which is what makes "Would create" honest.
+        """
+        self._mock_tree(mock_requests_fn)
+
+        self.assertEqual(FakeMailClient().resolve_folder_path("Archive/Missing"), "")
+
+    @patch("core.outlook._mail_folders._requests")
+    def test_never_posts(self, mock_requests_fn):
+        """The whole point: no POST, for a hit or a miss.
+
+        ``ensure_folder_path`` reaches ``ensure_folder`` / ``_ensure_child_folder``,
+        both of which POST to create. A preview calling those was a live defect on
+        the sync dry-run path, so this asserts on the transport rather than trusting
+        the call graph.
+        """
+        mock_requests = self._mock_tree(mock_requests_fn)
+
+        FakeMailClient().resolve_folder_path("Archive/Missing")
+
+        self.assertEqual(
+            mock_requests.post.call_count, 0,
+            "resolve_folder_path POSTed -- it must never create a folder",
+        )
+
+    @patch("core.outlook._mail_folders._requests")
+    def test_bypasses_a_stale_cached_snapshot(self, mock_requests_fn):
+        """It must read FRESH, not serve whatever is cached.
+
+        Raised in review on this PR. The first cut passed ``ttl=0``, believing that
+        forced a fresh listing. ``cfg_get_json`` documents 0 as "no expiry check"
+        and guards on ``if ttl > 0``, so 0 serves an entry of ANY age -- the exact
+        opposite. Probed with a 2-hour-old snapshot: zero Graph calls, and ``""``
+        returned for a folder that exists, leaving the plan/apply parity gap this
+        method was added to close exactly as it was.
+
+        ``bypass_cache`` skips the cache READ outright. ``clear_cache`` would also
+        work but wipes the whole provider cache, including unrelated rule caches.
+
+        This test is the one whose absence let that through: the parity tests in
+        tests/mail_tests/ mock this method, and the other tests here stub
+        ``list_all_folders``, so nothing exercised the real cache path.
+        """
+        client = FakeMailClient()
+        # Plant a stale snapshot that does NOT contain the folder.
+        client._cfg_cache["folders_all"] = [
+            {"id": "id-old", "displayName": "OldName", "parentFolderId": None},
+        ]
+        self._mock_tree(mock_requests_fn)
+
+        got = client.resolve_folder_path("Archive/News")
+
+        self.assertEqual(
+            got, "id-news",
+            "the stale cached snapshot was served instead of a fresh listing",
+        )
+
+    @patch("core.outlook._mail_folders._requests")
+    def test_fresh_false_reuses_the_cache(self, mock_requests_fn):
+        """Contrast: ``fresh=False`` deliberately reuses the cached map.
+
+        Pins that the bypass is opt-out rather than unconditional, so a caller that
+        wants the cheap cached read still has one.
+        """
+        client = FakeMailClient()
+        client._cfg_cache["folders_all"] = [
+            {"id": "id-cached", "displayName": "Cached", "parentFolderId": None},
+        ]
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+
+        got = client.resolve_folder_path("Cached", fresh=False)
+
+        self.assertEqual(got, "id-cached")
+        self.assertEqual(
+            mock_requests.get.call_count, 0,
+            "fresh=False still hit Graph; the cache was not reused",
+        )
+
+    @patch("core.outlook._mail_folders._requests")
+    def test_normalises_the_path_like_ensure_folder_path(self, mock_requests_fn):
+        """Redundant separators resolve, matching ``ensure_folder_path``.
+
+        Raised in review: ``ensure_folder_path`` filters empty segments before
+        resolving, but this lookup used the raw string as the map key. So
+        ``Archive//News``, ``Archive/News/`` and ``/Archive/News`` all reported the
+        folder absent while the live apply resolved them fine -- reintroducing the
+        preview/apply divergence this method exists to close.
+        """
+        for raw in ("Archive//News", "Archive/News/", "/Archive/News"):
+            with self.subTest(path=raw):
+                self._mock_tree(mock_requests_fn)
+                self.assertEqual(
+                    FakeMailClient().resolve_folder_path(raw), "id-news",
+                    f"{raw!r} reported the folder absent",
+                )
+
+    @patch("core.outlook._mail_folders._requests")
+    def test_nested_segment_casing_is_forgiven(self, mock_requests_fn):
+        """Nested casing must not decide whether a folder is found.
+
+        ``_ensure_child_folder`` compares ``(displayName or "").lower() ==
+        seg.lower()``, so a live sync resolves ``Archive/news`` to an existing
+        ``Archive/News``. An exact-match lookup here reported that path absent and
+        the preview offered to create a folder that already exists.
+        """
+        for raw in ("Archive/news", "Archive/NEWS"):
+            with self.subTest(path=raw):
+                self._mock_tree(mock_requests_fn)
+                self.assertEqual(
+                    FakeMailClient().resolve_folder_path(raw), "id-news",
+                    f"{raw!r} reported absent; the apply would have resolved it",
+                )
+
+    @patch("core.outlook._mail_folders._requests")
+    def test_top_level_casing_is_exact_like_the_apply(self, mock_requests_fn):
+        """Top-level casing IS significant, because the apply treats it that way.
+
+        The apply is asymmetric: ``ensure_folder_path`` resolves the first segment
+        with an exact ``top_map.get(parts[0])`` and ``ensure_folder`` compares with
+        ``in``, so ``archive`` does not match an existing ``Archive`` -- the apply
+        CREATES a second top-level folder.
+
+        An earlier version of this test asserted ``ARCHIVE/NEWS`` resolves, which
+        claimed a parity the implementation does not provide: the preview said the
+        folder existed while the apply would have created a new ``archive``
+        alongside it. Raised in review, and the reason the match key folds only the
+        segments after the first.
+        """
+        for raw in ("archive/News", "ARCHIVE/News", "archive/news"):
+            with self.subTest(path=raw):
+                self._mock_tree(mock_requests_fn)
+                self.assertEqual(
+                    FakeMailClient().resolve_folder_path(raw), "",
+                    f"{raw!r} resolved, but the apply would create a new top-level folder",
+                )
+
+    @patch("core.outlook._mail_folders._requests")
+    def test_one_fresh_traversal_serves_every_destination(self, mock_requests_fn):
+        """N distinct destinations cost ONE folder-tree walk, not N.
+
+        Also from the review body. ``fresh=True`` on every call meant the snapshot
+        written by the first lookup was discarded by the next, so a plan with
+        several uncached destinations performed a complete traversal per
+        destination -- O(destinations x folders) of Graph traffic and real
+        throttling risk. The map is now memoised on the client after the first
+        fresh read, which is also what makes a MISS cheap.
+        """
+        client = FakeMailClient()
+        self._mock_tree(mock_requests_fn)
+
+        hit_a = client.resolve_folder_path("Archive/News")
+        hit_b = client.resolve_folder_path("Receipts")
+        miss = client.resolve_folder_path("Archive/Nope")
+
+        self.assertEqual((hit_a, hit_b, miss), ("id-news", "id-flat", ""))
+        # One BFS: the root listing plus one child call per folder. A second
+        # traversal would multiply this, so assert the exact call count.
+        self.assertEqual(
+            mock_requests_fn.return_value.get.call_count, 1 + len(self.FOLDERS),
+            "more than one folder-tree traversal for three destinations",
+        )
+
+    def test_empty_path_raises(self):
+        """Matches ``ensure_folder_path``: an empty path is a caller error.
+
+        Returning "" instead would be indistinguishable from "folder not found",
+        hiding a malformed config behind a plausible-looking miss.
+        """
+        with self.assertRaises(ValueError):
+            FakeMailClient().resolve_folder_path("")
 
 
 if __name__ == "__main__":
