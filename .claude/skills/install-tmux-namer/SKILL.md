@@ -79,16 +79,38 @@ else:
 hooks = settings.setdefault("hooks", {})
 existing = hooks.get("UserPromptSubmit", [])
 
-hook_command = "python3 ~/.claude/hooks/tmux-session-namer.py 2>/dev/null || true"
+# -I -S for the same reason the heredocs above use it, but the exposure here is
+# longer-lived: this command runs on EVERY prompt for as long as the hook stays
+# installed, so an inherited PYTHONPATH or a stray sitecustomize.py in the
+# session would execute before the hook's own code each time. The hook imports
+# only stdlib (json, sys, os, subprocess, re, shutil), so isolation costs it
+# nothing.
+hook_command = "python3 -I -S ~/.claude/hooks/tmux-session-namer.py 2>/dev/null || true"
 
-already_wired = any(
-    h.get("command") == hook_command
-    for entry in existing
-    for h in entry.get("hooks", [])
-)
+# Match on the script name, not the full command string. An earlier version of
+# this skill wired the hook without -I -S; an exact-string comparison would miss
+# that entry and append a SECOND hook, so the namer would then run twice on
+# every prompt. Detect any wiring of this script and upgrade it in place.
+upgraded = False
+already_wired = False
+for entry in existing:
+    for h in entry.get("hooks", []):
+        cmd = h.get("command", "")
+        if "tmux-session-namer" not in cmd:
+            continue
+        if cmd == hook_command:
+            already_wired = True
+        else:
+            h["command"] = hook_command
+            upgraded = True
 
-if already_wired:
-    print("UserPromptSubmit hook already present — skipping")
+if upgraded:
+    hooks["UserPromptSubmit"] = existing
+    with open(settings_path, "w") as f:
+        json.dump(settings, f, indent=2)
+    print("Upgraded the existing UserPromptSubmit hook to the isolated form")
+elif already_wired:
+    print("UserPromptSubmit hook already present and isolated — skipping")
 else:
     existing.append({
         "hooks": [{"type": "command", "async": True, "command": hook_command}]

@@ -16,7 +16,8 @@ Analyze Claude Code session cost, efficiency, and usage using `./bin/telemetry`.
 ## When to Use
 
 - Weekly/monthly cost reviews
-- Model efficiency comparisons
+- Per-session and per-agent cost comparisons (see Model Attribution for what
+  "model" can and cannot mean here)
 - Session performance analysis
 - Budget forecasting and anomaly detection
 - Identifying high-cost or high-tool-call sessions
@@ -25,6 +26,28 @@ Analyze Claude Code session cost, efficiency, and usage using `./bin/telemetry`.
 
 `./bin/telemetry` reads `~/.claude/projects/*/*.jsonl` transcripts directly (plus the older `~/.claude/projects/*/*/subagents/*.jsonl` layout) — no setup, no collector, always works.
 
+## Model Attribution — a limitation to report honestly
+
+**No shipped command produces a per-model-tier cost split.** Do not write an
+Opus/Sonnet/Haiku cost table; there is no source for one, so it would be
+invented.
+
+What the CLI actually gives you:
+
+- `cost --group-by day` — daily cost totals. The JSON rows carry `day` and
+  `est_cost` only, no model field.
+- `cost --group-by agent` — per-agent calls and cost, again with no model field.
+- `history` / `summary` — one model per session, taken from the session's
+  **first** API event (`src/telemetry/providers/transcript.py:128`). A session
+  that switches tiers is attributed entirely to whichever model it happened to
+  start with.
+
+So "dominant model" is reportable as *the model the session was recorded under*,
+with that caveat. A per-tier breakdown is not. If someone needs one, the
+accumulator already exists internally (`totals["models"]` at
+`transcript.py:290`) and would need exposing through a CLI flag first — that is a
+code change, not something this skill can work around.
+
 ## What This Skill Does
 
 ### 1. Gather Session Data
@@ -32,17 +55,22 @@ Analyze Claude Code session cost, efficiency, and usage using `./bin/telemetry`.
 ```bash
 ./bin/telemetry history -d 7                        # Sessions from last 7 days
 ./bin/telemetry summary                              # Current session detail (tokens, cost, top tools)
-./bin/telemetry cost --since 7d --group-by day       # Daily cost breakdown (derive model tiers from session data)
+./bin/telemetry cost --since 7d --group-by day       # Daily cost totals (no per-model split — see Model Attribution)
+./bin/telemetry cost --since 7d --group-by agent     # Per-agent cost and call counts
 ```
 
 ### 2. Generate Analysis Report
 
 Synthesize the command output into a markdown report with:
 - **Cost Summary**: Total spend, session count, cost per session
-- **Model Breakdown**: Opus vs Sonnet vs Haiku usage and cost
+- **Dominant Model**: the model `history` reports per session, with the caveat in
+  Model Attribution below — not a per-tier cost split, which no shipped command
+  produces
 - **Tool Usage**: Top tools by call count from `summary` output
 - **Session Outliers**: Highest-cost and most-active sessions
-- **Recommendations**: Model downgrade opportunities, session consolidation
+- **Recommendations**: session consolidation, and model-downgrade candidates
+  inferred from per-session models plus per-agent cost — not from a per-tier
+  cost split, which is unavailable
 
 ### 3. Optional: Time Window
 
@@ -80,8 +108,9 @@ Synthesize the command output into a markdown report with:
    ```
 
 4. Synthesize into a report covering:
-   - Summary (total cost, session count, dominant model)
-   - Model analysis (cost and token usage by tier)
+   - Summary (total cost, session count)
+   - Per-day cost trend (`cost --group-by day`)
+   - Per-agent cost (`cost --group-by agent`)
    - Session outliers (highest cost, most events)
    - Recommendations
 
@@ -93,16 +122,21 @@ Synthesize the command output into a markdown report with:
 
 ## Cost Summary
 - Sessions: 8   Total Cost: $42.10
-- Dominant model: Sonnet
 
-## Cost by Model (last 7 days)
-| Date       | Opus  | Sonnet | Haiku |   Cost |
-|------------|-------|--------|-------|--------|
-| 2026-06-19 | 0     | 1.2M   | 0     |  $6.30 |
-| 2026-06-18 | 0     | 980K   | 45K   |  $5.40 |
+## Cost by Day (last 7 days)
+| Date       |   Cost |
+|------------|--------|
+| 2026-06-19 |  $6.30 |
+| 2026-06-18 |  $5.40 |
+
+## Cost by Agent (last 7 days)
+| Agent           | Calls |   Cost |
+|-----------------|-------|--------|
+| (orchestrator)  |  1240 | $28.40 |
+| coverage-sweep  |   180 |  $6.10 |
 
 ## Session Outliers
-- Highest cost: abc123… $12.50 (Sonnet, 1,240 events)
+- Highest cost: abc123… $12.50 (1,240 events, reported model: Sonnet)
 - Most active:  def456… 2,100 events $8.20
 
 ## Recommendations
@@ -123,9 +157,11 @@ After composing a cost analysis, spawn a `fact-checker` agent:
 ```python
 Agent(subagent_type="fact-checker", description="Validate telemetry report", prompt="""
 Validate the telemetry analysis report. Check: cost totals match
-their line-item breakdowns, date ranges are consistent, model tier
-labels (opus/sonnet/haiku) match the raw data, and any percentage
-claims are arithmetically correct.
+their line-item breakdowns, date ranges are consistent, any percentage
+claims are arithmetically correct, and — most importantly — that the
+report does not present a per-model-tier cost split. No shipped
+telemetry command produces one, so such a table would be fabricated.
+A single reported model per session is fine when labelled as such.
 """)
 ```
 
