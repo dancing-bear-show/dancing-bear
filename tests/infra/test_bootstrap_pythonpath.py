@@ -88,8 +88,11 @@ def _replayable_verify_command(interpreter: str) -> str:
     match = _VERIFY_LINE_RE.match(line)
     if match is None:
         raise AssertionError(f"verify line no longer parses: {line!r}")
+    env_prefix = match.group("env").strip()
+    if env_prefix != 'PYTHONPATH="$(pwd)/src"':
+        raise AssertionError(f"unexpected verify environment prefix: {env_prefix!r}")
     return (
-        f"{match.group('env')}{shlex.quote(interpreter)} "
+        f"{env_prefix} {shlex.quote(interpreter)} "
         f"-c {shlex.quote(_ORIGIN_REPORTER)}"
     )
 
