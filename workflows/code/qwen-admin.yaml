@@ -71,9 +71,9 @@ stages:
       File access rules: Read for file contents, Glob for discovery. Bash is
       for live system state only.
 
-      Probe all seven layers independently — do not short-circuit at the
-      first failure, since knowing that six of seven are healthy narrows the
-      diagnosis far more than knowing one is broken:
+      Probe all eight layers independently — do not short-circuit at the
+      first failure, since knowing that seven of eight are healthy narrows
+      the diagnosis far more than knowing one is broken:
 
         1. Ollama binary:   command -v ollama
         2. Ollama server:   curl -sS -m 5 -f -o /dev/null {ollama_host}/api/tags
@@ -100,14 +100,27 @@ stages:
                             simultaneous generations. Check the lock file
                             under the worker state dir:
                               - absent  -> healthy, nothing running
-                              - present with a LIVE holder pid -> a job is
-                                generating right now; healthy, not a fault
+                              - present, LIVE holder pid, age within the
+                                staleness ceiling -> a job is generating
+                                right now; healthy, not a fault
                               - present with a DEAD holder pid, or older than
-                                its staleness ceiling -> STALE. This is the
-                                important case: a stale lock silently defers
-                                every qwen job forever, and the queue looks
-                                fine while nothing progresses.
-                            Record the pid, its liveness, and the file's age.
+                                its staleness ceiling -> STALE. A stale lock
+                                silently defers every qwen job, and the queue
+                                looks fine while nothing progresses.
+                              - present, LIVE holder pid, but age BEYOND the
+                                staleness ceiling -> SUSPECT. Liveness alone
+                                is not proof: a recycled PID makes a dead
+                                holder look alive, and that is precisely the
+                                case that loops jobs indefinitely. Cross-check
+                                whether the pid is actually a worker process
+                                (read its command line) and whether the
+                                {job_type} lane has anything in processing/.
+                                A live pid that is not a worker, or an empty
+                                processing/ lane, means the lock is orphaned
+                                despite passing the liveness check.
+                            Record the pid, its liveness, whether it is a
+                            worker process, the file's age, and the lane's
+                            processing count.
                             Do not delete it here — this stage is read-only;
                             triage proposes the removal.
 
@@ -125,14 +138,15 @@ stages:
             {"layer": "queue",          "up": true|false, "detail": "..."},
             {"layer": "collector",      "up": true|false, "detail": "..."},
             {"layer": "round_trip",     "up": true|false, "detail": "...", "latency_ms": N | null},
-            {"layer": "concurrency_lock", "up": true|false, "detail": "...", "lock_present": true|false, "holder_pid": N | null, "holder_alive": true|false|null, "age_sec": N | null, "verdict": "absent|active|STALE"}
+            {"layer": "concurrency_lock", "up": true|false, "detail": "...", "lock_present": true|false, "holder_pid": N | null, "holder_alive": true|false|null, "holder_is_worker": true|false|null, "lane_processing": N, "age_sec": N | null, "verdict": "absent|active|SUSPECT|STALE"}
           ],
           "memory": {"total_gb": N, "pressure": "..."},
           "all_up": true|false,
           "first_down_layer": "..." | null
         }
       For concurrency_lock, "up" means the guard is in a sane state — absent
-      or actively held. A STALE lock is up=false.
+      or actively held within its ceiling. Both STALE and SUSPECT are
+      up=false.
     agent:
       role: researcher
       model: sonnet
@@ -143,7 +157,7 @@ stages:
       - name: health
         mode: generate
         description: >
-          health.json recording up/down state for all seven layers, memory
+          health.json recording up/down state for all eight layers, memory
           pressure, and the first layer that is down.
     writes_to:
       - analysis/health.json
@@ -231,6 +245,25 @@ stages:
           a job whose heartbeat is recent is ALIVE and slow (leave it alone —
           reaping it is the exact bug the heartbeat was added to prevent), and
           one whose heartbeat is stale or absent is genuinely stuck.
+
+          The heartbeat field MAY NOT EXIST. The companion workflow's design
+          stage can legitimately ship no liveness fix at all (route "a"),
+          since under the shipped plist nothing reaps a long job. Check
+          whether the field is present before classifying on it: if it is
+          absent from every job, say so and fall back to age plus whether the
+          holding process is alive, and mark the verdict lower-confidence.
+          Never report "heartbeat stale" for a field that was never written —
+          that reads as a fault where there is only an absent feature.
+
+        - DEFERRAL LOOPS: a job in pending/ whose deferral counter is high is
+          the failure the counter exists to expose — it is cycling
+          pending -> processing -> pending without consuming an attempt, so
+          it never lands in error/ and never appears as stuck. Report the top
+          jobs by deferral count with their dominant reason. A lane with many
+          high-deferral jobs and an idle-looking queue is the signature of a
+          held lock or a machine sitting under the memory floor. If the
+          counter field is absent (the bound was not implemented), say so
+          rather than reporting zero.
         - ERROR CLUSTERING: group error/ jobs by their error text. Report the
           top failure modes with counts. A cluster of identical errors is a
           systemic problem; scattered singletons are usually not.
@@ -257,7 +290,8 @@ stages:
         {
           "counts": {"pending": N, "processing": N, "done": N, "error": N},
           "qwen_lane": {"pending": N, "processing": N, "done": N, "error": N},
-          "stuck_jobs": [{"id": "...", "age_hours": N, "heartbeat_fresh": true|false, "verdict": "alive-slow|genuinely-stuck"}],
+          "stuck_jobs": [{"id": "...", "age_hours": N, "heartbeat_present": true|false, "heartbeat_fresh": true|false|null, "verdict": "alive-slow|genuinely-stuck|unknown-no-heartbeat", "confidence": "high|low"}],
+          "deferral_loops": [{"id": "...", "deferrals": N, "dominant_reason": "...", "counter_present": true|false}],
           "error_clusters": [{"error_signature": "...", "count": N, "example_id": "...", "looks_systemic": true|false}],
           "retry_exhausted": [{"id": "...", "attempts": N, "last_error": "...", "suggests_misclassification": true|false}],
           "throughput": {"qwen_avg_ms": N, "other_avg_ms": N, "sample_size": N},
@@ -409,8 +443,17 @@ stages:
            NEVER propose this for verdict "active": a live holder means a
            generation is in flight, and deleting its lock lets a second job
            start alongside it — which is precisely the memory blowup the lock
-           exists to prevent. If the pid is alive, the correct action is to
-           wait, and the correct proposal is none.
+           exists to prevent. If the pid is alive and within its ceiling, the
+           correct action is to wait, and the correct proposal is none.
+
+           For verdict "SUSPECT" — a live pid past the ceiling — removal is
+           allowed ONLY when the evidence says the pid is not really the
+           holder: holder_is_worker false, or lane_processing 0. Both mean
+           the lock outlived whatever took it, most likely via PID reuse.
+           Say which piece of evidence justified it. If the pid IS a worker
+           and the lane IS processing, treat it as "active" and propose
+           nothing, however old the lock looks — a long generation is exactly
+           what this workflow's model is expected to produce.
 
       Explicitly NOT allowlisted, and always reported as manual steps:
         deleting any model; killing or editing a job in processing/; editing

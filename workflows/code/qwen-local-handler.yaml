@@ -64,7 +64,7 @@ description: >
         |                |                |
         +----------------+----------------+
         |
-    merge-impl                               (G3 — land the 3 branches into one tree)
+    merge-impl                               (G3 — verify the merges landed; merges nothing)
         |
     adversarial-test-review                  (G4 — Opus attacks the suite; teeth-tests it)
         |
@@ -118,12 +118,18 @@ description: >
   else on the machine. validate-config then confirms, after install, that the
   configuration those guards assume is the configuration actually on disk.
 
-  merge-impl is a stage of its own rather than integrate's first paragraph
-  because two later stages need the merged tree. An isolated agent's edits do
-  not merge back automatically, and `git merge` moves commits, not files — so
-  each impl stage commits to its own worktree branch and merge-impl lands
-  them, failing loudly when a stage produced no commit rather than reporting
-  a green stage over lost work.
+  merge-impl VERIFIES rather than merges. SKILL.md rule 7 assigns copy-back
+  and the branch merge to the orchestrator, per isolated stage, at that
+  stage's completion — so by G3 the branches are already merged. What the
+  orchestrator does not check is whether the result is coherent, and a stage
+  CAN report success while its code never lands: an agent that edits without
+  committing leaves an empty branch, and the merge then succeeds against
+  nothing. So each impl stage commits and records its SHA, and merge-impl
+  confirms that SHA is an ancestor of HEAD and that every expected file is
+  present and tracked. It must never run `git merge` itself — an earlier
+  draft did, and treated the empty commit range of a correctly-merged tree as
+  the silent-loss failure case, which would have failed the run exactly when
+  everything went right.
 
   The adversarial review at G3 exists because a passing test suite is not
   evidence of a working one. It asks the inverse question — what mutation of
@@ -401,22 +407,83 @@ stages:
              lock as stale when its PID is not alive or its age exceeds a
              stated ceiling. Say exactly how you check liveness.
 
-         CONTENTION BEHAVIOUR — block, but BOUNDED. A bare block is unsafe
-         here and the reason is specific: `_join_with_timeout` (job_runtime.py
-         line ~380) calls a plain `t.join()` with no timeout whenever
-         job_timeout <= 0, which is the shipped default since the plist passes
-         no --job-timeout. So if 8 qwen jobs arrive in one tick, 1 generates
-         and 7 block forever, the tick never completes, and the whole daemon
-         hangs — taking every other job type with it. Specify instead:
-           - Wait for the lock up to a bounded ceiling (state the value and
-             justify it against a realistic generation time for {model_tag}).
-           - On acquiring it within the ceiling: proceed normally.
+         CONTENTION BEHAVIOUR — block, but BOUNDED, and the ceiling must be
+         enforced BY THE HANDLER'S OWN WAIT LOOP. Do not rely on any daemon
+         timeout to interrupt a blocked handler; read job_runtime before
+         designing this, because the daemon's behaviour is not what it
+         appears:
+           - `_process_batch` calls `t.start()` on EVERY thread before it
+             joins any of them, so N qwen jobs in one tick are all running
+             and all contending for the lock simultaneously. A bounded wait
+             does not serialise them — it only decides how long each waits
+             before giving up.
+           - `_join_with_timeout` joins threads SEQUENTIALLY against one
+             cumulative start_time, so a later thread can be handed
+             remaining=0.0 and abandoned while still alive.
+           - That function is not even reached under the shipped plist:
+             `any(t > 0 for t in timeouts)` is False when no --job-timeout is
+             passed and no job sets timeout_sec, so `_process_batch` takes
+             the `else` branch and calls a bare `t.join()` per thread, with
+             no deadline at all.
+         So if the handler blocks indefinitely, the tick blocks indefinitely,
+         and the whole daemon stalls — every job type with it. The ceiling is
+         the handler's responsibility alone.
+
+         Specify:
+           - A wait ceiling enforced inside the handler (a timed acquire
+             loop, or flock with a deadline — say which). State the value and
+             justify it against a realistic generation time for {model_tag},
+             remembering that N-1 jobs may each wait the full ceiling.
+           - On acquiring within the ceiling: proceed normally.
            - On timing out: return "deferred-qwen-busy" so the job goes back
-             to pending WITHOUT consuming an attempt (survey's retry_protocol
+             to pending without consuming an attempt (survey's retry_protocol
              confirms `_handle_outcome` calls `_undo_retry_attempt` for the
-             deferred- prefix). A waiting job must never exhaust
-             max_attempts just because the machine was busy.
+             deferred- prefix), and increment the deferral counter from 5b2 —
+             a job that can never win the lock must eventually fail loudly
+             rather than cycle forever.
            - Never hold a queue slot indefinitely.
+
+      5b2. DEFERRAL BOUND — required by every guard that returns a
+         "deferred-" outcome (5b busy, 5c low-memory, 5g low-disk).
+
+         THE PROBLEM, verified in source: job_runtime's `_handle_outcome`
+         routes any "deferred-" prefix to `q.retry(...)` and then calls
+         `_undo_retry_attempt(...)`, which rewrites `attempts` back to its
+         previous value. That is deliberate and correct — waiting on a
+         transient condition must not burn a job's attempts — but it means
+         max_attempts NEVER bounds a deferral. Nothing else bounds it either:
+         the reaper only looks at processing/, and purge only touches
+         done/ and error/, so a job cycling pending -> processing -> pending
+         is invisible to both. A job that defers on every poll cycles at the
+         daemon's interval forever.
+
+         This is not hypothetical. Three paths reach it: a stale lock whose
+         holder PID was recycled (so liveness checks say "alive" and
+         qwen-admin's triage explicitly refuses to clear it); a machine that
+         sits persistently just under the memory threshold; and a disk that
+         stays just under the free-space floor. In each case the lane looks
+         idle, nothing errors, and no attempt is ever consumed.
+
+         Specify a deferral counter:
+           - A payload field (e.g. "deferrals") the handler increments on
+             every deferred return, and which — unlike `attempts` — is NOT
+             reset by `_undo_retry_attempt`. Say explicitly how it survives
+             that reset: `_undo_retry_attempt` rewrites only the attempts
+             field, so a separate key in the payload persists, but state
+             this rather than assuming it.
+           - A ceiling. Past it, return "terminal-deferral-limit" with the
+             reason that caused the deferrals, so the job lands in error/
+             where `worker status` and qwen-admin can see it. A job that
+             cannot run for an hour is a condition someone must look at, not
+             something to retry silently until the machine is rebooted.
+           - Count deferral REASONS separately in the result, so the error
+             record says which guard starved it — "47 deferrals:
+             qwen-busy 45, low-memory 2" is actionable where a bare count is
+             not.
+           - State the ceiling and justify it against the wait ceiling from
+             5b and a realistic generation time: the bound should allow a
+             genuinely busy lane to drain, and still trip well inside an
+             hour on a wedged one.
 
       5c. MEMORY PRECHECK. The lock caps concurrent qwen jobs, but it cannot
          see the rest of the machine — a build, a browser, or another model
@@ -447,16 +514,43 @@ stages:
          today. The prompt then reaches the model, the job record on disk,
          and any telemetry derived from it.
 
-         Specify, in this order (each check must run before the file is read,
-         not after):
-           - Resolve every path to an absolute real path (resolve symlinks)
-             and require it to sit UNDER the repo root. Compare resolved
-             paths, never raw strings — a string-prefix check is defeated by
-             `..` and by a symlink pointing outside.
+         THE BOUNDARY IS NOT THE REPO ROOT, and this is the part that is easy
+         to get wrong. Containment under the repo root stops the traversal
+         case (`~/.config/credentials.ini` is outside, so it is caught), but
+         this checkout is a personal-assistants working tree that routinely
+         holds generated artifacts, test fixtures and out/ output — some
+         carrying PII. Repo-root containment admits all of it, leaving a
+         fixed pattern denylist as the only thing between the model and a
+         sensitive file that happens to live in-tree.
+
+         So specify containment as an ALLOWLIST of source directories the
+         job may read from — src/, tests/, bin/, workflows/, concerns/,
+         docs — rather than "anything under the repo root". Everything else
+         is denied by default, including out/, _data/, .venv/, .git/,
+         backups/ and any path the repo's own scan-ignore list names. State
+         the allowlist in the contract and justify any addition. A job that
+         legitimately needs a file outside it is a case for the user to
+         approve explicitly, not for the guard to admit by default.
+
+         Then, in this order (each check must run BEFORE the file is opened,
+         never after — a handler that reads then rejects has already loaded
+         the contents into memory and possibly a log line):
+           - Resolve every path to an absolute real path (resolving symlinks)
+             and require it to sit under one of the allowlisted directories.
+             Compare resolved paths, never raw strings — a string-prefix
+             check is defeated by `..` and by a symlink pointing outside.
            - Reject anything matching a denylist regardless of location:
              `credentials.ini`, `.env*`, `*token*.json`, `id_rsa`/`id_ed25519`
              and other private keys, `*.pem`, `*.p12`, and anything under a
-             `.git/` directory. State the full list in the contract.
+             `.git/` directory. State the full list in the contract. Treat
+             the denylist as defence in depth BEHIND the allowlist, not as
+             the primary control — a fixed pattern list cannot anticipate
+             every sensitive filename.
+           - Note the TOCTOU gap honestly: the path is resolved, then opened,
+             and a symlink could in principle change between the two. Say
+             whether you close it (open first, then validate the opened
+             file's real path via its descriptor) or accept it with a stated
+             rationale. Do not leave it unmentioned.
            - Reject a file above a stated size ceiling, and reject a
              directory (the payload takes files, not trees).
            - Any violation is TERMINAL — "terminal-path-not-allowed" — never
@@ -488,13 +582,36 @@ stages:
          model output, anything landing in the job result or a telemetry
          attribute — through it before it is written.
 
-         State this limit plainly in the design so nobody over-trusts it:
-         mask_text matches credential SHAPES (Authorization headers, api_key=
-         pairs, URI netloc passwords, JSON/repr mapping fields). It will not
-         recognise a novel secret format. It reduces exposure; it does not
-         make it safe to emit prompt content, so the design must also say
-         that file contents are never written to the result or to telemetry
-         at all — only counts, paths and durations.
+         State two limits plainly, because an earlier draft of this design
+         overclaimed and would have misled whoever implemented it:
+
+         (1) mask_text matches credential SHAPES (Authorization headers,
+             api_key= pairs, URI netloc passwords, JSON/repr mapping fields).
+             It will not recognise a novel secret format. It reduces
+             exposure; it is not general content redaction.
+
+         (2) "File contents are never persisted" is FALSE as a blanket claim,
+             and the design must not repeat it. The patch IS the product and
+             it IS persisted — a unified diff carries context lines lifted
+             verbatim from the input files. Say instead what is actually
+             true: the prompt is never persisted, and file contents reach
+             disk only inside the patch artifact, which is the reviewable
+             output this workflow exists to produce.
+
+             That makes the patch artifact's LOCATION a confidentiality
+             boundary, not just a tidiness question — it is written under
+             core.paths.output_dir(), outside the checkout, and
+             validate-config verifies that. Say so here.
+
+         (3) One persistence path the handler does NOT control: job_runtime's
+             SafeProcessor path writes `envelope.diagnostics["message"]`
+             straight into the job record with no masking. A traceback raised
+             from inside prompt assembly can therefore carry a fragment of
+             file content to disk, bypassing every mask_text call the handler
+             makes. Specify the mitigation: catch exceptions at the handler
+             boundary and return a masked, content-free failure string of
+             your own rather than letting an arbitrary exception propagate
+             into the envelope. Do not rely on the queue to redact for you.
 
       5g. DISK PRECHECK, the same shape as the memory guard in 5c. Patches
          are written under `core.paths.output_dir()` and a model pull needs
@@ -513,11 +630,42 @@ stages:
 
          Specify a depth ceiling for the {job_type} lane, counting pending +
          processing for this type only (other types are cheap and must not be
-         constrained). State where it is enforced — the handler cannot reject
-         an enqueue that already happened, so say whether this is a check in
-         the enqueue path, a documented operator limit surfaced by qwen-admin,
-         or both. Be explicit rather than implying the queue enforces
-         something it does not.
+         constrained).
+
+         WHERE IT IS ENFORCED IS CONSTRAINED BY THIS RUN'S FILE OWNERSHIP,
+         and one of the obvious answers is not available. A true enqueue-path
+         check lives in src/worker/cli.py's enqueue command or in
+         queue_ops.enqueue — but cli.py is owned by NO stage in this workflow,
+         and impl-heartbeat's ownership of queue_ops.py is scoped to the
+         liveness route only. So "enforced at enqueue" cannot be delivered
+         here without widening a stage's file ownership, which would put two
+         parallel stages in the same file.
+
+         Choose one, explicitly, and record it in contract.json's
+         admission.enforced_at:
+
+         (a) HANDLER-SIDE ADMISSION (deliverable this run). The handler
+             counts its own lane at job start and, past the ceiling, returns
+             "terminal-lane-over-capacity" for the EXCESS job. Note honestly
+             what this does and does not do: it does not stop the enqueue, so
+             the queue still fills; it converts a silent multi-day backlog
+             into visible errors that `worker status` and qwen-admin surface.
+             That is a real improvement over nothing, and it is not the same
+             as admission control — say so rather than implying otherwise.
+
+         (b) OPERATOR LIMIT ONLY (deliverable this run). No code. qwen-admin
+             reports lane depth and estimated drain time against the ceiling,
+             and a human acts. State plainly in the contract that the cap is
+             UNENFORCED in code so nobody later assumes protection that does
+             not exist.
+
+         (c) ENQUEUE-PATH CHECK (NOT deliverable this run). If you judge this
+             the right answer, say so and specify it as a follow-up with the
+             file-ownership change it needs — do not assign it to a stage
+             that cannot legally touch cli.py.
+
+         Whichever you choose, the contract must name it so impl-handler,
+         impl-tests and validate-config all agree on what exists.
 
       5i. MODEL IDENTITY PINNING. `{model_tag}` is a MUTABLE tag: Ollama can
          re-pull a different build under the same name, silently changing
@@ -600,11 +748,12 @@ stages:
           "telemetry": {"endpoint_env_var": "...", "span_name": "...", "attributes": ["..."], "metrics": ["..."], "emits_cost": false, "failure_is_nonfatal": "..."},
           "concurrency": {"lock_path": "...", "primitive": "O_EXCL|flock", "scope": "model call only", "wait_ceiling_sec": N, "on_timeout": "deferred-qwen-busy", "stale_detection": "...", "stale_ceiling_sec": N},
           "memory_guard": {"source": "...", "model_resident_gb": N, "margin_gb": N, "on_insufficient": "deferred-low-memory", "unavailable_fallback": "no-op with warning"},
-          "input_confinement": {"root": "...", "resolution": "realpath+symlink", "denylist": ["..."], "max_file_bytes": N, "on_violation": "terminal-path-not-allowed", "logs_contents": false},
+          "deferral_bound": {"field": "deferrals", "survives_undo_retry": "...", "ceiling": N, "on_exceeded": "terminal-deferral-limit", "reasons_counted_separately": true},
+          "input_confinement": {"allowlist_dirs": ["..."], "denylist": ["..."], "resolution": "realpath+symlink", "check_before_open": true, "toctou": "closed-via-fd|accepted-with-rationale", "max_file_bytes": N, "on_violation": "terminal-path-not-allowed", "logs_contents": false},
           "patch_caps": {"max_files": N, "max_lines": N, "denied_prefixes": ["..."], "on_breach": "terminal-patch-too-broad", "records_size_always": true},
-          "redaction": {"helper": "core.secrets.mask_text", "applies_to": ["..."], "file_contents_never_persisted": true, "known_limit": "pattern-based; no novel secret formats"},
+          "redaction": {"helper": "core.secrets.mask_text", "applies_to": ["..."], "prompt_never_persisted": true, "contents_reach_disk_only_in": "the patch artifact", "patch_dir_outside_checkout": true, "exception_boundary": "handler catches and returns a masked content-free string; job_runtime's envelope.diagnostics path is NOT masked", "known_limit": "pattern-based; no novel secret formats"},
           "disk_guard": {"path": "...", "min_free_gb": N, "on_insufficient": "deferred-low-disk", "unavailable_fallback": "no-op with warning"},
-          "admission": {"max_lane_depth": N, "counts": "pending+processing for this type only", "enforced_at": "...", "other_types_unconstrained": true},
+          "admission": {"max_lane_depth": N, "counts": "pending+processing for this type only", "enforced_at": "handler-side|operator-limit|follow-up", "on_exceeded": "terminal-lane-over-capacity" | null, "stops_the_enqueue": false, "other_types_unconstrained": true},
           "model_pinning": {"digest_source": "...", "recorded_at": "install", "on_mismatch": "record and surface, do not fail"},
           "explain_mode": {"payload_flag": "...", "runs_guards": true, "calls_model": false, "reports": ["..."]},
           "files_to_create": ["..."],
@@ -698,12 +847,29 @@ stages:
           reading.
         - INPUT CONFINEMENT, per contract.json's "input_confinement". This
           runs FIRST, before any file is opened and before the lock — a
-          rejected job must never read the file it was denied. Compare
-          RESOLVED real paths against the root; a string-prefix check on the
-          raw path is defeated by `..` and by symlinks, so use
-          Path.resolve() and a proper containment test (is_relative_to or
-          equivalent). Never log or echo the contents of a rejected file —
-          the path alone.
+          rejected job must never read the file it was denied, and
+          validate-config probes that ordering specifically by passing a
+          nonexistent disallowed path (a file-not-found error instead of the
+          confinement error proves the read came first). Check the resolved
+          real path against the ALLOWLIST of directories, not merely against
+          the repo root; use Path.resolve() plus a proper containment test
+          (is_relative_to or equivalent), never a string prefix. Never log or
+          echo the contents of a rejected file — the path alone.
+        - DEFERRAL BOUND, per contract.json's "deferral_bound". Increment the
+          counter on EVERY deferred return (busy, low-memory, low-disk), and
+          past the ceiling return the terminal string instead. Without this a
+          deferred job is unbounded: job_runtime's `_undo_retry_attempt`
+          resets `attempts`, and neither the reaper nor purge looks at a job
+          cycling through pending. Keep the counter in the payload, and
+          verify it actually survives `_undo_retry_attempt` rather than
+          assuming — that function rewrites the attempts field, so read it
+          and confirm what else it touches.
+        - EXCEPTION BOUNDARY, per contract.json's redaction section: catch
+          exceptions at the handler boundary and return your own masked,
+          content-free failure string. An exception that escapes into
+          SafeProcessor's envelope is written to the job record by
+          job_runtime with NO masking, so a traceback raised during prompt
+          assembly could carry file content to disk.
         - PATCH CAPS, per contract.json's "patch_caps". Parse the diff's
           target paths yourself and check them against the denied prefixes;
           `git apply --check` will happily validate a patch that rewrites
@@ -924,11 +1090,20 @@ stages:
           that fails closed would silently stop every qwen job.
         - INPUT CONFINEMENT — the security-critical case; test it hardest.
           Build these in a tmp_path fixture, never against real paths:
-            * A path outside the root (`../../etc/passwd` shape) is rejected
-              terminally AND the file is never opened. Assert on an open/read
-              mock's call_count, not just the return value: a handler that
-              reads the file and then rejects it has already leaked it into
-              memory and possibly into a log line.
+            * A path outside the allowlist (`../../etc/passwd` shape) is
+              rejected terminally AND the file is never opened. Assert on an
+              open/read mock's call_count, not just the return value: a
+              handler that reads the file and then rejects it has already
+              leaked it into memory and possibly into a log line.
+            * ORDERING, tested the way validate-config probes it: a
+              NONEXISTENT path outside the allowlist returns the confinement
+              error, not a file-not-found. This is the assertion that proves
+              the check precedes the read; without it, a handler that reads
+              first passes every other confinement test.
+            * A path inside the repo but OUTSIDE the allowlist (an `out/` or
+              `_data/` artifact) is rejected. Repo-root containment alone
+              would admit these, so this is the test that distinguishes the
+              allowlist from the weaker boundary.
             * A SYMLINK inside the root pointing outside it is rejected.
               This is the case a string-prefix check passes and a resolved
               check catches — if this test is absent, the guard is untested
@@ -951,6 +1126,25 @@ stages:
           the result and the telemetry attributes. Assert the raw secret
           does not appear anywhere in either — search the serialized forms,
           not just the field you expect it in.
+        - EXCEPTION BOUNDARY: make prompt assembly raise an exception whose
+          message embeds file content, and assert the handler returns its own
+          masked, content-free string rather than letting it propagate. A
+          test that only checks the job failed would pass while the content
+          reached the job record through job_runtime's unmasked diagnostics
+          path.
+        - DEFERRAL BOUND: with the lock permanently held, the handler defers
+          repeatedly and then, past the ceiling, returns
+          "terminal-deferral-limit" — assert the exact prefix and assert it
+          happens at the specified count, not merely eventually. Also assert
+          the deferral counter is NOT reset across a simulated
+          `_undo_retry_attempt` (construct the job record the way that
+          function leaves it), since the whole bound depends on surviving
+          that reset. And assert the terminal result names the dominant
+          deferral reason, so the error record is actionable.
+        - ADMISSION CAP: only if contract.json's enforced_at is
+          "handler-side". Assert the excess job returns
+          "terminal-lane-over-capacity" and that a job of ANOTHER type at the
+          same depth is unaffected.
         - DISK GUARD: free space mocked below threshold returns
           "deferred-low-disk" and writes no patch file; ample space proceeds;
           an unreadable reading proceeds with a warning.
@@ -962,14 +1156,9 @@ stages:
           — critically — still rejects a disallowed path exactly as a real
           run does. That last assertion is what stops explain mode from
           becoming a guard bypass.
-        - ADMISSION CAP: only if contract.json's "admission.enforced_at" puts
-          it in code. Test that a job arriving past the depth ceiling is
-          refused, and that jobs of OTHER types are unaffected at the same
-          depth — the cap is per-lane, and a test that only checks the
-          refusal would pass against an implementation that throttles the
-          whole queue. If the contract declares it an operator limit with no
-          code, write no test and note that in tests-impl.json rather than
-          inventing coverage for something unimplemented.
+          If the contract declares admission an operator limit or a follow-up
+          with no code, write no test for it and note that in tests-impl.json
+          rather than inventing coverage for something unimplemented.
 
       Mocking: no network and no real model in tests. Mock at the HTTP
       boundary, matching the style recorded in the survey's test_layout.
@@ -1008,82 +1197,94 @@ stages:
       - outputs/tests-impl.json
 
   # ===========================================================================
-  # G3: Merge — land the three isolated branches into one tree
+  # G3: Merge check — verify the orchestrator's merges landed (never merges)
   # ===========================================================================
   - name: merge-impl
     kind: execute
     depends_on: [impl-handler, impl-heartbeat, impl-tests]
-    reads_from: [impl-handler, impl-heartbeat, impl-tests]
+    reads_from: [impl-handler, impl-heartbeat, impl-tests, design]
     description: >
-      Land the three implementation branches so every later stage sees one
-      coherent tree. This stage exists on its own because both
-      adversarial-test-review and integrate need the merged result — folding
-      the merge into integrate would leave the review stage reading three
-      separate ephemeral worktrees, which is to say nothing at all.
+      VERIFY that the three implementation stages' work landed in this tree.
+      Do NOT merge anything — verification only, and that distinction is the
+      whole point of this stage.
+
+      Why: .claude/skills/workflow/SKILL.md rule 7 assigns copy-back AND the
+      branch merge to the ORCHESTRATOR, "as part of THAT stage's completion,
+      before releasing any dependent stage" (7b/7c). By the time this stage
+      runs, each isolated branch should already be merged. An earlier draft
+      of this workflow had this stage run `git merge` itself and treat an
+      empty `git log <branch>..worktree-agent-<id>` as the silent-loss
+      failure case — which is exactly what a CORRECTLY merged tree produces,
+      so it would have failed the run precisely when everything went right.
+      Never re-add a merge here.
+
+      What the orchestrator does not do is check that the result is coherent.
+      That is this stage's job, and it matters because a stage can report
+      success while its code never lands (an agent that edits but never
+      commits leaves an empty branch; the merge then succeeds against
+      nothing).
 
       For each of impl-handler, impl-heartbeat and impl-tests:
 
         1. Read its result JSON (outputs/handler-impl.json,
            outputs/heartbeat-impl.json, outputs/tests-impl.json) and take the
            commit_sha it recorded.
-        2. If commit_sha is null or absent, check whether the stage legitimately
-           made no change — impl-heartbeat records route "a-no-change" when the
-           approved design chose to ship no liveness fix. That is a valid empty
-           result: record it and move on.
-        3. Otherwise a missing commit_sha means the agent edited its worktree
-           and never committed, so there is nothing to merge and its work is
-           gone. FAIL this stage and say so plainly; do not proceed as if the
-           code exists.
-        4. Verify the branch actually carries commits before merging:
-             git log --oneline <this-branch>..worktree-agent-<id>
-           An empty result here is the silent-loss case — treat it as failure,
-           not as a clean no-op.
-        5. Merge it:
-             git merge --no-ff worktree-agent-<id> -m "merge stage <name>"
+        2. A null/absent commit_sha may be legitimate: impl-heartbeat records
+           route "a-no-change" when the approved design chose to ship no
+           liveness fix, and impl-handler may record
+           "deferred_to_other_stage" for the admission cap. Check the reason
+           the stage gave. A recorded no-change is fine; a missing
+           commit_sha with no explanation means the agent never committed and
+           its work is gone.
+        3. Confirm the commit is actually reachable from HEAD:
+             git merge-base --is-ancestor <commit_sha> HEAD
+           A commit_sha that is NOT an ancestor means the orchestrator did
+           not merge that branch — report it as unmerged. Do not merge it
+           yourself; report it so the orchestrator's contract failure is
+           visible rather than papered over.
+        4. Confirm every path the design listed for that stage in
+           contract.json's files_to_create / files_to_modify now exists in
+           the working tree, and that it is tracked by git (a file present
+           but untracked did not come from a merge).
 
-      Resolve any conflict in favour of the approved contract in
-      design/contract.json. The three stages were partitioned by file
-      (qwen.py + qwen_telemetry.py + the registry line / queue_ops.py +
-      job_runtime.py / tests only), so a conflict means a stage wrote outside
-      its lane — record which one and what it touched, since that is a real
-      finding about the partitioning, not just a merge chore.
-
-      Then confirm the merged tree is coherent:
+      Then record the tree's state:
         git status --porcelain
-        git log --oneline -5
-      and verify every file named in the three result JSONs now exists at its
-      repo path.
+        git log --oneline -8
+      A dirty working tree here is worth reporting — the orchestrator's
+      merges should leave it clean.
 
       Write {workspace}/validation/merge.json:
         {
-          "merged": [{"stage": "...", "branch": "...", "commit_sha": "...", "commits": N}],
+          "verified": [{"stage": "...", "commit_sha": "...", "is_ancestor_of_head": true|false}],
           "no_change_stages": [{"stage": "...", "reason": "..."}],
           "missing_commits": [{"stage": "...", "detail": "..."}],
-          "conflicts": [{"file": "...", "between": ["...", "..."], "resolution": "..."}],
+          "unmerged_branches": [{"stage": "...", "commit_sha": "...", "detail": "..."}],
           "files_present": [...],
           "files_missing": [...],
+          "working_tree_clean": true|false,
           "all_landed": true|false
         }
-      all_landed is true only when every stage either merged successfully or
-      is a recorded legitimate no-change.
+      all_landed is true only when every stage is either verified as an
+      ancestor of HEAD or is a recorded legitimate no-change, AND
+      files_missing is empty.
     agent:
-      role: code-writer
+      role: unit-validator
       model: sonnet
-      tools: [Bash, Read, Write, Edit]
-      access: read-write
+      tools: [Bash, Read, Write]
+      access: read-only
     required: true
     outputs:
       - name: merge_record
         mode: generate
         description: >
-          merge.json recording each branch merged with its commit SHA, any
-          stage that produced no commit, and whether every expected file is
-          present in the merged tree.
+          merge.json recording, per stage, whether its commit is an ancestor
+          of HEAD, whether its expected files are present and tracked, and
+          any stage that legitimately produced no commit.
     writes_to:
       - validation/merge.json
     validates_output:
       - path: validation/merge.json
-        checks: [is_json, has_key:merged, has_key:all_landed]
+        checks: [is_json, has_key:verified, has_key:all_landed]
 
   # ===========================================================================
   # G4: Adversarial test review — attack the suite before trusting it
@@ -1564,14 +1765,39 @@ stages:
         other, that is a blocking mismatch — this is exactly the class of
         wrong assumption that an earlier draft of this workflow shipped.
 
-      Check 6 — GUARDS PRESENT IN THE MERGED SOURCE. Several guards in
-        contract.json have no runtime signal until they fire, so confirm
-        statically that each was implemented: grep the merged source for the
-        confinement root check, the patch caps, the mask_text call, the disk
-        precheck, the explain-mode flag, and the admission cap. A guard
-        specified in the contract but absent from the source is a BLOCKING
-        finding — the tests may pass on a mock while the real path is
-        unguarded. Name each guard and whether it was found.
+      Check 6 — GUARDS ARE PRESENT AND ACTUALLY WIRED. A grep is the weakest
+        possible evidence here and must not be the whole check: it cannot
+        distinguish a mask_text import that is never called, a confinement
+        check inside an unreachable branch, a cap constant defined and never
+        compared, or — most importantly — a confinement check placed AFTER
+        the file read, when 5d's entire requirement is that it runs BEFORE.
+        Ordering is invisible to grep.
+
+        So do both, and report them separately:
+
+        (a) PRESENCE (grep): confirm each guard named in contract.json
+            appears in the merged source — confinement, patch caps,
+            mask_text, disk precheck, explain mode, deferral counter, and
+            the admission cap per its enforced_at. Absent-but-contracted is
+            blocking.
+
+        (b) BEHAVIOUR (probe): prove the two order-dependent guards actually
+            fire, using explain mode so nothing reaches the model. Run the
+            handler directly in-process (import it; do not enqueue — this
+            stage must not mutate the queue) with:
+              - a payload naming a path outside the allowlist. Expect the
+                contract's terminal confinement string. To prove ORDERING
+                rather than mere rejection, point it at a path that does not
+                exist at all: a handler that validates first returns the
+                confinement error, while one that reads first surfaces a
+                file-not-found. Getting a file-not-found here is a BLOCKING
+                finding — it means the read precedes the check.
+              - a payload naming an allowed, existing file. Expect success,
+                proving the guard is not simply rejecting everything.
+
+        A guard that passes (a) and fails (b) is worse than one that is
+        absent, because the tests and this check would both look green.
+        Record each guard's presence and probe result independently.
 
         The admission cap is the one guard that may legitimately be absent
         from the handler: contract.json's "admission.enforced_at" says where
@@ -1613,7 +1839,8 @@ stages:
             {"check": "no_stale_lock",       "passed": true|false, "blocking": false,      "detail": "...", "lock_present": true|false, "holder_pid_alive": true|false|null},
             {"check": "memory_headroom",     "passed": true|false, "blocking": true|false, "detail": "...", "available_gb": N, "required_gb": N},
             {"check": "timeout_coherent",    "passed": true|false, "blocking": true|false, "detail": "...", "job_timeout_passed": true|false, "design_route": "..."},
-            {"check": "guards_in_source",    "passed": true|false, "blocking": true|false, "detail": "...", "found": {"input_confinement": true|false, "patch_caps": true|false, "redaction": true|false, "disk_guard": true|false, "explain_mode": true|false, "admission": "in-code|enqueue-path|operator-limit|MISSING"}},
+            {"check": "guards_present",      "passed": true|false, "blocking": true|false, "detail": "...", "found": {"input_confinement": true|false, "patch_caps": true|false, "redaction": true|false, "disk_guard": true|false, "explain_mode": true|false, "deferral_counter": true|false, "admission": "handler-side|operator-limit|follow-up|MISSING"}},
+            {"check": "guards_wired",        "passed": true|false, "blocking": true|false, "detail": "...", "probes": [{"probe": "nonexistent-path-outside-allowlist", "expected": "terminal confinement string", "observed": "...", "ordering_correct": true|false}, {"probe": "allowed-existing-file", "expected": "success", "observed": "..."}]},
             {"check": "model_digest",        "passed": true|false, "blocking": false,      "detail": "...", "recorded": "...", "observed": "...", "matches": true|false},
             {"check": "patch_output_dir",    "passed": true|false, "blocking": true|false, "detail": "...", "path": "...", "inside_repo": true|false, "writable": true|false, "free_gb": N},
             {"check": "ollama_concurrency",  "passed": true|false, "blocking": false,      "detail": "...", "num_parallel": "...", "max_loaded_models": "..."}
