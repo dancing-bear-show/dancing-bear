@@ -178,7 +178,66 @@ class TestHookMatcher(unittest.TestCase):
                     "would append a duplicate hook",
                 )
 
+    def test_matches_our_own_canonical_wired_form(self) -> None:
+        """The command the installer itself writes must always be recognised.
+
+        It ends in `2>/dev/null || true`, so any rule that rejects chained
+        commands outright would stop the installer recognising its own entry —
+        and it would then append a duplicate on every single run.
+        """
+        canonical = (
+            "python3 -I -S ~/.claude/hooks/tmux-session-namer.py 2>/dev/null || true"
+        )
+        self.assertTrue(
+            self.is_managed(canonical),
+            "the installer no longer recognises the command it writes; it would "
+            "append a duplicate hook on every run",
+        )
+
     # -- must NOT match: a file we do not own --------------------------------
+
+    def test_rejects_a_quoted_home_token(self) -> None:
+        """A single-quoted `$HOME` or `~` reaches python LITERALLY.
+
+        The shell does not expand either inside single quotes, so python is
+        handed a path that does not exist and our hook never runs. `shlex.split`
+        discards the quoting, and expanding afterwards makes an unrelated command
+        look like ours — which this matcher would then rewrite.
+        """
+        for cmd in (
+            "python3 '$HOME/.claude/hooks/tmux-session-namer.py'",
+            "python3 '~/.claude/hooks/tmux-session-namer.py'",
+            "python3 -I -S '${HOME}/.claude/hooks/tmux-session-namer.py'",
+        ):
+            with self.subTest(cmd=cmd):
+                self.assertFalse(
+                    self.is_managed(cmd),
+                    "single-quoted tokens are literal to the shell, so this "
+                    f"command does not run our hook: {cmd!r}",
+                )
+
+    def test_rejects_a_chain_that_would_lose_the_users_command(self) -> None:
+        """Matching must not lead to deleting part of someone's command.
+
+        The upgrade replaces the WHOLE command string. A chain carrying a user's
+        own work after our invocation therefore loses it silently, so such a
+        command must not be claimed — with the explicit exception of the
+        canonical `2>/dev/null || true` form the installer writes itself, which
+        is covered separately above.
+        """
+        ours = "~/.claude/hooks/tmux-session-namer.py"
+        for cmd in (
+            f"python3 -I -S {ours} && echo audit",
+            f"python3 -I -S {ours} || logger 'namer failed'",
+            f"python3 -I -S {ours}; /usr/local/bin/my-other-hook",
+            f"python3 -I -S {ours} && notify-send done",
+        ):
+            with self.subTest(cmd=cmd):
+                self.assertFalse(
+                    self.is_managed(cmd),
+                    "rewriting this would silently delete the user's chained "
+                    f"command: {cmd!r}",
+                )
 
     def test_rejects_the_path_as_another_options_operand(self) -> None:
         """`-c` takes code and `-m` takes a module name, not a script to run.

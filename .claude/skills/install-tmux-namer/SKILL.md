@@ -311,10 +311,69 @@ hook_command = "python3 -I -S ~/.claude/hooks/tmux-session-namer.py 2>/dev/null 
 HOOK_PATH = "~/.claude/hooks/tmux-session-namer.py"
 
 
-def _resolve_script_token(tok, home):
-    """Expand $HOME / ${HOME} / ~ in a single shlex token; return None if
-    the result is not an absolute path (a bare relative path cannot be shown
-    to be ours: Claude Code gives the hook no guaranteed working directory)."""
+def _raw_token_blocks_expansion(raw_tok):
+    """True if `raw_tok` quotes `$`/`~` in a way the shell would NOT expand.
+
+    `raw_tok` must still carry its original quote characters (i.e. come from
+    `shlex.shlex(..., posix=False)`, never `shlex.split`, which strips quotes
+    before we get a chance to see them). The rule, walked char by char while
+    tracking single/double-quote state (a backslash escapes the next char
+    outside single quotes):
+
+        - inside single quotes, the shell expands NEITHER `$name`/`${name}`
+          NOR `~` — both are literal, so either one occurring there blocks
+          expansion
+        - inside double quotes, the shell DOES expand `$name`/`${name}` but
+          NOT `~` — so only `~` there blocks expansion; `$HOME` in double
+          quotes is real and must still match
+        - unquoted, both expand normally and never block
+
+    This asymmetry is why the token can't just be quote-stripped and expanded
+    unconditionally: whether `$HOME` and `~` are live depends on which quote
+    style (if any) wrapped them, and `shlex.split`'s quote removal throws that
+    context away before we can tell.
+    """
+    in_single = False
+    in_double = False
+    i = 0
+    n = len(raw_tok)
+    while i < n:
+        ch = raw_tok[i]
+        if ch == "'" and not in_double:
+            in_single = not in_single
+            i += 1
+            continue
+        if ch == '"' and not in_single:
+            in_double = not in_double
+            i += 1
+            continue
+        if ch == "\\" and not in_single and i + 1 < n:
+            i += 2  # escaped char is literal; irrelevant to $/~ blocking
+            continue
+        if ch == "$" and in_single:
+            return True
+        if ch == "~" and (in_single or in_double):
+            return True
+        i += 1
+    return False
+
+
+def _strip_quotes(raw_tok):
+    """Remove the quote characters `shlex.shlex(posix=False)` left in place,
+    without touching anything else. Good enough for our narrow token shapes
+    (a single quoted run, or none) — not a general shell-quote remover."""
+    return raw_tok.replace("'", "").replace('"', "")
+
+
+def _resolve_script_token(raw_tok, home):
+    """Expand $HOME / ${HOME} / ~ in a single raw (quote-preserved) token;
+    return None if the result is not an absolute path (a bare relative path
+    cannot be shown to be ours: Claude Code gives the hook no guaranteed
+    working directory) or if the token's own quoting means the shell would
+    never have expanded it in the first place (see `_raw_token_blocks_expansion`)."""
+    if _raw_token_blocks_expansion(raw_tok):
+        return None
+    tok = _strip_quotes(raw_tok)
     path = tok.replace("${HOME}", home).replace("$HOME", home)
     if path.startswith("~"):
         path = home + path[1:]
@@ -339,8 +398,16 @@ _ARG_TAKING_LONG = frozenset({"--check-hash-based-pycs"})
 _NOARG_SHORT = frozenset("ISEubBdOqvstxP")
 
 
+# The exact trailing tokens the installer's own canonical wiring leaves after
+# the script operand. Only this exact sequence is tolerated after our path —
+# anything else after it is a chained user command that a rewrite would
+# silently delete, so it must not match. See `_python_script_operand`.
+_CANONICAL_SUFFIX = ("2>/dev/null", "||", "true")
+
+
 def _python_script_operand(cmd):
-    """Return the script operand of a python invocation in `cmd`, or None.
+    """Return (raw_operand_token, trailing_tokens) for a python invocation in
+    `cmd`, or (None, None) if `cmd` does not run a script this way.
 
     A path token appearing ANYWHERE in a command is not evidence the command
     RUNS it — `echo <path>`, `cat <path>` and `grep <path> file` all contain
@@ -360,11 +427,16 @@ def _python_script_operand(cmd):
               so that token is never the script operand
             - `-I -S -E -u -b -B -d -O -q -v -s -t -x -P` take no argument
               and may appear combined (`-IS`)
-        - the first remaining non-flag token is the script operand
+        - the first remaining non-flag token is the script operand; every
+          token after it is returned as `trailing_tokens` so the caller can
+          reject a chain (see `is_managed_hook`)
 
-    Uses shlex so a quoted path with spaces tokenises correctly; falls back
-    to str.split() if shlex chokes on unbalanced quotes (best-effort — a
-    command that doesn't even tokenise cleanly gets no match).
+    Tokenizes with `posix=False` so returned tokens keep their original quote
+    characters — the caller (`_resolve_script_token`) needs that to tell a
+    live `$HOME`/`~` from a quoted, shell-literal one; `shlex.split` throws
+    that distinction away before we could ever see it. Falls back to
+    str.split() if shlex chokes on unbalanced quotes (best-effort — a command
+    that doesn't even tokenise cleanly gets no match).
 
     Imports shlex/re locally: this function is extracted and exec'd in
     isolation by tests/infra/test_tmux_session_namer.py, which only injects
@@ -376,7 +448,9 @@ def _python_script_operand(cmd):
     import shlex
 
     try:
-        tokens = shlex.split(cmd)
+        lexer = shlex.shlex(cmd, posix=False, punctuation_chars=False)
+        lexer.whitespace_split = True
+        tokens = list(lexer)
     except ValueError:
         tokens = cmd.split()
 
@@ -384,10 +458,10 @@ def _python_script_operand(cmd):
     if i < len(tokens) and tokens[i] == "env":
         i += 1
     if i >= len(tokens):
-        return None
+        return None, None
     interp = os.path.basename(tokens[i])
     if not re.match(r"^python3?(\.\d+)?$", interp):
-        return None
+        return None, None
     i += 1
     while i < len(tokens) and tokens[i].startswith("-") and tokens[i] != "-":
         tok = tokens[i]
@@ -399,7 +473,7 @@ def _python_script_operand(cmd):
             continue
         letters = tok[1:]
         if any(ch in _TERMINAL_OPT_LETTERS for ch in letters):
-            return None
+            return None, None
         if len(letters) == 1 and letters in _ARG_TAKING_SHORT:
             i += 2
             continue
@@ -408,38 +482,55 @@ def _python_script_operand(cmd):
             continue
         # Unrecognized option shape: don't guess at its arity — bail rather
         # than risk treating its argument as the script operand.
-        return None
+        return None, None
     if i >= len(tokens):
-        return None
-    return tokens[i]
+        return None, None
+    return tokens[i], tokens[i + 1 :]
 
 
 def is_managed_hook(cmd):
-    """True only for a command that RUNS our installed script.
+    """True only for a command that RUNS our installed script AND does
+    nothing else a rewrite would silently discard.
 
     This loop REWRITES whatever it matches, so both error directions are
-    damaging: a false positive replaces someone else's hook, a false negative
-    leaves a stale entry wired and appends a duplicate beside it. Four earlier
-    versions each fixed one direction and broke another —
+    damaging: a false positive replaces someone else's hook or destroys a
+    chained command, a false negative leaves a stale entry wired and appends
+    a duplicate beside it. Five earlier versions each fixed one direction and
+    broke another —
 
         substring 'tmux-session-namer' in cmd   also matched ...-custom.py
         token in (HOOK_PATH, expanduser(...))   missed $HOME and absolute forms
         basename(token) == basename(target)     matched /tmp/tmux-session-namer.py
         any token resolving to our path         matched `echo <path>`, `cat <path>`
+        expand $HOME/~ unconditionally           matched a single-quoted, shell-literal path
+        accept the operand regardless of what follows   claimed `... && echo audit`,
+                                                          which a rewrite would delete
 
     — so this only accepts the path when it is the script OPERAND of a
-    recognized python invocation (see `_python_script_operand`), then resolves
-    that operand to an absolute path and compares the whole thing. Covered by
-    tests/infra/test_tmux_session_namer.py, which tables the spellings that
-    must match against the same-named files, and the non-executing commands,
-    that must not.
+    recognized python invocation (see `_python_script_operand`), resolves
+    that operand to an absolute path with quoting taken into account (see
+    `_resolve_script_token`), and — since the upgrade below replaces the
+    WHOLE command string — requires that nothing follows the operand except
+    either nothing at all, or exactly the `2>/dev/null || true` suffix this
+    installer itself writes (`_CANONICAL_SUFFIX`). Any other trailing
+    material (`&& echo audit`, `; other-hook`, `|| logger ...`) means the
+    command does more than run our hook, and a rewrite would silently drop
+    that part — so it is rejected rather than claimed. When in doubt this
+    returns False: a missed upgrade only appends a duplicate (caught by
+    Step 5's count check), while a wrong match destroys someone's command.
+
+    Covered by tests/infra/test_tmux_session_namer.py, which tables the
+    spellings that must match against the same-named files, the quoted
+    forms, and the chained commands, that must not.
     """
     home = os.path.expanduser("~")
     target = os.path.normpath(
         os.path.join(home, ".claude", "hooks", "tmux-session-namer.py")
     )
-    operand = _python_script_operand(cmd)
+    operand, trailing = _python_script_operand(cmd)
     if operand is None:
+        return False
+    if trailing and tuple(trailing) != _CANONICAL_SUFFIX:
         return False
     path = _resolve_script_token(operand, home)
     return path is not None and path == target
@@ -565,9 +656,13 @@ cmds = [h.get('command','') for e in hooks for h in e.get('hooks',[])]
 # it. A path token appearing anywhere in the command is not evidence the
 # command RUNS it ('echo <path>', 'cat <path>' both contain the token without
 # executing it), so only accept the path as the script operand of a
-# recognized python invocation.
+# recognized python invocation, with nothing after it except our own
+# canonical '2>/dev/null || true' suffix — anything else trailing (a user's
+# '&& echo audit', '; other-hook', ...) is a chain a rewrite would silently
+# destroy, so it must not count as ours either.
 _home = os.path.expanduser('~')
 _target = os.path.normpath(os.path.join(_home, '.claude', 'hooks', 'tmux-session-namer.py'))
+_CANONICAL_SUFFIX = ('2>/dev/null', '||', 'true')
 
 # Same arity table as the patch script's is_managed_hook / _python_script_operand
 # — must not diverge from it. -c/-m are terminal (python runs code/a module, not
@@ -580,17 +675,22 @@ _NOARG_SHORT = frozenset('ISEubBdOqvstxP')
 
 
 def _script_operand(cmd):
+    # posix=False keeps each token's original quote characters — required so
+    # _is_ours below can tell a live \$HOME/~ from one quoted literal by the
+    # shell, which shlex.split's quote removal would otherwise hide.
     try:
-        tokens = shlex.split(cmd)
+        lexer = shlex.shlex(cmd, posix=False, punctuation_chars=False)
+        lexer.whitespace_split = True
+        tokens = list(lexer)
     except ValueError:
         tokens = cmd.split()
     i = 0
     if i < len(tokens) and tokens[i] == 'env':
         i += 1
     if i >= len(tokens):
-        return None
+        return None, None
     if not re.match(r'^python3?(\.\d+)?\$', os.path.basename(tokens[i])):
-        return None
+        return None, None
     i += 1
     while i < len(tokens) and tokens[i].startswith('-') and tokens[i] != '-':
         tok = tokens[i]
@@ -602,22 +702,58 @@ def _script_operand(cmd):
             continue
         letters = tok[1:]
         if any(ch in _TERMINAL_OPT_LETTERS for ch in letters):
-            return None
+            return None, None
         if len(letters) == 1 and letters in _ARG_TAKING_SHORT:
             i += 2
             continue
         if letters and all(ch in _NOARG_SHORT for ch in letters):
             i += 1
             continue
-        return None
-    return tokens[i] if i < len(tokens) else None
+        return None, None
+    if i >= len(tokens):
+        return None, None
+    return tokens[i], tokens[i + 1:]
+
+
+def _blocks_expansion(raw_tok):
+    # Same quoting rule as the patch script's _raw_token_blocks_expansion:
+    # single quotes block both \$name and ~; double quotes block only ~
+    # (\$name still expands inside double quotes).
+    in_single = False
+    in_double = False
+    i = 0
+    n = len(raw_tok)
+    while i < n:
+        ch = raw_tok[i]
+        if ch == chr(39) and not in_double:
+            in_single = not in_single
+            i += 1
+            continue
+        if ch == chr(34) and not in_single:
+            in_double = not in_double
+            i += 1
+            continue
+        if ch == chr(92) and not in_single and i + 1 < n:
+            i += 2
+            continue
+        if ch == chr(36) and in_single:
+            return True
+        if ch == chr(126) and (in_single or in_double):
+            return True
+        i += 1
+    return False
 
 
 def _is_ours(cmd):
-    tok = _script_operand(cmd)
+    tok, trailing = _script_operand(cmd)
     if tok is None:
         return False
-    p = tok.replace('\${HOME}', _home).replace('\$HOME', _home)
+    if trailing and tuple(trailing) != _CANONICAL_SUFFIX:
+        return False
+    if _blocks_expansion(tok):
+        return False
+    p = tok.replace(chr(39), '').replace(chr(34), '')
+    p = p.replace(chr(36) + '{HOME}', _home).replace(chr(36) + 'HOME', _home)
     if p.startswith('~'):
         p = _home + p[1:]
     return os.path.isabs(p) and os.path.normpath(p) == _target

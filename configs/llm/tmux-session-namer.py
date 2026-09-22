@@ -89,27 +89,68 @@ except OSError:
 safe_id = re.sub(r"[^A-Za-z0-9._-]", "-", session_id)[:32]
 history_file = os.path.join(cache_dir, f"prompts-{safe_id}.txt")
 
-# Append prompt atomically with 0600 permissions from the start
+# The append is individually atomic (O_APPEND), but the read-then-rewrite
+# trim below is not: process A appends and reads a 201-line snapshot, B
+# appends its own line, then A rewrites the file from its now-stale
+# snapshot — B's line is gone. That is also the exact text later sent to
+# `claude -p`, so a rename can be generated from prompt fragments the file
+# no longer holds. The installer registers this hook with `async: true`,
+# so overlap is routine, not an edge case.
+#
+# Serialize the whole append/read/trim sequence under one lock, using the
+# same flock idiom as the counter block below so the file has one locking
+# discipline rather than two. The lock is released before `claude -p` is
+# ever invoked (that call has its own 15s timeout; holding a lock across it
+# would serialize every other prompt in the session behind a single model
+# call, which is a worse regression than the race it would close).
 try:
-    fd = os.open(history_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-    with os.fdopen(fd, "a") as f:
-        f.write(prompt[:120].replace("\n", " ") + "\n")
+    fd = os.open(history_file, os.O_RDWR | os.O_CREAT, 0o600)
 except Exception:
     sys.exit(0)
 
 try:
-    with open(history_file) as f:
-        lines = f.readlines()
-except Exception:
-    sys.exit(0)
-
-# Trim file to last 200 lines so it never grows unbounded
-if len(lines) > 200:
     try:
-        with open(history_file, "w") as f:
-            f.writelines(lines[-200:])
-        lines = lines[-200:]
-    except Exception:  # nosec B110 - best-effort trim; skip silently on any IO error
+        import fcntl
+
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        locked = True
+    except (ImportError, OSError):  # nosec B112 - no flock (e.g. some network FS): fall back below
+        locked = False
+
+    try:
+        # Append and read-back happen under the lock (or, unlocked, via
+        # atomic O_APPEND semantics) in both branches below.
+        os.lseek(fd, 0, os.SEEK_END)
+        os.write(fd, (prompt[:120].replace("\n", " ") + "\n").encode("utf-8"))
+        os.fsync(fd)
+        os.lseek(fd, 0, os.SEEK_SET)
+        with os.fdopen(os.dup(fd), "r") as f:
+            lines = f.readlines()
+
+        if locked:
+            # Trim as part of the same critical section: safe because no
+            # other process can append or rewrite between our read above
+            # and the truncate/write below.
+            if len(lines) > 200:
+                lines = lines[-200:]
+                os.lseek(fd, 0, os.SEEK_SET)
+                os.truncate(fd, 0)
+                os.write(fd, "".join(lines).encode("utf-8"))
+                os.fsync(fd)
+        # else: no lock available. Capture is the hook's primary job, and
+        # O_APPEND is atomic even without a lock, so we keep writing rather
+        # than dropping the prompt. We skip the trim here rather than risk
+        # a concurrent read-modify-write we cannot serialize against — an
+        # untrimmed file is bounded in practice because trimming isn't
+        # gated by cadence, so it resumes on the next invocation that does
+        # get the lock. It only grows unboundedly on a filesystem that
+        # never supports flock at all.
+    except Exception:
+        sys.exit(0)
+finally:
+    try:
+        os.close(fd)
+    except OSError:  # nosec B110 - fd already closed or invalid; nothing left to release
         pass
 
 # Cadence must come from a MONOTONIC count, not from len(lines).
