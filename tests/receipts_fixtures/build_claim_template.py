@@ -71,12 +71,16 @@ def build(path: pathlib.Path = OUT) -> None:
         page.insert_text((54, y), label, fontsize=7, fontname="helv")
         widget = fitz.Widget()
         widget.field_name = name
-        widget.field_type = fitz.PDF_WIDGET_TYPE_TEXT
-        widget.rect = fitz.Rect(220, y - 9, 380, y + 5)
+        # noqa on the next three: PyMuPDF reads these inside add_widget(),
+        # so vulture sees write-only attributes. Scoped per line rather than
+        # via ignore_names, which is global — `rect` alone is used 28 times
+        # in src/diagrams/ for an unrelated Mermaid node shape.
+        widget.field_type = fitz.PDF_WIDGET_TYPE_TEXT  # noqa
+        widget.rect = fitz.Rect(220, y - 9, 380, y + 5)  # noqa
         widget.field_value = ""
         # 9pt matches the insurer template's own default, which is what makes
         # the migration's before/after comparison meaningful.
-        widget.text_fontsize = 9
+        widget.text_fontsize = 9  # noqa
         page.add_widget(widget)
         y += 26
 

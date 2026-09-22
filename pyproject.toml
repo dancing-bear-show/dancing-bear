@@ -159,12 +159,6 @@ ignore_names = [
   # http.server.BaseHTTPRequestHandler overrides: invoked by the base
   # class's request-handling loop, not called directly.
   "do_GET", "do_POST", "log_message",
-  # PyMuPDF (fitz) Widget protocol attributes: set on a fitz.Widget() before
-  # page.add_widget(widget), which serializes them into the PDF's form
-  # dictionary. The read happens inside PyMuPDF, not here — the same shape as
-  # the python-docx setters below. Deleting them would silently produce a
-  # fixture PDF with untyped, unpositioned, default-sized widgets.
-  "field_type", "rect", "text_fontsize",
   # python-docx property setters: assignment triggers the docx library's
   # XML serialization; the "read" happens inside the library, not here.
   "left_indent", "right_indent", "first_line_indent", "hanging_indent",
