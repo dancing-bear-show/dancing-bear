@@ -11,10 +11,10 @@ These tests build a real in-memory AcroForm, write through the helpers, save,
 reopen, and assert on what the reopened document reports. Save-and-reopen is
 the point: values held on a live object may never have reached the file.
 
-**Both suites are load-bearing -- do not delete either as redundant.** They
-cover different things, and coverage measurement confirms it: the stub suite
-alone reaches 100% of ``core.pdf_forms``, this suite alone reaches 98.7%.
-Each asserts what the other cannot.
+**Both suites are load-bearing -- do not delete either as redundant.** Each
+reaches 100% of ``core.pdf_forms`` on its own, and each asserts what the other
+cannot. (This suite sat at 98.7% until the ``require_all=False`` round-trip
+below closed the gap; the stub suite had been covering that branch alone.)
 
 Only the stubs can assert the exact bytes handed to ``xref_set_key`` -- the
 ``/DA`` string, ``V = null`` versus ``/Off``, and ``writes == []`` proving
@@ -201,7 +201,23 @@ class PdfFormsRoundTripTests(unittest.TestCase):
         # cannot show that a reader gives back the original. Only a real parse
         # can, and a wrong escape here corrupts the value or raises
         # FzErrorSyntax when the file is opened.
-        for value in ("Smith (Jr", "un)balanced", r"back\slash", "(balanced)"):
+        #
+        # The last three carry a backslash AND a paren. Escaping in the wrong
+        # order -- parens before backslashes -- doubles the backslash that
+        # escaping the paren just introduced. A paren-only value already
+        # detects that inversion, so these are not the only cases that can;
+        # what they add is the interleaving a real surname produces, where a
+        # backslash sits immediately before a paren and each escape has to
+        # survive the other. `\(` is the minimal such value.
+        for value in (
+            "Smith (Jr",
+            "un)balanced",
+            r"back\slash",
+            "(balanced)",
+            r"back\(slash",
+            r"a\b(c)d\e",
+            "\\(",
+        ):
             with self.subTest(value=value):
                 doc = fitz.open()
                 page = doc.new_page(width=300, height=120)
