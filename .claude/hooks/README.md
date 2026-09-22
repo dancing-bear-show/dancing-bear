@@ -162,10 +162,17 @@ restricted. A role not on the read-only list (`code-writer`, `tester`, `ci-fixer
 allowed through.
 
 Guarded trees: `src`, `tests`, `bin`, `config`, `configs`, `workflows`, `.claude`,
-`.github`, `.qlty`, `concerns`, `docs`, `.llm`, plus repo-root build config
-(`Makefile`, `pyproject.toml`, `typecheck-baseline.json`, …). Refused **even when a
-prompt names one as a stage output** — a prompt naming a source path as an artifact
-is misconfigured, not authorization.
+`.github`, `.qlty`, `concerns`, `docs`, `.llm`, plus **every file at the repo root**.
+Refused **even when a prompt names one as a stage output** — a prompt naming a source
+path as an artifact is misconfigured, not authorization.
+
+The root-file rule is derived, not enumerated: a slashless repo-relative token that
+names an existing file at the root is guarded. An earlier hand-maintained list held 11
+names while `git ls-files` reported 20, leaving `AGENTS.md`, `COPILOT.md` and
+`GEMINI.md` writable — and rewriting those changes the instructions *later agents*
+consume, which outlasts editing any single source file. The existence test matters too:
+"slashless" alone refused `rm -rf srcfoo`, the bare `1` from `2>&1`, and an unexpanded
+`$P`.
 
 Each tree is matched **both as the bare directory and as a prefix of its contents**,
 which is not a detail. An earlier version stored `"src/"` and tested prefixes only,
@@ -203,6 +210,21 @@ the repo is a researcher's entire job, and an indiscriminate scan blocked
 `echo x >&src/mail/cli.py` yields a token still carrying its leading `&`, which
 matches no guarded path — so the redirect went through. The fd-duplication spellings
 (`2>&1`) are digits rather than paths and stay allowed.
+
+**Mutating commands are classified by which operand they write**, not treated as
+"every operand is a target". That distinction is what keeps reads working:
+
+| Shape | Commands | Targets |
+|---|---|---|
+| last-arg writers | `cp`, `ln` | the final operand only |
+| all-arg writers | `rm`, `rmdir`, `truncate`, `touch`, `shred`, `unlink`, `chmod`, `chown`, `patch`, `tee`, `install` | every operand |
+| conditional writers | `sed` (only with `-i`), `dd` (only `of=`) | as flagged |
+| both ends | `mv` | source **and** destination — it removes the source |
+
+Treating every operand as a target blocked `cp src/mail/cli.py /tmp/copy.py` (a normal
+way to produce an artifact) and `sed -n '1,5p' src/…` (prints, writes nothing). `mv` is
+deliberately not grouped with `cp`: `mv src /tmp/elsewhere` destroys the tree exactly
+as `rm -rf src` does.
 
 A mutating tool nobody listed still passes, as does a path in a variable or one
 assembled at runtime. Those are asserted as ALLOW in the suite's `KNOWN GAPS` section

@@ -308,6 +308,62 @@ run ALLOW researcher "./analysis/findings.json"
 run ALLOW researcher "././outputs/report.json"
 
 echo
+echo "--- every repo-root file, not a hand-maintained subset: must BLOCK ---"
+# ROOT_CONFIG_FILES listed 11 names while `git ls-files` reports 20 at the root, so
+# nine were writable -- including AGENTS.md, COPILOT.md and GEMINI.md. Rewriting those
+# changes the instructions LATER agents consume, a more durable compromise than
+# editing one source file. Now derived from the path shape, so it cannot drift.
+for f in AGENTS.md COPILOT.md GEMINI.md CONTRIBUTING.md SECURITY.md LICENSE \
+         GETTING_STARTED.md .python-version requirements-dev.txt \
+         credentials.example.json docker-compose.otel.yaml \
+         Makefile pyproject.toml CLAUDE.md README.md typecheck-baseline.json \
+         .coveragerc .bandit .envrc .gitignore; do
+  run BLOCK researcher "$f"
+done
+run_bash BLOCK researcher "echo x > AGENTS.md"
+run_bash BLOCK researcher "sed -i '' 's/a/b/' CLAUDE.md"
+# A file that only LOOKS root-level because it is outside the repo stays allowed.
+run ALLOW researcher "/tmp/AGENTS.md"
+run ALLOW researcher "analysis/AGENTS.md"
+
+echo
+echo "--- repeated separators must not defeat the prefix test: must BLOCK ---"
+# `<repo>//src/mail/cli.py` left rel=/src/mail/cli.py after the REPO_ROOT prefix came
+# off -- a leading slash matching no guarded prefix. Same class as the `/./` bug, one
+# variant over.
+run BLOCK researcher "$REPO_ROOT//src/mail/cli.py"
+run BLOCK researcher "src//mail/cli.py"
+run BLOCK researcher "$REPO_ROOT//.//src//mail/cli.py"
+run BLOCK researcher "tests//workflow_tests//test_linter.py"
+run_bash BLOCK researcher "echo x > $REPO_ROOT//src/mail/cli.py"
+run_bash BLOCK researcher "rm -rf src//"
+run ALLOW researcher "/tmp//out.json"
+
+echo
+echo "--- reads through mutating commands must be ALLOWED ---"
+# Treating every operand of cp/sed/dd/ln as a write target contradicted the
+# write-target-only design and blocked ordinary work: `cp src/x /tmp/y` is a normal
+# way to produce an artifact, and `sed -n` prints without writing.
+run_bash ALLOW researcher "cp src/mail/cli.py /tmp/copy.py"
+run_bash ALLOW researcher "cp src/mail/cli.py src/core/paths.py /tmp/"
+run_bash ALLOW researcher "sed -n '1,5p' src/mail/cli.py"
+run_bash ALLOW researcher "sed 's/a/b/' src/mail/cli.py"
+run_bash ALLOW researcher "dd if=src/mail/cli.py of=/tmp/out.bin"
+run_bash ALLOW researcher "ln -s src/mail/cli.py /tmp/link.py"
+
+echo
+echo "--- ...while the write forms of those same commands still BLOCK ---"
+run_bash BLOCK researcher "cp /tmp/x.py src/mail/cli.py"
+run_bash BLOCK researcher "cp /tmp/a.py /tmp/b.py src/"
+run_bash BLOCK researcher "sed -i '' 's/a/b/' src/mail/cli.py"
+run_bash BLOCK researcher "sed --in-place 's/a/b/' src/mail/cli.py"
+run_bash BLOCK researcher "dd if=/tmp/x of=src/mail/cli.py"
+run_bash BLOCK researcher "ln -s /tmp/x src/mail/cli.py"
+run_bash BLOCK researcher "mv /tmp/x.py src/mail/cli.py"
+run_bash BLOCK researcher "touch src/newfile.py"
+run_bash BLOCK researcher "tee src/mail/cli.py < /tmp/x"
+
+echo
 echo "--- KNOWN GAPS: documented, not fixed (see the SCOPE note in the hook) ---"
 # These are ALLOWed by design. A string matcher cannot evaluate what the shell will do
 # to the string, and block-destructive-bash.sh's header records four adversarial rounds

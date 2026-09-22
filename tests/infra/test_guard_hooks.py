@@ -230,23 +230,74 @@ class TestGuardHooksAreWired(unittest.TestCase):
         )
         return entries
 
+    # A command counts as invoking a guard only if it runs THAT script: `bash` (or a
+    # path ending in it) followed by a path whose basename is the script, optionally
+    # quoted, with $CLAUDE_PROJECT_DIR or another prefix in front.
+    #
+    # A substring test is what this replaced, and it was too weak in three separate
+    # ways -- all three demonstrated against the real settings file rather than
+    # reasoned about. It accepted a hook whose `type` was not "command", a command
+    # that merely MENTIONED the filename while running `echo`, and a command pointing
+    # at a copy of the script somewhere else entirely. Each of those is a dormant
+    # guard reported as active, which is the exact failure this class exists to catch.
+    _INVOCATION_RE = re.compile(
+        r"""(?:^|\s)            # start, or a word boundary
+            (?:\S*/)?bash\s+    # bash, possibly path-qualified
+            ['"]?               # optional opening quote
+            (?P<path>[^\s'"]*/)?  # optional directory prefix, up to the last slash
+            (?P<script>[A-Za-z0-9._-]+\.sh)
+            ['"]?               # optional closing quote
+            (?:\s|$)""",
+        re.VERBOSE,
+    )
+
+    def _invoked_scripts(self, hook: dict) -> set[str]:
+        """Return the guard scripts a hook actually invokes, or an empty set.
+
+        Empty for a non-command hook, for a command that does not run a script at
+        all, and for one that runs a script from outside this repo's hooks dir.
+        """
+        if hook.get("type") != "command":
+            return set()
+        command = hook.get("command", "")
+        if not isinstance(command, str):
+            return set()
+        found: set[str] = set()
+        for match in self._INVOCATION_RE.finditer(command):
+            script = match.group("script")
+            if script not in self.REQUIRED_HOOKS:
+                continue
+            # The invoked path must resolve to the repo's own hooks directory. A
+            # command running a same-named script from elsewhere leaves this guard
+            # dormant while looking wired.
+            prefix = match.group("path") or ""
+            expanded = prefix.replace("$CLAUDE_PROJECT_DIR", str(repo_root()))
+            expanded = expanded.replace("${CLAUDE_PROJECT_DIR}", str(repo_root()))
+            if not expanded:
+                continue
+            if Path(expanded).resolve() != HOOKS_DIR.resolve():
+                continue
+            found.add(script)
+        return found
+
     def test_every_guard_script_is_wired(self) -> None:
-        """Each guard has a PreToolUse entry naming it."""
+        """Each guard is actually INVOKED by a command hook, not merely named."""
         entries = self._pre_tool_use()
         wired = {
             script
             for entry in entries
             for hook in entry.get("hooks", [])
-            for script in self.REQUIRED_HOOKS
-            if script in hook.get("command", "")
+            for script in self._invoked_scripts(hook)
         }
         missing = set(self.REQUIRED_HOOKS) - wired
         self.assertEqual(
             missing,
             set(),
             msg=(
-                f"these guard scripts exist but no PreToolUse entry invokes them: "
-                f"{sorted(missing)}. They would never run."
+                f"these guard scripts are not invoked by any PreToolUse command hook: "
+                f"{sorted(missing)}. Naming a script in a non-command hook, in a "
+                f"command that runs something else, or at a path outside "
+                f"{HOOKS_DIR} all leave the guard dormant."
             ),
         )
 
@@ -258,36 +309,40 @@ class TestGuardHooksAreWired(unittest.TestCase):
         guard that was, by the previous test's standard, correctly wired.
         """
         entries = self._pre_tool_use()
+        # Accumulate per script: a guard may legitimately be wired by more than one
+        # entry, and it is covered if the union of those matchers covers its tools.
+        covered: dict[str, set[str]] = {s: set() for s in self.REQUIRED_HOOKS}
         for entry in entries:
             matcher = entry.get("matcher", "")
             tools = set(matcher.split("|")) if matcher else set()
             for hook in entry.get("hooks", []):
-                command = hook.get("command", "")
-                for script, needed in self.REQUIRED_HOOKS.items():
-                    if script not in command:
-                        continue
-                    self.assertLessEqual(
-                        needed,
-                        tools,
-                        msg=(
-                            f"{script} is wired with matcher {matcher!r}, which does "
-                            f"not cover {sorted(needed - tools)}. The guard would be "
-                            f"silently inactive for those tools."
-                        ),
-                    )
+                for script in self._invoked_scripts(hook):
+                    covered[script] |= tools
+
+        for script, needed in self.REQUIRED_HOOKS.items():
+            if not covered[script]:
+                continue  # not wired at all -- the other test reports that
+            self.assertLessEqual(
+                needed,
+                covered[script],
+                msg=(
+                    f"{script} is wired with matcher coverage "
+                    f"{sorted(covered[script])}, which does not cover "
+                    f"{sorted(needed - covered[script])}. The guard would be "
+                    f"silently inactive for those tools."
+                ),
+            )
 
     def test_wired_commands_point_at_files_that_exist(self) -> None:
         """A wired path that does not resolve is a guard that cannot run."""
         entries = self._pre_tool_use()
         for entry in entries:
             for hook in entry.get("hooks", []):
-                command = hook.get("command", "")
-                for script in self.REQUIRED_HOOKS:
-                    if script in command:
-                        self.assertTrue(
-                            (HOOKS_DIR / script).is_file(),
-                            msg=f"{script} is wired but missing from {HOOKS_DIR}",
-                        )
+                for script in self._invoked_scripts(hook):
+                    self.assertTrue(
+                        (HOOKS_DIR / script).is_file(),
+                        msg=f"{script} is wired but missing from {HOOKS_DIR}",
+                    )
 
 
 def _attach(name: str) -> None:

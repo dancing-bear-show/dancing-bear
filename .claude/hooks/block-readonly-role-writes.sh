@@ -179,13 +179,37 @@ SOURCE_TREES=(
   ".llm"
 )
 
-# Repo-root files that are build/lint/CI configuration rather than run artifacts.
-# A read-only agent writing setup.cfg or the mypy baseline is the same category of
-# mistake as writing src/, and none of them sit under a guarded directory prefix.
-ROOT_CONFIG_FILES=(
-  "Makefile" "pyproject.toml" "setup.cfg" "setup.py" ".coveragerc" ".bandit"
-  "typecheck-baseline.json" "CLAUDE.md" "README.md" ".envrc" ".gitignore"
-)
+# Repo-root files. Derived from the path SHAPE, not enumerated.
+#
+# This was a hand-maintained list of 11 names, and a hand-maintained list of tracked
+# files is guaranteed to drift: `git ls-files` reports 20 files at the repo root, so
+# nine were unguarded -- including AGENTS.md, COPILOT.md and GEMINI.md. That last group
+# is the sharp one: a read-only agent rewriting AGENTS.md changes the instructions
+# LATER agents consume, which is a more durable compromise than editing one source
+# file. Review found it; enumerating harder would only have postponed the next miss.
+#
+# The rule: a repo-relative token with no `/` that names a file WHICH EXISTS at the
+# repo root is guarded. Derived from the filesystem at call time, so adding a root file
+# guards it automatically and nothing has to be remembered.
+#
+# "No slash" ALONE is not enough, and the first version of this made that mistake:
+# it refused `rm -rf srcfoo`, the bare word `1` from `2>&1`, and an unexpanded `$P`,
+# all of which are slashless and none of which are repo-root files. The existence test
+# is what separates a real root file from any other bare word. Caught by the suite's
+# ALLOW half.
+#
+# Deliberately not `git ls-files`: it forks a process per call, answers "no" for a NEW
+# root file (a case worth blocking), and misbehaves when cwd is not a repo. A `-e` test
+# against REPO_ROOT costs nothing and does not depend on the index. The tradeoff is
+# that a *new* root file is not guarded until it exists -- acceptable, because creating
+# one is itself the write we would want to catch, and the SOURCE_TREES rules already
+# cover everything under a directory.
+_is_repo_root_file() { # _is_repo_root_file <repo-relative-path> -> 0 if yes
+  case "$1" in
+    */*|"") return 1 ;;   # has a directory component, or is empty
+  esac
+  [ -n "$REPO_ROOT" ] && [ -e "$REPO_ROOT/$1" ]
+}
 
 # classify_path <path> -> prints "guarded:<reason>" or "ok"; never exits.
 #
@@ -211,6 +235,14 @@ classify_path() {
   # Looped rather than one substitution because the collapse happens in stages --
   # a single pass over `a/././b` leaves `a/./b`, which still defeats the prefix test.
   # Each iteration strictly shortens the string, so this terminates.
+  # Repeated separators collapse first: `a//b` and `a/b` name the same file, and
+  # `<repo>//src/mail/cli.py` left `rel=/src/mail/cli.py` after the REPO_ROOT prefix
+  # came off -- a leading slash, matching no guarded prefix. Same class as the `/./`
+  # bug below, one variant over, and found the same way. Order matters: collapsing
+  # separators first turns `a//./b` into `a/./b`, which the next loop then handles.
+  while [ "$p" != "${p//\/\//\/}" ]; do
+    p="${p//\/\//\/}"
+  done
   while [ "$p" != "${p//\/.\//\/}" ]; do
     p="${p//\/.\//\/}"
   done
@@ -263,12 +295,10 @@ classify_path() {
       return
     fi
   done
-  for q in "${ROOT_CONFIG_FILES[@]}"; do
-    if [ "$rel" = "$q" ]; then
-      printf 'guarded:repo configuration (%s)' "$q"
-      return
-    fi
-  done
+  if _is_repo_root_file "$bare"; then
+    printf 'guarded:a file at the repo root (%s) -- tracked content, not an artifact' "$bare"
+    return
+  fi
   printf 'ok'
 }
 
@@ -338,9 +368,24 @@ if [ "$TOOL" = "Bash" ]; then
     prev="$tok"
   done
 
-  # 2. Operands of mutating command words. Split on separators so each segment is
-  #    judged against its own leading command word -- `cat a.py && sed -i '' b.py`
-  #    must not let the harmless first half vouch for the second.
+  # 2. WRITE DESTINATIONS of mutating command words -- not every operand.
+  #
+  #    Treating every operand as a target contradicted this branch's own
+  #    write-target-only design, and blocked ordinary reads: `cp src/mail/cli.py
+  #    /tmp/copy.py` (a normal way to produce an artifact) and `sed -n '1,5p'
+  #    src/mail/cli.py` (prints, writes nothing) were both refused. Review caught it.
+  #
+  #    So the commands split into three shapes:
+  #      * LAST-ARG writers (cp, mv, install, ln) -- only the final operand is the
+  #        destination; everything before it is a source being read.
+  #      * ALL-ARG writers (rm, rmdir, truncate, touch, shred, unlink, chmod, chown,
+  #        patch, tee) -- every operand is acted on.
+  #      * CONDITIONAL writers (sed, dd) -- sed rewrites only with -i; dd writes only
+  #        to its of= operand. Without those, they read.
+  #
+  #    Split on separators so each segment is judged against its own leading command
+  #    word -- `cat a.py && sed -i '' b.py` must not let the harmless first half
+  #    vouch for the second.
   segs=${CMD//&&/;}
   segs=${segs//||/;}
   segs=${segs//|/;}
@@ -352,9 +397,43 @@ if [ "$TOOL" = "Bash" ]; then
     word=${1##*/}          # /bin/sed -> sed
     word=${word#\\}        # \sed     -> sed
     case "$word" in
-      sed|tee|cp|mv|rm|rmdir|truncate|install|patch|dd|chmod|chown|ln|touch|shred|unlink)
+      rm|rmdir|truncate|install|touch|shred|unlink|chmod|chown|patch|tee)
+        # install is here as well as below: with -d it creates directories from every
+        # operand, so treating only the last as a destination would miss the rest.
         shift
         targets="$targets $*"
+        ;;
+      cp|ln)
+        # Only the final operand is written. `cp a b c dir/` writes into dir/ alone,
+        # and the earlier operands are sources being READ -- blocking those is what
+        # made `cp src/mail/cli.py /tmp/copy.py` fail.
+        shift
+        [ "$#" -gt 0 ] || continue
+        for _ in $(seq 1 $(( $# - 1 ))); do shift; done
+        targets="$targets $1"
+        ;;
+      mv)
+        # mv is NOT like cp: it REMOVES the source. `mv src /tmp/elsewhere` destroys
+        # the tree just as surely as `rm -rf src`, so both ends are write targets.
+        shift
+        targets="$targets $*"
+        ;;
+      sed)
+        # Rewrites in place only with -i. Without it, sed reads and prints.
+        case " $* " in
+          *" -i "*|*" -i."*|*" --in-place"*|*" -i'"*|*' -i"'*)
+            shift
+            targets="$targets $*"
+            ;;
+        esac
+        ;;
+      dd)
+        # Writes only to of=; if= is the input.
+        for a in "$@"; do
+          case "$a" in
+            of=*) targets="$targets ${a#of=}" ;;
+          esac
+        done
         ;;
     esac
   done
