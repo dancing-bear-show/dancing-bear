@@ -37,16 +37,23 @@ What the CLI actually gives you:
 - `cost --group-by day` — daily cost totals. The JSON rows carry `day` and
   `est_cost` only, no model field.
 - `cost --group-by agent` — per-agent calls and cost, again with no model field.
-- `history` / `summary` — one model per session, taken from the session's
-  **first** API event (`src/telemetry/providers/transcript.py:128`). A session
-  that switches tiers is attributed entirely to whichever model it happened to
-  start with.
+- `history` — one model per session, taken from the session's **first** API
+  event (`src/telemetry/providers/transcript.py:128`).
+- `summary` — one model per session, taken from the session's **latest** API
+  event (`_latest_model` at `src/telemetry/tui/_summary.py:40-44`, which walks
+  `reversed(api_events)`).
 
-So "dominant model" is reportable as *the model the session was recorded under*,
-with that caveat. A per-tier breakdown is not. If someone needs one, the
-accumulator already exists internally (`totals["models"]` at
-`transcript.py:290`) and would need exposing through a CLI flag first — that is a
-code change, not something this skill can work around.
+**The two commands disagree on purpose-built different rules, so do not treat
+their model fields as interchangeable.** For a session that switched tiers,
+`history` reports what it started on and `summary` reports what it ended on;
+neither is wrong, and neither is "the" model for that session. If a report
+quotes a model, name which command it came from.
+
+So "dominant model" is not something either command gives you. A per-tier cost
+breakdown is not available at all. If someone needs one, the accumulator already
+exists internally (`totals["models"]` at `transcript.py:290`) and would need
+exposing through a CLI flag first — that is a code change, not something this
+skill can work around.
 
 ## What This Skill Does
 
@@ -63,9 +70,10 @@ code change, not something this skill can work around.
 
 Synthesize the command output into a markdown report with:
 - **Cost Summary**: Total spend, session count, cost per session
-- **Dominant Model**: the model `history` reports per session, with the caveat in
-  Model Attribution below — not a per-tier cost split, which no shipped command
-  produces
+- **Session models**: the per-session model, labelled with which command it came
+  from — `history` reports the session's first API event, `summary` its latest
+  (see Model Attribution). Not a "dominant model", and not a per-tier cost
+  split, which no shipped command produces
 - **Tool Usage**: Top tools by call count from `summary` output
 - **Session Outliers**: Highest-cost and most-active sessions
 - **Recommendations**: session consolidation, and model-downgrade candidates
@@ -136,7 +144,7 @@ Synthesize the command output into a markdown report with:
 | coverage-sweep  |   180 |  $6.10 |
 
 ## Session Outliers
-- Highest cost: abc123… $12.50 (1,240 events, reported model: Sonnet)
+- Highest cost: abc123… $12.50 (1,240 events, first model per `history`: Sonnet)
 - Most active:  def456… 2,100 events $8.20
 
 ## Recommendations
@@ -161,7 +169,9 @@ their line-item breakdowns, date ranges are consistent, any percentage
 claims are arithmetically correct, and — most importantly — that the
 report does not present a per-model-tier cost split. No shipped
 telemetry command produces one, so such a table would be fabricated.
-A single reported model per session is fine when labelled as such.
+A single per-session model is fine when the report names which command it came
+from, since `history` (first API event) and `summary` (latest) can disagree for
+a tier-switching session.
 """)
 ```
 

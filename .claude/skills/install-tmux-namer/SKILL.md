@@ -11,11 +11,46 @@ skills:
 Installs the Claude Code hook that automatically renames your tmux session
 to a short AI-generated summary of what you're working on, updated every 20 prompts.
 
+## Step 0: Disclose what the hook captures, and get consent
+
+**This hook records prompt text. Do not install it without telling the user
+first and getting an explicit yes.**
+
+What it does on every prompt
+(`configs/llm/tmux-session-namer.py:50-95`):
+
+- Appends the **first 120 characters of the prompt** to
+  `~/.cache/claude/prompts-<session-id>.txt`, trimmed to the last 200 lines.
+  The directory is created `0700` and the file opened `0600`, so it is
+  user-private — but it is still prompt text at rest on disk.
+- Every 20th prompt, sends **the last 20 recorded lines** to `claude -p` to
+  generate the session name. That is an outbound model call containing those
+  prompt fragments.
+
+Prompts from unrelated work can contain credentials, tokens, customer data or
+other PII, and this capture does not distinguish them. Say this plainly, in
+these terms, and install only on an explicit yes:
+
+> This hook saves the first 120 characters of every prompt to
+> ~/.cache/claude/prompts-*.txt and sends the last 20 of them to `claude -p`
+> every 20th prompt, to generate the session name. Prompt text can include
+> secrets or personal data. Install it? (y/n)
+
+If the user declines, stop — do not install any part of this, including the
+hook script copy. If they want the renaming without the capture, say that the
+current hook has no redaction or disable switch and that adding one is a change
+to `configs/llm/tmux-session-namer.py`, not something this skill can configure.
+
+To remove it later: delete the `UserPromptSubmit` entry from
+`~/.claude/settings.json`, then `rm -f ~/.cache/claude/prompts-*.txt`.
+
 ## Step 1: Check Prerequisites
 
 ```bash
-# Must be running inside tmux
-echo ${TMUX:-"NOT IN TMUX — start a tmux session first"}
+# tmux is not required to INSTALL — the hook checks $TMUX itself on every
+# prompt (tmux-session-namer.py:25) and exits quietly when unset, so it can be
+# installed ahead of a later tmux session.
+echo ${TMUX:-"not in tmux — installing anyway; the hook stays idle until tmux is running"}
 
 # claude CLI must be on PATH (used for summarization)
 which claude || echo "claude not found — install Claude Code first"
@@ -24,7 +59,9 @@ which claude || echo "claude not found — install Claude Code first"
 which python3
 ```
 
-If not in tmux, stop here — the hook is a no-op outside tmux.
+Do not stop when `$TMUX` is unset. Warn that the hook will remain idle until
+tmux is available and continue — the documented "new machine or after cloning"
+setup runs outside tmux, and refusing there makes it fail for no reason.
 
 ## Step 2: Copy Hook Script
 
@@ -171,8 +208,13 @@ cmds = [h.get('command','') for e in hooks for h in e.get('hooks',[])]
 print('Hook wired:', any('tmux-session-namer' in c for c in cmds))
 "
 
-# Confirm tmux is reachable
-tmux display-message -p 'tmux OK: session=#S'
+# Confirm tmux is reachable, if we are inside it. Outside tmux this is expected
+# to fail and is not an install failure — the hook idles until tmux is running.
+if [ -n "${TMUX:-}" ]; then
+  tmux display-message -p 'tmux OK: session=#S'
+else
+  echo "not in tmux — install complete; the hook stays idle until a tmux session exists"
+fi
 ```
 
 ## Report
@@ -184,11 +226,18 @@ After completing the steps, report:
 
 | Component | Status |
 |-----------|--------|
+| Prompt-capture consent | granted (required — see Step 0) |
 | Hook script | ~/.claude/hooks/tmux-session-namer.py |
-| settings.json | UserPromptSubmit hook wired |
-| ~/.zshrc | iTerm sync added (or skipped) |
+| settings.json | UserPromptSubmit hook wired (isolated form) |
+| ~/.zshrc | iTerm sync added (or skipped — consent required) |
+| tmux | running / not running (hook idles until it is) |
 | Reload needed | Open /hooks or restart Claude |
 
 The hook runs on the next prompt, but only renames the session once the prompt
 count for this session reaches a multiple of 20 (configs/llm/tmux-session-namer.py:82).
+
+It records the first 120 characters of each prompt to
+`~/.cache/claude/prompts-*.txt` and sends the last 20 to `claude -p` on each
+20th prompt. To undo: remove the `UserPromptSubmit` entry from
+`~/.claude/settings.json` and `rm -f ~/.cache/claude/prompts-*.txt`.
 ```
