@@ -286,19 +286,142 @@ make test > /tmp/t.log 2>&1; echo "EXIT=$?"; grep -E "^Ran [0-9]+ tests" /tmp/t.
 editing.** The symptom is a command that shows the old output while your edit is
 plainly in the file, which looks exactly like "the fix didn't work."
 
-The `bin/*` wrappers are **not** at fault. Each is a symlink to `bin/_router.py`,
-which resolves `_REPO_ROOT` through the symlink (`bin/_router.py:35`), inserts
-that repo's `src/` on `sys.path` (`bin/_router.py:53-55`), and re-execs under
-`_REPO_ROOT/.venv/bin/python3` when one exists (`bin/_router.py:36-51`). Run
-`./bin/<tool>` from a worktree and the router does point at that worktree.
+**`./bin/*` and `make` now resolve imports correctly. A bare `python3` does
+not.** Read that as a correctness guarantee, not a security boundary: the repair
+fixes *which checkout a module comes from*, and nothing more. A foreign
+`sitecustomize.py` still executes under every Python wrapper — see the
+`sitecustomize` note below — because Python runs it before any Python-level
+guard can exist. If `PYTHONPATH` names a checkout you would not run code from,
+the wrappers do not make that safe; fix the environment.
 
-What actually redirects the import:
+The repair lives in one place, `bin/_pathrepair.py`, and every entry point loads
+it by explicit filesystem path rather than by `import` — a module whose job is to
+fix a broken import path cannot depend on that path already being correct, and a
+plain `import` could silently load a *foreign* checkout's copy and repair
+nothing.
 
-- **An inherited `PYTHONPATH`** — the same root cause as the `unittest` trap
-  above, and the common one. `PYTHONPATH` entries land ahead of both the
-  editable install's `.pth` and the router's own insert (which is guarded by an
-  `if not in sys.path` check), so another checkout's `src/` wins on `sys.path`
-  and the wrapper loads that tree's code
+Before re-execing, each entry point drops any `PYTHONPATH` entry that is a
+*different* checkout's `src/` (identified by a sibling `pyproject.toml` that
+names **this** project — deliberately narrow, so unrelated third-party entries
+survive), rewrites the variable so the re-exec and any child process inherit the
+correction, and then forces its own `src/` to the *front* of `sys.path`. Set
+`DANCING_BEAR_PATH_DEBUG=1` to see what was dropped.
+
+Coverage is **every `bin/` entry point that imports a repo module**, by two
+routes: the generated wrappers are symlinks to `bin/_router.py`, while `bin/llm`
+and `bin/path-guard` are standalone scripts calling the same shared module. Both
+are pinned by `tests/infra/test_pathrepair_shared.py` and
+`tests/infra/test_router_pythonpath.py`, including end-to-end cases that execute
+the real binaries. Revert the repair and those suites go red.
+
+That is narrower than "all of `bin/`", which an earlier revision claimed.
+`pr-assistant`, `code-review-log-findings.py`, `code-review-backfill-log.py`,
+`check_test_discovery.py`, `mypy_ratchet.py` and `uuidgen-pair` are Python entry
+points with no repair wired in — deliberately, because none of them import a
+repo module, so there is nothing for a foreign checkout to shadow. Audited by
+grepping every `bin/` file with a Python shebang for repo imports; re-run that
+before adding one. They remain exposed to the `sitecustomize` hole like every
+other interpreter, which is not something the repair can close.
+
+`bin/llm` and `bin/path-guard` were **not** covered until #368's follow-up commit:
+they kept the old membership-only guard while the router had moved on. With a
+foreign checkout ahead of ours on `PYTHONPATH` they raised
+`ModuleNotFoundError: No module named 'core.llm_cli'` / `'core.path_guard'`, and
+against a *real* foreign checkout they would have silently run the other tree's
+code instead. If you add another standalone script under `bin/` that imports a
+repo module, wire it to `bin/_pathrepair.py` too.
+
+Do **not** treat `bin/_wrappers.yaml`'s `manual:` list as that inventory — it is
+a generator exclusion list, not a hazard list, and it is incomplete for this
+purpose: `bootstrap`, `bootstrap-otel`, `pr-assistant`, `worker-install-launchd`,
+and `worker-wait` are all standalone scripts absent from it.
+
+**There are two separate hazards, and a script can carry either.** Ask both
+questions, not just the first:
+
+1. **Does it import a repo module?** If so, a foreign checkout can shadow that
+   module — wire it to `bin/_pathrepair.py`. Among those five, only
+   `bin/bootstrap` does.
+2. **Does it start a Python interpreter at all?** If so, a foreign
+   `PYTHONPATH` executes that tree's `sitecustomize.py` during startup,
+   *before* the `-c` body runs — so the hazard does not depend on what the
+   script imports. Use `python3 -I -S`.
+
+An earlier revision of this section got that wrong, reasoning that
+`worker-wait`'s `python3 -c` "touches `sys` and `json` only, which a foreign
+checkout cannot shadow". True about the imports, and irrelevant to the startup
+hook: a planted `sitecustomize.py` ran under it anyway. `bin/worker-wait:34` is
+now `python3 -I -S`. Check both questions, not the file list.
+
+**`sitecustomize` is a gap none of this closes.** Python imports
+`sitecustomize`/`usercustomize` from `PYTHONPATH` entries during interpreter
+startup — before any Python-level guard can run. A foreign checkout's
+`sitecustomize.py` therefore executes under every wrapper, the router included.
+That is why the `python3 -I -S` rule below exists, and why it is not optional.
+
+This previously read "the `bin/*` wrappers are **not** at fault." That was
+wrong, and measurably so: with `PYTHONPATH` pointing at the main checkout, a
+wrapper run from a worktree imported `calendars` and `resume` from the **main**
+tree. A `PYTHONPATH` entry outranks the editable install's `.pth`, so even the
+worktree's own `.venv` interpreter resolved to the other checkout. The old
+`if str(SRC_ROOT) not in sys.path` guard was a no-op whenever our `src/` was
+present but ordered behind the foreign entry.
+
+The root cause is direnv, not the wrappers: `.envrc` exports
+`PYTHONPATH="$PWD/src"`, and direnv loads the `.envrc` of whichever checkout the
+shell *started* in. A worktree's `.envrc` is a different file and is not on
+direnv's allow list, so it never runs.
+
+**Nothing auto-approves that `.envrc`, deliberately.** `.envrc` is a tracked,
+branch-controlled file, so a hook that ran `direnv allow` for you would trust
+and execute shell code from whatever branch it just checked out — including an
+untrusted PR's — before anyone read it. `.claude/scripts/name-worktree.sh`
+therefore only prints a reminder on stderr; approving it is your call, after
+reading the file:
+
+```bash
+cd .claude/worktrees/<wt> && direnv allow .
+```
+
+Until you do, a `SessionStart` hook (`.claude/scripts/check-pythonpath.sh`)
+warns whenever `PYTHONPATH` names another checkout of this project, and the
+repair plus the Makefile keep the CLI entry points and `make` correct
+regardless.
+
+**Any configured hook that runs Python MUST use `python3 -I -S`** — every hook
+type, not just `SessionStart`. Hooks execute with the session's environment,
+which is exactly when `PYTHONPATH` may name a foreign checkout — and Python
+imports `sitecustomize`/`usercustomize` from `PYTHONPATH` entries during
+interpreter startup. A bare `python3 -c` hook therefore runs code from that
+checkout before any warning is emitted. `-I` ignores `PYTHONPATH` and the user
+site directory; `-S` skips `site.py`, which is what performs those imports.
+Demonstrated with a planted `sitecustomize.py`, and pinned by
+`tests/infra/test_check_pythonpath_hook.py`, which walks **all** hook types in
+`settings.json` and fails if any of them starts an unisolated interpreter.
+
+Stating this as a `SessionStart` rule is how the hole stayed open through two
+revisions of that test: `.claude/scripts/name-worktree.sh` is a `WorktreeCreate`
+hook that also runs Python, and a rule scoped to one hook type reads as a
+licence for every other. Prefer a pure-shell hook
+where the work is trivial — `check-pythonpath.sh` builds its JSON with parameter
+expansion for exactly this reason.
+
+What still redirects the import:
+
+- **An inherited `PYTHONPATH` used by anything the router does not run** — a
+  bare `python3 -c ...`, `python3 -m unittest`, or an ad-hoc probe. `PYTHONPATH`
+  entries land ahead of the editable install's `.pth`, so another checkout's
+  `src/` wins and the command reports behaviour from source you are not editing.
+  The CLI entry points and `make` are immune (see above); assume nothing else
+  is. This is the one that keeps biting — it caused three separate misdiagnoses
+  in a single session, including one probe that returned a confident wrong
+  answer about whether a guard was load-bearing.
+  "Everything under `bin/` is covered" is the wrong mental model, and stating it
+  that way hid a live bug twice: `bin/llm` and `bin/path-guard` are standalone
+  scripts rather than router symlinks, and `bin/bootstrap` is **bash**, so a
+  scan for Python `sys.path` guards never saw its
+  `.venv/bin/python -c "import mail; …"` verify step at all. Coverage follows
+  the code, not the directory
 - **Invoking a wrapper by absolute path** from another checkout — that runs
   *that* checkout's source, correctly and by design
 - **A `.venv` whose editable install points elsewhere** — each worktree's
@@ -310,11 +433,22 @@ What actually redirects the import:
 where the module actually loaded from.**
 
 ```bash
-python3 -c "import resume; print(resume.__file__)"   # must be YOUR src/
+python3 -I -S -c "import importlib.util as u, os, sys; sys.path[:0] = os.environ.get('PYTHONPATH','').split(os.pathsep); s = u.find_spec('resume'); print(s.origin if s else 'not found')"
 ```
 
 If that path is not under the tree you are editing, the code never ran — the
 change is fine and the environment is wrong.
+
+**Do not use the obvious short form, `python3 -c "import resume;
+print(resume.__file__)"`.** You would run it in exactly the situation where
+`PYTHONPATH` names a checkout you do not trust, and `import` executes that
+tree's `sitecustomize.py` at interpreter startup *and* its package `__init__`
+before printing anything. Demonstrated with a planted pair: the short form runs
+both, the form above runs neither and prints the same path. `-I -S` skips the
+startup hooks, `find_spec` locates the module without importing it, and
+re-adding `PYTHONPATH` to `sys.path` by hand keeps the answer faithful to real
+resolution order. This is the same diagnostic
+`.claude/scripts/check-pythonpath.sh` prints, for the same reason.
 
 **Coverage exemptions** (`.coveragerc`):
 - `*/__main__.py` is omitted. These are `python -m <pkg>` entry shims: a

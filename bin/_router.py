@@ -13,6 +13,7 @@ Run `make bin-wrappers` to regenerate after changing _wrappers.yaml.
 """
 from __future__ import annotations
 
+import importlib.util
 import os
 import sys
 from pathlib import Path
@@ -33,6 +34,28 @@ from pathlib import Path
 # Path.resolve()), so _REPO_ROOT is always the real repo root regardless of
 # which symlink was used to invoke the router.
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+
+# Load bin/_pathrepair.py by explicit filesystem path, NOT by `import`.
+#
+# That module carries the repair below and is shared with bin/llm and
+# bin/path-guard, so the logic exists once rather than in three divergent
+# copies. It cannot be imported normally: its whole job is to fix a broken
+# import path, so a plain `import` would either fail or -- far worse --
+# silently load a FOREIGN checkout's copy of itself and repair nothing. For
+# the same reason it cannot live under src/, which is exactly what is not yet
+# importable at this point.
+_spec = importlib.util.spec_from_file_location(
+    "_dancing_bear_pathrepair", _REPO_ROOT / "bin" / "_pathrepair.py"
+)
+if _spec is None or _spec.loader is None:  # pragma: no cover - defensive
+    raise SystemExit("_router.py: cannot load bin/_pathrepair.py")
+_pathrepair = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_pathrepair)
+
+# Must run BEFORE the .venv re-exec below so the corrected PYTHONPATH is
+# inherited across os.execv.
+_pathrepair.strip_foreign_src_paths(_REPO_ROOT)
+
 _VENV_PY = _REPO_ROOT / ".venv" / "bin" / "python3"
 _VENV_PY_REAL = os.path.realpath(str(_VENV_PY)) if _VENV_PY.exists() else ""
 if (
@@ -50,9 +73,11 @@ if (
     # into bandit's scope.
     os.execv(str(_VENV_PY), [str(_VENV_PY)] + sys.argv)  # nosec B606
 
-SRC_ROOT = _REPO_ROOT / "src"
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
+# After the re-exec, immediately before the first repo import: force our src/
+# to the FRONT of sys.path. A membership test is not enough -- if our src/ is on
+# the path but sits behind another checkout's, that one wins and the guard is a
+# no-op.
+SRC_ROOT = Path(_pathrepair.force_own_src_first(_REPO_ROOT))
 
 # --- BEGIN GENERATED SECTION (bin/_gen_wrappers.py) ---
 # fmt: off

@@ -166,7 +166,13 @@ fi
 info "Verifying installation..."
 echo ""
 
-if .venv/bin/python -c "import mail; import calendars; import resume; import core" 2>/dev/null; then
+# PYTHONPATH is pinned to THIS checkout's src/ for the verify step. An
+# inherited PYTHONPATH naming another checkout of this repo (direnv exports
+# PYTHONPATH="$PWD/src", and it follows the shell, not the directory) outranks
+# the editable install's .pth — so without the pin this imports mail/calendars/
+# resume/core from the OTHER tree and reports "Core modules import
+# successfully" about a checkout we did not just install.
+if PYTHONPATH="$(pwd)/src" .venv/bin/python -c "import mail; import calendars; import resume; import core" 2>/dev/null; then
   ok "Core modules import successfully"
 else
   warn "Some modules failed to import (may need credentials for full functionality)"

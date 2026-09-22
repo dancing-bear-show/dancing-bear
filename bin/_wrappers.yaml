@@ -44,6 +44,7 @@ python:
 # Manual scripts (not generated - have custom logic)
 manual:
   - llm
+  - path-guard
   - ios-install-profile
   - ios-p12-to-der
   - ios-setup-device
