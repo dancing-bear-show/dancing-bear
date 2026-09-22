@@ -143,14 +143,14 @@ slides = "slides.__main__:main"
 # no .py files, so a directory-wide scan adds no build-metadata noise.
 paths = ["bin", "tests", "src"]
 min_confidence = 60
-exclude = [
-  # Pure dataclass/enum schema modules populated by parsers via
-  # dict-unpacking or Enum(value_str) construction: every field reads as
-  # "unused" to vulture even though the schema is fully consumed at
-  # runtime. Field-level false positives here vastly outnumber any real
-  # dead code, so these files are reviewed by hand instead.
-  "src/workflow/models.py", "src/telemetry/otel/models.py",
-]
+# src/workflow/models.py and src/telemetry/otel/models.py were previously
+# excluded here wholesale: both are pure dataclass/enum schema modules
+# populated by parsers via dict-unpacking or Enum(value_str) construction, so
+# most fields read as "unused" even though the schema is fully consumed at
+# runtime. They now carry a per-line `# noqa` on each false positive instead,
+# so vulture still scans the rest of each file for real dead code — a
+# whole-file exclusion also hid 11 methods and properties, well beyond the
+# dataclass fields the exclusion was written for.
 ignore_decorators = [
   # CLIApp dispatch (src/core/cli_framework.py): the framework invokes these by
   # registry, not by direct call. Named for Click historically; the telemetry

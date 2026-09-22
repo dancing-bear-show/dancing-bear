@@ -122,11 +122,11 @@ def _extract_resource_attributes(
 class OTLPResource:
     """Resource attributes identifying the source of telemetry data."""
 
-    service_name: str
-    service_version: str
-    host_arch: str | None = None
-    os_type: str | None = None
-    os_version: str | None = None
+    service_name: str  # noqa
+    service_version: str  # noqa
+    host_arch: str | None = None  # noqa
+    os_type: str | None = None  # noqa
+    os_version: str | None = None  # noqa
     raw_attributes: list[OTLPAttribute] = field(default_factory=list)
 
     @classmethod
@@ -145,7 +145,7 @@ class OTLPResource:
             raw_attributes=raw_attrs,
         )
 
-    def get_attr(self, key: str) -> str | None:
+    def get_attr(self, key: str) -> str | None:  # noqa - called via src/telemetry/otel/cli/, src/telemetry/otel/analytics/, tests/telemetry_tests/test_otel_models.py
         """Get an attribute value by key."""
         return _find_attr_str(self.raw_attributes, key)
 
@@ -164,16 +164,16 @@ class MetricDataPoint:
         """Convert time_unix_nano to a datetime."""
         return nano_to_datetime(self.time_unix_nano)
 
-    @property
+    @property  # noqa - called via src/telemetry/otel/retention.py, cli/inspect.py, tests/telemetry_tests/test_otel_models.py
     def start_timestamp(self) -> datetime:
         """Convert start_time_unix_nano to a datetime."""
         return nano_to_datetime(self.start_time_unix_nano)
 
-    def get_attr(self, key: str) -> str | None:
+    def get_attr(self, key: str) -> str | None:  # noqa - called via src/telemetry/otel/cli/, src/telemetry/otel/analytics/, tests/telemetry_tests/test_otel_models.py
         """Get an attribute value by key."""
         return _find_attr_str(self.attributes, key)
 
-    def get_attr_as_float(self, key: str) -> float | None:
+    def get_attr_as_float(self, key: str) -> float | None:  # noqa - called via src/telemetry/otel/cli/, src/telemetry/otel/analytics/, tests/telemetry_tests/test_otel_models.py
         """Get an attribute value as float, handling string coercion."""
         return _find_attr_float(self.attributes, key)
 
@@ -198,11 +198,11 @@ class OTLPMetric:
     """
 
     name: str
-    description: str
-    unit: str
+    description: str  # noqa
+    unit: str  # noqa
     data_points: list[MetricDataPoint]
-    aggregation_temporality: int = 1
-    is_monotonic: bool = True
+    aggregation_temporality: int = 1  # noqa
+    is_monotonic: bool = True  # noqa
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> OTLPMetric:
@@ -239,9 +239,9 @@ class OTLPMetric:
 class OTLPMetricsRecord:
     """A complete metrics record from metrics.jsonl."""
 
-    resource: OTLPResource
-    scope_name: str
-    scope_version: str
+    resource: OTLPResource  # noqa
+    scope_name: str  # noqa
+    scope_version: str  # noqa
     metrics: list[OTLPMetric]
 
     @classmethod
@@ -278,12 +278,12 @@ class OTLPMetricsRecord:
             metrics=[OTLPMetric.from_dict(m) for m in metrics_list],
         )
 
-    def metrics_by_name(self, pattern: str) -> list[OTLPMetric]:
+    def metrics_by_name(self, pattern: str) -> list[OTLPMetric]:  # noqa - called via src/telemetry/otel/cli/query.py:80
         """Return metrics matching a fnmatch glob pattern."""
         import fnmatch
         return [m for m in self.metrics if fnmatch.fnmatch(m.name, pattern)]
 
-    def earliest_timestamp(self) -> datetime | None:
+    def earliest_timestamp(self) -> datetime | None:  # noqa - called via src/telemetry/otel/retention.py:171, cli/inspect.py:69
         """Get the earliest timestamp from all data points."""
         all_times = [dp.timestamp for metric in self.metrics for dp in metric.data_points]
         return min(all_times) if all_times else None
@@ -295,8 +295,8 @@ class OTLPEvent:
     """A single log event from events.jsonl."""
 
     time_unix_nano: int
-    observed_time_unix_nano: int
-    body: str
+    observed_time_unix_nano: int  # noqa
+    body: str  # noqa
     attributes: list[OTLPAttribute] = field(default_factory=list)
 
     @property
@@ -304,11 +304,11 @@ class OTLPEvent:
         """Convert time_unix_nano to a datetime."""
         return nano_to_datetime(self.time_unix_nano)
 
-    def get_attr(self, key: str) -> str | None:
+    def get_attr(self, key: str) -> str | None:  # noqa - called via src/telemetry/otel/cli/, src/telemetry/otel/analytics/, tests/telemetry_tests/test_otel_models.py
         """Get an attribute value by key."""
         return _find_attr_str(self.attributes, key)
 
-    def get_attr_as_float(self, key: str) -> float | None:
+    def get_attr_as_float(self, key: str) -> float | None:  # noqa - called via src/telemetry/otel/cli/, src/telemetry/otel/analytics/, tests/telemetry_tests/test_otel_models.py
         """Get an attribute value as float, handling string coercion."""
         return _find_attr_float(self.attributes, key)
 
@@ -331,8 +331,8 @@ class OTLPEvent:
 class OTLPEventsRecord:
     """A complete events record from events.jsonl."""
 
-    resource: OTLPResource
-    scope_name: str
+    resource: OTLPResource  # noqa
+    scope_name: str  # noqa
     log_records: list[OTLPEvent]
 
     @classmethod
@@ -367,24 +367,24 @@ class OTLPEventsRecord:
 class OTLPSpan:
     """A single trace span from spans.jsonl."""
 
-    trace_id: str
-    span_id: str
+    trace_id: str  # noqa
+    span_id: str  # noqa
     name: str
     start_time_unix_nano: int
     end_time_unix_nano: int
     attributes: list[OTLPAttribute] = field(default_factory=list)
 
-    @property
+    @property  # noqa - called via src/telemetry/otel/retention.py, cli/inspect.py, tests/telemetry_tests/test_otel_models.py
     def start_timestamp(self) -> datetime:
         """Convert start_time_unix_nano to a datetime."""
         return nano_to_datetime(self.start_time_unix_nano)
 
-    @property
+    @property  # noqa - called via tests/telemetry_tests/test_otel_models.py:763 (self.span.duration_ms)
     def duration_ms(self) -> float:
         """Calculate duration in milliseconds."""
         return (self.end_time_unix_nano - self.start_time_unix_nano) / 1e6
 
-    def get_attr(self, key: str) -> str | None:
+    def get_attr(self, key: str) -> str | None:  # noqa - called via src/telemetry/otel/cli/, src/telemetry/otel/analytics/, tests/telemetry_tests/test_otel_models.py
         """Get an attribute value by key."""
         return _find_attr_str(self.attributes, key)
 
@@ -406,8 +406,8 @@ class OTLPSpan:
 class OTLPSpansRecord:
     """A complete spans record from spans.jsonl."""
 
-    resource: OTLPResource
-    spans: list[OTLPSpan]
+    resource: OTLPResource  # noqa
+    spans: list[OTLPSpan]  # noqa
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> OTLPSpansRecord:
