@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from workflow.models import WorkflowDefinition
+    from workflow.models import StageSpec, WorkflowDefinition
 
 from .include import extract_include_entries, resolve_fragment_path
 
@@ -386,7 +386,7 @@ def _check_agent_access(defn: object, result: LintResult) -> None:
     _check_stage_access(defn.stages, result)
 
 
-def _check_stage_access(stages: tuple[object, ...], result: LintResult) -> None:
+def _check_stage_access(stages: tuple[StageSpec, ...], result: LintResult) -> None:
     """Apply the access cross-check to a bare sequence of stages.
 
     Split out from ``_check_agent_access`` so fragments get the same treatment.
