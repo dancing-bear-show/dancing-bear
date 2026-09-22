@@ -48,6 +48,16 @@ _VERIFY_LINE_RE = re.compile(
     r"\"(?P<body>[^\"]*)\"(?P<tail>.*?);\s*then\s*$"
 )
 
+# The ONLY environment prefix this test will hand to `bash -c`.
+#
+# The env group above is deliberately permissive so an unpinned line still
+# parses; this constant is the separate gate deciding what may execute. Exact
+# equality rather than a pattern: bin/bootstrap is branch-controlled, and an
+# allowlist regex is a standing invitation to widen it by one metacharacter
+# until something chains a command. There is exactly one correct value, so
+# compare against it.
+_EXPECTED_ENV_PREFIX = 'PYTHONPATH="$(pwd)/src"'
+
 #: Replacement ``-c`` body: reports where each verified module resolved, as
 #: JSON, so a failure names the offending tree instead of only an exit status.
 _ORIGIN_REPORTER = (
@@ -79,18 +89,42 @@ def _replayable_verify_command(interpreter: str) -> str:
     * the ``-c`` body, replaced by :data:`_ORIGIN_REPORTER` so the caller can
       read back where each module resolved.
 
-    The environment prefix is spliced through untouched — substituting it, or
-    reconstructing it from what the test *expects* bootstrap to contain, is how
-    the previous version of this test came to pass against a bootstrap with no
-    pin at all. ``2>/dev/null`` is dropped so a failure stays diagnosable.
+    The environment prefix is read from the script rather than reconstructed
+    from what the test *expects* to find — rebuilding it is how an earlier
+    version of this test came to pass against a bootstrap with no pin at all.
+    ``2>/dev/null`` is dropped so a failure stays diagnosable.
+
+    But read is not the same as trusted. ``bin/bootstrap`` is branch-controlled,
+    and this prefix is interpolated into ``bash -c``: a PR that changed the line
+    to ``touch /tmp/x; PYTHONPATH=...`` would have its command run with CI
+    privileges. Demonstrated before this guard existed — the injected ``touch``
+    fired and the test still reported OK, which is the worst pairing available.
+
+    So the prefix must equal :data:`_EXPECTED_ENV_PREFIX` exactly before it is
+    executed; anything else fails the test instead of running. An empty prefix
+    is the one exception — that is an unpinned bootstrap, the regression this
+    suite exists to catch, so it is replayed and left to fail on the import
+    result where the message can name the tree that won.
     """
     line = _verify_line()
     match = _VERIFY_LINE_RE.match(line)
     if match is None:
         raise AssertionError(f"verify line no longer parses: {line!r}")
     env_prefix = match.group("env").strip()
-    if env_prefix != 'PYTHONPATH="$(pwd)/src"':
-        raise AssertionError(f"unexpected verify environment prefix: {env_prefix!r}")
+    if not env_prefix:
+        # An unpinned bootstrap. Not hostile — it is the regression this suite
+        # exists to catch, so let it through and let the import result report
+        # it. Erroring here instead would turn "bootstrap lost its pin" into an
+        # opaque prefix complaint that never names the tree that won.
+        return f"{shlex.quote(interpreter)} -c {shlex.quote(_ORIGIN_REPORTER)}"
+    if env_prefix != _EXPECTED_ENV_PREFIX:
+        raise AssertionError(
+            "bootstrap's verify line carries an environment prefix this test "
+            f"will not execute: {env_prefix!r}. Expected exactly "
+            f"{_EXPECTED_ENV_PREFIX!r}. If the line legitimately changed, "
+            "update _EXPECTED_ENV_PREFIX deliberately — never relax it to make "
+            "a test pass, since this text is interpolated into `bash -c`."
+        )
     return (
         f"{env_prefix} {shlex.quote(interpreter)} "
         f"-c {shlex.quote(_ORIGIN_REPORTER)}"
@@ -196,6 +230,62 @@ class BootstrapVerifyStepTests(unittest.TestCase):
                 line,
                 f"pip line carries an unnecessary PYTHONPATH pin: {line!r}",
             )
+
+
+class EnvPrefixIsNotAnExecutionSinkTests(unittest.TestCase):
+    """A tampered bootstrap line must fail the test, not run in CI.
+
+    This suite reads ``bin/bootstrap`` — a tracked, branch-controlled file —
+    and interpolates part of it into ``bash -c``. Without a gate on that text,
+    a PR could append a command to the environment prefix and have the test
+    suite execute it with CI privileges. That was demonstrated: an injected
+    ``touch`` fired *and the test still reported OK*.
+    """
+
+    def _replay_with_verify_line(self, line: str) -> str:
+        """Run the real builder against a substituted verify line."""
+        original = BOOTSTRAP.read_text(encoding="utf-8")
+        patched = original.replace(_verify_line(), line)
+        self.assertNotEqual(patched, original, "substitution did not apply")
+        BOOTSTRAP.write_text(patched, encoding="utf-8")
+        try:
+            return _replayable_verify_command(sys.executable)
+        finally:
+            BOOTSTRAP.write_text(original, encoding="utf-8")
+
+    def test_the_shipped_prefix_is_accepted(self) -> None:
+        """The guard must not reject what bootstrap actually ships."""
+        command = _replayable_verify_command(sys.executable)
+        self.assertIn(_EXPECTED_ENV_PREFIX, command)
+
+    def test_injected_commands_are_rejected(self) -> None:
+        """Each of these would otherwise run in CI with the suite's privileges."""
+        for hostile in [
+            'if touch /tmp/pwned; PYTHONPATH="$(pwd)/src" '
+            '.venv/bin/python -c "import mail" 2>/dev/null; then',
+            'if PYTHONPATH="$(pwd)/src" && touch /tmp/pwned '
+            '.venv/bin/python -c "import mail" 2>/dev/null; then',
+            'if PYTHONPATH="$(cat /etc/passwd)" '
+            '.venv/bin/python -c "import mail" 2>/dev/null; then',
+            'if PYTHONPATH="`id`" '
+            '.venv/bin/python -c "import mail" 2>/dev/null; then',
+        ]:
+            with self.subTest(line=hostile):
+                with self.assertRaises(AssertionError) as caught:
+                    self._replay_with_verify_line(hostile)
+                self.assertIn("will not execute", str(caught.exception))
+
+    def test_an_unpinned_line_still_reaches_the_import_assertion(self) -> None:
+        """An empty prefix is not hostile — it is the bug under test.
+
+        Erroring on it would turn "bootstrap lost its pin" into an opaque
+        prefix complaint that never names the tree that won the import race.
+        """
+        command = self._replay_with_verify_line(
+            'if .venv/bin/python -c "import mail" 2>/dev/null; then'
+        )
+        self.assertNotIn("PYTHONPATH", command)
+        self.assertIn("-c", command)
 
 
 if __name__ == "__main__":

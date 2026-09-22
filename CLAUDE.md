@@ -319,11 +319,24 @@ repo module, wire it to `bin/_pathrepair.py` too.
 Do **not** treat `bin/_wrappers.yaml`'s `manual:` list as that inventory — it is
 a generator exclusion list, not a hazard list, and it is incomplete for this
 purpose: `bootstrap`, `bootstrap-otel`, `pr-assistant`, `worker-install-launchd`,
-and `worker-wait` are all standalone scripts absent from it. The test that
-matters is narrower than "is it a script": **does it import a repo module?**
-Only `bin/bootstrap` did among those five — `worker-wait`'s `python3 -c` touches
-`sys` and `json` only, which a foreign checkout cannot shadow. Check the
-imports, not the file list.
+and `worker-wait` are all standalone scripts absent from it.
+
+**There are two separate hazards, and a script can carry either.** Ask both
+questions, not just the first:
+
+1. **Does it import a repo module?** If so, a foreign checkout can shadow that
+   module — wire it to `bin/_pathrepair.py`. Among those five, only
+   `bin/bootstrap` does.
+2. **Does it start a Python interpreter at all?** If so, a foreign
+   `PYTHONPATH` executes that tree's `sitecustomize.py` during startup,
+   *before* the `-c` body runs — so the hazard does not depend on what the
+   script imports. Use `python3 -I -S`.
+
+An earlier revision of this section got that wrong, reasoning that
+`worker-wait`'s `python3 -c` "touches `sys` and `json` only, which a foreign
+checkout cannot shadow". True about the imports, and irrelevant to the startup
+hook: a planted `sitecustomize.py` ran under it anyway. `bin/worker-wait:34` is
+now `python3 -I -S`. Check both questions, not the file list.
 
 **`sitecustomize` is a gap none of this closes.** Python imports
 `sitecustomize`/`usercustomize` from `PYTHONPATH` entries during interpreter

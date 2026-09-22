@@ -31,7 +31,14 @@ deadline=$(( $(date +%s) + TIMEOUT_SECS ))
 
 while true; do
     job_json="$("${SCRIPT_DIR}/worker" show "$JOB_ID" 2>/dev/null || true)"
-    job_state="$(echo "$job_json" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','unknown'))" 2>/dev/null || echo "unknown")"
+    # -I -S, even though this only imports sys and json. Stdlib modules cannot
+    # be shadowed by a foreign checkout, but that is not the whole hazard:
+    # Python executes sitecustomize.py from a PYTHONPATH entry during
+    # interpreter startup, before the -c body runs at all. A foreign
+    # PYTHONPATH therefore runs that tree's code here regardless of what this
+    # command imports. Verified with a planted sitecustomize: bare python3
+    # executes it, `python3 -I -S` does not, and both print the same status.
+    job_state="$(echo "$job_json" | python3 -I -S -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','unknown'))" 2>/dev/null || echo "unknown")"
 
     case "$job_state" in
         done)
