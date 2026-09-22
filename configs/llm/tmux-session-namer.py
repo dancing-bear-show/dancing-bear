@@ -9,6 +9,7 @@ Wire up: add to ~/.claude/settings.json (see .claude/skills/install-tmux-namer/S
 import json
 import sys
 import os
+import stat
 import subprocess
 import re
 import shutil
@@ -18,8 +19,14 @@ try:
 except Exception:
     sys.exit(0)
 
+# Valid JSON of the wrong shape still has to be survivable: `[]` and `"x"` parse
+# fine and then have no .get, which raised AttributeError on line 21 — a
+# traceback in front of the user on a prompt, since this runs on every one.
+if not isinstance(d, dict):
+    sys.exit(0)
+
 session_id = str(d.get("session_id", "default"))
-prompt = d.get("prompt", "").strip()
+prompt = str(d.get("prompt") or "").strip()
 
 # Use truthy check — TMUX="" is not a valid tmux session
 if not prompt or not os.getenv("TMUX"):
@@ -55,9 +62,30 @@ def _detect_pr_number() -> str:
 
 
 # Store history under user-private directory, using a sanitised session ID
-cache_dir = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "claude")
+# XDG: an EMPTY value means unset, per the spec. `os.environ.get(k, default)`
+# returns the empty string when the var is set-but-empty, and
+# os.path.join("", "claude") is the RELATIVE path "claude" — so prompt text
+# would land in whatever the working directory happens to be, typically a
+# project checkout. Require an absolute value or fall back.
+_xdg = os.environ.get("XDG_CACHE_HOME") or ""
+if not os.path.isabs(_xdg):
+    _xdg = os.path.expanduser("~/.cache")
+cache_dir = os.path.join(_xdg, "claude")
 os.makedirs(cache_dir, exist_ok=True)
-os.chmod(cache_dir, 0o700)  # Fix permissions even if dir already existed
+# Tighten a too-permissive directory, but never LOOSEN one. The previous
+# unconditional chmod(0o700) re-opened a directory a user had deliberately
+# locked down (e.g. 0o500 to pause capture) and carried on recording — and the
+# skill claimed the opposite. Only add the owner bits we need, and only when
+# they are missing.
+try:
+    _mode = stat.S_IMODE(os.stat(cache_dir).st_mode)
+    if _mode & 0o077:  # group/other access: strip it
+        os.chmod(cache_dir, _mode & 0o700)
+        _mode &= 0o700
+    if _mode & 0o300 != 0o300:  # not writable+executable by us: leave it alone
+        sys.exit(0)  # a locked cache dir means no capture, as documented
+except OSError:
+    sys.exit(0)
 safe_id = re.sub(r"[^A-Za-z0-9._-]", "-", session_id)[:32]
 history_file = os.path.join(cache_dir, f"prompts-{safe_id}.txt")
 

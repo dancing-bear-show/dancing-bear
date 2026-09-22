@@ -89,6 +89,10 @@ mkdir -p ~/.claude/hooks
 # Check if already installed
 if [ -f ~/.claude/hooks/tmux-session-namer.py ]; then
   if diff -q ~/.claude/hooks/tmux-session-namer.py configs/llm/tmux-session-namer.py > /dev/null; then
+    # Still chmod: the repo copy is mode 100644, so an installed byte-identical
+    # copy may not be executable, and the verification below would then abort an
+    # install that is otherwise correct.
+    chmod +x ~/.claude/hooks/tmux-session-namer.py
     echo "Up to date — nothing to do"
   else
     backup=~/.claude/hooks/tmux-session-namer.py.bak.$(date +%Y%m%d%H%M%S)
@@ -127,6 +131,11 @@ python3 -I -S - << 'PY'
 import json, os, shutil, stat, sys, tempfile
 
 settings_path = os.path.expanduser("~/.claude/settings.json")
+# Follow a symlink to its target before touching anything. os.replace() acts on
+# the LINK path, so replacing a symlinked settings.json turns it into a regular
+# file and leaves the real file (a dotfiles repo, typically) without the hook —
+# while reporting success.
+settings_path = os.path.realpath(settings_path)
 
 
 def save_settings(data):
@@ -222,23 +231,36 @@ HOOK_PATH = "~/.claude/hooks/tmux-session-namer.py"
 
 
 def is_managed_hook(cmd):
-    """True only for a command that invokes exactly our hook script.
+    """True only for a command that runs OUR installed script.
 
-    Compares the BASENAME of each whitespace-delimited token. Tokenising is what
-    distinguishes `.../tmux-session-namer.py` from
-    `.../tmux-session-namer-custom.py` — a substring check cannot, and this loop
-    rewrites what it matches, so a loose test destroys another hook.
+    This loop REWRITES whatever it matches, so both error directions are
+    damaging: a false positive replaces someone else's hook, a false negative
+    leaves a stale entry wired and appends a duplicate beside it. Three earlier
+    versions each fixed one direction and broke the other —
 
-    Comparing basenames rather than whole paths also catches an entry written as
-    an absolute path (`/Users/<name>/.claude/hooks/...`) or via $HOME, which a
-    literal `~/...` comparison would miss — leaving a stale unisolated hook in
-    place while a second one is appended alongside it.
+        substring 'tmux-session-namer' in cmd   also matched ...-custom.py
+        token in (HOOK_PATH, expanduser(...))   missed $HOME and absolute forms
+        basename(token) == basename(target)     matched /tmp/tmux-session-namer.py
+
+    — so resolve each candidate token to an absolute path and compare the whole
+    thing. Covered by tests/infra/test_tmux_session_namer.py, which tables the
+    spellings that must match against the same-named files that must not.
     """
-    target = os.path.basename(HOOK_PATH)
+    home = os.path.expanduser("~")
+    target = os.path.normpath(
+        os.path.join(home, ".claude", "hooks", "tmux-session-namer.py")
+    )
     for tok in cmd.split():
         if not tok.endswith(".py"):
             continue
-        if os.path.basename(tok) == target:
+        path = tok.replace("${HOME}", home).replace("$HOME", home)
+        if path.startswith("~"):
+            path = home + path[1:]
+        # A bare relative path cannot be shown to be ours: Claude Code gives the
+        # hook no guaranteed working directory, so do not claim it.
+        if not os.path.isabs(path):
+            continue
+        if os.path.normpath(path) == target:
             return True
     return False
 
@@ -328,12 +350,26 @@ import json, os, sys
 s = json.load(open(os.path.expanduser('~/.claude/settings.json')))
 hooks = s.get('hooks', {}).get('UserPromptSubmit', [])
 cmds = [h.get('command','') for e in hooks for h in e.get('hooks',[])]
-# Match the script BASENAME on a whitespace-delimited token, not a substring: a
-# substring also matches an unrelated tmux-session-namer-custom.py, and a whole
-# -path comparison misses an entry written as an absolute path.
-TARGET = 'tmux-session-namer.py'
-namer = [c for c in cmds
-         if any(t.endswith('.py') and os.path.basename(t) == TARGET for t in c.split())]
+# Resolve each .py token to an absolute path and compare the whole path, the
+# same rule the patch script uses. A substring also matches an unrelated
+# ...-custom.py; a basename comparison also matches /tmp/tmux-session-namer.py.
+_home = os.path.expanduser('~')
+_target = os.path.normpath(os.path.join(_home, '.claude', 'hooks', 'tmux-session-namer.py'))
+
+
+def _is_ours(cmd):
+    for t in cmd.split():
+        if not t.endswith('.py'):
+            continue
+        p = t.replace('\${HOME}', _home).replace('\$HOME', _home)
+        if p.startswith('~'):
+            p = _home + p[1:]
+        if os.path.isabs(p) and os.path.normpath(p) == _target:
+            return True
+    return False
+
+
+namer = [c for c in cmds if _is_ours(c)]
 
 if len(namer) == 0:
     print('FAIL: hook not wired'); sys.exit(1)
