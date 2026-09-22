@@ -9,6 +9,35 @@ description: >
   costing me in time and disk, and what should I clean up". Run it on demand
   or on a schedule.
 
+  WHY THIS IS AGENT STAGES AND NOT A SHELL SCRIPT — a settled decision, not an
+  oversight. An adversarial review observed, correctly, that the four G0
+  probes are mostly `command -v`, curl, `ollama list`, `launchctl`,
+  `worker status`, `otel health`, `df` and `vm_stat`, and proposed collapsing
+  them into a script. That was considered and declined. The commands are the
+  cheap part; the judgement around them is the workflow:
+
+    - A probe must decide whether what it found is a FAULT or a normal state.
+      A cold model, an absent collector, a heartbeat field that was never
+      implemented, and a lock held by a live long-running generation all look
+      like failures to a script and are not.
+    - queue-lane must separate alive-slow jobs from genuinely-stuck ones,
+      cluster error text into systemic-vs-scattered, and recognise a retry
+      pattern that indicates handler misclassification — all reading, not
+      matching.
+    - The concurrency_lock probe has to distinguish absent / active / SUSPECT
+      / STALE, where SUSPECT means a live PID that may be a recycled one. A
+      script can report the PID; deciding it is not really the holder needs
+      the cross-checks in that probe's description.
+    - triage must rank by real impact and propose only allowlisted actions
+      with their blast radius stated, and remediate must re-check every
+      precondition before acting. That discipline is the point of the
+      workflow, and it is what a script would quietly drop.
+
+  The four probes are read-only and independent, so they run in parallel and
+  the wall-clock cost is one probe, not four. If this is ever revisited, the
+  parts that must survive any refactor are the allowlist discipline, the
+  SUSPECT-lock reasoning, and the alive-slow/genuinely-stuck split.
+
   Stage dependency graph:
 
     health          models          queue-lane      spend     (G0 — 4 parallel read-only probes)
