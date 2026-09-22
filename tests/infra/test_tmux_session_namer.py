@@ -28,7 +28,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL = REPO_ROOT / ".claude" / "skills" / "install-tmux-namer" / "SKILL.md"
@@ -66,9 +68,9 @@ def _load_matcher(home: str):
     source = _settings_patch_source()
     start = source.index("HOOK_PATH =")
     end = source.index("upgraded = False")
-    namespace: dict[str, object] = {}
+    namespace: dict[str, Any] = {}
     exec(compile("import os\n" + source[start:end], "<matcher>", "exec"), namespace)  # noqa: S102
-    matcher = namespace["is_managed_hook"]
+    matcher: Callable[[str], object] = namespace["is_managed_hook"]
 
     def with_fake_home(cmd: str) -> bool:
         original = os.environ.get("HOME")
@@ -249,12 +251,13 @@ class TestSettingsPatch(unittest.TestCase):
         self.assertTrue(all("-I" in c.split() and "-S" in c.split() for c in commands))
 
     def test_preserves_unrelated_hooks_and_keys(self) -> None:
-        original = {
+        session_start = [{"hooks": [{"type": "command", "command": "echo start"}]}]
+        original: dict[str, Any] = {
             "env": {"SOME_VAR": "keep me"},
             "permissions": {"allow": ["Bash(ls:*)"]},
             "hooks": {
                 "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "echo unrelated"}]}],
-                "SessionStart": [{"hooks": [{"type": "command", "command": "echo start"}]}],
+                "SessionStart": session_start,
             },
         }
         result, settings = self._run(json.dumps(original))
@@ -262,7 +265,7 @@ class TestSettingsPatch(unittest.TestCase):
         data = json.loads(settings.read_text(encoding="utf-8"))
         self.assertEqual(data["env"], {"SOME_VAR": "keep me"})
         self.assertEqual(data["permissions"], {"allow": ["Bash(ls:*)"]})
-        self.assertEqual(data["hooks"]["SessionStart"], original["hooks"]["SessionStart"])
+        self.assertEqual(data["hooks"]["SessionStart"], session_start)
         commands = [
             h["command"]
             for entry in data["hooks"]["UserPromptSubmit"]

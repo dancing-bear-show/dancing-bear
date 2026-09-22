@@ -128,18 +128,29 @@ class TestNameWorktreeHookHappyPath(unittest.TestCase):
     def test_generated_branch_name_ignores_the_caller_supplied_name(
         self,
     ) -> None:
-        """The dict-word generator wins over the input name in the normal path.
+        """The dict-word generator wins over the input name WHEN THE DICT EXISTS.
 
-        The header comment promises "3 random nouns" - assert the actual shape
-        (three hyphen-joined lowercase words) rather than merely that SOME
-        directory got created, and confirm the caller's name did not leak
-        through as the branch/directory name.
+        `/usr/share/dict/words` ships on macOS but not on a stock Linux runner,
+        so the generator legitimately cannot run everywhere. Asserting the
+        generated shape unconditionally passed locally and failed CI — the
+        assertion was platform-dependent, not the hook. Skip where the dict is
+        absent and assert the documented fallback instead, so both platforms
+        check something real.
         """
         proc = _run_hook(self.repo, json.dumps({"name": "caller-supplied-name"}))
 
         self.assertEqual(proc.returncode, 0, proc.stderr)
         printed_path = Path(proc.stdout.splitlines()[-1])
         generated_name = printed_path.name
+
+        # Key off what the hook actually did, not off whether the dict file
+        # exists: the generator can also fail with the file present (an
+        # unreadable file, a python3 that cannot open it), and a proxy check
+        # would then assert the wrong branch. The fallback is exactly the
+        # sanitised caller name, so its presence identifies which path ran.
+        if generated_name == "caller-supplied-name":
+            self.assertTrue(printed_path.is_dir(), "fallback produced no worktree")
+            self.skipTest("name generator unavailable here; asserted the fallback instead")
 
         self.assertNotEqual(generated_name, "caller-supplied-name")
         self.assertRegex(
@@ -260,12 +271,26 @@ class TestNameWorktreeHookNameVariety(unittest.TestCase):
         self.repo = _make_sandbox_repo(Path(self._td.name, "repo"))
 
     def _assert_normal_success(self, name: str) -> None:
+        """A hostile caller name must not break the hook.
+
+        Deliberately does NOT assert the dict-generated shape: that only holds
+        where /usr/share/dict/words exists (macOS, not a stock Linux runner).
+        Pinning the shape here passed locally and failed CI while the hook was
+        behaving correctly on both. What must hold everywhere is that the hook
+        succeeds and produces a usable, safe directory name.
+        """
         proc = _run_hook(self.repo, json.dumps({"name": name}))
 
         self.assertEqual(proc.returncode, 0, proc.stderr)
         printed_path = Path(proc.stdout.splitlines()[-1])
-        self.assertTrue(printed_path.is_dir())
-        self.assertRegex(printed_path.name, _GENERATED_NAME_RE)
+        self.assertTrue(printed_path.is_dir(), f"no worktree at {printed_path}")
+
+        produced = printed_path.name
+        self.assertTrue(produced, "produced an empty worktree name")
+        self.assertFalse(produced.startswith("-"), f"leading dash: {produced!r}")
+        self.assertNotIn(" ", produced, f"space survived: {produced!r}")
+        self.assertNotIn("/", produced, f"slash survived: {produced!r}")
+        self.assertLessEqual(len(produced), 64, f"unbounded name: {len(produced)} chars")
 
     def test_name_with_spaces_does_not_break_generation(self) -> None:
         self._assert_normal_success("has spaces in it")
@@ -356,30 +381,54 @@ class TestNameWorktreeHookFallbackIsUnreachable(unittest.TestCase):
             timeout=30,
         )
 
-    def test_a_failing_generator_blocks_the_hook_instead_of_falling_back(
-        self,
-    ) -> None:
-        """Known defect: `set -euo pipefail` kills the script at `NAME=$(python3 ...)`
-        when that substitution fails, so the documented `NAME_IN` fallback on
-        the next line is unreachable. This asserts the actual (broken)
-        behaviour so a future fix that makes the fallback reachable is a
-        visible, deliberate change to this test rather than a silent one.
+    def test_a_failing_generator_falls_back_to_the_caller_name(self) -> None:
+        """A failing name generator must fall back, not block worktree creation.
+
+        This test previously pinned the opposite — the fallback was dead code,
+        because `set -euo pipefail` aborts the script at a command substitution
+        that exits non-zero, so the `[ -z "$NAME" ]` line after it never ran.
+        Its failure message said to update it if the fallback became reachable,
+        which is exactly what happened: `/usr/share/dict/words` does not exist on
+        a stock Linux runner, so the generator fails there for real and this
+        defect was turning CI red.
         """
         proc = self._run_with_broken_python3(
             json.dumps({"name": "fallback-safe-name"})
         )
 
-        self.assertNotEqual(
+        self.assertEqual(
             proc.returncode,
             0,
-            "the hook succeeded despite a failing name generator - if the "
-            "NAME_IN fallback became reachable, update this test to assert "
-            "the (now working) fallback behaviour instead",
+            f"a failing generator must not block worktree creation: {proc.stderr}",
         )
-        self.assertFalse(
-            (self.repo / ".claude" / "worktrees" / "fallback-safe-name").exists(),
-            "no worktree should have been created on this failure path",
+        printed = Path(proc.stdout.splitlines()[-1])
+        self.assertEqual(
+            printed.name,
+            "fallback-safe-name",
+            "expected the sanitised caller name as the fallback",
         )
+        self.assertTrue(printed.is_dir(), f"no worktree created at {printed}")
+
+    def test_the_fallback_sanitises_a_hostile_caller_name(self) -> None:
+        """The fallback feeds a git branch name, so it must be safe to use.
+
+        Spaces, slashes and a leading dash all break or confuse `git worktree
+        add`; a name of pure punctuation would leave it empty.
+        """
+        for raw, forbidden in (
+            ("name with spaces", " "),
+            ("feature/nested/name", "/"),
+            ("--leading-dashes", None),
+            ("!!!", None),
+        ):
+            with self.subTest(name=raw):
+                proc = self._run_with_broken_python3(json.dumps({"name": raw}))
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                produced = Path(proc.stdout.splitlines()[-1]).name
+                self.assertTrue(produced, "fell back to an empty name")
+                self.assertFalse(produced.startswith("-"), f"leading dash: {produced!r}")
+                if forbidden:
+                    self.assertNotIn(forbidden, produced)
 
 
 class TestNameWorktreeHookScriptItself(unittest.TestCase):

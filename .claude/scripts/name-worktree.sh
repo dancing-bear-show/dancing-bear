@@ -17,13 +17,51 @@ NAME_IN=$(echo "$INPUT" | jq -r '.name // empty' 2>/dev/null)
 # would execute code from that checkout before this script does anything. -I
 # ignores PYTHONPATH and the user site dir; -S skips site.py, which performs
 # those imports. This snippet is stdlib-only, so isolation costs nothing.
+# `|| true` is required, not defensive noise: `set -e` aborts the script at a
+# command substitution that exits non-zero, so without it the fallback on the
+# next line is dead code. /usr/share/dict/words ships on macOS but NOT on a
+# stock Linux runner, so the generator genuinely fails there — and this hook
+# then blocked worktree creation outright instead of falling back, which is what
+# turned a red CI job into a mystery.
+#
+# The generator also falls back when the dict yields too few candidates to
+# sample three from, rather than raising ValueError.
 NAME=$(python3 -I -S -c "
 import random
-with open('/usr/share/dict/words') as f:
-    words = [w.strip() for w in f if w.strip().isalpha() and 4 <= len(w.strip()) <= 7 and w.strip().islower()]
-print('-'.join(random.sample(words, 3)))
-" 2>/dev/null)
-[ -z "$NAME" ] && NAME="$NAME_IN"
+try:
+    with open('/usr/share/dict/words') as f:
+        words = [w.strip() for w in f if w.strip().isalpha() and 4 <= len(w.strip()) <= 7 and w.strip().islower()]
+    print('-'.join(random.sample(words, 3)) if len(words) >= 3 else '')
+except OSError:
+    print('')
+" 2>/dev/null || true)
+
+# Sanitise whatever we fall back to: the caller's name reaches a git branch
+# name, so spaces, slashes and leading dashes must not survive.
+if [ -z "$NAME" ]; then
+  NAME=$(printf '%s' "$NAME_IN" \
+    | tr '[:upper:]' '[:lower:]' \
+    | tr -c 'a-z0-9-' '-' \
+    | sed -e 's/-\{2,\}/-/g' -e 's/^-*//' -e 's/-*$//' \
+    | cut -c1-40)
+fi
+# Everything above can still yield an empty string (a name of only punctuation,
+# say). Fall back to something always valid rather than asking git for "".
+[ -z "$NAME" ] && NAME="worktree-$(date +%Y%m%d%H%M%S)"
+
+# The generator's output is random, so collisions were effectively impossible.
+# The fallback is DETERMINISTIC — the same caller name yields the same branch —
+# so two worktrees from one name would fail with "a branch named X already
+# exists". Suffix until free, which keeps the hook usable rather than erroring.
+if git show-ref --verify --quiet "refs/heads/$NAME" 2>/dev/null; then
+  base="$NAME"
+  n=2
+  while git show-ref --verify --quiet "refs/heads/$NAME" 2>/dev/null; do
+    NAME="${base}-${n}"
+    n=$((n + 1))
+    [ "$n" -gt 99 ] && { NAME="${base}-$(date +%s)"; break; }
+  done
+fi
 
 # git-common-dir works from any worktree or the main repo and always points
 # back to the shared .git, so this resolves the true repo root regardless of
