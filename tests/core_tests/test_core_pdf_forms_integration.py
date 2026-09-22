@@ -11,6 +11,24 @@ These tests build a real in-memory AcroForm, write through the helpers, save,
 reopen, and assert on what the reopened document reports. Save-and-reopen is
 the point: values held on a live object may never have reached the file.
 
+**Both suites are load-bearing -- do not delete either as redundant.** They
+cover different things, and coverage measurement confirms it: the stub suite
+alone reaches 100% of ``core.pdf_forms``, this suite alone reaches 98.7%.
+Each asserts what the other cannot.
+
+Only the stubs can assert the exact bytes handed to ``xref_set_key`` -- the
+``/DA`` string, ``V = null`` versus ``/Off``, and ``writes == []`` proving
+that *nothing* was written. They also reach states that are awkward to build
+in a real document: an unknown on-state, and a widget whose
+``button_states()`` returns ``None`` or ``{"normal": None}``.
+
+Only these tests can show that PyMuPDF accepts those bytes and gives the
+value back. The stub suite is written against the same understanding of the
+format as the code, so a shared misunderstanding passes it unnoticed -- which
+is exactly what happened with ``/AS``: dropping that write left the entire
+stub suite green while producing a checkbox that reports "Yes" and renders
+blank.
+
 A missing PyMuPDF is a **failure, not a skip**. The first revision of this
 file skipped the whole class when ``fitz`` was absent, which would have hidden
 precisely the regression this suite exists to catch: if the ``[pdf]`` extra
@@ -163,6 +181,44 @@ class PdfFormsRoundTripTests(unittest.TestCase):
         with self.assertRaises(KeyError) as ctx:
             fill_text_fields(self.doc, {"applicant_name": "ok", "ghost": "x"})
         self.assertIn("ghost", str(ctx.exception))
+
+    def test_require_all_false_writes_what_it_can(self):
+        # The companion stub suite covers this branch; the round-trip did not,
+        # so `fill_text_fields(..., require_all=False)` was the one public
+        # path with no real-document coverage. The matched field must still
+        # reach the file -- a tolerant call is not a silent no-op.
+        counts = fill_text_fields(
+            self.doc,
+            {"applicant_name": "Katherine Johnson", "ghost": "x"},
+            require_all=False,
+        )
+        self.assertEqual(counts, {"applicant_name": 1, "ghost": 0})
+        self.assertEqual(self._reopen()["applicant_name"].field_value, "Katherine Johnson")
+
+    def test_pdf_syntax_in_a_value_survives_the_round_trip(self):
+        # pdf_string escapes parens and backslashes so the written /V parses.
+        # The stub suite asserts the escaped form -- "(Smith \\(Jr)" -- which
+        # cannot show that a reader gives back the original. Only a real parse
+        # can, and a wrong escape here corrupts the value or raises
+        # FzErrorSyntax when the file is opened.
+        for value in ("Smith (Jr", "un)balanced", r"back\slash", "(balanced)"):
+            with self.subTest(value=value):
+                doc = fitz.open()
+                page = doc.new_page(width=300, height=120)
+                _add_text(page, "lastName", 20)
+                self.addCleanup(doc.close)
+                set_text_field(doc, "lastName", value)
+                with tempfile.TemporaryDirectory() as td:
+                    path = pathlib.Path(td, "escaped.pdf")
+                    doc.save(str(path))
+                    reopened = fitz.open(str(path))
+                    got = [
+                        w.field_value
+                        for pno in range(reopened.page_count)
+                        for w in (reopened[pno].widgets() or [])
+                    ]
+                    reopened.close()
+                self.assertEqual(got, [value])
 
     def test_checkbox_ticks_through_a_real_document(self):
         self.assertEqual(set_checkbox(self.doc, "agree", "Yes"), 1)
