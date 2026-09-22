@@ -121,21 +121,22 @@ stages:
   # ===========================================================================
   # 3. Fan out one isolated tester per TEST FILE (never per symbol).
   # ===========================================================================
-  # ISOLATION IS ADVISORY, NOT A SCHEMA FIELD. The workflow parser
-  # (src/workflow/parser_fields.py) has no `isolation` key and silently drops
-  # one if present — so it is NOT set on the stage. Instead, the orchestrating
-  # session MUST pass isolation:"worktree" on each fan-out Agent() tool call for
-  # this stage (see the ORCHESTRATOR ISOLATION note in the description). That is
-  # what makes each per-file tester run in its own worktree.
+  # `agent.isolation` IS a real schema field — set on the `agent:` block below.
+  # It is parsed and validated by src/workflow/parser_fields.py
+  # (_KNOWN_AGENT_KEYS / _VALID_ISOLATIONS), carried into the compiled manifest
+  # as agent_isolation, and passed to Agent() by the orchestrator — see PR #239,
+  # "make agent.isolation actually isolate, end to end". Per-file isolation is
+  # what guarantees the collision-safety below; without it these testers would
+  # write the shared tree concurrently.
   - name: add-sad-tests
     kind: execute
     depends_on: [approve-fixes]
     reads_from: [load-gaps]
     description: >
-      ORCHESTRATOR ISOLATION (read first): spawn EACH fan-out agent for this
-      stage with isolation:"worktree" on the Agent() call — the YAML cannot
-      encode this. Per-file isolation is what guarantees the collision-safety
-      below; without it these testers would write the shared tree concurrently.
+      You run in your OWN git worktree (this stage declares
+      agent.isolation: worktree), so your edits never collide with another
+      tester's. They also do not merge back on their own — see the merge-back
+      note at the end of this stage.
 
       Add sad-path (error/edge) tests to ONE test file: {test_file}. Cover every
       gap symbol in this file's "symbols" list. Because fan-out is per file,
@@ -177,7 +178,9 @@ stages:
       (strip .py, "/"->"."), e.g.:
         PYTHONPATH="$PWD/src" python3 -m unittest tests.test_charts_cli -q
 
-      Write a summary to {workspace}/outputs/added/{file_slug}.json:
+      Write a summary to outputs/added/{file_slug}.json UNDER YOUR OWN CWD
+      (an absolute path inside your worktree — you cannot write the shared
+      workspace from here; the orchestrator copies it back):
         {
           "test_file": "{test_file}",
           "symbols_covered": ["parse_row", ...],
@@ -187,24 +190,36 @@ stages:
              "failure_assertion":"assertRaises(SystemExit)"}
           ],
           "unittest": "PASS" | "FAIL",
+          "committed": true,
           "notes": "..."
         }
       failure_assertion MUST name the concrete raises/exit/regex used — validate
       relies on it.
 
+      COMMIT BEFORE YOU FINISH (required — uncommitted work is lost):
+        git add {test_file}
+        git commit -m "test: add sad-path coverage to {test_file}"
+      `git merge` moves COMMITS, not uncommitted worktree edits. If you return
+      without committing, the orchestrator's merge succeeds against an empty
+      branch, the stage reports success, and your tests are silently gone. Stage
+      only {test_file}; never `git add -A`. Record "committed": true in your
+      summary only after the commit actually succeeded.
+
       NOTE (worktree isolation + merge-back): you run in an isolated worktree;
       your edits do NOT merge back automatically. After this whole fan-out group
       completes, the orchestrator merges each tester's worktree branch into the
       current branch per SKILL.md orchestration rule #7
-      (git merge --no-ff worktree-agent-<id>). This is safe here precisely
-      because each tester touches exactly ONE distinct file. Do not rely on a
-      selective single-file copy — report your worktree and the edited path so
-      the merge can be verified.
+      (git merge --no-ff worktree-agent-<id>), having first confirmed
+      `git log --oneline <target>..worktree-agent-<id>` is non-empty. This is
+      safe here precisely because each tester touches exactly ONE distinct file.
+      Do not rely on a selective single-file copy — report your worktree and the
+      edited path so the merge can be verified.
     agent:
       role: tester
       model: sonnet
       tools: [Read, Write, Edit, Bash]
       access: read-write
+      isolation: worktree
     required: true
     fan_out:
       source: load-gaps
@@ -232,7 +247,11 @@ stages:
     description: >
       Confirm all sad-path additions landed, pass, and are genuine — mechanically.
 
-      Step 1 — collect: read all {workspace}/outputs/added/*.json.
+      Step 1 — collect: read all {workspace}/outputs/added/*.json (the
+      orchestrator copies each isolated tester's summary back here after its
+      worktree branch is merged). Any fan-out item with no summary, or whose
+      summary has "committed": false, is a LOST FIX — report it and fail the
+      run rather than treating the file as done.
 
       Step 2 — presence + genuineness: for each summary, for each methods_added
       entry, confirm the method exists in its test_file on disk AND that its
