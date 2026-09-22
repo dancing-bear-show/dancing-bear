@@ -47,6 +47,9 @@ trigger:
   source: manual
   params:
     shards_dir: ""          # REQUIRED: outputs/shards from a categorize-test-cases run
+    source_sha: ""          # optional: that run's source_sha; if blank it is read
+                            # from {shards_dir}/../sad-path-gaps.json (shards
+                            # themselves carry no SHA)
     max_files: "20"         # hard cap on test files touched this run
     classes: "A,B,C"        # which defect classes to rectify
     min_sad: "3"          # class C: min sad tests a symbol needs to qualify as
@@ -63,9 +66,26 @@ stages:
       FAIL this stage (status: failed) if {shards_dir} is empty or unset — never
       search for another run's output, and never proceed on partial data.
 
-      First record provenance: run `git rev-parse HEAD` and store it as
-      head_sha. If the shard set carries a source SHA, record both and set
-      sha_drift true when they differ.
+      First record provenance. Run `git rev-parse HEAD` and store it as
+      head_sha, then establish the SHA the shards were computed against.
+
+      The shards themselves do NOT carry it — a categorize-test-cases shard has
+      exactly two keys, "file" and "methods". The SHA lives in that run's
+      sibling artifact, outputs/sad-path-gaps.json ("source_sha"). So read
+      {shards_dir}/../sad-path-gaps.json and take source_sha from there.
+
+      If {source_sha} was passed as a trigger param, prefer it and verify it
+      matches the sibling artifact; disagreement is itself a provenance failure
+      — report both and FAIL.
+
+      If neither is available, set shard_sha to null and sha_drift to true —
+      never silently assume the shards match the current tree. Unknown
+      provenance is drift, not agreement.
+
+      Set sha_drift = (shard_sha != head_sha) and record both. Drift does not
+      halt this stage; it is surfaced at the approve-plan gate, where a human
+      decides whether line numbers and symbols computed against another tree
+      are still trustworthy.
 
       Prefer a short python3 script for this aggregation; it is deterministic
       and there may be hundreds of shards. Do NOT read shards one by one with
@@ -275,11 +295,22 @@ stages:
     depends_on: [approve-plan]
     reads_from: [triage-defects]
     description: >
-      Rectify every CONFIRMED defect in ONE test file: {test_file}. Because
-      fan-out is per file, you are the only writer for it.
+      ORCHESTRATOR — RESOLVE THESE BEFORE SPAWNING (the fan-out substitutes ONLY
+      fan_out.key, which is {file_slug}; every other placeholder below arrives
+      literal unless you fill it in):
+        - {test_file}: look up this item in outputs/triage.json by its
+          file_slug and substitute the real repo-relative path.
+        - Because this stage is isolation:"worktree", the agent cannot read the
+          shared workspace. BEFORE spawning, write that item's confirmed
+          defects to <agent-cwd>/inputs/defects.json and point the agent at
+          that absolute path. Do NOT tell it to read {workspace}/outputs/...
 
-      Read your file's entry in {workspace}/outputs/triage.json. Work ONLY on
-      defects whose verdict is "confirmed"; ignore rejected ones entirely.
+      Rectify every CONFIRMED defect in ONE test file ({test_file}, resolved
+      above). Because fan-out is per file, you are the only writer for it.
+
+      Read your defect list from the absolute path under YOUR OWN cwd that the
+      orchestrator gave you (inputs/defects.json). Work ONLY on defects whose
+      verdict is "confirmed"; ignore rejected ones entirely.
 
       Before writing: Read {test_file} and match its imports, fixtures, class
       structure and assertion style. Read tests/AGENTS.md, tests/fixtures.py and
@@ -352,17 +383,25 @@ stages:
       merge):
         git add {test_file} && git commit -m "test: rectify defects in {test_file}"
 
-      Write {workspace}/outputs/fixed/{file_slug}.json:
+      Write your summary to outputs/fixed/{file_slug}.json UNDER YOUR OWN CWD
+      (an absolute path inside your worktree — you cannot write the shared
+      workspace from here; the orchestrator copies it back after merging your
+      branch):
         {
           "test_file": "{test_file}",
           "rewritten": [{"method":..., "old_assertion":..., "new_assertion":...,
                          "teeth_proof":"failed with: <message>"}],
           "added": [{"method":..., "symbol":..., "class":"B"|"C",
                      "assertion":"..."}],
+          "consolidated": [{"replaced_by":"test_new_subtest_method",
+                            "removed":["test_old_a","test_old_b"]}],
           "unittest": "PASS"|"FAIL",
           "committed": true,
           "notes": "..."
         }
+      "consolidated" MUST list every method you collapsed away, or
+      validate-fixes will read the missing methods as an unapproved deletion
+      and fail the run. Empty list if you collapsed nothing.
     agent:
       role: tester
       model: sonnet
@@ -421,9 +460,33 @@ stages:
       breakage in the new/rewritten tests only. Never weaken an assertion.
 
       Step 6 — whole-suite regression: `make test` once, confirming the
-      "Ran N tests" summary line. Compare the count against the pre-run
-      baseline: it must be >= baseline plus the methods added. A DROP means
-      something was deleted.
+      "Ran N tests" summary line (an exit code alone is not evidence the suite
+      ran).
+
+      Reconcile the count against the EXPECTED NET DELTA, not against
+      "baseline + added". Class A explicitly permits collapsing several
+      assertion-free methods into one subTest, which LOWERS the count while
+      every approved rewrite is present — the first real run went 13583 ->
+      13582 for exactly that reason (six menubar methods became one, plus a
+      rename). A rule of "at least baseline + added" would report that correct
+      run as a deletion.
+
+      Compute:
+        expected_delta = (methods added, summed over outputs/fixed/*.json)
+                       - (methods removed by an APPROVED consolidation, summed
+                          over the same files' "consolidated" entries)
+      and require observed_delta == expected_delta EXACTLY. Cross-check it
+      against the diff itself:
+        git diff <base>...HEAD -- tests/ | grep -c '^+    def test_'
+        git diff <base>...HEAD -- tests/ | grep -c '^-    def test_'
+      Those two counts must reconcile with the suite delta. Any discrepancy —
+      in either direction — is an unapproved deletion or an accidental
+      addition; report it and fail. Never accept a count you cannot explain.
+
+      A consolidation counts as APPROVED only if the per-file summary lists it
+      under "consolidated" with the removed method names and the single method
+      that replaced them. A tester that collapses methods without recording
+      them there fails this step.
 
       Write {workspace}/outputs/validation.md with a row per file:
         | Test file | Rewritten | Added | unittest | Scope OK | Teeth proven | Notes |
