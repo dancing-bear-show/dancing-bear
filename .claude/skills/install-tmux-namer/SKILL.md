@@ -51,7 +51,11 @@ To remove it later: delete the `UserPromptSubmit` entry from
 `~/.claude/settings.json`, then delete the captured prompts from the resolved
 cache directory:
 
-    rm -f "$(python3 -I -S -c "import os; print(os.path.join(os.environ.get('XDG_CACHE_HOME', os.path.expanduser('~/.cache')), 'claude'))")"/prompts-*.txt
+    cache="$(python3 -I -S -c "import os; print(os.path.join(os.environ.get('XDG_CACHE_HOME', os.path.expanduser('~/.cache')), 'claude'))")"
+    rm -f "$cache"/prompts-*.txt "$cache"/count-*.txt
+
+(The hook also keeps a `count-<session>.txt` alongside each history file — a
+prompt counter, no prompt text — so remove both.)
 
 ## Step 1: Check Prerequisites
 
@@ -75,6 +79,11 @@ setup runs outside tmux, and refusing there makes it fail for no reason.
 ## Step 2: Copy Hook Script
 
 ```bash
+# Fail fast. Without this, a failed mkdir or cp lets the run continue to patch
+# settings.json and report success while the hook is missing or stale — the
+# wiring would then point at a script that is not there.
+set -e
+
 mkdir -p ~/.claude/hooks
 
 # Check if already installed
@@ -95,6 +104,15 @@ else
   chmod +x ~/.claude/hooks/tmux-session-namer.py
   echo "Hook script installed at ~/.claude/hooks/tmux-session-namer.py"
 fi
+
+# Confirm the installed copy matches the repo version before anything wires it
+# up. `set -e` catches a failing cp; it does not catch one that wrote nothing
+# useful, and the settings patch below must not point at a stale script.
+diff -q ~/.claude/hooks/tmux-session-namer.py configs/llm/tmux-session-namer.py > /dev/null \
+  || { echo "ABORT: installed hook does not match configs/llm/tmux-session-namer.py"; exit 1; }
+test -x ~/.claude/hooks/tmux-session-namer.py \
+  || { echo "ABORT: installed hook is not executable"; exit 1; }
+echo "Verified: installed hook matches the repo version and is executable"
 ```
 
 ## Step 3: Patch ~/.claude/settings.json
@@ -194,12 +212,43 @@ hook_command = "python3 -I -S ~/.claude/hooks/tmux-session-namer.py 2>/dev/null 
 # this skill wired the hook without -I -S; an exact-string comparison would miss
 # that entry and append a SECOND hook, so the namer would then run twice on
 # every prompt. Detect any wiring of this script and upgrade it in place.
+#
+# Match the exact script PATH as a whitespace-delimited token, never a bare
+# substring. A substring test also matches an unrelated user hook such as
+# `python3 ~/.claude/hooks/tmux-session-namer-custom.py`, and this loop
+# REWRITES what it matches — so a loose test would silently destroy someone
+# else's hook while claiming to have upgraded ours.
+HOOK_PATH = "~/.claude/hooks/tmux-session-namer.py"
+
+
+def is_managed_hook(cmd):
+    """True only for a command that invokes exactly our hook script.
+
+    Compares the BASENAME of each whitespace-delimited token. Tokenising is what
+    distinguishes `.../tmux-session-namer.py` from
+    `.../tmux-session-namer-custom.py` — a substring check cannot, and this loop
+    rewrites what it matches, so a loose test destroys another hook.
+
+    Comparing basenames rather than whole paths also catches an entry written as
+    an absolute path (`/Users/<name>/.claude/hooks/...`) or via $HOME, which a
+    literal `~/...` comparison would miss — leaving a stale unisolated hook in
+    place while a second one is appended alongside it.
+    """
+    target = os.path.basename(HOOK_PATH)
+    for tok in cmd.split():
+        if not tok.endswith(".py"):
+            continue
+        if os.path.basename(tok) == target:
+            return True
+    return False
+
+
 upgraded = False
 already_wired = False
 for entry in existing:
     for h in entry.get("hooks", []):
         cmd = h.get("command", "")
-        if "tmux-session-namer" not in cmd:
+        if not is_managed_hook(cmd):
             continue
         if cmd == hook_command:
             already_wired = True
@@ -279,7 +328,12 @@ import json, os, sys
 s = json.load(open(os.path.expanduser('~/.claude/settings.json')))
 hooks = s.get('hooks', {}).get('UserPromptSubmit', [])
 cmds = [h.get('command','') for e in hooks for h in e.get('hooks',[])]
-namer = [c for c in cmds if 'tmux-session-namer' in c]
+# Match the script BASENAME on a whitespace-delimited token, not a substring: a
+# substring also matches an unrelated tmux-session-namer-custom.py, and a whole
+# -path comparison misses an entry written as an absolute path.
+TARGET = 'tmux-session-namer.py'
+namer = [c for c in cmds
+         if any(t.endswith('.py') and os.path.basename(t) == TARGET for t in c.split())]
 
 if len(namer) == 0:
     print('FAIL: hook not wired'); sys.exit(1)
@@ -325,7 +379,10 @@ After completing the steps, report:
 | Reload needed | Open /hooks or restart Claude |
 
 The hook runs on the next prompt, but only renames the session once the prompt
-count for this session reaches a multiple of 20 (configs/llm/tmux-session-namer.py:82).
+count for this session reaches a multiple of 20. The cadence comes from a
+monotonic counter in `count-<session>.txt`, not from the prompt-history line
+count — the history is trimmed to 200 lines, and deriving the cadence from that
+made the rename fire on every prompt once the file saturated.
 
 It records the first 120 characters of each prompt to
 `<resolved cache dir>/prompts-*.txt` — report the path you resolved in Step 0,

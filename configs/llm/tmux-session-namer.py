@@ -39,7 +39,9 @@ def _detect_pr_number() -> str:
         # because stderr is captured the failure is silent — PR detection just
         # returns "" and the pr-<N>- prefix disappears with no indication why.
         # Matches the `GITHUB_TOKEN= gh ...` contract used across this repo.
-        env = {**os.environ, "GITHUB_TOKEN": ""}
+        # Both variables: gh honours GH_TOKEN as well as GITHUB_TOKEN, so
+        # clearing only one leaves a stale token able to break PR detection.
+        env = {**os.environ, "GITHUB_TOKEN": "", "GH_TOKEN": ""}
         result = subprocess.run(  # nosec B603 B607 - fixed args from shutil.which-validated path
             ["gh", "pr", "view", "--json", "number", "-q", ".number"],
             capture_output=True, text=True, timeout=5, env=env,
@@ -82,7 +84,34 @@ if len(lines) > 200:
     except Exception:  # nosec B110 - best-effort trim; skip silently on any IO error
         pass
 
-count = len(lines)
+# Cadence must come from a MONOTONIC count, not from len(lines).
+#
+# The trim above pins len(lines) at exactly 200 once the file saturates, and
+# 200 % 20 == 0 — so deriving the cadence from the line count made the rename
+# fire on EVERY prompt from prompt 200 onwards instead of every 20th. That is
+# 20x the `claude -p` spend, and it sends the last 20 prompt fragments off the
+# machine on every single prompt rather than one in twenty.
+#
+# A separate counter file keeps counting past the trim. It is stored alongside
+# the history with the same 0600 permissions.
+counter_file = os.path.join(cache_dir, f"count-{safe_id}.txt")
+try:
+    with open(counter_file) as f:
+        count = int(f.read().strip() or "0")
+except (OSError, ValueError):
+    # No counter yet (or a corrupt one): seed from the history length so an
+    # existing install does not restart its cadence from zero. `lines` already
+    # includes the prompt appended just above, so subtract it — otherwise this
+    # prompt is counted twice and every later count is one too high.
+    count = max(len(lines) - 1, 0)
+
+count += 1
+try:
+    fd = os.open(counter_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(str(count))
+except OSError:  # nosec B110 - best-effort; a failed counter write only affects cadence
+    pass
 
 if count % 20 == 0:
     recent = "".join(lines[-20:])

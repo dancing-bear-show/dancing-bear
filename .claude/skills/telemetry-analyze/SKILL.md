@@ -32,11 +32,20 @@ glob is `~/.claude/projects/*/*.jsonl` (plus the older
 
 ## Model Attribution — a limitation to report honestly
 
-**No shipped command produces a per-model-tier cost split.** Do not write an
-Opus/Sonnet/Haiku cost table; there is no source for one, so it would be
-invented.
+**No transcript-backed command produces a per-model-tier cost split.** Do not
+build an Opus/Sonnet/Haiku table from the commands in this skill — they carry no
+model-cost field, so such a table would be invented.
 
-What the CLI actually gives you:
+There *is* one path to a real model breakdown, and it is not one of these:
+`./bin/telemetry otel cost --breakdown model` (also `--perf`, and `--format
+json` for a `by_model` object). It reads the local OTel store rather than
+transcripts, so it only has data when the collector has been running — with no
+collector it exits 0 and reports zeros, which is easy to mistake for "no cost
+this week". If a request genuinely needs per-tier costs, use that command and
+say the figures are OTel-sourced; if it returns zeros, see the `otel-doctor`
+skill rather than reporting $0.
+
+What the transcript-backed commands below actually give you:
 
 - `cost --group-by day` — daily cost totals. The JSON rows carry `day` and
   `est_cost` only, no model field.
@@ -77,7 +86,9 @@ Synthesize the command output into a markdown report with:
 - **Session models**: the per-session model, labelled with which command it came
   from — `history` reports the session's first API event, `summary` its latest
   (see Model Attribution). Not a "dominant model", and not a per-tier cost
-  split, which no shipped command produces
+  split — none of the commands above carry model costs. Use
+  `telemetry otel cost --breakdown model` if per-tier figures are genuinely
+  needed, and label them as OTel-sourced
 - **Tool Usage**: Top tools by call count from `summary` output
 - **Session Outliers**: Highest-cost and most-active sessions
 - **Recommendations**: session consolidation, and model-downgrade candidates
@@ -171,11 +182,14 @@ Agent(subagent_type="fact-checker", description="Validate telemetry report", pro
 Validate the telemetry analysis report. Check: cost totals match
 their line-item breakdowns, date ranges are consistent, any percentage
 claims are arithmetically correct, and — most importantly — that the
-report does not present a per-model-tier cost split. No shipped
-telemetry command produces one, so such a table would be fabricated.
-A single per-session model is fine when the report names which command it came
-from, since `history` (first API event) and `summary` (latest) can disagree for
-a tier-switching session.
+report does not present a per-model-tier cost split attributed to the
+transcript-backed commands — those carry no model costs, so such a table
+would be fabricated. Per-tier figures are legitimate ONLY when they came
+from `telemetry otel cost --breakdown model` and are labelled as
+OTel-sourced; check that the report says so. A single per-session model is
+fine when the report names which command it came from, since `history`
+(first API event) and `summary` (latest) can disagree for a tier-switching
+session.
 """)
 ```
 
