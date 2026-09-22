@@ -364,6 +364,50 @@ run_bash BLOCK researcher "touch src/newfile.py"
 run_bash BLOCK researcher "tee src/mail/cli.py < /tmp/x"
 
 echo
+echo "--- global install must still guard the project (CLAUDE_PROJECT_DIR) ---"
+# Deriving REPO_ROOT only from the script's location silently disarmed the install
+# README.md documents: copied to ~/.claude/hooks, "two levels up" is $HOME, so an
+# absolute path naming real project source was judged outside the repo and ALLOWED.
+# Relative paths still blocked, which made it look alive until someone passed an
+# absolute one. CLAUDE_PROJECT_DIR is now preferred, script location the fallback.
+_global_dir=$(mktemp -d)
+mkdir -p "$_global_dir/.claude/hooks"
+cp "$HOOK" "$_global_dir/.claude/hooks/"
+_global_hook="$_global_dir/.claude/hooks/$(basename "$HOOK")"
+
+run_global() { # run_global <BLOCK|ALLOW> <file_path>
+  local expect="$1" path="$2" rc
+  jq -n --arg p "$path" \
+    '{agent_type:"researcher",tool_name:"Write",tool_input:{file_path:$p,content:"x"}}' \
+    | CLAUDE_PROJECT_DIR="$REPO_ROOT" bash "$_global_hook" >/dev/null 2>&1
+  rc=$?
+  _record "$expect" "$(_classify "$rc")" "global-install: $path"
+}
+
+run_global BLOCK "$REPO_ROOT/src/mail/cli.py"
+run_global BLOCK "$REPO_ROOT/tests/workflow_tests/test_linter.py"
+run_global BLOCK "src/mail/cli.py"
+run_global BLOCK "AGENTS.md"
+run_global ALLOW "/tmp/out.json"
+
+# And the repo-local fallback must keep working with no env var set, since that is
+# how this repo's own settings.json invokes it today.
+run_local_noenv() { # run_local_noenv <BLOCK|ALLOW> <file_path>
+  local expect="$1" path="$2" rc
+  jq -n --arg p "$path" \
+    '{agent_type:"researcher",tool_name:"Write",tool_input:{file_path:$p,content:"x"}}' \
+    | env -u CLAUDE_PROJECT_DIR bash "$HOOK" >/dev/null 2>&1
+  rc=$?
+  _record "$expect" "$(_classify "$rc")" "repo-local, no env: $path"
+}
+
+run_local_noenv BLOCK "$REPO_ROOT/src/mail/cli.py"
+run_local_noenv BLOCK "src/mail/cli.py"
+run_local_noenv ALLOW "/tmp/out.json"
+
+rm -rf "$_global_dir"
+
+echo
 echo "--- KNOWN GAPS: documented, not fixed (see the SCOPE note in the hook) ---"
 # These are ALLOWed by design. A string matcher cannot evaluate what the shell will do
 # to the string, and block-destructive-bash.sh's header records four adversarial rounds
@@ -379,5 +423,21 @@ run_bash ALLOW researcher "echo x > src\${IFS}/mail/cli.py"
 # complete -- that is the reason the SCOPE note calls the Bash branch weak, and the
 # reason the strong guarantee is claimed only for Write/Edit.
 run_bash ALLOW researcher "some-unknown-tool --out src/mail/cli.py"
+
+# A GLOBAL install with no CLAUDE_PROJECT_DIR set. The hook has nothing to identify
+# the project with: its own location is ~/.claude/hooks, and cwd is deliberately not
+# trusted (a subagent's cwd may be any checkout). Asserted rather than omitted so the
+# gap is visible -- and so that a future change giving the hook another project-root
+# source shows up here as a failing expectation to update.
+_gap_dir=$(mktemp -d)
+mkdir -p "$_gap_dir/.claude/hooks"
+cp "$HOOK" "$_gap_dir/.claude/hooks/"
+_gap_rc=0
+jq -n --arg p "$REPO_ROOT/src/mail/cli.py" \
+  '{agent_type:"researcher",tool_name:"Write",tool_input:{file_path:$p,content:"x"}}' \
+  | env -u CLAUDE_PROJECT_DIR bash "$_gap_dir/.claude/hooks/$(basename "$HOOK")" \
+  >/dev/null 2>&1 || _gap_rc=$?
+_record ALLOW "$(_classify "$_gap_rc")" "global install with no CLAUDE_PROJECT_DIR"
+rm -rf "$_gap_dir"
 
 _summary "block-readonly-role-writes"

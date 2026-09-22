@@ -143,11 +143,29 @@ fi
 
 # From here down the caller is a read-only-contract agent.
 
-# REPO_ROOT is derived from this script's location, not from cwd: a subagent's cwd may
-# be its own worktree, the main checkout, or somewhere else entirely, and reading the
-# guarded prefixes relative to a moving cwd is how a guard ends up protecting the wrong
-# tree. The script lives at <repo>/.claude/hooks/, so <repo> is two levels up.
-REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd) || REPO_ROOT=""
+# REPO_ROOT: the project whose source this guard protects.
+#
+# $CLAUDE_PROJECT_DIR FIRST, script location as the fallback.
+#
+# Deriving it only from the script's location silently disarms the documented global
+# install. Copy this file to ~/.claude/hooks (which README.md tells people to do) and
+# "two levels up" becomes $HOME: an absolute payload naming real project source no
+# longer starts with REPO_ROOT, so the prefix strip does not apply, the path is judged
+# as outside the repo, and it is ALLOWED. Verified by simulating the install --
+# `<repo>/src/mail/cli.py` blocked by the repo-local copy and allowed by the global
+# one. Relative paths still blocked in both, which makes it worse: the guard looks
+# alive right up until someone passes an absolute path.
+#
+# Not cwd, in either branch: a subagent's cwd may be its own worktree, the main
+# checkout, or somewhere else entirely, and reading the guarded prefixes relative to a
+# moving cwd is how a guard ends up protecting the wrong tree.
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -d "${CLAUDE_PROJECT_DIR}" ]; then
+  REPO_ROOT=$(cd "$CLAUDE_PROJECT_DIR" 2>/dev/null && pwd) || REPO_ROOT=""
+else
+  # Repo-local install: the script lives at <repo>/.claude/hooks/, so <repo> is two
+  # levels up. Correct when the hook ships inside the checkout it guards.
+  REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd) || REPO_ROOT=""
+fi
 
 # Tracked trees a read-only-contract agent must never modify, even when a caller names
 # one as an output. A prompt naming src/foo.py as a stage output is misconfigured, not

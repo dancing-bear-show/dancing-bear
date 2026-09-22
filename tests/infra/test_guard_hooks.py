@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import shutil
 import subprocess  # nosec B404 - runs trusted in-repo shell suites
 import unittest
@@ -240,22 +241,75 @@ class TestGuardHooksAreWired(unittest.TestCase):
     # that merely MENTIONED the filename while running `echo`, and a command pointing
     # at a copy of the script somewhere else entirely. Each of those is a dormant
     # guard reported as active, which is the exact failure this class exists to catch.
-    _INVOCATION_RE = re.compile(
-        r"""(?:^|\s)            # start, or a word boundary
-            (?:\S*/)?bash\s+    # bash, possibly path-qualified
-            ['"]?               # optional opening quote
-            (?P<path>[^\s'"]*/)?  # optional directory prefix, up to the last slash
-            (?P<script>[A-Za-z0-9._-]+\.sh)
-            ['"]?               # optional closing quote
-            (?:\s|$)""",
-        re.VERBOSE,
-    )
+    # Shell operators that end one command and begin another, so the token after
+    # them is a command word again rather than an argument.
+    _SEPARATORS = frozenset({";", "&&", "||", "|", "&", "(", ")", "{", "}"})
+
+    def _invocations(self, command: str) -> list[tuple[str, str]]:
+        """Return (interpreter, operand) pairs where the operand is being RUN.
+
+        Tokenised with ``shlex`` rather than matched with a regex, because the
+        question -- "is this token a command word or an argument?" -- is
+        structural, and a regex cannot answer it. The previous version matched
+        ``bash`` anywhere after whitespace, so ``echo bash <path>`` counted as an
+        invocation even though it only prints the path. Demonstrated against the
+        real settings file, along with a commented-out command and a path
+        mentioned inside an echo string; all three reported a dormant guard as
+        wired.
+
+        Position is what decides it: a token is a command word only at the start
+        of the command or immediately after a separator. ``bash`` sitting in
+        argument position is an argument.
+        """
+        try:
+            tokens = shlex.split(command, comments=True)
+        except ValueError:
+            # Unbalanced quotes -- treat as running nothing rather than guessing.
+            return []
+
+        pairs: list[tuple[str, str]] = []
+        for index in self._command_word_positions(tokens):
+            token = tokens[index]
+            if Path(token).name not in {"bash", "sh", "zsh"}:
+                continue
+            operand = self._first_operand(tokens[index + 1:])
+            if operand is not None:
+                pairs.append((token, operand))
+        return pairs
+
+    def _command_word_positions(self, tokens: list[str]) -> list[int]:
+        """Indices of tokens in command position (start, or after a separator)."""
+        positions: list[int] = []
+        at_command_position = True
+        for index, token in enumerate(tokens):
+            if token in self._SEPARATORS:
+                at_command_position = True
+                continue
+            if at_command_position:
+                # Env-var assignments (FOO=bar cmd) keep the NEXT token in
+                # command position rather than consuming it.
+                if "=" in token and not token.startswith("="):
+                    continue
+                positions.append(index)
+            at_command_position = False
+        return positions
+
+    def _first_operand(self, rest: list[str]) -> str | None:
+        """First non-flag token before the next separator, or None."""
+        for token in rest:
+            if token in self._SEPARATORS:
+                return None
+            if token.startswith("-"):
+                continue
+            return token
+        return None
 
     def _invoked_scripts(self, hook: dict) -> set[str]:
         """Return the guard scripts a hook actually invokes, or an empty set.
 
         Empty for a non-command hook, for a command that does not run a script at
-        all, and for one that runs a script from outside this repo's hooks dir.
+        all, for one that only mentions a script's path, and for one that runs a
+        script from outside this repo's hooks dir.
         """
         if hook.get("type") != "command":
             return set()
@@ -263,19 +317,19 @@ class TestGuardHooksAreWired(unittest.TestCase):
         if not isinstance(command, str):
             return set()
         found: set[str] = set()
-        for match in self._INVOCATION_RE.finditer(command):
-            script = match.group("script")
+        for _interpreter, operand in self._invocations(command):
+            script = Path(operand).name
             if script not in self.REQUIRED_HOOKS:
                 continue
             # The invoked path must resolve to the repo's own hooks directory. A
             # command running a same-named script from elsewhere leaves this guard
             # dormant while looking wired.
-            prefix = match.group("path") or ""
-            expanded = prefix.replace("$CLAUDE_PROJECT_DIR", str(repo_root()))
+            expanded = operand.replace("$CLAUDE_PROJECT_DIR", str(repo_root()))
             expanded = expanded.replace("${CLAUDE_PROJECT_DIR}", str(repo_root()))
-            if not expanded:
+            parent = Path(expanded).parent
+            if str(parent) in {"", "."}:
                 continue
-            if Path(expanded).resolve() != HOOKS_DIR.resolve():
+            if parent.resolve() != HOOKS_DIR.resolve():
                 continue
             found.add(script)
         return found

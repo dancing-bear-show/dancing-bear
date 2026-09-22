@@ -514,6 +514,15 @@ every protection in them sat dormant until PR #395. A passing hook test suite pr
 the *script* works, not that the *hook runs* — to check whether a guard is live, read
 the `hooks` block of `.claude/settings.json`, not the presence of the script.
 
+**A global install needs `$CLAUDE_PROJECT_DIR`.** `block-readonly-role-writes.sh`
+identifies the project it guards from that variable, falling back to its own location
+(`<repo>/.claude/hooks/` → two levels up) when it is unset. Copied to `~/.claude/hooks`
+*without* the variable, the fallback resolves to `$HOME`, an absolute path naming real
+project source no longer matches, and the write is allowed — while relative paths keep
+blocking, so the guard looks alive until someone passes an absolute path. The wiring
+example below sets it; the suite asserts both the working global install and this
+residual gap.
+
 For a global install, or for another project, apply this yourself:
 
 ```json
