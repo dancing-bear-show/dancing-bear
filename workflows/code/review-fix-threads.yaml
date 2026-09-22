@@ -353,11 +353,27 @@ stages:
         6. Rewrite triage.json in place, recording "_id_repairs" as a list of
            (old, new, path, line) so the run is auditable.
 
-      Then assert both, and fail the stage if either does not hold:
-        - every (path, line) in triage.json maps to the fetch's id for it
+      Then assert both over the entries with a NON-NULL thread_id, and fail
+      the stage if either does not hold:
         - every thread_id in triage.json exists in threads.json
-      Print the counts checked and repaired. Zero repairs is the normal case
-      and must be stated explicitly rather than passing in silence.
+        - for each, the fetch's (path, line) and body fingerprint match the
+          entry's
+
+      EXCLUDE NULL-ID ENTRIES FROM BOTH ASSERTIONS. Step 5 establishes that a
+      review-body or issue-comment finding legitimately has no thread_id
+      while still carrying a path and line quoted from the prose. An
+      assertion phrased as "every (path, line) maps to a fetched id" contra-
+      dicts that directly and halts a healthy run on the very case step 5
+      exists to protect — observed on PR #391 round 2. Filter on
+      `thread_id is not None` before either check, not inside it.
+
+      Note the first assertion is now id-keyed rather than coordinate-keyed,
+      for the reason step 4 gives: (path, line) is not a key, so "the fetch's
+      id for it" is not always well defined.
+
+      Print the counts checked, repaired, and skipped-as-null. Zero repairs
+      is the normal case and must be stated explicitly rather than passing in
+      silence.
 
       Step 2 — select threads with directive "fix". If there are none, write an
       index with total 0 and an empty items list and exit 0. A PR whose threads

@@ -266,7 +266,7 @@ stages:
           "layers": [
             {"layer": "ollama_binary",  "up": true|false, "detail": "..."},
             {"layer": "ollama_server",  "up": true|false, "detail": "..."},
-            {"layer": "model_resident", "up": true|false, "detail": "..."},
+            {"layer": "model_resident", "up": null, "resident": true|false, "detail": "..."},
             {"layer": "worker_daemon",  "up": true|false, "detail": "...", "exit_status": "..." | null},
             {"layer": "queue",          "up": true|false, "detail": "..."},
             {"layer": "collector",      "up": true|false, "detail": "..."},
@@ -280,6 +280,18 @@ stages:
       For concurrency_lock, "up" means the guard is in a sane state — absent
       or actively held within its ceiling. Both STALE and SUSPECT are
       up=false.
+
+      model_resident is INFORMATIONAL and its "up" is always null. Report
+      residency in the separate "resident" field instead. A cold model is
+      normal — step 3 above says so explicitly — and encoding it as up=false
+      would contradict that and rank a healthy stack as a blocking fault the
+      moment nothing had run recently, which is most of the time on an idle
+      machine.
+
+      "all_up" is computed over layers whose "up" is a boolean, ignoring any
+      whose "up" is null. Do not coerce a null to false to simplify the
+      aggregate; that reintroduces exactly the defect. "first_down_layer" is
+      likewise the first layer with up == false, never a null one.
     agent:
       role: researcher
       model: sonnet
@@ -491,7 +503,14 @@ stages:
       Otherwise, using ./bin/telemetry otel subcommands (check --help for the
       real flags rather than guessing them), gather over {spend_days} days:
         - Job count, total and by outcome (success / terminal / deferred /
-          retried), from the span attributes the handler emits.
+          retried), from the span attributes the handler emits. All four keys
+          are required in the output schema and must sum to `total`. If they
+          do not, say so and give the shortfall rather than silently
+          rebalancing — a gap means spans are missing or an outcome the
+          handler emits is not in this list, and both are findings. "retried"
+          is the plain-transient-failure case (a handler return that is
+          neither a `terminal-` nor a `deferred-` string); it is easy to drop
+          because it has no prefix of its own.
         - Total and median generation duration. Local inference costs wall
           clock, not dollars — time is the number that matters here.
         - Token counts where Ollama reported them.
@@ -508,7 +527,7 @@ stages:
           "available": true|false,
           "unavailable_reason": "..." | null,
           "window_days": N,
-          "jobs": {"total": N, "by_outcome": {"success": N, "terminal": N, "deferred": N}},
+          "jobs": {"total": N, "by_outcome": {"success": N, "terminal": N, "deferred": N, "retried": N}},
           "duration": {"total_minutes": N, "median_ms": N, "p95_ms": N, "trend": "growing|flat|shrinking|insufficient-data"},
           "tokens": {"prompt": N, "completion": N} | null,
           "notes": "..."
@@ -589,7 +608,15 @@ stages:
            drops the lane scoping while still appearing to filter. State in
            the proposal how many records each filter pair matched.
         b) Purge done/error jobs older than {purge_older_than}:
-           ./bin/worker purge. Never purge pending or processing.
+           ./bin/worker purge --older-than {purge_older_than}
+           Never purge pending or processing.
+
+           ALWAYS PASS --older-than EXPLICITLY. `worker purge` defaults to
+           30d (src/worker/cli.py:167), so omitting the flag silently ignores
+           the configured retention: a run parameterised with 7d would keep
+           30 days instead, and one parameterised with 60d would delete a
+           month of history the workflow was told to keep. The default is
+           wrong in both directions, and neither shows up as an error.
 
            BLAST RADIUS — state this verbatim in the proposal, every time:
            `worker purge` accepts only --older-than and --folders. It has no
