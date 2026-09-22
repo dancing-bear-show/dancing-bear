@@ -2166,12 +2166,7 @@ stages:
         runs the subshell. The check must never be a shell string built
         around the untrusted value.
 
-        Validate OUT of the shell instead. Do NOT reach for os.environ: the
-        engine never exports trigger params to the environment — resolve_params
-        (compiler.py:382-391) substitutes them into the description TEXT, and
-        nothing in src/workflow/ calls os.environ[...] or putenv — so advice
-        that reads them from there cannot be followed. An earlier revision of
-        this file said exactly that and was wrong.
+        Validate OUT of the shell instead.
 
         NO QUOTING STYLE FIXES THIS, INCLUDING A HEREDOC. An earlier revision
         of this file prescribed writing the value to a file with a

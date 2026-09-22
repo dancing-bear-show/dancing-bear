@@ -336,8 +336,14 @@ stages:
                independent threads anchored to the same line, and a multi-line
                thread reports only its END line, so two threads differing in
                start_line collide too. Observed on this very PR: two distinct
-               threads both anchored to
-               workflows/demo/qwen-job-type.yaml:193.
+               threads both anchored to one line of
+               workflows/demo/qwen-job-type.yaml, ids PRRT_kwDOQr1kjM6k6s65
+               and PRRT_kwDOQr1kjM6k67nb. Deliberately no line number here:
+               it moves every time that file is edited (it has already been
+               193, 205 and 225 across this PR), so a number quoted as proof
+               goes stale and invites someone to "correct" the claim by
+               deleting it. The thread ids are stable; the coordinate is not,
+               which is the whole point of the finding.
 
            That is why steps 1-3 above key by id and never by (path, line):
            a thread_id IS unique, and the coordinates never were.
@@ -831,9 +837,12 @@ stages:
       report line: null, and GitHub allows several independent threads on one
       line (a multi-line thread reports only its end line, so two threads
       with different start_lines collide as well). Observed on PR #391: two
-      distinct threads both anchored to
-      workflows/demo/qwen-job-type.yaml:193. A (path, line) -> id map would
-      silently keep one of them.
+      distinct threads both anchored to one line of
+      workflows/demo/qwen-job-type.yaml — ids PRRT_kwDOQr1kjM6k6s65 and
+      PRRT_kwDOQr1kjM6k67nb. A (path, line) -> id map would silently keep one
+      of them. The line number is deliberately omitted: it has already moved
+      three times as that file was edited, so citing one dates the evidence
+      without strengthening it.
 
       Check COHERENCE, not mere existence. On the observed corruption, 7 of
       the 8 bad ids were real ids belonging to other threads — they pass any
