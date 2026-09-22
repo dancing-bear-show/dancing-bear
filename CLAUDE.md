@@ -211,9 +211,11 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
   global by construction — and so is a whitelist module, which is the trap. A
   whitelist is vulture's documented mechanism and *looks* path-scoped because
   it sits beside the file it covers, but it is just source that vulture scans:
-  reading a name there clears it everywhere. Suppressing `rect` for one PDF
-  fixture also blinded the scan to `src/diagrams/`, which uses that name 28
-  times.
+  reading a name there clears it everywhere. Demonstrated by A/B probe — with
+  a whitelist naming `rect` present, a dead `rect` planted in `src/core/` went
+  unreported; with the whitelist moved away, it was reported. Generic
+  attribute names (`rect`, `display`, `function`, `github`) are the ones that
+  bite, because a future dead symbol elsewhere can share the name.
 - The only line-scoped suppression is a trailing `# noqa`. Note
   `# vulture: ignore` does **nothing** — it is not a supported form.
 - **Vulture auto-reads `pyproject.toml` from the CWD even without `--config`.**

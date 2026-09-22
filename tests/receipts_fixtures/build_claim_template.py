@@ -71,10 +71,12 @@ def build(path: pathlib.Path = OUT) -> None:
         page.insert_text((54, y), label, fontsize=7, fontname="helv")
         widget = fitz.Widget()
         widget.field_name = name
-        # noqa on the next three: PyMuPDF reads these inside add_widget(),
-        # so vulture sees write-only attributes. Scoped per line rather than
-        # via ignore_names, which is global — `rect` alone is used 28 times
-        # in src/diagrams/ for an unrelated Mermaid node shape.
+        # The three suppressions below: PyMuPDF reads these inside
+        # add_widget(), so vulture sees write-only attributes. Scoped per line
+        # rather than through ignore_names, which applies to the whole
+        # repository — a name listed there is never reported again anywhere,
+        # so a genuinely dead field_type or rect in unrelated code would go
+        # unseen.
         widget.field_type = fitz.PDF_WIDGET_TYPE_TEXT  # noqa
         widget.rect = fitz.Rect(220, y - 9, 380, y + 5)  # noqa
         widget.field_value = ""

@@ -29,6 +29,8 @@ import tempfile
 import unittest
 
 from core.pdf_forms import (
+    DEFAULT_FONT_SIZES,
+    FALLBACK_FONT_SIZE,
     _widget_index,
     fill_text_fields,
     set_checkbox,
@@ -52,9 +54,12 @@ _MISSING_FITZ = (
 
 # The suppressions in the two builders below sit on PyMuPDF's write-only
 # Widget attributes: they are read inside ``page.add_widget()``, so vulture
-# sees a write with no read. Suppressed per line rather than via
-# ``ignore_names``, which is global -- ``rect`` alone is used 28 times in
-# src/diagrams/ for an unrelated Mermaid node shape.
+# sees a write with no read.
+#
+# Suppressed per line rather than through ``ignore_names``, which applies to
+# the whole repository: a name listed there is never reported again anywhere,
+# so a genuinely dead ``field_type`` or ``rect`` in unrelated code would go
+# unseen. The per-line form keeps the exemption where the justification is.
 #
 # (Spelling the directive out in this comment would make ruff parse it as a
 # real one and warn about the missing rule codes, so it is described instead.)
@@ -121,13 +126,28 @@ class PdfFormsRoundTripTests(unittest.TestCase):
 
     def test_narrow_field_gets_the_smaller_font_size(self):
         # font_size_for maps the phone-part prefix to 7pt and leaves wide
-        # fields at the fallback. Assert the size actually stored in the file,
-        # not just the one the helper computed.
+        # fields at the fallback 9pt. Assert the sizes actually stored in the
+        # file, not just the ones the helper computed.
+        #
+        # Both expectations are literals, deliberately. An earlier revision
+        # used assertNotEqual(..., 7) for the wide field, which passes for any
+        # size that is not 7 -- changing the fallback to 22pt left the suite
+        # green. Importing the constants instead does not fix that: the test
+        # and the code would move together, so the assertion would restate the
+        # implementation rather than pin the contract. Verified by mutation --
+        # 9 -> 22 now fails this test.
         set_text_field(self.doc, "2.day_phone.area", "604")
         set_text_field(self.doc, "applicant_name", "Ada Lovelace")
         widgets = self._reopen()
         self.assertEqual(widgets["2.day_phone.area"].text_fontsize, 7)
-        self.assertNotEqual(widgets["applicant_name"].text_fontsize, 7)
+        self.assertEqual(widgets["applicant_name"].text_fontsize, 9)
+
+    def test_the_constants_still_match_the_sizes_pinned_above(self):
+        # The literals above are the contract; these are the knobs. If someone
+        # deliberately changes a size, this fails alongside the round-trip test
+        # and points at the decision rather than at a mysterious 9.
+        self.assertEqual(DEFAULT_FONT_SIZES["2.day_phone."], 7)
+        self.assertEqual(FALLBACK_FONT_SIZE, 9)
 
     def test_fill_text_fields_writes_every_named_field(self):
         counts = fill_text_fields(
