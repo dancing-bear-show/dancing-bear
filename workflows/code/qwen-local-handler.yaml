@@ -293,8 +293,11 @@ stages:
       the survey for every claim about existing behaviour — do not restate this
       YAML's description as if it were evidence.
 
-      Design these five things, and no more (scope is fixed; do not propose
-      replacing the queue, adding a broker, or an agent framework):
+      Design the items below — the six numbered concerns and the nine guards
+      (5b-5j) — and no more. Scope is fixed: do not propose replacing the
+      queue, adding a broker, or an agent framework. If you believe something
+      outside this list is needed, say so in design.md as a recommendation
+      for a future run rather than designing it here.
 
       1. PAYLOAD AND RESULT SCHEMA for job type "{job_type}".
          Payload must carry at minimum: files (list of repo-relative paths to
@@ -576,6 +579,14 @@ stages:
            never let an export failure change the job's outcome, and never
            retry the job because telemetry failed.
 
+      Finally, populate contract.json's files_to_create and files_to_modify
+      with the exact repo paths this design implies — they are what merge-impl
+      checks for presence after merging, so a path missing here becomes a file
+      nobody verifies landed. The impl stages are partitioned by file
+      (impl-handler owns the new handler and telemetry modules plus the
+      registry line; impl-heartbeat owns the queue/runtime files; impl-tests
+      owns tests only), so list each path under the stage that will own it.
+
       Write {workspace}/design/design.md with one section per item above, and
       {workspace}/design/contract.json:
         {
@@ -714,6 +725,19 @@ stages:
           return without calling the model. A short-circuit that skips the
           guards would make explain mode useless for debugging exactly the
           thing it exists to debug.
+        - ADMISSION CAP, per contract.json's "admission". Implement whatever
+          the approved design chose in its "enforced_at" field, and implement
+          it literally — this is the one guard that may legitimately live
+          OUTSIDE the handler (the handler cannot reject an enqueue that has
+          already happened). If the design put it in the enqueue path, that
+          means a change to the enqueue command or queue_ops, which is
+          impl-heartbeat's file territory, not yours: in that case implement
+          nothing here, record it in handler-impl.json under
+          "deferred_to_other_stage", and say so. If the design made it an
+          operator limit surfaced by qwen-admin only, record that it is
+          deliberately unenforced in code. What you must NOT do is silently
+          skip it — an admission cap that exists only in a contract file
+          protects nothing.
         - TELEMETRY (qwen_telemetry.py), per contract.json's telemetry section:
           emit one OTLP span per job matching the record shape recorded in
           survey.json, over stdlib urllib, to the endpoint resolved from the
@@ -938,6 +962,14 @@ stages:
           — critically — still rejects a disallowed path exactly as a real
           run does. That last assertion is what stops explain mode from
           becoming a guard bypass.
+        - ADMISSION CAP: only if contract.json's "admission.enforced_at" puts
+          it in code. Test that a job arriving past the depth ceiling is
+          refused, and that jobs of OTHER types are unaffected at the same
+          depth — the cap is per-lane, and a test that only checks the
+          refusal would pass against an implementation that throttles the
+          whole queue. If the contract declares it an operator limit with no
+          code, write no test and note that in tests-impl.json rather than
+          inventing coverage for something unimplemented.
 
       Mocking: no network and no real model in tests. Mock at the HTTP
       boundary, matching the style recorded in the survey's test_layout.
@@ -1217,7 +1249,7 @@ stages:
         checks: [is_json, has_key:findings, has_key:teeth_test, has_key:verdict]
 
   # ===========================================================================
-  # G4: Integrate — merge the three worktrees, then run the real gates
+  # G5: Integrate — act on review findings, then run the real gates
   # ===========================================================================
   - name: integrate
     kind: execute
@@ -1338,7 +1370,7 @@ stages:
         checks: [is_json, has_key:merge_verified, has_key:tests, has_key:all_gates_passed]
 
   # ===========================================================================
-  # G5: Install — idempotent, check-then-act, full stack
+  # G6: Install — idempotent, check-then-act, full stack
   # ===========================================================================
   - name: install
     kind: execute
@@ -1534,12 +1566,21 @@ stages:
 
       Check 6 — GUARDS PRESENT IN THE MERGED SOURCE. Several guards in
         contract.json have no runtime signal until they fire, so confirm
-        statically that each was implemented: grep the merged handler for
-        the confinement root check, the patch caps, the mask_text call, the
-        disk precheck, and the explain-mode flag. A guard specified in the
-        contract but absent from the source is a BLOCKING finding — the
-        tests may pass on a mock while the real path is unguarded. Name each
-        guard and whether it was found.
+        statically that each was implemented: grep the merged source for the
+        confinement root check, the patch caps, the mask_text call, the disk
+        precheck, the explain-mode flag, and the admission cap. A guard
+        specified in the contract but absent from the source is a BLOCKING
+        finding — the tests may pass on a mock while the real path is
+        unguarded. Name each guard and whether it was found.
+
+        The admission cap is the one guard that may legitimately be absent
+        from the handler: contract.json's "admission.enforced_at" says where
+        it lives, and it may be an enqueue-path change or a documented
+        operator limit with no code at all. Check it against what the
+        contract actually claims, and treat "declared enforced in code but
+        not present" as blocking while "declared an operator limit" is
+        merely reported. An unenforced cap that nobody wrote down as
+        unenforced is the failure to catch here.
 
       Check 7 — MODEL DIGEST RECORDED. Confirm the install stage recorded a
         digest for {model_tag} and that the currently-loaded model's digest
@@ -1572,7 +1613,7 @@ stages:
             {"check": "no_stale_lock",       "passed": true|false, "blocking": false,      "detail": "...", "lock_present": true|false, "holder_pid_alive": true|false|null},
             {"check": "memory_headroom",     "passed": true|false, "blocking": true|false, "detail": "...", "available_gb": N, "required_gb": N},
             {"check": "timeout_coherent",    "passed": true|false, "blocking": true|false, "detail": "...", "job_timeout_passed": true|false, "design_route": "..."},
-            {"check": "guards_in_source",    "passed": true|false, "blocking": true|false, "detail": "...", "found": {"input_confinement": true|false, "patch_caps": true|false, "redaction": true|false, "disk_guard": true|false, "explain_mode": true|false}},
+            {"check": "guards_in_source",    "passed": true|false, "blocking": true|false, "detail": "...", "found": {"input_confinement": true|false, "patch_caps": true|false, "redaction": true|false, "disk_guard": true|false, "explain_mode": true|false, "admission": "in-code|enqueue-path|operator-limit|MISSING"}},
             {"check": "model_digest",        "passed": true|false, "blocking": false,      "detail": "...", "recorded": "...", "observed": "...", "matches": true|false},
             {"check": "patch_output_dir",    "passed": true|false, "blocking": true|false, "detail": "...", "path": "...", "inside_repo": true|false, "writable": true|false, "free_gb": N},
             {"check": "ollama_concurrency",  "passed": true|false, "blocking": false,      "detail": "...", "num_parallel": "...", "max_loaded_models": "..."}
@@ -1792,12 +1833,12 @@ stages:
         checks: [is_json, has_key:idempotence, has_key:job_flow, has_key:verified]
 
   # ===========================================================================
-  # G7: Report — what shipped, what it costs, how to use it
+  # G9: Report — what shipped, what it costs, how to use it
   # ===========================================================================
   - name: report
     kind: propose
     depends_on: [verify]
-    reads_from: [verify, validate-config, install, integrate, design, survey]
+    reads_from: [verify, validate-config, install, integrate, merge-impl, design, survey]
     description: >
       Read every prior stage output and write {workspace}/validation/report.md.
       Cite the stage files for each claim; do not restate intent as outcome.
@@ -1805,7 +1846,10 @@ stages:
       ## Qwen Local Handler — Report
 
       ### What shipped
-      Files created and modified, from integrate.json's files_landed.
+      Files created and modified, from merge.json's "merged" entries (each
+      carries the stage, branch and commit SHA) plus its files_present list.
+      Note any stage merge.json recorded under no_change_stages, with its
+      reason — a stage that legitimately shipped nothing is not a gap.
 
       ### Design decisions
       One line each for the five contract.json sections, plus the standing
