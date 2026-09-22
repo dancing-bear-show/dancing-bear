@@ -121,21 +121,22 @@ stages:
   # ===========================================================================
   # 3. Fan out one isolated tester per TEST FILE (never per symbol).
   # ===========================================================================
-  # ISOLATION IS ADVISORY, NOT A SCHEMA FIELD. The workflow parser
-  # (src/workflow/parser_fields.py) has no `isolation` key and silently drops
-  # one if present — so it is NOT set on the stage. Instead, the orchestrating
-  # session MUST pass isolation:"worktree" on each fan-out Agent() tool call for
-  # this stage (see the ORCHESTRATOR ISOLATION note in the description). That is
-  # what makes each per-file tester run in its own worktree.
+  # `agent.isolation` IS a real schema field — set on the `agent:` block below.
+  # It is parsed and validated by src/workflow/parser_fields.py
+  # (_KNOWN_AGENT_KEYS / _VALID_ISOLATIONS), carried into the compiled manifest
+  # as agent_isolation, and passed to Agent() by the orchestrator — see PR #239,
+  # "make agent.isolation actually isolate, end to end". Per-file isolation is
+  # what guarantees the collision-safety below; without it these testers would
+  # write the shared tree concurrently.
   - name: add-sad-tests
     kind: execute
     depends_on: [approve-fixes]
     reads_from: [load-gaps]
     description: >
-      ORCHESTRATOR ISOLATION (read first): spawn EACH fan-out agent for this
-      stage with isolation:"worktree" on the Agent() call — the YAML cannot
-      encode this. Per-file isolation is what guarantees the collision-safety
-      below; without it these testers would write the shared tree concurrently.
+      You run in your OWN git worktree (this stage declares
+      agent.isolation: worktree), so your edits never collide with another
+      tester's. They also do not merge back on their own — see the merge-back
+      note at the end of this stage.
 
       Add sad-path (error/edge) tests to ONE test file: {test_file}. Cover every
       gap symbol in this file's "symbols" list. Because fan-out is per file,
@@ -205,6 +206,7 @@ stages:
       model: sonnet
       tools: [Read, Write, Edit, Bash]
       access: read-write
+      isolation: worktree
     required: true
     fan_out:
       source: load-gaps
