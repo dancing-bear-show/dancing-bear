@@ -437,6 +437,55 @@ class TestLazyGmailClient(unittest.TestCase):
             # Should return the class, not an instance
             self.assertIs(result, mock_client)
 
+    @staticmethod
+    def _snapshot_parent_attr(name):
+        """Return (parent, attr, value, existed) for `name`'s parent package."""
+        import sys
+
+        parent_name, _, attr = name.rpartition(".")
+        parent = sys.modules.get(parent_name)
+        if parent is None:
+            return None
+        existed = hasattr(parent, attr)
+        return (parent, attr, getattr(parent, attr) if existed else None, existed)
+
+    @staticmethod
+    def _restore_parent_attr(snapshot):
+        """Put a parent-package attribute back, or remove one we created."""
+        parent, attr, value, existed = snapshot
+        if existed:
+            setattr(parent, attr, value)
+            return
+        # Created by our re-import; removing it prevents a dangling attribute
+        # pointing at a module no longer in sys.modules.
+        try:
+            delattr(parent, attr)
+        except AttributeError:
+            pass
+
+    def _unload_modules(self, names):
+        """Pop `names` from sys.modules and register full restoration.
+
+        Restoring sys.modules alone is not enough: re-importing a submodule
+        rebinds the attribute on its PARENT package, so cleanup must put that
+        back too, or sys.modules and the package attribute end up naming
+        different module objects and later tests become order-dependent.
+        """
+        import sys
+
+        removed = {n: sys.modules.pop(n) for n in names if n in sys.modules}
+        snapshots = [s for s in (self._snapshot_parent_attr(n) for n in names)
+                     if s is not None]
+
+        def restore():
+            for name in names:
+                sys.modules.pop(name, None)
+            sys.modules.update(removed)
+            for snapshot in snapshots:
+                self._restore_parent_attr(snapshot)
+
+        self.addCleanup(restore)
+
     def test_lazy_import_not_at_module_load(self):
         # mail.gmail_api pulls in heavy/optional dependencies, so
         # mail.accounts.helpers must not import it until _lazy_gmail_client()
@@ -445,30 +494,7 @@ class TestLazyGmailClient(unittest.TestCase):
         # absent from sys.modules until the function runs.
         import sys
 
-        names = ("mail.accounts.helpers", "mail.gmail_api")
-        removed = {}
-        # Re-importing rebinds the attribute on the PARENT package too, so
-        # restoring sys.modules alone leaves mail.accounts.helpers pointing at
-        # the re-imported object while sys.modules holds the original. A later
-        # test that patches through one path and reads through the other then
-        # sees a stale module, making the suite order-dependent.
-        parent_attrs = {}
-        for name in names:
-            if name in sys.modules:
-                removed[name] = sys.modules.pop(name)
-            parent_name, _, attr = name.rpartition(".")
-            parent = sys.modules.get(parent_name)
-            if parent is not None and hasattr(parent, attr):
-                parent_attrs[name] = (parent, attr, getattr(parent, attr))
-
-        def restore():
-            for name in names:
-                sys.modules.pop(name, None)
-            sys.modules.update(removed)
-            for parent, attr, value in parent_attrs.values():
-                setattr(parent, attr, value)
-
-        self.addCleanup(restore)
+        self._unload_modules(("mail.accounts.helpers", "mail.gmail_api"))
 
         import mail.accounts.helpers as helpers_module
 
