@@ -33,7 +33,13 @@ class _FoldersHost(Protocol):
     def get_folder_path_map(
         self, ttl: int = ..., clear_cache: bool = ..., bypass_cache: bool = ...
     ) -> dict[str, str]: ...
+    def _folded_folder_path_map(
+        self, ttl: int = ..., fresh: bool = ...
+    ) -> dict[str, str]: ...
     def _ensure_child_folder(self, parent_id: str, seg: str) -> str: ...
+
+    # Memoised fresh path map, set by ``_folded_folder_path_map`` on first use.
+    _fresh_folder_map: dict[str, str] | None
 
 
 class FoldersMixin:
@@ -224,6 +230,21 @@ class FoldersMixin:
         exists.  ``clear_cache=True`` would work but wipes the entire provider
         cache, including unrelated rule caches.
 
+        A fresh read happens ONCE per client, not once per path.  ``fresh=True``
+        on every call meant the snapshot written by the first lookup was discarded
+        by the next, so N distinct destinations cost N complete folder-tree walks
+        -- O(destinations x folders) of Graph traffic, with throttling risk.  The
+        first fresh call now memoises the whole path map on the client and every
+        later lookup reads it, which is also what makes a MISS cheap: an absent
+        folder is answered from the map rather than by walking the tree again.
+
+        Matching is case-insensitive, because the apply is: ``_ensure_child_folder``
+        compares child names with ``seg.lower()``, so a live sync resolves
+        ``Archive/news`` to an existing ``Archive/News``.  An exact-match lookup
+        here reported that path absent and the preview offered to create a folder
+        that already exists -- the same preview/apply divergence in yet another
+        form.  The canonical path is kept for display; only the lookup is folded.
+
         Callers that genuinely want the cached map already have
         ``get_folder_path_map``; pass ``fresh=False`` here to reuse it.
         """
@@ -235,7 +256,29 @@ class FoldersMixin:
         parts = [p for p in (path or "").split("/") if p]
         if not parts:
             raise ValueError("Folder path is empty")
-        return self.get_folder_path_map(ttl=ttl, bypass_cache=fresh).get("/".join(parts), "")
+
+        folded = self._folded_folder_path_map(ttl=ttl, fresh=fresh)
+        return folded.get("/".join(parts).casefold(), "")
+
+    def _folded_folder_path_map(
+        self: "_FoldersHost",
+        ttl: int = 600,
+        fresh: bool = True,
+    ) -> dict[str, str]:
+        """Case-folded path -> id, read fresh at most once per client.
+
+        Split out so the fresh traversal is shared. ``resolve_folder_path`` is
+        called once per destination, and re-walking the tree for each one is the
+        difference between one Graph round trip and one per folder in the plan.
+        """
+        cached = getattr(self, "_fresh_folder_map", None)
+        if cached is not None and fresh:
+            return cached
+        raw = self.get_folder_path_map(ttl=ttl, bypass_cache=fresh)
+        folded = {p.casefold(): fid for p, fid in raw.items()}
+        if fresh:
+            self._fresh_folder_map = folded
+        return folded
 
     def ensure_folder_path(self: "_FoldersHost", path: str) -> str:
         """Ensure a nested folder path exists and return the leaf folder id.

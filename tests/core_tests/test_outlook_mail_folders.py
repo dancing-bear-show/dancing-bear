@@ -395,6 +395,50 @@ class TestResolveFolderPath(OutlookMailTestBase):
                     f"{raw!r} reported the folder absent",
                 )
 
+    @patch("core.outlook._mail_folders._requests")
+    def test_matching_is_case_insensitive_like_the_apply(self, mock_requests_fn):
+        """Casing must not decide whether a folder is found.
+
+        Raised in the review body rather than an inline thread. The apply path is
+        case-insensitive for nested segments -- ``_ensure_child_folder`` compares
+        with ``seg.lower()`` -- so a live sync resolves ``Archive/news`` to an
+        existing ``Archive/News``. An exact-match lookup here reported that path
+        absent, and the preview offered to create a folder that already exists.
+        """
+        for raw in ("Archive/news", "ARCHIVE/NEWS", "archive/News"):
+            with self.subTest(path=raw):
+                self._mock_tree(mock_requests_fn)
+                self.assertEqual(
+                    FakeMailClient().resolve_folder_path(raw), "id-news",
+                    f"{raw!r} reported absent; the apply would have resolved it",
+                )
+
+    @patch("core.outlook._mail_folders._requests")
+    def test_one_fresh_traversal_serves_every_destination(self, mock_requests_fn):
+        """N distinct destinations cost ONE folder-tree walk, not N.
+
+        Also from the review body. ``fresh=True`` on every call meant the snapshot
+        written by the first lookup was discarded by the next, so a plan with
+        several uncached destinations performed a complete traversal per
+        destination -- O(destinations x folders) of Graph traffic and real
+        throttling risk. The map is now memoised on the client after the first
+        fresh read, which is also what makes a MISS cheap.
+        """
+        client = FakeMailClient()
+        self._mock_tree(mock_requests_fn)
+
+        hit_a = client.resolve_folder_path("Archive/News")
+        hit_b = client.resolve_folder_path("Receipts")
+        miss = client.resolve_folder_path("Archive/Nope")
+
+        self.assertEqual((hit_a, hit_b, miss), ("id-news", "id-flat", ""))
+        # One BFS: the root listing plus one child call per folder. A second
+        # traversal would multiply this, so assert the exact call count.
+        self.assertEqual(
+            mock_requests_fn.return_value.get.call_count, 1 + len(self.FOLDERS),
+            "more than one folder-tree traversal for three destinations",
+        )
+
     def test_empty_path_raises(self):
         """Matches ``ensure_folder_path``: an empty path is a caller error.
 
