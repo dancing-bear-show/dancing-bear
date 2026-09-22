@@ -94,26 +94,54 @@ if len(lines) > 200:
 #
 # A separate counter file keeps counting past the trim. It is stored alongside
 # the history with the same 0600 permissions.
+#
+# The increment must be LOCKED and its success must GATE the rename:
+#
+#  - The installer registers this hook with `async: true`, so two
+#    UserPromptSubmit processes can overlap. An unlocked read/increment/write
+#    lets both read the same value, both write it back, and both fire — a
+#    duplicate model call plus a lost count.
+#  - If the write fails, a later run re-seeds from the trimmed history. With the
+#    history pinned at 200 that seeds 199, `+1` gives 200, and `200 % 20 == 0`
+#    fires on EVERY prompt — reintroducing the exact bug this counter exists to
+#    prevent. So a count that was not durably stored must not open the gate.
 counter_file = os.path.join(cache_dir, f"count-{safe_id}.txt")
+count = None
 try:
-    with open(counter_file) as f:
-        count = int(f.read().strip() or "0")
-except (OSError, ValueError):
-    # No counter yet (or a corrupt one): seed from the history length so an
-    # existing install does not restart its cadence from zero. `lines` already
-    # includes the prompt appended just above, so subtract it — otherwise this
-    # prompt is counted twice and every later count is one too high.
-    count = max(len(lines) - 1, 0)
+    # O_CREAT without O_TRUNC: open (or create) then lock before reading, so a
+    # concurrent process waits rather than racing us between read and write.
+    fd = os.open(counter_file, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        try:
+            import fcntl
 
-count += 1
-try:
-    fd = os.open(counter_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        f.write(str(count))
-except OSError:  # nosec B110 - best-effort; a failed counter write only affects cadence
-    pass
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        except (ImportError, OSError):  # nosec B110 - no flock (e.g. some network FS): proceed unlocked
+            pass
 
-if count % 20 == 0:
+        raw = os.read(fd, 64).decode("utf-8", "replace").strip()
+        try:
+            stored = int(raw)
+        except ValueError:
+            # Empty (just created) or corrupt: seed from the history length. `lines`
+            # already includes the prompt appended above, so subtract it, or this
+            # prompt is counted twice.
+            stored = max(len(lines) - 1, 0)
+
+        nxt = stored + 1
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.truncate(fd, 0)
+        os.write(fd, str(nxt).encode("utf-8"))
+        os.fsync(fd)
+        count = nxt  # only set once the value is durably on disk
+    finally:
+        os.close(fd)
+except OSError:
+    # Counter unavailable. Skip the rename rather than guessing a count: a
+    # guessed one fires every prompt at the saturated history length.
+    count = None
+
+if count is not None and count % 20 == 0:
     recent = "".join(lines[-20:])
     pr_number = _detect_pr_number()
     pr_hint = (

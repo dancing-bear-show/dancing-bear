@@ -384,6 +384,13 @@ monotonic counter in `count-<session>.txt`, not from the prompt-history line
 count — the history is trimmed to 200 lines, and deriving the cadence from that
 made the rename fire on every prompt once the file saturated.
 
+The counter is incremented under an `flock`, because the hook is registered
+`async: true` and two invocations can overlap. If the counter cannot be written,
+the hook skips the rename for that prompt rather than guessing a count — a
+guessed one lands on 200 at the saturated history length and fires every time.
+So a session whose cache directory is read-only gets no automatic renaming, and
+no surprise `claude -p` calls either.
+
 It records the first 120 characters of each prompt to
 `<resolved cache dir>/prompts-*.txt` — report the path you resolved in Step 0,
 not a hard-coded `~/.cache`, since the hook honours `XDG_CACHE_HOME` — and sends
