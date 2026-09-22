@@ -27,6 +27,22 @@
 # Runs unattended end to end. There is no human gate: replies are posted and
 # threads are resolved without confirmation. That is the point of the workflow,
 # and it is also its main risk — see resolve-threads for what constrains it.
+#
+# THREAD IDS ARE THE ADDRESSING, AND THEY HAVE BEEN CORRUPTED BEFORE.
+# On PR #391, triage-threads emitted ids shifted by one position within each
+# file's thread list — 9 of 16 wrong across two files, every thread carrying
+# its neighbour's id — and fabricated one by appending a description to a real
+# id ("PRRT_kwDO..._missing_defer_case"). The fixes themselves were all
+# correct, so nothing downstream noticed: the failure is in the addressing,
+# not the work, and no test or lint can see it.
+#
+# Left alone it would have posted every reply onto the wrong thread and
+# resolved it with a confident, unrelated explanation, while the fabricated id
+# failed resolveReviewThread so that real thread was never answered at all.
+# Three gates now guard it: triage is told to copy ids verbatim and self-check
+# (prose, weakest), fix-dispatch Step 1b repairs against threads.json and halts
+# on an unrepairable id (structural, the real fix), and resolve-threads Step
+# 1a0 re-asserts validity before posting and aborts rather than guessing.
 
 name: review-fix-threads
 version: "1.0"
@@ -173,6 +189,31 @@ stages:
       {max_threads}". Record the overflow count explicitly in the summary —
       a silently truncated fan-out reads as a completed run.
 
+      COPY EVERY thread_id VERBATIM. Never retype, reconstruct, shorten or
+      derive one, and never append a descriptive suffix to make it readable —
+      a thread_id is an opaque GraphQL node id and the only handle that
+      reaches the real thread.
+
+      This is not a hypothetical. On one run this stage emitted ids shifted by
+      one position within each file's thread list (every thread carrying its
+      NEIGHBOUR's id, 9 of 16 wrong across two files) and fabricated a
+      plausible-looking id by gluing a description onto a real one —
+      "PRRT_kwDO..._missing_defer_case". Nothing downstream noticed, because
+      the FIXES were all correct; only the addressing was wrong. The damage
+      lands at the end: resolve-threads posts each reply onto the wrong
+      thread and resolves it with a confidently wrong explanation, while the
+      fabricated id fails resolveReviewThread outright so that real thread is
+      never answered at all.
+
+      So, when building each entry: take the thread object from threads.json
+      and copy its thread_id, path and line across together, as a unit. Do not
+      assemble the list from memory or from the diff, and do not reorder.
+
+      SELF-CHECK BEFORE WRITING, and report the result in the summary: every
+      thread_id you are about to write must appear in threads.json. Compare
+      the two sets and fix any difference by re-reading threads.json — never
+      by adjusting an id to look right.
+
       Step 5 — write {workspace}/outputs/triage.json:
         {
           "pr_number": "{pr_number}",
@@ -205,6 +246,15 @@ stages:
     writes_to:
       - triage.json
       - triage-summary.md
+    validates_output:
+      # Structural only. The engine's checks cannot assert that each thread_id
+      # is REAL — has_key proves presence, never validity, and
+      # list_items_have_key needs a top-level list while this file is a dict.
+      # The id-validity gate therefore lives in fix-dispatch (Step 1b) and is
+      # re-asserted in resolve-threads (Step 1a0), where threads.json can
+      # actually be consulted.
+      - path: outputs/triage.json
+        checks: [is_json, has_key:threads, has_key:counts]
 
   # ===========================================================================
   # Fix — one agent per actionable thread
@@ -221,6 +271,44 @@ stages:
 
       Step 1 — read {workspace}/outputs/triage.json and
       {workspace}/outputs/threads.json.
+
+      Step 1b — VALIDATE AND REPAIR THREAD IDS BEFORE ANYTHING ELSE. This gate
+      exists because triage has been observed emitting ids shifted by one
+      position within a file, and fabricating one by appending a description
+      to a real id. Both are invisible later: the fixes come out correct and
+      only the addressing is wrong, so the run looks healthy until
+      resolve-threads posts replies onto the wrong threads.
+
+      CHECK THE PAIRING, NOT JUST EXISTENCE. This distinction is the whole
+      gate, and getting it wrong makes the check near-useless: of the 8 bad
+      ids on the observed run, only ONE — the fabricated one — was absent from
+      the fetch. The other 7 were perfectly real ids belonging to OTHER
+      threads, so "does this id exist?" waved them all through. A shifted id
+      does not error at resolve time; it succeeds, against the wrong thread.
+      What identifies a thread is its (path, line) pair, and the only valid
+      test is whether the id triage attached to that pair is the id the fetch
+      attached to it.
+
+      threads.json is authoritative. For every entry in triage.json:
+
+        1. Build a (path, line) -> id map and the id set from threads.json.
+        2. Look up the entry's own (path, line). If the mapped id differs from
+           the entry's thread_id, the entry is CORRUPT — whether or not its id
+           exists somewhere in the fetch. Replace it with the mapped id.
+        3. An entry whose (path, line) is absent from threads.json cannot be
+           repaired: it names no real thread. HALT the whole stage and report
+           it. Do not drop it silently and do not guess.
+        4. PR-level entries (path null, or resolvable false) have no line to
+           pair on. Check only that their id, if present, exists in the fetch;
+           an entry with a null thread_id is expected there and is fine.
+        5. Rewrite triage.json in place, recording "_id_repairs" as a list of
+           (old, new, path, line) so the run is auditable.
+
+      Then assert both, and fail the stage if either does not hold:
+        - every (path, line) in triage.json maps to the fetch's id for it
+        - every thread_id in triage.json exists in threads.json
+      Print the counts checked and repaired. Zero repairs is the normal case
+      and must be stated explicitly rather than passing in silence.
 
       Step 2 — select threads with directive "fix". If there are none, write an
       index with total 0 and an empty items list and exit 0. A PR whose threads
@@ -666,6 +754,27 @@ stages:
       replies here. Composing prose at the moment of posting is how an
       unattended run says something nobody reviewed; check-prose owns that
       text, and its absence means the run is not ready to post.
+
+      Step 1a0 — ID PAIRING GATE, before any posting decision. Read
+      {workspace}/outputs/threads.json and build a (path, line) -> thread_id
+      map. For every thread you are about to reply to or resolve, the id must
+      be the one the fetch paired with that same (path, line).
+
+      Check the PAIRING, not mere existence. On the observed run, 7 of the 8
+      corrupt ids were real ids belonging to other threads — they pass any
+      "does this id exist?" test and then resolve SUCCESSFULLY, against the
+      wrong thread. Only one was fabricated and would have errored. So an
+      existence check catches the harmless failure and misses the harmful one:
+      each reply lands on its neighbour's thread and resolves it with a
+      confident, unrelated explanation, and nothing reports an error.
+
+      If any id fails this check, ABORT the stage exactly as in Step 0: post
+      nothing, resolve nothing, and name the offending ids. Do NOT attempt to
+      repair them here — repair belongs in fix-dispatch, where threads.json
+      can be consulted before any agent has acted on the wrong mapping.
+      Arriving at this stage with a bad id means an earlier gate failed, and
+      posting anyway on a best guess is precisely the irreversible mistake
+      this stage's fail-closed design exists to prevent.
 
       Step 1a — build the do-not-resolve set. A thread goes in it when any of
       these hold, regardless of what triage intended:
