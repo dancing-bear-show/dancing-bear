@@ -52,7 +52,7 @@ Use the Write/Edit tool to run this patch script, or execute it directly via Bas
 
 ```bash
 python3 -I -S - << 'PY'
-import json, os, sys
+import json, os, sys, tempfile
 
 settings_path = os.path.expanduser("~/.claude/settings.json")
 
@@ -86,8 +86,27 @@ else:
         "hooks": [{"type": "command", "async": True, "command": hook_command}]
     })
     hooks["UserPromptSubmit"] = existing
-    with open(settings_path, "w") as f:
-        json.dump(settings, f, indent=2)
+    # Atomic write: serialize to a temp file in the same directory, then
+    # os.replace. A direct open(path, "w") truncates first, so an interrupt or
+    # a full disk mid-dump would leave settings.json empty or partial —
+    # destroying every hook, permission and env var the user has configured.
+    # Mirrors core.fileutil.atomic_write_json, inlined because this script runs
+    # standalone under python3 -I -S and cannot import repo modules.
+    fd = tempfile.NamedTemporaryFile(
+        mode="w", dir=os.path.dirname(settings_path),
+        delete=False, suffix=".tmp", encoding="utf-8",
+    )
+    try:
+        json.dump(settings, fd, indent=2)
+        fd.close()
+        os.replace(fd.name, settings_path)
+    except Exception:
+        fd.close()
+        try:
+            os.unlink(fd.name)
+        except OSError:
+            pass
+        raise
     print("Added UserPromptSubmit hook to ~/.claude/settings.json")
 PY
 ```
