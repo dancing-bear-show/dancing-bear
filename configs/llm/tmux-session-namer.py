@@ -35,9 +35,14 @@ def _detect_pr_number() -> str:
     if not shutil.which("gh"):
         return ""
     try:
+        # Clear any inherited GITHUB_TOKEN: a stale one makes gh fail auth, and
+        # because stderr is captured the failure is silent — PR detection just
+        # returns "" and the pr-<N>- prefix disappears with no indication why.
+        # Matches the `GITHUB_TOKEN= gh ...` contract used across this repo.
+        env = {**os.environ, "GITHUB_TOKEN": ""}
         result = subprocess.run(  # nosec B603 B607 - fixed args from shutil.which-validated path
             ["gh", "pr", "view", "--json", "number", "-q", ".number"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True, text=True, timeout=5, env=env,
         )
         if result.returncode != 0:
             return ""

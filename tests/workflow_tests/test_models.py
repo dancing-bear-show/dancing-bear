@@ -208,11 +208,11 @@ class TestOutputSpec(unittest.TestCase):
         spec = OutputSpec(
             name="cli-out",
             mode=OutputMode.invoke,
-            skill="/bin/github pr-view",
+            skill="/bin/example-cli sub-command",
             input_mapping={"pr_id": "--pr"},
         )
         self.assertEqual(spec.mode, OutputMode.invoke)
-        self.assertEqual(spec.skill, "/bin/github pr-view")
+        self.assertEqual(spec.skill, "/bin/example-cli sub-command")
         self.assertEqual(spec.input_mapping, {"pr_id": "--pr"})
 
     def test_template_mode(self) -> None:
