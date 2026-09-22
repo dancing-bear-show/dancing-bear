@@ -189,6 +189,7 @@ def _lint_fragment(p: Path, text: str, result: LintResult) -> LintResult:
 
     result.stages = len(stages)
     result.dag_depth = _compute_dag_depth(stages)
+    _check_stage_access(stages, result)
     result.valid = True
     return result
 
@@ -378,12 +379,26 @@ def _check_agent_access(defn: object, result: LintResult) -> None:
     and the tree still ran, so failing the lint would break every existing
     workflow over a field that changes no behaviour.
     """
-    from workflow.models import AgentAccess, WorkflowDefinition
+    from workflow.models import WorkflowDefinition
 
     if not isinstance(defn, WorkflowDefinition):
         return
+    _check_stage_access(defn.stages, result)
+
+
+def _check_stage_access(stages: tuple[object, ...], result: LintResult) -> None:
+    """Apply the access cross-check to a bare sequence of stages.
+
+    Split out from ``_check_agent_access`` so fragments get the same treatment.
+    ``lint_workflow`` returns through ``_lint_fragment`` for any file declaring
+    ``fragment: true``, well before the full-workflow checks run -- so a fragment
+    carrying either mismatch was accepted silently. 19 fragment files were
+    unchecked, including the shared ones every workflow includes.
+    """
+    from workflow.models import AgentAccess
+
     cannot_write = _roles_that_cannot_write()
-    for stage in defn.stages:
+    for stage in stages:
         agent = getattr(stage, "agent", None)
         if agent is None:
             continue

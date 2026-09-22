@@ -405,6 +405,45 @@ class TestCheckAgentAccess(unittest.TestCase):
             ".claude/agents/researcher.md", self._access_warnings(result)[0].message
         )
 
+    def test_fragment_stages_are_checked(self) -> None:
+        """Fragments get the same check as full workflows.
+
+        ``lint_workflow`` returns through ``_lint_fragment`` for any file
+        declaring ``fragment: true``, before the full-workflow checks run. The
+        access check originally sat only on the full path, so all 19 fragment
+        files in the tree -- including the shared ones every workflow includes --
+        were accepted without it.
+        """
+        result = self._lint(
+            "fragment: true\n"
+            "stages:\n"
+            "  - name: frag-stage\n"
+            "    kind: gather\n"
+            "    description: Fragment stage\n"
+            "    agent:\n"
+            "      role: researcher\n"
+            "      tools: [Bash, Read, Write]\n"
+            "      access: read-only\n"
+        )
+        warnings = self._access_warnings(result)
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(warnings[0].stage, "frag-stage")
+
+    def test_clean_fragment_produces_no_access_warning(self) -> None:
+        """The fragment path must not warn on a correctly declared stage."""
+        result = self._lint(
+            "fragment: true\n"
+            "stages:\n"
+            "  - name: frag-stage\n"
+            "    kind: gather\n"
+            "    description: Fragment stage\n"
+            "    agent:\n"
+            "      role: researcher\n"
+            "      tools: [Bash, Read, Write]\n"
+            "      access: read-write\n"
+        )
+        self.assertEqual(self._access_warnings(result), [])
+
 
 if __name__ == "__main__":
     unittest.main()
