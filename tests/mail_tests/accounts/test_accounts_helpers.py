@@ -445,15 +445,28 @@ class TestLazyGmailClient(unittest.TestCase):
         # absent from sys.modules until the function runs.
         import sys
 
+        names = ("mail.accounts.helpers", "mail.gmail_api")
         removed = {}
-        for name in ("mail.accounts.helpers", "mail.gmail_api"):
+        # Re-importing rebinds the attribute on the PARENT package too, so
+        # restoring sys.modules alone leaves mail.accounts.helpers pointing at
+        # the re-imported object while sys.modules holds the original. A later
+        # test that patches through one path and reads through the other then
+        # sees a stale module, making the suite order-dependent.
+        parent_attrs = {}
+        for name in names:
             if name in sys.modules:
                 removed[name] = sys.modules.pop(name)
+            parent_name, _, attr = name.rpartition(".")
+            parent = sys.modules.get(parent_name)
+            if parent is not None and hasattr(parent, attr):
+                parent_attrs[name] = (parent, attr, getattr(parent, attr))
 
         def restore():
-            for name in ("mail.accounts.helpers", "mail.gmail_api"):
+            for name in names:
                 sys.modules.pop(name, None)
             sys.modules.update(removed)
+            for parent, attr, value in parent_attrs.values():
+                setattr(parent, attr, value)
 
         self.addCleanup(restore)
 

@@ -301,16 +301,31 @@ stages:
         - {test_file}: look up this item in outputs/triage.json by its
           file_slug and substitute the real repo-relative path.
         - Because this stage is isolation:"worktree", the agent cannot read the
-          shared workspace. BEFORE spawning, write that item's confirmed
-          defects to <agent-cwd>/inputs/defects.json and point the agent at
-          that absolute path. Do NOT tell it to read {workspace}/outputs/...
+          shared workspace. The engine copies declared upstream outputs to
+          <agent-cwd>/inputs/outputs/triage.json, but that is the WHOLE triage
+          file, not this item. Two options, in order of preference:
+            (a) PER-ITEM STAGING (preferred, and what the first real run did):
+                after the worktree exists and before the agent starts work,
+                write just this item's confirmed defects to
+                <agent-cwd>/inputs/defects.json and give the agent that
+                absolute path. It cannot then pick the wrong slug.
+            (b) If you cannot stage per item, point the agent at the copied
+                <agent-cwd>/inputs/outputs/triage.json and tell it to select
+                the entry whose file_slug matches ITS slug — and to FAIL if no
+                entry matches, never to fall back to the first item.
+          Whichever you choose, say which path the agent should read. Do NOT
+          tell it to read {workspace}/outputs/... — that path is unreachable
+          from inside the worktree.
 
       Rectify every CONFIRMED defect in ONE test file ({test_file}, resolved
       above). Because fan-out is per file, you are the only writer for it.
 
       Read your defect list from the absolute path under YOUR OWN cwd that the
-      orchestrator gave you (inputs/defects.json). Work ONLY on defects whose
-      verdict is "confirmed"; ignore rejected ones entirely.
+      orchestrator named for you — either inputs/defects.json (already narrowed
+      to your file) or inputs/outputs/triage.json (the whole triage file, from
+      which you select the entry whose file_slug matches YOUR slug, and FAIL if
+      none does rather than defaulting to the first item). Work ONLY on defects
+      whose verdict is "confirmed"; ignore rejected ones entirely.
 
       Before writing: Read {test_file} and match its imports, fixtures, class
       structure and assertion style. Read tests/AGENTS.md, tests/fixtures.py and
@@ -395,13 +410,45 @@ stages:
                      "assertion":"..."}],
           "consolidated": [{"replaced_by":"test_new_subtest_method",
                             "removed":["test_old_a","test_old_b"]}],
+          "renamed": [{"from":"test_workflow_stage_is_callable",
+                       "to":"test_workflow_stage_invocation_returns_result"}],
           "unittest": "PASS"|"FAIL",
           "committed": true,
           "notes": "..."
         }
-      "consolidated" MUST list every method you collapsed away, or
-      validate-fixes will read the missing methods as an unapproved deletion
-      and fail the run. Empty list if you collapsed nothing.
+      "consolidated" MUST list every method you collapsed away, and "renamed"
+      MUST list every method whose name you changed — Class A permits a rename
+      when the old name misdescribes the strengthened assertion, but an
+      unrecorded rename is indistinguishable from a deletion plus an unrelated
+      addition, and validate-fixes will fail the run on it. Empty lists if you
+      did neither.
+
+      A rename is net-zero for the suite count (one name out, one name in), so
+      it must NOT be counted as either an addition or an approved removal in
+      the delta arithmetic — record it here and nowhere else.
+
+      ORCHESTRATOR — MERGE-BACK, AFTER THE WHOLE FAN-OUT GROUP COMPLETES AND
+      BEFORE validate-fixes RUNS. Committing inside the worktree is necessary
+      but NOT sufficient: isolation:"worktree" puts each tester on its own
+      worktree-agent-* branch, and validate-fixes reads the PARENT working
+      tree. Skip this and every method will read as missing — the first real
+      run only passed because these merges were performed by hand.
+
+      For each fan-out item:
+        1. git log --oneline <target-branch>..<agent-branch>
+           MUST be non-empty. An empty range means the tester edited without
+           committing, so the merge would be a silent no-op that still reports
+           success. Fail that item loudly instead.
+        2. git merge --no-ff <agent-branch> -m "merge: <file_slug>"
+           Each tester touches exactly ONE distinct test file, so these cannot
+           conflict with each other; a conflict means the per-file invariant
+           was violated and is a hard failure, not something to resolve.
+        3. Copy <agent-cwd>/outputs/fixed/<file_slug>.json back to
+           {workspace}/outputs/fixed/, since the agent wrote it inside its own
+           worktree and validate-fixes reads the shared workspace.
+        4. After all merges, confirm `git diff --name-only <baseline_sha>...HEAD`
+           lists exactly the expected test files and NO source file. A source
+           file here means a tester left a teeth-proof edit behind.
     agent:
       role: tester
       model: sonnet
@@ -479,9 +526,21 @@ stages:
       against the diff itself:
         git diff <base>...HEAD -- tests/ | grep -c '^+    def test_'
         git diff <base>...HEAD -- tests/ | grep -c '^-    def test_'
+      Renames are net-zero and must be neutralised on BOTH sides before
+      comparing: for every entry in a summary's "renamed" list, the old name
+      appears as a '-    def test_' line and the new name as a '+    def test_'
+      line, so subtract one from each raw diff count. A rename left in the raw
+      counts looks exactly like an unapproved deletion paired with a stray
+      addition. The first real run renamed one method in test_handlers.py, so
+      this is not hypothetical.
+
       Those two counts must reconcile with the suite delta. Any discrepancy —
       in either direction — is an unapproved deletion or an accidental
       addition; report it and fail. Never accept a count you cannot explain.
+
+      Also verify every recorded rename actually happened: the "from" name must
+      be ABSENT from the file on disk and the "to" name PRESENT. A rename
+      recorded but not performed, or performed but not recorded, both fail.
 
       A consolidation counts as APPROVED only if the per-file summary lists it
       under "consolidated" with the removed method names and the single method
