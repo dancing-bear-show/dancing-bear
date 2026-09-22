@@ -4,6 +4,7 @@ description: Analyze Claude Code session cost, efficiency, and usage using danci
 allowed-tools:
   - Bash
   - Read
+  - Task
 ---
 
 # Telemetry Analysis
@@ -20,7 +21,7 @@ Analyze Claude Code session cost, efficiency, and usage using `./bin/telemetry`.
 
 ## Data Source
 
-`./bin/telemetry` reads `~/.claude/projects/*.jsonl` transcripts directly — no setup, no collector, always works.
+`./bin/telemetry` reads `~/.claude/projects/<project>/*.jsonl` transcripts directly (recursive — one directory per project, plus older `*/subagents/` layouts) — no setup, no collector, always works.
 
 ## What This Skill Does
 
@@ -29,7 +30,7 @@ Analyze Claude Code session cost, efficiency, and usage using `./bin/telemetry`.
 ```bash
 ./bin/telemetry history -d 7     # Sessions from last 7 days
 ./bin/telemetry summary          # Current session detail (tokens, cost, top tools)
-./bin/telemetry cost -d 7        # Daily cost breakdown by model tier
+./bin/telemetry cost --since 7d --group-by day   # Daily cost breakdown
 ```
 
 ### 2. Generate Analysis Report
@@ -45,7 +46,7 @@ Synthesize the command output into a markdown report with:
 
 ```bash
 ./bin/telemetry history -d 14    # Last 14 days
-./bin/telemetry cost -d 30       # Last 30 days
+./bin/telemetry cost --since 30d --group-by day  # Last 30 days
 ```
 
 ### 4. Output Options
@@ -68,7 +69,7 @@ Synthesize the command output into a markdown report with:
 
 2. Gather cost breakdown:
    ```bash
-   ./bin/telemetry cost -d 7
+   ./bin/telemetry cost --since 7d --group-by day
    ```
 
 3. Gather current session detail:

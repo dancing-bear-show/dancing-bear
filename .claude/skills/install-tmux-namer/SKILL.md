@@ -51,7 +51,7 @@ and add it if not. **Merge carefully — do not overwrite existing hooks.**
 Use the Write/Edit tool to run this patch script, or execute it directly via Bash:
 
 ```bash
-python3 - << 'PY'
+python3 -I -S - << 'PY'
 import json, os, sys
 
 settings_path = os.path.expanduser("~/.claude/settings.json")
@@ -71,7 +71,7 @@ else:
 hooks = settings.setdefault("hooks", {})
 existing = hooks.get("UserPromptSubmit", [])
 
-hook_command = "python3 ~/.claude/hooks/tmux-session-namer.py 2>/dev/null || true"
+hook_command = "python3 -I -S ~/.claude/hooks/tmux-session-namer.py 2>/dev/null || true"
 
 already_wired = any(
     h.get("command") == hook_command
@@ -128,7 +128,7 @@ fi
 ls -la ~/.claude/hooks/tmux-session-namer.py
 
 # Confirm hook is in settings
-python3 -c "
+python3 -I -S -c "
 import json, os
 s = json.load(open(os.path.expanduser('~/.claude/settings.json')))
 hooks = s.get('hooks', {}).get('UserPromptSubmit', [])
