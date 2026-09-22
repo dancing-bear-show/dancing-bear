@@ -87,6 +87,18 @@ stages:
       decides whether line numbers and symbols computed against another tree
       are still trustworthy.
 
+      Record head_sha as "baseline_sha" too, and capture the PRE-RUN suite size
+      into "baseline_test_count" by running `make test` once and reading the
+      "Ran N tests" line (not the exit code). validate-fixes reconciles against
+      BOTH, so they must be captured here, before any agent writes:
+        - baseline_sha is the commit every later `git diff` is taken against.
+          head_sha alone is not enough — by the time validate-fixes runs, HEAD
+          has moved, since each fan-out tester commits inside its worktree and
+          the orchestrator merges those branches back.
+        - baseline_test_count is the number the net-delta check subtracts from.
+      A validate stage that picks its own baseline is not deterministic; these
+      two fields are what make that check reproducible.
+
       Prefer a short python3 script for this aggregation; it is deterministic
       and there may be hundreds of shards. Do NOT read shards one by one with
       the Read tool.
@@ -155,7 +167,8 @@ stages:
           ],
           "counts": {"class_a":N, "class_b":N, "class_c":N, "files":N},
           "dropped_files": [...], "skipped_malformed": N,
-          "head_sha": "...", "sha_drift": false
+          "head_sha": "...", "shard_sha": "...", "sha_drift": false,
+          "baseline_sha": "...", "baseline_test_count": N
         }
       The array MUST be named "items" so the fan_out below resolves. If there is
       no work, write count 0 and say so plainly rather than inventing items.
@@ -427,7 +440,7 @@ stages:
   - name: validate-fixes
     kind: execute
     depends_on: [fix-file]
-    reads_from: [fix-file, triage-defects]
+    reads_from: [fix-file, triage-defects, load-defects]
     description: >
       Verify every claimed fix against the working tree. Agent self-reports are
       NOT evidence: read the files and run the tests.
@@ -459,9 +472,19 @@ stages:
       alone is not evidence the suite executed. Up to 3 fix cycles per file for
       breakage in the new/rewritten tests only. Never weaken an assertion.
 
-      Step 6 — whole-suite regression: `make test` once, confirming the
-      "Ran N tests" summary line (an exit code alone is not evidence the suite
-      ran).
+      Step 6 — whole-suite regression. First read the two baseline fields
+      load-defects recorded BEFORE any agent wrote:
+        baseline_sha        = defects.json.baseline_sha
+        baseline_count      = defects.json.baseline_test_count
+      Both come from {workspace}/outputs/defects.json. Do NOT re-derive either
+      one here: HEAD has moved (each tester committed in its worktree and those
+      branches were merged back), so `git rev-parse HEAD` now names a commit
+      that already contains the changes under test, and re-running a "before"
+      count is impossible. If either field is missing, FAIL this stage rather
+      than guessing a baseline — an unreproducible check is worse than none.
+
+      Then run `make test` once, confirming the "Ran N tests" summary line (an
+      exit code alone is not evidence the suite ran).
 
       Reconcile the count against the EXPECTED NET DELTA, not against
       "baseline + added". Class A explicitly permits collapsing several
@@ -472,16 +495,23 @@ stages:
       run as a deletion.
 
       Compute:
+        observed_delta = (Ran N tests) - baseline_count
         expected_delta = (methods added, summed over outputs/fixed/*.json)
                        - (methods removed by an APPROVED consolidation, summed
                           over the same files' "consolidated" entries)
       and require observed_delta == expected_delta EXACTLY. Cross-check it
-      against the diff itself:
-        git diff <base>...HEAD -- tests/ | grep -c '^+    def test_'
-        git diff <base>...HEAD -- tests/ | grep -c '^-    def test_'
+      against the diff itself, using the recorded baseline_sha — three dots,
+      so the comparison is against the merge-base and unrelated commits landed
+      on the target branch since the run started do not leak in:
+        git diff <baseline_sha>...HEAD -- tests/ | grep -c '^+    def test_'
+        git diff <baseline_sha>...HEAD -- tests/ | grep -c '^-    def test_'
       Those two counts must reconcile with the suite delta. Any discrepancy —
       in either direction — is an unapproved deletion or an accidental
       addition; report it and fail. Never accept a count you cannot explain.
+
+      Record baseline_count, the observed count, both diff counts and the two
+      deltas in validation.md, so the arithmetic can be checked by a reader
+      rather than taken on trust.
 
       A consolidation counts as APPROVED only if the per-file summary lists it
       under "consolidated" with the removed method names and the single method
