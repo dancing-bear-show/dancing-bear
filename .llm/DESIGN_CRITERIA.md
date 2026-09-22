@@ -62,7 +62,7 @@ For every `SafeProcessor`/`BaseProducer` pair (or, pre-migration, every command 
 
 ## C9 — Test abstraction: fixtures and factories, not copy-paste setup
 
-- Reuse existing shared fixtures before writing new ones: `tests/fixtures.py` (`TempDirMixin`, `make_mock_envelope`, `make_mock_processor`, `capture_stdout`, `temp_yaml_file`/`temp_json_file`/`temp_csv`) and per-domain `tests/<domain>_tests/fixtures.py`.
+- Reuse existing shared fixtures before writing new ones: `tests/fixtures.py` (`TempDirMixin`, `make_mock_envelope`, `capture_stdout`, `temp_yaml_file`/`temp_json_file`/`temp_csv`) and per-domain `tests/<domain>_tests/fixtures.py`.
 - A new domain's test suite lacking a `fixtures.py` (or `shared_fixtures.py`/`helpers.py`) once it has 3+ test files MUST get one — mirroring `tests/wifi_tests/shared_fixtures.py`, `tests/telemetry_tests/shared_fixtures.py`, `tests/worker_tests/helpers.py`.
 - Repeated inline `Namespace(...)`/mock-object construction across test functions in the same file (3+ occurrences of near-identical setup) MUST be extracted to a factory function in that domain's fixtures module.
 - Fakes for external systems (Gmail/Outlook clients, filesystem, subprocess) belong in fixtures, not redefined per test file.

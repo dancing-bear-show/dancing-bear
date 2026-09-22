@@ -71,10 +71,10 @@ class NoOpProducer:
 def make_mock_processor_class(envelope):
     """Create a mock processor CLASS that returns the given envelope.
 
-    Distinct from ``tests.fixtures.make_mock_processor``, which returns a
-    configured MagicMock *instance*. ``run_pipeline`` instantiates the
-    processor itself, so it needs the class; the two are not interchangeable
-    and previously shared a name.
+    Returns a class, not an instance: ``run_pipeline`` instantiates the
+    processor itself. A sibling helper returning a configured MagicMock
+    *instance* once lived in ``tests/fixtures.py``; it was removed as dead
+    code, and this one is not a drop-in replacement for that shape.
 
     Args:
         envelope: The ResultEnvelope to return from process()

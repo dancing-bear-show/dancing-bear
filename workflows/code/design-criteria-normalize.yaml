@@ -311,7 +311,7 @@ stages:
           tests/{domain}_tests/fixtures.py (or shared_fixtures.py /
           helpers.py). If it does not exist and this domain now has 3+ test
           files, create one modeled on tests/fixtures.py's
-          TempDirMixin/make_mock_envelope/make_mock_processor pattern before
+          TempDirMixin/make_mock_envelope pattern before
           writing new tests, so new tests use it instead of inline setup.
 
         C8 (happy/sad path) — for every SafeProcessor/BaseProducer pair

@@ -17,7 +17,6 @@ from .scan_common import (
     infer_meta_from_text,
     is_enrollment_notice,
     is_plausible_session,
-    norm_time as _norm_time_common,
     parse_clock_time,
 )
 from .pipeline_base import (
@@ -172,9 +171,6 @@ class GmailScanClassesProcessor(
 
     def _html_to_text(self, html: str) -> str:
         return html_to_text(html)
-
-    def _norm_time(self, hour: str, minute: str | None, ampm: str | None) -> str:
-        return _norm_time_common(hour, minute, ampm)
 
     def _infer_meta(self, text: str) -> dict[str, Any]:
         return infer_meta_from_text(text, config=self._meta_config)
