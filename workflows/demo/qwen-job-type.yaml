@@ -89,6 +89,46 @@ stages:
       File access rules: use the Read tool (not cat/head/tail) and Glob (not
       find/ls). Bash is for CLI probes only.
 
+      STEP 0 — VALIDATE THE CALLER-OVERRIDABLE PARAMS FOR THE WHOLE RUN.
+      Both `{handler_module}` and `{job_type}` come from --params, and
+      write-handler creates a file at the path `{handler_module}` names. This
+      check lives HERE, in the first stage, and not in write-handler, for a
+      reason that is structural rather than stylistic — do not "simplify" it
+      back down there:
+
+        write-handler is `isolation: worktree`. Per
+        .claude/skills/workflow/SKILL.md rule 7a the isolation boundary
+        applies in BOTH directions: an isolated agent cannot read
+        {workspace}. What the orchestrator copies into `<its-cwd>/inputs/` is
+        every declared output of every upstream stage plus each upstream
+        stage's result JSON — and manifest.json is neither. It sits at the
+        workspace root and is no stage's declared output, so a
+        {workspace}/manifest.json read from inside write-handler cannot
+        resolve, and the params would reach the Create step unvalidated.
+
+      Read both from the file the ENGINE wrote, so neither ever becomes shell
+      source (a heredoc does not help: probe-disproven, since a newline plus
+      the delimiter closes it and runs the remainder while the regex then
+      passes on the remnant). This stage is NOT isolated, so
+      {workspace}/manifest.json is readable here:
+
+        python3 -c 'import json,re,sys,pathlib; p=json.loads(pathlib.Path(sys.argv[1]).read_text())["trigger_params"]; m=p["handler_module"]; t=p["job_type"]; sys.exit(0 if re.fullmatch(r"src/worker/[a-z][a-z0-9_]{2,40}\.py", m) and re.fullmatch(r"[a-z][a-z0-9_]{2,40}", t) else 1)' {workspace}/manifest.json
+
+      Branch on the EXIT STATUS, not on echoed text. If it fails, ABORT the
+      whole run here — write seam.json with {"aborted": true, "reason":
+      "handler_module or job_type failed validation"} and report the stage
+      FAILED, so write-handler is never scheduled and nothing is ever written
+      to the rejected path. Do not sanitize or auto-correct a rejected value:
+      an override naming production code is a caller error to report.
+
+      Then apply the check the regex cannot make: THE MODULE MUST NOT ALREADY
+      EXIST. The pattern above still matches real production files —
+      `src/worker/handlers.py`, `queue_ops.py`, `job_runtime.py`. This
+      workflow creates a NEW module, so an existing path is always wrong, and
+      overwriting shared worker code would be merged into the branch by the
+      orchestrator. Record the result as `handler_module_exists` in seam.json
+      and ABORT on true, exactly as above.
+
       Read and record:
         1. src/worker/handlers.py — the HandlerFn type alias, the exact
            (bool, object) return contract, and how REGISTRY is populated at
@@ -108,13 +148,15 @@ stages:
       them yet; if it already is, say so and set
       `job_type_already_registered` true.
 
-      That flag is a STOP signal, not a note. This stage is read-only so it
-      cannot do the aborting itself, but write-handler's STEP 0 reads the
-      flag and refuses to proceed on it — because `{job_type}` is
-      caller-overridable and an existing key such as `run_cli` would make the
-      REGISTRY line REPLACE a built-in handler for every job of that type,
-      which the orchestrator would then merge. Record it accurately; a false
-      negative here disables that guard.
+      That flag is a STOP signal, not a note — and this stage acts on it.
+      Because `{job_type}` is caller-overridable, an existing key such as
+      `run_cli` would make write-handler's REGISTRY line REPLACE a built-in
+      handler for every job of that type, which the orchestrator would then
+      merge. So on true, ABORT here the same way as STEP 0: write seam.json
+      with {"aborted": true, ...} and report the stage FAILED. Record the
+      flag accurately either way — write-handler re-checks it from its copied
+      input as a second line of defence, and a false negative here disables
+      both guards.
 
       Write {workspace}/outputs/analysis/seam.json:
         {
@@ -124,7 +166,9 @@ stages:
           "retry_protocol": {"terminal_prefix": "...", "deferred_prefix": "...", "plain_failure": "..."},
           "job_fields": ["..."],
           "current_types": ["..."],
-          "job_type_already_registered": true|false
+          "job_type_already_registered": true|false,
+          "params_validated": true,
+          "handler_module_exists": true|false
         }
     agent:
       role: researcher
@@ -158,33 +202,53 @@ stages:
     depends_on: [read-the-seam]
     reads_from: [read-the-seam]
     description: >
-      STEP 0 — VALIDATE THE PARAMS BEFORE YOU WRITE ANYTHING. Both
-      `{handler_module}` and `{job_type}` are caller-overridable via --params,
-      and this stage creates a file at the path one of them names. A check
-      placed later — next to the `git add` line, say — runs after the Write
-      has already happened, which protects the wrong thing.
+      STEP 0 — RE-CHECK THE GUARDS BEFORE YOU WRITE ANYTHING. This stage
+      creates a file at the path `{handler_module}` names, so every check
+      must run before the Create step; a check placed later — next to the
+      `git add` line, say — runs after the Write has already happened, which
+      protects the wrong thing.
 
-      Read both from the file the ENGINE wrote, so neither ever becomes shell
-      source (a heredoc does not help: probe-disproven, since a newline plus
-      the delimiter closes it and runs the remainder while the regex then
-      passes on the remnant):
+      WHERE THE PARAM VALIDATION LIVES, AND WHY IT IS NOT HERE. Both
+      `{handler_module}` and `{job_type}` are caller-overridable via --params
+      and are validated by read-the-seam's STEP 0, against
+      {workspace}/manifest.json — the file the ENGINE wrote, so neither value
+      ever becomes shell source. That check CANNOT be moved into this stage,
+      and moving it here would silently disable it:
 
-        python3 -c 'import json,re,sys,pathlib; p=json.loads(pathlib.Path(sys.argv[1]).read_text())["trigger_params"]; m=p["handler_module"]; t=p["job_type"]; sys.exit(0 if re.fullmatch(r"src/worker/[a-z][a-z0-9_]{2,40}\.py", m) and re.fullmatch(r"[a-z][a-z0-9_]{2,40}", t) else 1)' {workspace}/manifest.json
+        this stage is `isolation: worktree`, and per
+        .claude/skills/workflow/SKILL.md rule 7a the isolation boundary
+        applies in BOTH directions — an isolated agent cannot read
+        {workspace}. The orchestrator copies in every declared output of
+        every upstream stage plus each upstream stage's result JSON, and
+        manifest.json is neither: it sits at the workspace root and is no
+        stage's declared output. So a {workspace}/manifest.json read from
+        here cannot resolve, and a validation written here would not run at
+        all. read-the-seam is not isolated, runs first, and aborts the run on
+        a bad param — so a rejected value never reaches this stage.
 
-      Branch on the EXIT STATUS. Then apply two checks the regex cannot make:
+      What you must still do here, from your COPIED INPUTS only — read
+      `<your-cwd>/inputs/outputs/analysis/seam.json`:
 
-        1. THE MODULE MUST NOT ALREADY EXIST. The pattern above still matches
-           real production files — `src/worker/handlers.py`, `queue_ops.py`,
-           `job_runtime.py`. This stage creates a NEW module, so an existing
-           path is always wrong, and overwriting shared worker code here would
-           be merged into the branch by the orchestrator. If the file exists,
-           ABORT; do not overwrite and do not pick a different name.
+        1. CONFIRM THE PARAMS WERE VALIDATED. seam.json records
+           `params_validated`. If it is absent or not true, read-the-seam did
+           not complete its guard; ABORT rather than assuming the path is
+           safe.
 
-        2. THE JOB TYPE MUST NOT ALREADY BE REGISTERED. read-the-seam records
-           `job_type_already_registered`; read it from
-           `<your-cwd>/inputs/outputs/analysis/seam.json`. If it is true, the
-           key names an existing handler — `run_cli` and `run_shell` both
-           match the pattern — and writing the REGISTRY line would REPLACE a
+        2. THE MODULE MUST NOT ALREADY EXIST. read-the-seam records
+           `handler_module_exists`, but re-check it directly with the Read or
+           Glob tool against `{handler_module}` — an upstream stage's view is
+           a snapshot, and this is the last moment before the Write. The
+           validated pattern still matches real production files —
+           `src/worker/handlers.py`, `queue_ops.py`, `job_runtime.py`. This
+           stage creates a NEW module, so an existing path is always wrong,
+           and overwriting shared worker code here would be merged into the
+           branch by the orchestrator. If the file exists, ABORT; do not
+           overwrite and do not pick a different name.
+
+        3. THE JOB TYPE MUST NOT ALREADY BE REGISTERED. seam.json records
+           `job_type_already_registered`. If it is true, the key names an
+           existing handler — `run_cli` and `run_shell` both match the
+           validated pattern — and writing the REGISTRY line would REPLACE a
            built-in handler for every job of that type. ABORT.
 
       On any of these, write handler.json with {"aborted": true, "reason":
@@ -251,9 +315,10 @@ stages:
       COMMITS, not uncommitted files. If you return with edits uncommitted,
       the merge succeeds against an empty branch, this stage reports success,
       and everything you wrote is silently lost. So as your final action:
-      Both params were validated at the TOP of this stage, before the Create
-      step — see STEP 0 there. That ordering is the point: a check placed
-      here would run after the agent had already written to whatever path
+      Both params were validated by read-the-seam before this stage was ever
+      scheduled, and STEP 0 above re-checks the remaining guards before the
+      Create step. That ordering is the point: a check placed down here would
+      run after the agent had already written to whatever path
       `{handler_module}` names.
 
         git add {handler_module} src/worker/handlers.py
