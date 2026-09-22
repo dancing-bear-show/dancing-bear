@@ -178,7 +178,9 @@ stages:
       (strip .py, "/"->"."), e.g.:
         PYTHONPATH="$PWD/src" python3 -m unittest tests.test_charts_cli -q
 
-      Write a summary to {workspace}/outputs/added/{file_slug}.json:
+      Write a summary to outputs/added/{file_slug}.json UNDER YOUR OWN CWD
+      (an absolute path inside your worktree — you cannot write the shared
+      workspace from here; the orchestrator copies it back):
         {
           "test_file": "{test_file}",
           "symbols_covered": ["parse_row", ...],
@@ -188,19 +190,30 @@ stages:
              "failure_assertion":"assertRaises(SystemExit)"}
           ],
           "unittest": "PASS" | "FAIL",
+          "committed": true,
           "notes": "..."
         }
       failure_assertion MUST name the concrete raises/exit/regex used — validate
       relies on it.
 
+      COMMIT BEFORE YOU FINISH (required — uncommitted work is lost):
+        git add {test_file}
+        git commit -m "test: add sad-path coverage to {test_file}"
+      `git merge` moves COMMITS, not uncommitted worktree edits. If you return
+      without committing, the orchestrator's merge succeeds against an empty
+      branch, the stage reports success, and your tests are silently gone. Stage
+      only {test_file}; never `git add -A`. Record "committed": true in your
+      summary only after the commit actually succeeded.
+
       NOTE (worktree isolation + merge-back): you run in an isolated worktree;
       your edits do NOT merge back automatically. After this whole fan-out group
       completes, the orchestrator merges each tester's worktree branch into the
       current branch per SKILL.md orchestration rule #7
-      (git merge --no-ff worktree-agent-<id>). This is safe here precisely
-      because each tester touches exactly ONE distinct file. Do not rely on a
-      selective single-file copy — report your worktree and the edited path so
-      the merge can be verified.
+      (git merge --no-ff worktree-agent-<id>), having first confirmed
+      `git log --oneline <target>..worktree-agent-<id>` is non-empty. This is
+      safe here precisely because each tester touches exactly ONE distinct file.
+      Do not rely on a selective single-file copy — report your worktree and the
+      edited path so the merge can be verified.
     agent:
       role: tester
       model: sonnet
@@ -234,7 +247,11 @@ stages:
     description: >
       Confirm all sad-path additions landed, pass, and are genuine — mechanically.
 
-      Step 1 — collect: read all {workspace}/outputs/added/*.json.
+      Step 1 — collect: read all {workspace}/outputs/added/*.json (the
+      orchestrator copies each isolated tester's summary back here after its
+      worktree branch is merged). Any fan-out item with no summary, or whose
+      summary has "committed": false, is a LOST FIX — report it and fail the
+      run rather than treating the file as done.
 
       Step 2 — presence + genuineness: for each summary, for each methods_added
       entry, confirm the method exists in its test_file on disk AND that its
