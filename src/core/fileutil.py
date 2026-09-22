@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from core.cli_errors import CLIError, ExitCode
+from core.pathguard import require_path
 
 __all__ = [
     "atomic_write_json",
@@ -30,7 +31,7 @@ def atomic_write_json(
     indent: int | None = 2,
 ) -> None:
     """Write JSON atomically via unique temp file + rename."""
-    path = Path(path)
+    path = require_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = tempfile.NamedTemporaryFile(
         mode="w",
