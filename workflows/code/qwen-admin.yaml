@@ -40,6 +40,32 @@ description: >
   anything that is missing (that is the install stage of the same workflow).
   This workflow assumes the stack exists and reports plainly when it does not.
 
+  DEFINITION OF DONE. This workflow diagnoses and optionally repairs; its
+  success is not "every stage ran" but "the user knows the true state and
+  nothing was made worse". Note the per-stage validates_output checks are
+  structural — the engine's has_key asserts a key exists, never that its
+  value is true — so these criteria are judged by the report stage reading
+  actual values:
+
+    A1  All four probes completed, or any that could not are recorded with
+        the reason (a down Ollama or an absent collector is a FINDING, not a
+        stage failure — the probes are meant to observe a broken stack).
+    A2  Every finding in triage.json cites the analysis file it came from.
+    A3  Nothing outside the allowlist was executed, and nothing was executed
+        that the human did not approve.
+    A4  Every applied action re-checked its precondition immediately before
+        running, and any whose precondition no longer held was skipped and
+        recorded.
+    A5  The post-action health re-check shows no layer that was up is now
+        down. This is the one that matters most: a run that fixes a stale
+        lock but stops the daemon is a net loss, and must be reported as one.
+    A6  The report distinguishes what was OBSERVED from what was PROPOSED
+        from what was APPLIED. A proposed action reported as taken is the
+        failure mode this workflow must never have.
+
+  A run where triage finds nothing to do and remediate applies nothing is a
+  SUCCESSFUL run, not an empty one. Do not manufacture work to look useful.
+
 metadata:
   author: dancing-bear
   created: "2026-09-21"
@@ -579,6 +605,15 @@ stages:
       Cite stage files; do not restate a proposed action as a completed one.
 
       ## Qwen Admin Report — <date>
+
+      ### Run result
+      Judge this run against the DEFINITION OF DONE (A1-A6) in the workflow
+      description, reading the actual values rather than restating intent.
+      State one of: "clean" (nothing needed doing), "repaired" (actions
+      applied, post-check clean), "partial" (some actions applied, something
+      still unresolved), or "regressed" (a layer that was up is now down —
+      lead with this and say exactly what broke). One line, then a table of
+      A1-A6 with met/unmet and the evidence.
 
       ### Stack health
       | Layer | State |

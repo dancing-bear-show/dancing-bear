@@ -76,7 +76,9 @@ description: >
         |
     verify                                   (G8 — real job through the real queue)
         |
-    report                                   (G9 — summary + how to use it)
+    acceptance                               (G9 — judge the run against D1-D11)
+        |
+    report                                   (G10 — summary + how to use it)
 
   GUARDS. Beyond the job contract, the design stage specifies nine guards,
   each protecting against a failure this queue does not otherwise prevent:
@@ -147,6 +149,92 @@ description: >
   nothing and still exit 0. Re-running must never re-pull a 9GB model that is
   already present, never stack a second launchd agent, and never restart a
   healthy daemon.
+
+  SHIPPED AS THREE PRs, not one. The work this workflow produces is far too
+  large for a single reviewable change — a handler, nine guards, a telemetry
+  emitter, an entry point, a test suite and an installer. Reviewing that as
+  one diff means reviewing none of it. The checkpoints in impl-handler (C1-C6)
+  are chosen to line up with these boundaries, so each PR is a coherent,
+  independently-revertable unit that leaves the repo working:
+
+    PR 1 — "the seam": qwen.py with the handler signature, payload/result
+           schema, input confinement, payload validation, the REGISTRY line,
+           and tests for all of it. NO model call — the transport is stubbed
+           and the handler returns a terminal "not implemented". This is
+           checkpoints C1-C2. It is reviewable in isolation, it proves the
+           registration works, and the security boundary lands BEFORE
+           anything can reach a model. Merging it changes no behaviour for
+           existing job types.
+
+    PR 2 — "the model": the Ollama transport, diff extraction, patch
+           validation and caps, the concurrency lock, deferral bound, and the
+           memory/disk prechecks, with their tests. Checkpoints C3-C5. This
+           is the PR that makes the handler actually do something, and it is
+           the one that most needs the adversarial test review.
+
+    PR 3 — "the ergonomics": qwen_telemetry.py, bin/qwen, the launchd/install
+           path and the docs. Checkpoint C6. Nothing here can break job
+           correctness, which is why it goes last and can be reviewed
+           quickly.
+
+  Whoever runs this workflow opens the PRs at those boundaries rather than
+  at the end. The stages after integrate (install, validate-config, verify,
+  acceptance) exercise the FULL stack, so they belong with PR 3 — run them
+  once the first two have merged, or against the combined branch if you are
+  staging all three before any merge. Say which you did in the report.
+
+  A single-PR run is acceptable ONLY for a throwaway spike. If you take that
+  path, say so explicitly in the report rather than letting a 2000-line diff
+  arrive unannounced.
+
+  DEFINITION OF DONE — what a successful end-to-end run means. Every stage
+  below declares validates_output checks, but those are STRUCTURAL: the
+  engine's `has_key` asserts a key is present, never that its value is true
+  (src/workflow/output_checks.py's _check_has_key). So `has_key:config_valid`
+  passes on config_valid=false, and a run could reach the report with every
+  stage green and nothing working. The acceptance stage (G10) closes that by
+  reading the VALUES and judging them against this list.
+
+  A run is SUCCESSFUL only when all of these hold:
+
+    D1  The handler is registered: "{job_type}" appears in
+        `./bin/worker enqueue --help` when run from this worktree.
+    D2  The full suite ran and passed — a literal "Ran N tests" line, no
+        failures, and a test count no lower than impl-tests reported.
+    D3  qlty and typecheck-changed both passed over the changed files.
+    D4  Every blocking finding from the adversarial test review is fixed, or
+        listed as deferred with a reason.
+    D5  Each impl stage's commit is an ancestor of HEAD, or is a recorded
+        legitimate no-change, and every file the design listed exists and is
+        tracked.
+    D6  The install is idempotent: a second pass of its read-only checks
+        reports every step already-satisfied.
+    D7  The installed configuration matches the design (config_valid true,
+        no blocking findings).
+    D8  A real job ran end to end and produced a patch that passes
+        `git apply --check` — and the patch was NOT applied.
+    D9  The guards hold live: a path outside the allowlist is rejected
+        terminally without leaking contents, and two concurrent jobs never
+        generate simultaneously.
+    D10 No regression: an existing run_shell job still completes.
+    D11 A human can use it — `bin/qwen` exists, is executable, and the report
+        shows the three real commands (submit, read, apply).
+    D12 Every implementation checkpoint (C1-C6) is recorded with a pass, or
+        with an explicit reason for a fail. Absent checkpoints count as
+        unmet: the point of a checkpoint is the evidence it leaves behind.
+    D13 The work is split into the three commits matching the PR boundaries,
+        each reachable — or the run explicitly declares itself a single-PR
+        spike in the report.
+
+  PARTIAL SUCCESS IS A VALID AND USEFUL OUTCOME, and must be reported as
+  itself rather than as failure or as success. Two cases are expected:
+    - Telemetry unverifiable because the collector is down (D8's span check).
+      The design makes export best-effort; this does not fail a run.
+    - daemon_serves_this_code false, because the daemon runs the main
+      checkout while this code is on a branch. The handler works from this
+      worktree; background jobs wait for the merge. Expected, not a defect.
+  Anything else unmet means the run did not succeed, whatever the individual
+  stages reported.
 
 metadata:
   author: dancing-bear
@@ -878,6 +966,47 @@ stages:
       read-only dependencies here. Telemetry is EMITTED by the worker and READ
       by src/telemetry; do not modify the reader to accommodate the writer.
 
+      BUILD IN CHECKPOINTS — do not write the whole handler and test it at
+      the end. Each checkpoint below must pass before you start the next,
+      and you record the evidence in handler-impl.json's "checkpoints" array.
+      The reason is specific: nine guards, a transport, telemetry and an
+      entry point are too much to debug at once, and a failure at the end
+      gives you no signal about which layer broke. A checkpoint that fails
+      tells you exactly where you are.
+
+        C1  IMPORTS AND REGISTERS. Create qwen.py with the handler function
+            signature and a stub body returning a terminal "not implemented"
+            string, plus the REGISTRY line. Verify:
+              python3 -c "import worker.handlers as h; print(sorted(h.REGISTRY))"
+            "{job_type}" must appear. This proves the seam works before any
+            logic exists — and it is the single most common thing to get
+            wrong, since a bad import breaks the whole worker CLI.
+        C2  GUARDS REJECT. Implement input confinement and the payload
+            validation, still with no model call. Verify by calling the
+            handler directly in-process with a disallowed path and with a
+            valid payload: the first returns the terminal confinement
+            string, the second gets past validation to the stub. Now the
+            security boundary exists before anything can reach the model.
+        C3  TRANSPORT ROUND-TRIPS. Add the Ollama call. Verify against a
+            LOCAL stub server or a monkeypatched urlopen — not the real
+            model, which may not be installed yet at this stage. Prove the
+            request shape and response parsing, nothing more.
+        C4  PATCH VALIDATES. Add diff extraction, `git apply --check`, and
+            the patch caps. Verify with a known-good diff and a known-bad
+            one; assert the caps reject an oversized one.
+        C5  CONCURRENCY AND DEFERRALS. Add the lock, the wait ceiling, the
+            deferral counter and the memory/disk prechecks. Verify the lock
+            is released on both the success and the exception path — the
+            exception path is what strands a lock in production.
+        C6  TELEMETRY AND ENTRY POINT. Add qwen_telemetry.py and bin/qwen
+            last, since neither can break job correctness. Verify bin/qwen
+            builds a payload matching the contract and that --apply prints
+            rather than executes.
+
+      After each checkpoint run the fast local check for that layer and
+      record its command and result. Do not proceed past a failing
+      checkpoint by deciding a later layer will fix it.
+
       Implementation requirements:
         - Follow the SafeProcessor/BaseProducer pattern already used by
           ShellJobProcessor in handlers.py, per the survey's handler_contract.
@@ -988,16 +1117,38 @@ stages:
       the merge succeeds against an empty branch, this stage reports success,
       and every line you wrote is silently lost. So, as your final action
       before writing the result JSON:
-        git add src/worker/qwen.py src/worker/qwen_telemetry.py bin/qwen src/worker/handlers.py
-        git commit -m "feat(worker): add {job_type} handler, entry point and OTLP emit"
-      Make bin/qwen executable (chmod +x) before committing — a wrapper that
-      is not executable fails at the first thing a user tries.
+      Commit in THREE commits matching the PR boundaries in the workflow
+      description, not one — a reviewer splitting a 2000-line diff afterwards
+      is doing work you could have done for free here:
+
+        after C2:  git add src/worker/qwen.py src/worker/handlers.py
+                   git commit -m "feat(worker): register {job_type} handler with input confinement"
+        after C5:  git add src/worker/qwen.py
+                   git commit -m "feat(worker): add Ollama transport, patch validation and concurrency guards"
+        after C6:  chmod +x bin/qwen
+                   git add src/worker/qwen_telemetry.py bin/qwen
+                   git commit -m "feat(worker): add qwen entry point and OTLP telemetry"
+
+      Stage files by name, never `git add -A`. The chmod matters: a wrapper
+      that is not executable fails at the first thing a user tries. Record
+      all three SHAs in handler-impl.json — commit_sha is the LAST one (what
+      merge-impl checks for ancestry), and commit_shas lists all three so the
+      PR split is reproducible.
       Stage only the files this stage owns, by name — never `git add -A`.
       Then confirm the commit exists with `git log --oneline -1` and record
       its SHA in the JSON below.
 
       Write {workspace}/outputs/handler-impl.json:
-        {"files_created": [...], "files_modified": [...], "registry_key": "{job_type}", "commit_sha": "...", "notes": "..."}
+        {
+          "files_created": [...], "files_modified": [...],
+          "registry_key": "{job_type}", "commit_sha": "<the LAST sha>",
+          "commit_shas": [{"pr": 1, "sha": "...", "checkpoints": ["C1", "C2"]}, {"pr": 2, "sha": "...", "checkpoints": ["C3", "C4", "C5"]}, {"pr": 3, "sha": "...", "checkpoints": ["C6"]}],
+          "checkpoints": [{"id": "C1", "passed": true|false, "command": "...", "evidence": "...", "notes": "..."}],
+          "deferred_to_other_stage": [...],
+          "notes": "..."
+        }
+      A checkpoint you skipped is recorded passed=false with the reason, not
+      omitted — an absent checkpoint reads as one that passed.
     agent:
       role: code-writer
       model: sonnet
@@ -1045,6 +1196,15 @@ stages:
       Do not create or edit src/worker/qwen.py, do not edit the REGISTRY, and
       do not write tests — other stages own those.
 
+      CHECKPOINT BEFORE COMMITTING (record it in heartbeat-impl.json's
+      "checkpoints"): after making the change, run the EXISTING worker tests
+      and confirm they still pass:
+        make test 2>&1 | grep -E "^Ran [0-9]+ tests|^OK|^FAILED"
+      You are editing shared queue code that every job type depends on, so a
+      green existing suite is the evidence that matters far more than any new
+      test. If the suite was already failing before your change, say so with
+      the baseline rather than claiming your change is clean.
+
       Requirements:
         - BACKWARD COMPATIBILITY IS THE WHOLE RISK HERE. run_cli, run_shell and
           workflow_stage jobs are the queue's current users and will never
@@ -1072,7 +1232,7 @@ stages:
       Confirm with `git log --oneline -1` and record the SHA below.
 
       Write {workspace}/outputs/heartbeat-impl.json:
-        {"files_modified": [...], "helper_name": "...", "fallback_behaviour": "...", "commit_sha": "...", "notes": "..."}
+        {"files_modified": [...], "helper_name": "...", "fallback_behaviour": "...", "commit_sha": "...", "checkpoints": [{"id": "existing-suite-green", "passed": true|false, "command": "...", "evidence": "<the Ran N tests line>"}], "notes": "..."}
     agent:
       role: code-writer
       model: sonnet
@@ -1256,7 +1416,14 @@ stages:
       Confirm with `git log --oneline -1` and record the SHA below.
 
       Write {workspace}/outputs/tests-impl.json:
-        {"test_files": [...], "test_count": N, "retry_map_rows_covered": N, "commit_sha": "...", "notes": "..."}
+        {"test_files": [...], "test_count": N, "retry_map_rows_covered": N, "commit_sha": "...", "checkpoints": [{"id": "tests-collect", "passed": true|false, "command": "...", "evidence": "..."}], "notes": "..."}
+
+      CHECKPOINT: before committing, confirm your tests at least COLLECT and
+      run — a test file with an import error or a syntax slip contributes
+      zero coverage while looking complete in a file listing. Run the suite
+      restricted to your new files and record the "Ran N tests" line. Since
+      the implementation does not exist in your worktree, failures are
+      EXPECTED and fine; collection errors are not. Record which you saw.
     agent:
       role: tester
       model: sonnet
@@ -1323,6 +1490,18 @@ stages:
            contract.json's files_to_create / files_to_modify now exists in
            the working tree, and that it is tracked by git (a file present
            but untracked did not come from a merge).
+        5. Check the stage's "checkpoints" array, where it has one. Every
+           checkpoint must be recorded with passed true, or with passed
+           false and a reason. A checkpoint recorded false means the agent
+           built on a layer it knew was broken — report it prominently, since
+           the downstream gates may still pass while the underlying layer is
+           wrong. An impl stage that recorded NO checkpoints when the design
+           called for them is reported the same way: absent evidence is not
+           evidence of success.
+        6. Where a stage recorded commit_shas for the PR split, confirm each
+           listed SHA is reachable and that they are in the stated order.
+           A split recorded but not actually made leaves whoever opens the
+           PRs with nothing to split.
 
       Then record the tree's state:
         git status --porcelain
@@ -1332,7 +1511,7 @@ stages:
 
       Write {workspace}/validation/merge.json:
         {
-          "verified": [{"stage": "...", "commit_sha": "...", "is_ancestor_of_head": true|false}],
+          "verified": [{"stage": "...", "commit_sha": "...", "is_ancestor_of_head": true|false, "checkpoints_passed": N, "checkpoints_failed": ["..."], "commit_shas_reachable": true|false}],
           "no_change_stages": [{"stage": "...", "reason": "..."}],
           "missing_commits": [{"stage": "...", "detail": "..."}],
           "unmerged_branches": [{"stage": "...", "commit_sha": "...", "detail": "..."}],
@@ -2171,17 +2350,119 @@ stages:
         checks: [is_json, has_key:idempotence, has_key:job_flow, has_key:verified]
 
   # ===========================================================================
-  # G9: Report — what shipped, what it costs, how to use it
+  # G9: Acceptance — judge the run against the definition of done
+  # ===========================================================================
+  - name: acceptance
+    kind: execute
+    depends_on: [verify]
+    reads_from: [verify, validate-config, install, integrate, adversarial-test-review, merge-impl, impl-tests, design]
+    description: >
+      Decide whether this run actually succeeded, by reading the VALUES in
+      the prior stages' JSON and judging them against the DEFINITION OF DONE
+      in this workflow's description (D1-D11). This stage exists because the
+      per-stage validates_output checks are structural only: the engine's
+      has_key asserts a key is present, not that it is true, so every stage
+      can be green while the system does not work.
+
+      READ-ONLY. Judge; do not fix. A failed criterion is a finding for the
+      report and the user, not something to repair here — a run that quietly
+      patches itself at the last stage cannot be trusted to have succeeded.
+
+      For each criterion, read the specific field and record the actual
+      value you read, not a restatement of intent:
+
+        D1  verify.json job_flow.type_in_cli_choices
+        D2  integrate.json tests.summary_line, tests.failures, tests.errors,
+            and tests.ran compared against tests-impl.json's test_count
+        D3  integrate.json qlty.clean and typecheck_changed.clean
+        D4  test-review.json blocking findings vs integrate.json's
+            review_findings_fixed / review_findings_deferred — every blocker
+            must appear in one of those two lists
+        D5  merge.json all_landed, files_missing (must be empty), and each
+            verified[].is_ancestor_of_head
+        D6  verify.json idempotence.all_already_satisfied
+        D7  config-validation.json config_valid and blocking_failures
+        D8  verify.json job_flow.final_state == "done",
+            git_apply_check_passed true, and patch_present true. Confirm the
+            patch was NOT applied — job_flow must not report an application.
+        D9  verify.json guards_live.path_confinement.outcome (the terminal
+            string) with contents_leaked false, and
+            concurrency_guard.outcome != "CONCURRENT"
+        D10 verify.json regression.run_shell_ok
+        D11 bin/qwen exists and is executable (check the file mode), and
+            install/report list the real submit/read/apply commands
+        D12 merge.json's verified[].checkpoints_failed is empty and
+            checkpoints_passed matches the count the design called for
+        D13 merge.json's verified[].commit_shas_reachable, or the report
+            declares a single-PR spike
+
+      Then classify the run:
+        - "success" — every criterion met.
+        - "partial" — every criterion met EXCEPT one or both of the two
+          expected cases named in the definition of done (telemetry
+          unverifiable with the collector down; daemon_serves_this_code
+          false). Name which, and say what the user must do about it.
+        - "failed" — anything else unmet. Do not soften this. A run that
+          produced code but no working patch is a failed run with useful
+          artifacts, and saying so plainly is more useful than a green
+          summary.
+
+      If a criterion cannot be evaluated because an upstream file is missing
+      or malformed, record it as "unevaluable" with the reason — never as
+      met. An unevaluable criterion makes the overall result "failed", since
+      the evidence for success does not exist.
+
+      Write {workspace}/validation/acceptance.json:
+        {
+          "criteria": [
+            {"id": "D1", "met": true|false|"unevaluable", "source": "<file.field>", "observed": "<the actual value>", "detail": "..."}
+          ],
+          "met_count": N,
+          "unmet": ["D..."],
+          "unevaluable": ["D..."],
+          "expected_exceptions": [{"id": "D...", "reason": "collector-down|daemon-serves-other-tree", "user_action": "..."}],
+          "result": "success|partial|failed",
+          "one_line_verdict": "..."
+        }
+    agent:
+      role: unit-validator
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: acceptance
+        mode: generate
+        description: >
+          acceptance.json judging the run against D1-D11 with the observed
+          value behind each verdict, and an overall success/partial/failed
+          result.
+    writes_to:
+      - validation/acceptance.json
+    validates_output:
+      - path: validation/acceptance.json
+        checks: [is_json, has_key:criteria, has_key:result, has_key:one_line_verdict]
+
+  # ===========================================================================
+  # G10: Report — what shipped, what it costs, how to use it
   # ===========================================================================
   - name: report
     kind: propose
-    depends_on: [verify]
-    reads_from: [verify, validate-config, install, integrate, merge-impl, design, survey]
+    depends_on: [acceptance]
+    reads_from: [acceptance, verify, validate-config, install, integrate, merge-impl, design, survey]
     description: >
       Read every prior stage output and write {workspace}/validation/report.md.
       Cite the stage files for each claim; do not restate intent as outcome.
 
       ## Qwen Local Handler — Report
+
+      ### Result
+      Lead with acceptance.json's result and one_line_verdict — success,
+      partial or failed — before anything else. Then a table of D1-D11 with
+      met/unmet and the observed value behind each. If the result is
+      "partial", state which expected exception applied and what the user
+      must do. If "failed", say so in the first line: a reader who stops
+      after this section must not come away thinking the run worked.
 
       ### What shipped
       Files created and modified, from merge.json's files_present list, with
@@ -2231,6 +2512,18 @@ stages:
       Mention the raw `worker enqueue --payload-json` form only as a
       fallback, since quoting a multi-line instruction through shell and JSON
       is exactly what the wrapper exists to avoid.
+
+      ### How to ship it
+      The three PR boundaries from the workflow description, with the actual
+      commit SHAs from handler-impl.json's commit_shas, so whoever opens the
+      PRs can do it mechanically. For each: its title, the files it contains,
+      and what a reviewer should focus on. State whether the post-integrate
+      stages (install, validate-config, verify) were run against the combined
+      branch or after partial merges — a reviewer needs to know which PRs the
+      end-to-end evidence actually covers.
+
+      If the run took the single-PR spike path, say so here in the first
+      line, with the diff size, so nobody is surprised by it.
 
       ### Thresholds: estimate vs observed
       A table of the guard thresholds from contract.json (the 5m list)
