@@ -242,7 +242,16 @@ stages:
           type, and how it compares to run_cli/run_shell jobs.
         - PATCH ARTIFACTS: if the design stored patches as files, check the
           output directory's size and count. Orphaned patches from purged
-          jobs accumulate silently.
+          jobs accumulate silently — `worker purge` deletes job RECORDS and
+          nothing deletes the diffs they point at, so this grows forever
+          without a retention pass. Report total size and the orphan count
+          (patches whose job id is in neither done/ nor error/).
+        - LANE DEPTH vs the admission cap: count pending + processing for
+          "{job_type}" only and compare against the cap the handler's
+          contract declares. Because the lane runs one job at a time, report
+          the depth as an ESTIMATED DRAIN TIME using the observed median
+          duration, not just a count — "47 queued (~6h at 7m median)" tells
+          the user something a bare number does not.
 
       Write {workspace}/analysis/queue.json:
         {
@@ -253,6 +262,7 @@ stages:
           "retry_exhausted": [{"id": "...", "attempts": N, "last_error": "...", "suggests_misclassification": true|false}],
           "throughput": {"qwen_avg_ms": N, "other_avg_ms": N, "sample_size": N},
           "patch_artifacts": {"dir": "...", "count": N, "total_mb": N, "orphaned": N},
+          "lane_depth": {"pending": N, "processing": N, "cap": N | null, "over_cap": true|false, "estimated_drain_minutes": N | null},
           "needs_attention": true|false
         }
     agent:

@@ -78,6 +78,34 @@ description: >
         |
     report                                   (G9 — summary + how to use it)
 
+  GUARDS. Beyond the job contract, the design stage specifies nine guards,
+  each protecting against a failure this queue does not otherwise prevent:
+
+    input confinement  — the payload's files list is read into a prompt and
+                         nothing constrains it, so a traversal or a symlink
+                         could feed a private key to the model and thence to
+                         the job record. Resolved-path containment plus a
+                         denylist; violations are terminal, never retried.
+    patch caps         — `git apply --check` validates a diff that rewrites
+                         .github/workflows/ci.yml just as happily as a
+                         one-line fix. Caps on files/lines plus a path
+                         denylist, checked by parsing the diff.
+    redaction          — anything derived from payload content passes through
+                         core.secrets.mask_text before reaching the result or
+                         telemetry, and file contents are never persisted to
+                         either.
+    concurrency lock   — see below; the memory guard of the set.
+    memory precheck    — headroom the lock cannot see.
+    disk precheck      — a full disk turns atomic_write_json into a partial
+                         write mid queue-transition.
+    admission cap      — enqueue has no admission control, so a fan-out of
+                         200 jobs is accepted instantly and drains for days.
+    model pinning      — the tag is mutable; a digest change is recorded and
+                         surfaced rather than silently altering output.
+    explain mode       — build the prompt, run every guard, report, and stop
+                         without calling the model. The cheap debugging path,
+                         and what makes confinement testable without a GPU.
+
   CONCURRENCY IS A SAFETY PROPERTY HERE, not a tuning preference. The queue
   runs jobs on real threads (job_runtime `_process_batch`) and the shipped
   plist sets `--max-per-tick 8 --max-inflight 8`. Those caps are GLOBAL —
@@ -407,6 +435,111 @@ stages:
          Record both guards in contract.json so impl-handler implements
          exactly what was approved and impl-tests can assert against it.
 
+      5d. INPUT CONFINEMENT — the highest-consequence guard in this design,
+         because its failure mode is exfiltration rather than a crash.
+
+         The payload's `files` list is read into a prompt. Nothing in the
+         queue constrains it, so `{"files": ["~/.ssh/id_rsa"]}` or a
+         `../../../.config/credentials.ini` traversal is a well-formed job
+         today. The prompt then reaches the model, the job record on disk,
+         and any telemetry derived from it.
+
+         Specify, in this order (each check must run before the file is read,
+         not after):
+           - Resolve every path to an absolute real path (resolve symlinks)
+             and require it to sit UNDER the repo root. Compare resolved
+             paths, never raw strings — a string-prefix check is defeated by
+             `..` and by a symlink pointing outside.
+           - Reject anything matching a denylist regardless of location:
+             `credentials.ini`, `.env*`, `*token*.json`, `id_rsa`/`id_ed25519`
+             and other private keys, `*.pem`, `*.p12`, and anything under a
+             `.git/` directory. State the full list in the contract.
+           - Reject a file above a stated size ceiling, and reject a
+             directory (the payload takes files, not trees).
+           - Any violation is TERMINAL — "terminal-path-not-allowed" — never
+             a retry. A disallowed path will still be disallowed next time,
+             and retrying it just repeats the attempt to read a secret.
+           - Log the REJECTED PATH but never the file's contents.
+
+      5e. OUTPUT BLAST RADIUS. `git apply --check` proves a patch applies; it
+         does not prove it is sane. A model can emit a diff touching two
+         hundred files, or rewriting .github/workflows/ci.yml, or replacing
+         bin/worker. The patch is reviewed by a human before it applies, and
+         that review is the real control — but a 200-file diff is exactly the
+         kind of thing a reviewer skims.
+
+         Specify caps, all terminal on breach (never retried):
+           - Maximum files touched, and maximum lines changed. State both
+             values and justify them against the "small, localized edit"
+             job this handler is for.
+           - A path-prefix denylist the patch may not touch:
+             `.github/`, `bin/`, `configs/`, `.claude/`, and any path outside
+             the repo root. Parse the diff's target paths and check them;
+             do not rely on `git apply --check`, which is happy to modify CI.
+           - Record files_touched and lines_changed in the result either way,
+             so a reviewer sees the size before opening the diff.
+
+      5f. REDACTION BEFORE PERSISTENCE. The repo already has
+         `core.secrets.mask_text`, used across core/gh_cli.py. Route every
+         string derived from payload content — error messages, truncated
+         model output, anything landing in the job result or a telemetry
+         attribute — through it before it is written.
+
+         State this limit plainly in the design so nobody over-trusts it:
+         mask_text matches credential SHAPES (Authorization headers, api_key=
+         pairs, URI netloc passwords, JSON/repr mapping fields). It will not
+         recognise a novel secret format. It reduces exposure; it does not
+         make it safe to emit prompt content, so the design must also say
+         that file contents are never written to the result or to telemetry
+         at all — only counts, paths and durations.
+
+      5g. DISK PRECHECK, the same shape as the memory guard in 5c. Patches
+         are written under `core.paths.output_dir()` and a model pull needs
+         several GB. A full disk turns `atomic_write_json` into a partial
+         write during a queue state transition, which is a far worse failure
+         than a deferred job. Before writing a patch, check free space on the
+         target filesystem against a stated threshold and return
+         "deferred-low-disk" if short. Fails open on an unreadable reading,
+         like the memory guard, and for the same reason.
+
+      5h. QUEUE ADMISSION CAP. `enqueue` writes a file and returns; there is
+         no admission control anywhere in the queue. A fan-out that enqueues
+         200 {job_type} jobs is accepted instantly, and with the 5b lock
+         holding the lane to one at a time that is a multi-day backlog
+         draining at full CPU with no way to see it coming.
+
+         Specify a depth ceiling for the {job_type} lane, counting pending +
+         processing for this type only (other types are cheap and must not be
+         constrained). State where it is enforced — the handler cannot reject
+         an enqueue that already happened, so say whether this is a check in
+         the enqueue path, a documented operator limit surfaced by qwen-admin,
+         or both. Be explicit rather than implying the queue enforces
+         something it does not.
+
+      5i. MODEL IDENTITY PINNING. `{model_tag}` is a MUTABLE tag: Ollama can
+         re-pull a different build under the same name, silently changing
+         output quality and token behaviour with no signal at all.
+
+         Record the model's digest at install time, and have the handler
+         compare the running model's digest against the recorded one. On a
+         mismatch, do not fail the job — record the observed digest in the
+         result and the telemetry span so a quality change is attributable
+         later, and surface it as a finding. State how you read the digest
+         (Ollama's API exposes model details; name the endpoint and field
+         from the survey rather than assuming).
+
+      5j. EXPLAIN MODE. Specify a payload flag (e.g. `"explain": true`) that
+         builds the prompt, runs every guard above, reports what it WOULD do
+         — resolved file list, per-file sizes, total prompt size, token
+         estimate, model and options — and returns WITHOUT calling the model.
+
+         This is the cheap debugging path for prompt-construction and
+         confinement bugs, which otherwise cost a full generation each to
+         observe. It is also what makes 5d testable without a model: an
+         explain-mode job must reject a disallowed path exactly as a real one
+         does. Specify that explain mode runs the guards for real — an
+         explain path that skips validation would prove nothing.
+
       6. TELEMETRY. Local inference must be visible in `./bin/telemetry otel`
          alongside Claude Code usage, so a qwen job emits OTLP like any other
          work. The survey recorded the existing pipeline; design against it:
@@ -456,6 +589,13 @@ stages:
           "telemetry": {"endpoint_env_var": "...", "span_name": "...", "attributes": ["..."], "metrics": ["..."], "emits_cost": false, "failure_is_nonfatal": "..."},
           "concurrency": {"lock_path": "...", "primitive": "O_EXCL|flock", "scope": "model call only", "wait_ceiling_sec": N, "on_timeout": "deferred-qwen-busy", "stale_detection": "...", "stale_ceiling_sec": N},
           "memory_guard": {"source": "...", "model_resident_gb": N, "margin_gb": N, "on_insufficient": "deferred-low-memory", "unavailable_fallback": "no-op with warning"},
+          "input_confinement": {"root": "...", "resolution": "realpath+symlink", "denylist": ["..."], "max_file_bytes": N, "on_violation": "terminal-path-not-allowed", "logs_contents": false},
+          "patch_caps": {"max_files": N, "max_lines": N, "denied_prefixes": ["..."], "on_breach": "terminal-patch-too-broad", "records_size_always": true},
+          "redaction": {"helper": "core.secrets.mask_text", "applies_to": ["..."], "file_contents_never_persisted": true, "known_limit": "pattern-based; no novel secret formats"},
+          "disk_guard": {"path": "...", "min_free_gb": N, "on_insufficient": "deferred-low-disk", "unavailable_fallback": "no-op with warning"},
+          "admission": {"max_lane_depth": N, "counts": "pending+processing for this type only", "enforced_at": "...", "other_types_unconstrained": true},
+          "model_pinning": {"digest_source": "...", "recorded_at": "install", "on_mismatch": "record and surface, do not fail"},
+          "explain_mode": {"payload_flag": "...", "runs_guards": true, "calls_model": false, "reports": ["..."]},
           "files_to_create": ["..."],
           "files_to_modify": ["..."]
         }
@@ -545,6 +685,35 @@ stages:
           acquiring the lock. If the memory source is unavailable, log a
           warning and proceed — never defer every job on an unreadable
           reading.
+        - INPUT CONFINEMENT, per contract.json's "input_confinement". This
+          runs FIRST, before any file is opened and before the lock — a
+          rejected job must never read the file it was denied. Compare
+          RESOLVED real paths against the root; a string-prefix check on the
+          raw path is defeated by `..` and by symlinks, so use
+          Path.resolve() and a proper containment test (is_relative_to or
+          equivalent). Never log or echo the contents of a rejected file —
+          the path alone.
+        - PATCH CAPS, per contract.json's "patch_caps". Parse the diff's
+          target paths yourself and check them against the denied prefixes;
+          `git apply --check` will happily validate a patch that rewrites
+          .github/workflows/ci.yml. Record files_touched and lines_changed
+          in the result on EVERY job, pass or fail, so a reviewer sees the
+          size before opening the diff.
+        - REDACTION, per contract.json's "redaction". Every string derived
+          from payload content that reaches the result or telemetry goes
+          through core.secrets.mask_text first. File contents themselves are
+          never persisted to either — counts, paths and durations only.
+        - DISK PRECHECK, per contract.json's "disk_guard", before writing the
+          patch. Fails open like the memory guard.
+        - MODEL PINNING, per contract.json's "model_pinning": read the
+          running model's digest and compare to the recorded one. A mismatch
+          is recorded and surfaced, never a job failure — the model still
+          works, it is just not provably the one that was validated.
+        - EXPLAIN MODE, per contract.json's "explain_mode": when the flag is
+          set, run every guard above for real, report what would happen, and
+          return without calling the model. A short-circuit that skips the
+          guards would make explain mode useless for debugging exactly the
+          thing it exists to debug.
         - TELEMETRY (qwen_telemetry.py), per contract.json's telemetry section:
           emit one OTLP span per job matching the record shape recorded in
           survey.json, over stdlib urllib, to the endpoint resolved from the
@@ -729,6 +898,46 @@ stages:
           the memory source unavailable/raising, it proceeds with a warning
           rather than deferring — assert that explicitly, since a precheck
           that fails closed would silently stop every qwen job.
+        - INPUT CONFINEMENT — the security-critical case; test it hardest.
+          Build these in a tmp_path fixture, never against real paths:
+            * A path outside the root (`../../etc/passwd` shape) is rejected
+              terminally AND the file is never opened. Assert on an open/read
+              mock's call_count, not just the return value: a handler that
+              reads the file and then rejects it has already leaked it into
+              memory and possibly into a log line.
+            * A SYMLINK inside the root pointing outside it is rejected.
+              This is the case a string-prefix check passes and a resolved
+              check catches — if this test is absent, the guard is untested
+              in the way that matters.
+            * Each denylist entry is rejected even when it sits inside the
+              root (a `credentials.ini` in the repo is still denied).
+            * A file over the size ceiling, and a directory path, are
+              rejected.
+            * An allowed, ordinary repo file is accepted — prove the guard
+              is not simply rejecting everything, which would pass every
+              test above.
+        - PATCH CAPS: a diff exceeding max_files, one exceeding max_lines,
+          and one touching a denied prefix (`.github/workflows/ci.yml`) each
+          return the exact terminal string. Assert the ci.yml case
+          specifically with a diff that WOULD pass `git apply --check`, since
+          the whole point is that the check does not catch it. Also assert
+          files_touched/lines_changed are recorded on a SUCCESSFUL job.
+        - REDACTION: a payload or error string carrying a credential shape
+          (`api_key=...`, an Authorization header) comes back masked in both
+          the result and the telemetry attributes. Assert the raw secret
+          does not appear anywhere in either — search the serialized forms,
+          not just the field you expect it in.
+        - DISK GUARD: free space mocked below threshold returns
+          "deferred-low-disk" and writes no patch file; ample space proceeds;
+          an unreadable reading proceeds with a warning.
+        - MODEL PINNING: a digest mismatch is recorded in the result and the
+          span but the job still SUCCEEDS — assert success explicitly, since
+          the easy wrong implementation fails the job.
+        - EXPLAIN MODE: returns without calling the model (assert transport
+          call_count 0), reports the resolved file list and prompt size, and
+          — critically — still rejects a disallowed path exactly as a real
+          run does. That last assertion is what stops explain mode from
+          becoming a guard bypass.
 
       Mocking: no network and no real model in tests. Mock at the HTTP
       boundary, matching the style recorded in the survey's test_layout.
@@ -905,7 +1114,29 @@ stages:
          "", which may take a different code path than a record written by
          the existing run_cli/run_shell handlers.
 
-      7. TELEMETRY TESTED AGAINST ITSELF. The shape test must round-trip the
+      7. GUARD TESTS THAT CANNOT FAIL. The guards in contract.json
+         (input_confinement, patch_caps, redaction, disk, memory,
+         concurrency) are the ones whose absence is most costly, so scrutinise
+         them hardest:
+           * Does the confinement test assert the file was never OPENED
+             (mock call_count), or only that the handler returned an error?
+             The latter passes against a handler that reads the secret and
+             then rejects it.
+           * Is there a SYMLINK test? Without it the guard is untested
+             against the one input a naive string-prefix check lets through.
+           * Is there a positive case proving the guard accepts a legitimate
+             file? A guard that rejects everything passes every negative
+             test.
+           * Does the patch-cap test for a denied prefix use a diff that
+             genuinely passes `git apply --check`? If it uses a malformed
+             diff, it proves nothing about the cap.
+           * Does the redaction test search the whole serialized result and
+             span for the raw secret, or only the one field it expects?
+           * Does the explain-mode test assert the guards still fire? An
+             explain path that skips validation is a bypass, not a feature.
+         Any "no" here is a blocking finding.
+
+      8. TELEMETRY TESTED AGAINST ITSELF. The shape test must round-trip the
          emitted payload through src/telemetry/otel's real reader dataclasses.
          A test comparing the payload to a hand-written expected dict proves
          only that the code does what the code does — both can be wrong for
@@ -914,7 +1145,7 @@ stages:
          confirm the non-fatal test actually raises from the export path,
          rather than mocking it into a no-op that never exercises the guard.
 
-      8. SAD PATHS ABSENT ENTIRELY. Enumerate what is NOT tested: malformed
+      9. SAD PATHS ABSENT ENTIRELY. Enumerate what is NOT tested: malformed
          JSON from Ollama, an empty response body, a response with prose
          around the diff, a patch touching a file outside the repo, a payload
          with a files list naming a nonexistent path, timeout_sec of 0, an
@@ -1145,6 +1376,14 @@ stages:
         Check:  ollama list | grep -F '{model_tag}'
         Act:    ollama pull {model_tag}
         This is a multi-GB download. Never pull when the check already matches.
+
+        Then RECORD THE DIGEST, whether or not you pulled. `{model_tag}` is a
+        mutable tag — Ollama can serve a different build under the same name
+        later, silently changing output quality with no signal. Read the
+        model's digest (the survey recorded which API field carries it) and
+        write it into the install record, so validate-config and the handler
+        can detect a swap. If the digest cannot be read, record null and say
+        why rather than omitting the field.
         If the machine's memory_gb from survey.json is under 24, note in the
         record that a 14B model will be tight and a 7B tag is the fallback —
         but pull the requested tag regardless; sizing is the user's call.
@@ -1195,7 +1434,7 @@ stages:
           "steps": [
             {"step": "ollama_binary",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false},
             {"step": "ollama_server",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false},
-            {"step": "model_present",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false},
+            {"step": "model_present",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false, "model_digest": "..." | null},
             {"step": "worker_launchd", "already_satisfied": true|false, "action_taken": "...", "ok": true|false},
             {"step": "queue_dirs",     "already_satisfied": true|false, "action_taken": "...", "ok": true|false}
           ],
@@ -1293,7 +1532,30 @@ stages:
         other, that is a blocking mismatch — this is exactly the class of
         wrong assumption that an earlier draft of this workflow shipped.
 
-      Check 6 — OLLAMA'S OWN CONCURRENCY SETTINGS.
+      Check 6 — GUARDS PRESENT IN THE MERGED SOURCE. Several guards in
+        contract.json have no runtime signal until they fire, so confirm
+        statically that each was implemented: grep the merged handler for
+        the confinement root check, the patch caps, the mask_text call, the
+        disk precheck, and the explain-mode flag. A guard specified in the
+        contract but absent from the source is a BLOCKING finding — the
+        tests may pass on a mock while the real path is unguarded. Name each
+        guard and whether it was found.
+
+      Check 7 — MODEL DIGEST RECORDED. Confirm the install stage recorded a
+        digest for {model_tag} and that the currently-loaded model's digest
+        matches it. A mismatch is not blocking — the tag is mutable by
+        design — but it must be reported, since it means the model in use is
+        not provably the one this run validated.
+
+      Check 8 — PATCH OUTPUT DIRECTORY. Resolve core.paths.output_dir for
+        this domain and confirm it exists, is writable, and sits OUTSIDE the
+        repo checkout (the repo's generated-output rule). Report current free
+        space on that filesystem against disk_guard's min_free_gb. A patch
+        directory inside the checkout is a blocking finding: generated
+        patches carrying source excerpts would be one `git add -A` away from
+        a commit.
+
+      Check 9 — OLLAMA'S OWN CONCURRENCY SETTINGS.
         Record whether OLLAMA_NUM_PARALLEL and OLLAMA_MAX_LOADED_MODELS are
         set in the environment the server runs under, and their values if so.
         Do not assume defaults — read them, and if they are unset say
@@ -1310,6 +1572,9 @@ stages:
             {"check": "no_stale_lock",       "passed": true|false, "blocking": false,      "detail": "...", "lock_present": true|false, "holder_pid_alive": true|false|null},
             {"check": "memory_headroom",     "passed": true|false, "blocking": true|false, "detail": "...", "available_gb": N, "required_gb": N},
             {"check": "timeout_coherent",    "passed": true|false, "blocking": true|false, "detail": "...", "job_timeout_passed": true|false, "design_route": "..."},
+            {"check": "guards_in_source",    "passed": true|false, "blocking": true|false, "detail": "...", "found": {"input_confinement": true|false, "patch_caps": true|false, "redaction": true|false, "disk_guard": true|false, "explain_mode": true|false}},
+            {"check": "model_digest",        "passed": true|false, "blocking": false,      "detail": "...", "recorded": "...", "observed": "...", "matches": true|false},
+            {"check": "patch_output_dir",    "passed": true|false, "blocking": true|false, "detail": "...", "path": "...", "inside_repo": true|false, "writable": true|false, "free_gb": N},
             {"check": "ollama_concurrency",  "passed": true|false, "blocking": false,      "detail": "...", "num_parallel": "...", "max_loaded_models": "..."}
           ],
           "blocking_failures": [...],
@@ -1442,6 +1707,25 @@ stages:
           existing query is a regression in the telemetry CLI, not a
           telemetry success — report it as a failure.
 
+      Check E0 — THE GUARDS HOLD AGAINST A REAL JOB, cheaply. Run these
+      BEFORE any real generation: they cost no model time and they are the
+      checks whose failure matters most.
+
+        1. EXPLAIN MODE. Enqueue a job with the explain flag from
+           contract.json and an ordinary repo file. Drain it. The result must
+           report the resolved file list and prompt size, and must show the
+           model was never called. This also confirms the whole enqueue →
+           handler → result path works before spending a generation on it.
+
+        2. PATH CONFINEMENT, live. Enqueue an explain-mode job whose files
+           list names a path OUTSIDE the repo — use a harmless one such as
+           /etc/hosts, never a real secret; the point is to prove the guard
+           fires, and pointing a test at ~/.ssh would be reckless even
+           expecting rejection. The job must fail TERMINALLY with the
+           contract's "terminal-path-not-allowed" string, and its attempts
+           must NOT climb to max_attempts. Confirm the rejected path appears
+           in the error but no file contents do.
+
       Check E — THE CONCURRENCY GUARD ACTUALLY HOLDS, live. Unit tests prove
       the lock logic; this proves it under the real daemon, which is where
       the 8-wide batch actually happens.
@@ -1460,6 +1744,7 @@ stages:
 
       Write {workspace}/validation/verify.json:
         {
+          "guards_live": {"explain_mode": {"job_id": "...", "model_called": false, "reported": [...]}, "path_confinement": {"job_id": "...", "outcome": "terminal-path-not-allowed", "attempts": N, "contents_leaked": false}, "held": true|false},
           "concurrency_guard": {"jobs": ["...", "..."], "outcome": "one-deferred|sequential|CONCURRENT", "attempts_unchanged_on_deferred": true|false, "held": true|false},
           "idempotence": {"all_already_satisfied": true|false, "checks": [...]},
           "job_flow": {"type_in_cli_choices": true|false, "job_id": "...", "final_state": "done|error|...", "patch_present": true|false, "git_apply_check_passed": true|false, "patch_path": "..."},
@@ -1481,9 +1766,11 @@ stages:
         - Telemetry was either confirmed queryable via ./bin/telemetry otel,
           or recorded as not-verifiable with the collector down — never
           assumed either way.
+        - Explain mode ran without calling the model, and a path outside the
+          repo was rejected terminally without leaking contents.
         - The concurrency guard was exercised with two real jobs and held.
-        - verified is true only if checks A, B, C and E genuinely passed. D
-          may be not-verifiable without failing the stage.
+        - verified is true only if checks A, B, C, E0 and E genuinely passed.
+          D may be not-verifiable without failing the stage.
     agent:
       role: code-writer
       model: sonnet
