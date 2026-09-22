@@ -405,11 +405,22 @@ What still redirects the import:
 where the module actually loaded from.**
 
 ```bash
-python3 -c "import resume; print(resume.__file__)"   # must be YOUR src/
+python3 -I -S -c "import importlib.util as u, os, sys; sys.path[:0] = os.environ.get('PYTHONPATH','').split(os.pathsep); s = u.find_spec('resume'); print(s.origin if s else 'not found')"
 ```
 
 If that path is not under the tree you are editing, the code never ran — the
 change is fine and the environment is wrong.
+
+**Do not use the obvious short form, `python3 -c "import resume;
+print(resume.__file__)"`.** You would run it in exactly the situation where
+`PYTHONPATH` names a checkout you do not trust, and `import` executes that
+tree's `sitecustomize.py` at interpreter startup *and* its package `__init__`
+before printing anything. Demonstrated with a planted pair: the short form runs
+both, the form above runs neither and prints the same path. `-I -S` skips the
+startup hooks, `find_spec` locates the module without importing it, and
+re-adding `PYTHONPATH` to `sys.path` by hand keeps the answer faithful to real
+resolution order. This is the same diagnostic
+`.claude/scripts/check-pythonpath.sh` prints, for the same reason.
 
 **Coverage exemptions** (`.coveragerc`):
 - `*/__main__.py` is omitted. These are `python -m <pkg>` entry shims: a

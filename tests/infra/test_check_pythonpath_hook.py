@@ -614,5 +614,81 @@ class TestCheckPythonpathHook(unittest.TestCase):
             self.assertEqual(list(payload.keys()), ["systemMessage"])
 
 
+class TestDocsDoNotAdviseAnUnsafeDiagnostic(unittest.TestCase):
+    """The docs must not tell a reader to `import` from an untrusted tree.
+
+    The whole point of the diagnostic is to run it while PYTHONPATH names a
+    checkout you do not trust. `import resume` there executes that tree's
+    `sitecustomize.py` at interpreter startup AND its package `__init__` before
+    printing a single character — so the command written to diagnose the hazard
+    triggers it. `find_spec` under `-I -S` returns the same path and executes
+    nothing.
+
+    The hook's own advised line was hardened first; these two docs kept the
+    unsafe form for another two revisions. Pinning it here is what stops the
+    pair drifting apart again.
+    """
+
+    DOCS = ("CLAUDE.md", "docs/architecture.md")
+
+    # Matches `import resume; print(resume.__file__)` and its spacing variants.
+    _UNSAFE = re.compile(r"import\s+resume\s*;\s*print\(\s*resume\.__file__\s*\)")
+
+    def test_no_doc_advises_import_then_dunder_file(self) -> None:
+        """Only *advised* occurrences count, not named counter-examples.
+
+        Both docs now quote the unsafe command in order to warn against it, so
+        a bare substring search reports the warning itself as a violation. The
+        line that would actually mislead a reader is one offered as the thing
+        to run: inside a fenced block, or introduced by "run".
+        """
+        for rel in self.DOCS:
+            with self.subTest(doc=rel):
+                text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+                # Match ANY info string, not just bash/sh. A pattern that
+                # skips ```mermaid pairs that fence's opener with a later
+                # block's closer, so a 5,000-character span of ordinary prose
+                # is scanned as if it were one code block — which reported a
+                # blockquote counter-example as an advised command.
+                for block in re.findall(r"```[^\n]*\n(.*?)```", text, re.S):
+                    hit = self._UNSAFE.search(block)
+                    found = hit.group(0) if hit else ""
+                    self.assertIsNone(
+                        hit,
+                        f"{rel} offers the unsafe diagnostic in a fenced "
+                        f"block: {found!r} — use the -I -S find_spec form, "
+                        "which reports the same path without executing the "
+                        "foreign tree",
+                    )
+                advised = re.search(
+                    r"run\s+`python3 -c \"import resume", text
+                )
+                self.assertIsNone(
+                    advised, f"{rel} tells the reader to run the unsafe form"
+                )
+
+    def test_each_doc_warns_against_the_unsafe_form(self) -> None:
+        """Absence is not enough — the trap should be named where it bites."""
+        for rel in self.DOCS:
+            with self.subTest(doc=rel):
+                text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+                self.assertRegex(
+                    text,
+                    r"sitecustomize",
+                    f"{rel} does not explain why `import` is unsafe here",
+                )
+                self.assertIsNotNone(
+                    self._UNSAFE.search(text),
+                    f"{rel} should quote the unsafe form as a counter-example "
+                    "so a reader recognises it",
+                )
+
+    def test_claude_md_carries_the_isolated_form(self) -> None:
+        """The safe replacement must actually be present, not just absent."""
+        text = (REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+        self.assertIn("find_spec", text)
+        self.assertRegex(text, r"python3\s+-I\s+-S\s+-c")
+
+
 if __name__ == "__main__":
     unittest.main()

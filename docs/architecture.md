@@ -138,10 +138,14 @@ line with a decoy checkout ahead on `PYTHONPATH`.
 > A bare `python3` does **not** — an inherited `PYTHONPATH` beats the editable
 > install, so an ad-hoc `python3 -c`, `python3 -m unittest`, or a one-off probe
 > can load *another checkout's* code and print pre-change behavior. Before
-> concluding an edit didn't take effect, run
-> `python3 -c "import resume; print(resume.__file__)"`. If that path isn't under
-> the tree you're editing, the environment is wrong, not your change. Use
-> `make test`, never a bare `python3 -m unittest`.
+> concluding an edit didn't take effect, print where the module really loads
+> from — see the diagnostic in CLAUDE.md, which uses `python3 -I -S` with
+> `find_spec`. Don't reach for the obvious short form,
+> `python3 -c "import resume; print(resume.__file__)"`: you'd run it precisely
+> when `PYTHONPATH` names an untrusted checkout, and `import` executes that
+> tree's `sitecustomize` at startup and its package `__init__` before printing
+> anything. If the path isn't under the tree you're editing, the environment is
+> wrong, not your change. Use `make test`, never a bare `python3 -m unittest`.
 >
 > One limit no wrapper can close: Python imports `sitecustomize`/`usercustomize`
 > from `PYTHONPATH` entries during interpreter startup, before any Python-level
