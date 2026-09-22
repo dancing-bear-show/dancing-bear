@@ -70,18 +70,18 @@ We use pdfminer.six **only** for text extraction (`extract_text` from `high_leve
 
 #### Mitigation Steps Taken
 
-1. ✅ **Upgraded to latest version** (20251230) - contains partial fixes
+1. ✅ **Upgraded to latest version** (20260107, pinned in `pyproject.toml`) - contains partial fixes
 2. ✅ **Limited scope** - We only use high-level text extraction, not CMap loading directly
 3. ✅ **Controlled inputs** - Only process user-provided PDFs, not arbitrary files from untrusted sources
 
 #### Known Limitations
 
-- **Complete fix not available:** The vulnerability persists in the latest version (20251230) as the underlying pickle deserialization issue has not been fully addressed upstream
+- **Complete fix not available:** The vulnerability persists in the pinned version (20260107) as the underlying pickle deserialization issue has not been fully addressed upstream
 - **Upstream tracking:** https://github.com/pdfminer/pdfminer.six/issues
 
 #### Future Mitigation
 
-- **Note:** pdfplumber is NOT a viable alternative as it depends on pdfminer.six==20251107 (older vulnerable version)
+- **Note:** pdfplumber was previously ruled out because it pinned pdfminer.six==20251107 (an older, vulnerable version). That no longer holds: pdfplumber 0.11.10 requires pdfminer.six==20260107, the same version pinned in `pyproject.toml`, so it introduces no additional exposure. It ships in the `[pdf]` extra and is installed by `make test`. It remains subject to the same underlying pdfminer.six issue described above — it is not a *mitigation*, merely no longer a downgrade.
 - Monitor upstream for complete fix at https://github.com/pdfminer/pdfminer.six
 - Consider alternative PDF libraries that don't use pickle (e.g., pypdf, PyMuPDF)
 - Restrict PDF processing to trusted sources only
