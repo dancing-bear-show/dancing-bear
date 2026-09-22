@@ -2223,7 +2223,30 @@ stages:
         Check:  command -v ollama
         Act:    brew install ollama
         Never reinstall or upgrade an existing install — a working ollama is
-        already satisfied, whatever its version.
+        already satisfied, whatever its version. This is the expected cold
+        state on a fresh machine, not an error: absent ollama is what this
+        step exists to resolve.
+
+        CHECK THE INSTALLER BEFORE USING IT. `brew install` is the act only
+        when Homebrew is actually present and the platform is the one it
+        serves. Verify BOTH before running it, and read survey.json's
+        recorded `sw_vers` rather than re-deriving the platform:
+          - `command -v brew` must succeed.
+          - the platform must be macOS.
+
+        If ollama is missing AND either check fails, do NOT improvise another
+        installation route. Specifically: do not pipe a remote install script
+        into a shell, do not download a release tarball, and do not fall back
+        to a package manager the survey did not record. Installing software
+        by a path nobody reviewed is a worse outcome than not installing it.
+
+        Instead abort the stage: write {workspace}/validation/install.json
+        with skipped=true and a skip_reason naming which check failed and the
+        one-line command the operator should run themselves (`brew install
+        ollama`, or their platform's equivalent). A stage that stops with a
+        clear instruction is a good result here; the run can be repeated
+        after the operator acts, and every step in this stage is idempotent
+        precisely so that re-running costs nothing.
 
       Step 2 — Ollama server reachable.
         Check:  curl -sS -m 5 -f -o /dev/null "{ollama_host}/api/tags"
