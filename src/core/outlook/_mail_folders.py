@@ -27,7 +27,12 @@ class _FoldersHost(Protocol):
     def list_folders(self) -> list[dict[str, Any]]: ...
     def get_folder_id_map(self) -> dict[str, str]: ...
     def ensure_folder(self, name: str) -> str: ...
-    def list_all_folders(self, ttl: int = ..., clear_cache: bool = ...) -> list[dict[str, Any]]: ...
+    def list_all_folders(
+        self, ttl: int = ..., clear_cache: bool = ..., bypass_cache: bool = ...
+    ) -> list[dict[str, Any]]: ...
+    def get_folder_path_map(
+        self, ttl: int = ..., clear_cache: bool = ..., bypass_cache: bool = ...
+    ) -> dict[str, str]: ...
     def _ensure_child_folder(self, parent_id: str, seg: str) -> str: ...
 
 
@@ -76,11 +81,27 @@ class FoldersMixin:
         self: "_FoldersHost",
         ttl: int = 600,
         clear_cache: bool = False,
+        bypass_cache: bool = False,
     ) -> list[dict[str, Any]]:
-        """Return all folders including nested, using BFS traversal."""
+        """Return all folders including nested, using BFS traversal.
+
+        ``bypass_cache`` skips the cache READ (the write still happens, so the
+        fresh listing is available to later callers).  It exists because neither
+        existing knob can express "give me the current state":
+
+        - ``ttl=0`` means "no expiry check" and serves an entry of ANY age --
+          the opposite of fresh. See ``cfg_get_json``, which guards on
+          ``if ttl > 0``; a negative ttl fails that guard the same way.
+        - ``clear_cache=True`` calls ``cfg_clear()``, which wipes the ENTIRE
+          provider cache, including unrelated rule caches. Too blunt for a
+          caller that only needs folders.
+
+        Used by ``resolve_folder_path`` so a preview can compare against the
+        same folder ids the apply will resolve.
+        """
         if clear_cache:
             self.cfg_clear()
-        cached = self.cfg_get_json("folders_all", ttl)
+        cached = None if bypass_cache else self.cfg_get_json("folders_all", ttl)
         if isinstance(cached, list):
             return cached
         all_folders: dict[str, dict[str, Any]] = {}
@@ -109,9 +130,16 @@ class FoldersMixin:
         self: "_FoldersHost",
         ttl: int = 600,
         clear_cache: bool = False,
+        bypass_cache: bool = False,
     ) -> dict[str, str]:
-        """Map full path (Parent/Child/Sub) to folder id."""
-        folders = self.list_all_folders(ttl=ttl, clear_cache=clear_cache)
+        """Map full path (Parent/Child/Sub) to folder id.
+
+        ``bypass_cache`` is forwarded to ``list_all_folders``; see its docstring
+        for why neither ``ttl`` nor ``clear_cache`` can express "read fresh".
+        """
+        folders = self.list_all_folders(
+            ttl=ttl, clear_cache=clear_cache, bypass_cache=bypass_cache
+        )
         by_id = {f.get("id"): f for f in folders}
         parent = {fid: f.get("parentFolderId") for fid, f in by_id.items()}
         name = {fid: (f.get("displayName") or "") for fid, f in by_id.items()}
@@ -170,8 +198,45 @@ class FoldersMixin:
         r2.raise_for_status()
         return r2.json().get("id") or ""
 
+    def resolve_folder_path(
+        self: "_FoldersHost",
+        path: str,
+        ttl: int = 600,
+        fresh: bool = True,
+    ) -> str:
+        """Resolve a nested folder path to its id WITHOUT creating anything.
+
+        Returns ``""`` when the path does not exist.  The non-mutating counterpart
+        to ``ensure_folder_path``, for callers that must not change the mailbox --
+        previews above all.
+
+        Reads FRESH by default (``bypass_cache=True``), which is the point: this
+        exists because a preview resolving through a *stale* cached snapshot
+        classified a rule differently from the apply, reporting "Would create" for
+        a rule the live run treated as a no-op.  Reading the same stale snapshot
+        here would leave that gap exactly as it was.
+
+        ``bypass_cache`` rather than a ttl value, because ttl cannot express it:
+        ``cfg_get_json`` guards on ``if ttl > 0``, so ``ttl=0`` (and any negative
+        value) means "no expiry check" and serves an entry of ANY age -- the
+        opposite of fresh.  Verified by probe: with a 2-hour-old snapshot planted,
+        ``ttl=0`` made zero Graph calls and returned ``""`` for a folder that
+        exists.  ``clear_cache=True`` would work but wipes the entire provider
+        cache, including unrelated rule caches.
+
+        Callers that genuinely want the cached map already have
+        ``get_folder_path_map``; pass ``fresh=False`` here to reuse it.
+        """
+        if not [p for p in (path or "").split("/") if p]:
+            raise ValueError("Folder path is empty")
+        return self.get_folder_path_map(ttl=ttl, bypass_cache=fresh).get(path, "")
+
     def ensure_folder_path(self: "_FoldersHost", path: str) -> str:
-        """Ensure a nested folder path exists and return the leaf folder id."""
+        """Ensure a nested folder path exists and return the leaf folder id.
+
+        MUTATES: creates every missing segment.  Use ``resolve_folder_path`` from
+        any code path that must not change the mailbox.
+        """
         parts = [p for p in (path or "").split("/") if p]
         if not parts:
             raise ValueError("Folder path is empty")

@@ -2180,5 +2180,126 @@ class TestRulesPlanCLIReconcileFlag(unittest.TestCase):
         self.assertTrue(ns.reconcile, "--reconcile not parsed correctly on rules.plan")
 
 
+# ---------------------------------------------------------------------------
+# Folder resolution parity on a stale snapshot
+# ---------------------------------------------------------------------------
+
+class TestExistingFolderCacheMissParity(unittest.TestCase):
+    """A folder that EXISTS but is missing from the cached snapshot.
+
+    ``_build_rule_action`` (sync, live) resolved via ``ensure_folder_path`` and got
+    the real Graph id. Both previews fell back to the folder PATH STRING on a cache
+    miss, so they keyed the same rule differently from the apply and reported
+    ``Would create`` for a rule the live run treated as a no-op:
+
+        STALE snapshot : plan would_create=1   sync --dry-run 1   sync LIVE 0
+
+    Deferred from #359 because the fix needs a NON-mutating client lookup: plan
+    cannot call ``ensure_folder_path``, which creates folders, and #359 had just
+    fixed a dry run that did exactly that.
+
+    ``resolve_folder_path`` is that lookup -- it returns ``""`` rather than
+    creating. Both previews now consult it after the cached map and before falling
+    back to the path, so an existing folder resolves to the id the apply uses, and
+    only a genuinely absent folder falls through to the path (where "would create"
+    is the honest answer).
+    """
+
+    REAL_ID = "folder-real-id"
+    DESIRED = [{"match": {"from": "news.example"}, "action": {"moveToFolder": "Archive/News"}}]
+
+    def _client(self, folder_map):
+        client = _make_client(
+            list_filters=[{
+                "id": "news-rule",
+                "criteria": {"from": "news.example"},
+                "action": {"moveToFolderId": self.REAL_ID},
+            }],
+            folder_path_map=dict(folder_map),
+        )
+        client.ensure_folder_path.return_value = self.REAL_ID
+        # The folder exists in Graph even when the snapshot missed it.
+        client.resolve_folder_path.return_value = self.REAL_ID
+        return client
+
+    def _plan(self, folder_map):
+        client = self._client(folder_map)
+        payload = OutlookRulesPlanPayload(
+            client=client, config_path="/test.yaml", move_to_folders=True, reconcile=False,
+        )
+        with patch("core.yamlio.load_config", return_value={"filters": []}), \
+                patch("mail.dsl.normalize_filters_for_outlook", return_value=list(self.DESIRED)):
+            return OutlookRulesPlanProcessor().process(payload), client
+
+    def _sync(self, folder_map, dry_run):
+        client = self._client(folder_map)
+        payload = OutlookRulesSyncPayload(
+            client=client, config_path="/test.yaml", dry_run=dry_run,
+            move_to_folders=True, delete_missing=False, reconcile=False,
+        )
+        with patch("core.yamlio.load_config", return_value={"filters": []}), \
+                patch("mail.dsl.normalize_filters_for_outlook", return_value=list(self.DESIRED)):
+            return OutlookRulesSyncProcessor().process(payload), client
+
+    def test_stale_snapshot_plan_agrees_with_live(self):
+        """The regression: plan must not promise a create the apply will not make."""
+        plan_env, _ = self._plan({})
+        live_env, _ = self._sync({}, dry_run=False)
+
+        self.assertEqual(plan_env.payload.would_create, live_env.payload.created)
+        self.assertEqual(
+            plan_env.payload.plan_items, [],
+            "plan reported an action for a rule that already points at the folder",
+        )
+
+    def test_stale_snapshot_dry_run_agrees_with_live(self):
+        """sync --dry-run must agree with sync too, not only plan."""
+        dry_env, _ = self._sync({}, dry_run=True)
+        live_env, _ = self._sync({}, dry_run=False)
+
+        self.assertEqual(dry_env.payload.created, live_env.payload.created)
+
+    def test_fresh_snapshot_unchanged(self):
+        """Contrast: when the snapshot has the folder, nothing changes."""
+        for surface in (lambda: self._plan({"Archive/News": self.REAL_ID})[0],
+                        lambda: self._sync({"Archive/News": self.REAL_ID}, True)[0]):
+            env = surface()
+            count = getattr(env.payload, "would_create", None)
+            if count is None:
+                count = env.payload.created
+            self.assertEqual(count, 0)
+
+    def test_previews_never_create_a_folder(self):
+        """Neither preview may call the mutating resolver. Guards #359's fix."""
+        _, plan_client = self._plan({})
+        _, dry_client = self._sync({}, dry_run=True)
+
+        for label, client in (("plan", plan_client), ("dry-run", dry_client)):
+            with self.subTest(surface=label):
+                self.assertEqual(
+                    client.ensure_folder_path.call_count, 0,
+                    f"{label} called ensure_folder_path, which creates folders",
+                )
+
+    def test_absent_folder_still_falls_back_to_the_path(self):
+        """A folder that does NOT exist resolves to the path, so plan can still report it.
+
+        ``resolve_folder_path`` returns "" for a missing folder. Treating that as
+        the answer would make the rule key fall out of comparison entirely; the
+        path keeps the preview usable, and "would create" is then correct.
+        """
+        client = self._client({})
+        client.resolve_folder_path.return_value = ""   # folder genuinely absent
+        payload = OutlookRulesPlanPayload(
+            client=client, config_path="/test.yaml", move_to_folders=True, reconcile=False,
+        )
+        with patch("core.yamlio.load_config", return_value={"filters": []}), \
+                patch("mail.dsl.normalize_filters_for_outlook", return_value=list(self.DESIRED)):
+            env = OutlookRulesPlanProcessor().process(payload)
+
+        self.assertEqual(env.payload.would_create, 1)
+        self.assertIn("Archive/News", env.payload.plan_items[0])
+
+
 if __name__ == "__main__":
     unittest.main()
