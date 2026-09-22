@@ -396,21 +396,43 @@ class TestResolveFolderPath(OutlookMailTestBase):
                 )
 
     @patch("core.outlook._mail_folders._requests")
-    def test_matching_is_case_insensitive_like_the_apply(self, mock_requests_fn):
-        """Casing must not decide whether a folder is found.
+    def test_nested_segment_casing_is_forgiven(self, mock_requests_fn):
+        """Nested casing must not decide whether a folder is found.
 
-        Raised in the review body rather than an inline thread. The apply path is
-        case-insensitive for nested segments -- ``_ensure_child_folder`` compares
-        with ``seg.lower()`` -- so a live sync resolves ``Archive/news`` to an
-        existing ``Archive/News``. An exact-match lookup here reported that path
-        absent, and the preview offered to create a folder that already exists.
+        ``_ensure_child_folder`` compares ``(displayName or "").lower() ==
+        seg.lower()``, so a live sync resolves ``Archive/news`` to an existing
+        ``Archive/News``. An exact-match lookup here reported that path absent and
+        the preview offered to create a folder that already exists.
         """
-        for raw in ("Archive/news", "ARCHIVE/NEWS", "archive/News"):
+        for raw in ("Archive/news", "Archive/NEWS"):
             with self.subTest(path=raw):
                 self._mock_tree(mock_requests_fn)
                 self.assertEqual(
                     FakeMailClient().resolve_folder_path(raw), "id-news",
                     f"{raw!r} reported absent; the apply would have resolved it",
+                )
+
+    @patch("core.outlook._mail_folders._requests")
+    def test_top_level_casing_is_exact_like_the_apply(self, mock_requests_fn):
+        """Top-level casing IS significant, because the apply treats it that way.
+
+        The apply is asymmetric: ``ensure_folder_path`` resolves the first segment
+        with an exact ``top_map.get(parts[0])`` and ``ensure_folder`` compares with
+        ``in``, so ``archive`` does not match an existing ``Archive`` -- the apply
+        CREATES a second top-level folder.
+
+        An earlier version of this test asserted ``ARCHIVE/NEWS`` resolves, which
+        claimed a parity the implementation does not provide: the preview said the
+        folder existed while the apply would have created a new ``archive``
+        alongside it. Raised in review, and the reason the match key folds only the
+        segments after the first.
+        """
+        for raw in ("archive/News", "ARCHIVE/News", "archive/news"):
+            with self.subTest(path=raw):
+                self._mock_tree(mock_requests_fn)
+                self.assertEqual(
+                    FakeMailClient().resolve_folder_path(raw), "",
+                    f"{raw!r} resolved, but the apply would create a new top-level folder",
                 )
 
     @patch("core.outlook._mail_folders._requests")

@@ -10,6 +10,30 @@ from core.constants import GRAPH_API_URL
 _NEXT_LINK = "@odata.nextLink"
 
 
+def _folder_match_key(parts: list[str]) -> str:
+    """Match key for a folder path, mirroring how ``ensure_folder_path`` matches.
+
+    The apply is deliberately ASYMMETRIC, and a preview has to reproduce that
+    rather than pick one rule for the whole path:
+
+    - **top-level segment: exact.** ``ensure_folder_path`` does
+      ``top_map.get(parts[0])`` against ``displayName``, and ``ensure_folder``
+      compares with ``in``.  Neither folds case, so ``archive`` does not match an
+      existing ``Archive`` -- the apply CREATES a second top-level folder.
+    - **nested segments: case-insensitive.** ``_ensure_child_folder`` compares
+      ``(displayName or "").lower() == seg.lower()``, so ``Archive/news`` resolves
+      to an existing ``Archive/News``.
+
+    Folding the whole path was an overcorrection: it made the preview report
+    ``archive/News`` as an existing folder while the apply would have created a new
+    ``archive`` alongside it. Folding nothing was the original bug in the other
+    direction. Only the split matches reality.
+    """
+    if not parts:
+        return ""
+    return "/".join([parts[0], *(seg.casefold() for seg in parts[1:])])
+
+
 class _FoldersHost(Protocol):
     """Complete self-type for FoldersMixin methods that call sibling methods.
 
@@ -33,12 +57,12 @@ class _FoldersHost(Protocol):
     def get_folder_path_map(
         self, ttl: int = ..., clear_cache: bool = ..., bypass_cache: bool = ...
     ) -> dict[str, str]: ...
-    def _folded_folder_path_map(
+    def _match_keyed_folder_path_map(
         self, ttl: int = ..., fresh: bool = ...
     ) -> dict[str, str]: ...
     def _ensure_child_folder(self, parent_id: str, seg: str) -> str: ...
 
-    # Memoised fresh path map, set by ``_folded_folder_path_map`` on first use.
+    # Memoised fresh path map, set by ``_match_keyed_folder_path_map`` on first use.
     _fresh_folder_map: dict[str, str] | None
 
 
@@ -257,28 +281,34 @@ class FoldersMixin:
         if not parts:
             raise ValueError("Folder path is empty")
 
-        folded = self._folded_folder_path_map(ttl=ttl, fresh=fresh)
-        return folded.get("/".join(parts).casefold(), "")
+        keyed = self._match_keyed_folder_path_map(ttl=ttl, fresh=fresh)
+        return keyed.get(_folder_match_key(parts), "")
 
-    def _folded_folder_path_map(
+    def _match_keyed_folder_path_map(
         self: "_FoldersHost",
         ttl: int = 600,
         fresh: bool = True,
     ) -> dict[str, str]:
-        """Case-folded path -> id, read fresh at most once per client.
+        """Match-key -> id, read fresh at most once per client.
 
         Split out so the fresh traversal is shared. ``resolve_folder_path`` is
         called once per destination, and re-walking the tree for each one is the
         difference between one Graph round trip and one per folder in the plan.
+
+        Keys come from ``_folder_match_key``, which mirrors the apply's asymmetric
+        matching rather than folding the whole path.
         """
         cached = getattr(self, "_fresh_folder_map", None)
         if cached is not None and fresh:
             return cached
         raw = self.get_folder_path_map(ttl=ttl, bypass_cache=fresh)
-        folded = {p.casefold(): fid for p, fid in raw.items()}
+        keyed = {
+            _folder_match_key([seg for seg in p.split("/") if seg]): fid
+            for p, fid in raw.items()
+        }
         if fresh:
-            self._fresh_folder_map = folded
-        return folded
+            self._fresh_folder_map = keyed
+        return keyed
 
     def ensure_folder_path(self: "_FoldersHost", path: str) -> str:
         """Ensure a nested folder path exists and return the leaf folder id.
