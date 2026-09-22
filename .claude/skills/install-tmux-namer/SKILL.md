@@ -2,6 +2,8 @@
 name: install-tmux-namer
 description: Install the tmux auto-session-namer hook for Claude Code. Copies the hook script, patches ~/.claude/settings.json, and optionally patches ~/.zshrc for iTerm tab sync. Use when setting up a new machine or after cloning dancing-bear.
 allowed-tools: Bash, Read, Write, Edit, Glob
+skills:
+  - dancing-bear-rules
 ---
 
 # Install tmux Session Auto-Namer
@@ -31,16 +33,22 @@ mkdir -p ~/.claude/hooks
 
 # Check if already installed
 if [ -f ~/.claude/hooks/tmux-session-namer.py ]; then
-  echo "Already installed — checking for updates..."
-  diff ~/.claude/hooks/tmux-session-namer.py configs/llm/tmux-session-namer.py \
-    && echo "Up to date" || echo "Update available"
+  if diff -q ~/.claude/hooks/tmux-session-namer.py configs/llm/tmux-session-namer.py > /dev/null; then
+    echo "Up to date — nothing to do"
+  else
+    backup=~/.claude/hooks/tmux-session-namer.py.bak.$(date +%Y%m%d%H%M%S)
+    cp ~/.claude/hooks/tmux-session-namer.py "$backup"
+    echo "Existing hook differs from repo version — backed up to $backup"
+    cp configs/llm/tmux-session-namer.py ~/.claude/hooks/tmux-session-namer.py
+    chmod +x ~/.claude/hooks/tmux-session-namer.py
+    echo "Hook script updated at ~/.claude/hooks/tmux-session-namer.py"
+  fi
 else
   echo "Installing..."
+  cp configs/llm/tmux-session-namer.py ~/.claude/hooks/tmux-session-namer.py
+  chmod +x ~/.claude/hooks/tmux-session-namer.py
+  echo "Hook script installed at ~/.claude/hooks/tmux-session-namer.py"
 fi
-
-cp configs/llm/tmux-session-namer.py ~/.claude/hooks/tmux-session-namer.py
-chmod +x ~/.claude/hooks/tmux-session-namer.py
-echo "Hook script installed at ~/.claude/hooks/tmux-session-namer.py"
 ```
 
 ## Step 3: Patch ~/.claude/settings.json
@@ -51,7 +59,7 @@ and add it if not. **Merge carefully — do not overwrite existing hooks.**
 Use the Write/Edit tool to run this patch script, or execute it directly via Bash:
 
 ```bash
-python3 - << 'PY'
+python3 -I -S - << 'PY'
 import json, os, sys
 
 settings_path = os.path.expanduser("~/.claude/settings.json")
@@ -98,6 +106,11 @@ After patching, open `/hooks` in Claude Code or restart to reload settings.
 
 This makes your iTerm tab title mirror the tmux session name on every prompt.
 
+**This step is optional and must not run without explicit user consent.** Ask the
+user whether they want iTerm tab sync before touching `~/.zshrc` — e.g. "Add iTerm
+tab title sync to ~/.zshrc? (y/n)". Only run the block below if they say yes; if they
+decline or don't respond, skip this step and note it as skipped in the final report.
+
 ```bash
 ZSHRC=~/.zshrc
 MARKER="# Mirror tmux session name to iTerm tab title"
@@ -128,7 +141,7 @@ fi
 ls -la ~/.claude/hooks/tmux-session-namer.py
 
 # Confirm hook is in settings
-python3 -c "
+python3 -I -S -c "
 import json, os
 s = json.load(open(os.path.expanduser('~/.claude/settings.json')))
 hooks = s.get('hooks', {}).get('UserPromptSubmit', [])
@@ -154,5 +167,6 @@ After completing the steps, report:
 | ~/.zshrc | iTerm sync added (or skipped) |
 | Reload needed | Open /hooks or restart Claude |
 
-Next prompt will trigger the hook and rename this session.
+The hook runs on the next prompt, but only renames the session once the prompt
+count for this session reaches a multiple of 20 (configs/llm/tmux-session-namer.py:82).
 ```

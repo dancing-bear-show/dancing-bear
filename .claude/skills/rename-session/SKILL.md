@@ -3,6 +3,8 @@ name: rename-session
 description: Rename the current tmux session to a short summary of what you're working on right now. Use when you want to update the name immediately rather than waiting for the automatic 20-prompt cycle.
 allowed-tools:
   - Bash
+skills:
+  - dancing-bear-rules
 ---
 
 # Rename tmux Session

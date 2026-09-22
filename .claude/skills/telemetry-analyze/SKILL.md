@@ -4,6 +4,9 @@ description: Analyze Claude Code session cost, efficiency, and usage using danci
 allowed-tools:
   - Bash
   - Read
+  - Agent
+skills:
+  - dancing-bear-rules
 ---
 
 # Telemetry Analysis
@@ -20,16 +23,16 @@ Analyze Claude Code session cost, efficiency, and usage using `./bin/telemetry`.
 
 ## Data Source
 
-`./bin/telemetry` reads `~/.claude/projects/*.jsonl` transcripts directly — no setup, no collector, always works.
+`./bin/telemetry` reads `~/.claude/projects/*/*.jsonl` transcripts directly (plus the older `~/.claude/projects/*/*/subagents/*.jsonl` layout) — no setup, no collector, always works.
 
 ## What This Skill Does
 
 ### 1. Gather Session Data
 
 ```bash
-./bin/telemetry history -d 7     # Sessions from last 7 days
-./bin/telemetry summary          # Current session detail (tokens, cost, top tools)
-./bin/telemetry cost -d 7        # Daily cost breakdown by model tier
+./bin/telemetry history -d 7                        # Sessions from last 7 days
+./bin/telemetry summary                              # Current session detail (tokens, cost, top tools)
+./bin/telemetry cost --since 7d --group-by day       # Daily cost breakdown (derive model tiers from session data)
 ```
 
 ### 2. Generate Analysis Report
@@ -44,8 +47,8 @@ Synthesize the command output into a markdown report with:
 ### 3. Optional: Time Window
 
 ```bash
-./bin/telemetry history -d 14    # Last 14 days
-./bin/telemetry cost -d 30       # Last 30 days
+./bin/telemetry history -d 14                        # Last 14 days
+./bin/telemetry cost --since 30d --group-by day       # Last 30 days
 ```
 
 ### 4. Output Options
@@ -68,7 +71,7 @@ Synthesize the command output into a markdown report with:
 
 2. Gather cost breakdown:
    ```bash
-   ./bin/telemetry cost -d 7
+   ./bin/telemetry cost --since 7d --group-by day
    ```
 
 3. Gather current session detail:
@@ -118,7 +121,7 @@ Synthesize the command output into a markdown report with:
 After composing a cost analysis, spawn a `fact-checker` agent:
 
 ```python
-Task(subagent_type="fact-checker", prompt="""
+Agent(subagent_type="fact-checker", description="Validate telemetry report", prompt="""
 Validate the telemetry analysis report. Check: cost totals match
 their line-item breakdowns, date ranges are consistent, model tier
 labels (opus/sonnet/haiku) match the raw data, and any percentage
