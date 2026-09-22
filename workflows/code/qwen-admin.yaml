@@ -81,7 +81,10 @@ description: >
         stage failure — the probes are meant to observe a broken stack).
     A2  Every finding in triage.json cites the analysis file it came from.
     A3  Nothing outside the allowlist was executed, and nothing was executed
-        that the human did not approve.
+        that the human did not approve — where "approved" means "present in
+        triage.json's proposed_actions after the triage gate", which is the
+        workflow's only approval point. Remediate has no gate and asks
+        nothing; if it ever appears to solicit a choice, that is a defect.
     A4  Every applied action re-checked its precondition immediately before
         running, and any whose precondition no longer held was skipped and
         recorded.
@@ -630,6 +633,20 @@ stages:
     depends_on: [health, models, queue-lane, spend]
     reads_from: [health, models, queue-lane, spend]
     description: >
+      THIS STAGE'S GATE IS THE ONLY APPROVAL POINT IN THE WORKFLOW. It is the
+      sole `human_gate: true`; `remediate` has none, so whatever survives
+      here is what gets applied to a running system. Write
+      `proposed_actions` accordingly — as the literal approval list, not as
+      a menu to be narrowed later. The gate protocol lets the user approve,
+      reject, or `drop N` / `edit N field=value` / `add`, and those edits
+      are written back into triage.json before remediate reads it.
+
+      Two consequences worth stating in the summary you present at the gate,
+      because the user is deciding on this basis and cannot revise later:
+        - anything left in the list WILL be applied if they approve;
+        - `reject` halts the run entirely, and dropping individual entries
+          is how to approve a subset.
+
       Read all four analysis files and produce a ranked action list. Cite the
       source file for every finding — a proposal with no citation is a guess.
 
@@ -828,15 +845,36 @@ stages:
       Read outputs/analysis/triage.json. If nothing_to_do is true, write a
       no-op record and stop.
 
-      Otherwise present the proposed actions to the user, grouped by severity,
-      with destructive ones called out explicitly and their reversibility
-      stated. Ask which to apply:
+      THE APPROVAL IS THE TRIAGE GATE'S OUTPUT, NOT A QUESTION ASKED HERE.
+      `human_gate: true` is on `triage`; this stage has none, and the engine
+      resumes it with no channel to receive an answer. An earlier revision
+      asked the user to choose A/B/C at this point, which could not capture
+      consent: there was nobody to answer and no recorded selection, so
+      "apply only what was approved" referred to a decision that existed
+      nowhere. A prompt that cannot be answered is worse than no prompt —
+      it reads as a safeguard while authorising whatever the agent infers.
 
-        A) Apply all non-destructive actions
-        B) Apply specific action ids (user names them)
-        C) Apply nothing — report only
+      So the approved set is exactly what survives the triage gate. The
+      engine's gate protocol accepts approve / reject / drop N / edit N
+      field=value / add, and those edits are written back into
+      triage.json before this stage runs. Therefore:
 
-      Then apply ONLY what was approved, with these constraints:
+        - Read triage.json's `proposed_actions` as the approved set. Every
+          entry that is still there was approved; anything the user dropped
+          at the gate is already gone from the file.
+        - A gate answer of `reject` halts the run, so if this stage is
+          executing at all, the gate was approved.
+        - Do NOT ask the user anything here, and do NOT infer a broader or
+          narrower set than the file contains. If the file is empty or
+          unreadable, write a no-op record and stop — fail closed.
+        - Record in the run record the exact action ids you are about to
+          apply, read from the file, so the approved set is auditable
+          against what the gate actually produced.
+
+      If a future revision wants a second, finer-grained approval at this
+      point, it needs a real gate on THIS stage — not a question in prose.
+
+      Then apply ONLY the approved actions, with these constraints:
 
         - Never apply an action absent from triage.json's proposed_actions,
           even if it now seems obviously right. If the situation changed
