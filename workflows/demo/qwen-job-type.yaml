@@ -25,7 +25,7 @@ description: >
         |
     write-handler                (G1 — isolated; implement + COMMIT)
         |
-    land-and-verify              (G2 — verify the merge landed, drive the CLI)
+    land-and-verify  [human gate]  (G2 — verify the merge landed, drive the CLI)
 
   FOUR THINGS THIS DEMO EXISTS TO TEACH, each of which is a defect that has
   actually shipped in this repo:
@@ -44,7 +44,15 @@ description: >
      `kind: validate` for that reason.
 
   3. A stage that changes state OUTSIDE the workspace must be
-     `kind: publish`, not `kind: execute`. The workflow skill's convention
+     `kind: publish`, AND — when the change cannot be fully undone — it
+     needs a `human_gate` as well. The two are different things and it is
+     easy to conflate them: `publish` tells the ENGINE an external side
+     effect is permitted, while `human_gate` asks the PERSON. This demo
+     writes four real jobs into the shared worker queue and cannot delete
+     them afterwards (`worker` has no delete-by-id, and `purge` filters
+     only by age and folder), so `land-and-verify` carries both.
+
+     On the `publish` half specifically: the workflow skill's convention
      authorizes external side effects only from publish stages, and the
      prompt generated for an execute stage tells the agent there are none —
      so an execute stage that touches the real queue both forbids and
@@ -387,6 +395,16 @@ stages:
     # forbid and require the same queue operations. Copy this reasoning, not
     # just the keyword, when adapting this demo.
     kind: publish
+    # Gated because this stage mutates state OUTSIDE the workspace that it
+    # cannot fully undo. It enqueues four real jobs into the user's shared
+    # worker queue, and `worker` has no delete-by-id — `purge` filters only
+    # by age and folder — so records are left behind by design, and on a
+    # quiet queue one deferred job stays pending. `kind: publish` documents
+    # that an external side effect is permitted; it does not ask anyone. A
+    # demo run started with --execute would otherwise reach the real queue
+    # with no confirmation at all, which is not something a teaching example
+    # should do on someone's machine.
+    human_gate: true
     depends_on: [write-handler]
     reads_from: [write-handler, read-the-seam]
     description: >

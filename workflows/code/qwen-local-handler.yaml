@@ -1812,8 +1812,26 @@ stages:
            the stage gave. A recorded no-change is fine; a missing
            commit_sha with no explanation means the agent never committed and
            its work is gone.
+        2b. VALIDATE commit_sha BEFORE IT REACHES A COMMAND. These files are
+           agent-written, so the value is untrusted regardless of which
+           stage produced it — a confused or compromised agent can put
+           anything in that field, and step 3 puts it straight into `git`.
+           Require a full 40-character hex SHA and nothing else:
+
+             python3 -c 'import json,re,sys,pathlib; v=json.loads(pathlib.Path(sys.argv[1]).read_text()).get("commit_sha") or ""; sys.exit(0 if re.fullmatch(r"[0-9a-f]{40}", v) else 1)' {workspace}/outputs/<the impl file>
+
+           Branch on the EXIT STATUS. A short SHA, a ref name, or anything
+           carrying a space or shell metacharacter FAILS this stage — do not
+           resolve it, do not truncate it, and do not retry with rev-parse,
+           since each of those turns a rejection back into an execution path.
+           Apply the same discipline to any path you take from these files
+           before passing it to `git ls-files`: confirm it is a
+           repo-relative path with no `..` segment and no leading `-`, or
+           report it rather than querying it. The demo's land-and-verify
+           stage carries this exact check for this exact reason.
+
         3. Confirm the commit is actually reachable from HEAD:
-             git merge-base --is-ancestor <commit_sha> HEAD
+             git merge-base --is-ancestor <the validated commit_sha> HEAD
            A commit_sha that is NOT an ancestor means the orchestrator did
            not merge that branch — report it as unmerged. Do not merge it
            yourself; report it so the orchestrator's contract failure is

@@ -503,7 +503,18 @@ stages:
           jobs accumulate silently — `worker purge` deletes job RECORDS and
           nothing deletes the diffs they point at, so this grows forever
           without a retention pass. Report total size and the orphan count
-          (patches whose job id is in neither done/ nor error/).
+          (patches whose job id is absent from ALL queue folders).
+
+          ORPHAN MEANS ABSENT FROM EVERY FOLDER — pending/, processing/,
+          done/ AND error/. Do not define it as "in neither done/ nor
+          error/": a handler writes its patch file BEFORE the queue moves the
+          job out of processing/, so a live, currently-generating job has a
+          patch whose id is in neither terminal folder. Under the narrower
+          definition a concurrent admin run classifies that as an orphan and
+          proposes deleting a running job's output. Check all four folders,
+          and use this same predicate everywhere — the re-check immediately
+          before deletion in item (c) must ask the identical question, or the
+          two disagree exactly when it matters.
 
           ENUMERATE THEM, do not just count them. Aggregate counts cannot be
           acted on: allowlist item (c) deletes ONE artifact, remediate is
@@ -786,13 +797,51 @@ stages:
            resolve the artifact's path with symlinks followed (realpath) and
            confirm the resolved path is a regular file located UNDER
            core.paths.output_dir() for this domain. Immediately before
-           unlinking, re-confirm the job is still orphaned — the job may have
-           reappeared between triage and remediate. Anything that fails
+           unlinking, re-confirm the job is still orphaned using the SAME
+           all-four-folders predicate queue-lane used (absent from pending/,
+           processing/, done/ and error/) — the job may have reappeared
+           between triage and remediate, and a narrower re-check here would
+           pass for a job that is live in processing/. Anything that fails
            either check (resolves outside the domain output dir, is not a
            regular file, or is no longer orphaned) is reported as a manual
            step, never deleted.
 
-        d) Remove a STALE concurrency lock — only when health.json's
+        d) NOT ALLOWLISTED — REPORT AS A MANUAL STEP. Removing a STALE
+           concurrency lock is deliberately excluded from the actions this
+           workflow may apply, until the worker ships a lock-aware atomic
+           compare-and-remove helper.
+
+           Why it was removed: there is no way to do it safely from here.
+           Read-the-bytes, re-read, compare, unlink is four operations, and
+           a worker can acquire or replace the lock between the final read
+           and the unlink. An earlier revision of this item prescribed
+           exactly that sequence, admitted in writing that it "narrows the
+           window but cannot eliminate it", and then authorised the delete
+           anyway. That is the wrong trade: the failure mode is deleting a
+           live lock, which starts a second 14B generation alongside the
+           first — the precise memory blowup this whole lock exists to
+           prevent, reached by the tool meant to repair it.
+
+           A narrowed race on an irreversible destructive action, applied
+           without a human present, is not an acceptable residual risk just
+           because the window is small. It is small AND unbounded in
+           consequence.
+
+           So: when health.json reports verdict "STALE", report it as a
+           manual step with the lock path, the holder pid and timestamp, the
+           evidence for the verdict, and the exact command for the operator
+           to run themselves. They can look at `ps` and the queue before
+           unlinking; this stage cannot.
+
+           If a lock-aware helper is added later, this item can return to the
+           allowlist — and only then. Do not reinstate it by re-deriving the
+           compare sequence, which is the form already rejected.
+
+           The verdict rules below still govern what gets REPORTED, and stay
+           here because triage needs them to rank the finding and to write an
+           accurate manual step.
+
+           Original rule — only when health.json's
            concurrency_lock layer reports verdict "STALE", meaning its holder
            pid is DEAD. This unblocks a qwen lane that is silently deferring
            every job.
@@ -980,49 +1029,26 @@ stages:
               yourself from the id, then apply item (c)'s own boundary
               checks in full: realpath-resolve, confirm a regular file under
               core.paths.output_dir() for this domain, and re-confirm the job
-              is still orphaned immediately before unlinking.
+              is still orphaned immediately before unlinking, using the
+              all-four-folders predicate (pending/, processing/, done/,
+              error/) rather than a terminal-folders-only check.
 
               If the proposal carries a path and no id, or an id you cannot
               find in `orphaned_items`, record it under manual_steps. Do not
               fall back to the path: the whole point of taking an id is that
               a proposal-supplied path is influenced by queue-controlled
               text, and accepting it on a miss reinstates exactly that.
-            - d) take NO path from the proposal at all. The lock path is
-              fixed — compute it from get_worker_state_dir() the same way the
-              handler does. A proposal naming any other path is a mismatch,
-              not a variant.
-
-              COMPARE AND DELETE — re-reading a verdict and then unlinking is
-              NOT atomic. A worker can acquire the lock, or the stale lock can
-              be reclaimed and a NEW one written, in the gap between the check
-              and the unlink; deleting then removes a LIVE lock and permits
-              two concurrent 14B generations. This is the same TOCTOU shape as
-              the health probe's old lock-then-generate branch, and it must
-              not be reintroduced here by the same reasoning that "the window
-              is small".
-
-              So bind the delete to the exact bytes that were judged stale:
-                1. Read the lock file's full contents (holder PID and ISO
-                   timestamp — the handler contract writes both) and record
-                   them as the observed identity.
-                2. Re-derive the verdict from THOSE bytes, not from
-                   health.json, which was written earlier in the run and is
-                   by definition stale. Apply item (d)'s rules: reclaim only
-                   on a dead holder PID; SUSPECT needs its second signal.
-                3. Immediately before unlinking, re-read the file and compare
-                   byte-for-byte against step 1. If the contents differ, or
-                   the file is now absent, ABORT the action and record it as
-                   "lock replaced between check and delete — not removed".
-                   A replacement is the signal that someone else is using it;
-                   it is not a reason to retry.
-              Report the observed identity in the run record, so the decision
-              can be audited against what was actually on disk.
-
-              If the worker gains a lock-aware helper that does this under
-              real synchronisation, prefer it over the compare above and say
-              so — the compare narrows the window to the read-compare-unlink
-              sequence but cannot eliminate it, and that limitation must be
-              stated in the report rather than implied to be a full fix.
+            - d) IS NOT APPLICABLE HERE. Lock removal was withdrawn from
+              the allowlist (see item (d) above): there is no atomic
+              compare-and-remove available, so any sequence this stage could
+              run can delete a live lock and start a second 14B generation.
+              A proposal carrying allowlist_item "d" must NOT be executed,
+              whatever its command says and whatever was approved at the
+              gate — record it under manual_steps with the lock details so
+              the operator can act with `ps` and the queue in front of them.
+              Do not re-derive a read-compare-unlink sequence: that is the
+              form already rejected, and reinstating it here would bypass
+              the withdrawal rather than implement it.
 
           If a proposal's `command` does not match what you derived from its
           `allowlist_item`, do NOT run either one. Record the mismatch as a

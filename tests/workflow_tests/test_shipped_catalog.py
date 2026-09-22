@@ -34,6 +34,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS_DIR = REPO_ROOT / "workflows"
 BASELINE_PATH = Path(__file__).resolve().parent / "shipped_catalog_baseline.json"
 
+# The ONLY keys in the baseline that are not violation categories. Kept as an
+# explicit allowlist rather than an `_`-prefix rule: a prefix rule lets any
+# category be exempted from every gate by renaming it, which is the ratchet
+# bypass this file exists to prevent.
+_BASELINE_METADATA_KEYS = frozenset({"_comment", "_generated_from"})
+
 # Stage kinds whose prompt builder does NOT include stage.description.
 # See workflow/dispatch.py's _validate(): it builds its prompt from the
 # validation block's strategy/criteria/domain_rules plus a generic findings
@@ -56,6 +62,13 @@ _CONTRACT_DESCRIPTION_CHARS = 600
 _AFFIRMATIVE_COMMIT_RE = re.compile(
     r"commit\b[^.]{0,80}\bfinish|\bgit\s+commit\b", re.IGNORECASE | re.DOTALL
 )
+
+# Roles whose whole purpose is producing edits. For these the commit opt-out
+# below is NOT available: their work reaches the branch only as commits, so
+# "do not commit" in an isolated stage means the edits are silently discarded
+# at merge, which is the defect the gate exists to catch rather than an
+# exemption from it.
+_CODE_WRITING_ROLES = frozenset({"code-writer", "code-writer-opus", "tester", "tester-opus", "ci-fixer"})
 
 # An explicit opt-out: the stage is isolated but must not commit (e.g. a
 # read-only review stage that would corrupt a shared tree if it did). This is
@@ -80,7 +93,26 @@ def _baseline() -> dict[str, set[str]]:
     mypy (typecheck-baseline.json and its legacy_files).
     """
     raw = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
-    categories = {k: v for k, v in raw.items() if not k.startswith("_")}
+
+    # Metadata keys are an explicit allowlist, not "anything starting with _".
+    # Treating every underscore key as metadata means a category renamed
+    # `_ignored` disappears from the live gates AND from both rot checks, so
+    # its entries are grandfathered permanently — the ratchet bypassed by a
+    # rename. An unexpected underscore key is therefore an error, not a hint.
+    unknown_meta = sorted(
+        k for k in raw if k.startswith("_") and k not in _BASELINE_METADATA_KEYS
+    )
+    if unknown_meta:
+        raise AssertionError(
+            f"unrecognised underscore-prefixed baseline keys: {unknown_meta}. "
+            "Only "
+            f"{sorted(_BASELINE_METADATA_KEYS)} are metadata; any other "
+            "underscore key would silently exempt its entries from every "
+            "gate. Add it to _BASELINE_METADATA_KEYS if it really is "
+            "metadata, or rename it to a real category."
+        )
+
+    categories = {k: v for k, v in raw.items() if k not in _BASELINE_METADATA_KEYS}
 
     # Fail on a malformed category rather than skipping it. An
     # ``isinstance(value, list)`` filter here would silently drop any category
@@ -249,8 +281,21 @@ def _commits(stage: dict) -> bool:
 
     The positive form of the check in
     ``test_isolated_stages_mention_committing``.
+
+    The negative opt-out ("never commit from this stage") is honoured only
+    for roles that do not write code. A `code-writer` or `tester` in a
+    worktree produces edits that reach the branch ONLY as commits, so
+    declaring that it must not commit does not make the stage safe — it
+    guarantees the work is lost at merge while the gate reads as satisfied.
+    Those roles must give an affirmative commit instruction; only a
+    read-only role (a `critic` reviewing a tree, say) may opt out.
     """
-    return _instructs_commit(str(stage.get("description") or ""))
+    description = str(stage.get("description") or "")
+    agent = stage.get("agent") or {}
+    role = agent.get("role") if isinstance(agent, dict) else None
+    if role in _CODE_WRITING_ROLES:
+        return bool(_AFFIRMATIVE_COMMIT_RE.search(description))
+    return _instructs_commit(description)
 
 
 # Maps each baseline category to the predicate that decides whether a stage
@@ -503,6 +548,56 @@ class TestBaselineDoesNotRot(unittest.TestCase):
     the same defect if it were ever reintroduced. Failing on a stale entry
     forces the file to track reality.
     """
+
+    def test_baseline_never_grows(self) -> None:
+        """A ratchet that can be widened is not a ratchet.
+
+        The gates above compare against whatever this file currently says, so
+        a new violation could be waved through by appending its key here —
+        the test stays green and the ratchet has been loosened rather than
+        tightened, silently and in the same commit that introduced the
+        defect.
+
+        A merge-base comparison would be the stronger check, but is not
+        available: this file does not exist on main yet, so `git show
+        main:<path>` fails and the gate would be vacuous on the very branch
+        that introduces it. A hard ceiling is enforceable today and needs no
+        git access, which also keeps it working in a shallow CI checkout.
+
+        Lower these numbers when you repair a violation; the rot tests above
+        already force removal of entries that no longer apply. Raising one is
+        a deliberate act that shows up in review as exactly what it is.
+        """
+        ceilings = {
+            "validate_stage_missing_validation_block": 18,
+            "validate_stage_long_description": 56,
+            "isolated_stage_without_commit": 5,
+            "reads_from_upstream_without_writes_to": 9,
+        }
+        baseline = _baseline()
+
+        self.assertEqual(
+            sorted(baseline),
+            sorted(ceilings),
+            "baseline categories changed — add the new category to the "
+            "ceilings map in this test (and to _CATEGORY_COMPLIANCE), or "
+            "remove the stale one. An uncapped category can grow freely.",
+        )
+
+        grown = [
+            f"{cat}: {len(baseline[cat])} entries, ceiling {cap}"
+            for cat, cap in ceilings.items()
+            if len(baseline[cat]) > cap
+        ]
+        self.assertEqual(
+            grown,
+            [],
+            "baseline grew — a new violation was grandfathered instead of "
+            "fixed:\n  " + "\n  ".join(grown) + "\n"
+            "Fix the violation. If the growth is genuinely intended, raise "
+            "the ceiling in this test in the same commit so the widening is "
+            "visible in review.",
+        )
 
     def test_every_baselined_entry_still_names_a_real_stage(self) -> None:
         """A baseline entry pointing at a deleted file or stage is stale.
