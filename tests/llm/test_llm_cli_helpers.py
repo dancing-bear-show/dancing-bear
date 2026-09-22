@@ -383,6 +383,7 @@ class TestRunSubcommandInvariant(unittest.TestCase):
             if getattr(action, "choices", None):
                 return action
         self.fail("no subparsers action found on the parser")
+        return None  # unreachable: self.fail always raises
 
     def test_subcommand_is_required(self):
         action = self._subparsers_action(self._parser())
@@ -392,7 +393,7 @@ class TestRunSubcommandInvariant(unittest.TestCase):
             "reaches run()'s func-is-None guard and exits 0 instead of 2",
         )
 
-    def test_every_subcommand_sets_a_func_default(self):
+    def test_every_subcommand_sets_a_callable_func_default(self):
         action = self._subparsers_action(self._parser())
         self.assertTrue(action.choices, "expected at least one subcommand")
         for name, subparser in action.choices.items():
@@ -402,6 +403,21 @@ class TestRunSubcommandInvariant(unittest.TestCase):
                     subparser._defaults,
                     f"subcommand {name!r} has no func default, so run() would "
                     f"print help and return 0 instead of executing it",
+                )
+                # Presence alone is too weak: run() guards on `func is None`,
+                # so set_defaults(func=None) would keep this key present, take
+                # the guard, and return 0 without dispatching. Assert the
+                # stored default is actually dispatchable.
+                func = subparser._defaults["func"]
+                self.assertIsNotNone(
+                    func,
+                    f"subcommand {name!r} has func=None, so run() would take "
+                    f"its func-is-None guard and return 0 without dispatching",
+                )
+                self.assertTrue(
+                    callable(func),
+                    f"subcommand {name!r} has a non-callable func default "
+                    f"({func!r}); run() would raise on int(func(args))",
                 )
 
     def test_missing_subcommand_exits_two_rather_than_printing_help(self):
