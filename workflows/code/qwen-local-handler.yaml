@@ -476,6 +476,18 @@ stages:
              where `worker status` and qwen-admin can see it. A job that
              cannot run for an hour is a condition someone must look at, not
              something to retry silently until the machine is rebooted.
+           - RECOVERABILITY IS MANDATORY. terminal- means the queue will not
+             retry it; it must NOT mean the work is lost. A job that hit the
+             ceiling only because the lane was busy is legitimate work that
+             deserves to run later. So the error record must carry the full
+             original payload, and `worker requeue-errors --match` must be
+             able to find these jobs — state the exact match string an
+             operator would use, and confirm it against the flag's real
+             behaviour (it matches a substring of the job JSON). Say in
+             design.md how a user re-runs a batch of deferral-limited jobs in
+             one command. A guard that discards a user's request because the
+             machine was briefly busy is a worse failure than the backlog it
+             was protecting against.
            - Count deferral REASONS separately in the result, so the error
              record says which guard starved it — "47 deferrals:
              qwen-busy 45, low-memory 2" is actionable where a bare count is
@@ -691,6 +703,56 @@ stages:
          does. Specify that explain mode runs the guards for real — an
          explain path that skips validation would prove nothing.
 
+      5k. THE ENTRY POINT — how a human actually submits a job. Design this
+         explicitly; it is the difference between a working system and a
+         working system nobody can use.
+
+         `worker enqueue` accepts only `--payload-json`, so without an entry
+         point of its own, submitting real work means hand-shelling a JSON
+         blob containing a multi-line natural-language instruction and a file
+         list — quoting a prompt inside a shell string inside JSON. Every
+         stage of this workflow would still pass: an agent assembles that
+         JSON happily. The gap only appears when a person tries to use it.
+
+         Specify a `bin/qwen` wrapper (a new file, so it collides with no
+         stage's ownership and needs no change to cli.py):
+           - `./bin/qwen patch --files a.py b.py --instruction "..."` builds
+             the payload and enqueues it.
+           - `--instruction-file PATH` for anything longer than a line.
+           - `--explain` sets the explain flag from 5j.
+           - `--show <job_id>` prints the job's state and, when done, the
+             patch path and its files/lines counts.
+           - `--apply <job_id>` prints the `git apply` command for the user
+             to run. It must NOT apply the patch itself: patches are produced
+             for review, and that contract does not bend for convenience.
+         Assign it to impl-handler (it owns new files) and say so in
+         files_to_create. Keep it thin — argument assembly and a call into
+         the same enqueue path, no business logic, so it cannot drift from
+         the handler's contract.
+
+      5m. THRESHOLDS ARE PROVISIONAL — say so, and make them changeable.
+         Every numeric threshold in the guards above (wait ceiling, deferral
+         ceiling, memory margin, disk floor, lane depth, max_files,
+         max_lines, file size cap, staleness ceiling) is being chosen before
+         a single generation has been observed. That is unavoidable in a
+         design stage, but pretending otherwise is not.
+
+         So: collect them all in ONE place in the implementation — a module
+         level constants block or a small frozen dataclass — rather than
+         scattering literals through the handler. List them in design.md in
+         a single table with, for each, the value, the reasoning, and what
+         observation would justify changing it. Mark them explicitly as
+         first-run estimates.
+
+         The two that most plausibly fail closed on legitimate work are
+         max_files/max_lines (a reasonable refactor can touch more than a
+         cautious first guess) and the wait ceiling (which N-1 contending
+         jobs each pay in full). Prefer generous initial values for those
+         two: a patch that is too large is caught by the human review this
+         workflow is built around, whereas a patch never generated teaches
+         nobody anything. The report stage is instructed to surface the
+         observed values from the run against these estimates.
+
       6. TELEMETRY. Local inference must be visible in `./bin/telemetry otel`
          alongside Claude Code usage, so a qwen job emits OTLP like any other
          work. The survey recorded the existing pipeline; design against it:
@@ -756,6 +818,7 @@ stages:
           "admission": {"max_lane_depth": N, "counts": "pending+processing for this type only", "enforced_at": "handler-side|operator-limit|follow-up", "on_exceeded": "terminal-lane-over-capacity" | null, "stops_the_enqueue": false, "other_types_unconstrained": true},
           "model_pinning": {"digest_source": "...", "recorded_at": "install", "on_mismatch": "record and surface, do not fail"},
           "explain_mode": {"payload_flag": "...", "runs_guards": true, "calls_model": false, "reports": ["..."]},
+          "entry_point": {"path": "bin/qwen", "subcommands": ["patch", "--show", "--apply", "--explain"], "applies_patches": false, "owner_stage": "impl-handler"},
           "files_to_create": ["..."],
           "files_to_modify": ["..."]
         }
@@ -804,6 +867,11 @@ stages:
         - src/worker/qwen_telemetry.py       (new — OTLP emit, kept separate so
                                               best-effort telemetry never
                                               tangles with job control flow)
+        - bin/qwen                           (new — the entry point from
+                                              contract.json's entry_point;
+                                              thin argument assembly only, no
+                                              business logic, and it must
+                                              NEVER apply a patch itself)
         - src/worker/handlers.py             (the REGISTRY line and its import ONLY)
       Do not touch queue_ops.py, job_runtime.py, anything under tests/, or
       anything under src/telemetry/ — other stages own those, or they are
@@ -920,8 +988,10 @@ stages:
       the merge succeeds against an empty branch, this stage reports success,
       and every line you wrote is silently lost. So, as your final action
       before writing the result JSON:
-        git add src/worker/qwen.py src/worker/qwen_telemetry.py src/worker/handlers.py
-        git commit -m "feat(worker): add {job_type} handler with OTLP emit"
+        git add src/worker/qwen.py src/worker/qwen_telemetry.py bin/qwen src/worker/handlers.py
+        git commit -m "feat(worker): add {job_type} handler, entry point and OTLP emit"
+      Make bin/qwen executable (chmod +x) before committing — a wrapper that
+      is not executable fails at the first thing a user tries.
       Stage only the files this stage owns, by name — never `git add -A`.
       Then confirm the commit exists with `git log --oneline -1` and record
       its SHA in the JSON below.
@@ -1151,6 +1221,13 @@ stages:
         - MODEL PINNING: a digest mismatch is recorded in the result and the
           span but the job still SUCCEEDS — assert success explicitly, since
           the easy wrong implementation fails the job.
+        - ENTRY POINT (bin/qwen): assert it builds a payload matching
+          contract.json's payload_schema from --files/--instruction, that
+          --instruction-file is read correctly, and — the one that matters —
+          that --apply PRINTS the git apply command without executing it.
+          Assert no subprocess ran for the apply path; a wrapper that
+          helpfully applies the patch breaks this workflow's central
+          contract, and a test asserting only its output text would miss it.
         - EXPLAIN MODE: returns without calling the model (assert transport
           call_count 0), reports the resolved file list and prompt size, and
           — critically — still rejects a disallowed path exactly as a real
@@ -1623,6 +1700,26 @@ stages:
 
       Step 4 — Worker launchd agent.
         Check:  launchctl list | grep -F com.dancing-bear.worker
+        READ THIS BEFORE ACTING — the daemon and this run's code may live in
+        different trees, and that is the normal case, not an edge case.
+
+        The handler this workflow just built is committed to THIS worktree's
+        branch. The launchd daemon runs the MAIN checkout's `bin/worker`,
+        whose REGISTRY comes from the main checkout's handlers.py — which
+        does not contain the new handler until this branch is merged to
+        main. The main checkout may also be sitting on an unrelated branch
+        entirely. So a daemon installed here cannot run {job_type} jobs, and
+        a `worker run-once` invoked from this worktree can.
+
+        Record which tree the daemon serves, and set
+        "daemon_serves_this_code" accordingly. Do NOT try to resolve the
+        conflict by pointing launchd at the worktree — that bakes an
+        ephemeral path into a KeepAlive agent, which is the trap Step 4
+        exists to avoid. The honest outcome is: the daemon is installed for
+        the LONG TERM (after this branch merges), while this run's
+        verification drains jobs itself from this worktree. verify is
+        written to expect exactly that.
+
         If it is already loaded, this step is already satisfied. Do NOT
         reinstall, reload or restart a healthy agent.
 
@@ -1668,7 +1765,7 @@ stages:
             {"step": "ollama_binary",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false},
             {"step": "ollama_server",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false},
             {"step": "model_present",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false, "model_digest": "..." | null},
-            {"step": "worker_launchd", "already_satisfied": true|false, "action_taken": "...", "ok": true|false},
+            {"step": "worker_launchd", "already_satisfied": true|false, "action_taken": "...", "ok": true|false, "daemon_repo_root": "...", "daemon_serves_this_code": true|false, "detail": "..."},
             {"step": "queue_dirs",     "already_satisfied": true|false, "action_taken": "...", "ok": true|false}
           ],
           "all_ok": true|false,
@@ -1914,15 +2011,29 @@ stages:
            from HANDLERS.keys(). If it does not, the registry line never
            landed — stop and report that.
 
-           Note this proves the CLI process sees the handler, not that the
-           DAEMON does. A launchd daemon started before the merge is running
-           the old code and has no "{job_type}" in its registry, so it would
-           fail the job as an unknown handler — which job_runtime treats as a
-           terminal failure, no retry. If the daemon was already running
-           before this workflow merged the handler, record that it needs a
-           restart (`launchctl kickstart -k gui/$(id -u)/com.dancing-bear.worker`)
-           and say whether you did it. A verify that passes only because the
-           daemon happened to be freshly started is not reproducible.
+           Run this from THIS worktree, so the CLI imports the code this run
+           built. Confirm it first — an inherited PYTHONPATH silently resolves
+           `worker` to another checkout:
+             python3 -c "import worker; print(worker.__file__)"
+           The path must be under this worktree's src/. If it is not, stop:
+           nothing below proves anything about this run's code.
+
+           This proves the CLI process sees the handler. It does NOT prove
+           the DAEMON does, and per install.json's daemon_serves_this_code
+           the daemon most likely does NOT — it runs the main checkout, which
+           lacks this handler until the branch merges. Consequences for the
+           checks below:
+             - Drain jobs YOURSELF from this worktree with
+               `./bin/worker run-once`. Do not wait for the daemon.
+             - If the daemon IS running and shares the same queue root, it
+               may claim your job first and fail it as an unknown handler —
+               a terminal failure, no retry. If a job lands in error/ with an
+               unknown-handler message, that is this race, not a defect in
+               the handler: record it as such, re-enqueue, and drain
+               immediately yourself.
+             - Do NOT restart or reconfigure the daemon to work around this.
+               It is correctly installed for after the merge; the mismatch is
+               expected during the run and must be reported, not papered over.
         2. Enqueue a small, real job against a file that exists in this
            checkout, with an instruction whose correct answer is obvious and
            checkable (e.g. add a docstring to one small function). Capture the
@@ -2073,10 +2184,12 @@ stages:
       ## Qwen Local Handler — Report
 
       ### What shipped
-      Files created and modified, from merge.json's "merged" entries (each
-      carries the stage, branch and commit SHA) plus its files_present list.
-      Note any stage merge.json recorded under no_change_stages, with its
-      reason — a stage that legitimately shipped nothing is not a gap.
+      Files created and modified, from merge.json's files_present list, with
+      the per-stage commit SHAs from its "verified" entries (each carries
+      stage, commit_sha and is_ancestor_of_head — there is no branch field,
+      so do not report one). Note any stage merge.json recorded under
+      no_change_stages, with its reason — a stage that legitimately shipped
+      nothing is not a gap.
 
       ### Design decisions
       One line each for the five contract.json sections, plus the standing
@@ -2106,14 +2219,36 @@ stages:
       run_shell no-regression result, from verify.json.
 
       ### How to use it
-      The exact enqueue command with a real payload, the command to read the
-      result, and the command to apply a patch once reviewed. Make clear the
-      workflow never applies patches itself.
+      Lead with `./bin/qwen` — the entry point from contract.json's
+      entry_point section — not with a hand-assembled `--payload-json` blob.
+      Give the three commands a user actually needs, copy-pasteable and with
+      real values from this run:
+        - submit a patch job (files + instruction)
+        - read the result and find the patch
+        - the `git apply` command to run after reviewing it
+      State plainly that neither the workflow nor bin/qwen ever applies a
+      patch: that is the reviewer's step, by design.
+      Mention the raw `worker enqueue --payload-json` form only as a
+      fallback, since quoting a multi-line instruction through shell and JSON
+      is exactly what the wrapper exists to avoid.
+
+      ### Thresholds: estimate vs observed
+      A table of the guard thresholds from contract.json (the 5m list)
+      alongside anything this run actually measured — generation duration,
+      patch files/lines, peak memory, deferral counts. Say which estimates
+      the run gave evidence for, which it did not exercise at all, and which
+      look wrong. This is the calibration data the design stage had to guess
+      without, and it is the main reason to re-read this report later.
 
       ### Known limits and next steps
       Honest list. Include anything verify.json put in "failures", the context
       window ceiling from the design, and whatever was deferred — the model
       sizing note if the machine is under 24GB, and any manual install step.
+      State plainly whether the daemon serves this code (install.json's
+      daemon_serves_this_code): if false, the handler works from this
+      worktree but background jobs will not run until the branch merges to
+      main, which is the single most important caveat for anyone trying to
+      use this afterwards.
       If any gate or check failed, lead with that rather than burying it.
     agent:
       role: doc-writer
