@@ -353,6 +353,17 @@ stages:
     depends_on: []
     reads_from: []
     description: >
+      VALIDATE {model_tag} FIRST, for the reason the health stage gives in
+      full: it is caller-overridable, this stage has Bash, and substitution
+      is raw string replacement. Read it from the engine's file, never from
+      shell text:
+
+        python3 -c 'import json,re,sys,pathlib; v=json.loads(pathlib.Path(sys.argv[1]).read_text())["trigger_params"]["model_tag"]; sys.exit(0 if re.fullmatch(r"[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)?", v) else 1)' {workspace}/manifest.json
+
+      Branch on the EXIT STATUS. On failure, record the inventory with
+      {"skipped": true, "skip_reason": "model_tag failed validation"} and
+      stop.
+
       READ-ONLY. Inventory installed models. Pull nothing, delete nothing.
 
       Collect:
@@ -408,6 +419,16 @@ stages:
     depends_on: []
     reads_from: []
     description: >
+      VALIDATE {job_type} AND {stale_job_hours} FIRST — both are
+      caller-overridable and this stage has Bash. Same mechanism and same
+      reasoning as the health stage; read them from the engine's file:
+
+        python3 -c 'import json,re,sys,pathlib; p=json.loads(pathlib.Path(sys.argv[1]).read_text())["trigger_params"]; t=p["job_type"]; h=p["stale_job_hours"]; sys.exit(0 if re.fullmatch(r"[a-z][a-z0-9_]{2,40}", t) and re.fullmatch(r"[0-9]{1,4}", h) and 1 <= int(h) <= 8760 else 1)' {workspace}/manifest.json
+
+      Branch on the EXIT STATUS. On failure, write the analysis with
+      {"skipped": true, "skip_reason": "<which param> failed validation"}
+      and stop.
+
       READ-ONLY. Examine the queue with attention to the "{job_type}" lane.
       Requeue nothing, purge nothing, retry nothing.
 
@@ -526,6 +547,21 @@ stages:
     depends_on: []
     reads_from: []
     description: >
+      VALIDATE {spend_days} BEFORE IT REACHES ANY COMMAND. It is
+      caller-overridable, this stage has Bash, and `resolve_params` is raw
+      string replacement — so a value like `7; <anything>` is substituted
+      into the command-building instruction below. Read it from the file the
+      ENGINE wrote, so it never becomes shell source (the same mechanism and
+      the same reasoning as the health stage's {ollama_host} check; a heredoc
+      does NOT work, see that stage):
+
+        python3 -c 'import json,re,sys,pathlib; v=json.loads(pathlib.Path(sys.argv[1]).read_text())["trigger_params"]["spend_days"]; sys.exit(0 if re.fullmatch(r"[0-9]{1,4}", v) and 1 <= int(v) <= 3650 else 1)' {workspace}/manifest.json
+
+      Branch on the EXIT STATUS. On failure, write the spend record with
+      {"skipped": true, "skip_reason": "spend_days failed validation"} and
+      stop — do not clamp or auto-correct; an override with shell
+      metacharacters is a caller error to report.
+
       READ-ONLY. Report what local inference has actually consumed over the
       last {spend_days} days, from the OTLP data the handler emits.
 
@@ -853,10 +889,40 @@ stages:
               is still orphaned immediately before unlinking.
             - d) take NO path from the proposal at all. The lock path is
               fixed — compute it from get_worker_state_dir() the same way the
-              handler does — and re-read health.json's concurrency_lock
-              verdict yourself immediately before acting, applying item (d)'s
-              STALE/SUSPECT rules. A proposal naming any other path is a
-              mismatch, not a variant.
+              handler does. A proposal naming any other path is a mismatch,
+              not a variant.
+
+              COMPARE AND DELETE — re-reading a verdict and then unlinking is
+              NOT atomic. A worker can acquire the lock, or the stale lock can
+              be reclaimed and a NEW one written, in the gap between the check
+              and the unlink; deleting then removes a LIVE lock and permits
+              two concurrent 14B generations. This is the same TOCTOU shape as
+              the health probe's old lock-then-generate branch, and it must
+              not be reintroduced here by the same reasoning that "the window
+              is small".
+
+              So bind the delete to the exact bytes that were judged stale:
+                1. Read the lock file's full contents (holder PID and ISO
+                   timestamp — the handler contract writes both) and record
+                   them as the observed identity.
+                2. Re-derive the verdict from THOSE bytes, not from
+                   health.json, which was written earlier in the run and is
+                   by definition stale. Apply item (d)'s rules: reclaim only
+                   on a dead holder PID; SUSPECT needs its second signal.
+                3. Immediately before unlinking, re-read the file and compare
+                   byte-for-byte against step 1. If the contents differ, or
+                   the file is now absent, ABORT the action and record it as
+                   "lock replaced between check and delete — not removed".
+                   A replacement is the signal that someone else is using it;
+                   it is not a reason to retry.
+              Report the observed identity in the run record, so the decision
+              can be audited against what was actually on disk.
+
+              If the worker gains a lock-aware helper that does this under
+              real synchronisation, prefer it over the compare above and say
+              so — the compare narrows the window to the read-compare-unlink
+              sequence but cannot eliminate it, and that limitation must be
+              stated in the report rather than implied to be a full fix.
 
           If a proposal's `command` does not match what you derived from its
           `allowlist_item`, do NOT run either one. Record the mismatch as a
