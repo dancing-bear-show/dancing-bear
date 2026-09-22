@@ -94,7 +94,7 @@ stages:
       role: researcher
       model: sonnet
       tools: [Bash, Write]
-      access: read-only
+      access: read-write
     required: true
     outputs:
       - name: workflow_runs

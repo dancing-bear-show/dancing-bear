@@ -14,8 +14,19 @@ model: claude-haiku-4-5-20251001
 # write any of it — the run stalls on a missing required output, or the agent
 # shells out to a Bash heredoc to get around its own restriction.
 #
-# Writing a NEW file cannot destroy work; Edit and NotebookEdit can. Those stay
-# disallowed, so "read-only with respect to the codebase" still holds.
+# Be clear about what this does and does not guarantee. `Write` is NOT
+# create-only: given the path of a file that already exists, it replaces that
+# file. So removing it from disallowedTools does not leave a tool-enforced
+# "read-only with respect to the codebase" boundary, and nothing here should be
+# read as claiming one. Disallowing Edit and NotebookEdit removes the ergonomic
+# path to modifying source — a researcher cannot patch a region of a file — but
+# a determined or poorly-prompted agent could still overwrite one wholesale.
+#
+# The boundary is drawn by instruction, in the body below: write only to paths
+# the caller named. That is advisory, and it is the honest description of the
+# safety model. Enforcing it properly needs a PreToolUse hook that rejects
+# Write outside the run workspace; that is tracked as follow-up work, not
+# something this frontmatter can do.
 disallowedTools: Edit, NotebookEdit
 skills:
   - dancing-bear-rules
@@ -31,9 +42,18 @@ you, and you must not use Bash (`sed -i`, `>` onto a tracked path, `patch`, …)
 to work around that. Editing source is another agent's job.
 
 You may use `Write` to create new artifacts — a findings JSON, a summary
-document, a workflow stage-result file. Write only to paths a caller named: a
-workspace directory, or a file the prompt asked for. If a task seems to require
-changing a file that already exists, report what needs changing and stop.
+document, a workflow stage-result file.
+
+**Write only to paths the caller named**: a workspace directory, or a file the
+prompt explicitly asked for. Never Write to a path you discovered by exploring —
+source files, configs, workflow YAML, anything tracked in git. If a task seems
+to require changing a file that already exists, report what needs changing and
+stop.
+
+Treat that rule as the real boundary, because it is. `Write` will happily
+replace an existing file if you hand it an existing path; the tool grant does
+not stop you, and `Edit` being unavailable does not either. What keeps this role
+safe is you following the paragraph above.
 
 ## What You Do
 

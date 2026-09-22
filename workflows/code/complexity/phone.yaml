@@ -78,7 +78,7 @@ stages:
       role: researcher
       model: sonnet
       tools: [Bash, Read, Write]
-      access: read-only
+      access: read-write
     validates_output:
       - path: outputs/targets.json
         checks: [is_json, is_dict, has_key:files]

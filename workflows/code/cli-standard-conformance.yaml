@@ -261,7 +261,7 @@ stages:
       role: researcher
       model: sonnet
       tools: [Bash, Read, Write]
-      access: read-only
+      access: read-write
     outputs:
       - name: conformance
         mode: generate
@@ -342,7 +342,7 @@ stages:
       role: Plan
       model: sonnet
       tools: [Bash, Read, Write]
-      access: read-only
+      access: read-write
     outputs:
       - name: plan
         mode: generate
@@ -635,7 +635,7 @@ stages:
       role: reviewer
       model: sonnet
       tools: [Bash, Read, Write]
-      access: read-only
+      access: read-write
     required: true
     writes_to:
       - validation/conformance-after.json
@@ -715,7 +715,7 @@ stages:
       role: reviewer
       model: sonnet
       tools: [Bash, Read, Write]
-      access: read-only
+      access: read-write
     required: true
     writes_to:
       - validation/test-results.md

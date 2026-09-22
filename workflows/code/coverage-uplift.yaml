@@ -173,7 +173,7 @@ stages:
       role: researcher
       model: sonnet
       tools: [Bash, Read, Write]
-      access: read-only
+      access: read-write
     required: true
     writes_to:
       - analysis/coverage-baseline.json
@@ -220,7 +220,7 @@ stages:
       role: researcher
       model: sonnet
       tools: [Bash, Read, Write]
-      access: read-only
+      access: read-write
     required: true
     writes_to:
       - analysis/gap-report.json
@@ -434,7 +434,7 @@ stages:
       role: researcher
       model: sonnet
       tools: [Read, Write, Bash]
-      access: read-only
+      access: read-write
     required: true
     writes_to:
       - design/reuse-map.json

@@ -74,7 +74,7 @@ stages:
       role: researcher
       model: haiku
       tools: [Bash, Write]
-      access: read-only
+      access: read-write
     required: true
     writes_to:
       - validation/auth-status.json
@@ -427,7 +427,7 @@ stages:
       role: fact-checker
       model: sonnet
       tools: [Bash, Read, Write]
-      access: read-only
+      access: read-write
     validation:
       strategy: deliverable
       criteria:

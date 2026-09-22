@@ -131,7 +131,7 @@ stages:
       role: researcher
       model: sonnet
       tools: [Read, Write, Bash]
-      access: read-only
+      access: read-write
     required: true
     writes_to:
       - context/target.md

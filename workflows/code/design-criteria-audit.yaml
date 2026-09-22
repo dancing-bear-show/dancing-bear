@@ -78,7 +78,7 @@ stages:
       role: researcher
       model: sonnet
       tools: [Read, Write]
-      access: read-only
+      access: read-write
     required: true
     writes_to:
       - context/criteria.json
@@ -128,7 +128,7 @@ stages:
       role: researcher
       model: sonnet
       tools: [Bash, Read, Write]
-      access: read-only
+      access: read-write
     required: true
     writes_to:
       - context/domain-groups.json
@@ -203,7 +203,7 @@ stages:
       role: reviewer
       model: sonnet
       tools: [Read, Bash, Grep, Write]
-      access: read-only
+      access: read-write
     required: true
     fan_out:
       source: discover-domains
@@ -270,7 +270,7 @@ stages:
       role: researcher
       model: sonnet
       tools: [Read, Write]
-      access: read-only
+      access: read-write
     required: true
     writes_to:
       - context/verify-worklist.json
@@ -315,7 +315,7 @@ stages:
       role: reviewer
       model: sonnet
       tools: [Read, Bash, Grep, Write]
-      access: read-only
+      access: read-write
     required: true
     fan_out:
       source: select-verify-worklist
@@ -405,7 +405,7 @@ stages:
       role: doc-writer
       model: sonnet
       tools: [Read, Write]
-      access: read-only
+      access: read-write
     required: true
     writes_to:
       - analysis/findings-summary.md
@@ -436,7 +436,7 @@ stages:
       role: doc-writer
       model: sonnet
       tools: [Read, Write]
-      access: read-only
+      access: read-write
     required: true
     writes_to:
       - validation/human-gate-decision.md

@@ -82,7 +82,7 @@ stages:
       role: researcher
       model: sonnet
       tools: [Bash, Read, Write]
-      access: read-only
+      access: read-write
     required: true
     writes_to:
       - outputs/gh-run-raw.txt
@@ -167,7 +167,7 @@ stages:
       role: researcher
       model: sonnet
       tools: [Bash, Read, Write, Grep]
-      access: read-only
+      access: read-write
     required: true
     writes_to:
       - outputs/findings.json

@@ -87,7 +87,7 @@ stages:
       role: researcher
       model: haiku
       tools: [Bash, Read, Write]
-      access: read-only
+      access: read-write
     outputs:
       - name: domain_inventory
         mode: generate
@@ -183,7 +183,7 @@ stages:
       role: researcher
       model: sonnet
       tools: [Read, Bash, Write]
-      access: read-only
+      access: read-write
     outputs:
       - name: domain_gap_report
         mode: generate

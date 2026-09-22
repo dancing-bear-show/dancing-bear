@@ -73,7 +73,7 @@ stages:
       role: researcher
       model: haiku
       tools: [Read, Write, Bash]
-      access: read-only
+      access: read-write
     required: true
     outputs:
       - name: gaps
@@ -113,7 +113,7 @@ stages:
       role: reviewer
       model: sonnet
       tools: [Read, Write]
-      access: read-only
+      access: read-write
     required: true
     writes_to:
       - outputs/plan.md
