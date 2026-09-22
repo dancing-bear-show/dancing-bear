@@ -1527,16 +1527,29 @@ stages:
           field. Read-modify-write only the heartbeat timestamp.
         - Keep the existing nosec/logging conventions.
 
-      COMMIT BEFORE FINISHING — not optional. You run in your own git
-      worktree on a `worktree-agent-*` branch, and the orchestrator merges
-      with `git merge`, which moves COMMITS, not uncommitted files. Return
-      with edits uncommitted and the merge succeeds against an empty branch
-      while this stage reports success — your work is lost silently. As your
-      final action before writing the result JSON:
+      COMMIT BEFORE FINISHING, IF YOU CHANGED ANY FILE — not optional then.
+      You run in your own git worktree on a `worktree-agent-*` branch, and
+      the orchestrator merges with `git merge`, which moves COMMITS, not
+      uncommitted files. Return with edits uncommitted and the merge succeeds
+      against an empty branch while this stage reports success — your work is
+      lost silently. As your final action before writing the result JSON:
         git add src/worker/queue_ops.py src/worker/job_runtime.py
         git commit -m "fix(worker): keep a live long-running job from being reaped"
       Stage only the files this stage owns, by name — never `git add -A`.
       Confirm with `git log --oneline -1` and record the SHA below.
+
+      ROUTE (a) IS THE EXCEPTION, and it is a legitimate one: it makes NO
+      code change by design, so there is nothing to stage and `git commit`
+      would fail with an empty index. On route (a), skip the commit entirely,
+      record commit_sha: null with route "a-no-change", and finish. That is
+      not a violation of the isolated-stage contract — merge-impl is told to
+      expect it — and it is the one case where an empty branch is the correct
+      outcome rather than lost work.
+
+      Before skipping, confirm `git status --porcelain` is actually empty. If
+      it is not, you DID change something and route (a) was the wrong call or
+      was not followed: commit as above and say so in notes, rather than
+      discarding real edits to match the declared route.
 
       Write <your-cwd>/outputs/heartbeat-impl.json (NOT {workspace} — see the
       isolation boundary above):
@@ -2834,6 +2847,20 @@ stages:
         b. Otherwise check `./bin/worker list`. Drain with
            `./bin/worker run-once --max 2` ONLY when YOUR TWO jobs are
            unambiguously the only pending entries.
+        a0. THE COUNT CHECK IS NOT ATOMIC, and on a shared queue it cannot
+           be made so from here: a producer can enqueue between the list and
+           the drain, and `run-once` has no id or type filter to scope the
+           claim. So treat step b as necessary-but-not-sufficient, and
+           VERIFY AFTER THE FACT rather than trusting the precondition:
+           after draining, confirm the jobs you read back carry the two ids
+           you enqueued (step d). If they do not, you drained someone else's
+           work — report the check as INVALID, say which ids you actually
+           saw, and do NOT present its outcome as concurrency evidence. An
+           after-the-fact mismatch is recoverable as a reporting problem;
+           presenting a contaminated drain as proof is not.
+
+           Prefer the daemon path in step a whenever it is available, since
+           it takes the real lock and involves no `run-once` at all.
         c. If anything else is pending, do NOT drain. Record the check as
            "not-verifiable — queue contended" and set concurrency_guard.held
            to null rather than true. An unproven guard must never be

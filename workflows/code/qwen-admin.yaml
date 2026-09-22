@@ -80,11 +80,20 @@ description: >
         the reason (a down Ollama or an absent collector is a FINDING, not a
         stage failure — the probes are meant to observe a broken stack).
     A2  Every finding in triage.json cites the analysis file it came from.
-    A3  Nothing outside the allowlist was executed, and nothing was executed
-        that the human did not approve — where "approved" means "present in
-        triage.json's proposed_actions after the triage gate", which is the
-        workflow's only approval point. Remediate has no gate and asks
-        nothing; if it ever appears to solicit a choice, that is a defect.
+    A3  SCOPED TO REMEDIATION. No REMEDIATION action ran that was outside
+        the allowlist, and none ran that the human did not approve — where
+        "approved" means "present in triage.json's proposed_actions after
+        the triage gate", the workflow's only approval point. Remediate has
+        no gate and asks nothing; if it ever appears to solicit a choice,
+        that is a defect.
+
+        The scope matters: the four G0 probes run BEFORE the gate exists, so
+        none of their commands can appear in proposed_actions. Stated
+        unscoped — "nothing was executed that the human did not approve" —
+        this criterion is unsatisfiable by construction and every clean run
+        fails its own definition of done, which trains a reader to ignore
+        it. The probes are governed by rule 1 above (read-only, change
+        nothing) instead; that is the correct check for them.
     A4  Every applied action re-checked its precondition immediately before
         running, and any whose precondition no longer held was skipped and
         recorded.

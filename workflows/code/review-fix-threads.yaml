@@ -214,7 +214,16 @@ stages:
       the two sets and fix any difference by re-reading threads.json — never
       by adjusting an id to look right.
 
-      CARRY `body_fingerprint` FOR EVERY ENTRY. Compute it from the thread's
+      CARRY THE DISCRIMINATOR FOR EVERY ENTRY. Prefer
+      `comments[0].database_id` from threads.json, which is unique per
+      comment; copy it verbatim into `comment_database_id` and set
+      `discriminator: "database_id"`. Only when it is absent, fall back to
+      `body_fingerprint` and set `discriminator: "fingerprint"`.
+
+      For the fingerprint, use fix-dispatch Step 1b's EXACT algorithm — do
+      not improvise a normalisation, since three agents compute this value
+      independently and they must agree byte-for-byte. Compute it from the
+      thread's
       FIRST comment body in threads.json — sha256 over the body with runs of
       whitespace collapsed to single spaces — and copy it verbatim into the
       entry. Do NOT derive it from `ask`, which is your paraphrase and would
@@ -244,7 +253,9 @@ stages:
               "directive": "fix",
               "severity": "correctness|security|maintainability|style",
               "ask": "one sentence stating precisely what the reviewer wants",
-              "body_fingerprint": "sha256 of the thread's FIRST comment body, whitespace collapsed",
+              "discriminator": "database_id|fingerprint",
+              "comment_database_id": 123 | null,
+              "body_fingerprint": "sha256 per fix-dispatch Step 1b's exact algorithm; fallback when comment_database_id is null",
               "reason": "why this directive — required for reject/moot/defer",
               "evidence": "file:line facts, required for reject",
               "resolvable": true
@@ -307,14 +318,59 @@ stages:
       content triage acted on. Coordinates are a useful cross-check but
       cannot stand alone — see step 1b for the swap they cannot detect.
 
-      threads.json is authoritative. For every entry in triage.json:
+      threads.json is authoritative FOR THE THREADS IT CONTAINS — which is
+      not yet the same as "every finding on the PR". Known gap, filed as
+      concern `pr-thread-fetch-loses-review-bodies`: the shared fetch
+      fragment calls the REST reviews and issue-comments endpoints without
+      `--paginate` (measured on PR #391: 30 of 72 reviews returned), and it
+      stores each review body as ONE entry, so per-finding detail nested in
+      Copilot `<details>` blocks — including its "Previously missed"
+      section, which by definition never becomes a review thread — is never
+      decomposed and never triaged.
+
+      This gate cannot compensate for that: it verifies the INTEGRITY of the
+      entries it is given, not their COMPLETENESS. A clean run here means
+      "no id was corrupted", never "every finding was addressed". Say so in
+      the report rather than implying coverage. Fixing the fetch is a
+      separate change to the shared fragment, since other workflows consume
+      it too.
+
+      For every entry in triage.json:
 
         1. Build an id -> (path, line) map from threads.json, keyed BY THREAD
            ID. Do not build the reverse; see step 4 for why (path, line) is
            not a key at all.
         1b. Extend that map to id -> (path, line, body_fingerprint), where
-           the fingerprint is a stable hash of the thread's FIRST comment
-           body (for example sha256 of the body with whitespace collapsed).
+           the fingerprint is computed by EXACTLY this algorithm — three
+           agents compute this value independently and they must agree
+           byte-for-byte, so "collapse whitespace" is not a specification:
+
+             fingerprint = sha256(
+                 "\n".join(
+                     " ".join(line.split())
+                     for line in body.replace("\r\n", "\n").split("\n")
+                 ).strip().encode("utf-8")
+             ).hexdigest()
+
+           That is: normalise CRLF, collapse runs of intra-line whitespace to
+           one space, strip each line, keep line structure, strip the whole,
+           encode UTF-8. Do not substitute a different normalisation.
+
+           PREFER THE COMMENT'S OWN ID. The fingerprint is a FALLBACK, not
+           the primary discriminator: two independent threads CAN share an
+           anchor and carry identical first-comment text — a bot posting the
+           same finding on two lines does exactly that — and then swapped
+           ids still produce matching fingerprints, so the check passes on
+           the case it was written for.
+
+           threads.json already carries the stronger signal:
+           `comments[0].database_id`, which is unique per comment by
+           construction. Compare THAT first, and fall back to the
+           fingerprint only when it is absent (older fetches, or a surface
+           that does not supply one). Record which discriminator was used
+           per entry — `discriminator: "database_id"|"fingerprint"` — so a
+           later reader knows the strength of the check that passed rather
+           than assuming the strongest.
            Coordinates alone cannot complete this check: two threads sharing
            one (path, line) — which step 4(ii) documents as real and observed
            on this very PR — can have their ids SWAPPED, and a coordinate
@@ -844,7 +900,9 @@ stages:
 
       Step 1a0 — ID COHERENCE GATE, before any posting decision. Read
       {workspace}/outputs/threads.json and build an
-      id -> (path, line, body_fingerprint) map keyed BY THREAD ID, using the
+      id -> (path, line, discriminator) map keyed BY THREAD ID, where the
+      discriminator is `comments[0].database_id` when present and otherwise
+      the fingerprint, using the
       SAME fingerprint definition as fix-dispatch Step 1b: sha256 over the
       thread's FIRST comment body with runs of whitespace collapsed to single
       spaces. For every thread you are about to reply to or resolve, its id
@@ -943,9 +1001,33 @@ stages:
       post, and go straight to resolving it. Record those in resolution.json
       as "already_replied" so the report distinguishes them from fresh posts.
 
-      For every remaining thread, post its reply into that specific thread.
-      Reply into the thread, not as a new top-level PR comment — a detached
-      comment does not show up where the reviewer raised the concern:
+      SPLIT BY thread_id FIRST — a null id cannot use the mutation below.
+      Review-body and issue-comment findings legitimately have no thread_id
+      (see the integrity gate's null-id rule), and they are exempt from the
+      ID assertions but NOT from this step: they still flow through the fix
+      fan-out and still have a reply to deliver. Passing null as
+      `pullRequestReviewThreadId` does not skip them — it sends an invalid
+      GraphQL ID and the mutation errors, so the reply is lost and the
+      finding looks answered in the report.
+
+        - thread_id NON-NULL -> the thread mutation below.
+        - thread_id NULL -> post one top-level PR comment instead:
+
+            GITHUB_TOKEN= gh api "repos/$OWNER/$REPO/issues/{pr_number}/comments" \
+              -f body="<reply text>"
+
+          Open it by quoting the finding it answers (its path:line and the
+          first line of the original comment), since a top-level comment
+          lands away from where the finding was raised and is otherwise
+          unattributable. Record these in resolution.json with
+          posted_as: "issue-comment" and resolved: false — there is no
+          thread to resolve, and reporting one as resolved would be a lie
+          about state that cannot be checked afterwards.
+
+      For every remaining NON-NULL thread, post its reply into that specific
+      thread. Reply into the thread, not as a new top-level PR comment — a
+      detached comment does not show up where the reviewer raised the
+      concern:
 
         GITHUB_TOKEN= gh api graphql -f query='
         mutation($threadId:ID!,$body:String!){
