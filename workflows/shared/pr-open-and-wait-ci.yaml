@@ -50,12 +50,17 @@ stages:
 
       Step 2 — create the PR:
         Write the PR body to {workspace}/outputs/pr-body.md (from Step 1),
+        and use the Write tool (not a shell command) to write the title
+        {pr_title} alone on one line to {workspace}/outputs/pr-title.txt,
         then:
         ./bin/github pr create \
           --base main \
-          --title "{pr_title}" \
+          --title-file {workspace}/outputs/pr-title.txt \
           --body-file {workspace}/outputs/pr-body.md \
           --draft
+        The title goes by file for the same reason the body does: inside a
+        double-quoted shell argument, $(...), backticks or a quote in it
+        would be executed or split before the CLI received it.
         The github CLI handles GITHUB_TOKEN scrubbing; no GITHUB_TOKEN= prefix needed.
         Text bodies are passed via --body-file, never as an inline string, to
         avoid shell-quoting corruption of backticks and newlines.
@@ -75,6 +80,7 @@ stages:
           pr.json written to {workspace}/validation/ with pr_number, pr_url,
           and draft status for the newly opened PR.
     writes_to:
+      - outputs/pr-title.txt
       - validation/pr.json
 
   # ===========================================================================

@@ -69,7 +69,10 @@ stages:
         Use the Bash tool to run:
           ~/.qlty/bin/qlty check {source_root} --format json
         If {pr_number} is non-empty, also run:
-          ./bin/github pr diff --pr {pr_number} --name-only | xargs ~/.qlty/bin/qlty check --format json
+          ./bin/github pr diff --pr {pr_number} --name-only | tr '\n' '\0' | xargs -0 ~/.qlty/bin/qlty check --format json
+        The NUL delimiting is deliberate: a bare `| xargs` splits on spaces
+        too, so a changed path such as `src/my file.py` would reach qlty as
+        two arguments naming files that do not exist.
         Save JSON output to {workspace}/outputs/qlty-raw.json.
 
       Step 4 — write combined summary:

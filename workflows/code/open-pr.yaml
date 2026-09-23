@@ -131,7 +131,11 @@ stages:
         matching what CI evaluates.
 
         Then run, passing those paths explicitly (skip if the list is empty):
-          ~/.qlty/bin/qlty check $(git diff --name-only main...HEAD)
+          git diff -z --name-only --diff-filter=d main...HEAD | xargs -0 ~/.qlty/bin/qlty check
+        `-z` with `xargs -0` keeps a path containing spaces as one argument;
+        an unquoted `$(git diff ...)` word-splits it into paths that do not
+        exist. `--diff-filter=d` leaves out deleted files, which qlty cannot
+        scan.
         Or, when {source_root} is set and you want the whole subtree:
           ~/.qlty/bin/qlty check {source_root}
         Note `--all` and an explicit path are mutually exclusive: `qlty check
@@ -351,11 +355,16 @@ stages:
         If still fails: abort with error message.
 
       Step 3 — Create PR:
-        Write the PR body to a temp file first, then create:
+        Use the Write tool (not a shell command) to write the title
+        {pr_title} alone on one line to {workspace}/outputs/pr-title.txt,
+        then create:
           ./bin/github pr create \
-            --title "{pr_title}" \
+            --title-file {workspace}/outputs/pr-title.txt \
             --body-file /tmp/pr-description.md \
             --base main
+        The title never goes inside a shell command. Pasted into a
+        double-quoted argument, a title containing $(...), backticks or a
+        quote would be executed or split by the shell before the CLI saw it.
         The github CLI scrubs a stale GITHUB_TOKEN automatically — no
         `GITHUB_TOKEN=` prefix needed. The command returns JSON
         {"number","url"} read back from GitHub.
@@ -376,6 +385,7 @@ stages:
       access: read-write
     required: true
     writes_to:
+      - outputs/pr-title.txt
       - validation/pr.json
 
   # ===========================================================================
