@@ -364,6 +364,32 @@ run_bash BLOCK researcher "touch src/newfile.py"
 run_bash BLOCK researcher "tee src/mail/cli.py < /tmp/x"
 
 echo
+echo "--- every top-level tracked directory, derived not enumerated ---"
+# `templates/` and `signatures_assets/` were tracked and unguarded: the root FILE set
+# had been derived from a property the round before, while the DIRECTORY list stayed
+# hand-maintained and drifted the same way, inside the same function. The rule is now
+# derived, so adding a directory to the repo guards it with nothing to remember.
+for d in src tests bin config configs workflows .claude .github .qlty \
+         concerns docs .llm templates signatures_assets; do
+  run BLOCK researcher "$d/__probe__.txt"
+  run_bash BLOCK researcher "rm -rf $d"
+done
+run BLOCK researcher "templates/pr/COPILOT_REVIEW_RESPONSE_TEMPLATE.md"
+run BLOCK researcher "signatures_assets/anything.png"
+
+echo
+echo "--- ...but generated-output roots stay writable ---"
+# Existence alone is the WRONG test: `out/` exists at the repo root, is gitignored,
+# and is where artifacts go. Blocking it refused the very thing a read-only role
+# exists to produce, which the ALLOW half caught before this shipped.
+run ALLOW researcher "out/report.json"
+run ALLOW researcher "out/nested/findings.json"
+run ALLOW researcher "_out/report.json"
+run ALLOW researcher "backups/old.json"
+run ALLOW researcher "analysis/findings.json"
+run ALLOW researcher "/tmp/ws/outputs/report.md"
+
+echo
 echo "--- global install must still guard the project (CLAUDE_PROJECT_DIR) ---"
 # Deriving REPO_ROOT only from the script's location silently disarmed the install
 # README.md documents: copied to ~/.claude/hooks, "two levels up" is $HOME, so an

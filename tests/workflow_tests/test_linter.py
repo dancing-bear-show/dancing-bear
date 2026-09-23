@@ -429,6 +429,97 @@ class TestCheckAgentAccess(unittest.TestCase):
         self.assertEqual(len(warnings), 1)
         self.assertEqual(warnings[0].stage, "frag-stage")
 
+    def test_read_only_with_no_tools_warns(self) -> None:
+        """An empty tools tuple means ALL tools, so this is the *most* permissive shape.
+
+        ``AgentSpec.tools`` defaults to ``()`` and models.py documents it as
+        "allowed tools (empty = all)". A check that filters for a NAMED Write/Edit
+        therefore reports the all-tools case clean -- backwards, since Write is
+        available there unless the role's frontmatter withholds it.
+        """
+        result = self._lint(
+            "name: t\nversion: \"1.0\"\ndescription: d\n"
+            "trigger:\n  source: manual\n"
+            "stages:\n  - name: s\n    kind: gather\n    description: d\n"
+            "    agent:\n      role: researcher\n      access: read-only\n"
+        )
+        warnings = self._access_warnings(result)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("ALL tools", warnings[0].message)
+
+    def test_read_only_with_explicit_empty_tools_warns(self) -> None:
+        """`tools: []` is the same all-tools case written out."""
+        result = self._lint(
+            _access_yaml(role="researcher", tools="", access="read-only")
+        )
+        self.assertEqual(len(self._access_warnings(result)), 1)
+
+    def test_read_only_no_tools_on_write_blocked_role_is_clean(self) -> None:
+        """No warning when the role's own frontmatter withholds Write.
+
+        `Explore` still disallows Write, so `access: read-only` with no tools is
+        an accurate declaration there rather than a misleading one.
+        """
+        result = self._lint(
+            "name: t\nversion: \"1.0\"\ndescription: d\n"
+            "trigger:\n  source: manual\n"
+            "stages:\n  - name: s\n    kind: gather\n    description: d\n"
+            "    agent:\n      role: Explore\n      access: read-only\n"
+        )
+        self.assertEqual(self._access_warnings(result), [])
+
+    def test_undeclared_access_with_no_tools_is_clean(self) -> None:
+        """A stage that never wrote `access:` is claiming nothing.
+
+        `access` defaults to read_only when the key is absent, so a check on the
+        all-tools case fires on every minimal stage in the tree unless it also
+        requires the field to have been declared. This is the SECOND time that trap
+        was walked into -- it broke a `--strict` lint fixture both times -- which is
+        why `AgentSpec.access_declared` now records the difference.
+        """
+        result = self._lint(
+            "name: t\nversion: \"1.0\"\ndescription: d\n"
+            "trigger:\n  source: manual\n"
+            "stages:\n  - name: s\n    kind: gather\n    description: d\n"
+            "    agent:\n      role: researcher\n"
+        )
+        self.assertEqual(self._access_warnings(result), [])
+
+    def test_access_declared_records_whether_the_key_was_present(self) -> None:
+        """The parser must distinguish a declared read-only from the default."""
+        from workflow.parser import parse_workflow_str
+
+        def _spec(agent_block: str):
+            text = (
+                'name: t\nversion: "1.0"\ndescription: d\n'
+                "trigger:\n  source: manual\n"
+                "stages:\n  - name: s\n    kind: gather\n    description: d\n"
+                + agent_block
+            )
+            return parse_workflow_str(text, source="t").stages[0].agent
+
+        self.assertFalse(_spec("    agent:\n      role: researcher\n").access_declared)
+        self.assertTrue(
+            _spec("    agent:\n      role: researcher\n      access: read-only\n").access_declared
+        )
+        self.assertTrue(
+            _spec("    agent:\n      role: researcher\n      access: read-write\n").access_declared
+        )
+
+    def test_pseudo_role_with_no_definition_is_not_warned(self) -> None:
+        """`role: inline` names no agent, so there is no frontmatter to point at.
+
+        Warning here produced a message citing `.claude/agents/inline.md`, which
+        does not exist -- two false positives in the real tree.
+        """
+        result = self._lint(
+            "name: t\nversion: \"1.0\"\ndescription: d\n"
+            "trigger:\n  source: manual\n"
+            "stages:\n  - name: s\n    kind: gather\n    description: d\n"
+            "    agent:\n      role: inline\n      access: read-only\n"
+        )
+        self.assertEqual(self._access_warnings(result), [])
+
     def test_clean_fragment_produces_no_access_warning(self) -> None:
         """The fragment path must not warn on a correctly declared stage."""
         result = self._lint(

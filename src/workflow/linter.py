@@ -345,6 +345,16 @@ def _roles_that_cannot_write(agents_dir: Path | None = None) -> frozenset[str]:
     return frozenset(blocked)
 
 
+def _role_is_defined(role: str, agents_dir: Path | None = None) -> bool:
+    """True if ``role`` names an agent definition in ``.claude/agents/``.
+
+    Workflows also use pseudo-roles that name no agent -- ``inline`` is the one in
+    this tree -- and those have no frontmatter to serve as the enforcement gate.
+    """
+    d = agents_dir if agents_dir is not None else _AGENTS_DIR
+    return (d / f"{role}.md").is_file()
+
+
 def _check_agent_access(defn: object, result: LintResult) -> None:
     """Warn where a stage's ``access:`` disagrees with what its role can do.
 
@@ -405,19 +415,54 @@ def _check_stage_access(stages: tuple[StageSpec, ...], result: LintResult) -> No
         role = agent.role
         write_tools = sorted(t for t in agent.tools if t in {"Write", "Edit"})
 
-        if agent.access == AgentAccess.read_only and write_tools:
-            result.warnings.append(
-                LintWarning(
-                    stage=stage.name,
-                    field="agent.access",
-                    message=(
-                        f"declares access: read-only but lists {write_tools} in tools "
-                        f"— access is not enforced at runtime (nothing reads it), so "
-                        f"this restricts nothing; the real gate is disallowedTools in "
-                        f".claude/agents/{role}.md"
-                    ),
+        # An EMPTY tools tuple means "all tools" (models.py: "allowed tools
+        # (empty = all)"), so a stage declaring access: read-only with no tools
+        # list is the MOST permissive shape, not the least -- Write is available
+        # unless the role's own frontmatter withholds it. Filtering for a named
+        # Write/Edit reported exactly that case clean, which is backwards.
+        if agent.access == AgentAccess.read_only:
+            if write_tools:
+                reason = f"lists {write_tools} in tools"
+            elif (
+                getattr(agent, "access_declared", False)
+                and not agent.tools
+                and _role_is_defined(role)
+                and role not in cannot_write
+            ):
+                # Three gates, each for a case that produced a false positive:
+                #
+                # access_declared -- `access` defaults to read_only when the key is
+                #   absent, so without this the branch fires on every minimal stage
+                #   that never mentioned access at all. That is the same trap the
+                #   docstring below records for the named-tools branch, and this
+                #   branch walked into it: it broke a --strict lint fixture that was
+                #   legitimately clean.
+                # _role_is_defined -- `role: inline` and other pseudo-roles name no
+                #   agent, so citing .claude/agents/inline.md would be nonsense.
+                # role not in cannot_write -- a role whose frontmatter withholds
+                #   Write makes `access: read-only` an accurate declaration.
+                #
+                # The named-tools branch above needs none of these: a stage listing
+                # Write is making a claim regardless of role or defaults.
+                reason = (
+                    f"declares no tools, which means ALL tools, and role '{role}' "
+                    f"is permitted Write"
                 )
-            )
+            else:
+                reason = ""
+            if reason:
+                result.warnings.append(
+                    LintWarning(
+                        stage=stage.name,
+                        field="agent.access",
+                        message=(
+                            f"declares access: read-only but {reason} — access is not "
+                            f"enforced at runtime (nothing reads it), so this restricts "
+                            f"nothing; the real gate is disallowedTools in "
+                            f".claude/agents/{role}.md"
+                        ),
+                    )
+                )
         elif agent.access == AgentAccess.read_write and role in cannot_write:
             result.warnings.append(
                 LintWarning(

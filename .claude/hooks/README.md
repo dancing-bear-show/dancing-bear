@@ -161,10 +161,21 @@ restricted. A role not on the read-only list (`code-writer`, `tester`, `ci-fixer
 `doc-writer`, `thread-fixer`, `workflow-author`, …) is expected to write source and is
 allowed through.
 
-Guarded trees: `src`, `tests`, `bin`, `config`, `configs`, `workflows`, `.claude`,
-`.github`, `.qlty`, `concerns`, `docs`, `.llm`, plus **every file at the repo root**.
-Refused **even when a prompt names one as a stage output** — a prompt naming a source
-path as an artifact is misconfigured, not authorization.
+Guarded: **every top-level directory in the repo**, plus **every file at the repo
+root**. Refused **even when a prompt names one as a stage output** — a prompt naming a
+source path as an artifact is misconfigured, not authorization.
+
+Both sets are derived rather than enumerated, and for the same reason. The directory
+list was hand-maintained for one round after the root-file set had been derived, and
+drifted in exactly the same way inside the same function: `templates/` and
+`signatures_assets/` were tracked and unguarded. An explicit list survives only as a
+floor for the case where `REPO_ROOT` cannot be resolved.
+
+**Generated-output roots stay writable** — `out/`, `_out/`, `backups/`, and the usual
+vendored/cache directories. Existence alone is the wrong test: `out/` sits at the repo
+root, is gitignored, and is where artifacts belong, so a bare "is a top-level
+directory" rule refused `out/report.json` — the very thing a read-only role exists to
+produce.
 
 The root-file rule is derived, not enumerated: a slashless repo-relative token that
 names an existing file at the root is guarded. An earlier hand-maintained list held 11

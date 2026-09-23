@@ -178,10 +178,23 @@ fi
 # careful spelling and permits the destructive one is worse than no guard, because it
 # reads as protection. The suite now pins both spellings for every entry.
 #
-# `config` and `.qlty` are here because they are tracked configuration this repo really
-# has: config/filters_unified.example.yaml and .qlty/qlty.toml. Listing only `configs/`
-# missed both, so a read-only role could rewrite the lint configuration that judges its
-# own branch. Verified with `git ls-files config/ .qlty/`, not assumed.
+# The list below is a FALLBACK, not the primary rule.
+#
+# Enumerating tracked directories drifts, exactly as enumerating tracked root files
+# did. That list was derived from a property last round and this one was left
+# hand-maintained, so it drifted the same way within the same function: `templates/`
+# and `signatures_assets/` were both tracked and both unguarded. Review found the
+# first; auditing every top-level tracked directory found the second.
+#
+# So the primary rule is now derived: a top-level directory that EXISTS under
+# REPO_ROOT is tracked repo content and is guarded. Artifacts do not live at the top
+# level -- they go to a workspace, /tmp, or a named output directory, which resolve
+# outside the repo or sit deeper than one segment. Adding a directory to the repo
+# guards it with nothing to remember.
+#
+# The explicit list stays as a floor for the case where REPO_ROOT could not be
+# resolved (an unset CLAUDE_PROJECT_DIR on a global install), so the guard degrades to
+# "still blocks the obvious trees" rather than to nothing.
 SOURCE_TREES=(
   "src"
   "tests"
@@ -195,6 +208,8 @@ SOURCE_TREES=(
   "concerns"
   "docs"
   ".llm"
+  "templates"
+  "signatures_assets"
 )
 
 # Repo-root files. Derived from the path SHAPE, not enumerated.
@@ -298,6 +313,30 @@ classify_path() {
   # Strip a trailing slash so `src/` and `src` reach the same comparison. Without
   # this the bare-directory arm below would miss the `src/` spelling.
   local bare="${rel%/}"
+
+  # DERIVED rule, checked before the explicit list: the first segment names a
+  # directory that exists at the repo root AND is not a generated-output directory.
+  # Covers every tracked tree without anyone maintaining a list -- which is what the
+  # list below kept failing to be.
+  #
+  # The exclusion matters and the first version omitted it: `out/` exists at the root,
+  # is gitignored, and is where generated artifacts go, so "directory exists" alone
+  # blocked `out/report.json` -- refusing the very thing a read-only role is supposed
+  # to produce. Existence is the wrong test on its own; these are the repo's declared
+  # generated-output roots (.gitignore, CLAUDE.md "Ignore During Scanning").
+  local first="${bare%%/*}"
+  case "$first" in
+    out|_out|backups|.venv|.cache|.git|node_modules|__pycache__|.pytest_cache)
+      first="" ;;   # generated or vendored: not tracked content, fall through
+  esac
+  if [ -n "$REPO_ROOT" ] && [ -n "$first" ] && [ -d "$REPO_ROOT/$first" ]; then
+    if [ "$bare" = "$first" ]; then
+      printf 'guarded:the tracked directory %s itself' "$first"
+    else
+      printf 'guarded:tracked content (under %s/)' "$first"
+    fi
+    return
+  fi
 
   local q
   for q in "${SOURCE_TREES[@]}"; do
