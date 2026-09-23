@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from workflow.models import StageSpec, WorkflowDefinition
+    from workflow.models import AgentSpec, StageSpec, WorkflowDefinition
 
 from .include import extract_include_entries, resolve_fragment_path
 
@@ -396,7 +396,7 @@ def _check_agent_access(defn: object, result: LintResult) -> None:
     _check_stage_access(defn.stages, result)
 
 
-def _read_only_reason(agent: object, role: str, cannot_write: frozenset[str]) -> str:
+def _read_only_reason(agent: AgentSpec, role: str, cannot_write: frozenset[str]) -> str:
     """Why an ``access: read-only`` declaration is misleading, or "" if it is not.
 
     Two shapes qualify, and the second needs three gates that each fixed a real
