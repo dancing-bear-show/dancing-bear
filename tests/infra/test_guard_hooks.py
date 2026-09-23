@@ -70,6 +70,39 @@ _SUMMARY_RE = re.compile(
 )
 
 
+def _contract_root_dirs() -> frozenset[str]:
+    """Top-level repo names guard-contract.test.sh may create for its setup.
+
+    Derived from guard-contract.yaml rather than typed out: a hand-listed set goes
+    stale the moment a row adds a new artifact root. Covers both ``needs_dirs``
+    and the first path segment of every ``{REPO}/...`` link in ``needs_links``,
+    whose parent directory ``mkdir -p`` creates.
+    """
+    import yaml  # lazy: PyYAML is a dev dependency, as it is for the suite itself
+
+    doc = yaml.safe_load((TESTS_DIR / "guard-contract.yaml").read_text(encoding="utf-8"))
+    names: set[str] = set()
+    for group in doc.get("promises", []):
+        names.update(group.get("needs_dirs") or [])
+        for item in group.get("needs_links") or []:
+            link = item["link"]
+            if link.startswith("{REPO}/"):
+                names.add(link.removeprefix("{REPO}/").split("/", 1)[0])
+    return frozenset(names)
+
+
+def _untracked() -> set[str]:
+    """Untracked paths in the checkout, one entry per FILE (not per directory)."""
+    out = subprocess.run(  # nosec B603 B607 - fixed git argv, no user input
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=str(repo_root()),
+    ).stdout
+    return {line[3:] for line in out.splitlines() if line.startswith("?? ")}
+
+
 def _missing_tool() -> str | None:
     """Return the name of the first required tool that is not on PATH."""
     for tool in ("bash", "jq"):
@@ -112,6 +145,11 @@ class TestGuardHookSuites(unittest.TestCase):
         suite: Path = TESTS_DIR / name
         self.assertTrue(suite.is_file(), f"missing hook suite: {suite}")
 
+        root = repo_root()
+        untracked_before = _untracked()
+        root_dirs = _contract_root_dirs()
+        absent_before = {d for d in root_dirs if not os.path.lexists(root / d)}
+
         # encoding/errors are pinned rather than left to the locale. statusline.sh
         # emits box-drawing and middle-dot characters, and text=True alone decodes
         # with the locale's preferred encoding -- ASCII on a CI runner with no
@@ -145,6 +183,43 @@ class TestGuardHookSuites(unittest.TestCase):
         # checks that cases actually ran and that all of them passed.
         self.assertIn("ALL PASS", proc.stdout, msg=proc.stdout)
         self._assert_ran_cases(name, proc.stdout)
+        self._assert_left_nothing(name, untracked_before, absent_before)
+
+    def _assert_left_nothing(
+        self, name: str, untracked_before: set[str], absent_before: set[str]
+    ) -> None:
+        """A suite must not leave files or directories behind in the checkout.
+
+        Both halves are needed. The untracked snapshot catches a leftover file or
+        symlink. It cannot catch the bug that motivated this check: guard-contract
+        left eight EMPTY directories at the repo root (``analysis/``, ``out/``,
+        ...), and ``git status`` never reports an empty directory -- so an
+        untracked-only assertion passes on exactly that bug. Hence the second
+        half, which checks by name that every setup directory that was absent
+        before the run is absent after it.
+        """
+        root = repo_root()
+        self.assertEqual(
+            _untracked() - untracked_before,
+            set(),
+            msg=f"{name} left untracked files in the checkout",
+        )
+        leftover = sorted(d for d in absent_before if os.path.lexists(root / d))
+        self.assertEqual(
+            leftover,
+            [],
+            msg=f"{name} left setup directories at the repo root: {leftover}",
+        )
+
+    def test_contract_root_dirs_are_derived(self) -> None:
+        """The leftover check knows the names it must look for.
+
+        An empty derivation -- a renamed YAML key, a moved file -- would make the
+        by-name half of ``_assert_left_nothing`` vacuous while it stayed green.
+        """
+        self.assertLessEqual(
+            {"analysis", "out", "workspace", "outputs"}, _contract_root_dirs()
+        )
 
     def _assert_ran_cases(self, name: str, stdout: str) -> None:
         """A suite that ran zero cases has not tested anything.
