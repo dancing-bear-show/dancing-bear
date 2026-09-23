@@ -451,6 +451,7 @@ stages:
     kind: execute
     depends_on: [critique-design]
     reads_from: [design, survey-prior-art, critique-design]
+    # raw gh named in a prohibition, not an invocation
     description: >
       Implement ONLY the files listed in design.json "core_files". Do not create
       or edit any file in cli_files or test_files — two other stages own those
@@ -478,12 +479,11 @@ stages:
       Do not add a dependency. This repo is dependency-light; anything optional
       must be imported lazily inside the function that needs it.
 
-      # raw gh named in a prohibition, not an invocation
       GIT PROHIBITION — applies to this stage without exception. You may run
       read-only git commands (status, diff, log, branch --show-current). You must
       NOT run: git push, git merge, git rebase, git reset --hard, git clean,
       git checkout of a different branch, git commit, gh pr create / ./bin/github pr create,
-      gh pr merge / ./bin/github pr merge, or any command that writes to a remote.
+      gh pr merge, or any command that writes to a remote.
       This workflow ends at a human gate on the current branch; publishing is the
       human's decision, not this stage's. Stay on the branch you started on.
 
@@ -523,6 +523,7 @@ stages:
     kind: execute
     depends_on: [critique-design]
     reads_from: [design, survey-prior-art, critique-design]
+    # raw gh named in a prohibition, not an invocation
     description: >
       Implement ONLY the files listed in design.json "cli_files". Do not create
       or edit any file in core_files or test_files — two other stages own those
@@ -550,12 +551,11 @@ stages:
       Emit output via emit_rows / emit_one from core.cli_output. Never print a
       hand-formatted table or hand-serialized JSON.
 
-      # raw gh named in a prohibition, not an invocation
       GIT PROHIBITION — applies to this stage without exception. You may run
       read-only git commands (status, diff, log, branch --show-current). You must
       NOT run: git push, git merge, git rebase, git reset --hard, git clean,
       git checkout of a different branch, git commit, gh pr create / ./bin/github pr create,
-      gh pr merge / ./bin/github pr merge, or any command that writes to a remote.
+      gh pr merge, or any command that writes to a remote.
       This workflow ends at a human gate on the current branch; publishing is the
       human's decision, not this stage's. Stay on the branch you started on.
 
@@ -592,6 +592,7 @@ stages:
     kind: execute
     depends_on: [critique-design]
     reads_from: [design, survey-prior-art, critique-design]
+    # raw gh named in a prohibition, not an invocation
     description: >
       Implement ONLY the files listed in design.json "test_files". Do not create
       or edit any file in core_files or cli_files — two other stages own those
@@ -618,12 +619,11 @@ stages:
       Never write a test that requires network access or real credentials. Use
       fixtures and fakes.
 
-      # raw gh named in a prohibition, not an invocation
       GIT PROHIBITION — applies to this stage without exception. You may run
       read-only git commands (status, diff, log, branch --show-current). You must
       NOT run: git push, git merge, git rebase, git reset --hard, git clean,
       git checkout of a different branch, git commit, gh pr create / ./bin/github pr create,
-      gh pr merge / ./bin/github pr merge, or any command that writes to a remote.
+      gh pr merge, or any command that writes to a remote.
       This workflow ends at a human gate on the current branch; publishing is the
       human's decision, not this stage's. Stay on the branch you started on.
 
@@ -707,6 +707,7 @@ stages:
     kind: execute
     depends_on: [integration-review]
     reads_from: [design, integration-review]
+    # raw gh named in a prohibition, not an invocation
     description: >
       Read validation/integration-findings.json and fix every failing finding,
       starting with the critical ones.
@@ -731,12 +732,11 @@ stages:
       After fixing, re-verify each finding you addressed by re-running the check
       named in its "source" field.
 
-      # raw gh named in a prohibition, not an invocation
       GIT PROHIBITION — applies to this stage without exception. You may run
       read-only git commands (status, diff, log, branch --show-current). You must
       NOT run: git push, git merge, git rebase, git reset --hard, git clean,
       git checkout of a different branch, git commit, gh pr create / ./bin/github pr create,
-      gh pr merge / ./bin/github pr merge, or any command that writes to a remote.
+      gh pr merge, or any command that writes to a remote.
       This workflow ends at a human gate on the current branch; publishing is the
       human's decision, not this stage's. Stay on the branch you started on.
 
@@ -818,6 +818,7 @@ stages:
     kind: propose
     depends_on: [verify]
     reads_from: [load-sketch, survey-prior-art, design, implement-core, implement-cli, implement-tests, fix-integration, verify]
+    # raw gh named in a prohibition, not an invocation
     description: >
       Present the completed change for human review. Read every manifest, the
       integration and verify findings, and sketch.json.
@@ -845,7 +846,6 @@ stages:
 
       Write outputs/build-summary.md with all of the above.
 
-      # raw gh named in a prohibition, not an invocation
       Do NOT run git push, gh pr create / ./bin/github pr create, or git merge in
       this stage under any circumstances. This workflow ends at the branch.
     agent:
