@@ -89,7 +89,7 @@ stages:
           test -x .venv/bin/python || make venv > /tmp/venv-create.log 2>&1
           test -x .venv/bin/python || { tail -20 /tmp/venv-create.log; \
             echo "FATAL: no .venv"; exit 1; }
-          .venv/bin/python -m pip install -e ".[pdf,ocr]" > /tmp/pdf-install.log 2>&1
+          .venv/bin/python -I -m pip install -e ".[pdf,ocr]" > /tmp/pdf-install.log 2>&1
           status=$?; tail -2 /tmp/pdf-install.log; echo "INSTALL_EXIT=$status"
           .venv/bin/python -I -c "import fitz; print('fitz ok')" 2>&1
 
@@ -176,7 +176,7 @@ stages:
           test -x .venv/bin/python || { tail -20 /tmp/venv-create.log; \
             echo "FATAL: no .venv"; exit 1; }
           if ! .venv/bin/python -I -c "import fitz" 2>/dev/null; then
-            .venv/bin/python -m pip install -e ".[pdf,ocr]" > /tmp/pdf-install.log 2>&1
+            .venv/bin/python -I -m pip install -e ".[pdf,ocr]" > /tmp/pdf-install.log 2>&1
             status=$?; tail -2 /tmp/pdf-install.log; echo "INSTALL_EXIT=$status"
           fi
           .venv/bin/python -I -c "import fitz; print('fitz ok')" 2>&1
@@ -1045,7 +1045,7 @@ stages:
           test -x .venv/bin/python || make venv > /tmp/venv-create.log 2>&1
           test -x .venv/bin/python || { tail -20 /tmp/venv-create.log; \
             echo "FATAL: no .venv"; exit 1; }
-          .venv/bin/python -m pip install -e ".[pdf,ocr]" > /tmp/pdf-install.log 2>&1
+          .venv/bin/python -I -m pip install -e ".[pdf,ocr]" > /tmp/pdf-install.log 2>&1
           status=$?; tail -2 /tmp/pdf-install.log; echo "INSTALL_EXIT=$status"
 
         INSTALL_EXIT must be 0 before continuing -- do not pipe straight into

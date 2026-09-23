@@ -109,12 +109,12 @@ stages:
                  "Follow project conventions: make_* factories (no manual dicts), "
                  "subTest() loops for multi-scenario cases (unittest has no @parametrize), "
                  "specific assertions (assertEqual/assertIn, not assertTrue), patch at the call site. "
-                 "After writing tests, run: python3 -m unittest discover -s {test_path} -t . -q and fix any failures."
+                 "After writing tests, run: PYTHONPATH=\"$PWD/src\" python3 -m unittest discover -s {test_path} -t . -q and fix any failures."
                )
              )
 
         4. After the tester agent returns, verify the tests pass:
-             python3 -m unittest discover -s {test_path} -t . -q
+             PYTHONPATH="$PWD/src" python3 -m unittest discover -s {test_path} -t . -q
 
            If the command exits non-zero: read the error, fix the specific failure,
            and re-run. Up to 2 fix cycles per file.
@@ -161,7 +161,7 @@ stages:
         files are still below threshold, and report them in the output JSON.
 
       Step 2 — run the test suite for the target path:
-        python3 -m unittest discover -s {test_path} -t . -q
+        PYTHONPATH="$PWD/src" python3 -m unittest discover -s {test_path} -t . -q
 
         Must exit 0. If it fails: read the error, identify the root cause,
         and record it — do not attempt further fixes in this stage (that would
@@ -196,7 +196,7 @@ stages:
       criteria:
         - All files in {source_root} are at or above {min_coverage}%
         - No test gaps remain on changed files
-        - python3 -m unittest {test_path} exits 0
+        - PYTHONPATH="$PWD/src" python3 -m unittest {test_path} exits 0
       max_revisions: 2
     required: true
     writes_to:

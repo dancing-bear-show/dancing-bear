@@ -668,7 +668,7 @@ stages:
           every failure. No "Ran N tests" line means the suite did not run:
           re-run it, do not report a result.
         - >-
-          NEVER run bare `python3 -m unittest`. An inherited PYTHONPATH resolves
+          NEVER run a bare unittest. An inherited PYTHONPATH resolves
           imports to a DIFFERENT checkout and yields a false green that is
           indistinguishable from a real one. If anything looks off, print where
           the module actually loaded from, without importing it —

@@ -214,7 +214,7 @@ stages:
       Write {workspace}/outputs/baseline.md with the test counts and current coverage
       for src/resume/.
 
-      CRITICAL: use `make test`, never bare `python3 -m unittest`. An inherited
+      CRITICAL: use `make test`, never a bare unittest run. An inherited
       PYTHONPATH silently resolves `resume` to the MAIN checkout and produces a
       false green that is indistinguishable from a real one. If `make check-env`
       fails, STOP and report it — every downstream verification would be
@@ -549,7 +549,7 @@ stages:
       Every test must assert BEHAVIOUR. Do not write import-only tests to
       inflate coverage — project rules forbid it.
 
-      Verify with `make test`. Never bare python3 -m unittest.
+      Verify with `make test`. Never a bare unittest run.
 
       COMMIT BEFORE FINISHING. You run in your own git worktree; `git merge` moves commits, not uncommitted files. If you edit files and return without committing, the downstream merge-worktrees stage finds an empty branch and the run halts. Stage your files by name (never `git add -A`) and commit with a conventional message.
     agent:

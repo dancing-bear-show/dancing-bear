@@ -79,7 +79,7 @@ trigger:
     test_path: "tests/"
     pr_title: "chore(coverage): uplift uncovered lines + consolidate test helpers"
     pr_body_sources: "{workspace}/validation/domain-test-results.md and {workspace}/validation/corrections-applied.md"
-    # PYTHONPATH is pinned deliberately: a bare `python3 -m unittest` inside a
+    # PYTHONPATH is pinned deliberately: a bare unittest run inside a
     # git worktree resolves core/mail/worker to the MAIN checkout's source via
     # an inherited PYTHONPATH, so the suite passes against unmodified code — a
     # false green indistinguishable from a real one. See CLAUDE.md.
@@ -551,7 +551,7 @@ stages:
                   purpose is to import a module and raise its coverage number.
            d. After each file, verify with the Bash tool:
                 PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/<domain>_tests -t . -q
-              PYTHONPATH MUST be pinned. A bare `python3 -m unittest` in a git
+              PYTHONPATH MUST be pinned. A bare unittest run in a git
               worktree resolves imports to a DIFFERENT checkout via an inherited
               PYTHONPATH, so tests pass against unmodified source — a false green
               indistinguishable from a real one. Fix import errors or assertion
@@ -595,7 +595,7 @@ stages:
         Extract domain names from filenames (e.g., aws-summary.md → aws).
 
       Step 2 — per-domain test run:
-        For each domain (PYTHONPATH must be pinned — a bare `python3 -m unittest`
+        For each domain (PYTHONPATH must be pinned — a bare unittest run
         in a worktree silently resolves imports to a different checkout and
         reports a false green):
           PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/<domain>_tests -t . -q

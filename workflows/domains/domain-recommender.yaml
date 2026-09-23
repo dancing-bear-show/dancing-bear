@@ -191,7 +191,7 @@ stages:
         reporting, not an expected result. Note the invocation differs for
         four of them: apple-music is ./bin/apple-music-assistant, qlty is
         ./bin/qlty-assistant, resume is ./bin/assistant resume, and desk has
-        no wrapper at all (python3 -m desk). Run ./bin/llm inventory --stdout
+        no wrapper at all (PYTHONPATH="$PWD/src" python3 -m desk). Run ./bin/llm inventory --stdout
         for the authoritative list rather than assuming ./bin/<cli>.
         "core" has no CLI — always false.
 
@@ -331,7 +331,7 @@ stages:
            known-app set, DISCARD the entire invocation — do not count it as
            "assistant" or as anything else. Shift subcommand capture by one
            position for accepted invocations.
-           The "python3 -m desk" special case is unchanged.
+           The desk regex above is unchanged.
            (e.g. "./bin/assistant resume export" → "resume";
                 "./bin/assistant --help" → discarded;
                 "./bin/assistant && ls"  → discarded.)
