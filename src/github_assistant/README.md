@@ -20,6 +20,7 @@ body from a file, calls into `core.github`, and prints JSON.
 ./bin/github pr list --state open --fields number,title,url
 ./bin/github pr comment --pr 123 --body-file note.md
 ./bin/github pr comments --pr 123 --kind review
+./bin/github pr review-comment --pr 123 --path src/a.py --line 10 --body-file c.md  # commit defaults to PR head
 ./bin/github run log --run 456789
 ```
 

@@ -132,6 +132,24 @@ class GhCLI:
             items.extend(page)
         return items
 
+    def api_post(self, path: str, fields: dict[str, Any]) -> dict[str, Any]:
+        """POST to a REST endpoint and return the created object.
+
+        Fields go through ``field_args``: strings are literal (``-f``), ints
+        are typed (``-F``), so a body starting with ``@`` is never read as a
+        file. Raises on a non-zero exit or a response that is not an object.
+        """
+        res = self._exec(["gh", "api", "--method", "POST", path, *field_args(fields)])
+        if res.returncode != 0:
+            raise GhError(res.stderr or res.stdout or f"gh api POST {path} failed")
+        try:
+            data = json.loads(res.stdout or "null")
+        except json.JSONDecodeError as exc:
+            raise GhError(f"gh api POST {path} returned non-JSON output: {exc}") from exc
+        if not isinstance(data, dict):
+            raise GhError(f"gh api POST {path} returned {type(data).__name__}, expected an object")
+        return data
+
     def graphql_checked(self, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
         """Run a GraphQL call and return its ``data``, raising on any failure.
 

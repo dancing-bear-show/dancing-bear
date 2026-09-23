@@ -504,6 +504,25 @@ def cmd_pr_comments(args) -> int:
     return ExitCode.SUCCESS
 
 
+@pr_group.command("review-comment", help="Post an inline review comment anchored to path:line")
+@app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
+@app.argument("--pr", required=True, type=int, help="PR number")
+@app.argument("--path", required=True, help="File path in the PR diff")
+@app.argument("--line", required=True, type=int, help="Line in the file (RIGHT side = new code)")
+@app.argument("--side", choices=("RIGHT", "LEFT"), default="RIGHT", help="Diff side")
+@app.argument("--commit", dest="commit_id", help="Commit SHA (default: the PR head SHA from GitHub)")
+@app.argument("--body-file", required=True, dest="body_file", help="Body path (- for stdin)")
+def cmd_pr_review_comment(args) -> int:
+    gh = _gh()
+    owner, name = resolve_owner_repo(gh, _repo(args))
+    _print_json(_pulls.pr_review_comment(
+        gh, owner, name, int(args.pr),
+        path=args.path, line=int(args.line), side=args.side,
+        commit_id=args.commit_id, body=_read_body(args.body_file),
+    ))
+    return ExitCode.SUCCESS
+
+
 # ---- run group --------------------------------------------------------------
 
 

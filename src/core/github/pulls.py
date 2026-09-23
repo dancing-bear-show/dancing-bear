@@ -194,6 +194,43 @@ def pr_comment(gh: GhCLI, pr: int | str, body: str, *, repo: str | None = None) 
     return _checked(res, "gh pr comment").strip()
 
 
+def pr_review_comment(
+    gh: GhCLI,
+    owner: str,
+    repo: str,
+    pr: int,
+    *,
+    path: str,
+    line: int,
+    body: str,
+    side: str = "RIGHT",
+    commit_id: str | None = None,
+) -> dict[str, str]:
+    """Post an inline review comment anchored to ``path:line``; return id and url.
+
+    ``commit_id`` defaults to the PR's head SHA as GitHub reports it — never
+    ``git rev-parse HEAD``, which in CI is a synthetic merge commit GitHub
+    rejects with HTTP 422. The response is checked for an id, so a comment
+    that did not land is an error rather than a silent success.
+    """
+    if not body.strip():
+        raise GhError("refusing to post an empty review comment")
+    if int(line) < 1:
+        raise GhError(f"line must be a positive integer, got {line!r}")
+    if side not in ("RIGHT", "LEFT"):
+        raise GhError(f"side must be RIGHT or LEFT, got {side!r}")
+    sha = commit_id or pr_view(gh, pr, ["headRefOid"], repo=f"{owner}/{repo}").get("headRefOid")
+    if not sha:
+        raise GhError(f"could not determine the head SHA of PR #{pr}")
+    data = gh.api_post(
+        f"repos/{owner}/{repo}/pulls/{int(pr)}/comments",
+        {"body": body, "path": path, "line": int(line), "side": side, "commit_id": str(sha)},
+    )
+    if not data.get("id"):
+        raise GhError(f"review comment on {path}:{line} returned no id")
+    return {"id": str(data["id"]), "url": str(data.get("html_url") or "")}
+
+
 def pr_comments(gh: GhCLI, owner: str, repo: str, pr: int, *, kind: str = "review") -> list[Any]:
     """Every inline review comment (``review``) or PR conversation comment (``issue``)."""
     if kind == "review":

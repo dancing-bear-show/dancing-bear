@@ -34,6 +34,7 @@ def build_agentic_capsule() -> str:
         "reply to a thread: ./bin/github threads reply --thread THREAD_ID --body-file reply.md --run-id RUN --resolve",
         "get PR field: ./bin/github pr view --pr 123 --value headRefOid",
         "watch PR checks: ./bin/github pr checks --pr 123 --watch",
+        "inline review comment: ./bin/github pr review-comment --pr 123 --path a.py --line 10 --body-file c.md",
     ]
     notes_body = "\n".join(
         [

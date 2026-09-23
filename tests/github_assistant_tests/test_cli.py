@@ -784,6 +784,28 @@ class TestPrComment(unittest.TestCase):
         self.assertEqual(fake.calls[0].input_text, "thanks!")
 
 
+class TestPrReviewComment(unittest.TestCase):
+    def test_posts_anchored_comment_from_body_file(self):
+        fake = FakeGhRunner()
+        fake.add(["pr", "view"], stdout=json.dumps({"headRefOid": "headsha"}))
+        fake.add(["--method", "POST"], stdout=json.dumps({"id": 5, "html_url": "https://x/r5"}))
+        with TemporaryDirectory() as td:
+            body_path = Path(td) / "summary.md"
+            body_path.write_text("`$(rm -rf /)` finding summary", encoding="utf-8")
+            with _install_client(fake):
+                rc, out, _err = _run_cli([
+                    "pr", "review-comment", "--repo", "acme/widgets", "--pr", "3",
+                    "--path", "src/a.py", "--line", "10", "--body-file", str(body_path),
+                ])
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(out), {"id": "5", "url": "https://x/r5"})
+        post = fake.calls[-1].argv
+        self.assertIn("repos/acme/widgets/pulls/3/comments", post)
+        self.assertIn("body=`$(rm -rf /)` finding summary", post)
+        self.assertIn("commit_id=headsha", post)
+        self.assertEqual(post[post.index("line=10") - 1], "-F")
+
+
 class TestPrComments(unittest.TestCase):
     def test_review_kind_paginated_call(self):
         fake = FakeGhRunner()

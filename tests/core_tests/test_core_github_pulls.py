@@ -169,6 +169,51 @@ class TestComments(unittest.TestCase):
             pulls.pr_comments(gh, "o", "r", 6, kind="thread")
 
 
+class TestPrReviewComment(unittest.TestCase):
+    def _handler(self, post_payload, post_rc=0):
+        def handler(call: GhCall):
+            if call.argv[:3] == ["gh", "pr", "view"]:
+                return ok({"headRefOid": "headsha123"})
+            if "--method" in call.argv:
+                return ok(post_payload, returncode=post_rc)
+            raise AssertionError(call.argv)
+        return handler
+
+    def test_posts_typed_fields_with_the_pr_head_sha(self):
+        gh, fake = _gh(self._handler({"id": 99, "html_url": "https://x/r99"}))
+        out = pulls.pr_review_comment(gh, "o", "r", 7, path="a.py", line=12, body="@/etc/passwd")
+        self.assertEqual(out, {"id": "99", "url": "https://x/r99"})
+        post = fake.calls[-1]
+        self.assertEqual(post.argv[:5], ["gh", "api", "--method", "POST", "repos/o/r/pulls/7/comments"])
+        self.assertEqual(post.fields["line"], ("-F", "12"))
+        self.assertEqual(post.fields["body"], ("-f", "@/etc/passwd"))
+        self.assertEqual(post.fields["commit_id"], ("-f", "headsha123"))
+        self.assertEqual(post.fields["side"], ("-f", "RIGHT"))
+
+    def test_explicit_commit_skips_the_head_lookup(self):
+        gh, fake = _gh(self._handler({"id": 1}))
+        pulls.pr_review_comment(gh, "o", "r", 7, path="a.py", line=1, body="b", commit_id="abc")
+        self.assertEqual([c.argv[1] for c in fake.calls], ["api"])
+
+    def test_response_without_id_is_an_error(self):
+        gh, _ = _gh(self._handler({"message": "Validation Failed"}))
+        with self.assertRaisesRegex(GhError, "returned no id"):
+            pulls.pr_review_comment(gh, "o", "r", 7, path="a.py", line=1, body="b")
+
+    def test_http_failure_is_an_error(self):
+        gh, _ = _gh(self._handler("", post_rc=1))
+        with self.assertRaises(GhError):
+            pulls.pr_review_comment(gh, "o", "r", 7, path="a.py", line=1, body="b", commit_id="abc")
+
+    def test_bad_inputs_refused_before_any_call(self):
+        for kwargs in ({"body": "  "}, {"line": 0}, {"side": "UP"}):
+            gh, fake = _gh(self._handler({"id": 1}))
+            args = {"path": "a.py", "line": 1, "body": "b", **kwargs}
+            with self.subTest(kwargs=kwargs), self.assertRaises(GhError):
+                pulls.pr_review_comment(gh, "o", "r", 7, **args)
+            self.assertEqual(fake.calls, [])
+
+
 class TestRunLog(unittest.TestCase):
     def test_failed_only_by_default_and_full_log_on_request(self):
         gh, fake = _gh(lambda c: ok("log"))
