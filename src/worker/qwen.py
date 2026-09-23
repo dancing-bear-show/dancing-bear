@@ -32,7 +32,7 @@ from pathlib import Path
 
 from core.secrets import mask_text
 from worker._helpers import get_repo_root, get_worker_state_dir
-from worker.qwen_telemetry import export_job_span
+from worker.qwen_telemetry import export_job_metrics, export_job_span
 
 _log = logging.getLogger(__name__)
 
@@ -1169,14 +1169,22 @@ def _telemetry_attrs(event: _TelemetryEvent) -> dict[str, object]:
 
 
 def _emit_telemetry(event: _TelemetryEvent) -> None:
-    # export_job_span is imported at module scope (not locally) specifically
-    # so mock.patch("worker.qwen.export_job_span", ...) — patch where the
-    # name is used, per house convention — actually intercepts this call.
+    # export_job_span/export_job_metrics are imported at module scope (not
+    # locally) specifically so mock.patch("worker.qwen.export_job_span", ...)
+    # — patch where the name is used, per house convention — actually
+    # intercepts these calls. Each call sits in its own try/except so a
+    # failure in one can never skip the other: span and metrics export are
+    # independent best-effort paths.
+    attrs = _telemetry_attrs(event)
     try:
-        attrs = _telemetry_attrs(event)
         export_job_span(attrs, event.start_ns, event.end_ns)
     except Exception:  # nosec B110 - contract.telemetry.failure_is_nonfatal: export must never affect job outcome, independent of export_job_span's own internal guard
-        _log.debug("qwen: telemetry export raised (non-fatal)", exc_info=True)
+        _log.debug("qwen: span telemetry export raised (non-fatal)", exc_info=True)
+    try:
+        duration_ms = (event.end_ns - event.start_ns) / 1_000_000
+        export_job_metrics(attrs, duration_ms, event.prompt_tokens, event.completion_tokens)
+    except Exception:  # nosec B110 - contract.telemetry.failure_is_nonfatal: export must never affect job outcome, independent of export_job_metrics's own internal guard
+        _log.debug("qwen: metrics telemetry export raised (non-fatal)", exc_info=True)
 
 
 def _handle_string_outcome(

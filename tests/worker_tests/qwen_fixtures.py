@@ -80,6 +80,7 @@ RESULT_SCHEMA_KEYS = frozenset(
 REAL_GIT_APPLY_CHECK = qwen._git_apply_check
 REAL_LANE_DEPTH = qwen._lane_depth
 REAL_EXPORT_JOB_SPAN = qwen_telemetry.export_job_span
+REAL_EXPORT_JOB_METRICS = qwen_telemetry.export_job_metrics
 
 
 _T = TypeVar("_T")
@@ -143,11 +144,22 @@ class QwenHandlerCase(TempDirMixin, unittest.TestCase):
         env = mock.patch.dict(os.environ)
         env.start()
         self.addCleanup(env.stop)
-        for var in ("QWEN_OLLAMA_HOST", qwen_telemetry.OTLP_ENDPOINT_ENV):
+        otel_vars = (
+            qwen_telemetry.OTLP_ENDPOINT_ENV,
+            qwen_telemetry.OTLP_PROTOCOL_ENV,
+            qwen_telemetry.TRACES_ENDPOINT_ENV,
+            qwen_telemetry.TRACES_PROTOCOL_ENV,
+            qwen_telemetry.METRICS_ENDPOINT_ENV,
+            qwen_telemetry.METRICS_PROTOCOL_ENV,
+        )
+        for var in ("QWEN_OLLAMA_HOST", *otel_vars):
             os.environ.pop(var, None)
 
         self.post = self._start(mock.patch("worker.qwen_telemetry._post"))
         self.export = self._start(mock.patch("worker.qwen.export_job_span", wraps=REAL_EXPORT_JOB_SPAN))
+        self.export_metrics = self._start(
+            mock.patch("worker.qwen.export_job_metrics", wraps=REAL_EXPORT_JOB_METRICS)
+        )
         self.urlopen = self._start(mock.patch("urllib.request.urlopen", side_effect=self._route))
         for name, value in (
             ("_repo_root", self.repo_root),
@@ -223,6 +235,22 @@ class QwenHandlerCase(TempDirMixin, unittest.TestCase):
 
     def span_attrs(self) -> list[dict[str, object]]:
         return [dict(c.args[0]) for c in self.export.call_args_list]
+
+    def metrics_calls(self) -> list[tuple[dict[str, object], float, int | None, int | None]]:
+        """(attrs, duration_ms, prompt_tokens, completion_tokens) per export_job_metrics call."""
+        return [
+            (dict(c.args[0]), c.args[1], c.args[2], c.args[3]) for c in self.export_metrics.call_args_list
+        ]
+
+    def otlp_posts(self, *, path_suffix: str) -> list[Any]:
+        """self.post.call_args_list entries whose URL ends with path_suffix
+
+        (e.g. "/v1/traces" or "/v1/metrics"). Both span and metrics export
+        share the same _post seam, so a test asserting on one signal's post
+        must filter by URL rather than reading call_args/call_args_list
+        directly.
+        """
+        return [c for c in self.post.call_args_list if c.args[0].endswith(path_suffix)]
 
     def record_digest(self, digest: str, model: str = MODEL) -> None:
         self.digest_record.parent.mkdir(parents=True, exist_ok=True)

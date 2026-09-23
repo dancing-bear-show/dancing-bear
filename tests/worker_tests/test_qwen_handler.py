@@ -330,7 +330,8 @@ class QwenTelemetryTests(QwenHandlerCase):
         ok, _ = self.run_handler()
 
         self.assertTrue(ok)
-        self.post.assert_called_once()
+        # Both span and metrics export attempt one POST each on this path.
+        self.assertEqual(self.post.call_count, 2)
 
     def test_success_emits_one_span_with_contract_attributes(self) -> None:
         ok, _ = self.run_handler()
@@ -353,7 +354,7 @@ class QwenTelemetryTests(QwenHandlerCase):
     def test_posted_span_round_trips_to_the_default_collector(self) -> None:
         self.run_handler()
 
-        [call] = self.post.call_args_list
+        [call] = self.otlp_posts(path_suffix="/v1/traces")
         url, doc = call.args[0], call.args[1]
         self.assertEqual(url, "http://localhost:4318/v1/traces")
         self.assertEqual(call.kwargs, {"timeout": 5})
@@ -362,11 +363,40 @@ class QwenTelemetryTests(QwenHandlerCase):
         self.assertEqual(span.get_attr("qwen.outcome"), "success")
 
     def test_otlp_endpoint_env_override(self) -> None:
+        """The generic endpoint var only gets a path appended under an HTTP
+        protocol (see test_otlp_endpoint_grpc_protocol_does_not_append_path
+        for the complementary case)."""
         os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://collector.test:9999"
+        os.environ["OTEL_EXPORTER_OTLP_PROTOCOL"] = "http/protobuf"
 
         self.run_handler()
 
-        self.assertEqual(self.post.call_args.args[0], "http://collector.test:9999/v1/traces")
+        [call] = self.otlp_posts(path_suffix="/v1/traces")
+        self.assertEqual(call.args[0], "http://collector.test:9999/v1/traces")
+        [mcall] = self.otlp_posts(path_suffix="/v1/metrics")
+        self.assertEqual(mcall.args[0], "http://collector.test:9999/v1/metrics")
+
+    def test_otlp_endpoint_grpc_protocol_does_not_append_path(self) -> None:
+        """src/telemetry/otel/health.py:53-56 tells users to pair the generic
+        endpoint var with the collector's gRPC port and protocol=grpc. This
+        handler speaks OTLP/HTTP JSON, so that combination must fall back to
+        the HTTP default rather than appending /v1/traces to a gRPC
+        endpoint, which would silently drop every export."""
+        os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://localhost:4317"
+        os.environ["OTEL_EXPORTER_OTLP_PROTOCOL"] = "grpc"
+
+        self.run_handler()
+
+        [call] = self.otlp_posts(path_suffix="/v1/traces")
+        self.assertEqual(call.args[0], "http://localhost:4318/v1/traces")
+
+    def test_per_signal_traces_endpoint_used_as_is(self) -> None:
+        os.environ["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] = "https://collector.test/traces-in"
+
+        self.run_handler()
+
+        [call] = self.otlp_posts(path_suffix="/traces-in")
+        self.assertEqual(call.args[0], "https://collector.test/traces-in")
 
     def test_terminal_outcome_emits_span_with_exact_outcome(self) -> None:
         with mock.patch("worker.qwen._git_apply_check", return_value=False):
@@ -375,6 +405,46 @@ class QwenTelemetryTests(QwenHandlerCase):
         [attrs] = self.span_attrs()
         self.assertEqual(attrs["qwen.outcome"], "terminal-patch-does-not-apply")
         self.assertIsNone(attrs["qwen.patch_valid"])
+
+    def test_success_emits_metrics_with_matching_token_counts_and_duration(self) -> None:
+        ok, _ = self.run_handler()
+
+        self.assertTrue(ok)
+        [(attrs, duration_ms, prompt_tokens, completion_tokens)] = self.metrics_calls()
+        self.assertEqual(attrs["qwen.outcome"], "success")
+        self.assertEqual(attrs["qwen.job_id"], "qwen-test-job")
+        self.assertEqual(prompt_tokens, 84)
+        self.assertEqual(completion_tokens, 57)
+        self.assertGreaterEqual(duration_ms, 0)
+
+    def test_metrics_posted_to_the_default_metrics_endpoint(self) -> None:
+        self.run_handler()
+
+        metrics_posts = [c for c in self.post.call_args_list if c.args[0].endswith("/v1/metrics")]
+        self.assertEqual(len(metrics_posts), 1)
+        self.assertEqual(metrics_posts[0].args[0], "http://localhost:4318/v1/metrics")
+
+    def test_job_succeeds_when_metrics_export_raises(self) -> None:
+        with mock.patch("worker.qwen.export_job_metrics", side_effect=RuntimeError("collector unreachable")):
+            ok, result = self.run_handler()
+
+        self.assertTrue(ok)
+        result = self.as_dict(result)
+        self.assertTrue(Path(str(result["patch_path"])).exists())
+
+    def test_metrics_export_failure_does_not_skip_span_export(self) -> None:
+        with mock.patch("worker.qwen.export_job_metrics", side_effect=RuntimeError("collector unreachable")):
+            ok, _ = self.run_handler()
+
+        self.assertTrue(ok)
+        self.export.assert_called_once()
+
+    def test_span_export_failure_does_not_skip_metrics_export(self) -> None:
+        with mock.patch("worker.qwen.export_job_span", side_effect=RuntimeError("collector unreachable")):
+            ok, _ = self.run_handler()
+
+        self.assertTrue(ok)
+        self.export_metrics.assert_called_once()
 
 
 class QwenMemoryPrecheckTests(QwenHandlerCase):
