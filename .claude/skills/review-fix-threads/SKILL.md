@@ -31,9 +31,12 @@ What constrains it:
 - `verify-fixes` reports itself failed and exits non-zero when tests, lint, or
   coverage are not green, which halts the run before anything is posted.
 - `resolve-threads` re-checks `all_green` itself and **fails closed**: a
-  missing, unparseable, or ambiguous verification file aborts the stage. Same
-  for a missing replies file — it will not compose replacement prose at the
-  moment of posting.
+  missing, unparseable, or ambiguous verification file aborts the stage. It
+  reads the path from `resolve-plan.json`'s `verify_file` rather than guessing,
+  since the two callers of that fragment keep the file in different places and
+  a hardcoded path would silently find nothing for one of them.
+- `plan-resolution` will not compose replacement prose at the moment of
+  posting: a missing replies file produces an empty plan and a non-zero exit.
 - A reply always posts before its thread resolves. A resolve whose reply failed
   is skipped and reported.
 - Threads whose fixer crashed, or whose fix was never tested, are never
@@ -99,8 +102,9 @@ Skill(skill="workflow", args="--workflow workflows/code/review-fix-threads.yaml 
 8. **verify-fixes** — `make test`, `make lint`, and a happy/sad-path coverage audit
 9. **check-prose** — every outgoing reply checked against `.claude/WRITING_GUIDE.md`
 10. **update-pr-description** *(fragment)* — regenerate title and body from the final diff
-11. **resolve-threads** — reply, then resolve; aborts if verification was not green
-12. **report** — per-thread outcome table
+11. **plan-resolution** — decide what may be replied to and closed; writes `resolve-plan.json`
+12. **resolve-threads** *(fragment)* — reply, then resolve; fails closed if verification was not green
+13. **report** — per-thread outcome table
 
 ## Triage Directives
 

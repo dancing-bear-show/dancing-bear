@@ -158,6 +158,20 @@ stages:
       been "Previously missed" stays flagged even once it is resolved, because
       that history is what marks a repeat offender.
 
+      Break ties on review_id ascending, so the larger id wins. Two reviews
+      can share a second-resolution submitted_at, and "newest wins" is
+      otherwise undefined — a coin flip that decides whether a resolved thread
+      gets re-opened. If submitted_at is missing entirely, order on review_id
+      alone and note it in the output.
+
+      Unlinked findings key on path and line, and a fix round moves the line —
+      so the same finding can arrive under two keys across two reviews,
+      splitting its section history and hiding a repeat offender. When two
+      unlinked findings in different reviews share a path and a title, treat
+      them as ONE finding: keep the newest one's key, and union the sections
+      from both. Match titles after stripping zero-width spaces and collapsing
+      whitespace; do not fuzzy-match beyond that.
+
       Step 4 — reconcile against the threads. This is the check no consumer
       previously made:
 
@@ -179,6 +193,8 @@ stages:
         {
           "pr_number": "{pr_number}",
           "present": true,
+          "status": "ok|partial",
+          "parse_shortfall": 0,
           "newest": {
             "review_id": 5285429513,
             "submitted_at": "2026-09-23T00:12:35Z",
@@ -216,7 +232,10 @@ stages:
               "body": "the full finding text, verbatim"
             }
           },
-          "previously_missed": [4077044519, 4077044588],
+          "previously_missed": [
+            "unlinked:src/workflow/linter.py:408",
+            "unlinked:.claude/hooks/block-readonly-role-writes.sh:357"
+          ],
           "cited_not_found": [
             {"database_id": 123, "title": "...", "section": "Open"}
           ],
@@ -228,19 +247,52 @@ stages:
       the number of entries actually listed — the disagreement is signal, and
       a stage that silently reconciles it destroys the evidence.
 
-      Keys in "findings" are the discussion ids as strings, so the file
-      round-trips through JSON without integer-key coercion.
+      Act on that signal rather than only recording it. Set
+      "parse_shortfall" to findings_claimed minus the number of findings
+      parsed from the newest overview, and set "status" to "partial" whenever
+      it is greater than zero.
+
+      This is the tripwire for the failure this fragment cannot otherwise
+      detect. Every rule in Step 2b keys on Copilot's current HTML — a nested
+      <details>, a severity <picture>, an inline-code path line. If that
+      rendering changes, the scan returns zero findings and writes a
+      well-formed file that is indistinguishable from a PR which genuinely has
+      none. A claimed count of four against zero parsed findings is the only
+      evidence available that the parse broke rather than the PR being clean,
+      so it must reach the output instead of being inferable only by a human
+      reading the raw body.
+
+      Keys in "findings" are STRINGS in both forms — a linked finding's
+      discussion id spelled as a string ("4077827266"), an unlinked one's
+      synthetic "unlinked:<path>:<line>". JSON object keys cannot be integers,
+      so writing the id unquoted produces a key a consumer's integer lookup
+      then misses.
+
+      "previously_missed" holds those same string keys, not a separate id
+      space. It is a list of keys INTO "findings": every entry must resolve
+      there. Note that unlinked findings are the common case for this list —
+      "Previously missed" sections use the inline form (Step 2b), so expect
+      "unlinked:..." keys here rather than bare discussion ids.
 
       If no review body carries the `<!-- ccr-overview-v2 -->` marker, write
-      {"pr_number": ..., "present": false, "findings": {},
+      {"pr_number": ..., "present": false, "status": "ok",
+      "parse_shortfall": 0, "findings": {},
       "previously_missed": [], "cited_not_found": [],
       "threads_not_cited": []} and exit 0. A PR reviewed only by humans is the
       common case, not a failure. Downstream stages must branch on "present"
       rather than assuming the findings map is populated.
+
+      Do the parse with an inline python3 script, not by reading lines
+      yourself. Every rule here — the line-oriented scan, the zero-width-space
+      strip, the sha1 fallback key, the oldest-to-newest fold, the shortfall
+      arithmetic — is mechanical and must give the same answer on every run.
+      An LLM reading a body that can hold thirteen findings by eye is exactly
+      where a silent partial parse comes from, and a partial parse here is
+      indistinguishable from a clean PR.
     agent:
       role: researcher
       model: sonnet
-      tools: [Read, Write]
+      tools: [Read, Write, Bash]
       access: read-write
     required: true
     writes_to:

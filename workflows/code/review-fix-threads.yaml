@@ -20,7 +20,9 @@
 #     |
 #   update-pr-description        (fragment: shared/pr-describe.yaml)
 #     |
-#   resolve-threads
+#   plan-resolution              (decides what may be replied to and closed)
+#     |
+#   resolve-threads              (fragment: shared/pr-thread-resolve.yaml)
 #     |
 #   report
 #
@@ -133,6 +135,27 @@ stages:
           thread into triage and record "overview_open_override" as the reason
           it is in the candidate set, so the report shows why a resolved
           thread was re-examined.
+
+          BOUND THE OVERRIDE BY TIME, or it never terminates. Copilot does not
+          re-review because this workflow resolved a thread, so the newest
+          overview on the PR still lists the finding as open on the next run
+          too. An unbounded rule therefore re-triages, re-fixes and re-replies
+          to the same thread on every future run, forever — and the fragment's
+          idempotency check will not stop it, because a regenerated reply is
+          semantically identical but textually different.
+
+          Apply the override ONLY when the overview that still lists the
+          finding as open was submitted AFTER the thread's most recent
+          comment. Compare review-overview.json "newest".submitted_at against
+          the thread's last comments[].created_at in threads.json. If the
+          thread has been commented on since that overview was written, the
+          reviewer has not yet seen the current state: skip the override and
+          leave the thread resolved.
+
+          That is the whole termination argument. Once this workflow replies
+          to a thread, its reply is newer than the overview, so the next run
+          does not re-open it. Do not weaken the comparison to "the finding is
+          listed open" alone.
 
         - A thread whose finding has ever appeared under "Previously missed"
           (review-overview.json "previously_missed") carries extra weight. The
@@ -280,9 +303,28 @@ stages:
       putting same-file threads in the same agent can. Threads with a null path
       (PR-level) each get their own item.
 
+      Unlinked overview findings (triage entries with resolvable false and an
+      "unlinked:" id) group by path exactly like threads, and share a group
+      with any real threads on the same file. They are a lost-update race with
+      those threads otherwise, since both edit the same file.
+
       Step 4 — for each group, embed the FULL thread objects from threads.json
       (entire comment chain, not just the opening comment) plus the triage entry
       for each. The fixer must see what a human already said in the thread.
+
+      An unlinked finding has no entry in threads.json — it exists only in
+      review-overview.json. Embed it from there instead, as a thread-shaped
+      object with its "unlinked:<path>:<line>" key as the id, its overview
+      body as a single synthetic comment, and resolvable false. Do not skip it
+      for want of a threads.json entry: a lookup that silently yields nothing
+      is exactly how these findings stayed invisible in the first place.
+
+      Every item in a group MUST carry an id that is unique across the whole
+      run and safe as a filename, because fix-threads writes one result file
+      per id. Thread ids and "unlinked:" keys are both unique, but an
+      "unlinked:" key contains "/" and ":" — replace every character outside
+      [A-Za-z0-9._-] with "-" when using it as a filename, and keep the
+      original in the "id" field so fix-aggregate can match it back.
 
       Write {workspace}/outputs/fix-index.json:
         {
@@ -294,12 +336,27 @@ stages:
                 "path": "src/resume/docx_sidebar_sections.py",
                 "threads": [
                   {
+                    "id": "PRRT_kwDO...",
+                    "file_id": "PRRT_kwDO...",
                     "thread_id": "PRRT_kwDO...",
+                    "resolvable": true,
                     "line": 216,
                     "is_outdated": false,
                     "ask": "...",
                     "severity": "correctness",
                     "comments": [ ... full chain ... ]
+                  },
+                  {
+                    "id": "unlinked:src/workflow/linter.py:408",
+                    "file_id": "unlinked-src-workflow-linter.py-408",
+                    "thread_id": null,
+                    "resolvable": false,
+                    "line": 408,
+                    "is_outdated": false,
+                    "ask": "...",
+                    "severity": "Medium",
+                    "comments": [ {"author": "copilot-pull-request-reviewer",
+                                   "body": "<the overview finding body>"} ]
                   }
                 ]
               }
@@ -350,9 +407,13 @@ stages:
       comment's description, and report action "moot" if it is genuinely gone
       rather than inventing a fix.
 
-      Write ONE result file per thread to
-      {workspace}/outputs/fixes/<thread_id>.json, using the schema in your agent
-      definition. A thread you decline to fix still gets a result file with
+      Write ONE result file per item to
+      {workspace}/outputs/fixes/<file_id>.json, using the schema in your agent
+      definition, where <file_id> is the item's "file_id" from fix-index.json.
+      Record the item's original "id" inside the file so aggregation can match
+      it back — for a real thread the two are the same string, for an unlinked
+      overview finding the file_id is its sanitised form.
+      An item you decline to fix still gets a result file with
       action "rejected" or "moot" and its evidence — a missing file is
       indistinguishable from a crashed agent, and the aggregator treats it as
       one.
@@ -385,8 +446,12 @@ stages:
       Step 1 — read every {workspace}/outputs/fixes/*.json.
 
       Step 2 — read {workspace}/outputs/fix-index.json and compute which
-      expected thread_ids have no result file. Record them in missing_results.
-      Do not silently drop them: a thread whose agent crashed must never be
+      expected ids have no result file. Match on each item's "id", reading the
+      id recorded inside each result file rather than inferring it from the
+      filename — an unlinked finding's filename is a sanitised form of its id,
+      so filename comparison would report every one of them missing.
+      Record any with no result in missing_results.
+      Do not silently drop them: an item whose agent crashed must never be
       reported as handled, and must never be resolved downstream.
 
       Step 3 — write {workspace}/outputs/fix-results.json:
@@ -675,175 +740,97 @@ stages:
   # Resolve
   # ===========================================================================
 
-  - name: resolve-threads
-    kind: publish
+  - name: plan-resolution
+    kind: propose
     depends_on: [update-pr-description]
-    reads_from: [check-prose, verify-fixes, triage-threads, fix-aggregate]
+    reads_from: [check-prose, verify-fixes, triage-threads, fix-aggregate, parse-review-overview]
     description: >
-      Post the replies and resolve the threads. This is the only stage that
-      mutates the PR conversation, and it runs unattended — everything below
-      is what keeps that safe.
+      Decide which threads have earned a reply and which have earned closure,
+      and write the plan. The mutations are done by the shared
+      pr-thread-resolve fragment; this stage makes the judgement.
 
-      Step 0 — abort gate. Read {workspace}/validation/verify-results.json.
-      Abort unless it parses AND contains all_green exactly true. A missing
-      file, a parse error, an unexpected shape, or an absent all_green key all
-      count as NOT green — fail closed. The gate protects an irreversible
-      action, so "I could not tell" must behave identically to "it is red".
-
-      On abort: post NO replies and resolve NO threads. Write
-      resolution.json with status "blocked" and the reason, then exit non-zero.
-      Resolving a thread asserts the concern was handled; asserting that on a
-      red tree is a false claim posted under the author's name.
-
-      Do not assume the tree is green because you were reached. The upstream
-      halt depends on verify-fixes reporting itself failed, and a stage's
-      status is self-reported against a template that pre-fills "success" — so
-      an agent that saw red tests can still have let the run continue. This
-      gate is the last thing standing between a red tree and a resolved thread.
-      Read the file and decide for yourself.
+      Nothing here touches GitHub. If this stage cannot produce a safe plan it
+      writes an empty one and says why, rather than guessing.
 
       Step 1 — read {workspace}/outputs/replies/final-replies.json,
       {workspace}/outputs/triage.json, and {workspace}/outputs/fix-results.json.
 
-      If final-replies.json is missing or unparseable, abort exactly as in
-      Step 0 — status "blocked", exit non-zero. Do not compose replacement
-      replies here. Composing prose at the moment of posting is how an
-      unattended run says something nobody reviewed; check-prose owns that
-      text, and its absence means the run is not ready to post.
+      If final-replies.json is missing or unparseable, write a plan with an
+      empty threads list and "blocked_reason" set, then exit non-zero. Do NOT
+      compose replacement replies here. Composing prose at the moment of
+      posting is how an unattended run says something nobody reviewed;
+      check-prose owns that text, and its absence means the run is not ready
+      to post.
 
-      Step 1a — build the do-not-resolve set. A thread goes in it when any of
+      Step 2 — build the do-not-resolve set. A thread goes in it when any of
       these hold, regardless of what triage intended:
         - its thread_id appears in fix-results.json "missing_results"
           (the fixer crashed; nobody knows whether the code was changed)
         - its result has action "fixed" with test_result "fail" or "not-run"
         - it has no entry in final-replies.json
-        - resolvable is false (no thread_id — review bodies and PR-level
-          comments cannot be resolved)
-      Threads in this set are reported in "skipped" with the reason. They are
-      never replied to as fixed and never resolved. An unresolved thread costs
-      a human thirty seconds; a thread resolved on an unverified fix costs them
-      the bug.
+        - resolvable is false (no thread_id — review bodies, PR-level
+          comments, and unlinked overview findings cannot be resolved)
+      An unresolved thread costs a human thirty seconds; a thread resolved on
+      an unverified fix costs them the bug.
 
-      Step 2 — resolve owner/repo (never hardcode):
-        NWO=$(GITHUB_TOKEN= gh repo view --json nameWithOwner -q .nameWithOwner)
-        OWNER=${NWO%%/*}; REPO=${NWO##*/}
+      Step 3 — assign each thread exactly one action:
 
-      Step 3 — post replies. The do-not-resolve set from Step 1a applies here
-      too, not only to resolution: a thread whose fix was never verified must
-      not receive a reply claiming what was fixed.
+        "skip"             — the fixer crashed (missing_results). Post
+                             nothing at all: you do not know what, if
+                             anything, was changed.
+        "reply-only"       — a fix whose test_result was "fail" or "not-run",
+                             and every "defer" thread. Replace the fixer's
+                             reply_text with a factual status: what was
+                             changed, and that it is not yet verified. The
+                             thread stays open.
+        "reply-and-resolve" — directive fix, reject, or moot, with a verified
+                             result and an entry in final-replies.json.
 
-      For each thread in the do-not-resolve set, post nothing at all if the
-      fixer crashed (missing_results — you do not know what, if anything, was
-      changed). For a fix whose test_result was "fail" or "not-run", replace
-      the fixer's reply_text with a factual status instead of its claim:
-      what was changed, and that it is not yet verified. Then leave the thread
-      open. A reply asserting a verified fix on an unverified change is the
-      single most damaging thing this workflow can emit — it tells a reviewer
-      to stop looking.
+      A reply asserting a verified fix on an unverified change is the single
+      most damaging thing this workflow can emit — it tells a reviewer to stop
+      looking. When in doubt between reply-only and reply-and-resolve, choose
+      reply-only.
 
-      Before posting anything, check whether this run already ran. Reply and
-      resolve are two separate API calls and are not atomic: a run that died
-      between them leaves a thread replied-to but unresolved, and a re-run that
-      does not check will post a second near-identical reply.
+      Threads with directive "context" get action "skip": nothing was asked.
 
-      Re-read the thread's current comments (threads.json has them as of
-      fetch-threads; re-fetch if this is a retry). Skip the reply for any
-      thread whose latest comment already matches the reply you are about to
-      post, and go straight to resolving it. Record those in resolution.json
-      as "already_replied" so the report distinguishes them from fresh posts.
+      Step 4 — write {workspace}/outputs/resolve-plan.json in the schema the
+      pr-thread-resolve fragment consumes:
 
-      For every remaining thread, post its reply into that specific thread.
-      Reply into the thread, not as a new top-level PR comment — a detached
-      comment does not show up where the reviewer raised the concern:
-
-        GITHUB_TOKEN= gh api graphql -f query='
-        mutation($threadId:ID!,$body:String!){
-          addPullRequestReviewThreadReply(
-            input:{pullRequestReviewThreadId:$threadId, body:$body}
-          ){ comment{ id url } }
-        }' -F threadId="<thread_id>" -F body="<reply text>"
-
-      Pass the body via -F, never interpolated into the query string: reply text
-      contains backticks and quotes that would break the GraphQL document.
-
-      Step 4 — resolve each thread whose directive is fix, reject, or moot AND
-      whose reply posted successfully.
-
-      Deferred threads are replied to but NOT resolved. A defer says the
-      concern is real and someone should still act on it — resolving it closes
-      real feedback that nobody has looked at. This matters most for threads
-      deferred by the max_threads ceiling: that is a scheduling outcome, not a
-      judgement about the comment, and resolving on it would hide the overflow
-      the ceiling was supposed to surface. Record them in "skipped" with reason
-      "deferred — left open deliberately".
-
-      Resolve mutation:
-
-        GITHUB_TOKEN= gh api graphql -f query='
-        mutation($threadId:ID!){
-          resolveReviewThread(input:{threadId:$threadId}){
-            thread{ id isResolved }
-          }
-        }' -F threadId="<thread_id>"
-
-      Order matters: reply first, resolve second. A resolve that lands without
-      its reply leaves a silently closed thread, which is the outcome this
-      workflow is built to prevent. If a reply fails to post, skip the resolve
-      for that thread and record it.
-
-      Never resolve:
-        - threads with directive "context" (nothing was asked)
-        - threads with resolvable false (review bodies and issue comments have
-          no thread_id — resolveReviewThread will fail on them)
-        - threads whose fixer reported action "fixed" but whose test_result was
-          "fail" or "not-run"
-
-      Verify the mutation response: check thread.isResolved is true rather than
-      trusting exit code 0. A GraphQL error returns HTTP 200 with an errors
-      array, so `gh` exits 0 on a failed mutation.
-
-      Step 5 — write {workspace}/outputs/resolution.json:
         {
-          "status": "ok|partial|blocked",
-          "replied": [{"thread_id": "...", "comment_url": "..."}],
-          "resolved": ["PRRT_..."],
-          "skipped": [{"thread_id": "...", "reason": "..."}],
-          "failed": [{"thread_id": "...", "error": "..."}]
+          "verify_file": "validation/verify-results.json",
+          "blocked_reason": null,
+          "incomplete_input": false,
+          "threads": [
+            {"thread_id": "PRRT_...", "action": "reply-and-resolve",
+             "reply": "<the text from final-replies.json, verbatim>"},
+            {"thread_id": "PRRT_...", "action": "reply-only",
+             "reply": "<factual status>", "reason": "test_result not-run"},
+            {"thread_id": "PRRT_...", "action": "skip",
+             "reason": "fixer crashed — no result recorded"}
+          ]
         }
 
-      Step 6 — re-fetch to confirm the PR's actual state:
-        GITHUB_TOKEN= gh api graphql -f query='
-        query($owner:String!,$name:String!,$pr:Int!,$after:String){
-          repository(owner:$owner,name:$name){
-            pullRequest(number:$pr){
-              reviewThreads(first:100, after:$after){
-                pageInfo{ hasNextPage endCursor }
-                nodes{ id isResolved }
-              }
-            }
-          }
-        }' -F owner="$OWNER" -F name="$REPO" -F pr={pr_number}
+      "verify_file" must be the exact path this workflow's verify-fixes stage
+      writes — validation/verify-results.json. The fragment fails closed on
+      it: a wrong path blocks every resolve rather than letting one through.
 
-      Page it: while pageInfo.hasNextPage is true, re-run passing
-      -F after="<endCursor>" and merge the nodes before counting.
+      Set "incomplete_input" true when review-overview.json has a non-empty
+      "cited_not_found", or its "status" is "partial". Either means the run
+      acted on input known to be missing something, and the flag stops the
+      final resolution.json from reading as a clean success. Read that file
+      here — it is in this stage's reads_from for exactly this reason.
 
-      This stage exists to report what is actually true on the PR rather than
-      what the run intended, so an undercount here defeats its purpose: a
-      truncated re-fetch reports fewer unresolved threads than exist and makes
-      a partial run read as a complete one. If you cannot complete the
-      pagination, set "unresolved_after": null and record the reason rather
-      than reporting a count you know is short.
-
-      Record the post-run unresolved count in resolution.json as
-      "unresolved_after". Report the observed state, not the intended one.
+      Reply text is copied verbatim from final-replies.json. This stage does
+      not edit prose except for the reply-only rewrite in Step 3, which states
+      facts rather than composing new argument.
     agent:
       role: code-writer
       model: sonnet
-      tools: [Read, Bash, Write]
+      tools: [Read, Write]
       access: read-write
     required: true
     writes_to:
-      - resolution.json
+      - resolve-plan.json
 
   # ===========================================================================
   # Report
@@ -852,16 +839,25 @@ stages:
   - name: report
     kind: publish
     depends_on: [resolve-threads]
-    reads_from: [resolve-threads, verify-fixes, triage-threads, fix-aggregate, update-pr-description]
+    reads_from: [resolve-threads, verify-fixes, triage-threads, fix-aggregate, update-pr-description, parse-review-overview]
     description: >
       Write the run summary to {workspace}/outputs/report.md.
 
       Read triage.json, fix-results.json, verify-results.json,
-      pr-describe-result.json, and resolution.json. Report what the artifacts
-      say, not what the workflow intended.
+      pr-describe-result.json, resolution.json, and review-overview.json.
+      Report what the artifacts say, not what the workflow intended.
 
       Sections:
         Threads — total, and the count per directive
+        Findings with no thread — every review-overview.json finding with
+          "linked": false, with its path:line, severity, and what was done
+          about it. These can never be replied to or resolved, so this section
+          is the only place a human learns they exist. Omit the section only
+          when there are none; never omit it silently when there are.
+        Unreachable citations — every review-overview.json "cited_not_found"
+          entry. Each one means the reviewer cited a comment the thread fetch
+          could not find, so the run acted on incomplete input. State that
+          plainly rather than burying it.
         Fixes — files changed, tests added, per-thread action
         Rejections — each rejected thread with its evidence, so a human can
           audit the calls the workflow made on their behalf
@@ -906,6 +902,14 @@ include:
   # Title/description regeneration against the writing guide.
   # Injects: update-pr-description. Runs after prose check, before resolve, so
   # the PR reads correctly before its threads are closed.
+  # Reply-then-resolve mechanics: idempotency against a partial previous run,
+  # reply-before-resolve ordering, mutation verification, and a paged re-fetch.
+  # Consumes outputs/resolve-plan.json. Injects: resolve-threads
+  - path: workflows/shared/pr-thread-resolve.yaml
+    prefix: ""
+    depends_on: [plan-resolution]
+    reads_from: [plan-resolution, verify-fixes, fetch-threads]
+
   - path: workflows/shared/pr-describe.yaml
     prefix: ""
     depends_on: [check-prose]

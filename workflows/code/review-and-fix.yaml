@@ -690,6 +690,7 @@ stages:
       pr-thread-resolve fragment consumes:
 
         {
+          "verify_file": "outputs/fix/verify-results.json",
           "threads": [
             {"thread_id": "PRRT_...", "action": "reply-and-resolve",
              "reply": "Fixed in <sha>: <one line on what changed>."},
@@ -697,6 +698,11 @@ stages:
              "reason": "skipped — finding no longer present"}
           ]
         }
+
+      "verify_file" must be the exact path this workflow's verify-fixes stage
+      writes — outputs/fix/verify-results.json. The fragment fails closed on
+      it, so a wrong path blocks every resolve rather than allowing one
+      through, but it must be right for the stage to do anything at all.
 
       Every thread gets a reply, including the ones being resolved. A thread
       closed with no explanation makes the reviewer re-derive what happened.
@@ -721,7 +727,7 @@ stages:
       access: read-write
     required: true
     writes_to:
-      - resolve-plan.json
+      - outputs/resolve-plan.json
       - outputs/fix/thread-resolution.json
 
   # ===========================================================================

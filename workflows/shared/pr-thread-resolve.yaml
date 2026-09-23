@@ -50,11 +50,42 @@ stages:
         NWO=$(GITHUB_TOKEN= gh repo view --json nameWithOwner -q .nameWithOwner)
         OWNER=${NWO%%/*}; REPO=${NWO##*/}
 
-      Step 0 — read the caller's plan from
+      Step 0a — abort gate. The caller names its verification artifact in
+      resolve-plan.json as "verify_file" (see Step 0b). Read that path,
+      relative to {workspace}, and abort unless it parses AND contains
+      all_green exactly true. A missing file, a parse error, an unexpected
+      shape, or an absent all_green key all count as NOT green — fail closed.
+      The gate protects an irreversible action, so "I could not tell" must
+      behave identically to "it is red".
+
+      Do NOT guess the path. Callers put it in different places —
+      review-fix-threads writes validation/verify-results.json while
+      review-and-fix writes outputs/fix/verify-results.json — so a hardcoded
+      path silently finds nothing for one of them, and a gate that never
+      fires is worse than no gate: it reads as protection while allowing
+      every resolve through.
+
+      If resolve-plan.json omits "verify_file" entirely, the caller is
+      asserting it has no separate verification artifact. Proceed, and record
+      "verify_file": null in resolution.json so the report shows the gate did
+      not run. An absent key is a deliberate caller choice; a present key
+      pointing at an unreadable file is a failure.
+
+      On abort: post NO replies, resolve NO threads, write resolution.json
+      with status "blocked" and the reason, then exit non-zero. Resolving a
+      thread asserts the concern was handled; asserting that on a red tree is
+      a false claim posted under the author's name.
+
+      Do not assume the tree is green because you were reached. A stage's
+      status is self-reported against a template that pre-fills "success", so
+      being scheduled proves nothing about what ran upstream. Re-check here.
+
+      Step 0b — read the caller's plan from
       {workspace}/outputs/resolve-plan.json. The caller owns the decision about
       what deserves closing; this fragment owns doing it safely. Schema:
 
         {
+          "verify_file": "validation/verify-results.json",
           "threads": [
             {
               "thread_id": "PRRT_kwDO...",
@@ -65,9 +96,26 @@ stages:
           ]
         }
 
-      A thread with no thread_id (review bodies, issue comments) cannot be
-      resolved — resolveReviewThread fails on them. Treat any such entry as
-      "skip" with reason "not resolvable" regardless of what the plan says.
+      Per-action behaviour, exhaustively. Every entry falls in exactly one row
+      and nothing is left to inference:
+
+        action               posts a reply   resolves   recorded in
+        ------------------   -------------   --------   ------------------
+        reply-and-resolve    yes             yes        replied + resolved
+        reply-only           yes             NO         replied
+        skip                 NO              NO         skipped (+ reason)
+
+      A "skip" entry is never posted to, even when it carries a "reply" field
+      — a leftover reply on a skipped entry is caller data, not an
+      instruction. An action outside these three values is treated as "skip"
+      and recorded in "failed" with the unrecognised value, rather than
+      guessed at: this stage mutates a PR, so an unknown instruction must do
+      nothing rather than something plausible.
+
+      A thread with no thread_id (review bodies, issue comments, unlinked
+      overview findings) cannot be resolved — resolveReviewThread fails on
+      them. Treat any such entry as "skip" with reason "not resolvable"
+      regardless of what the plan says.
 
       Step 1 — idempotency. Reply and resolve are two API calls and are not
       atomic: a run that died between them leaves a thread replied-to but
@@ -75,9 +123,18 @@ stages:
       near-identical reply.
 
       Re-fetch each planned thread's current comments before posting. Skip the
-      reply for any thread whose latest comment already matches the reply you
-      are about to post, and go straight to resolving it. Record those as
-      "already_replied" so the report distinguishes them from fresh posts.
+      reply when the thread's latest comment was written by the authenticated
+      actor (GITHUB_TOKEN= gh api user -q .login) at or after the plan's
+      baseline — take the baseline as the earliest created_at among the
+      threads this plan names, or the PR head SHA's commit time if the plan
+      records one. Record those as "already_replied" so the report
+      distinguishes them from fresh posts.
+
+      Do NOT test this by comparing the reply text. A re-run composes its
+      reply fresh, so a semantically identical reply is textually different
+      and a text-equality check never fires — which is precisely the
+      duplicate-reply case this step exists to prevent. Authorship plus
+      recency is reproducible; string equality is not.
 
       Step 2 — post the reply INTO the thread, not as a new top-level PR
       comment. A detached comment does not appear where the reviewer raised
@@ -113,9 +170,19 @@ stages:
       `gh` exits 0 on a failed mutation. An unverified resolve recorded as a
       success is indistinguishable from a real one.
 
-      Step 4 — write {workspace}/outputs/resolution.json:
+      Step 4 — write {workspace}/outputs/resolution.json.
+
+      Status is "partial", never "ok", whenever anything was left undone: a
+      non-empty "failed" or "skipped" list, an unverified resolve, or a
+      caller-supplied "incomplete_input" flag in resolve-plan.json (set by a
+      caller that knows its input was missing something — for example a
+      non-empty cited_not_found from the overview reconciliation). A run that
+      acted on incomplete input must not terminate in a green artifact.
+
         {
           "status": "ok|partial|blocked",
+          "verify_file": "validation/verify-results.json",
+          "all_green": true,
           "replied": [{"thread_id": "...", "comment_url": "..."}],
           "already_replied": ["PRRT_..."],
           "resolved": ["PRRT_..."],
