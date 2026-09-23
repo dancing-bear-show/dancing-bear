@@ -859,7 +859,12 @@ If a stage has `fan_out` defined, check `fan_out.mode`:
    outputs where its own contract says they are.
 6. Once every item has finished, write the stage-level
    `{workspace}/stages/{index:03d}-{stage_name}.json` summarising them, so
-   resume and downstream `reads_from` see one result for the stage.
+   resume and downstream `reads_from` see one result for the stage. Its
+   `status` is `"success"` only when EVERY per-position result is
+   `"success"`. If any item is `"failed"` or missing — including an item
+   rejected above for an unsafe key — write `"status": "failed"` and list
+   each failed position in `errors`. A failed required stage halts the run
+   like any other; never write a successful summary over a failed item.
 
 ### mode: worker_queue
 

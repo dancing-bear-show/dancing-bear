@@ -539,5 +539,18 @@ class TestBuildGroupDispatch(unittest.TestCase):
                 self.assertIn("prompt", item)
 
 
+class TestSkillFanOutSummaryPropagatesFailure(unittest.TestCase):
+    """PR #406 round 6: the orchestrator writes a failed per-position result
+    for an unsafe fan-out key, but the skill's summary step never said the
+    stage-level result must then be failed, so downstream stages could run."""
+
+    def test_stage_summary_fails_when_any_item_failed(self) -> None:
+        skill = Path(__file__).resolve().parents[2] / ".claude/skills/workflow/SKILL.md"
+        text = " ".join(skill.read_text(encoding="utf-8").split())
+        self.assertIn('Its `status` is `"success"` only when EVERY per-position result is `"success"`', text)
+        self.assertIn('write `"status": "failed"` and list each failed position in `errors`', text)
+        self.assertIn("never write a successful summary over a failed item", text)
+
+
 if __name__ == "__main__":
     unittest.main()

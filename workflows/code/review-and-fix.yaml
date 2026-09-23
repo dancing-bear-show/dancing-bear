@@ -500,13 +500,35 @@ stages:
            either field, fail this stage for that fixer rather than guessing:
            an unidentifiable branch is not safe to merge.
 
+           The branch name is agent-authored text: the fixer wrote it into
+           its own result file. Never type it into a command — not in
+           `git merge-base`, `git log`, `git merge`, or anywhere else. Git
+           refnames may contain `$(`, backticks and other shell syntax, so a
+           pasted name can execute code or retarget the merge. Every command
+           below that consumes the branch loads it itself with `jq`,
+           validates it with `git check-ref-format --branch`, and passes it
+           only as the quoted argument "refs/heads/$BRANCH" (the full ref,
+           so a leading "-" can never read as an option). Run each such
+           block as ONE Bash tool call: shell variables do not survive
+           between Bash tool calls, so a variable set in one call is empty
+           in the next. PRE_FIX_SHA is this stage's own `git rev-parse`
+           output; confirm it is 40 hex characters before using it.
+
            Verify the branch belongs to this run before merging it:
-             Bash tool: git merge-base --is-ancestor <PRE_FIX_SHA> <branch>
-           A branch that does not descend from PRE_FIX_SHA predates this run.
-           Record it and fail — do not merge it.
+             Bash tool: BRANCH="$(jq -er '.branch' {workspace}/outputs/fix/<fixer result file>)" &&
+                        git check-ref-format --branch "$BRANCH" >/dev/null &&
+                        git merge-base --is-ancestor <PRE_FIX_SHA> "refs/heads/$BRANCH"
+                        echo "EXIT=$?"
+           A non-zero EXIT means the branch is missing, malformed, or does
+           not descend from PRE_FIX_SHA (it predates this run). Record it
+           under "unidentifiable" and fail — do not merge it.
 
         2. Decide whether there is anything to merge:
-             Bash tool: git log --oneline <PRE_FIX_SHA>..<branch>
+             Bash tool: BRANCH="$(jq -er '.branch' {workspace}/outputs/fix/<fixer result file>)" &&
+                        git check-ref-format --branch "$BRANCH" >/dev/null &&
+                        git log --oneline <PRE_FIX_SHA>.."refs/heads/$BRANCH"
+                        echo "EXIT=$?"
+           A non-zero EXIT is a failure, not an empty branch.
 
            An empty branch is a legitimate outcome: a bucket with no findings
            produces no edits, and the fixer prompts explicitly allow that.
@@ -528,9 +550,9 @@ stages:
            Its "branch" field is the full ref (e.g. "refs/heads/<branch>"),
            not the short name recorded in the fixer's result file. Find the
            entry whose "branch" equals "refs/heads/<branch>" (not a bare
-           <branch> comparison — that never matches and silently falls
-           through to the untrusted fallback below) and take its "worktree"
-           path. Never type that path into a shell command line yourself, as
+           <branch> comparison — that never matches, and a lookup that
+           cannot match turns every fixer into a failed check) and take its
+           "worktree" path. Never type that path into a shell command line yourself, as
            a bare argument or as an assignment
            (`WORKTREE_PATH=<worktree_path>`) — either form still pastes
            untrusted text into shell source, where spaces or shell
@@ -540,41 +562,49 @@ stages:
            type it into the command either. Both values reach the shell only
            as command output — the branch read by `jq` from the fixer's
            result file (a path this workflow names), the worktree path
-           printed by `awk`, which gets the ref through the environment
-           rather than its program text:
-             Bash tool: BRANCH="$(jq -r '.branch' {workspace}/outputs/fix/<fixer result file>)"
-             Bash tool: WORKTREE_PATH="$(REF="refs/heads/$BRANCH" awk -v RS='\0' '
-                          /^worktree /{w=substr($0,10)}
-                          $0=="branch " ENVIRON["REF"]{print w; exit}
+           printed by a second `jq`, which gets the ref through the
+           environment rather than its program text. Do not parse the
+           `-z` listing with `awk -v RS='\0'`: macOS awk stops at the first
+           NUL, sees only the main worktree, and never matches a fixer's. Run the whole block as ONE Bash
+           tool call — shell variables do not survive between calls, so a
+           WORKTREE_PATH set in one call is empty in the next:
+             Bash tool: BRANCH="$(jq -er '.branch' {workspace}/outputs/fix/<fixer result file>)" &&
+                        git check-ref-format --branch "$BRANCH" >/dev/null || { echo "BAD-BRANCH"; exit 3; }
+                        WORKTREE_PATH="$(REF="refs/heads/$BRANCH" jq -Rrs '
+                          split("\u0000\u0000")[] | split("\u0000")
+                          | select(any(. == "branch " + env.REF))
+                          | map(select(startswith("worktree ")))[0][9:]
                         ' {workspace}/validation/worktree-list.txt)"
-           Branch on WORKTREE_PATH BEFORE running git status. If it is empty,
-           no worktree matched: go straight to the fallback below and do NOT
-           run the status command — `git -C ""` runs against the current
-           directory (or fails), and either way it pre-empts the fallback the
-           empty result is supposed to trigger.
-             Bash tool: [ -n "$WORKTREE_PATH" ] && echo "MATCHED" || echo "NO-MATCH"
-           Only on MATCHED:
-             Bash tool: git -C "$WORKTREE_PATH" status --porcelain --untracked-files=all -- . ':!outputs' ':!stages' ':!inputs' ':!validation'
+                        [ -n "$WORKTREE_PATH" ] || { echo "NO-MATCH"; exit 4; }
+                        git -C "$WORKTREE_PATH" status --porcelain --untracked-files=all -- . ':!outputs' ':!stages' ':!inputs' ':!validation'
                         echo "EXIT=$?"
-           Capture and check the exit code as well as the output: a non-zero
-           exit (worktree unreadable, removed between lookup and this
-           command, or any other `git status` failure) can print nothing on
-           stdout and must be treated as a failure exactly like non-empty
-           output — do not let a silent, non-zero exit read as clean. Any
-           stdout output, OR a non-zero exit code, means fail, recording it
-           under "uncommitted" with the paths this command printed (not the
-           fixer's self-reported list), or with detail
-           "git status exited non-zero: <code>" when the exit was non-zero
-           and stdout was empty.
-           On NO-MATCH — no worktree entry matches "refs/heads/<branch>"
-           (already removed) — fall back to the fixer's "uncommitted_paths" field only as a
-           last resort, and if it is ABSENT treat that the same as a
-           non-empty list: an unverifiable worktree is not a clean one,
-           so fail and record the branch under "uncommitted" with
-           detail "worktree gone; fixer-reported uncommitted_paths absent".
+           The empty-path test comes BEFORE git status: `git -C ""` runs
+           against the current directory, which would report the shared
+           tree instead of the fixer's.
+
+           Pass only when the block printed no paths and ended "EXIT=0".
+           Every other outcome fails this fixer, recorded under
+           "uncommitted":
+           - any stdout paths — record the paths this command printed (not
+             the fixer's self-reported list);
+           - a non-zero EXIT with no stdout (worktree unreadable, removed
+             between lookup and status) — detail
+             "git status exited non-zero: <code>". A silent non-zero exit
+             must never read as clean;
+           - BAD-BRANCH — detail "fixer-reported branch missing or invalid";
+           - NO-MATCH — no worktree entry matches "refs/heads/<branch>" —
+             detail "fixer worktree not found; cannot verify". Fail closed.
+             Do NOT fall back to the fixer's "uncommitted_paths": it is
+             written by the agent whose worktree it describes, so an empty
+             list there is not evidence of anything. A fixer that removed
+             its worktree after committing only part of its edits would
+             pass a gate that trusted it.
 
         3. Merge (skip when step 2 found no commits):
-             Bash tool: git merge --no-ff <branch> -m "merge fix stage <name>"
+             Bash tool: BRANCH="$(jq -er '.branch' {workspace}/outputs/fix/<fixer result file>)" &&
+                        git check-ref-format --branch "$BRANCH" >/dev/null &&
+                        git merge --no-ff "refs/heads/$BRANCH" -m "merge fix stage <name>"
+                        echo "EXIT=$?"
            On a conflict, abort the merge (`git merge --abort`), record the
            conflicting paths, and fail this stage. Do NOT resolve conflicts
            here — a conflict means two fixers changed the same lines and a
