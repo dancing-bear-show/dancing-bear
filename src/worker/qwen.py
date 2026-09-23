@@ -411,7 +411,8 @@ def _model_digest(host: str, model: str) -> str | None:
 
 
 _OLLAMA_PS_TIMEOUT_SEC = 3.0
-_FREE_PERCENT_RE = re.compile(r"System-wide memory free percentage:\s*(\d{1,3})%")
+# All digits up to the literal %; a value over 100 is then rejected in the parser.
+_FREE_PERCENT_RE = re.compile(r"System-wide memory free percentage:\s*(\d+)%")
 
 
 def _model_loaded(host: str, model: str) -> bool:
@@ -491,9 +492,9 @@ def _available_memory_bytes() -> int | None:
     cheaply (file-backed cache, compressible pages), which vm_stat's
     free/inactive/speculative pages leave out: on a healthy 32 GB Mac,
     vm_stat read ~11.9 GB while memory_pressure reported 47% (~15.1 GB).
-    Fallback when memory_pressure is missing or unparseable: vm_stat,
-    purgeable pages included. None when neither is readable; the guard then
-    fails open with a warning.
+    Fallback when memory_pressure is missing or unparseable: vm_stat's
+    free+inactive+speculative pages, which are disjoint pools. None when
+    neither is readable; the guard then fails open with a warning.
     """
     available = _memory_from_pressure()
     if available is not None:
@@ -503,16 +504,18 @@ def _available_memory_bytes() -> int | None:
 
 
 def _parse_vm_stat(text: str) -> int | None:
-    """Parse vm_stat output into free+inactive+speculative+purgeable bytes.
+    """Parse vm_stat output into free+inactive+speculative bytes.
 
-    Purgeable pages can overlap the inactive count, so this may overstate
-    slightly; it is only the fallback when memory_pressure is unavailable.
+    Purgeable pages are deliberately left out: they are not a disjoint pool
+    (a purgeable page is also counted as active or inactive), so adding them
+    would double-count and overstate headroom. This feeds a safety guard,
+    so the fallback errs low, never high.
     """
     page_match = re.search(r"page size of (\d+) bytes", text)
     if not page_match:
         return None
     page_size = int(page_match.group(1))
-    wanted = ("Pages free", "Pages inactive", "Pages speculative", "Pages purgeable")
+    wanted = ("Pages free", "Pages inactive", "Pages speculative")
     total_pages = 0
     for line in text.splitlines():
         for label in wanted:

@@ -40,7 +40,8 @@ MEMORY_PRESSURE_TODAY = (
     "System-wide memory free percentage: 47%\n"
 )
 FULL_REQUIREMENT = (qwen.THRESHOLDS.model_resident_gb + qwen.THRESHOLDS.memory_margin_gb) * GIB
-VM_STAT_WITH_PURGEABLE = (_FREE + _INACTIVE + _SPECULATIVE + _PURGEABLE) * _PAGE
+# free, inactive and speculative are disjoint; purgeable overlaps them and is excluded.
+VM_STAT_FALLBACK = (_FREE + _INACTIVE + _SPECULATIVE) * _PAGE
 
 
 class QwenMemoryMeasurementTests(unittest.TestCase):
@@ -70,16 +71,22 @@ class QwenMemoryMeasurementTests(unittest.TestCase):
             self.assertIsNone(qwen._check_memory_guard(qwen.DEFAULT_OLLAMA_HOST, MODEL))
         loaded.assert_not_called()
 
-    def test_memory_pressure_missing_falls_back_to_vm_stat_with_purgeable(self) -> None:
-        self.assertEqual(self.measure(None, VM_STAT_TODAY), VM_STAT_WITH_PURGEABLE)
+    def test_memory_pressure_missing_falls_back_to_vm_stat(self) -> None:
+        self.assertEqual(self.measure(None, VM_STAT_TODAY), VM_STAT_FALLBACK)
 
     def test_unparseable_memory_pressure_falls_back_to_vm_stat(self) -> None:
-        for garbage in ("", "memory_pressure: unexpected output\n", "System-wide memory free percentage: 250%\n"):
+        for garbage in (
+            "",
+            "memory_pressure: unexpected output\n",
+            "System-wide memory free percentage: 250%\n",
+            "System-wide memory free percentage: 1000%\n",
+            "System-wide memory free percentage: 4700%\n",
+        ):
             with self.subTest(garbage=garbage):
-                self.assertEqual(self.measure(garbage, VM_STAT_TODAY), VM_STAT_WITH_PURGEABLE)
+                self.assertEqual(self.measure(garbage, VM_STAT_TODAY), VM_STAT_FALLBACK)
 
     def test_unknown_total_memory_falls_back_to_vm_stat(self) -> None:
-        self.assertEqual(self.measure(MEMORY_PRESSURE_TODAY, VM_STAT_TODAY, total=None), VM_STAT_WITH_PURGEABLE)
+        self.assertEqual(self.measure(MEMORY_PRESSURE_TODAY, VM_STAT_TODAY, total=None), VM_STAT_FALLBACK)
 
     def test_zero_percent_free_is_a_reading_not_a_fallback(self) -> None:
         zero = "System-wide memory free percentage: 0%\n"
@@ -89,8 +96,12 @@ class QwenMemoryMeasurementTests(unittest.TestCase):
         self.assertIsNone(self.measure(None, None))
         self.assertIsNone(self.measure("garbage", "garbage"))
 
-    def test_parse_vm_stat_counts_purgeable_pages(self) -> None:
-        self.assertEqual(qwen._parse_vm_stat(VM_STAT_TODAY), VM_STAT_WITH_PURGEABLE)
+    def test_parse_vm_stat_excludes_overlapping_purgeable_pages(self) -> None:
+        """Purgeable pages overlap inactive; adding them would overstate headroom."""
+        reading = qwen._parse_vm_stat(VM_STAT_TODAY)
+        assert reading is not None  # nosec B101 - narrows the type for mypy; assertEqual below is the check
+        self.assertEqual(reading, VM_STAT_FALLBACK)
+        self.assertLess(reading, VM_STAT_FALLBACK + _PURGEABLE * _PAGE)
 
     def test_run_probe_returns_none_when_the_command_is_missing_or_fails(self) -> None:
         done = subprocess.CompletedProcess
@@ -104,7 +115,9 @@ class QwenMemoryMeasurementTests(unittest.TestCase):
             with self.subTest(name), mock.patch("subprocess.run", side_effect=error, return_value=completed) as run:
                 self.assertEqual(qwen._run_probe(["memory_pressure", "-Q"]), expected)
                 self.assertEqual(run.call_args.args[0], ["memory_pressure", "-Q"])
-                self.assertNotIn("shell", run.call_args.kwargs)
+                # The full keyword contract: a lost timeout would let the probe block
+                # the worker, and a lost text/capture would starve the parser.
+                self.assertEqual(run.call_args.kwargs, {"capture_output": True, "text": True, "timeout": 5})
 
     def test_seams_run_fixed_argv(self) -> None:
         with mock.patch("worker.qwen._run_probe", return_value="x") as probe:
