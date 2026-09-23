@@ -524,20 +524,34 @@ def _cmd_parse_overview(args: argparse.Namespace) -> int:
     except json.JSONDecodeError as exc:
         raise CLIError(f"threads file is not valid JSON: {exc}", ExitCode.USAGE) from exc
 
-    if "review_bodies" not in data:
-        # Distinguish "this PR has no overview" from "this file cannot answer
-        # the question". Without the key the parse would return present:false
-        # — identical to a clean PR — so a stale fetch would read as a pass.
+    # Validate the shape before parsing. Every defect below would otherwise
+    # degrade to present:false / status:ok — indistinguishable from a PR that
+    # genuinely has no Copilot overview, so a broken input would read as a
+    # clean pass and triage would silently skip every overview rule.
+    if not isinstance(data, dict):
         raise CLIError(
-            f"{path} has no 'review_bodies' key: it was produced by a fetch "
-            "that does not preserve review bodies. Re-run the "
-            "pr-review-threads fragment before parsing the overview.",
+            f"{path} is not a JSON object (got {type(data).__name__}).",
             ExitCode.USAGE,
         )
 
+    for key in ("review_bodies", "threads"):
+        if key not in data:
+            raise CLIError(
+                f"{path} has no '{key}' key: it was produced by a fetch that "
+                "does not preserve it. Re-run the pr-review-threads fragment "
+                "before parsing the overview.",
+                ExitCode.USAGE,
+            )
+        if not isinstance(data[key], list):
+            raise CLIError(
+                f"{path} has a malformed '{key}': expected a list, got "
+                f"{type(data[key]).__name__}.",
+                ExitCode.USAGE,
+            )
+
     result = parse_overview(
-        review_bodies=data.get("review_bodies") or [],
-        threads=data.get("threads") or [],
+        review_bodies=data["review_bodies"],
+        threads=data["threads"],
         pr_number=args.pr_number or str(data.get("pr_number") or ""),
     )
 

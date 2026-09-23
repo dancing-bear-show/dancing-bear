@@ -400,7 +400,7 @@ stages:
                   },
                   {
                     "id": "unlinked:src/workflow/linter.py:408",
-                    "file_id": "unlinked-src-workflow-linter.py-408",
+                    "file_id": "unlinked-src-workflow-linter.py-408-1b9d67fd",
                     "thread_id": null,
                     "resolvable": false,
                     "line": 408,
@@ -869,7 +869,7 @@ stages:
       pr-thread-resolve fragment consumes:
 
         {
-          "run_id": "<the workflow run id, stable across retries>",
+          "run_id": "<read from {workspace}/manifest.json \"run_id\">",
           "verify_file": "validation/verify-results.json",
           "blocked_reason": null,
           "incomplete_input": false,
@@ -884,6 +884,13 @@ stages:
              "reason": "fixer crashed — no result recorded"}
           ]
         }
+
+      "run_id" is the ORIGINAL run id from {workspace}/manifest.json — read it
+      from that file, do not use the current invocation's id. Resuming a
+      workflow mints a fresh `<name>-resumed-<hex>` id while manifest.json
+      keeps the original, so a retry using the live id writes a different
+      idempotency marker and posts duplicate replies. Fail rather than
+      guessing if the key is missing.
 
       "verify_file" must be the exact path this workflow's verify-fixes stage
       writes — validation/verify-results.json. The fragment fails closed on

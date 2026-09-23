@@ -454,6 +454,47 @@ class TestClaimedCount(unittest.TestCase):
         self.assertEqual(out["status"], "partial")
 
 
+class TestNewestBlock(unittest.TestCase):
+    """The fragment documents these fields, so the parser must emit them."""
+
+    def _verdict_body(self, verdict: str) -> str:
+        return "\n".join([
+            OVERVIEW_MARKER, "", "## Copilot review overview", "",
+            f"### {verdict}", "",
+            "**Findings:** 1 <picture></picture>", "",
+            _section("Open", 1, _linked("111", "X")),
+            _section("Resolved since last review", 2, _linked("222", "Y")),
+        ])
+
+    def test_verdict_is_extracted_without_the_status_emoji(self):
+        out = parse_overview(
+            [_review(self._verdict_body("🟡 Changes recommended"))],
+            [_thread("A", 111), _thread("B", 222)],
+        )
+
+        self.assertEqual(out["newest"]["verdict"], "Changes recommended")
+
+    def test_verdict_without_an_emoji_is_unchanged(self):
+        out = parse_overview(
+            [_review(self._verdict_body("Looks good"))],
+            [_thread("A", 111), _thread("B", 222)],
+        )
+
+        self.assertEqual(out["newest"]["verdict"], "Looks good")
+
+    def test_section_counts_come_from_the_overview_not_the_parse(self):
+        """These are what the overview CLAIMS each section holds."""
+        out = parse_overview(
+            [_review(self._verdict_body("🟢 Approved"))],
+            [_thread("A", 111), _thread("B", 222)],
+        )
+
+        self.assertEqual(
+            out["newest"]["sections"],
+            {"Open": 1, "Resolved since last review": 2},
+        )
+
+
 class TestDriftMerge(unittest.TestCase):
     def test_newer_body_wins_when_lines_drift(self):
         """The merged finding is the one triage and the fixer act on."""

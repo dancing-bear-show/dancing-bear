@@ -75,9 +75,21 @@ stages:
       explicit non-mutating mode, not a silent bypass.
 
       "run_id" identifies this run and is required. It is what the marker in
-      Step 1 embeds, so a retry can recognise its own prior replies. Reject a
-      plan without one rather than inventing a value: a fresh id each attempt
-      would make every retry post duplicates.
+      Step 1 embeds, so a retry can recognise its own prior replies.
+
+      IT MUST BE THE ORIGINAL manifest.json run_id, read from
+      {workspace}/manifest.json. Not the current invocation's id: resuming a
+      workflow mints a fresh `<name>-resumed-<hex>` id
+      (src/workflow/orchestrator.py) while manifest.json keeps the original.
+      A retry that uses the live id writes a different marker, fails to
+      recognise its own prior reply, and posts a duplicate — the exact
+      outcome the marker exists to prevent.
+
+      Reject the plan when run_id is missing, empty, or still a placeholder
+      (contains "<" or the word "placeholder"). Do not invent a value: a fresh
+      id each attempt makes every retry post duplicates, and a literal
+      placeholder makes every run share one marker so the first run's reply
+      suppresses all later ones. Both failures are silent.
 
       CHECK THE PLAN IS COMPLETE. When the plan carries "triaged_count" and
       "planned_count", refuse to act unless they are equal, and refuse any
@@ -186,17 +198,29 @@ stages:
           addPullRequestReviewThreadReply(
             input:{pullRequestReviewThreadId:$threadId, body:$body}
           ){ comment{ id url } }
-        }' -F threadId="$THREAD_ID" -F body="$BODY"
+        }' -F threadId="$THREAD_ID" -f body="$BODY"
 
       Load the reply into a shell variable read from the plan FILE — never
-      substitute the text into the command source. `-F` stops GraphQL
-      interpolation, but text pasted inside a double-quoted shell word is
-      still evaluated by the shell: embedded backticks or $(...) execute, and
-      an embedded quote re-splits the argument. Review-derived text contains
-      exactly those characters, and this stage runs unattended with a token.
-      Read it with a JSON tool into the variable, e.g.
+      substitute the text into the command source. Text pasted inside a
+      double-quoted shell word is still evaluated by the shell: embedded
+      backticks or $(...) execute, and an embedded quote re-splits the
+      argument. Review-derived text contains exactly those characters, and
+      this stage runs unattended with a token. Read it with a JSON tool into
+      the variable, e.g.
         BODY=$(python3 -I -S -c 'import json,sys;print(json.load(open(sys.argv[1]))["threads"][int(sys.argv[2])]["reply"])' "$PLAN" "$i")
-      then pass -F body="$BODY".
+
+      PASS THE BODY WITH `-f`, NOT `-F`. This is not a style preference:
+      `gh api -F key=value` is a TYPED field and treats a value beginning with
+      `@` as a path to read. Verified directly — `-F body="@/path/secret"`
+      sends that file's contents as the GraphQL variable, while
+      `-f body="@/path/secret"` sends the literal string. A reviewer whose
+      comment starts `@/etc/passwd` would otherwise have its contents posted
+      to a public PR by this unattended stage.
+
+      `-F` stays correct for threadId, owner, name and pr: those are ids and
+      numbers this workflow controls, never reviewer-authored text. Use `-f`
+      for any field carrying text that came from a comment, a fixer, or a
+      plan.
 
       VERIFY THE REPLY LANDED before treating it as posted. `gh` exits 0 on an
       HTTP 200 that carries a GraphQL `errors` array, so exit status proves

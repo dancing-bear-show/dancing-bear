@@ -42,6 +42,8 @@ _SUMMARY_TITLE = re.compile(r"</picture>\s*(.+?)\s*</summary>")
 _PATH_LINE = re.compile(r"^`([^`]+):(\d+)`$")
 _CLAIMED_LINE = re.compile(r"\*\*Findings:\*\*(.*)")
 _CLAIMED_COUNT = re.compile(r"(\d+)\s*<picture")
+#: `### 🟡 Changes recommended` — the emoji is optional and is stripped.
+_VERDICT = re.compile(r"^###\s*(.+?)\s*$", re.MULTILINE)
 
 
 def strip_zwsp(text: str) -> str:
@@ -303,6 +305,32 @@ def _claimed_count(review: dict[str, Any]) -> int | None:
     return sum(counts) if counts else None
 
 
+def _verdict(review: dict[str, Any]) -> str | None:
+    """The overview's headline verdict, e.g. "Changes recommended".
+
+    Taken from the first `### ` heading, with any leading status emoji
+    stripped so the value is comparable across the 🟡/🔴/🟢 variants.
+    """
+    match = _VERDICT.search(review.get("body") or "")
+    if not match:
+        return None
+    text = match.group(1)
+    # Drop a leading non-alphanumeric run (the status emoji and its space).
+    return re.sub(r"^[^\w]+", "", text).strip() or None
+
+
+def _section_counts(review: dict[str, Any]) -> dict[str, int]:
+    """Each section's own declared count, e.g. {"Open": 9}.
+
+    This is what the overview SAYS each section holds, which is not
+    necessarily what parsed out of it — the difference is the signal.
+    """
+    return {
+        name: int(count)
+        for name, count in _SECTION.findall(review.get("body") or "")
+    }
+
+
 def _open_findings(findings: dict[str, Finding], newest_review_id: Any) -> int:
     """Findings the newest overview listed as still open."""
     return sum(
@@ -410,7 +438,9 @@ def parse_overview(review_bodies: list[dict[str, Any]],
         "newest": {
             "review_id": newest.get("review_id"),
             "submitted_at": newest.get("submitted_at"),
+            "verdict": _verdict(newest),
             "findings_claimed": claimed,
+            "sections": _section_counts(newest),
         },
         "findings": out,
         "previously_missed": sorted(
