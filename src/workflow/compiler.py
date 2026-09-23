@@ -379,32 +379,67 @@ def _validate_when(spec: StageSpec) -> None:
         )
 
 
+_CRITERION_PARAM_RE = re.compile(r"(?<!\{)\{([a-z_][a-z0-9_]*)\}(?!\})")
+
+
 def _resolve_criteria(
     validation: ValidationSpec, params: dict[str, str]
 ) -> ValidationSpec:
-    """Resolve trigger params in each criterion and expand pipe-separated values.
+    """Resolve trigger params in each criterion, expanding pipe-separated values.
 
-    For each criterion:
-    1. Substitute ``{param}`` placeholders from trigger params.
-    2. If the resolved text came from a param whose value contained ``|``,
-       split on ``|``, strip whitespace, and drop empty segments; each
-       non-empty segment becomes its own criterion.
+    **Expansion rule (one pipe-valued param)**
 
-    A criterion that contained no recognisable param reference, or whose param
-    value had no ``|``, stays as a single criterion.
+    For each criterion that references exactly one param whose value contains
+    ``|``, produce N criteria by substituting each pipe-delimited item into
+    that param's position while keeping the criterion's own prefix and suffix
+    intact.  All other params are substituted normally in each expansion.
+
+    Example::
+
+        criterion: "All criteria in {validation_criteria} are checked"
+        validation_criteria: "counts match|no fabricated numbers"
+        → "All criteria in counts match are checked"
+        → "All criteria in no fabricated numbers are checked"
+
+    This preserves the grammatical frame of the criterion and avoids splitting
+    on ``|`` that appears in the criterion's own prose.
+
+    **No cross-multiplication (two or more pipe-valued params)**
+
+    If a criterion references two or more params whose values contain ``|``,
+    the criterion is substituted with the raw (``|``-including) param values
+    and left as a single criterion.  Cross-multiplying all combinations would
+    produce a combinatorial explosion with no clear user intent.
+
+    **No-param and single-item criteria**
+
+    A criterion with no param references, or whose only pipe-valued param
+    resolves to a single item, is kept as a single criterion.
     """
+    # Identify which params carry pipe-separated values.
+    pipe_params: dict[str, list[str]] = {
+        k: [item.strip() for item in v.split("|")]
+        for k, v in params.items()
+        if "|" in v
+    }
+
     resolved: list[str] = []
     for raw in validation.criteria:
-        rendered = resolve_params(raw, params)
-        if rendered == raw:
-            # No param substituted — keep as a single criterion.
-            resolved.append(rendered)
-            continue
-        # A param was substituted.  If the original raw text was *only* the
-        # param placeholder (e.g. ``{validation_criteria}``) and the resolved
-        # value contains ``|``, split into individual criteria.
-        parts = [p.strip() for p in rendered.split("|")]
-        resolved.extend(p for p in parts if p)
+        refs = {m.group(1) for m in _CRITERION_PARAM_RE.finditer(raw)}
+        pipe_refs = refs & pipe_params.keys()
+
+        if len(pipe_refs) == 1:
+            key = next(iter(pipe_refs))
+            items = [item for item in pipe_params[key] if item]
+            for item in items:
+                # Substitute this item for the pipe param; keep other params as-is.
+                expanded = resolve_params(raw, {**params, key: item})
+                if expanded:
+                    resolved.append(expanded)
+        else:
+            # Zero or multiple pipe-valued params: substitute as-is (no expansion).
+            resolved.append(resolve_params(raw, params))
+
     return replace(validation, criteria=tuple(resolved))
 
 

@@ -102,7 +102,7 @@ stages:
               widget.update() alone). For text fields:
                 - Set /DA via doc.xref_set_key(xref, "DA", ...) using
                   auto-size font ("0 g /Helv 0 Tf") unless caller passes
-                  fontsize (in which case, use "/Helv {fontsize} Tf").
+                  fontsize (in which case, use `"/Helv {fontsize} Tf"`).
                 - Set /V via doc.xref_set_key(xref, "V", fitz.get_pdf_str(value)).
                 - Clear cached appearance: doc.xref_set_key(xref, "AP", "null").
                 - widget.update() called afterward as belt-and-suspenders only,
@@ -404,7 +404,7 @@ stages:
           write path for /DA or /V.
         - Auto-size font default: when caller does not pass fontsize, set
           /DA to "0 g /Helv 0 Tf" (size 0 = auto-fit-to-box). When fontsize
-          is given, use "/Helv {fontsize} Tf".
+          is given, use `"/Helv {fontsize} Tf"`.
         - After setting /DA, always clear the cached appearance stream:
           doc.xref_set_key(xref, "AP", "null")
           This forces the PDF viewer to regenerate the appearance from the new

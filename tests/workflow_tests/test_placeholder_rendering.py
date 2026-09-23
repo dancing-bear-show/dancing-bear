@@ -8,12 +8,15 @@ Design:
 
 Criteria param resolution:
   - Trigger params inside validation criteria are resolved at compile time.
-  - A criterion whose param value contains ``|`` is split into one criterion
-    per ``|``-delimited item (whitespace stripped, empty items dropped).
+  - A criterion with exactly one pipe-valued param is expanded: each pipe item
+    is substituted into the criterion's prefix/suffix, producing N criteria.
+  - A criterion with zero or two-or-more pipe-valued params is kept whole.
 
-Lint check:
+Lint checks:
   - The linter warns when a stage description contains ``{{`` outside a
     backtick span that is not a Go-template or GitHub-Actions pattern.
+  - The undeclared-variable checker skips ``{ref}`` inside backtick spans,
+    so code examples do not produce false-positive warnings.
 """
 
 from __future__ import annotations
@@ -159,14 +162,40 @@ class TestValidationCriteriaParamResolution(unittest.TestCase):
         return resolved_validation.criteria
 
     def test_simple_param_resolved_in_criterion(self) -> None:
-        """A criterion referencing {key} has the param substituted."""
+        """Pipe-valued param expands by substituting each item into the criterion template."""
         criteria = self._compile_with_criteria(
             raw_criteria=("All criteria in {validation_criteria} are checked",),
             params={"validation_criteria": "counts match|no fabricated numbers"},
         )
-        self.assertIn("All criteria in counts match", criteria)
-        self.assertIn("no fabricated numbers are checked", criteria)
+        # Each pipe item is substituted INTO the criterion's prefix/suffix.
+        self.assertIn("All criteria in counts match are checked", criteria)
+        self.assertIn("All criteria in no fabricated numbers are checked", criteria)
         self.assertNotIn("All criteria in {validation_criteria} are checked", criteria)
+        # The rendered literal '|' must not appear in any criterion.
+        self.assertFalse(any("|" in c for c in criteria))
+
+    def test_criterion_literal_pipe_with_non_pipe_param_stays_whole(self) -> None:
+        """A literal '|' in the criterion text with a non-pipe param stays as one criterion."""
+        criteria = self._compile_with_criteria(
+            raw_criteria=("Use git log | grep {filter_expr} to search",),
+            params={"filter_expr": "fix"},
+        )
+        self.assertEqual(len(criteria), 1)
+        self.assertEqual(criteria[0], "Use git log | grep fix to search")
+
+    def test_two_pipe_valued_params_stay_whole(self) -> None:
+        """When two pipe-valued params are in one criterion, no expansion is done."""
+        criteria = self._compile_with_criteria(
+            raw_criteria=("{param_a} and {param_b} must pass",),
+            params={
+                "param_a": "check1|check2",
+                "param_b": "verify1|verify2",
+            },
+        )
+        # No cross-multiply: the criterion is kept whole with | values substituted.
+        self.assertEqual(len(criteria), 1)
+        self.assertIn("check1|check2", criteria[0])
+        self.assertIn("verify1|verify2", criteria[0])
 
     def test_pipe_separated_param_splits_into_multiple_criteria(self) -> None:
         """{param} with pipe-separated value splits into N criteria."""
@@ -257,13 +286,16 @@ class TestValidateThenRenderFragment(unittest.TestCase):
             "Every quantitative claim traces to a source file in the workspace",
             criteria,
         )
-        self.assertIn("All criteria in counts match source", criteria)
-        self.assertIn("no fabricated numbers", criteria)
-        self.assertIn("all paths exist are checked", criteria)
+        # Each pipe item is substituted into the criterion's prefix/suffix.
+        self.assertIn("All criteria in counts match source are checked", criteria)
+        self.assertIn("All criteria in no fabricated numbers are checked", criteria)
+        self.assertIn("All criteria in all paths exist are checked", criteria)
         self.assertNotIn(
             "All criteria in {validation_criteria} are checked",
             criteria,
         )
+        # No raw | should appear in any criterion.
+        self.assertFalse(any("|" in c for c in criteria))
 
 
 # ---------------------------------------------------------------------------
@@ -333,6 +365,80 @@ class TestEscapeStyleBracesLintWarning(unittest.TestCase):
         )
         warnings = self._lint_stages([stage])
         self.assertEqual(len(warnings), 1)
+
+
+# ---------------------------------------------------------------------------
+# Undeclared-variable lint: backtick-span exemption
+# ---------------------------------------------------------------------------
+
+
+class TestUndeclaredVarLintBacktickExemption(unittest.TestCase):
+    """The undeclared-variable checker skips {ref} inside backtick code spans."""
+
+    def _check_var_warnings(
+        self,
+        description: str,
+        declared_params: dict[str, str] | None = None,
+    ) -> list[str]:
+        """Return all undeclared-variable warning messages for *description*."""
+        from workflow.linter import _check_var_refs
+        from workflow.linter_types import LintResult
+
+        stage = make_stage_spec(name="s", description=description)
+        wf = make_workflow_definition(
+            trigger=make_trigger_spec(source="manual", params=declared_params or {}),
+            stages=(stage,),
+        )
+        result: LintResult = LintResult(file="test")
+        _check_var_refs(wf, result)
+        return [w.message for w in result.warnings if "undeclared" in w.message.lower()]
+
+    def test_backtick_var_no_undeclared_warning(self) -> None:
+        """{pkg} inside a backtick span is not flagged as undeclared."""
+        warnings = self._check_var_warnings(
+            description='Run `importlib.import_module(f"`{pkg}`.meta")`',
+            declared_params={},
+        )
+        self.assertFalse(any("pkg" in w for w in warnings))
+
+    def test_bare_undeclared_var_still_warns(self) -> None:
+        """A bare {undeclared} outside backticks still produces a warning."""
+        warnings = self._check_var_warnings(
+            description="Process {undeclared} items",
+            declared_params={},
+        )
+        self.assertTrue(any("undeclared" in w for w in warnings))
+
+    def test_declared_param_in_backticks_resolves_at_compile_time(self) -> None:
+        """resolve_params substitutes a declared param even when it is inside backticks.
+
+        The linter's backtick exemption applies only to _extract_var_refs (the
+        undeclared-variable check); it has no effect on resolve_params, which
+        substitutes regardless of backtick context.
+        """
+        from workflow.compiler import resolve_params
+
+        result = resolve_params("Use `{pkg}` module", {"pkg": "mail"})
+        self.assertEqual(result, "Use `mail` module")
+
+    def test_declared_param_outside_backticks_no_warning(self) -> None:
+        """A {param} that IS declared in trigger.params does not warn."""
+        warnings = self._check_var_warnings(
+            description="Check {filter_expr} against the index",
+            declared_params={"filter_expr": "fix"},
+        )
+        self.assertFalse(any("filter_expr" in w for w in warnings))
+
+    def test_both_backtick_and_bare_vars_mixed(self) -> None:
+        """Backtick-quoted var skipped; bare undeclared var still warns."""
+        warnings = self._check_var_warnings(
+            description="Run `{pkg}` to produce {undeclared_output}",
+            declared_params={},
+        )
+        # {pkg} inside backtick → no warning for pkg
+        self.assertFalse(any("pkg" in w for w in warnings))
+        # {undeclared_output} outside backtick → warning
+        self.assertTrue(any("undeclared_output" in w for w in warnings))
 
 
 if __name__ == "__main__":

@@ -351,9 +351,23 @@ def _compute_dag_depth(stages: "tuple[StageSpec, ...]") -> int:
     return depth
 
 
+def _is_in_backtick_span(line: str, pos: int) -> bool:
+    """Return True if *pos* falls inside a backtick code span."""
+    return line[:pos].count("`") % 2 == 1
+
+
 def _extract_var_refs(text: str) -> set[str]:
-    """Return all ``{param}`` placeholder names found in *text*."""
-    return set(_VAR_RE.findall(text))
+    """Return all ``{param}`` placeholder names found in *text*.
+
+    Skips matches inside backtick code spans so that references in inline-code
+    examples (e.g. `` `{pkg}` ``) do not trigger undeclared-variable warnings.
+    """
+    result: set[str] = set()
+    for line in text.splitlines():
+        for m in _VAR_RE.finditer(line):
+            if not _is_in_backtick_span(line, m.start()):
+                result.add(m.group(1))
+    return result
 
 
 def _check_cli_commands(defn: object, result: LintResult) -> None:
@@ -414,11 +428,6 @@ def _looks_like_invalid_subcommand(output: str) -> bool:
 
 _DOUBLE_BRACE_RE = re.compile(r"\{\{")
 _GO_TEMPLATE_RE = re.compile(r"\{\{\s*\.")  # {{. — Go template
-
-
-def _is_in_backtick_span(line: str, pos: int) -> bool:
-    """Return True if *pos* falls inside a backtick code span."""
-    return line[:pos].count("`") % 2 == 1
 
 
 def _description_has_escape_brace(description: str) -> bool:
