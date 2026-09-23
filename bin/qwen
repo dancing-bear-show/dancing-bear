@@ -17,6 +17,7 @@ import argparse
 import importlib.util
 import json
 import os
+import shlex
 import sys
 import uuid
 from pathlib import Path
@@ -91,8 +92,14 @@ def _patch_path_for_job(job_id: str) -> Path:
 
 
 def apply_command(job_id: str) -> str:
-    """Return the `git apply` command text for job_id's stored patch. Never runs it."""
-    return f"git apply {_patch_path_for_job(job_id)}"
+    """Return the `git apply` command text for job_id's stored patch. Never runs it.
+
+    The path is shell-quoted: it sits under the data home, which
+    DANCING_BEAR_DATA_HOME / XDG_DATA_HOME can put anywhere, including a
+    directory with spaces or shell metacharacters, and the user pastes this
+    line into a shell.
+    """
+    return f"git apply {shlex.quote(str(_patch_path_for_job(job_id)))}"
 
 
 def _resolve_instruction(args: argparse.Namespace) -> str:

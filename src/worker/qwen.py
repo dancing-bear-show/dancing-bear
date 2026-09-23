@@ -1108,11 +1108,29 @@ def patch_path_for_job(job_id: str) -> Path:
     return job_scoped_path(_patch_dir(), job_id, ".patch")
 
 
+def _read_text_no_follow(path: Path) -> str:
+    """Read a regular file without following a symlink at its final component.
+
+    job_scoped_path refuses a name that is already a symlink, but a link
+    planted between that check and a plain read_text() would still be
+    followed. O_NOFOLLOW makes the open itself fail (ELOOP, an OSError) on a
+    link, and fstat rejects anything that is not a regular file.
+    """
+    fd = os.open(str(path), _CONFINED_OPEN_FLAGS)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(f"not a regular file: {path}")
+        with os.fdopen(os.dup(fd), "rb") as fh:
+            return fh.read().decode("utf-8")
+    finally:
+        os.close(fd)
+
+
 def _load_deferral_state(job_id: str) -> dict[str, object]:
     path = _deferral_path(job_id)
     try:
-        return dict(json.loads(path.read_text()))
-    except (OSError, json.JSONDecodeError):
+        return dict(json.loads(_read_text_no_follow(path)))
+    except (OSError, ValueError):
         return {}
 
 
@@ -1205,7 +1223,7 @@ def _load_recorded_digest(model: str) -> str | None:
     """Return the install-time digest recorded for model, or None if none was recorded."""
     path = _recorded_digest_path()
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(_read_text_no_follow(path))
     except FileNotFoundError:
         return None
     except (OSError, ValueError):

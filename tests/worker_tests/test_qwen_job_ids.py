@@ -78,6 +78,39 @@ class QwenJobIdPathTests(QwenHandlerCase):
         self.assertFalse(outside.exists())
 
 
+class QwenNoFollowReadTests(QwenHandlerCase):
+    """job_scoped_path refuses a name that is already a symlink, but a link
+    planted after that check must not be followed by the read either. Each
+    test hands the reader a symlink directly, as if the check had passed."""
+
+    def _link_to(self, target_name: str, content: str) -> Path:
+        target = Path(self.tmpdir) / target_name
+        target.write_text(content, encoding="utf-8")
+        link = Path(self.tmpdir) / f"{target_name}.link"
+        os.symlink(target, link)
+        return link
+
+    def test_deferral_state_read_does_not_follow_a_symlink(self) -> None:
+        link = self._link_to("other-job.json", '{"count": 99, "reasons": {"qwen-busy": 99}}')
+
+        with mock.patch.object(qwen, "_deferral_path", return_value=link):
+            self.assertEqual(qwen._load_deferral_state("some-job"), {})
+
+    def test_recorded_digest_read_does_not_follow_a_symlink(self) -> None:
+        link = self._link_to("planted_digest.json", '{"qwen2.5-coder:14b": "sha256:planted"}')
+
+        with mock.patch.object(qwen, "_recorded_digest_path", return_value=link), \
+                self.assertLogs("worker.qwen", level="WARNING"):
+            self.assertIsNone(qwen._load_recorded_digest("qwen2.5-coder:14b"))
+
+    def test_regular_files_still_read(self) -> None:
+        target = Path(self.tmpdir) / "real.json"
+        target.write_text('{"count": 3}', encoding="utf-8")
+
+        with mock.patch.object(qwen, "_deferral_path", return_value=target):
+            self.assertEqual(qwen._load_deferral_state("some-job"), {"count": 3})
+
+
 class QwenSameDirSymlinkTests(QwenHandlerCase):
     """job-a's file name planted as a symlink to job-b's file in the SAME
     directory resolves inside the dir, so a resolved-parent check admits it.

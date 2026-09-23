@@ -18,6 +18,7 @@ import importlib.machinery
 import importlib.util
 import io
 import os
+import shlex
 import sys
 import tempfile
 import unittest
@@ -139,6 +140,20 @@ class QwenWrapperApplyCommandTests(unittest.TestCase):
             command = bq.apply_command("some-job-id")
 
         self.assertEqual(command, "git apply /data-home/qwen/patches/some-job-id.patch")
+
+    def test_apply_command_quotes_a_data_home_with_spaces_and_metacharacters(self) -> None:
+        """The printed line is pasted into a shell, so it must split back into
+        exactly three words whatever the data home contains."""
+        bq = _load_module()
+        data_home = "/Application Support/x; rm -rf ~ $(id)"
+
+        with mock.patch.dict(os.environ, {"DANCING_BEAR_DATA_HOME": data_home}):
+            command = bq.apply_command("some-job-id")
+
+        self.assertEqual(
+            shlex.split(command),
+            ["git", "apply", f"{data_home}/qwen/patches/some-job-id.patch"],
+        )
 
 
 class QwenWrapperMainTests(unittest.TestCase):
