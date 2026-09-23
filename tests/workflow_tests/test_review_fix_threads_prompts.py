@@ -69,6 +69,18 @@ class TestUnlistedEditGate(unittest.TestCase):
     def test_init_snapshots_before_any_fixer(self) -> None:
         self.assertIn("./bin/workflow snapshot-dirty", _prompts()["init"])
 
+    def test_init_records_the_baseline_hash(self) -> None:
+        """PR #406 review: the baseline sits in fixer-writable outputs/, so
+        init must record its sha256 before any fixer runs."""
+        prompt = _flat(_prompts()["init"])
+        self.assertIn('"dirty_baseline_sha256" in pr-context.json', prompt)
+        self.assertIn('shasum -a 256 "', prompt)
+
+    def test_commit_rejects_a_baseline_that_no_longer_matches(self) -> None:
+        prompt = _flat(_prompts()["commit-and-push"])
+        self.assertIn("dirty_baseline_sha256", prompt)
+        self.assertIn("fail closed", prompt)
+
     def test_commit_runs_check_unlisted_before_staging(self) -> None:
         prompt = _prompts()["commit-and-push"]
         gate = prompt.index("./bin/workflow check-unlisted")
