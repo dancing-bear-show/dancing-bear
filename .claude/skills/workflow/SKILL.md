@@ -288,6 +288,14 @@ result_file = f"{workspace}/stages/{index:03d}-{stage_name}.json"
 # If result_file exists and status == "success": skip this stage
 ```
 
+A fan-out stage has no single result file of its own until you write one.
+Each item writes `{index:03d}-{stage_name}-{position}.json` (see Fan-Out
+Stages). Treat the stage as complete only when the stage-level file above
+exists with `"success"` — write it yourself once every item has finished — or
+when every item's per-position file exists with `"success"`. Checking only the
+unsuffixed path reports a finished fan-out as never run, and re-spawns all of
+it.
+
 **Parallel group:** Spawn one background agent per incomplete stage in the same
 message so they run concurrently.
 
@@ -741,7 +749,13 @@ Before spawning an agent for any stage:
 
 ```bash
 ls {workspace}/stages/*-{stage_name}.json 2>/dev/null
+ls {workspace}/stages/*-{stage_name}-[0-9]*.json 2>/dev/null   # fan-out items
 ```
+
+The second pattern matters for a fan-out stage: its per-item results are
+suffixed with the item's position, so the first glob does not match them. A
+fan-out stage with no stage-level result is resumed item by item — re-run only
+the positions whose file is missing or not `"success"`.
 
 - `"success"` → skip, use existing result
 - `"failed"` or `"pending"` → re-run
@@ -786,25 +800,33 @@ If a stage has `fan_out` defined, check `fan_out.mode`:
        description=f"Stage {stage_name} — {item[fan_out.key]}",
        subagent_type=ROLE_MAP[role],
        run_in_background=True,
-       # Substitute item[fan_out.key] for EVERY "{<key>}" in the rendered
-       # prompt, not just the Task body: the engine leaves it literal on
-       # purpose (one prompt serves every item) and also uses it in the
-       # per-item result path. The prompt's Fan-out section tells the agent
-       # to fail if a braced key survives, so a missed site halts that item.
+       # Two substitutions over the rendered prompt, both at EVERY site:
+       #   "{<key>}"          -> item[fan_out.key], the item's value
+       #   "{fan_out_index}"  -> position, the item's zero-based index in
+       #                         fan_out.field
+       # The engine leaves both literal on purpose (one prompt serves every
+       # item). The result path uses ONLY {fan_out_index}: the key value is
+       # untrusted prior-stage JSON and may contain "/" or "..", so it must
+       # never become part of a filename. The prompt's Fan-out section tells
+       # the agent to fail if either braced placeholder survives.
        prompt="...",
    )
    if team_name:
        fan_kwargs["team_name"] = team_name
-       fan_kwargs["name"] = f"{stage_name}-{item[fan_out.key]}"
+       fan_kwargs["name"] = f"{stage_name}-{position}"
    # Fan-out writers sharing one tree is the worst case: N agents, same files.
    if isolation:
        fan_kwargs["isolation"] = isolation
    Agent(**fan_kwargs)
    ```
 4. All fan-out agents run in parallel (same group).
-5. Collect all results (one Monitor per agent) before advancing.
-6. Each fan-out agent writes its result to
-   `{workspace}/stages/{index:03d}-{stage_name}-{item_key}.json`.
+5. Collect all results (one Monitor per agent) before advancing. Wait on each
+   item's own file, `{workspace}/stages/{index:03d}-{stage_name}-{position}.json`
+   — the unsuffixed path in 2c's Monitor template never appears for a
+   fan-out, so waiting on it hangs until timeout.
+6. Once every item has finished, write the stage-level
+   `{workspace}/stages/{index:03d}-{stage_name}.json` summarising them, so
+   resume and downstream `reads_from` see one result for the stage.
 
 ### mode: worker_queue
 
