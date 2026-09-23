@@ -131,11 +131,14 @@ stages:
         matching what CI evaluates.
 
         Then run, passing those paths explicitly (skip if the list is empty):
-          git diff -z --name-only --diff-filter=d main...HEAD | xargs -0 ~/.qlty/bin/qlty check
+          git diff -z --name-only --diff-filter=d main...HEAD | xargs -0 -r ~/.qlty/bin/qlty check
         `-z` with `xargs -0` keeps a path containing spaces as one argument;
         an unquoted `$(git diff ...)` word-splits it into paths that do not
         exist. `--diff-filter=d` leaves out deleted files, which qlty cannot
-        scan.
+        scan. `-r` makes an empty list run nothing: without it GNU xargs runs
+        qlty once with no paths, a default scan that reads as a clean result
+        for a PR that only deletes files. If nothing ran, record the qlty
+        check as skipped (no changed files to scan), not as passed.
         Or, when {source_root} is set and you want the whole subtree:
           ~/.qlty/bin/qlty check {source_root}
         Note `--all` and an explicit path are mutually exclusive: `qlty check

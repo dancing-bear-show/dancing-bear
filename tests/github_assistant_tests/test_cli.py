@@ -809,6 +809,14 @@ class TestPrTitleFile(unittest.TestCase):
         argv = fake.calls[0].argv
         self.assertEqual(argv[argv.index("--title") + 1], self.HOSTILE)
 
+    def test_exactly_one_trailing_line_ending_is_accepted(self):
+        for text in ("t\n", "t\r\n", "t\r", "t"):
+            rc, _err, fake = self._create("--title-file", "TITLE_FILE", title_text=text)
+            with self.subTest(text=repr(text)):
+                self.assertEqual(rc, 0)
+                argv = fake.calls[0].argv
+                self.assertEqual(argv[argv.index("--title") + 1], "t")
+
     def test_title_and_title_file_together_are_refused(self):
         rc, err, fake = self._create("--title", "t", "--title-file", "TITLE_FILE", title_text="t")
         self.assertEqual(rc, 2)
@@ -822,7 +830,8 @@ class TestPrTitleFile(unittest.TestCase):
         self.assertEqual(fake.calls, [])
 
     def test_empty_or_multiline_title_file_is_refused(self):
-        for text, needle in (("  \n", "is empty"), ("line one\nline two\n", "more than one line")):
+        for text, needle in (("  \n", "is empty"), ("line one\nline two\n", "more than one line"),
+                             ("title\n\n", "more than one line"), ("title\r\n\r\n", "more than one line")):
             rc, err, fake = self._create("--title-file", "TITLE_FILE", title_text=text)
             with self.subTest(text=text):
                 self.assertEqual(rc, 2)

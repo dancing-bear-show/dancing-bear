@@ -405,6 +405,18 @@ def cmd_pr_diff(args) -> int:
     return ExitCode.SUCCESS
 
 
+def _strip_one_line_ending(text: str) -> str:
+    """Drop a single trailing ``\\r\\n``, ``\\n`` or ``\\r`` — never more.
+
+    ``rstrip`` would also swallow blank lines, so ``title\\n\\n`` would pass
+    the one-line check it should fail.
+    """
+    for ending in ("\r\n", "\n", "\r"):
+        if text.endswith(ending):
+            return text[: -len(ending)]
+    return text
+
+
 def _required_title(args) -> str:
     """The PR title for ``pr create``, which cannot proceed without one."""
     title = _title(args, required=True)
@@ -428,7 +440,7 @@ def _title(args, *, required: bool) -> str | None:
         if required and inline is None:
             raise CLIError("pr create needs --title or --title-file", ExitCode.USAGE)
         return inline
-    title = _read_body(path).rstrip("\r\n")
+    title = _strip_one_line_ending(_read_body(path))
     if not title.strip():
         raise CLIError(f"--title-file {path} is empty", ExitCode.USAGE)
     if "\n" in title or "\r" in title:
