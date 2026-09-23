@@ -195,8 +195,9 @@ stages:
         reporting, not an expected result. Note the invocation differs for
         four of them: apple-music is <REPO_ROOT>/bin/apple-music-assistant, qlty is
         <REPO_ROOT>/bin/qlty-assistant, resume is <REPO_ROOT>/bin/assistant resume, and desk has
-        no wrapper and must be invoked via its module entry point with
-        PYTHONPATH="<REPO_ROOT>/src" and the -m flag. Run
+        no wrapper — run it as
+        PYTHONPATH="<REPO_ROOT>/src" python3 -m desk --agentic --agentic-format yaml --agentic-compact
+        (it is available; a failed ./bin/desk is not evidence otherwise). Run
         <REPO_ROOT>/bin/llm inventory --stdout for the authoritative list and the
         exact invocation form rather than assuming <REPO_ROOT>/bin/<cli>.
         "core" has no CLI — always false.
@@ -274,15 +275,18 @@ stages:
       ./bin CLI in the baseline run). The real signal lives in tool_use records.
 
       Write and run a Python scratch script (python3 -I -S) to parse the
-      transcripts. Write the script to a file in the workspace directory; keep
+      transcripts. Write the script to a file in WORKSPACE (defined in step 2); keep
       all intermediate and output files there too. Run the script with the
       working directory set to the REPO ROOT (not the workspace), so that
       ./bin/ references inside the script resolve correctly. Concretely:
         1. Before writing the script, capture the repo root by running
            `git rev-parse --show-toplevel` in the current (repo-root) shell
            session. Store it in a variable (e.g. REPO_ROOT).
-        2. Capture the absolute workspace directory path at this point (before
-           any cwd change) and store it in a variable (e.g. WORKSPACE). Never
+        2. Store the absolute <workspace>/outputs/ directory in a variable
+           WORKSPACE — take it from the "Output Files" section of this prompt,
+           not from cwd. The engine places every declared artifact there, this
+           stage's and upstream stages' alike, so a file directly under
+           <workspace>/ is in the wrong place. Never
            rely on cwd to resolve workspace files — once the script runs from
            REPO_ROOT, a bare relative filename resolves inside the checkout, not
            the workspace. Pass both REPO_ROOT and WORKSPACE as command-line
@@ -532,9 +536,10 @@ stages:
     description: >
       Identify concrete gaps in the CLI surface and score each by ROI.
 
-      Sources to read (all from the absolute workspace directory path WORKSPACE;
-      never rely on cwd to resolve these — the agent's working directory may not
-      be the workspace):
+      Sources to read (all from WORKSPACE, the absolute <workspace>/outputs/
+      directory named in this prompt's "Output Files" section — the engine
+      places every declared artifact there, not directly under <workspace>/;
+      never rely on cwd to resolve these):
         WORKSPACE/domain-map.json        — domain coverage and cluster assignments
         WORKSPACE/intent-sequences.json  — CLI co-occurrence (cli_sequences from Bash
                                  tool_use mining) and manual-workflow signals;
@@ -552,8 +557,8 @@ stages:
 
       Step 1 — subcommand gap detection:
         First, resolve the repo root by running `git rev-parse --show-toplevel`
-        and store it as REPO_ROOT. Also capture the absolute workspace directory
-        path and store it as WORKSPACE. All repo CLI calls in this stage use
+        and store it as REPO_ROOT. Store the <workspace>/outputs/ directory
+        (see above) as WORKSPACE. All repo CLI calls in this stage use
         <REPO_ROOT>/bin/<cli> — never ./bin/<cli>, because the agent's working
         directory may not be the repo root. All workspace file reads and writes
         in this stage use the absolute path WORKSPACE/<filename>; never rely on
@@ -563,6 +568,12 @@ stages:
           shared-library domains with no CLI entry point. Do not attempt to run
           <REPO_ROOT>/bin/<None> or invent a CLI path for them; move on to the next domain.
           Run: <REPO_ROOT>/bin/<cli> --agentic --agentic-format yaml --agentic-compact
+          Four apps use a different invocation (<REPO_ROOT>/bin/llm inventory
+          --stdout is authoritative): apple-music is
+          <REPO_ROOT>/bin/apple-music-assistant, qlty is
+          <REPO_ROOT>/bin/qlty-assistant, resume is <REPO_ROOT>/bin/assistant
+          resume, and desk has no wrapper — run
+          PYTHONPATH="<REPO_ROOT>/src" python3 -m desk --agentic --agentic-format yaml --agentic-compact
           Parse the YAML output to extract existing subcommand names.
           If the CLI has no agentic schema, fall back to: <REPO_ROOT>/bin/<cli> --help
           Read the domain's example_prompts from domain-map.json:
@@ -603,8 +614,10 @@ stages:
         as a 90-line `mail messages scan-receipts` subcommand, but receipts
         arrive from mail, WhatsApp, and the local filesystem. Mail and WhatsApp
         are already covered by four separate existing commands —
-        `./bin/mail messages search`, `./bin/mail messages list-attachments`,
-        `./bin/mail messages download-attachment`, and `./bin/whatsapp search` —
+        `<REPO_ROOT>/bin/mail messages search`,
+        `<REPO_ROOT>/bin/mail messages list-attachments`,
+        `<REPO_ROOT>/bin/mail messages download-attachment`, and
+        `<REPO_ROOT>/bin/whatsapp search` —
         and the filesystem needs only a directory scan, no CLI at all. So the
         correct deliverable was a workflow with 0 lines of new CLI code.
         Record each of those as its OWN sources entry; never collapse several
@@ -737,10 +750,10 @@ stages:
               "type": "workflow",
               "rationale": "intent spans mail + whatsapp + filesystem",
               "sources": [
-                {"source": "mail", "existing_command": "./bin/mail messages search"},
-                {"source": "mail", "existing_command": "./bin/mail messages list-attachments"},
-                {"source": "mail", "existing_command": "./bin/mail messages download-attachment"},
-                {"source": "whatsapp", "existing_command": "./bin/whatsapp search"},
+                {"source": "mail", "existing_command": "<REPO_ROOT>/bin/mail messages search"},
+                {"source": "mail", "existing_command": "<REPO_ROOT>/bin/mail messages list-attachments"},
+                {"source": "mail", "existing_command": "<REPO_ROOT>/bin/mail messages download-attachment"},
+                {"source": "whatsapp", "existing_command": "<REPO_ROOT>/bin/whatsapp search"},
                 {"source": "filesystem", "existing_command": null, "note": "no CLI — plain directory scan of the usual download dirs"}
               ],
               "example_prompts": ["..."],
@@ -761,9 +774,16 @@ stages:
       commas: the validation stage probes each existing_command by appending
       --help to it, and a joined string is not a command, so it cannot be probed
       and will fail. Probe with --help rather than running the command as
-      written — many subcommands require arguments (./bin/mail messages
+      written — many subcommands require arguments (<REPO_ROOT>/bin/mail messages
       list-attachments needs --id and exits 2 without it), so a verbatim run
       would report a real command as broken.
+      Record every existing_command with the repo root EXPANDED to the literal
+      absolute path you resolved (e.g. /abs/path/to/repo/bin/mail messages
+      search) — never ./bin/<cli> and never the unexpanded <REPO_ROOT>
+      placeholder. The validation stage may run each probe outside the repo
+      root, so a relative ./bin/ path can fail there and falsely report a
+      real command as missing. The same applies to desk:
+      PYTHONPATH="/abs/path/to/repo/src" python3 -m desk.
       A source needing three commands gets three entries, all with the same
       "source" value. A source with no CLI at all (a plain filesystem scan) sets
       existing_command to null and explains in "note" — do not invent a command
@@ -815,10 +835,11 @@ stages:
       src/core/cli_framework.py to confirm the current base-class contract
       rather than assuming it from the patterns doc.
 
-      Step 2 — capture the absolute workspace directory path and store it as
-      WORKSPACE (do this before resolving REPO_ROOT in step 5, so cwd has not
-      changed). Read WORKSPACE/gap-analysis.json (use the absolute path — the
-      agent's working directory may not be the workspace). Take:
+      Step 2 — store the absolute <workspace>/outputs/ directory named in this
+      prompt's "Output Files" section as WORKSPACE; the engine places every
+      declared artifact there, not directly under <workspace>/, so take the path
+      from the prompt rather than from cwd. Read WORKSPACE/gap-analysis.json
+      (use the absolute path). Take:
         - Top 5 entries from subcommand_gaps by roi_score
         - Top 3 entries from new_domain_candidates by roi_score
         - ALL entries from workflow_candidates (there are usually few, and each
@@ -864,7 +885,11 @@ stages:
       Verify each named command really exists before writing it — resolve the
       repo root first (`git rev-parse --show-toplevel`) and probe with
       <REPO_ROOT>/bin/<cli> --agentic --agentic-format yaml --agentic-compact
-      or <REPO_ROOT>/bin/<cli> --help.
+      or <REPO_ROOT>/bin/<cli> --help. desk has no wrapper: probe it with
+      PYTHONPATH="<REPO_ROOT>/src" python3 -m desk --agentic --agentic-format yaml --agentic-compact
+      (see <REPO_ROOT>/bin/llm inventory --stdout for the other exceptions).
+      Write every command in the sketch with the repo root expanded to its
+      literal absolute path, per the existing_command FORMAT rule in gap-analysis.
       Name workflows/code/synthesize-workflow-from-telemetry.yaml as the tool to
       author it. Do not invent a src/ path for these; there is no code to write.
 
