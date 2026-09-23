@@ -182,8 +182,8 @@ stages:
         functions exist (unittest has no @parametrize — use subTest).
 
       Step 2 — Coverage gaps:
-        PYTHONPATH=. python3 -m coverage run -m unittest discover -s {test_path} -t . -q
-        python3 -m coverage report -m --include="{source_root}*"
+        PYTHONPATH="$PWD/src" python3 -m coverage run -m unittest discover -s {test_path} -t . -q
+        PYTHONPATH="$PWD/src" python3 -m coverage report -m --include="{source_root}*"
         Flag any source file under {source_root} with no corresponding
         test file (critical).
         Flag any source file with coverage < 80% (minor).

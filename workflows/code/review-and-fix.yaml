@@ -211,7 +211,7 @@ stages:
            introduce scope creep.
         5. If item["finding_id"] maps to a test file in inputs/outputs/changed-files.txt,
            run the test suite. Pin PYTHONPATH to THIS worktree — a bare
-           `python3 -m unittest` can resolve imports from an inherited
+           unittest run can resolve imports from an inherited
            main-checkout PYTHONPATH and pass without ever executing your code:
              Bash tool: PYTHONPATH="$PWD/src" {test_cmd}
            Confirm the `Ran N tests` line; an exit code alone is not evidence
@@ -296,7 +296,7 @@ stages:
            is missing entirely. Use the Edit tool for modifications; use the
            Write tool only when creating a new test file.
         4. After each edit, run the test to confirm it is green. Pin PYTHONPATH
-           to THIS worktree — a bare `python3 -m unittest` can resolve imports
+           to THIS worktree — a bare unittest run can resolve imports
            from an inherited main-checkout PYTHONPATH and pass against code you
            did not change, which is indistinguishable from a real pass:
              Bash tool: PYTHONPATH="$PWD/src" python3 -m unittest <item["file"]> -f -q

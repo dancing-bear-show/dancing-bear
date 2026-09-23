@@ -22,7 +22,7 @@ trigger:
   params:
     run_url: ""          # GitHub Actions workflow run URL (optional if pr_number given)
     pr_number: ""        # PR number to check (optional if run_url given)
-    test_cmd: ""         # Test invocation for local verify (e.g. "python3 -m unittest tests/core/ -f -q")
+    test_cmd: ""         # Test invocation for local verify (e.g. 'PYTHONPATH="$PWD/src" python3 -m unittest tests/core/ -f -q')
     source_root: ""      # Source dir for coverage scoping (e.g. "core/")
     min_coverage: "80"   # Minimum new coverage % required
 
@@ -283,7 +283,7 @@ stages:
 
       Step 2 — run targeted tests:
         For each failure in findings.json["ci_failures"], use the Bash tool to run:
-          python3 -m unittest <test_file>.<test_name> -v
+          PYTHONPATH="$PWD/src" python3 -m unittest <test_file>.<test_name> -v
         If {test_cmd} is non-empty, also use the Bash tool to run:
           {test_cmd}
         Record exit code and output for each run.
@@ -351,7 +351,7 @@ stages:
           {test_cmd}
         Else derive from findings.json (the domain from the first failure's
         test_file): use the Bash tool to run:
-          python3 -m unittest discover -s tests/<domain>/ -t . -f -q
+          PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/<domain>/ -t . -f -q
         Record total tests, failures, and exit code.
 
       Step 3 — re-check qlty on changed files:
