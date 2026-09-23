@@ -92,12 +92,17 @@ stages:
       the draft and strike any sentence that fails the guide's test: would a
       senior engineer write this in a design doc? Rewrite rather than pad.
 
-      Step 6 — push it:
-        ./bin/github pr edit --pr {pr_number} --title "<title>" --body-file {workspace}/outputs/pr-description.md
+      Step 6 — push it. Use the Write tool (not a shell command) to write the
+      title from Step 3, alone on one line, to
+      {workspace}/outputs/pr-title.txt, then:
+        ./bin/github pr edit --pr {pr_number} --title-file {workspace}/outputs/pr-title.txt --body-file {workspace}/outputs/pr-description.md
 
-      Use --body-file, never --body with an inline string: a description
-      containing backticks, quotes, or newlines is mangled by shell quoting,
-      and that failure is silent — gh exits 0 with a corrupted body.
+      Both title and body travel by file, never as inline strings. The title
+      is composed from PR and repository content, and inside a double-quoted
+      shell argument its $(...), backticks or quotes would be executed or
+      split before the CLI saw them. A description with backticks, quotes or
+      newlines is mangled the same way, and silently: gh exits 0 with a
+      corrupted body.
       ./bin/github pr edit reads the PR back and exits 1 if GitHub does not
       hold what was sent, so the verify step below is guaranteed in code.
 
@@ -127,4 +132,5 @@ stages:
     required: true
     writes_to:
       - pr-description.md
+      - pr-title.txt
       - pr-describe-result.json

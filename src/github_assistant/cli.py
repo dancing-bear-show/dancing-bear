@@ -75,20 +75,21 @@ def _print_json(obj: Any) -> None:
     print(json.dumps(obj, indent=2, ensure_ascii=False))
 
 
-def _read_body(path: str) -> str:
-    """Read a body file. ``-`` means stdin.
+def _read_body(path: str, *, option: str = "--body-file") -> str:
+    """Read a body (or title) file. ``-`` means stdin.
 
     The whole point of ``--body-file`` is that review-derived text never
     reaches an argv, so this helper deliberately reads the *literal* file
     content: no shell expansion, no stripping of a leading ``@``, no
-    interpretation whatsoever.
+    interpretation whatsoever. ``option`` names the flag in the error, so a
+    bad --title-file is reported as --title-file.
     """
     if path == "-":
         return sys.stdin.read()
     try:
         return Path(path).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
-        raise CLIError(f"cannot read --body-file {path}: {exc}", ExitCode.USAGE) from exc
+        raise CLIError(f"cannot read {option} {path}: {exc}", ExitCode.USAGE) from exc
 
 
 def _write_or_print(path: str | None, text: str) -> None:
@@ -405,19 +406,69 @@ def cmd_pr_diff(args) -> int:
     return ExitCode.SUCCESS
 
 
+def _strip_one_line_ending(text: str) -> str:
+    """Drop a single trailing ``\\r\\n``, ``\\n`` or ``\\r`` — never more.
+
+    ``rstrip`` would also swallow blank lines, so ``title\\n\\n`` would pass
+    the one-line check it should fail.
+    """
+    for ending in ("\r\n", "\n", "\r"):
+        if text.endswith(ending):
+            return text[: -len(ending)]
+    return text
+
+
+def _required_title(args) -> str:
+    """The PR title for ``pr create``, which cannot proceed without one."""
+    title = _title(args, required=True)
+    if title is None:  # _title already raised; this narrows the type
+        raise CLIError("pr create needs --title or --title-file", ExitCode.USAGE)
+    return title
+
+
+def _title(args, *, required: bool) -> str | None:
+    """The PR title from --title or --title-file (exactly one when required).
+
+    --title-file exists so a title composed from PR or reviewer text never has
+    to be written into a shell command: the caller writes it to a file with a
+    non-shell tool and passes the path. A trailing newline is dropped; an
+    embedded one is refused, since GitHub titles are a single line.
+    """
+    inline, path = getattr(args, "title", None), getattr(args, "title_file", None)
+    if inline is not None and path is not None:
+        raise CLIError("pass --title or --title-file, not both", ExitCode.USAGE)
+    if path is None:
+        if required and inline is None:
+            raise CLIError("pr create needs --title or --title-file", ExitCode.USAGE)
+        return inline
+    if path == "-" and getattr(args, "body_file", None) == "-":
+        # One stdin cannot carry two values: the title read would consume it
+        # and the body would read EOF — for pr edit, silently emptying the
+        # PR body. Refuse before reading anything.
+        raise CLIError("--title-file and --body-file cannot both be - (stdin)", ExitCode.USAGE)
+    title = _strip_one_line_ending(_read_body(path, option="--title-file"))
+    if not title.strip():
+        raise CLIError(f"--title-file {path} is empty", ExitCode.USAGE)
+    if "\n" in title or "\r" in title:
+        raise CLIError(f"--title-file {path} holds more than one line", ExitCode.USAGE)
+    return title
+
+
 @pr_group.command("create", help="Open a PR from a body file; return {number,url}")
 @app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
 @app.argument("--base", required=True, help="Base branch")
-@app.argument("--title", required=True, help="PR title")
+@app.argument("--title", help="PR title (or --title-file)")
+@app.argument("--title-file", dest="title_file", help="Title path, one line (- for stdin)")
 @app.argument("--body-file", required=True, dest="body_file", help="Body path (- for stdin)")
 @app.argument("--head", help="Head branch (default: current)")
 @app.argument("--draft", action="store_true", help="Open as draft")
 def cmd_pr_create(args) -> int:
+    title = _required_title(args)
     body = _read_body(args.body_file)
     data = _pulls.pr_create(
         _gh(),
         base=args.base,
-        title=args.title,
+        title=title,
         body=body,
         head=args.head,
         draft=bool(args.draft),
@@ -430,16 +481,18 @@ def cmd_pr_create(args) -> int:
 @pr_group.command("edit", help="Edit PR title/body; exit 1 if GitHub does not hold what was sent")
 @app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
 @app.argument("--pr", required=True, type=int, help="PR number")
-@app.argument("--title", help="New title")
+@app.argument("--title", help="New title (or --title-file)")
+@app.argument("--title-file", dest="title_file", help="Title path, one line (- for stdin)")
 @app.argument("--body-file", dest="body_file", help="Body path (- for stdin)")
 def cmd_pr_edit(args) -> int:
-    if args.title is None and args.body_file is None:
-        raise CLIError("pr edit needs --title or --body-file", ExitCode.USAGE)
+    title = _title(args, required=False)
+    if title is None and args.body_file is None:
+        raise CLIError("pr edit needs --title, --title-file or --body-file", ExitCode.USAGE)
     body = _read_body(args.body_file) if args.body_file else None
     got = _pulls.pr_edit(
         _gh(),
         int(args.pr),
-        title=args.title,
+        title=title,
         body=body,
         repo=_repo(args),
     )

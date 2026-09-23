@@ -32,14 +32,6 @@ def _top_level_src_packages() -> set[str]:
     }
 
 
-# src/qlty/ is a separate, pre-existing packaging gap (also missing from the
-# include list) that is not part of this test's finding and is out of scope
-# to fix here. Excluded so this test's teeth stay specific to regressions in
-# packages that are currently included, rather than failing on a known,
-# already-tracked gap this change does not touch.
-_KNOWN_UNRELATED_GAPS = {"qlty"}
-
-
 def _packaging_include_list() -> list[str]:
     pyproject = repo_root() / "pyproject.toml"
     with pyproject.open("rb") as fh:
@@ -51,7 +43,7 @@ class TestPackagingIncludeCoversAllSrcPackages(unittest.TestCase):
     """Every top-level src/ package must be reachable via the include list."""
 
     def test_every_top_level_package_has_an_include_entry(self):
-        packages = _top_level_src_packages() - _KNOWN_UNRELATED_GAPS
+        packages = _top_level_src_packages()
         include = _packaging_include_list()
 
         missing = set()

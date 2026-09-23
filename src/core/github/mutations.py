@@ -117,9 +117,10 @@ def mark_body(body: str, run_id: str | None) -> str:
 def reply_to_thread(gh: GhCLI, thread_id: str, body: str) -> dict[str, str]:
     """Post ``body`` as a reply inside the thread; return its id and url.
 
-    ``body`` is review-derived text and is sent as a string field (``-f``):
-    through ``-F`` a value starting ``@/path`` would be read as a local file
-    and its contents posted. ``field_args`` chooses the flag by Python type.
+    ``body`` is review-derived text. ``graphql_checked`` sends it inside the
+    request's JSON on stdin (``gh api graphql --input -``), so it never
+    reaches gh's argv or a shell, and a body starting ``@/path`` is posted as
+    literal text rather than read as a local file.
     """
     if not isinstance(body, str) or not body.strip():
         raise GhError(f"refusing to post an empty reply to {thread_id}")
