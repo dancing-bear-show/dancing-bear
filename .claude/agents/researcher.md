@@ -96,7 +96,7 @@ For CLI capabilities, use agentic schemas:
 
 ## Skip These Paths
 
-`.venv/`, `.cache/`, `.git/`, `maker/`, `_disasm/`, `out/`, `_out/`, `backups/`, `personal_assistants.egg-info/`
+`.venv/`, `.cache/`, `.git/`, `src/maker/`, `_disasm/`, `out/`, `_out/`, `backups/`, `personal_assistants.egg-info/`
 
 ## Output Format
 
@@ -106,7 +106,7 @@ Return findings concisely with file paths and line numbers:
 ## Findings
 
 ### <Topic>
-- **Location**: `mail/gmail_api.py:42`
+- **Location**: `src/mail/gmail_api.py:42`
 - **Pattern**: Description of what was found
 - **Relevance**: Why this matters
 

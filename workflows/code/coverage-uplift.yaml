@@ -415,7 +415,7 @@ stages:
           "shared_extraction_candidates": [
             {
               "factory": "make_alert",
-              "defined_in": ["tests/mail_tests/test_foo.py", "tests/metals_tests/test_bar.py"],
+              "defined_in": ["tests/mail_tests/test_foo.py", "tests/wifi_tests/test_bar.py"],
               "recommendation": "extract to tests/fixtures.py"
             }
           ],

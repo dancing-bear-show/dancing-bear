@@ -55,8 +55,9 @@ The workflow runs the full correction and recheck cycle:
 
 | Param | Default | Description |
 |-------|---------|-------------|
-| `source_root` | `""` | Path prefix for changed source files, e.g. `workflow/` |
-| `test_path` | `""` | Test directory to run, e.g. `tests/workflow/` |
+| `source_root` | `""` | Path prefix for changed source files, e.g. `src/workflow/` |
+| `test_path` | `""` | Test directory to run, e.g. `tests/workflow_tests/` |
+| `domain_slug` | `""` | Required: `source_root` with `/` replaced by `-`, e.g. `src-workflow`; keeps each domain's workspace separate |
 | `pr_number` | `""` | Optional PR number — scopes file detection to that PR's diff |
 | `skip_checks` | `reuse,complexity,coverage,arch` | Passed automatically — controls which scan dimensions run |
 | `auth_domains` | `"github,qlty"` | Comma-separated auth pre-flight services |

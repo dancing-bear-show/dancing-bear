@@ -51,7 +51,7 @@ Re-check against the same guides you loaded in step 4 before finishing — conce
 Most commonly missed:
 - All public function parameters and return types annotated; `param: str | None = None` not `Optional[str]`
 - `@dataclass(frozen=True)` for value objects
-- No helper reimplemented that already exists in `core/` — check sibling files first
+- No helper reimplemented that already exists in `src/core/` — check sibling files first
 - Method names match actual behavior
 - No nesting deeper than 3 levels; no bare `print()` in non-CLI modules
 

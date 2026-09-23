@@ -804,7 +804,7 @@ stages:
               "file_to_modify": "src/mail/cli.py",
               "function_signature": "def _find_stale(self, args: argparse.Namespace) -> int:",
               "pseudocode": "filters = self._client.list_filters()\nstale = [f for f in filters if f.last_matched_days > 90]\nemit_rows(stale, fmt=args.format)",
-              "test_file": "tests/mail/test_mail_cli.py",
+              "test_file": "tests/mail_tests/test_mail_cli.py",
               "estimated_lines": 55
             }
           ]

@@ -179,7 +179,7 @@ For dry-run, omit `--execute`.
 → `code-review` — `pr_number=172` known; `pr_size` optional
 
 **"Coverage on src/resume is weak"**
-→ `coverage-uplift` — `domains=resume`, `source_root=src/resume/`, `test_path=tests/resume/`; confirm `min_coverage` and `pr_title`
+→ `coverage-uplift` — `domains=resume`, `source_root=src/resume/`, `test_path=tests/resume_tests/`; confirm `min_coverage` and `pr_title`
 
 **"These files are getting too long to review"**
 → `decompose-sweep` — confirm `source_threshold`, `domains`, `pr_title`

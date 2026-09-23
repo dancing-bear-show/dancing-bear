@@ -40,8 +40,8 @@ At least one of `run_url` or `pr_number` must be provided.
 |-------|---------|-------------|
 | `run_url` | `""` | GitHub Actions run URL (optional if pr_number given) |
 | `pr_number` | `""` | PR number to check (optional if run_url given) |
-| `test_cmd` | `""` | Test invocation for local verify (e.g. `PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/core -t . -f -q`; `-f` is unittest's failfast — `-x` is pytest syntax and errors here. The PYTHONPATH prefix is required in a worktree or imports resolve to the main checkout.) |
-| `source_root` | `""` | Source dir for coverage scoping (e.g. `core/`) |
+| `test_cmd` | `""` | Test invocation for local verify (e.g. `PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/core_tests -t . -f -q`; `-f` is unittest's failfast — `-x` is pytest syntax and errors here. The PYTHONPATH prefix is required in a worktree or imports resolve to the main checkout.) |
+| `source_root` | `""` | Source dir for coverage scoping (e.g. `src/core/`) |
 | `min_coverage` | `"80"` | Minimum new coverage % required by qlty gate |
 
 ## Workflow Stages
