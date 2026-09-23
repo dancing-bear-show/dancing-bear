@@ -99,8 +99,18 @@ def strip_run_markers(body: str) -> str:
 
 
 def mark_body(body: str, run_id: str | None) -> str:
-    """Strip any markers from ``body``, then append this run's (if any)."""
+    """Strip any markers from ``body``, then append this run's (if any).
+
+    Rejects a body that is empty or whitespace-only *after* stripping markers
+    and *before* appending the new one. ``reply_to_thread``'s empty-reply
+    guard runs on the marked result, and an appended marker alone
+    (``"\\n\\n<!-- dancing-bear-run: ... -->"``) is a non-empty string that
+    would otherwise pass it, posting a marker-only reply with no reviewer-
+    visible content.
+    """
     clean = strip_run_markers(body).rstrip()
+    if not clean.strip():
+        raise GhError("refusing to mark an empty or whitespace-only reply body")
     return f"{clean}\n\n{run_marker(run_id)}" if run_id else clean
 
 

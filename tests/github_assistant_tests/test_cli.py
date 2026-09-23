@@ -41,14 +41,15 @@ class RecordedCall:
     """One gh subprocess invocation captured by the fake runner.
 
     ``argv`` is the full command list (starts with 'gh'). ``input_text`` is
-    what a body-file path resolved to; a passing test asserts on both, because
-    "reply body arrived at gh" is not the same claim as "reply body arrived
-    via the safe -f flag".
+    the raw stdin payload — a body-file's contents for a REST POST/PATCH, or
+    the ``{"query": ..., "variables": {...}}`` JSON for a GraphQL call. A
+    passing test asserts on both, because "reply body arrived at gh" is not
+    the same claim as "reply body arrived off the process argv".
 
-    ``query_text`` is the tempfile GraphQL body captured AT CALL TIME. gh_cli
-    unlinks the tempfile as soon as the response returns, so a post-hoc read
-    from argv sees only ``query=@/tmp/gone`` and cannot recover the mutation
-    name. Assertions about which mutation ran use this field instead.
+    ``query_text`` is the GraphQL query string, pulled out of the stdin JSON
+    for a ``gh api graphql --input -`` call. Assertions about which mutation
+    ran use this field instead of scanning argv, since the query (and every
+    variable, including a reply body) never appears there.
     """
 
     argv: list[str]
@@ -63,21 +64,26 @@ class RecordedCall:
         return "\n".join([*self.argv, self.query_text])
 
 
-def _query_text_of(cmd: list[str]) -> str:
-    """Read a GraphQL ``query=@<tempfile>`` referenced in ``cmd``, if present.
+def _query_text_of(cmd: list[str], kwargs: dict[str, Any]) -> str:
+    """Read the GraphQL query out of a ``gh api graphql --input -`` call's stdin JSON."""
+    if cmd[:3] != ["gh", "api", "graphql"] or "--input" not in cmd:
+        return ""
+    try:
+        payload = json.loads(kwargs.get("input") or "{}")
+    except json.JSONDecodeError:
+        return ""
+    return str(payload.get("query", ""))
 
-    Must run AT CALL TIME; gh_cli unlinks the tempfile on the response path,
-    so a post-hoc read would see only a stale path.
-    """
-    for i, tok in enumerate(cmd):
-        if tok in ("-F", "-f") and i + 1 < len(cmd):
-            val = cmd[i + 1]
-            if val.startswith("query=@"):
-                try:
-                    return Path(val[len("query=@"):]).read_text(encoding="utf-8")
-                except OSError:
-                    return ""
-    return ""
+
+def graphql_variables_of(cmd: list[str], kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Read the GraphQL variables dict out of a ``gh api graphql --input -`` call's stdin JSON."""
+    if cmd[:3] != ["gh", "api", "graphql"] or "--input" not in cmd:
+        return {}
+    try:
+        payload = json.loads(kwargs.get("input") or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return dict(payload.get("variables") or {})
 
 
 @dataclass
@@ -100,7 +106,7 @@ class FakeGhRunner:
         )))
 
     def __call__(self, cmd: list[str], **kwargs: Any) -> SimpleNamespace:
-        query_text = _query_text_of(cmd)
+        query_text = _query_text_of(cmd, kwargs)
         text = "\n".join([*cmd, query_text])
         for keywords, resp in self.responses:
             if all(kw in text for kw in keywords):
@@ -199,10 +205,10 @@ def _thread_chain_response(comments: list[str | tuple[str, str]]) -> SimpleNames
 
 
 def _posted_body(fake) -> str:
-    """The body string the reply mutation sent, via its -f field."""
+    """The body string the reply mutation sent, via its stdin JSON variables."""
     call = next(c for c in fake.calls if "addPullRequestReviewThreadReply" in c.all_text())
-    pairs = list(zip(call.argv, call.argv[1:]))
-    return next(val for flag, val in pairs if flag == "-f" and val.startswith("body="))[len("body="):]
+    payload = json.loads(call.input_text or "{}")
+    return str((payload.get("variables") or {})["body"])
 
 
 def _reply_success_response(comment_id: str = "IC_kwABC", url: str = "https://x/c/1") -> SimpleNamespace:
@@ -216,19 +222,22 @@ def _resolve_success_response(thread_id: str = "PRT_kwABC") -> SimpleNamespace:
 
 
 class TestThreadsReplyBodyFilePassthrough(unittest.TestCase):
-    """The reply body must go through ``-f`` even when the file contains ``@/…``.
+    """The reply body must never touch gh's process argv, even for ``@/…`` text.
 
-    ``-F`` reads a value starting ``@/path`` as a local file and posts its
-    contents. Using it for review-derived text would exfiltrate anything a
-    reviewer wrote a path-like snippet about. ``field_args()`` in
-    ``core.gh_cli`` picks the flag by Python type; this test pins that the CLI
-    hands the body over as a string.
+    ``graphql_checked`` sends the GraphQL request body — query and variables,
+    including ``body`` — as JSON on stdin (``gh api graphql --input -``), not
+    through ``-f``/``-F`` field flags. A value starting ``@/path`` fed through
+    ``-F`` would be read as a local file and its contents posted; stdin JSON
+    has no such special-casing at all, so this test pins that the body
+    reaches gh only via stdin and appears in no argv token whatsoever.
     """
 
-    def test_body_file_with_at_path_uses_f_not_capital_F(self):
-        # A body that a `-F` reader would treat as a file path -- exactly the
-        # trap the test exists to pin.
-        body = "@/etc/passwd"
+    def test_body_file_with_at_path_travels_on_stdin_never_in_argv(self):
+        # A body that a `-F` reader would treat as a file path, plus a shell
+        # command-substitution snippet -- both are the traps this test exists
+        # to pin: neither hazard exists once the body travels as JSON on
+        # stdin instead of a gh argv token.
+        body = "@/etc/passwd $(x)"
         # Fake the reply mutation returning a valid comment. Only one gh call
         # is expected (the reply), and it must not be a resolve.
         fake = FakeGhRunner()
@@ -245,23 +254,16 @@ class TestThreadsReplyBodyFilePassthrough(unittest.TestCase):
                 ])
 
         self.assertEqual(rc, 0, _err)
-        # Exactly one gh call, and the body was passed via -f body=...
         self.assertEqual(len(fake.calls), 1)
-        argv = fake.calls[0].argv
-        self.assertIn("-f", argv)
-        # The argument immediately after -f (of the pair) must be body=@/etc/passwd.
-        # There will be a -f for `query=@<tempfile>` and another for `body=...`;
-        # the body one is what we care about, so search argv for the exact pair.
-        # Assert: SOME `-f body=@/etc/passwd` pair exists.
-        pairs = list(zip(argv, argv[1:]))
-        self.assertIn(("-f", "body=@/etc/passwd"), pairs,
-                      f"expected `-f body=@/etc/passwd` in argv, got {argv!r}")
-        # And crucially -- there is NO -F body= pair anywhere.
-        for flag, val in pairs:
-            self.assertFalse(
-                flag == "-F" and val.startswith("body="),
-                f"body must never be routed via -F: got {flag} {val} in {argv!r}",
-            )
+        call = fake.calls[0]
+        # Body reaches gh via stdin JSON variables, verbatim ...
+        variables = graphql_variables_of(call.argv, {"input": call.input_text})
+        self.assertEqual(variables.get("body"), body)
+        # ... and appears nowhere in argv, under any flag or token.
+        self.assertFalse(
+            any(body in tok or "@/etc/passwd" in tok or "$(x)" in tok for tok in call.argv),
+            f"body must never appear in argv: got {call.argv!r}",
+        )
 
 
 class TestThreadsReplyErrorsPayloadBlocksResolve(unittest.TestCase):
@@ -504,6 +506,47 @@ class TestThreadsReplyUnreadableBodyFile(unittest.TestCase):
         self.assertEqual(fake.calls, [])
 
 
+class TestThreadsReplyWhitespaceOnlyBody(unittest.TestCase):
+    """A body that is empty (or only a stale run marker) after stripping must
+    be refused before the marker is appended, not turned into a marker-only
+    reply that slips past the empty-reply guard."""
+
+    def test_whitespace_only_body_is_refused_with_no_gh_call(self):
+        fake = FakeGhRunner()
+        fake.add(["addPullRequestReviewThreadReply"], **_reply_success_response().__dict__)
+        with TemporaryDirectory() as td:
+            body_path = Path(td) / "reply.md"
+            body_path.write_text("   \n\t\n", encoding="utf-8")
+            with _install_client(fake):
+                rc, out, _err = _run_cli([
+                    "threads", "reply", "--thread", "PRT_kwABC",
+                    "--body-file", str(body_path), "--run-id", "R",
+                ])
+        self.assertEqual(rc, 1)
+        # Same JSON shape as every other failed reply, so the resolve
+        # fragment can record it rather than finding no output at all.
+        self.assertEqual(json.loads(out)["status"], "failed")
+        self.assertIn("empty or whitespace-only", json.loads(out)["error"])
+        self.assertEqual(fake.calls, [], "no gh call must fire for a body that is empty after stripping")
+
+    def test_marker_only_body_is_refused_with_no_gh_call(self):
+        # Only a stale run marker, no reviewer-visible content at all.
+        fake = FakeGhRunner()
+        fake.add(["addPullRequestReviewThreadReply"], **_reply_success_response().__dict__)
+        with TemporaryDirectory() as td:
+            body_path = Path(td) / "reply.md"
+            body_path.write_text("<!-- dancing-bear-run: stale -->", encoding="utf-8")
+            with _install_client(fake):
+                rc, out, _err = _run_cli([
+                    "threads", "reply", "--thread", "PRT_kwABC",
+                    "--body-file", str(body_path), "--run-id", "R2",
+                ])
+        self.assertEqual(rc, 1)
+        self.assertEqual(json.loads(out)["status"], "failed")
+        self.assertIn("empty or whitespace-only", json.loads(out)["error"])
+        self.assertEqual(fake.calls, [])
+
+
 class TestThreadsReplyStripsQuotedMarkers(unittest.TestCase):
     """A marker quoted in the reply text must never be posted under our account."""
 
@@ -556,15 +599,12 @@ class TestThreadsReplyMarkerAppendedOnFirstRun(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(json.loads(out)["status"], "replied")
 
-        # The last gh call is the reply; its body kwarg carries the marker.
+        # The last gh call is the reply; its stdin JSON body variable carries the marker.
         reply_call = fake.calls[-1]
-        pairs = list(zip(reply_call.argv, reply_call.argv[1:]))
-        body_pair = next(
-            (val for flag, val in pairs if flag == "-f" and val.startswith("body=")),
-            None,
-        )
-        self.assertIsNotNone(body_pair, f"no body= arg in {reply_call.argv!r}")
-        self.assertIn("<!-- dancing-bear-run: R2 -->", body_pair)
+        variables = graphql_variables_of(reply_call.argv, {"input": reply_call.input_text})
+        body_var = variables.get("body")
+        self.assertIsNotNone(body_var, f"no body variable in stdin JSON {reply_call.input_text!r}")
+        self.assertIn("<!-- dancing-bear-run: R2 -->", body_var)
 
 
 # ---------------------------------------------------------------------------
@@ -789,9 +829,10 @@ class TestPrReviewComment(unittest.TestCase):
         fake = FakeGhRunner()
         fake.add(["pr", "view"], stdout=json.dumps({"headRefOid": "headsha"}))
         fake.add(["--method", "POST"], stdout=json.dumps({"id": 5, "html_url": "https://x/r5"}))
+        body_text = "`$(rm -rf /)` finding summary"
         with TemporaryDirectory() as td:
             body_path = Path(td) / "summary.md"
-            body_path.write_text("`$(rm -rf /)` finding summary", encoding="utf-8")
+            body_path.write_text(body_text, encoding="utf-8")
             with _install_client(fake):
                 rc, out, _err = _run_cli([
                     "pr", "review-comment", "--repo", "acme/widgets", "--pr", "3",
@@ -799,11 +840,18 @@ class TestPrReviewComment(unittest.TestCase):
                 ])
         self.assertEqual(rc, 0)
         self.assertEqual(json.loads(out), {"id": "5", "url": "https://x/r5"})
-        post = fake.calls[-1].argv
-        self.assertIn("repos/acme/widgets/pulls/3/comments", post)
-        self.assertIn("body=`$(rm -rf /)` finding summary", post)
-        self.assertIn("commit_id=headsha", post)
-        self.assertEqual(post[post.index("line=10") - 1], "-F")
+        post = fake.calls[-1]
+        self.assertIn("repos/acme/widgets/pulls/3/comments", post.argv)
+        self.assertIn("--input", post.argv)
+        # The body (and its shell metacharacters) never touch argv.
+        for tok in post.argv:
+            self.assertNotIn(body_text, tok)
+            self.assertNotIn("$(rm -rf /)", tok)
+        payload = json.loads(post.input_text)
+        self.assertEqual(payload["body"], body_text)
+        self.assertEqual(payload["line"], 10)
+        self.assertIsInstance(payload["line"], int)
+        self.assertEqual(payload["commit_id"], "headsha")
 
 
 class TestPrComments(unittest.TestCase):

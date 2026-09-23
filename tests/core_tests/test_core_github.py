@@ -181,6 +181,58 @@ class TestThreadPagination(unittest.TestCase):
         doc, _ = fetch_review_threads(GhCLI(run_func=FakeGh(handler)), "o", "r", 1)
         self.assertTrue(doc["truncated"])
 
+    def test_explicit_zero_comment_count_with_nodes_present_is_truncated(self):
+        # An explicit totalCount: 0 alongside a collected node used to be
+        # masked by `or len(nodes)`, which made the comparison vacuous
+        # (len(nodes) != len(nodes) is always False). It must fail closed.
+        def handler(call: GhCall):
+            if "reviewThreads" in call.query:
+                conn = {"totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [{"id": "PRRT_1", "comments": {
+                            "totalCount": 0, "pageInfo": {"hasNextPage": False}, "nodes": [comment_node(1)]}}]}
+                return ok({"data": {"repository": {"pullRequest": {"reviewThreads": conn}}}})
+            return ok([[]])
+        doc, _ = fetch_review_threads(GhCLI(run_func=FakeGh(handler)), "o", "r", 1)
+        self.assertTrue(doc["truncated"])
+
+    def test_missing_per_thread_comment_count_is_truncated(self):
+        # A comments connection with no totalCount key at all is a response
+        # GitHub did not fully describe, not "trust the nodes we got".
+        def handler(call: GhCall):
+            if "reviewThreads" in call.query:
+                conn = {"totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [{"id": "PRRT_1", "comments": {
+                            "pageInfo": {"hasNextPage": False}, "nodes": [comment_node(1)]}}]}
+                return ok({"data": {"repository": {"pullRequest": {"reviewThreads": conn}}}})
+            return ok([[]])
+        doc, _ = fetch_review_threads(GhCLI(run_func=FakeGh(handler)), "o", "r", 1)
+        self.assertTrue(doc["truncated"])
+
+    def test_missing_top_level_thread_count_is_truncated(self):
+        def handler(call: GhCall):
+            if "reviewThreads" in call.query:
+                conn = {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": []}
+                return ok({"data": {"repository": {"pullRequest": {"reviewThreads": conn}}}})
+            return ok([[]])
+        doc, _ = fetch_review_threads(GhCLI(run_func=FakeGh(handler)), "o", "r", 1)
+        self.assertTrue(doc["truncated"])
+        self.assertEqual(doc["threads"], [])
+
+    def test_graphql_comment_with_null_database_id_fails_the_fetch(self):
+        # threads.json promises every comment a database_id; a null
+        # databaseId from GraphQL must not serialize through silently, the
+        # same guarantee _rest_entry already enforces for REST items.
+        def handler(call: GhCall):
+            if "reviewThreads" in call.query:
+                bad = {**comment_node(1), "databaseId": None}
+                conn = {"totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [{"id": "PRRT_1", "comments": {
+                            "totalCount": 1, "pageInfo": {"hasNextPage": False}, "nodes": [bad]}}]}
+                return ok({"data": {"repository": {"pullRequest": {"reviewThreads": conn}}}})
+            return ok([[]])
+        with self.assertRaisesRegex(GhError, "no databaseId"):
+            fetch_review_threads(GhCLI(run_func=FakeGh(handler)), "o", "r", 1)
+
     def test_pr_not_found_is_an_error_not_an_empty_result(self):
         # Structurally valid, semantically empty: a wrong PR number must not
         # read as "this PR has no threads".
@@ -203,6 +255,23 @@ class TestThreadPagination(unittest.TestCase):
                     "nodes": [comment_node(0), comment_node(1)]}
             return ok({"data": {"node": {"comments": conn}}})
         with self.assertRaisesRegex(GhError, "fetched 2 of 5"):
+            fetch_thread_comments(GhCLI(run_func=FakeGh(handler)), "PRRT_0")
+
+    def test_fetch_thread_comments_refuses_a_missing_count(self):
+        # No totalCount key at all must not read as "0 reported, 0 fetched,
+        # clean" — GitHub not describing the count is itself a failure.
+        def handler(call: GhCall):
+            conn = {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": []}
+            return ok({"data": {"node": {"comments": conn}}})
+        with self.assertRaisesRegex(GhError, "fetched 0 of None"):
+            fetch_thread_comments(GhCLI(run_func=FakeGh(handler)), "PRRT_0")
+
+    def test_fetch_thread_comments_refuses_a_null_database_id(self):
+        def handler(call: GhCall):
+            bad = {**comment_node(0), "databaseId": None}
+            conn = {"totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [bad]}
+            return ok({"data": {"node": {"comments": conn}}})
+        with self.assertRaisesRegex(GhError, "no databaseId"):
             fetch_thread_comments(GhCLI(run_func=FakeGh(handler)), "PRRT_0")
 
     def test_fetch_thread_comments_follows_every_page(self):
@@ -244,6 +313,16 @@ class TestFetchThreadStates(unittest.TestCase):
         # The mismatched fetch still returns what came back; callers (cmd_threads_state)
         # are the ones that must refuse to report counts when truncated is True.
         self.assertEqual(len(nodes), 1)
+
+    def test_missing_total_count_is_truncated_even_with_zero_threads(self):
+        # 0 collected == 0 reported used to read as clean when totalCount was
+        # simply absent; the count itself being unreported must fail closed.
+        def handler(call: GhCall):
+            conn = {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": []}
+            return ok({"data": {"repository": {"pullRequest": {"reviewThreads": conn}}}})
+        nodes, truncated = fetch_thread_states(GhCLI(run_func=FakeGh(handler)), "o", "r", 1)
+        self.assertTrue(truncated)
+        self.assertEqual(nodes, [])
 
 
 # ---------------------------------------------------------------------------
@@ -443,6 +522,21 @@ class TestReplyAndResolve(unittest.TestCase):
         self.assertEqual(out.count("dancing-bear-run"), 1)
         self.assertTrue(out.endswith("\n\n" + run_marker("R")))
         self.assertEqual(mark_body("x " + run_marker("A"), None), "x")
+
+    def test_mark_body_rejects_whitespace_only_body_before_appending_marker(self):
+        # A body that is only whitespace, or only a quoted run marker, must be
+        # refused BEFORE the new marker is appended -- appending first would
+        # turn "" into "\n\n<!-- dancing-bear-run: R -->", a non-empty string
+        # that reply_to_thread's `.strip()` guard would then wave through as
+        # a marker-only reply with no reviewer-visible content.
+        for bad_body in ("   ", "\n\t\n", run_marker("stale-run"), "  " + run_marker("stale-run") + "  "):
+            with self.subTest(bad_body=bad_body):
+                with self.assertRaisesRegex(GhError, "empty or whitespace-only"):
+                    mark_body(bad_body, "R")
+                # Also refused with no run_id, where mark_body would otherwise
+                # just return the empty string rather than raise.
+                with self.assertRaisesRegex(GhError, "empty or whitespace-only"):
+                    mark_body(bad_body, None)
 
     def test_viewer_login_fails_closed(self):
         for payload in ({"data": {"viewer": {"login": ""}}}, {"data": {"viewer": None}}):

@@ -1,10 +1,15 @@
 """A fake ``subprocess.run`` for GhCLI that answers like gh and records every call.
 
-GraphQL calls are dispatched on the query text, which GhCLI writes to a temp
-file passed as ``-F query=@<path>``; the fake reads that file during the call,
-while it still exists. Variables arrive as ``-f``/``-F`` pairs and are recorded
-with the flag that carried them, so a test can assert *how* a value was sent,
-not just that it was.
+GraphQL calls (``gh api graphql --input -``) and REST POSTs
+(``gh api --method POST <path> --input -``) both send their request body as
+JSON on stdin. The fake parses that JSON off ``kwargs["input"]`` and exposes
+each field via ``call.fields``/``call.value()`` — tagged ``"-F"`` for a
+non-string (int/bool) value and ``"-f"`` for a string, mirroring the old
+argv-flag convention — so existing assertions about *how* a value was sent
+keep working: they now mean "was in the stdin JSON", never argv. GraphQL
+calls additionally expose the query text via ``call.query``. ``search_prs``
+and other argv-flag calls are unaffected and still send their fields as
+``-f``/``-F`` argv pairs, which are parsed as before.
 """
 
 from __future__ import annotations
@@ -33,6 +38,26 @@ class GhCall:
 def parse_call(argv: list[str], kwargs: dict[str, Any]) -> GhCall:
     call = GhCall(argv=list(argv), input=kwargs.get("input"), env=kwargs.get("env"),
                   timeout=kwargs.get("timeout"))
+    if argv[:3] == ["gh", "api", "graphql"] and "--input" in argv:
+        # Request body travels as JSON on stdin: {"query": ..., "variables": {...}}.
+        # Represent each variable as if it arrived via "-f" so existing
+        # call.value()/call.fields assertions are unaffected by the transport
+        # change — they now assert "in the stdin JSON", not "in argv".
+        payload = json.loads(kwargs.get("input") or "{}")
+        call.query = payload.get("query", "")
+        for key, val in (payload.get("variables") or {}).items():
+            call.fields[key] = ("-f", val if isinstance(val, str) else json.dumps(val))
+        return call
+    if "--method" in argv and "POST" in argv and "--input" in argv:
+        # REST POST body travels as JSON on stdin too: {"body": ..., "line": 12, ...}.
+        # Tag string values "-f" and non-string (int/bool) values "-F" so
+        # existing call.value()/call.fields assertions keep meaning "was
+        # sent", now against the stdin JSON instead of argv -f/-F pairs.
+        payload = json.loads(kwargs.get("input") or "{}")
+        for key, val in payload.items():
+            tag = "-f" if isinstance(val, str) else "-F"
+            call.fields[key] = (tag, val if isinstance(val, str) else json.dumps(val))
+        return call
     i = 0
     while i < len(argv):
         tok = argv[i]

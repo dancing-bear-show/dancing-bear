@@ -1,7 +1,10 @@
 # GitHub CLI
 
 Thin porcelain over `core.github`. Every subcommand parses arguments, reads any
-body from a file, calls into `core.github`, and prints JSON.
+body from a file, and calls into `core.github`. Output is command-specific:
+most subcommands print JSON, but `repo` defaults to plain `owner/name` text
+(`--format json` for JSON), `pr diff` and `run log` print raw text, and
+`pr comment` prints a bare URL.
 
 ```
 ./bin/github repo

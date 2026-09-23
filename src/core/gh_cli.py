@@ -135,11 +135,19 @@ class GhCLI:
     def api_post(self, path: str, fields: dict[str, Any]) -> dict[str, Any]:
         """POST to a REST endpoint and return the created object.
 
-        Fields go through ``field_args``: strings are literal (``-f``), ints
-        are typed (``-F``), so a body starting with ``@`` is never read as a
-        file. Raises on a non-zero exit or a response that is not an object.
+        Fields are sent as a JSON object on stdin (``gh api --method POST
+        <path> --input -``), matching ``graphql_checked``'s transport: JSON
+        keeps an int like ``line`` an integer and a string like ``body`` a
+        literal string, so no field — including review-derived text —
+        touches the ``gh`` process argv or is misread as an ``@path`` file
+        reference. ``None``-valued fields are omitted. Raises on a non-zero
+        exit or a response that is not an object.
         """
-        res = self._exec(["gh", "api", "--method", "POST", path, *field_args(fields)])
+        clean_fields = {k: v for k, v in (fields or {}).items() if v is not None}
+        res = self._exec(
+            ["gh", "api", "--method", "POST", path, "--input", "-"],
+            input_text=json.dumps(clean_fields),
+        )
         if res.returncode != 0:
             raise GhError(res.stderr or res.stdout or f"gh api POST {path} failed")
         try:
@@ -157,13 +165,20 @@ class GhCLI:
         array, so exit status alone says nothing about whether a mutation
         landed. This raises on a non-zero exit, a non-JSON body, an ``errors``
         array, or a missing ``data`` object.
+
+        The request body — query and variables together — is sent as JSON on
+        stdin (``gh api graphql --input -``), not through ``-f``/``-F`` field
+        flags or a ``query=@tempfile`` reference. Every variable, including
+        review-derived text such as a reply body, therefore never touches the
+        ``gh`` process argv: nothing here can appear in process listings, hit
+        the OS argv-size limit, or be misread as an ``@path`` file reference.
+        ``None``-valued variables are omitted, matching ``field_args``.
         """
-        qfile_path = None
-        try:
-            qfile_path = self._write_query_tempfile(query)
-            res = self._exec(self._build_graphql_cmd(query, qfile_path, variables))
-        finally:
-            self._cleanup_tempfile(qfile_path)
+        body: dict[str, Any] = {"query": query}
+        clean_vars = {k: v for k, v in (variables or {}).items() if v is not None}
+        if clean_vars:
+            body["variables"] = clean_vars
+        res = self._exec(["gh", "api", "graphql", "--input", "-"], input_text=json.dumps(body))
         try:
             payload = json.loads(res.stdout or "null")
         except json.JSONDecodeError:

@@ -110,19 +110,22 @@ def _dig(data: Any, *keys: str, what: str) -> Any:
     return cur
 
 
-def _page_thread_comments(gh: GhCLI, thread_id: str, after: str | None) -> tuple[list[dict[str, Any]], int]:
+def _page_thread_comments(gh: GhCLI, thread_id: str, after: str | None) -> tuple[list[dict[str, Any]], int | None]:
     """Fetch the comments of one thread starting after ``after``.
 
-    Returns (comment nodes, totalCount).
+    Returns (comment nodes, totalCount). totalCount is None when GitHub's
+    response omitted it — callers must not treat that as "reported 0"; a
+    missing count on an otherwise-empty page must not read as confirmed empty.
     """
     nodes: list[dict[str, Any]] = []
-    total = 0
+    total: int | None = None
     cursor = after
     for _ in range(MAX_PAGES):
         data = gh.graphql_checked(THREAD_COMMENTS_QUERY, {"id": thread_id, "after": cursor})
         conn = _dig(data, "node", "comments", what=f"thread {thread_id} comments")
         nodes.extend(conn.get("nodes") or [])
-        total = int(conn.get("totalCount") or 0)
+        raw_total = conn.get("totalCount")
+        total = int(raw_total) if raw_total is not None else None
         cursor = _next_cursor(conn.get("pageInfo"), cursor, f"thread {thread_id} comments")
         if cursor is None:
             return nodes, total
@@ -135,14 +138,15 @@ def fetch_thread_comments(gh: GhCLI, thread_id: str) -> list[dict[str, Any]]:
     Used to check idempotency markers before replying: the whole chain, not the
     latest comment, because a reviewer may have replied after our last run.
 
-    Raises when GitHub reports more comments than came back. An incomplete
-    chain can hide this run's earlier reply, and the caller would then post a
-    duplicate — so a short chain must fail, not read as "no marker".
+    Raises when GitHub reports more comments than came back, or omits the
+    count entirely. An incomplete chain can hide this run's earlier reply,
+    and the caller would then post a duplicate — so a short or unreported
+    chain must fail, not read as "no marker".
     """
     nodes, total = _page_thread_comments(gh, thread_id, None)
-    if len(nodes) != total:
+    if total is None or len(nodes) != total:
         raise GhError(f"thread {thread_id} comments: fetched {len(nodes)} of {total} reported")
-    return [_comment(n) for n in nodes]
+    return [_comment(n, thread_id) for n in nodes]
 
 
 def fetch_raw_threads(gh: GhCLI, owner: str, repo: str, pr: int) -> tuple[list[dict[str, Any]], bool]:
@@ -155,21 +159,22 @@ def fetch_raw_threads(gh: GhCLI, owner: str, repo: str, pr: int) -> tuple[list[d
     threads: list[dict[str, Any]] = []
     truncated = False
     cursor: str | None = None
-    reported_total = 0
+    reported_total: int | None = None
     for _ in range(MAX_PAGES):
         data = gh.graphql_checked(
             THREADS_QUERY, {"owner": owner, "name": repo, "pr": int(pr), "after": cursor},
         )
         conn = _dig(data, "repository", "pullRequest", "reviewThreads", what=f"PR #{pr} threads")
         threads.extend(conn.get("nodes") or [])
-        reported_total = int(conn.get("totalCount") or 0)
+        raw_total = conn.get("totalCount")
+        reported_total = int(raw_total) if raw_total is not None else None
         cursor = _next_cursor(conn.get("pageInfo"), cursor, f"PR #{pr} threads")
         if cursor is None:
             break
     else:
         raise GhError(f"PR #{pr} threads: exceeded {MAX_PAGES} pages")
 
-    if len(threads) != reported_total:
+    if reported_total is None or len(threads) != reported_total:
         truncated = True
 
     for node in threads:
@@ -179,7 +184,11 @@ def fetch_raw_threads(gh: GhCLI, owner: str, repo: str, pr: int) -> tuple[list[d
         if more is not None:
             extra, _ = _page_thread_comments(gh, str(node["id"]), more)
             nodes.extend(extra)
-        if len(nodes) != int(comments.get("totalCount") or len(nodes)):
+        # A missing totalCount is not "trust the nodes we got" — it is a
+        # response GitHub did not fully describe, and must fail closed the
+        # same as an explicit count that disagrees with what was collected.
+        thread_total = comments.get("totalCount")
+        if thread_total is None or len(nodes) != int(thread_total):
             truncated = True
         node["comments"] = {"totalCount": comments.get("totalCount"), "nodes": nodes}
     return threads, truncated
@@ -198,26 +207,34 @@ def fetch_thread_states(gh: GhCLI, owner: str, repo: str, pr: int) -> tuple[list
     threads: list[dict[str, Any]] = []
     truncated = False
     cursor: str | None = None
-    reported_total = 0
+    reported_total: int | None = None
     for _ in range(MAX_PAGES):
         data = gh.graphql_checked(
             THREAD_STATE_QUERY, {"owner": owner, "name": repo, "pr": int(pr), "after": cursor},
         )
         conn = _dig(data, "repository", "pullRequest", "reviewThreads", what=f"PR #{pr} thread states")
         threads.extend(conn.get("nodes") or [])
-        reported_total = int(conn.get("totalCount") or 0)
+        raw_total = conn.get("totalCount")
+        reported_total = int(raw_total) if raw_total is not None else None
         cursor = _next_cursor(conn.get("pageInfo"), cursor, f"PR #{pr} thread states")
         if cursor is None:
             break
     else:
         raise GhError(f"PR #{pr} thread states: exceeded {MAX_PAGES} pages")
 
-    if len(threads) != reported_total:
+    if reported_total is None or len(threads) != reported_total:
         truncated = True
     return threads, truncated
 
 
-def _comment(node: dict[str, Any]) -> dict[str, Any]:
+def _comment(node: dict[str, Any], thread_id: str | None = None) -> dict[str, Any]:
+    # The threads.json contract promises every comment a database id, and
+    # review-fix-threads matches comments by it; a null id from GraphQL
+    # would serialize silently and break that matching downstream, so fail
+    # the fetch now, the same as _rest_entry already does for REST items.
+    database_id = node.get("databaseId")
+    if database_id is None:
+        raise GhError(f"thread {thread_id} comment has no databaseId; cannot give it a stable identity")
     author = node.get("author") or {}
     return {
         "author": author.get("login") or "",
@@ -225,12 +242,13 @@ def _comment(node: dict[str, Any]) -> dict[str, Any]:
         "body": node.get("body") or "",
         "created_at": node.get("createdAt"),
         "url": node.get("url"),
-        "database_id": node.get("databaseId"),
+        "database_id": database_id,
     }
 
 
 def _graphql_entry(node: dict[str, Any]) -> dict[str, Any]:
-    comments = [_comment(c) for c in (node.get("comments") or {}).get("nodes") or []]
+    thread_id = node.get("id")
+    comments = [_comment(c, thread_id) for c in (node.get("comments") or {}).get("nodes") or []]
     opening = comments[0] if comments else {}
     latest = comments[-1] if comments else {}
     return {

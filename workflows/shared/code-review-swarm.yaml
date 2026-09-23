@@ -145,7 +145,7 @@ stages:
               ./bin/github pr view --pr {pr_number} --value headRefOid
             If {pr_number} is blank (branch-detected PR), omit --pr:
               ./bin/github pr view --value headRefOid
-          owner_repo: ./bin/github repo --format json | python3 -I -S -c "import sys,json; print(json.load(sys.stdin)['nameWithOwner'])"
+          owner_repo: ./bin/github repo
         These fields are required by the post-comments stage for the GitHub API.
 
       Step 2 — changed files and raw diff:

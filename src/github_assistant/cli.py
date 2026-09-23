@@ -251,7 +251,11 @@ def cmd_threads_reply(args) -> int:
     """
     gh = _gh()
     thread_id = str(args.thread)
-    body = mark_body(_read_body(args.body_file), args.run_id)
+    try:
+        body = mark_body(_read_body(args.body_file), args.run_id)
+    except GhError as exc:
+        # An empty reply is a failed reply: same JSON shape, nothing posted.
+        return _handle_reply_failure(thread_id, exc)
     forged = False
 
     if args.run_id:

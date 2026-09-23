@@ -184,11 +184,33 @@ class TestPrReviewComment(unittest.TestCase):
         out = pulls.pr_review_comment(gh, "o", "r", 7, path="a.py", line=12, body="@/etc/passwd")
         self.assertEqual(out, {"id": "99", "url": "https://x/r99"})
         post = fake.calls[-1]
-        self.assertEqual(post.argv[:5], ["gh", "api", "--method", "POST", "repos/o/r/pulls/7/comments"])
+        self.assertEqual(
+            post.argv[:5], ["gh", "api", "--method", "POST", "repos/o/r/pulls/7/comments"],
+        )
+        self.assertIn("--input", post.argv)
         self.assertEqual(post.fields["line"], ("-F", "12"))
         self.assertEqual(post.fields["body"], ("-f", "@/etc/passwd"))
         self.assertEqual(post.fields["commit_id"], ("-f", "headsha123"))
         self.assertEqual(post.fields["side"], ("-f", "RIGHT"))
+        # The body never touches argv, and the stdin JSON keeps line an int.
+        self.assertNotIn("@/etc/passwd", post.argv)
+        payload = json.loads(post.input)
+        self.assertEqual(payload["body"], "@/etc/passwd")
+        self.assertEqual(payload["line"], 12)
+        self.assertIsInstance(payload["line"], int)
+        self.assertEqual(payload["commit_id"], "headsha123")
+
+    def test_shell_metacharacters_in_body_stay_off_argv(self):
+        gh, fake = _gh(self._handler({"id": 100, "html_url": "https://x/r100"}))
+        body = "@/etc/passwd and $(x)"
+        pulls.pr_review_comment(gh, "o", "r", 7, path="a.py", line=1, body=body, commit_id="abc")
+        post = fake.calls[-1]
+        self.assertNotIn(body, post.argv)
+        for tok in post.argv:
+            self.assertNotIn("$(x)", tok)
+            self.assertNotIn("@/etc/passwd", tok)
+        payload = json.loads(post.input)
+        self.assertEqual(payload["body"], body)
 
     def test_explicit_commit_skips_the_head_lookup(self):
         gh, fake = _gh(self._handler({"id": 1}))
