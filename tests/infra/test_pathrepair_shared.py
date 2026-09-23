@@ -44,6 +44,7 @@ OWN_SRC = str(REPO_ROOT / "src")
 STANDALONE_SCRIPTS = (
     ("llm", "core.llm_cli"),
     ("path-guard", "core.path_guard"),
+    ("pr-assistant", "core.github"),
 )
 
 
@@ -289,6 +290,28 @@ class TestStandaloneScriptsImportSuccessfully(unittest.TestCase):
                 f"path-guard refused a legitimate repo file:\n{proc.stderr}",
             )
 
+    def test_pr_assistant_help_succeeds_with_foreign_checkout_ahead(self) -> None:
+        """pr-assistant imports ``core.github``; a foreign shadow must not win.
+
+        A ModuleNotFoundError against the decoy checkout's ``core`` package
+        would be the visible failure without the repair; against a real sibling
+        checkout that also carries ``core.github``, the script would import
+        and run the OTHER tree's code silently. ``--help`` avoids any gh call.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            foreign = make_fake_checkout(Path(td, "other-checkout"))
+            combined = os.pathsep.join([str(foreign), OWN_SRC])
+
+            proc = self._run("pr-assistant", ["--help"], combined)
+
+            self.assertEqual(
+                proc.returncode,
+                0,
+                "bin/pr-assistant failed with a sibling checkout ahead on "
+                f"PYTHONPATH:\n{proc.stderr}",
+            )
+            self.assertIn("usage: pr-assistant", proc.stdout + proc.stderr)
+
 
 class TestPathRepairIsShared(unittest.TestCase):
     """One implementation, not three copies.
@@ -300,7 +323,7 @@ class TestPathRepairIsShared(unittest.TestCase):
     """
 
     def test_all_three_entry_points_load_the_shared_module(self) -> None:
-        scripts = ["_router.py", "llm", "path-guard"]
+        scripts = ["_router.py", "llm", "path-guard", "pr-assistant"]
         for script in scripts:
             with self.subTest(script=script):
                 text = (BIN_DIR / script).read_text()
@@ -328,7 +351,7 @@ class TestPathRepairIsShared(unittest.TestCase):
         still passes every state assertion in this file on machines without a
         ``.venv`` — while silently doing nothing on machines with one.
         """
-        for script in ["_router.py", "llm", "path-guard"]:
+        for script in ["_router.py", "llm", "path-guard", "pr-assistant"]:
             with self.subTest(script=script):
                 text = (BIN_DIR / script).read_text()
                 strip_at = text.index("strip_foreign_src_paths(_REPO_ROOT)")
@@ -360,7 +383,7 @@ class TestPathRepairIsShared(unittest.TestCase):
 
     def test_scripts_load_it_by_path_not_by_import(self) -> None:
         """A plain ``import _pathrepair`` would be subject to the same hijack."""
-        for script in ["_router.py", "llm", "path-guard"]:
+        for script in ["_router.py", "llm", "path-guard", "pr-assistant"]:
             with self.subTest(script=script):
                 text = (BIN_DIR / script).read_text()
                 self.assertIn("spec_from_file_location", text)

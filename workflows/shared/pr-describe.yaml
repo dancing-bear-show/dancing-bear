@@ -32,13 +32,13 @@ stages:
       Rewrite the title and description of PR {pr_number} to match what the
       branch actually does now.
 
-      Prefix every gh command with `GITHUB_TOKEN=` (a stale token env var
-      silently breaks auth).
+      Use the github CLI for all GitHub access — it handles GITHUB_TOKEN
+      scrubbing internally. Do not re-implement this with raw gh.
 
       Step 1 — read the current state:
-        GITHUB_TOKEN= gh pr view {pr_number} --json number,title,body,baseRefName,headRefName
-        GITHUB_TOKEN= gh pr diff {pr_number} --name-only
-        GITHUB_TOKEN= gh pr diff {pr_number} | head -2000
+        ./bin/github pr view --pr {pr_number} --fields number,title,body,baseRefName,headRefName
+        ./bin/github pr diff --pr {pr_number} --name-only
+        ./bin/github pr diff --pr {pr_number} | head -2000
         git log --oneline origin/main..HEAD
 
       Read the diff itself, not just the commit subjects. Fixes applied during
@@ -93,14 +93,16 @@ stages:
       senior engineer write this in a design doc? Rewrite rather than pad.
 
       Step 6 — push it:
-        GITHUB_TOKEN= gh pr edit {pr_number} --title "<title>" --body-file {workspace}/outputs/pr-description.md
+        ./bin/github pr edit --pr {pr_number} --title "<title>" --body-file {workspace}/outputs/pr-description.md
 
       Use --body-file, never --body with an inline string: a description
       containing backticks, quotes, or newlines is mangled by shell quoting,
       and that failure is silent — gh exits 0 with a corrupted body.
+      ./bin/github pr edit reads the PR back and exits 1 if GitHub does not
+      hold what was sent, so the verify step below is guaranteed in code.
 
       Step 7 — verify the edit landed by re-fetching:
-        GITHUB_TOKEN= gh pr view {pr_number} --json title,body
+        ./bin/github pr view --pr {pr_number} --fields title,body
 
       Write {workspace}/outputs/pr-describe-result.json:
         {

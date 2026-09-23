@@ -121,18 +121,18 @@ stages:
           mkdir -p {workspace}/outputs/diffs {workspace}/outputs/findings {workspace}/validation
 
       Step 1 — resolve PR number and repository context.
-        Prefix every gh command with `GITHUB_TOKEN=` — a stale token env var
-        silently breaks auth. There is no `gh pr-view` subcommand; use `gh pr view`.
+        Use the github CLI for all GitHub access — it handles GITHUB_TOKEN
+        scrubbing internally, so no GITHUB_TOKEN= prefix is needed. Do not
+        re-implement this with raw gh.
 
-        Resolve owner/repo rather than hardcoding:
-          NWO=$(GITHUB_TOKEN= gh repo view --json nameWithOwner -q .nameWithOwner)
-          OWNER=${NWO%%/*}; REPO=${NWO##*/}
+        Owner/repo is the default context for every github CLI call;
+        no preamble is required.
 
         If {pr_number} is blank, detect from current branch:
           git rev-parse --abbrev-ref HEAD
-          GITHUB_TOKEN= gh pr view --json number,title,body,baseRefName,headRefName,author,headRefOid
+          ./bin/github pr view --fields number,title,body,baseRefName,headRefName,author,headRefOid
         Otherwise:
-          GITHUB_TOKEN= gh pr view {pr_number} --json number,title,body,baseRefName,headRefName,author,headRefOid
+          ./bin/github pr view --pr {pr_number} --fields number,title,body,baseRefName,headRefName,author,headRefOid
         Write to {workspace}/outputs/pr-context.json.
         Record: title, body, base branch, head branch, author.
 
@@ -142,11 +142,10 @@ stages:
             (refs/pull/N/merge) that is not reachable from the PR branch;
             GitHub's review comment API rejects such SHAs with HTTP 422.
             Fetch the authoritative head SHA from the GitHub API instead:
-              gh pr view {pr_number} --json headRefOid --jq '.headRefOid'
+              ./bin/github pr view --pr {pr_number} --value headRefOid
             If {pr_number} is blank (branch-detected PR), omit --pr:
-              gh pr view --json headRefOid --jq '.headRefOid'
-          owner_repo: $(git remote get-url origin \
-            | sed 's|.*github.com[:/]\(.*\)\.git|\1|; s|.*github.com[:/]\(.*\)|\1|')
+              ./bin/github pr view --value headRefOid
+          owner_repo: ./bin/github repo
         These fields are required by the post-comments stage for the GitHub API.
 
       Step 2 — changed files and raw diff:
@@ -156,11 +155,11 @@ stages:
         Use an explicit blank-check so auto-detect only fires when {pr_number} is truly
         absent (never as a silent fallback for an invalid/unresolvable PR number):
           if [ -n "{pr_number}" ]; then
-            BASE_SHA=$(gh pr view {pr_number} --json baseRefOid --jq '.baseRefOid')
-            HEAD_SHA=$(gh pr view {pr_number} --json headRefOid --jq '.headRefOid')
+            BASE_SHA=$(./bin/github pr view --pr {pr_number} --value baseRefOid)
+            HEAD_SHA=$(./bin/github pr view --pr {pr_number} --value headRefOid)
           else
-            BASE_SHA=$(gh pr view --json baseRefOid --jq '.baseRefOid')
-            HEAD_SHA=$(gh pr view --json headRefOid --jq '.headRefOid')
+            BASE_SHA=$(./bin/github pr view --value baseRefOid)
+            HEAD_SHA=$(./bin/github pr view --value headRefOid)
           fi
         Then also find the true merge-base so even if the PR description's
         baseRefOid is a later commit we get only the PR's own changes:
@@ -954,7 +953,7 @@ stages:
         writes two fields required by the GitHub API:
           owner_repo  — "org/repo" string (e.g. "brian-sherwin/dancing-bear")
           commit_id   — PR branch head SHA (fetched from GitHub API via
-                        `gh pr view --json headRefOid`; never git rev-parse HEAD
+                        `./bin/github pr view --value headRefOid`; never git rev-parse HEAD
                         which resolves to a synthetic merge commit in CI)
         Both fields are guaranteed to be present; fail fast if either is absent.
 
@@ -990,33 +989,22 @@ stages:
         Write the body to /tmp/cr-summary-body.txt, then post as a single
         PR review comment anchored to the first finding's line in the first
         finding's file (use the first critical finding if any; otherwise first
-        major; otherwise first minor):
-        First bind every value to a shell variable — the placeholders below are
-        for you to substitute, and sending one verbatim fails. PR_NUM and
-        COMMIT_ID come from the pr-context.json written in Step 1; the path and
-        line come from the selected finding:
+        major; otherwise first minor).
 
-          PR_NUM=$(jq -r '.number' {workspace}/outputs/pr-context.json)
-          COMMIT_ID=$(jq -r '.commit_id' {workspace}/outputs/pr-context.json)
-          FINDING_PATH=<selected finding's file>
-          FINDING_LINE=<selected finding's line>
-
-        Then post:
-          GITHUB_TOKEN= gh api "repos/$OWNER/$REPO/pulls/$PR_NUM/comments" \
-            -f path="$FINDING_PATH" \
-            -F line="$FINDING_LINE" \
-            -f side=RIGHT \
-            -f commit_id="$COMMIT_ID" \
-            -f body="$(cat /tmp/cr-summary-body.txt)"
-
-        There is no `gh pr-review-comment` subcommand — inline review comments
-        go through the REST API above. Use -F (not -f) for line so it is sent
-        as a number. commit_id must be the PR head SHA captured in Step 1, not
-        `git rev-parse HEAD`: in CI, HEAD is a synthetic merge commit that is
-        unreachable from the PR branch, and GitHub rejects it with HTTP 422.
-
+        Then post the comment body file using the GitHub CLI:
+          ./bin/github pr review-comment --pr {pr_number} \
+            --path FIRST_FINDING_PATH --line FIRST_FINDING_LINE --side RIGHT \
+            --body-file /tmp/cr-summary-body.txt
         This posts one consolidated comment thread rather than N individual
-        threads, keeping the PR review tab readable.
+        threads, keeping the PR review tab readable. Do not re-implement this
+        with raw gh. `pr review-comment` reads owner_repo from the current
+        checkout by default (pass --repo to override), sends --line as a
+        number, reads the body only from the file, and defaults --commit to
+        the PR head SHA fetched from GitHub — never git rev-parse HEAD, which
+        in CI resolves to a synthetic merge commit that GitHub rejects with
+        HTTP 422. Anchor path/line to the first finding's file and line (the
+        first critical finding if any; otherwise first major; otherwise first
+        minor), matching Step 2's selection above.
 
       Step 3 — track results:
         Write {workspace}/outputs/post-results.json:

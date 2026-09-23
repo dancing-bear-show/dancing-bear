@@ -139,71 +139,41 @@ stages:
     depends_on: [init]
     description: >
       Fetch human and Copilot review comments. Supports two modes.
-      All GitHub access uses the native `gh` CLI. Prefix commands with
-      `GITHUB_TOKEN=` if a stale token env var is present.
-
-      Step 0 — resolve owner/repo FIRST (before any command below):
-        Run once and export into shell variables so every later command can
-        reference $OWNER and $REPO:
-          NWO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-          OWNER=${NWO%%/*}
-          REPO=${NWO##*/}
-        Every gh command below uses $OWNER/$REPO — never the literal tokens.
+      All GitHub access goes through `./bin/github`, which scrubs a stale
+      GITHUB_TOKEN automatically — no `GITHUB_TOKEN=` prefix or owner/repo
+      preamble needed. Do not re-implement these fetches with raw gh.
 
       MODE A — single PR (when pr_number param is non-empty, e.g. "112"):
         Skip the merged-PR list entirely.
-        Fetch all three comment sources for that one PR:
-          # 1. GraphQL review threads (unresolved + resolved discussion threads)
-          gh api graphql -f query='
-            query($owner:String!,$name:String!,$pr:Int!){
-              repository(owner:$owner,name:$name){
-                pullRequest(number:$pr){
-                  reviewThreads(first:100){
-                    pageInfo{ hasNextPage endCursor }
-                    nodes{
-                      isResolved
-                      comments(first:50){
-                        totalCount
-                        pageInfo{ hasNextPage endCursor }
-                        nodes{author { login } body path line}
-                      }
-                    }
-                  }
-                }
-              }
-            }' -F owner="$OWNER" -F name="$REPO" -F pr=<PR>
-          # Paginate BOTH levels, each with its own cursor from the pageInfo
-          # blocks above:
-          #   threads  — while reviewThreads.pageInfo.hasNextPage, re-run with
-          #              reviewThreads(first:100, after:"<endCursor>")
-          #   comments — while a thread's comments.pageInfo.hasNextPage, re-run
-          #              that thread with comments(first:50, after:"<endCursor>")
-          # Silent truncation is the failure mode here — a PR with >100 threads
-          # looks identical to a clean one, and this stage mines patterns from
-          # counts, so dropped threads skew the result rather than erroring.
-          # Record any page you could not fetch in skipped-prs.json.
-          # 2. REST inline (diff-line) comments — Copilot inline feedback lives here
-          gh api "repos/$OWNER/$REPO/pulls/<PR>/comments"
-          # 3. REST PR-level (conversation) comments — served by the issues endpoint;
-          #    tag these with is_pr_level=true and path=null when merging.
-          gh api "repos/$OWNER/$REPO/issues/<PR>/comments"
-        Write merged-prs.json as a single-element list with the PR's metadata
-        (use `gh pr view <PR> --json number,title,mergedAt` to get title).
+        Fetch all three comment surfaces for that one PR:
+          # 1. GraphQL review threads (full comment chains), plus REST review
+          #    bodies and REST PR-level (conversation) comments, which it
+          #    tags source=issue-comment with path=null. All paginated; a
+          #    count mismatch writes truncated:true AND exits non-zero —
+          #    treat that PR as skipped, never mine a partial set. The old raw GraphQL
+          #    approach capped threads at 100 with no pagination check —
+          #    that defect is now closed in code.
+          ./bin/github threads fetch --pr <PR> --out {workspace}/outputs/threads-<PR>.json
+          # 2. REST inline (diff-line) comments — Copilot inline feedback
+          #    lives here; threads fetch does not return this endpoint.
+          ./bin/github pr comments --pr <PR> --kind review
+        Write merged-prs.json as a single-element list with the PR's metadata:
+          ./bin/github pr view --pr <PR> --fields number,title,mergedAt
         Set min_occurrences threshold to 1 for this mode — a single PR is the
         full universe, so patterns that appear even once are worth proposing.
 
       MODE B — merged PR history (when pr_number param is blank):
         Step 1 — list recently merged PRs:
-          gh pr list --state merged --limit 50 --json number,title,mergedAt
+          ./bin/github pr list --state merged --limit 50 --fields number,title,mergedAt
           Filter to PRs merged within the last {window_days} days.
           Write the filtered PR list (number, title, mergedAt) to
           {workspace}/outputs/merged-prs.json.
           If no PRs found, write [] and exit 0.
         Step 2 — for each merged PR (up to {max_prs} most recent), fetch all
-        three sources with the same gh commands shown in MODE A (substituting
-        the PR number). Wrap each PR's fetch so a single failed call does NOT
-        abort the loop: on non-zero exit, log the skipped PR number to
-        {workspace}/outputs/skipped-prs.json and continue to the next PR.
+        three sources with the same github CLI calls shown in MODE A
+        (substituting the PR number). Wrap each PR's fetch so a single failed
+        call does NOT abort the loop: on non-zero exit, log the skipped PR
+        number to {workspace}/outputs/skipped-prs.json and continue.
 
       Merge all sources into a flat list of comment objects, each with:
         {
@@ -230,7 +200,9 @@ stages:
         comment:
 
           role = "author_reply" when the comment's author equals the PR author
-            (resolve once per PR: gh pr view <PR> --json author -q .author.login).
+            (resolve once per PR:
+              ./bin/github pr view --pr <PR> --value author
+            then parse `.login` from the JSON object returned).
             Everything else is role = "finding".
 
         Then set `disposition` on each *finding* by inspecting the author_reply

@@ -80,9 +80,7 @@ stages:
 
       If {scope} is "changed" (the default):
         If {pr_number} is set:
-          gh pr diff {pr_number} --name-only
-          (Raw gh is intentional here, and is the only approved use of raw gh
-          in this workflow.)
+          ./bin/github pr diff --pr {pr_number} --name-only
           Filter the output to .py files under {source_root} or {test_path}.
         Otherwise:
           git diff origin/main...HEAD --name-only

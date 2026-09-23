@@ -87,8 +87,8 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 - Flags (`--dry-run`, `--profile`, `--format`) always follow the subcommand
 - The `assistant` dispatcher strips the app name and passes remaining argv directly to the app's `main()`
 - The workflow engine (`src/workflow/compiler.py`) inserts `--` before flags for most skills; `llm` and `docs` CLIs are exempt (`_NO_SEPARATOR_CLIS`). `docs` is reserved for a planned external documentation CLI — no `bin/docs` ships today
-- `--` separator is now **optional** for all CLIApp-based CLIs (mail, calendar, schedule, resume, phone, whatsapp, desk, wifi, maker, apple_music, workflow, worker, slides, sheets, telemetry, qlty, charts, diagrams); `src/core/cli_framework.py` strips bare `--` tokens automatically. The workflow engine's `_NO_SEPARATOR_CLIS` exemption for `llm`/`docs` remains unchanged.
-- Auto-derived agentic schema: **all 18 apps** support `--agentic --agentic-format json` to emit a machine-readable parser schema that never drifts from the real CLI; add `--agentic-compact` to strip low-value fields; add `--agentic-domain <prefix>` to filter to one subcommand group. Run `./bin/llm inventory --stdout` for the authoritative list — it prints the exact invocation per app, because `./bin/<app>` is wrong for four of them (`apple-music` and `qlty` use `-assistant` wrappers, `resume` goes through `./bin/assistant resume`, and `desk` has no wrapper: `python3 -m desk`).
+- `--` separator is now **optional** for all CLIApp-based CLIs (mail, calendar, schedule, resume, phone, whatsapp, desk, wifi, maker, apple_music, workflow, worker, slides, sheets, telemetry, qlty, charts, diagrams, github); `src/core/cli_framework.py` strips bare `--` tokens automatically. The workflow engine's `_NO_SEPARATOR_CLIS` exemption for `llm`/`docs` remains unchanged.
+- Auto-derived agentic schema: **all 19 apps** support `--agentic --agentic-format json` to emit a machine-readable parser schema that never drifts from the real CLI; add `--agentic-compact` to strip low-value fields; add `--agentic-domain <prefix>` to filter to one subcommand group. Run `./bin/llm inventory --stdout` for the authoritative list — it prints the exact invocation per app, because `./bin/<app>` is wrong for four of them (`apple-music` and `qlty` use `-assistant` wrappers, `resume` goes through `./bin/assistant resume`, and `desk` has no wrapper: `python3 -m desk`).
 - Most apps get this via `CLIApp.run_with_assistant()`. Four wire it manually to preserve legacy no-subcommand exit codes: charts (1) and diagrams (0) call `assistant.add_agentic_flags(parser)` then `maybe_emit_agentic(...)` before their `cmd_func is None` branch; worker (1) and workflow (2) pass `on_no_command=` through `run_with_assistant()`.
 
 ## Development Rules
@@ -333,14 +333,14 @@ correction, and then forces its own `src/` to the *front* of `sys.path`. Set
 `DANCING_BEAR_PATH_DEBUG=1` to see what was dropped.
 
 Coverage is **every `bin/` entry point that imports a repo module**, by two
-routes: the generated wrappers are symlinks to `bin/_router.py`, while `bin/llm`
-and `bin/path-guard` are standalone scripts calling the same shared module. Both
-are pinned by `tests/infra/test_pathrepair_shared.py` and
+routes: the generated wrappers are symlinks to `bin/_router.py`, while `bin/llm`,
+`bin/path-guard`, and `bin/pr-assistant` are standalone scripts calling the same
+shared module. All are pinned by `tests/infra/test_pathrepair_shared.py` and
 `tests/infra/test_router_pythonpath.py`, including end-to-end cases that execute
 the real binaries. Revert the repair and those suites go red.
 
 That is narrower than "all of `bin/`", which an earlier revision claimed.
-`pr-assistant`, `code-review-log-findings.py`, `code-review-backfill-log.py`,
+`code-review-log-findings.py`, `code-review-backfill-log.py`,
 `check_test_discovery.py`, `mypy_ratchet.py` and `uuidgen-pair` are Python entry
 points with no repair wired in — deliberately, because none of them import a
 repo module, so there is nothing for a foreign checkout to shadow. Audited by
@@ -353,8 +353,9 @@ they kept the old membership-only guard while the router had moved on. With a
 foreign checkout ahead of ours on `PYTHONPATH` they raised
 `ModuleNotFoundError: No module named 'core.llm_cli'` / `'core.path_guard'`, and
 against a *real* foreign checkout they would have silently run the other tree's
-code instead. If you add another standalone script under `bin/` that imports a
-repo module, wire it to `bin/_pathrepair.py` too.
+code instead. `bin/pr-assistant` was likewise wired only once it grew a repo
+import (through `core.github`); if you add another standalone script under
+`bin/` that imports a repo module, wire it to `bin/_pathrepair.py` too.
 
 Do **not** treat `bin/_wrappers.yaml`'s `manual:` list as that inventory — it is
 a generator exclusion list, not a hazard list, and it is incomplete for this
@@ -365,8 +366,8 @@ and `worker-wait` are all standalone scripts absent from it.
 questions, not just the first:
 
 1. **Does it import a repo module?** If so, a foreign checkout can shadow that
-   module — wire it to `bin/_pathrepair.py`. Among those five, only
-   `bin/bootstrap` does.
+   module — wire it to `bin/_pathrepair.py`. Among those five, `bin/bootstrap`
+   and `bin/pr-assistant` do.
 2. **Does it start a Python interpreter at all?** If so, a foreign
    `PYTHONPATH` executes that tree's `sitecustomize.py` during startup,
    *before* the `-c` body runs — so the hazard does not depend on what the
