@@ -38,10 +38,18 @@ from worker.queue_ops import (
 
 
 def _make_runner(root: Path, **config_kwargs: Any):
+    import os
     from worker.job_runtime import DaemonRunner, JobProcessor, WorkerConfig
     from worker import queue_ops as q
+    from worker._helpers import WORKER_STATE_DIR_ENV
 
     q.QUEUE_ROOT = root
+    # Also redirect the env var so any helper that resolves the state dir
+    # at call time (rather than via the already-imported QUEUE_ROOT constant)
+    # lands in the temp tree.  Tests that call _make_runner are responsible
+    # for restoring the env; QueueRootIsolationMixin.setup_queue_root handles
+    # this for test classes that use it.
+    os.environ[WORKER_STATE_DIR_ENV] = str(root.parent)
     cfg = WorkerConfig(**config_kwargs)
     proc = JobProcessor(cfg, "daemon")
     return DaemonRunner(cfg, proc)
@@ -50,11 +58,10 @@ def _make_runner(root: Path, **config_kwargs: Any):
 def _patch_queue_root(job_root: Path) -> ExitStack:
     """Patch every worker.job_runtime.q.* call site to forward root=job_root.
 
-    ``worker.queue_ops`` functions bind their ``root`` default at import
-    time, so reassigning ``q.QUEUE_ROOT`` after import does not affect a
-    no-args call — the same reason ``TestJobProcessor`` in
-    test_commands_gaps.py wraps each call site individually instead of
-    relying on the module-level reassignment alone.
+    ``worker.queue_ops`` resolves an omitted ``root`` at call time, so the
+    module-level reassignment in ``_make_runner`` already redirects no-args
+    calls; forwarding ``root=job_root`` explicitly keeps each call site's
+    target visible in the test rather than depending on that global.
     """
     stack = ExitStack()
     # process_one logs every outcome to the real worker perf log
