@@ -200,8 +200,25 @@ stages:
         1. Ollama binary:   command -v ollama
         2. Ollama server:   read the validated host into a shell variable
                             FROM THE MANIFEST, then use the variable:
-                              HOST=$(python3 -c 'import json,sys,pathlib; print(json.loads(pathlib.Path(sys.argv[1]).read_text())["trigger_params"]["ollama_host"])' {workspace}/manifest.json)
+                              HOST=$(./bin/workflow check-params {workspace}/manifest.json \
+                                --check 'ollama_host=https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?' \
+                                --print ollama_host) || exit 1
                               curl -sS -m 5 -f -o /dev/null "$HOST/api/tags"
+                            `--print` writes the value ONLY if every `--check`
+                            passed, and refuses a name no `--check` covers —
+                            so $HOST is either a validated host or the command
+                            exited non-zero with empty stdout. Keep the
+                            `|| exit 1`: without it a rejection leaves HOST
+                            empty and curl would run against "/api/tags".
+                            Do NOT reach for an inline `python3 -c` here. A
+                            bare interpreter imports sitecustomize from every
+                            PYTHONPATH entry during startup, so a foreign
+                            checkout's startup hook would execute — in a stage
+                            documented read-only — before `import json` ran.
+                            `./bin/workflow` is a router symlink that already
+                            handles interpreter isolation, and its logic is
+                            covered by tests/workflow_tests/test_param_guard.py,
+                            which inline YAML Python can never be.
                             Do NOT write "{ollama_host}" into the command.
                             Validation does not TRANSFORM the value — the
                             engine still substitutes the raw text here, so a
@@ -1088,10 +1105,20 @@ stages:
           {job_type} and {purge_older_than} are caller-overridable and land
           in shell text here exactly as the proposal's values do; an earlier
           revision treated proposal text as hostile while interpolating these
-          two freely. Read both from {workspace}/manifest.json and check them
-          before building any command — same mechanism as the health stage:
-            job_type:         ^[a-z][a-z0-9_]{2,40}$
-            purge_older_than: ^[1-9][0-9]{0,4}[dhm]$
+          two freely. RUN THE TESTED GUARD — do not merely satisfy yourself
+          that the values look fine. Prose describing a regex enforces
+          nothing; the G0 probes call the command and so must this stage,
+          before constructing any action:
+
+            ./bin/workflow check-params {workspace}/manifest.json \
+              --check 'job_type=[a-z][a-z0-9_]{2,40}' \
+              --check 'purge_older_than=[1-9][0-9]{0,4}[dhm]'
+
+          Branch on the EXIT STATUS and STOP before building a command if it
+          fails. The check lives in src/workflow/param_guard.py with tests in
+          tests/workflow_tests/test_param_guard.py, so it cannot be gutted by
+          an edit to this YAML — which is exactly why it is a command call
+          rather than a pattern written out here.
 
           NOTE THE LEADING [1-9]: A ZERO WINDOW DELETES EVERYTHING. A pattern
           of `[0-9]{1,5}[dhm]` accepts `0d`, `0h` and `0m`, and

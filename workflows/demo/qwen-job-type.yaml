@@ -647,6 +647,26 @@ stages:
         b. Otherwise run `./bin/worker list`. Drain with
            `./bin/worker run-once --max 1` ONLY when your job is
            unambiguously the only pending entry.
+
+           THE COUNT IS ADVISORY AND CANNOT BE MADE OTHERWISE. A job can be
+           enqueued between the `list` and the `run-once`, and `run-once`
+           has no id or type selector (`--max` and `--backoff` are its only
+           flags), so nothing here makes the claim id-scoped. Step (d) below
+           corrects the REPORT after a mis-drain; it does not prevent one,
+           and someone else's job has already had an attempt consumed by
+           then.
+
+           There is also no isolated-queue seam to fall back on: the queue
+           root is hardcoded to
+           ~/Library/Application Support/dancing-bear/queue
+           (worker/_helpers.py:42) with no flag or environment override, so
+           the demo cannot run against a private queue.
+
+           Given that, SKIPPING IS THE DEFAULT on any doubt. Drain only when
+           the queue is quiet and yours is provably the single pending
+           entry; if the count is anything other than exactly 1, prefer (c).
+           This is a teaching demo — spending someone's job attempt to
+           illustrate a retry class is not a trade it is entitled to make.
         c. If anything else is pending, do NOT drain. Wait briefly and
            re-check whether the daemon took yours, or record this case as
            "not-verified — queue contended, N other jobs pending" and move
@@ -755,10 +775,27 @@ stages:
           loaded; this branch exists only for a quiet queue, where a single
           pending job cycles nothing because nothing is polling.
 
-      Record in verified.json which path you took for (c), and that the
-      remaining "{job_type}" jobs sit in done/ and error/ as inert records —
-      a known cost of running this demo against the real queue. Those two are
-      genuinely harmless: nothing re-runs a job in done/ or error/.
+      Record in verified.json which path you took for (c), and account for
+      EACH remaining job by its actual folder. Do not report them
+      collectively as "inert records in done/ and error/" — that is false for
+      up to two of the four, and it is the report a reader would trust when
+      deciding whether the demo left anything behind:
+
+        - (a) success  -> done/   TERMINAL, inert. Nothing re-runs it.
+        - (b) terminal -> error/  TERMINAL, inert. Nothing re-runs it.
+        - (d) plain failure -> PENDING until its retry budget is exhausted.
+          It is NOT inert while pending: a running daemon will claim it again
+          at each poll until attempts reach max_attempts, and only then does
+          it land in error/. Report it as pending with its attempts count and
+          say when it will stop.
+        - (c) deferred -> either not-run, or PENDING indefinitely on the
+          quiet-queue branch, since deferred- restores attempts on every
+          requeue and the job therefore never exhausts them.
+
+      List the pending ones separately from the terminal ones, with their
+      ids, so the reader can remove them. A demo that leaves live queue
+      entries must say so plainly; reporting them as harmless is worse than
+      leaving them, because nobody then looks.
 
       Write {workspace}/validation/verified.json:
         {

@@ -90,7 +90,21 @@ stages:
         mkdir -p {workspace}/outputs/replies
         mkdir -p {workspace}/validation
 
-      Step 2 — resolve the PR number. If {pr_number} is non-empty, use it.
+      Step 2 — resolve the PR number. If {pr_number} is non-empty, VALIDATE
+      IT FIRST — it is caller-overridable and it reaches seven interpolation
+      sites in this workflow, several inside double-quoted `gh api` URLs. A
+      value carrying a quote or `$(...)` becomes shell source there; double
+      quotes do not stop command substitution, which this PR established by
+      probe. Validate it once here, so every downstream use is covered:
+
+        ./bin/workflow check-params {workspace}/manifest.json \
+          --check 'pr_number=[1-9][0-9]{0,8}'
+
+      Branch on the EXIT STATUS. A non-digit value fails the run here rather
+      than reaching a command. Digits-only is the whole legitimate alphabet
+      for a PR number, so anything else is a caller error to report, never
+      to sanitize.
+
       If blank, detect it from the current branch:
         GITHUB_TOKEN= gh pr view --json number -q .number
       If that fails or returns nothing, exit non-zero with the message
@@ -253,6 +267,7 @@ stages:
               "directive": "fix",
               "severity": "correctness|security|maintainability|style",
               "ask": "one sentence stating precisely what the reviewer wants",
+              "finding_key": "unique within this run: the thread_id when non-null, else a stable derivation (body-<n>, or the comment database_id)",
               "discriminator": "database_id|fingerprint",
               "comment_database_id": 123 | null,
               "body_fingerprint": "sha256 per fix-dispatch Step 1b's exact algorithm; fallback when comment_database_id is null",
@@ -537,9 +552,20 @@ stages:
       comment's description, and report action "moot" if it is genuinely gone
       rather than inventing a fix.
 
-      Write ONE result file per thread to
-      {workspace}/outputs/fixes/<thread_id>.json, using the schema in your agent
-      definition. A thread you decline to fix still gets a result file with
+      Write ONE result file per finding to
+      {workspace}/outputs/fixes/<finding_key>.json, using the schema in your
+      agent definition.
+
+      KEY BY `finding_key`, NOT BY thread_id. Review-body and issue-comment
+      findings legitimately have `thread_id: null`, and they DO reach this
+      fan-out — so keying by thread_id writes every one of them to
+      `null.json`, where each overwrites the last and the aggregator sees one
+      result for N findings with no way to tell they were lost. triage
+      assigns each entry a `finding_key` that is unique within the run (the
+      thread_id when there is one, and otherwise a stable derivation such as
+      `body-<index>` or the comment's database_id); use it verbatim as the
+      filename and keep the real `thread_id` — null included — inside the
+      file's data, since that is what the posting stage addresses by. A thread you decline to fix still gets a result file with
       action "rejected" or "moot" and its evidence — a missing file is
       indistinguishable from a crashed agent, and the aggregator treats it as
       one.
@@ -1054,10 +1080,24 @@ stages:
           addPullRequestReviewThreadReply(
             input:{pullRequestReviewThreadId:$threadId, body:$body}
           ){ comment{ id url } }
-        }' -F threadId="<thread_id>" -F body="<reply text>"
+        }' -F threadId="<thread_id>" -F body=@{workspace}/outputs/replies/<the reply file>
 
-      Pass the body via -F, never interpolated into the query string: reply text
-      contains backticks and quotes that would break the GraphQL document.
+      PASS THE BODY BY FILE, exactly as the null-id path above does. `-F`
+      alone is NOT sufficient, and an earlier revision of this file claimed
+      it was: `-F` governs how gh ENCODES the field, and does nothing about
+      how bash PARSES the line. Measured — with the reply text rendered
+      inside double quotes as `-F body="<reply text>"`, a body containing
+      `$(touch /tmp/PWNED)` executes; the same text passed as
+      `-F body=@<file>` does not, and arrives byte-for-byte intact.
+
+      Reply text is generated from review content and fix output, so it
+      routinely contains backticks, quotes and `$(...)`. Both the threaded
+      and the top-level path must be file-backed; neither is allowed to be
+      the weaker one.
+
+      Passing the body by file also keeps it out of the GraphQL document
+      itself, which is the separate reason `-F` is used at all — a quote in
+      the text would otherwise break the query.
 
       Step 4 — resolve each thread whose directive is fix, reject, or moot AND
       whose reply posted successfully.

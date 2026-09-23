@@ -470,20 +470,35 @@ stages:
         So a quoted-but-unvalidated substitution executes caller-supplied
         code during a stage documented as read-only.
 
-        Do this instead, in order:
-          1. Read the value and check it against a strict allowlist pattern
-             BEFORE constructing any command:
-               ^https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?$
-             Reject anything else — any space, quote, backtick, $, ;, |, &,
-             newline or path segment. ABORT the stage with the offending
-             value shown, rather than continuing with a narrowed version.
-          2. Only after it passes, use it. Prefer passing it as a separate
-             argv element rather than interpolating into a command string;
-             where the description shows a shell line, treat the validated
-             value as the only thing that may be substituted into it.
+        VALIDATION ALONE IS NOT ENOUGH — IT DOES NOT TRANSFORM THE VALUE.
+        Checking `{ollama_host}` above and then writing `{ollama_host}` into a
+        command below leaves you exactly where you started: the engine
+        substitutes the raw text at that second site regardless of what the
+        check concluded. The validated value has to reach the command by a
+        different route than the token.
+
+        Do this instead: capture it from the manifest into a shell variable,
+        and use only the variable.
+
+          HOST=$(./bin/workflow check-params {workspace}/manifest.json \
+            --check 'ollama_host=https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?' \
+            --print ollama_host) || exit 1
+
+        `--print` emits the value ONLY when every `--check` passed, and
+        refuses a name no `--check` covers — so $HOST is either validated or
+        the command exited non-zero having printed nothing. Keep the
+        `|| exit 1`: a rejection otherwise leaves HOST empty and the curl
+        below would run against "/api/tags".
+
+        The untrusted value never appears in that command line — only the
+        workspace path, which the engine controls. The logic lives in
+        src/workflow/param_guard.py and is covered by
+        tests/workflow_tests/test_param_guard.py, including both payloads
+        disproven above.
+
         Record in survey.json that the validation ran and what it accepted.
 
-        curl -sS -m 3 -f -o /dev/null "{ollama_host}/api/tags" && echo "http: ok" || echo "http: unreachable"
+        curl -sS -m 3 -f -o /dev/null "$HOST/api/tags" && echo "http: ok" || echo "http: unreachable"
         launchctl list 2>/dev/null | grep -i dancing-bear || echo "no dancing-bear agents loaded"
         sysctl -n hw.memsize
 
@@ -2815,6 +2830,19 @@ stages:
         c. if anything else is pending, record this check as
            "not-verifiable — queue contended" rather than draining;
         d. confirm the job you read back is the id you enqueued.
+
+      THE COUNT IS ADVISORY. A job can be enqueued between the `list` and the
+      `run-once`, and `run-once` has only `--max` and `--backoff` — no id or
+      type selector — so nothing above makes the claim id-scoped. Step (d)
+      corrects the REPORT after a mis-drain; it does not prevent one, and a
+      stranger's job has already lost an attempt by then. There is no
+      isolated-queue fallback either: the queue root is hardcoded in
+      worker/_helpers.py:42 with no override.
+
+      So treat (c) as the DEFAULT on any doubt rather than a last resort.
+      Draining is justified only when the queue is provably quiet; a check
+      recorded as not-verifiable is an honest result, while consuming
+      someone else's attempt to produce evidence is not.
 
       Check D — TELEMETRY LANDED AND IS QUERYABLE. Run
       `./bin/telemetry otel health` first. If the collector is not running,
