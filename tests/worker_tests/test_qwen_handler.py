@@ -115,9 +115,17 @@ class QwenRetryMapTests(TempDirMixin, unittest.TestCase):
         (repo_root / "src" / "README.md").write_text("existing line\n", encoding="utf-8")
         job = _job({"files": ["src/README.md"], "instruction": "add a line"})
 
+        # A dict passed as side_effect is iterated by mock (its keys become
+        # successive return values), not returned whole — only an exception
+        # or a callable/iterable-of-results belongs in side_effect. A mapping
+        # response must go through return_value instead.
+        patch_kwargs = (
+            {"return_value": side_effect} if isinstance(side_effect, dict) else {"side_effect": side_effect}
+        )
+
         with (
             mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen._ollama_request", side_effect=side_effect),
+            mock.patch("worker.qwen._ollama_request", **patch_kwargs),
             mock.patch("worker.qwen._git_apply_check", return_value=True),
             mock.patch("worker.qwen._available_memory_bytes", return_value=64 * 1024**3),
             mock.patch("worker.qwen._free_disk_bytes", return_value=64 * 1024**3),
@@ -237,11 +245,11 @@ class QwenRetryMapTests(TempDirMixin, unittest.TestCase):
 
         with (
             mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch(
-                "worker.qwen.THRESHOLDS",
-                qwen.QwenThresholds(num_ctx=1, max_tokens_default=1),
-                create=True,
-            ),
+            # QwenThresholds has no max_tokens_default field (interface.md);
+            # the payload's own max_tokens (default 4096, contract.json)
+            # already dwarfs a num_ctx=1 budget, so num_ctx alone is enough
+            # to force the context-budget guard to trip before any model call.
+            mock.patch("worker.qwen.THRESHOLDS", qwen.QwenThresholds(num_ctx=1)),
             mock.patch("worker.qwen._available_memory_bytes", return_value=64 * 1024**3),
             mock.patch("worker.qwen._free_disk_bytes", return_value=64 * 1024**3),
             mock.patch("worker.qwen._lane_depth", return_value=0),
@@ -658,9 +666,14 @@ class QwenDeferralBoundTests(TempDirMixin, unittest.TestCase):
         from worker import qwen
 
         deferral_dir = Path(self.tmpdir) / "deferrals"
+        # "qwen-busy" is the canonical reason key (contract.json
+        # deferral_bound.where_persisted: {qwen-busy, low-memory, low-disk}),
+        # matching exactly what _handle_string_outcome passes for a real
+        # "deferred-qwen-busy" outcome — _record_deferral stores its reason
+        # argument verbatim with no translation.
         with mock.patch("worker.qwen._deferral_dir", return_value=deferral_dir):
-            first = qwen._record_deferral(job.id, "deferred-qwen-busy")
-            second = qwen._record_deferral(job.id, "deferred-qwen-busy")
+            first = qwen._record_deferral(job.id, "qwen-busy")
+            second = qwen._record_deferral(job.id, "qwen-busy")
 
         self.assertEqual(first, 1)
         self.assertEqual(second, 2)

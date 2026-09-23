@@ -15,6 +15,7 @@ against the printed output text.
 
 from __future__ import annotations
 
+import importlib.machinery
 import importlib.util
 import io
 import unittest
@@ -27,7 +28,11 @@ SCRIPT = REPO_ROOT / "bin" / "qwen"
 
 
 def _load_module():
-    spec = importlib.util.spec_from_file_location("bin_qwen", SCRIPT)
+    # bin/qwen is a standalone extensionless script (contract.json:entry_point,
+    # matching bin/llm), so spec_from_file_location cannot infer a loader from
+    # the file's suffix and returns None. Build the loader explicitly.
+    loader = importlib.machinery.SourceFileLoader("bin_qwen", str(SCRIPT))
+    spec = importlib.util.spec_from_loader("bin_qwen", loader)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"cannot load {SCRIPT}")
     module = importlib.util.module_from_spec(spec)

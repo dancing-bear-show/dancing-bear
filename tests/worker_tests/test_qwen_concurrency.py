@@ -169,6 +169,18 @@ class QwenLockReleaseTests(QwenConcurrencyBaseTests):
 class QwenStaleLockTests(QwenConcurrencyBaseTests):
     """Three branches of the contract's stale-lock rule."""
 
+    def setUp(self) -> None:
+        super().setUp()
+        # _acquire_model_lock resolves the lock path via _lock_path(), which
+        # defaults to the real per-machine state dir. Without this patch,
+        # every test below acquires an unrelated real-world lock file instead
+        # of inspecting the SUSPECT/STALE lock _write_lock() wrote to
+        # self.lock_path, and passes for the wrong reason regardless of the
+        # stale-lock rule under test.
+        self._lock_path_patcher = mock.patch("worker.qwen._lock_path", return_value=self.lock_path)
+        self._lock_path_patcher.start()
+        self.addCleanup(self._lock_path_patcher.stop)
+
     def _write_lock(self, pid: int, age_sec: float) -> None:
         import time
 

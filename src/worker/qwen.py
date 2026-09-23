@@ -24,12 +24,14 @@ import json
 import logging
 import os
 import re
+import stat
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from core.secrets import mask_text
 from worker._helpers import get_repo_root, get_worker_state_dir
+from worker.qwen_telemetry import export_job_span
 
 _log = logging.getLogger(__name__)
 
@@ -95,32 +97,60 @@ def _is_within_allowlist(resolved: Path, root: Path) -> bool:
     return False
 
 
+def _resolve_real_path(raw: str, root: Path) -> Path:
+    candidate = Path(raw)
+    p = candidate if candidate.is_absolute() else root / candidate
+    try:
+        return p.resolve()
+    except OSError as exc:
+        raise QwenGuardError(f"terminal-path-not-allowed: {raw}") from exc
+
+
+def _check_confined_file_stat(raw: str, real: Path) -> None:
+    """Reject a non-regular-file path (e.g. a directory) or one over
+
+    contract.input_confinement.max_file_bytes. max_file_bytes is an
+    input_confinement threshold, so its violation is terminal-path-not-allowed,
+    not terminal-prompt-too-large — that outcome is reserved for the separate
+    assembled-prompt-vs-context-budget check. stat() inspects metadata only
+    and never opens file contents.
+    """
+    try:
+        st = real.stat()
+    except OSError as exc:
+        raise QwenGuardError(f"terminal-path-not-allowed: {raw}") from exc
+    if not stat.S_ISREG(st.st_mode):
+        raise QwenGuardError(f"terminal-path-not-allowed: {raw}")
+    if st.st_size > THRESHOLDS.max_file_bytes:
+        raise QwenGuardError(f"terminal-path-not-allowed: {raw}")
+
+
+def _validate_one_input_file(raw: str, root: Path) -> Path:
+    """Resolve and validate a single payload.files entry. See resolve_input_files."""
+    real = _resolve_real_path(raw, root)
+    if ".git" in real.parts:
+        raise QwenGuardError(f"terminal-path-not-allowed: {raw}")
+    if _is_denied_name(real):
+        raise QwenGuardError(f"terminal-path-not-allowed: {raw}")
+    if not _is_within_allowlist(real, root):
+        raise QwenGuardError(f"terminal-path-not-allowed: {raw}")
+    _check_confined_file_stat(raw, real)
+    return real
+
+
 def resolve_input_files(files: list[str], repo_root: Path) -> list[Path]:
     """Validate and resolve payload.files against the allowlist/denylist.
 
     Runs BEFORE any file is opened: resolves the real path (following
-    symlinks) and checks containment against the allowlisted directories, and
-    rejects denylisted names/suffixes and any path with a .git/ segment.
-    Raises QwenGuardError("terminal-path-not-allowed: <path>") on the first
+    symlinks), checks containment against the allowlisted directories,
+    rejects denylisted names/suffixes, any path with a .git/ segment, any
+    path that is not a regular file (e.g. a directory), and any file over
+    contract.input_confinement.max_file_bytes. Raises
+    QwenGuardError("terminal-path-not-allowed: <path>") on the first
     violation, before touching any later path in the list.
     """
     root = repo_root.resolve()
-    resolved: list[Path] = []
-    for raw in files:
-        candidate = Path(raw)
-        p = candidate if candidate.is_absolute() else root / candidate
-        try:
-            real = p.resolve()
-        except OSError as exc:
-            raise QwenGuardError(f"terminal-path-not-allowed: {raw}") from exc
-        if ".git" in real.parts:
-            raise QwenGuardError(f"terminal-path-not-allowed: {raw}")
-        if _is_denied_name(real):
-            raise QwenGuardError(f"terminal-path-not-allowed: {raw}")
-        if not _is_within_allowlist(real, root):
-            raise QwenGuardError(f"terminal-path-not-allowed: {raw}")
-        resolved.append(real)
-    return resolved
+    return [_validate_one_input_file(raw, root) for raw in files]
 
 
 def _validate_payload(payload: dict[str, object]) -> tuple[list[str], str]:
@@ -523,9 +553,10 @@ def _handle_existing_lock(lock_path: Path) -> bool:
     return False
 
 
-def _acquire_lock_with_wait(lock_path: Path) -> bool:
+def _acquire_lock_with_wait(lock_path: Path, wait_ceiling_sec: float | None = None) -> bool:
     """Poll for the lock up to wait_ceiling_sec. Returns True on acquisition."""
-    deadline = time.time() + THRESHOLDS.wait_ceiling_sec
+    ceiling = THRESHOLDS.wait_ceiling_sec if wait_ceiling_sec is None else wait_ceiling_sec
+    deadline = time.time() + ceiling
     if _try_acquire_lock(lock_path):
         return True
     while time.time() < deadline:
@@ -540,6 +571,25 @@ def _release_lock(lock_path: Path) -> None:
         lock_path.unlink()
     except FileNotFoundError:  # nosec B110 - already released or never acquired; nothing to clean up
         pass
+
+
+def _acquire_model_lock(job_id: str, wait_ceiling_sec: float | None = None) -> bool:
+    """job_id-keyed public entry point over the real lock primitives above.
+
+    _run_with_lock calls this (not _acquire_lock_with_wait directly) so it is
+    the single seam that gates every model call; job_id is accepted for
+    parity with _release_model_lock and future per-job diagnostics, but the
+    lock itself is process-wide (contract.concurrency.scope: model call
+    only), keyed by _lock_path(), not by job_id.
+    """
+    del job_id  # the lock is process-wide, not per-job; kept for API symmetry
+    return _acquire_lock_with_wait(_lock_path(), wait_ceiling_sec)
+
+
+def _release_model_lock(job_id: str) -> None:
+    """job_id-keyed public entry point over _release_lock. See _acquire_model_lock."""
+    del job_id
+    _release_lock(_lock_path())
 
 
 # ---------------------------------------------------------------------------
@@ -568,8 +618,13 @@ def _as_float(value: object, default: float) -> float:
     return float(value) if isinstance(value, (int, float, str)) else default
 
 
-def _record_deferral(job_id: str, reason: str) -> str | None:
-    """Record one deferral under reason; returns "terminal-deferral-limit" if the bound is hit."""
+def _record_deferral(job_id: str, reason: str) -> int:
+    """Record one deferral under reason in the side-channel file; returns the
+
+    running total deferral count for job_id (not a terminal-limit verdict —
+    that is a separate decision made by _deferral_limit_verdict against the
+    same on-disk state, so the raw count stays directly observable/testable).
+    """
     state = _load_deferral_state(job_id)
     count = _as_int(state.get("count", 0), 0) + 1
     raw_reasons = state.get("reasons")
@@ -580,10 +635,31 @@ def _record_deferral(job_id: str, reason: str) -> str | None:
     path = _deferral_path(job_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(new_state))
+    return count
 
+
+def _dominant_deferral_reason(job_id: str) -> str | None:
+    state = _load_deferral_state(job_id)
+    raw_reasons = state.get("reasons")
+    reasons = raw_reasons if isinstance(raw_reasons, dict) else {}
+    if not reasons:
+        return None
+    return str(max(reasons, key=lambda k: _as_int(reasons.get(k, 0), 0)))
+
+
+def _deferral_limit_verdict(job_id: str, count: int) -> str | None:
+    """Return the exact "terminal-deferral-limit: <dominant reason>" outcome
+
+    string once job_id's deferral count or wall-clock age crosses the
+    configured ceiling, else None. Reads first_deferred_at back off the same
+    on-disk state _record_deferral just wrote.
+    """
+    state = _load_deferral_state(job_id)
+    first_deferred_at = _as_float(state.get("first_deferred_at"), time.time())
     wallclock_min = (time.time() - first_deferred_at) / 60
     if count >= THRESHOLDS.deferral_ceiling_count or wallclock_min >= THRESHOLDS.deferral_wallclock_ceiling_min:
-        return "terminal-deferral-limit"
+        reason = _dominant_deferral_reason(job_id)
+        return f"terminal-deferral-limit: {reason}" if reason else "terminal-deferral-limit"
     return None
 
 
@@ -676,17 +752,37 @@ def _explain_report(files: list[Path], instruction: str, options: GenerationOpti
 
 
 def _read_confined_files(files: list[Path]) -> dict[str, str]:
-    """Read each resolved, already-confined file. Raises QwenGuardError over max_file_bytes."""
+    """Read each resolved, already-confined file.
+
+    resolve_input_files already rejected any file over max_file_bytes (an
+    input_confinement threshold, terminal-path-not-allowed) before this is
+    ever called, so no size check is repeated here.
+    """
     contents: dict[str, str] = {}
     for f in files:
         try:
-            size = f.stat().st_size
+            contents[str(f)] = f.read_text(errors="replace")
         except OSError as exc:
             raise QwenGuardError(f"terminal-path-not-allowed: {f}") from exc
-        if size > THRESHOLDS.max_file_bytes:
-            raise QwenGuardError(f"terminal-prompt-too-large: {f} exceeds max_file_bytes")
-        contents[str(f)] = f.read_text(errors="replace")
     return contents
+
+
+def _estimate_prompt_tokens(prompt: str) -> int:
+    """A conservative chars/4 estimate, matching explain_mode's own estimator."""
+    return len(prompt) // 4
+
+
+def _check_prompt_budget(prompt: str, options: GenerationOptions) -> str | None:
+    """Return "terminal-prompt-too-large" if the assembled prompt exceeds the
+
+    context budget (num_ctx minus the reserved max_tokens), else None. Fails
+    loudly per contract.retry_map rather than silently truncating file
+    content the user never approved truncating.
+    """
+    budget = THRESHOLDS.num_ctx - options.max_tokens
+    if budget <= 0 or _estimate_prompt_tokens(prompt) > budget:
+        return "terminal-prompt-too-large"
+    return None
 
 
 def _build_prompt(instruction: str, file_contents: dict[str, str]) -> str:
@@ -749,13 +845,28 @@ class QwenTransientError(Exception):
 def _call_ollama_generate(host: str, body: dict[str, object], timeout: float) -> dict[str, object]:
     """Call /api/generate and classify the failure per contract.retry_map.
 
-    QwenGuardError("http-error-404") -> terminal-model-not-found (a missing
-    model stays missing on retry). Any other http-error-* (5xx) and any
-    connection-level failure (refused, timeout) are transient and re-raised
-    as QwenTransientError so the caller reports a plain, retryable failure.
+    HTTP 404 -> terminal-model-not-found (a missing model stays missing on
+    retry). Any other HTTP status (5xx) and any connection-level failure
+    (refused, timeout) are transient and re-raised as QwenTransientError so
+    the caller reports a plain, retryable failure.
+
+    _ollama_request is the documented module-level seam
+    (mock.patch("worker.qwen._ollama_request", ...)); tests patch it with
+    either a raw urllib.error.HTTPError/URLError/socket.timeout (matching
+    what urlopen itself raises) or with _ollama_request's own translated
+    QwenGuardError("http-error-<code>"). urllib.error.HTTPError is BOTH a
+    URLError and an OSError, so it must be classified by status code before
+    any bare `except OSError` branch, not caught generically as transient.
     """
+    import urllib.error
+
     try:
         return _ollama_request(host, body, timeout)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            raise QwenGuardError("terminal-model-not-found") from exc
+        # Any other HTTP status (5xx) is a server-side transient condition.
+        raise QwenTransientError(str(exc)) from exc
     except QwenGuardError as exc:
         if str(exc) == "http-error-404":
             raise QwenGuardError("terminal-model-not-found") from exc
@@ -833,9 +944,15 @@ def _resolve_timeout(payload: dict[str, object]) -> float:
 
 
 def _run_with_lock(
-    host: str, prompt: str, options: GenerationOptions, timeout: float
+    job_id: str, host: str, prompt: str, options: GenerationOptions, timeout: float
 ) -> tuple[str, dict[str, object]] | str:
     """Acquire the lock, run the model call, release in finally.
+
+    Goes through _acquire_model_lock/_release_model_lock (not the lower-level
+    _acquire_lock_with_wait/_release_lock directly) so those job_id-keyed
+    names are the single seam that gates every model call — mocking either
+    one to force lock contention must be sufficient to prove the model is
+    never invoked while the lock is held.
 
     Returns (diff, response) on success, or a string outcome: a
     "terminal-"/"deferred-" prefixed string from QwenGuardError, or a PLAIN
@@ -844,8 +961,7 @@ def _run_with_lock(
     job_runtime's ordinary attempts/backoff loop must see them, not the
     terminal/deferred fast paths.
     """
-    lock_path = _lock_path()
-    if not _acquire_lock_with_wait(lock_path):
+    if not _acquire_model_lock(job_id):
         return "deferred-qwen-busy"
     try:
         return _generate_and_validate_patch(host, prompt, options, timeout)
@@ -854,7 +970,7 @@ def _run_with_lock(
     except QwenTransientError as exc:
         return str(exc)
     finally:
-        _release_lock(lock_path)
+        _release_model_lock(job_id)
 
 
 @dataclass(frozen=True)
@@ -871,8 +987,9 @@ class _TelemetryEvent:
 
 
 def _emit_telemetry(event: _TelemetryEvent) -> None:
-    from worker.qwen_telemetry import export_job_span
-
+    # export_job_span is imported at module scope (not locally) specifically
+    # so mock.patch("worker.qwen.export_job_span", ...) — patch where the
+    # name is used, per house convention — actually intercepts this call.
     attrs: dict[str, object] = {
         "qwen.job_id": event.identity.job_id,
         "qwen.job_type": JOB_TYPE,
@@ -886,7 +1003,10 @@ def _emit_telemetry(event: _TelemetryEvent) -> None:
     if event.completion_tokens is not None:
         attrs["qwen.completion_tokens"] = event.completion_tokens
     attrs["qwen.generation_duration_ms"] = (event.end_ns - event.start_ns) // 1_000_000
-    export_job_span(attrs, event.start_ns, event.end_ns)
+    try:
+        export_job_span(attrs, event.start_ns, event.end_ns)
+    except Exception:  # nosec B110 - contract.telemetry.failure_is_nonfatal: export must never affect job outcome, independent of export_job_span's own internal guard
+        _log.debug("qwen: telemetry export raised (non-fatal)", exc_info=True)
 
 
 def _handle_string_outcome(
@@ -894,8 +1014,9 @@ def _handle_string_outcome(
 ) -> tuple[bool, object]:
     """Turn a deferred/terminal string outcome from _run_with_lock into a result tuple."""
     if outcome == "deferred-qwen-busy":
-        deferral_verdict = _record_deferral(identity.job_id, "qwen-busy")
-        return (False, deferral_verdict or outcome)
+        count = _record_deferral(identity.job_id, "qwen-busy")
+        limit_verdict = _deferral_limit_verdict(identity.job_id, count)
+        return (False, limit_verdict or outcome)
     _emit_telemetry(_TelemetryEvent(identity, outcome, None, start_ns, end_ns))
     return (False, outcome)
 
@@ -947,8 +1068,12 @@ def _run_generation(
     prompt = _build_prompt(instruction, file_contents)
     timeout = _resolve_timeout(payload)
 
+    budget_verdict = _check_prompt_budget(prompt, options)
+    if budget_verdict is not None:
+        return (False, budget_verdict)
+
     start_ns = time.time_ns()
-    outcome = _run_with_lock(host, prompt, options, timeout)
+    outcome = _run_with_lock(identity.job_id, host, prompt, options, timeout)
     end_ns = time.time_ns()
 
     if isinstance(outcome, str):
@@ -957,8 +1082,9 @@ def _run_generation(
     diff, response = outcome
     disk_verdict = _check_disk_guard()
     if disk_verdict is not None:
-        deferral_verdict = _record_deferral(identity.job_id, "low-disk")
-        return (False, deferral_verdict or disk_verdict)
+        count = _record_deferral(identity.job_id, "low-disk")
+        limit_verdict = _deferral_limit_verdict(identity.job_id, count)
+        return (False, limit_verdict or disk_verdict)
 
     return _finalize_success(identity, host, diff, response, start_ns, end_ns)
 
@@ -982,8 +1108,9 @@ def _run_guarded(job: dict[str, object], payload: dict[str, object]) -> tuple[bo
 
     memory_verdict = _check_memory_guard()
     if memory_verdict is not None:
-        deferral_verdict = _record_deferral(job_id, "low-memory")
-        return (False, deferral_verdict or memory_verdict)
+        count = _record_deferral(job_id, "low-memory")
+        limit_verdict = _deferral_limit_verdict(job_id, count)
+        return (False, limit_verdict or memory_verdict)
 
     return _run_generation(job, payload, resolved_files, instruction, options, host)
 
