@@ -103,6 +103,15 @@ class QwenNoFollowReadTests(QwenHandlerCase):
                 self.assertLogs("worker.qwen", level="WARNING"):
             self.assertIsNone(qwen._load_recorded_digest("qwen2.5-coder:14b"))
 
+    def test_valid_json_that_is_not_an_object_reads_as_empty(self) -> None:
+        """A corrupt side-channel must not raise TypeError out of dict()."""
+        target = Path(self.tmpdir) / "corrupt.json"
+        for content in ("null", "[]", "[1, 2]", "42", '"text"', "true"):
+            with self.subTest(content=content):
+                target.write_text(content, encoding="utf-8")
+                with mock.patch.object(qwen, "_deferral_path", return_value=target):
+                    self.assertEqual(qwen._load_deferral_state("some-job"), {})
+
     def test_regular_files_still_read(self) -> None:
         target = Path(self.tmpdir) / "real.json"
         target.write_text('{"count": 3}', encoding="utf-8")

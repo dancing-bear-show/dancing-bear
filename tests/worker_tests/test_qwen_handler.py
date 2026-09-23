@@ -183,6 +183,28 @@ class QwenRetryMapTests(QwenHandlerCase):
         self.assertFalse(ok)
         self.assertEqual(out, "terminal-model-not-found")
 
+    def test_client_errors_are_terminal_not_retried(self) -> None:
+        """Re-sending a refused request cannot fix it, so it must not burn attempts."""
+        for status in (400, 401, 403, 405, 413, 422):
+            with self.subTest(status=status):
+                self.generate_error = http_error(status)
+
+                ok, out = self.run_handler()
+
+                self.assertFalse(ok)
+                self.assertEqual(out, f"terminal-ollama-request-rejected: http-error-{status}")
+
+    def test_retryable_statuses_stay_plain(self) -> None:
+        """5xx, 408 and 429 are transient: plain failures the queue retries."""
+        for status in (408, 429, 500, 502, 503, 504):
+            with self.subTest(status=status):
+                self.generate_error = http_error(status)
+
+                ok, out = self.run_handler()
+
+                self.assertFalse(ok)
+                self._assert_plain(out, f"http-error-{status}")
+
     def test_seam_error_shapes_classify_by_status(self) -> None:
         """The exact shapes _ollama_request emits, injected at the seam."""
         cases = (

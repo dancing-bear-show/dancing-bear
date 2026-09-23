@@ -22,6 +22,8 @@ Outcome strings (the handler's second return value on failure):
 * ``terminal-lane-over-capacity`` - admission cap
 * ``terminal-prompt-too-large`` - assembled prompt exceeds the context budget
 * ``terminal-model-not-found`` - HTTP 404 from Ollama
+* ``terminal-ollama-request-rejected: http-error-<code>`` - any other HTTP
+  status that retrying cannot fix (400, 401, 403, ...)
 * ``terminal-no-diff-found`` / ``terminal-patch-does-not-apply``
 * ``terminal-patch-too-broad`` - caps, denied targets, binary or unparseable
   path headers
@@ -1129,9 +1131,13 @@ def _read_text_no_follow(path: Path) -> str:
 def _load_deferral_state(job_id: str) -> dict[str, object]:
     path = _deferral_path(job_id)
     try:
-        return dict(json.loads(_read_text_no_follow(path)))
+        state = json.loads(_read_text_no_follow(path))
     except (OSError, ValueError):
         return {}
+    # Valid JSON that is not an object (null, a list, a number) is as corrupt
+    # as unparseable bytes: treat it as empty rather than letting dict() raise
+    # and turn every later attempt of this job into terminal-internal-error.
+    return dict(state) if isinstance(state, dict) else {}
 
 
 def _as_int(value: object, default: int) -> int:
@@ -1521,13 +1527,29 @@ def _build_result(r: GenerationResult) -> dict[str, object]:
     }
 
 
+_RETRYABLE_4XX = frozenset({408, 429})
+
+
+_HTTP_ERROR_RE = re.compile(r"http-error-(\d{3})\b")
+
+
+def _http_status(message: str) -> int | None:
+    """The status code from _ollama_request's "http-error-<code>", or None."""
+    match = _HTTP_ERROR_RE.match(message)
+    return int(match.group(1)) if match else None
+
+
 def _call_ollama_generate(host: str, body: dict[str, object], timeout: float) -> dict[str, object]:
     """Call /api/generate and classify the failure per contract.retry_map.
 
     HTTP 404 -> terminal-model-not-found (a missing model stays missing on
-    retry). Any other HTTP status (5xx) and any connection-level failure
-    (refused, timeout) are transient and re-raised as QwenTransientError so
-    the caller reports a plain, retryable failure.
+    retry). 5xx, 408 (request timeout) and 429 (too many requests) are
+    server-side or transient conditions, as is any connection-level failure
+    (refused, timeout): they are re-raised as QwenTransientError so the
+    caller reports a plain, retryable failure. Every other status (400, 401,
+    403, ...) means the request itself was refused; re-sending the same
+    request cannot fix it, so it is terminal-ollama-request-rejected rather
+    than burning retry attempts.
 
     _ollama_request translates urlopen's errors before they reach here:
     HTTPError becomes QwenGuardError("http-error-<code>") and URLError
@@ -1537,10 +1559,12 @@ def _call_ollama_generate(host: str, body: dict[str, object], timeout: float) ->
     try:
         return _ollama_request(host, body, timeout)
     except QwenGuardError as exc:
-        if str(exc) == "http-error-404":
+        status = _http_status(str(exc))
+        if status == 404:
             raise QwenGuardError("terminal-model-not-found") from exc
-        # Any other HTTP status (5xx) is a server-side transient condition.
-        raise QwenTransientError(str(exc)) from exc
+        if status is not None and (status >= 500 or status in _RETRYABLE_4XX):
+            raise QwenTransientError(str(exc)) from exc
+        raise QwenGuardError(f"terminal-ollama-request-rejected: {exc}") from exc
     except OSError as exc:
         # ConnectionError and TimeoutError are both OSError subclasses.
         raise QwenTransientError(str(exc)) from exc
