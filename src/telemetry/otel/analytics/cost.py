@@ -64,7 +64,7 @@ MODEL_PRICING: dict[str, tuple[float, float]] = {
     "claude-opus-4-5": (5.0, 25.0),
     "claude-opus-4-1": (15.0, 75.0),
     "claude-opus-4-1-20250805": (15.0, 75.0),
-    # Sonnet 5 introductory pricing through Aug 31, 2026; standard is (3.0, 15.0)
+    # Sonnet 5 launch pricing became standard; the planned Sep 2026 rise to (3.0, 15.0) was cancelled
     "claude-sonnet-5": (2.0, 10.0),
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-sonnet-4-5": (3.0, 15.0),

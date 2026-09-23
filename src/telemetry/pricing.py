@@ -24,10 +24,13 @@ _MODEL_PRICING: dict[str, tuple[float, float]] = {
     "claude-opus-4-7": (5.0, 25.0),
     "claude-opus-4-6": (5.0, 25.0),
     "claude-opus-4-5": (5.0, 25.0),
+    "claude-sonnet-5": (2.0, 10.0),
     "claude-sonnet-4-8": (3.0, 15.0),
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-sonnet-4-5": (3.0, 15.0),
     "claude-haiku-4-5": (1.0, 5.0),
+    "claude-fable-5": (10.0, 50.0),
+    "claude-mythos-5": (10.0, 50.0),
     "claude-opus-4-7-1m": (5.0, 25.0),
     "claude-opus-4-6-1m": (5.0, 25.0),
     "claude-sonnet-4-8-1m": (3.0, 15.0),
@@ -83,12 +86,16 @@ class TokenMetrics:
 
 # Ordered fallback rules for _get_model_pricing(): evaluated top-to-bottom
 # after an exact _MODEL_PRICING match fails. Each predicate takes the
-# lowercased model id; the first match wins. Order matters — opus-5-5 and the
-# "1m" combos must be checked before the generic opus/sonnet substring checks.
+# lowercased model id; the first match wins. Order matters — opus-5-5,
+# sonnet-5 and the "1m" combos must be checked before the generic
+# opus/sonnet substring checks, and fable/mythos before the haiku default.
 _PRICING_FALLBACK_RULES: list[tuple[Callable[[str], bool], str]] = [
     (lambda m: "opus-5-5" in m, "claude-opus-5-5"),
+    (lambda m: "sonnet-5" in m, "claude-sonnet-5"),
     (lambda m: "opus" in m and "1m" in m, "claude-opus-4-7-1m"),
     (lambda m: "sonnet" in m and "1m" in m, "claude-sonnet-4-8-1m"),
+    (lambda m: "mythos" in m, "claude-mythos-5"),
+    (lambda m: "fable" in m, "claude-fable-5"),
     (lambda m: "opus" in m, "claude-opus"),
     (lambda m: "sonnet" in m, "claude-sonnet"),
     (lambda m: "haiku" in m, "claude-haiku"),

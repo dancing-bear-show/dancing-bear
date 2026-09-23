@@ -222,6 +222,28 @@ class TestPricing(unittest.TestCase):
                 self.assertAlmostEqual(compute_cost(TokenMetrics(0, 1_000_000, 0, 0), model), 20.0, places=2)
 
     @mock.patch("telemetry.pricing._cost_multiplier", return_value=1.0)
+    def test_compute_cost_current_models(self, _mult):
+        # (model, input $/M, output $/M). Before these entries, sonnet-5 fell to the
+        # sonnet-4 rate and fable/mythos fell through to the haiku default.
+        cases = [
+            ("claude-sonnet-5", 2.0, 10.0),
+            ("claude-sonnet-5[1m]", 2.0, 10.0),
+            ("claude-fable-5", 10.0, 50.0),
+            ("claude-fable-5-1", 10.0, 50.0),
+            ("claude-mythos-5-1", 10.0, 50.0),
+        ]
+        for model, in_rate, out_rate in cases:
+            with self.subTest(model=model):
+                self.assertAlmostEqual(compute_cost(TokenMetrics(1_000_000, 0, 0, 0), model), in_rate, places=2)
+                self.assertAlmostEqual(compute_cost(TokenMetrics(0, 1_000_000, 0, 0), model), out_rate, places=2)
+
+    @mock.patch("telemetry.pricing._cost_multiplier", return_value=1.0)
+    def test_compute_cost_older_sonnet_unaffected(self, _mult):
+        for model in ("claude-sonnet-4-6", "claude-sonnet-4-6[1m]"):
+            with self.subTest(model=model):
+                self.assertAlmostEqual(compute_cost(TokenMetrics(1_000_000, 0, 0, 0), model), 3.0, places=2)
+
+    @mock.patch("telemetry.pricing._cost_multiplier", return_value=1.0)
     def test_compute_cost_other_opus_1m_unaffected(self, _mult):
         cost = compute_cost(TokenMetrics(1_000_000, 0, 0, 0), "claude-opus-5[1m]")
         self.assertAlmostEqual(cost, 5.0, places=2)
