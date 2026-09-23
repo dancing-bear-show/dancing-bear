@@ -32,8 +32,6 @@ from worker.queue_ops import (
     finish as _real_finish,
     list_pending as _real_list_pending,
     reap_stale_processing_jobs as _real_reap,
-    recover_staged_requeues as _real_recover,
-    requeue_processing as _real_requeue,
     retry as _real_retry,
     start_processing as _real_start,
 )
@@ -60,11 +58,10 @@ def _make_runner(root: Path, **config_kwargs: Any):
 def _patch_queue_root(job_root: Path) -> ExitStack:
     """Patch every worker.job_runtime.q.* call site to forward root=job_root.
 
-    ``worker.queue_ops`` functions bind their ``root`` default at import
-    time, so reassigning ``q.QUEUE_ROOT`` after import does not affect a
-    no-args call — the same reason ``TestJobProcessor`` in
-    test_commands_gaps.py wraps each call site individually instead of
-    relying on the module-level reassignment alone.
+    ``worker.queue_ops`` resolves an omitted ``root`` at call time, so the
+    module-level reassignment in ``_make_runner`` already redirects no-args
+    calls; forwarding ``root=job_root`` explicitly keeps each call site's
+    target visible in the test rather than depending on that global.
     """
     stack = ExitStack()
     # process_one logs every outcome to the real worker perf log
@@ -100,20 +97,6 @@ def _patch_queue_root(job_root: Path) -> ExitStack:
         patch(
             "worker.job_runtime.q.retry",
             side_effect=lambda job_path, **kw: _real_retry(job_path, root=job_root, **kw),
-        )
-    )
-    stack.enter_context(
-        patch(
-            "worker.job_runtime.q.requeue_processing",
-            side_effect=lambda job_id, reason, root=None: _real_requeue(
-                job_id, reason=reason, root=job_root
-            ),
-        )
-    )
-    stack.enter_context(
-        patch(
-            "worker.job_runtime.q.recover_staged_requeues",
-            side_effect=lambda root=None: _real_recover(root=job_root),
         )
     )
     return stack
