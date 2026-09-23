@@ -193,9 +193,17 @@ def _lint_fragment(p: Path, text: str, result: LintResult) -> LintResult:
     result.stages = len(stages)
     result.dag_depth = _compute_dag_depth(stages)
     _check_stage_access(stages, result)
-    # A fragment's params are bound by its importer; the importer's lint (and
-    # the compiler, for --params) judges the resolved names.
-    _check_refused_output_names(stages, {}, result)
+    # A fragment may declare its own trigger.params defaults, which include.py
+    # propagates to importers -- judge them here too, or a refused default
+    # passes standalone lint until some importer happens to be linted.
+    from workflow.include import _frag_trigger
+
+    try:
+        frag_params, _ = _frag_trigger(text, str(p))
+    except WorkflowParseError as exc:
+        result.errors.append(LintError(stage=_GLOBAL_STAGE, field="trigger", message=str(exc)))
+        frag_params = {}
+    _check_refused_output_names(stages, frag_params, result)
     result.valid = len(result.errors) == 0
     return result
 

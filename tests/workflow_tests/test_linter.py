@@ -610,11 +610,14 @@ class TestRefusedOutputNames(unittest.TestCase):
         root = Path(__file__).resolve().parents[2] / "workflows"
         files = sorted(root.rglob("*.yaml"))
         self.assertGreater(len(files), 50, msg="found too few workflows to be the real tree")
+        # Both error kinds: a literal writes_to name AND a name that arrives
+        # through a param default (field "param:<name>"). Filtering on
+        # writes_to alone let the second pass this tree-wide guard.
         offenders = [
             f"{f.relative_to(root)}: {e.stage}: {e.message}"
             for f in files
             for e in lint_workflow(f).errors
-            if e.field == "writes_to"
+            if e.field == "writes_to" or e.field.startswith("param:")
         ]
         self.assertEqual(offenders, [])
 

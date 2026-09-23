@@ -10,12 +10,15 @@ not ours, so it is re-measured rather than reasoned about if it is questioned.
 
 A stage can name its output two ways, and both must be checked:
 
-* literally, in ``writes_to`` -- visible to ``workflow lint``;
+* literally, in ``writes_to``;
 * through a param, e.g. validate-then-render's ``{report_artifact}``, which the
   fragment leaves out of ``writes_to`` because it cannot be resolved statically.
-  Its value comes from trigger defaults (lint can see those) or from ``--params``
-  at compile time (only the compiler can), so the linter and the compiler share
-  this module.
+
+Both checks run in two places, because neither alone sees everything:
+``workflow lint`` (param defaults, including a fragment's own) and
+``compile_workflow`` (the effective params, including ``--params``). The
+compiler is the gate that cannot be skipped -- ``workflow run`` compiles
+without linting -- so it enforces literal names too.
 """
 
 from __future__ import annotations
@@ -26,12 +29,19 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
+from workflow.param_rules import is_identifier
+
 if TYPE_CHECKING:
     from workflow.models import StageSpec
 
 REFUSED_OUTPUT_NAMES = frozenset({"report.md", "summary.md", "findings.md"})
 
-_PARAM_REF = re.compile(r"(?<!\{)\{([a-z_][a-z0-9_]*)\}(?!\})")
+# The compiler's placeholder grammar, deliberately, not the linter's stricter
+# lowercase one: compile_workflow substitutes any `{key}` whose key passes
+# param_rules.is_identifier ([A-Za-z_]\w*, ASCII) -- including inside `{{...}}`,
+# since resolve_params is a plain str.replace. A narrower pattern here let
+# `{ReportArtifact}` resolve to report.md while this check never saw it.
+_PARAM_REF = re.compile(r"\{([A-Za-z_]\w*)\}", re.ASCII)
 
 
 def is_refused(path: str) -> bool:
@@ -55,44 +65,38 @@ class RefusedOutput:
 
 
 def _substitute(text: str, params: Mapping[str, str]) -> str:
-    return _PARAM_REF.sub(lambda m: str(params.get(m.group(1), m.group(0))), text)
+    """Exactly compiler.resolve_params' substitution (which imports this module)."""
+    for key, value in params.items():
+        if is_identifier(key):
+            text = text.replace(f"{{{key}}}", str(value))
+    return text
 
 
-def find_refused_outputs(
-    stages: Iterable[StageSpec],
-    params: Mapping[str, str],
-    *,
-    literal: bool = True,
-) -> list[RefusedOutput]:
+def find_refused_outputs(stages: Iterable[StageSpec], params: Mapping[str, str]) -> list[RefusedOutput]:
     """Every agent-stage output the harness would refuse, given *params*.
 
-    With ``literal=False`` only param-derived names are reported -- the
-    compiler's view, since literal ``writes_to`` entries are lint's job and do
-    not change with ``--params``.
-
-    A param counts when an agent stage references it (description or
-    writes_to) and its value's basename is refused. Inline, local and skill
-    stages are exempt: no subagent writes their outputs.
+    Literal writes_to names, writes_to names with a param in the filename, and
+    params an agent stage's description references but writes_to omits. Inline,
+    local and skill stages are exempt: no subagent writes their outputs.
     """
     found: list[RefusedOutput] = []
     for stage in stages:
         if stage.executor == "agent":
-            found.extend(_from_writes_to(stage, params, literal))
+            found.extend(_from_writes_to(stage, params))
             found.extend(_from_description(stage, params))
     return found
 
 
-def _from_writes_to(stage: StageSpec, params: Mapping[str, str], literal: bool) -> list[RefusedOutput]:
+def _from_writes_to(stage: StageSpec, params: Mapping[str, str]) -> list[RefusedOutput]:
     found: list[RefusedOutput] = []
     for path in stage.writes_to:
         # Only a param in the FILENAME makes the name param-derived.
         # "{workspace}/report.md" is a literal report.md in a param directory.
         name_refs = _PARAM_REF.findall(PurePosixPath(path).name)
         resolved = _substitute(path, params) if name_refs else path
-        if not is_refused(resolved) or (not name_refs and not literal):
-            continue
-        found.append(RefusedOutput(stage.name, path, PurePosixPath(resolved).name.lower(),
-                                   param=name_refs[-1] if name_refs else None))
+        if is_refused(resolved):
+            found.append(RefusedOutput(stage.name, path, PurePosixPath(resolved).name.lower(),
+                                       param=name_refs[-1] if name_refs else None))
     return found
 
 

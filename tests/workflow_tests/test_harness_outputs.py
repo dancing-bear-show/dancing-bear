@@ -61,16 +61,18 @@ class FindRefusedOutputsTest(unittest.TestCase):
         self.assertEqual([(f.declared, f.param) for f in found], [("outputs/{name}", "name")])
 
     def test_param_directory_with_literal_name_is_literal(self) -> None:
-        """'{workspace}/report.md': the refused name is literal, so lint owns it, not compile."""
+        """'{workspace}/report.md': the refused name is literal, not param-derived."""
         stage = _stage(writes_to=("{workspace}/report.md",))
         (item,) = find_refused_outputs([stage], {"workspace": "ws-root"})
         self.assertIsNone(item.param)
-        self.assertEqual(find_refused_outputs([stage], {"workspace": "ws-root"}, literal=False), [])
 
-    def test_literal_only_when_asked(self) -> None:
-        stage = _stage(writes_to=("outputs/report.md",))
-        self.assertEqual(len(find_refused_outputs([stage], {})), 1)
-        self.assertEqual(find_refused_outputs([stage], {}, literal=False), [])
+    def test_uppercase_param_names_are_seen(self) -> None:
+        """The compiler substitutes any [A-Za-z_]\\w* key, so the check must too."""
+        for stage in (_stage(description="write {ReportArtifact}"),
+                      _stage(writes_to=("outputs/{ReportArtifact}",))):
+            with self.subTest(stage=stage.description or stage.writes_to):
+                found = find_refused_outputs([stage], {"ReportArtifact": "report.md"})
+                self.assertEqual([f.param for f in found], ["ReportArtifact"])
 
     def test_non_agent_executors_are_exempt(self) -> None:
         for executor in ("inline", "local", "skill"):
@@ -86,6 +88,50 @@ class FindRefusedOutputsTest(unittest.TestCase):
         (item,) = find_refused_outputs([stage], {"out": "x/$(evil)/REPORT.md"})
         self.assertNotIn("$(evil)", describe(item))
         self.assertIn("'report.md'", describe(item))
+
+
+_LITERAL_WF = (
+    'name: t\nversion: "1.0"\ndescription: d\n'
+    "trigger:\n  source: manual\n"
+    "stages:\n  - name: write-it\n    kind: execute\n    description: d\n"
+    "    agent:\n      role: doc-writer\n"
+    "    writes_to:\n      - outputs/report.md\n"
+)
+
+_FRAGMENT_WITH_DEFAULT = (
+    "fragment: true\n"
+    "trigger:\n  params:\n    report_artifact: report.md\n"
+    "stages:\n  - name: render\n    kind: execute\n"
+    "    description: write {workspace}/outputs/{report_artifact}\n"
+    "    agent:\n      role: doc-writer\n"
+)
+
+
+class EnforcementPathsTest(unittest.TestCase):
+    """Each path a workflow can take to a subagent must reject a refused name."""
+
+    def _write(self, tmp: str, text: str) -> Path:
+        wf = Path(tmp) / "wf.yaml"
+        wf.write_text(text, encoding="utf-8")
+        return wf
+
+    def test_workflow_run_path_rejects_a_literal_name_without_lint(self) -> None:
+        """`workflow run` loads through _load_manifest, which compiles and never lints."""
+        from core.cli_errors import CLIError
+        from workflow.cli_dispatch import _load_manifest
+
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._write(tmp, _LITERAL_WF)
+            with self.assertRaises(CLIError) as ctx:
+                _load_manifest(str(wf))
+        self.assertIn("write-it", str(ctx.exception))
+        self.assertIn("report.md", str(ctx.exception))
+
+    def test_fragment_lint_uses_the_fragments_own_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = lint_workflow(self._write(tmp, _FRAGMENT_WITH_DEFAULT))
+        self.assertEqual([e.field for e in result.errors], ["param:report_artifact"])
+        self.assertFalse(result.valid)
 
 
 class RealCallerTest(unittest.TestCase):
