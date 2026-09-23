@@ -253,6 +253,29 @@ class TestPaginatedCopilotSelection(unittest.TestCase):
         self.assertEqual(threads, [], "no Copilot thread was present in the fixture")
 
 
+class TestIncompleteFetchIsRefused(unittest.TestCase):
+    """A thread fetch whose counts do not match must not become a summary."""
+
+    def test_truncated_fetch_raises_instead_of_returning_a_partial_list(self):
+        fake = FakeGhTransport()
+        node = _thread_node("PRRT_1", author_login="copilot-pull-request-reviewer")
+        fake.graphql_query({"data": {"repository": {"pullRequest": {"reviewThreads": {
+            "totalCount": 3,  # GitHub says 3; one came back
+            "pageInfo": {"hasNextPage": False, "endCursor": None},
+            "nodes": [node],
+        }}}}})
+        with self.assertRaisesRegex(PRA.GhError, "incomplete"):
+            PRA.fetch_copilot_threads(_new_gh(fake), "owner", "repo", 42)
+
+    def test_main_turns_any_gh_error_into_exit_1_without_a_traceback(self):
+        with patch.object(sys, "argv", ["pr-assistant", "--dry-run"]), \
+                patch.object(PRA, "_run", side_effect=PRA.GhError("gh api graphql timed out after 300s")), \
+                patch("sys.stderr") as err:
+            self.assertEqual(PRA.main(), 1)
+        written = "".join(c.args[0] for c in err.write.call_args_list)
+        self.assertIn("pr-assistant: gh api graphql timed out", written)
+
+
 class TestCopilotAuthorIdentification(unittest.TestCase):
     """A ``[bot]`` login and a typed ``Bot`` marker both count; a human does not."""
 

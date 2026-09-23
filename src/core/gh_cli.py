@@ -44,6 +44,10 @@ def field_args(variables: dict[str, Any] | None) -> list[str]:
     return out
 
 
+#: Sentinel: "use the instance's configured timeout".
+_DEFAULT_TIMEOUT: Any = object()
+
+
 class GhCLI:
     """Thin wrapper around the `gh` CLI for JSON-friendly calls."""
     def __init__(
@@ -51,6 +55,7 @@ class GhCLI:
         run_func: Callable[..., Any] | None = None,
         *,
         scrub_github_token: bool = False,
+        timeout: float | None = None,
     ) -> None:
         """Create a GhCLI that uses the provided run function (for tests).
 
@@ -58,27 +63,50 @@ class GhCLI:
         so gh uses its own keyring credentials: a stale exported token otherwise
         silently overrides them and every call fails auth. ``GH_TOKEN`` is left
         alone — it is gh's own variable and is set deliberately.
+
+        ``timeout`` (seconds) bounds every call, so a network or auth stall
+        fails instead of blocking an unattended caller forever. A call that is
+        long-running by design (``pr checks --watch``) opts out per call.
         """
         self._run = run_func or subprocess.run
         self._scrub = scrub_github_token
+        self._timeout = timeout
 
-    def _exec(self, cmd: list[str], *, input_text: str | None = None) -> Any:
+    def _exec(
+        self,
+        cmd: list[str],
+        *,
+        input_text: str | None = None,
+        timeout: float | None = _DEFAULT_TIMEOUT,
+    ) -> Any:
         """Run ``cmd`` with captured text output and the configured environment."""
         kwargs: dict[str, Any] = {"text": True, "capture_output": True}
         if self._scrub:
             kwargs["env"] = {k: v for k, v in os.environ.items() if k != "GITHUB_TOKEN"}
         if input_text is not None:
             kwargs["input"] = input_text
-        return self._run(cmd, **kwargs)
+        limit = self._timeout if timeout is _DEFAULT_TIMEOUT else timeout
+        if limit is not None:
+            kwargs["timeout"] = limit
+        try:
+            return self._run(cmd, **kwargs)
+        except subprocess.TimeoutExpired as exc:
+            raise GhError(f"gh {' '.join(cmd[1:3])} timed out after {limit}s") from exc
 
-    def run(self, args: list[str], *, input_text: str | None = None) -> Any:
+    def run(
+        self,
+        args: list[str],
+        *,
+        input_text: str | None = None,
+        timeout: float | None = _DEFAULT_TIMEOUT,
+    ) -> Any:
         """Run ``gh <args>`` and return the completed process unchanged.
 
         For porcelain commands (``pr create``, ``pr checks --watch``) whose exit
         status and text output are the result: the caller decides what counts
-        as failure.
+        as failure. Pass ``timeout=None`` for a call that is meant to block.
         """
-        return self._exec(["gh", *args], input_text=input_text)
+        return self._exec(["gh", *args], input_text=input_text, timeout=timeout)
 
     def api_paginated(self, path: str) -> list[Any]:
         """GET every page of a REST list endpoint and return one flat list.

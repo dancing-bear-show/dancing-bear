@@ -305,13 +305,25 @@ def cmd_threads_state(args) -> int:
     owner, name = resolve_owner_repo(gh, _repo(args))
     # A dedicated GraphQL query would be faster, but a re-fetch is the same
     # code path callers already trust and re-uses its verified pagination.
-    raw_threads, _ = _threads_mod.fetch_raw_threads(gh, owner, name, int(args.pr))
-    total = len(raw_threads)
+    raw_threads, truncated = _threads_mod.fetch_raw_threads(gh, owner, name, int(args.pr))
+    if truncated:
+        # A count GitHub reported did not match what came back, so any number
+        # here is unverified. Report null, never a partial count that would
+        # make an incomplete run look complete.
+        _print_json({
+            "total": None,
+            "unresolved": None,
+            "unresolved_ids": None,
+            "truncated": True,
+            "error": "fetched thread counts did not match GitHub's reported totals",
+        })
+        return ExitCode.ERROR
     unresolved_ids = [str(n["id"]) for n in raw_threads if not n.get("isResolved") and n.get("id")]
     _print_json({
-        "total": total,
+        "total": len(raw_threads),
         "unresolved": len(unresolved_ids),
         "unresolved_ids": unresolved_ids,
+        "truncated": False,
     })
     return ExitCode.SUCCESS
 

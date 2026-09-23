@@ -149,8 +149,15 @@ def pr_checks(gh: GhCLI, pr: int | str | None, *, repo: str | None = None) -> li
 def pr_checks_watch(
     gh: GhCLI, pr: int | str | None, *, interval: int = 60, repo: str | None = None,
 ) -> int:
-    """Block until checks finish; return gh's exit code (0 means all passed)."""
-    res = gh.run(["pr", "checks", *_pr_args(pr), *_repo_args(repo), "--watch", "--interval", str(interval)])
+    """Block until checks finish; return gh's exit code (0 means all passed).
+
+    Exempt from the client timeout: blocking until CI finishes is the point.
+    A caller that needs a ceiling wraps it (e.g. ``timeout 1200 ...``).
+    """
+    res = gh.run(
+        ["pr", "checks", *_pr_args(pr), *_repo_args(repo), "--watch", "--interval", str(interval)],
+        timeout=None,
+    )
     return int(res.returncode)
 
 

@@ -120,8 +120,14 @@ def fetch_thread_comments(gh: GhCLI, thread_id: str) -> list[dict[str, Any]]:
 
     Used to check idempotency markers before replying: the whole chain, not the
     latest comment, because a reviewer may have replied after our last run.
+
+    Raises when GitHub reports more comments than came back. An incomplete
+    chain can hide this run's earlier reply, and the caller would then post a
+    duplicate — so a short chain must fail, not read as "no marker".
     """
-    nodes, _ = _page_thread_comments(gh, thread_id, None)
+    nodes, total = _page_thread_comments(gh, thread_id, None)
+    if len(nodes) != total:
+        raise GhError(f"thread {thread_id} comments: fetched {len(nodes)} of {total} reported")
     return [_comment(n) for n in nodes]
 
 

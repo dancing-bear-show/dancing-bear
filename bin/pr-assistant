@@ -140,6 +140,11 @@ def fetch_copilot_threads(gh, owner, repo, pr_number):
     silently dropped them.
     """
     doc, _raw = fetch_review_threads(gh, owner, repo, pr_number)
+    if doc.get("truncated"):
+        # A count GitHub reported did not match what came back. Resolving from
+        # a partial list and then posting "N unresolved" would present an
+        # incomplete run as complete, so stop instead.
+        raise GhError("review-thread fetch incomplete (reported counts did not match); rerun")
     out = []
     for entry in doc.get("threads") or []:
         if entry.get("source") != "graphql-thread":
@@ -447,6 +452,16 @@ def _update_pr_metadata(gh, pr_number, args):
 def main():
     parser = build_parser()
     args = parser.parse_args()
+    try:
+        return _run(args)
+    except GhError as exc:
+        # One exit path for every GitHub failure (auth, timeout, GraphQL
+        # errors, an incomplete fetch) instead of a traceback.
+        print(f"pr-assistant: {exc}", file=sys.stderr)
+        return 1
+
+
+def _run(args):
     gh = client()
     owner, repo = resolve_owner_repo(gh)
 

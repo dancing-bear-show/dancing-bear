@@ -280,10 +280,12 @@ stages:
 
         ./bin/github threads state --pr {pr_number}
 
-      Returns {"total","unresolved","unresolved_ids":[...]} with a paginated
-      re-fetch so a truncated result cannot make a partial run look complete.
-      If pagination fails, set "unresolved_after": null and record the reason
-      rather than writing a number you did not verify.
+      Returns {"total","unresolved","unresolved_ids":[...],"truncated":false}
+      from a paginated re-fetch. When GitHub's reported counts do not match
+      what came back, it prints "truncated": true with null counts and exits
+      1 rather than a partial number. On that, or any non-zero exit, set
+      "unresolved_after": null and record the reason — never a number you
+      did not verify.
 
       Report the observed state, not the intended one.
     agent:

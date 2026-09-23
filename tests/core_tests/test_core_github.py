@@ -194,6 +194,16 @@ class TestThreadPagination(unittest.TestCase):
         self.assertEqual(doc["counts"]["total"], 0)
         self.assertFalse(doc["truncated"])
 
+    def test_fetch_thread_comments_refuses_a_short_chain(self):
+        # An incomplete chain can hide this run's earlier reply, and the
+        # caller would post a duplicate; a count mismatch must fail.
+        def handler(call: GhCall):
+            conn = {"totalCount": 5, "pageInfo": {"hasNextPage": False, "endCursor": None},
+                    "nodes": [comment_node(0), comment_node(1)]}
+            return ok({"data": {"node": {"comments": conn}}})
+        with self.assertRaisesRegex(GhError, "fetched 2 of 5"):
+            fetch_thread_comments(GhCLI(run_func=FakeGh(handler)), "PRRT_0")
+
     def test_fetch_thread_comments_follows_every_page(self):
         n = COMMENT_PAGE + 5
         gh = GhCLI(run_func=FakeGh(PagingGitHub([_thread(0, [comment_node(i) for i in range(n)])])))
@@ -420,6 +430,35 @@ class TestGhPlumbing(unittest.TestCase):
         self.assertNotIn("GITHUB_TOKEN", fake.calls[0].env)
         self.assertEqual(fake.calls[0].env["GH_TOKEN"], "keep")
         self.assertIsNone(fake.calls[1].env)
+
+    def test_timeout_is_passed_and_expiry_becomes_gh_error(self):
+        import subprocess
+
+        seen: list[Any] = []
+
+        def run(cmd, **kwargs):
+            seen.append(kwargs.get("timeout", "absent"))
+            raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+
+        with self.assertRaisesRegex(GhError, "timed out after 7s"):
+            GhCLI(run_func=run, timeout=7).run(["api", "user"])
+        self.assertEqual(seen, [7])
+
+    def test_no_timeout_configured_passes_none_and_per_call_none_opts_out(self):
+        fake = FakeGh(lambda c: ok(""))
+        GhCLI(run_func=fake).run(["repo", "view"])
+        GhCLI(run_func=fake, timeout=7).run(["pr", "checks", "--watch"], timeout=None)
+        GhCLI(run_func=fake, timeout=7).run(["repo", "view"])
+        self.assertEqual([c.timeout for c in fake.calls], [None, None, 7])
+
+    def test_client_is_bounded_and_watch_is_not(self):
+        from core import github
+        from core.github import pulls
+
+        self.assertEqual(github.client()._timeout, github.GH_TIMEOUT_SECONDS)
+        fake = FakeGh(lambda c: ok(""))
+        pulls.pr_checks_watch(GhCLI(run_func=fake, timeout=7), 4)
+        self.assertIsNone(fake.calls[0].timeout)
 
     def test_resolve_owner_repo(self):
         gh = GhCLI(run_func=FakeGh(lambda c: ok("octo/cat\n")))

@@ -53,6 +53,15 @@ __all__ = [
 ]
 
 
+#: Upper bound for one gh call, in seconds. Generous because a paginated
+#: fetch of a busy PR is several round trips inside a single process.
+GH_TIMEOUT_SECONDS = 300
+
+
 def client() -> GhCLI:
-    """A GhCLI that ignores an exported ``GITHUB_TOKEN``."""
-    return GhCLI(scrub_github_token=True)
+    """A GhCLI that ignores an exported ``GITHUB_TOKEN`` and never hangs.
+
+    Every call is bounded by ``GH_TIMEOUT_SECONDS``; ``pr checks --watch`` is
+    the one call that opts out, because blocking is its job.
+    """
+    return GhCLI(scrub_github_token=True, timeout=GH_TIMEOUT_SECONDS)

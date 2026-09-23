@@ -827,13 +827,13 @@ class TestThreadsState(unittest.TestCase):
                                 {"id": "T1", "isResolved": False, "isOutdated": False,
                                  "isCollapsed": False, "path": "a.py", "line": 1,
                                  "startLine": None, "diffSide": "RIGHT",
-                                 "comments": {"totalCount": 1,
+                                 "comments": {"totalCount": 0,
                                               "pageInfo": {"hasNextPage": False, "endCursor": None},
                                               "nodes": []}},
                                 {"id": "T2", "isResolved": True, "isOutdated": False,
                                  "isCollapsed": False, "path": "b.py", "line": 2,
                                  "startLine": None, "diffSide": "RIGHT",
-                                 "comments": {"totalCount": 1,
+                                 "comments": {"totalCount": 0,
                                               "pageInfo": {"hasNextPage": False, "endCursor": None},
                                               "nodes": []}},
                             ],
@@ -850,7 +850,26 @@ class TestThreadsState(unittest.TestCase):
             "total": 2,
             "unresolved": 1,
             "unresolved_ids": ["T1"],
+            "truncated": False,
         })
+
+    def test_truncated_refetch_reports_null_not_a_partial_count(self):
+        # GitHub reports 3 threads, 1 comes back: any count would be unverified.
+        fake = FakeGhRunner()
+        payload = {"data": {"repository": {"pullRequest": {"reviewThreads": {
+            "totalCount": 3,
+            "pageInfo": {"hasNextPage": False, "endCursor": None},
+            "nodes": [{"id": "T1", "isResolved": False, "comments": {
+                "totalCount": 0, "pageInfo": {"hasNextPage": False}, "nodes": []}}],
+        }}}}}
+        fake.add(["reviewThreads"], stdout=json.dumps(payload))
+        with _install_client(fake):
+            rc, out, _err = _run_cli(["threads", "state", "--repo", "acme/widgets", "--pr", "10"])
+        self.assertEqual(rc, 1)
+        got = json.loads(out)
+        self.assertTrue(got["truncated"])
+        self.assertIsNone(got["unresolved"])
+        self.assertIsNone(got["total"])
 
 
 # ---------------------------------------------------------------------------

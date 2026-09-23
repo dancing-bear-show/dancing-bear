@@ -23,6 +23,7 @@ class GhCall:
     fields: dict[str, tuple[str, str]] = field(default_factory=dict)
     input: str | None = None
     env: dict[str, str] | None = None
+    timeout: float | None = None
 
     def value(self, name: str) -> str | None:
         got = self.fields.get(name)
@@ -30,7 +31,8 @@ class GhCall:
 
 
 def parse_call(argv: list[str], kwargs: dict[str, Any]) -> GhCall:
-    call = GhCall(argv=list(argv), input=kwargs.get("input"), env=kwargs.get("env"))
+    call = GhCall(argv=list(argv), input=kwargs.get("input"), env=kwargs.get("env"),
+                  timeout=kwargs.get("timeout"))
     i = 0
     while i < len(argv):
         tok = argv[i]
