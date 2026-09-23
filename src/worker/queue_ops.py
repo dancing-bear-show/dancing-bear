@@ -218,6 +218,44 @@ def retry(
     return new_path
 
 
+_REQUEUE_STAGING_SUFFIX = ".requeue"
+
+
+def requeue_processing(job_id: str, *, reason: str, root: Path = QUEUE_ROOT) -> Path | None:
+    """Move processing/<job_id> back to pending/ without consuming an attempt.
+
+    The job becomes eligible immediately and records ``reason`` as
+    ``last_error``. Returns the pending/ path, or None when the job is no
+    longer in processing/ (it finished or was moved elsewhere first), in
+    which case nothing is written.
+
+    The processing/ file is first renamed to a staging name that no queue
+    listing matches, which claims it atomically, and only the fully updated
+    file is renamed into pending/. Unlike ``retry``, a job that vanished
+    before the claim is never recreated from empty metadata, and no other
+    worker can claim the pending/ copy before its metadata is written.
+    """
+    paths = _ensure_dirs(root)
+    src = _job_path(paths["processing"], job_id)
+    staged = src.with_name(src.name + _REQUEUE_STAGING_SUFFIX)
+    try:
+        src.rename(staged)
+    except FileNotFoundError:
+        return None
+    try:
+        data = safe_load_json(staged, default={})
+        data["status"] = "pending"
+        data["not_before"] = iso_now()
+        data[FIELD_UPDATED_AT] = iso_now()
+        data["last_error"] = str(reason)
+        atomic_write_json(staged, data)
+    except Exception as exc:  # still move the job: stale metadata beats a stranded file
+        _log.debug("Failed to update metadata for requeued job %s: %s", job_id, exc)
+    new_path = _job_path(paths["pending"], job_id)
+    _rename(staged, new_path)
+    return new_path
+
+
 def list_processing(root: Path = QUEUE_ROOT) -> list[tuple[Path, dict[str, object]]]:
     """Return list of (path, data) for jobs currently in processing/."""
     paths = _ensure_dirs(root)

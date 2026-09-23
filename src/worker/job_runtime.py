@@ -7,11 +7,14 @@ from __future__ import annotations
 
 import logging
 import os
+import signal
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from types import FrameType
 
 from core.cli_errors import UsageError
 from core.cli_output import OutputWriter
@@ -24,6 +27,14 @@ from worker import queue_ops as q
 from worker.handlers import REGISTRY as HANDLERS
 
 logger = logging.getLogger(__name__)
+
+SHUTDOWN_REQUEUE_REASON = "requeued-on-shutdown"
+
+# Signals that ask the daemon to stop. launchd stops an agent with SIGTERM,
+# so treating SIGTERM like Ctrl-C is what lets the drain run under launchd.
+_STOP_SIGNALS: tuple[signal.Signals, ...] = (signal.SIGTERM, signal.SIGINT)
+
+_SignalHandler = Callable[[int, FrameType | None], object] | int | None
 
 # ============================================================================
 # Helpers
@@ -96,6 +107,44 @@ def _reap_stale_unowned(job_timeout: int, root: Path, owned: set[str]) -> list[s
     return reaped
 
 
+def _make_stop_handler(stop: threading.Event) -> Callable[[int, FrameType | None], None]:
+    """Return a signal handler that only sets ``stop``.
+
+    Kept to one Event.set so it is safe to run between any two bytecodes of
+    the main thread; the daemon loop does the actual shutdown work.
+    """
+
+    def _handler(signum: int, frame: FrameType | None) -> None:
+        stop.set()
+
+    return _handler
+
+
+def _install_stop_handlers(stop: threading.Event) -> dict[signal.Signals, _SignalHandler]:
+    """Route SIGTERM and SIGINT to ``stop``; return the handlers they replace.
+
+    Python only allows signal handlers to be installed from the main thread,
+    so a daemon run from any other thread installs nothing and stops via the
+    Event alone.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return {}
+    handler = _make_stop_handler(stop)
+    previous: dict[signal.Signals, _SignalHandler] = {}
+    for sig in _STOP_SIGNALS:
+        previous[sig] = signal.getsignal(sig)
+        signal.signal(sig, handler)
+    return previous
+
+
+def _restore_signal_handlers(previous: dict[signal.Signals, _SignalHandler]) -> None:
+    """Reinstate handlers captured by ``_install_stop_handlers``."""
+    for sig, handler in previous.items():
+        # getsignal returns None for a handler not installed from Python;
+        # SIG_DFL is the closest installable equivalent.
+        signal.signal(sig, signal.SIG_DFL if handler is None else handler)
+
+
 # ============================================================================
 # Dataclasses
 # ============================================================================
@@ -110,6 +159,10 @@ class WorkerConfig:
     max_inflight: int = 0
     job_timeout: int = 0
     interval: float = 5.0
+    # Seconds the daemon waits for running jobs after a stop request before
+    # requeueing them. Kept below launchd's default ExitTimeOut (20s) so the
+    # requeue finishes before launchd escalates to SIGKILL.
+    shutdown_grace: float = 10.0
 
 
 @dataclass
@@ -376,6 +429,7 @@ class DaemonRunner:
         self.processor = processor
         self._live_threads: dict[str, threading.Thread] = {}
         self._registry_lock = threading.Lock()
+        self.stop_event = threading.Event()
 
     def tick(self) -> int:
         """Start newly claimed jobs without blocking; return count started.
@@ -529,20 +583,66 @@ class DaemonRunner:
         self._run_once_batch()
         return 0
 
+    def drain_live_threads(self, grace: float) -> list[str]:
+        """Wait up to ``grace`` seconds for live job threads; requeue the rest.
+
+        One deadline covers every thread, so the total wait never exceeds
+        ``grace``. Each thread still alive at the deadline has its job moved
+        from processing/ back to pending/ without consuming an attempt, with
+        ``last_error`` set to ``SHUTDOWN_REQUEUE_REASON``. Only jobs owned by
+        this runner's live threads are touched; another worker's processing/
+        jobs are left alone. A job that already left processing/ (it
+        finished during the race) is not recreated. Returns the requeued
+        job stems.
+
+        Delivery is at-least-once. Threads cannot be killed, so a requeued
+        job's thread keeps running until the interpreter exits, and the job
+        runs again on the next start after a partial first run. A thread that
+        finishes in the moment between the requeue and interpreter exit can
+        also leave a done/ or error/ record beside the requeued copy.
+        """
+        deadline = time.monotonic() + max(0.0, grace)
+        with self._registry_lock:
+            live = dict(self._live_threads)
+        for thread in live.values():
+            thread.join(timeout=max(0.0, deadline - time.monotonic()))
+        requeued: list[str] = []
+        for stem, thread in live.items():
+            if not thread.is_alive():
+                continue
+            if q.requeue_processing(stem, reason=SHUTDOWN_REQUEUE_REASON, root=q.QUEUE_ROOT):
+                logger.warning("requeued running job %s on shutdown", stem)
+                requeued.append(stem)
+        return requeued
+
     def run_daemon(self) -> int:
-        """Run continuous daemon loop.
+        """Run continuous daemon loop until stopped, then drain.
 
         Calls the non-blocking ``tick()`` each iteration so a long-running
         job never blocks the daemon from claiming other pending work.
+
+        SIGTERM (how launchd stops the agent) and SIGINT both set
+        ``stop_event``; handlers are installed only when running in the main
+        thread and the previous ones are restored on exit. On stop the loop
+        claims no new jobs, then ``drain_live_threads`` waits up to
+        ``config.shutdown_grace`` seconds and requeues any job still running
+        instead of leaving it in processing/. See
+        ``drain_live_threads`` for the at-least-once consequence.
         """
         # Anchor the daemon's cwd to the repo root so job scripts that use
         # relative paths (./bin/...) resolve correctly.
         os.chdir(str(get_repo_root()))
+        previous = _install_stop_handlers(self.stop_event)
         try:
-            while True:
-                n = self.tick()
-                sleep_time = self.config.interval if n == 0 else 0.1
-                time.sleep(sleep_time)
-        except KeyboardInterrupt:
-            logger.info("stopped")
-            return 0
+            try:
+                while not self.stop_event.is_set():
+                    n = self.tick()
+                    self.stop_event.wait(self.config.interval if n == 0 else 0.1)
+            except KeyboardInterrupt:
+                self.stop_event.set()
+            logger.info("stopping; waiting up to %ss for running jobs", self.config.shutdown_grace)
+            self.drain_live_threads(self.config.shutdown_grace)
+        finally:
+            _restore_signal_handlers(previous)
+        logger.info("stopped")
+        return 0
