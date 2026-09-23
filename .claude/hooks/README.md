@@ -1,7 +1,8 @@
 # Claude Code guard hooks
 
-Three scripts: two PreToolUse guards that block access to this repo's credential
-files and to destructive commands, plus a statusline renderer.
+Four scripts: three PreToolUse guards — two that block access to this repo's
+credential files and to destructive commands, one that stops a read-only-contract
+agent from modifying tracked source — plus a statusline renderer.
 
 ## What these hooks are, and what they are not
 
@@ -141,6 +142,125 @@ Reads `.tool_input.file_path` and blocks writes to the same credential set, plus
 Protected **directory** segments (`.ssh/`, `.gnupg/`, `.aws/`, `.git/`) are checked
 **before** the template carve-out. A filename that looks like a template must never
 vouch for the directory it sits in — `.ssh/.env.example` is a write into `.ssh/`.
+
+### `block-readonly-role-writes.sh` — PreToolUse, matcher `Write|Edit|Bash`
+
+A different concern from its two siblings: they protect *secrets*, this one protects
+*source* from a particular class of caller.
+
+Several agent roles (`researcher`, `Plan`, `reviewer`, `critic`, `fact-checker`,
+`unit-validator`, `cross-unit-validator`, `haiku-reviewer`, `Explore`) have a
+definition in `.claude/agents/` stating they never modify source, while still being
+granted `Write` so they can produce their stage outputs. PR #392 spent three review
+rounds trying to make that stick in prose, and each round's wording opened the next
+round's hole. Prose is applied by a model; a hook is applied by the harness.
+
+This hook keys on **`agent_type`** in the PreToolUse payload — the spawning role name.
+The main session has no `agent_type`, so a user driving the session directly is never
+restricted. A role not on the read-only list (`code-writer`, `tester`, `ci-fixer`,
+`doc-writer`, `thread-fixer`, `workflow-author`, …) is expected to write source and is
+allowed through.
+
+Guarded: **every top-level directory in the repo**, plus **every file at the repo
+root**. Refused **even when a prompt names one as a stage output** — a prompt naming a
+source path as an artifact is misconfigured, not authorization.
+
+Both sets are derived rather than enumerated, and for the same reason. The directory
+list was hand-maintained for one round after the root-file set had been derived, and
+drifted in exactly the same way inside the same function: `templates/` and
+`signatures_assets/` were tracked and unguarded. An explicit list survives only as a
+floor for the case where `REPO_ROOT` cannot be resolved.
+
+**The repository root itself is guarded**, which needed stating separately: the
+prefix test requires a trailing `<repo>/`, so a path *equal to* the root took the
+"outside this repo" branch and was allowed. The guard refused `rm -rf src` while
+permitting `rm -rf <the whole checkout>` — one character of prefix away from the rule
+covering everything beneath it.
+
+**Generated-output and workspace roots stay writable** — `out/`, `_out/`, `backups/`,
+the usual vendored/cache directories, and the workflow workspace roots `stages/`,
+`outputs/`, `validation/`, `dispatch/`, `analysis/`, `context/`, `design/`.
+
+Existence alone is the wrong test, and that bit twice. `out/` sits at the repo root,
+is gitignored, and is where artifacts belong, so a bare "is a top-level directory"
+rule refused `out/report.json`. Worse, the workflow runner *creates* `stages/`,
+`outputs/` and `validation/` (`persistence.py` `_SUBDIRS`) before a stage writes — so
+each flipped from allowed to blocked the moment it existed, rejecting the stage's
+required artifact. The suite's ALLOW case had passed only because the directory
+happened to be absent when it ran; the cases now create the directories first, which
+is the difference between a test and a coincidence.
+
+The root-file rule is derived, not enumerated: a slashless repo-relative token that
+names an existing file at the root is guarded. An earlier hand-maintained list held 11
+names while `git ls-files` reported 20, leaving `AGENTS.md`, `COPILOT.md` and
+`GEMINI.md` writable — and rewriting those changes the instructions *later agents*
+consume, which outlasts editing any single source file. The existence test matters too:
+"slashless" alone refused `rm -rf srcfoo`, the bare `1` from `2>&1`, and an unexpanded
+`$P`.
+
+Each tree is matched **both as the bare directory and as a prefix of its contents**,
+which is not a detail. An earlier version stored `"src/"` and tested prefixes only,
+so `rm -rf src/` was blocked while `rm -rf src` — one character shorter, and the
+spelling that actually removes the tree — was allowed. A guard that refuses the
+careful spelling and permits the destructive one is worse than none, because it reads
+as protection. Both spellings are pinned in the suite for every tree.
+
+`./` segments are collapsed before any of that runs, for the same reason: the prefix
+tests are textual, so `<repo>/./src/mail/cli.py` reduced to `./src/mail/cli.py`, which
+does not start with `src/` — one inserted `/./` bypassed the guard on both the Write
+and the redirect path. The collapse loops rather than substituting once, because
+`a/././b` reduces to `a/./b` in a single pass and still defeats the test.
+
+`config` and `.qlty` are listed alongside `configs` because this repo really has
+`config/filters_unified.example.yaml` and `.qlty/qlty.toml`; guarding only `configs/`
+left a read-only role able to rewrite the lint configuration judging its own branch.
+
+**The two tool paths are not equally strong, and the file says so:**
+
+| Path | Strength | Why |
+|---|---|---|
+| `Write` / `Edit` | **strong** | `.tool_input.file_path` is one string, resolved against the payload's `cwd`; the path judged is the path written |
+| `Bash` | **weak** | Matches a command string, with all the limits in [Known gaps](#known-gaps-wont-fix) |
+
+The `cwd` resolution is load-bearing, not a refinement. A relative `file_path` is
+relative to the agent's working directory, and treating every relative path as
+repo-root-relative broke the strong guarantee outright — an agent with cwd
+`<repo>/src` wrote `mail/cli.py`, which carries no `src/` prefix. The Bash branch
+deliberately does **not** resolve against `cwd`: a shell command can `cd` before it
+writes, so any assumed base there is a guess, and a guess that allows is worse than
+the best-effort it already documents.
+
+The Bash branch exists because the Write-only version was trivially bypassable —
+`echo x > src/mail/cli.py` never reached the hook. It judges a token only where it is
+a **write target**: the operand of an output redirect (`>`, `>>`, `>|`, `>&`), or an
+operand of a listed mutating command (`sed`, `tee`, `cp`, `mv`, `rm`, `patch`, …).
+That is narrower than its siblings' bare operand scan on purpose: reading and running
+the repo is a researcher's entire job, and an indiscriminate scan blocked
+`cat src/mail/cli.py` and `grep -rn AppMeta src/`.
+
+`>&` is normalised **before** the generic `>`. Left to the generic arm,
+`echo x >&src/mail/cli.py` yields a token still carrying its leading `&`, which
+matches no guarded path — so the redirect went through. The fd-duplication spellings
+(`2>&1`) are digits rather than paths and stay allowed.
+
+**Mutating commands are classified by which operand they write**, not treated as
+"every operand is a target". That distinction is what keeps reads working:
+
+| Shape | Commands | Targets |
+|---|---|---|
+| last-arg writers | `cp`, `ln` | the final operand — **unless** `-t`/`--target-directory`, which moves the destination to the front |
+| all-arg writers | `rm`, `rmdir`, `truncate`, `touch`, `shred`, `unlink`, `chmod`, `chown`, `patch`, `tee`, `install` | every operand |
+| conditional writers | `sed` (any short-option cluster containing `i`, or `--in-place`), `dd` (only `of=`) | as flagged |
+| both ends | `mv` | source **and** destination — it removes the source |
+
+Treating every operand as a target blocked `cp src/mail/cli.py /tmp/copy.py` (a normal
+way to produce an artifact) and `sed -n '1,5p' src/…` (prints, writes nothing). `mv` is
+deliberately not grouped with `cp`: `mv src /tmp/elsewhere` destroys the tree exactly
+as `rm -rf src` does.
+
+A mutating tool nobody listed still passes, as does a path in a variable or one
+assembled at runtime. Those are asserted as ALLOW in the suite's `KNOWN GAPS` section
+so the boundary is written down rather than discovered.
 
 ### Protected files
 
@@ -358,12 +478,28 @@ or one at a time:
 ```bash
 bash .claude/hooks/tests/block-destructive-bash.test.sh
 bash .claude/hooks/tests/block-protected-paths.test.sh
+bash .claude/hooks/tests/block-readonly-role-writes.test.sh
+bash .claude/hooks/tests/guard-contract.test.sh
 bash .claude/hooks/tests/statusline.test.sh
 ```
+
+`guard-contract.test.sh` is derived from `guard-contract.yaml` — the boundary's
+promises written as a spec — rather than from past bugs like its siblings. Both are
+kept: reproducing PR #395's round-8 traversal bypass failed the contract while the
+301-case regression suite passed clean. A promise added to the YAML without an
+implementation fails, which is the point.
 
 Exit 0 = all pass, 1 = any failure. Each prints `ok`/`FAIL` per case and a final
 count plus `ALL PASS`. Pass a path as argument 1 to test an installed copy instead of
 the repo one:
+
+**The suites test the scripts; `TestGuardHooksAreWired` tests the wiring.** Those are
+different claims, and only the second one catches a deleted `PreToolUse` block — the
+state these guards sat in before PR #395, with every suite green. That class asserts
+each guard has an entry, that each matcher covers the tools its guard needs (a
+`Write`-only matcher on a guard with a Bash branch is half-dormant), and that every
+wired path resolves. Verified by breaking the wiring three ways and confirming each
+is caught.
 
 ```bash
 bash .claude/hooks/tests/block-destructive-bash.test.sh ~/.claude/hooks/block-destructive-bash.sh
@@ -410,8 +546,23 @@ working hook look broken.
 
 ## Wiring into settings.json
 
-Not wired automatically — apply this yourself. Copy the scripts to `~/.claude/hooks/`
-for global coverage, or reference them in-repo for this project only.
+**This repo's `.claude/settings.json` now wires all three guards**, so a session in
+this checkout gets them with no action. That was not always true: the two credential
+guards shipped with tests and documentation but **no `PreToolUse` entry anywhere**, so
+every protection in them sat dormant until PR #395. A passing hook test suite proves
+the *script* works, not that the *hook runs* — to check whether a guard is live, read
+the `hooks` block of `.claude/settings.json`, not the presence of the script.
+
+**A global install needs `$CLAUDE_PROJECT_DIR`.** `block-readonly-role-writes.sh`
+identifies the project it guards from that variable, falling back to its own location
+(`<repo>/.claude/hooks/` → two levels up) when it is unset. Copied to `~/.claude/hooks`
+*without* the variable, the fallback resolves to `$HOME`, an absolute path naming real
+project source no longer matches, and the write is allowed — while relative paths keep
+blocking, so the guard looks alive until someone passes an absolute path. The wiring
+example below sets it; the suite asserts both the working global install and this
+residual gap.
+
+For a global install, or for another project, apply this yourself:
 
 ```json
 {
@@ -427,6 +578,12 @@ for global coverage, or reference them in-repo for this project only.
         "matcher": "Write|Edit",
         "hooks": [
           { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/block-protected-paths.sh\"" }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|Bash",
+        "hooks": [
+          { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/block-readonly-role-writes.sh\"" }
         ]
       }
     ]

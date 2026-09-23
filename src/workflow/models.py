@@ -134,6 +134,12 @@ class AgentSpec:
     model: str | None = None  # noqa - sonnet, opus, haiku, or None (inherit)
     tools: tuple[str, ...] = ()  # noqa - allowed tools (empty = all)
     access: AgentAccess = AgentAccess.read_only  # noqa
+    # Whether `access:` was written in the YAML, as opposed to defaulting above.
+    # The two are indistinguishable from `access` alone, and the linter needs the
+    # difference: a stage that DECLARED read-only is making a claim worth checking,
+    # while one that said nothing is not. Without this, a check on the default
+    # fires on every minimal stage in the tree.
+    access_declared: bool = False  # noqa
     # "worktree" runs the agent in its own git worktree so parallel writers do
     # not interleave edits in a shared tree. None inherits the caller's tree.
     # Surfaced in the dispatch payload so the orchestrator passes it to Agent().

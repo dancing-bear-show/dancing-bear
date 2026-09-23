@@ -83,6 +83,7 @@ def _parse_agent(data: dict[str, Any], source: str) -> AgentSpec:
     tools = data.get("tools") or []
     if tools and not isinstance(tools, (list, tuple)):
         raise WorkflowParseError(f"{source}: agent 'tools' must be a list, got {type(tools).__name__}")
+    access_declared = "access" in data
     access_str = data.get("access", AgentAccess.read_only.value)
     try:
         access = AgentAccess(access_str)
@@ -119,6 +120,7 @@ def _parse_agent(data: dict[str, Any], source: str) -> AgentSpec:
         model=data.get("model"),
         tools=tuple(str(t) for t in tools),
         access=access,
+        access_declared=access_declared,
         isolation=isolation,
     )
 
