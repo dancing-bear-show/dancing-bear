@@ -303,8 +303,13 @@ stages:
            - Wrap json.loads() in a try/except json.JSONDecodeError; on error,
              increment a skipped_lines counter and continue to the next line.
            - After parsing, verify the record is a dict; if not, skip and count.
-           - If record["message"] is not a dict, skip and count.
-           - If record["message"]["content"] is not a list, skip and count.
+           - Records without a dict "message" (e.g. mode, attachment, summary)
+             are normal: ignore them WITHOUT counting them as malformed.
+           - Do NOT require content to be a list for every record: a user
+             record whose content is a STRING is a span opener (step 4). Check
+             that content is a list only when extracting tool_use blocks from
+             an assistant record; if an assistant record's content is not a
+             list, skip it and count it.
          After processing all files, record the total skipped_lines count in the
          "notes" field of intent-sequences.json (e.g. "skipped_malformed_lines: N").
          Do NOT abort on a malformed line — continue processing the rest of the file.
