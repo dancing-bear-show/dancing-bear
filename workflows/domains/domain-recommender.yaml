@@ -98,33 +98,19 @@ stages:
         in the domains list with cli_bin null and has_agentic_schema false.
 
       Step 2 — read prompt-corpus.json. For each prompt in "prompts", apply a
-      two-phase classification:
+      three-phase classification:
 
-      PHASE A — PRE-CLASSIFICATION: before keyword mapping, classify and EXCLUDE
-      from new-domain consideration:
+      PHASE A — NOISE EXCLUSION: remove conversational noise first.
+        Single words or short phrases with no actionable task content
+        (e.g., "yes", "no", "ok", "continue", "which pr?", "thanks").
+        Record count under served_by_skill_or_workflow["noise"].
+        These are NOT passed to phase B or C.
 
-        (a) Conversational noise — no task intent:
-            Single words or short phrases with no actionable task content
-            (e.g., "yes", "no", "ok", "continue", "which pr?", "thanks").
-            Record these counts under served_by_skill_or_workflow["noise"].
-
-        (b) Repo-dev meta-work served by existing skills/workflows:
-            Classify any prompt that matches one or more of these keywords
-            (case-insensitive, word-boundary anchored — e.g. "\bpr\b" not "apr"):
-              pr, pull request, review, thread, copilot, ci, merge, rebase,
-              branch, commit, github.com/.../pull/
-            OR that begins with a slash command of the form <command-name>/X</command-name>
-            where X names a skill under .claude/skills/ — enumerate that directory
-            at run time (do NOT hardcode the list).
-            Record these per skill/keyword under served_by_skill_or_workflow.
-
-        Prompts in either category are NOT clustered and do NOT appear in
-        unmapped_clusters. They are counted for accounting purposes only.
-
-      PHASE B — KEYWORD MAPPING: apply the following keyword-to-domain mapping
-      to prompts that passed phase A. Use WORD-BOUNDARY, CASE-INSENSITIVE matching
-      (plurals in s/es allowed). "plan" must not match inside "explain". First
-      domain whose regex matches wins.
+      PHASE B — DOMAIN KEYWORD MAPPING: apply to all non-noise prompts.
+      Use WORD-BOUNDARY, CASE-INSENSITIVE matching (plurals in s/es allowed).
+      "plan" must not match inside "explain". First domain whose regex matches
+      wins. A prompt matched here goes into that domain's bucket regardless of
+      whether it also contains meta-work keywords — domain signal takes priority.
 
         \bmail\b, \bgmail\b, \boutlook\b, \binbox\b, \blabel\b, \bfilter\b → mail
         \bcalendar\b, \bevent\b, \binvite\b, \bmeeting\b                   → calendars
@@ -146,12 +132,24 @@ stages:
         \bmaker\b, \bscaffold\b, \btemplate\b                              → maker
         \bcore\b, \bshared library\b, \butility\b                          → core
 
-      Prompts with no keyword match after phase A/B are placed in the "unmapped"
-      bucket for clustering. Do NOT force a weak match; unmapped clusters are
-      the primary signal this workflow exists to surface.
+      PHASE C — META-WORK EXCLUSION: applies ONLY to prompts that were NOT
+      matched by phase B (i.e., no domain keyword fired).
+        Classify as served_by_skill_or_workflow any prompt that:
+        (i) is a slash command of the form <command-name>/X</command-name> where X names a
+            skill under .claude/skills/ — enumerate that directory at run time
+            (do NOT hardcode the list); these are always unambiguous and are
+            classified even before phase B in practice, but checking here is fine
+            since a slash command is unlikely to also trigger a domain keyword.
+        (ii) matches one or more of these keywords (word-boundary, case-insensitive):
+              pr, pull request, review, thread, copilot, ci, merge, rebase,
+              branch, commit, github.com/.../pull/
+        Record counts per skill/keyword under served_by_skill_or_workflow.
+        These are NOT clustered and do NOT appear in unmapped_clusters.
 
-      ACCOUNTING CHECK — after classification, verify:
-        mapped + served_by + noise + to_cluster == total corpus entries
+      What remains after phases A, B, C is placed in the "to_cluster" bucket.
+
+      ACCOUNTING CHECK — after all three phases, verify:
+        mapped(B) + served_by(C) + noise(A) + to_cluster == total corpus entries
       Record this check in the "notes" field; flag a mismatch.
 
       Step 3 — cluster unmapped prompts by intent into UPPER_SNAKE labels using
@@ -159,15 +157,17 @@ stages:
       existing src/ domain name or null). Only null-nearest_domain clusters are
       new-domain signal. Collect up to 3 verbatim example prompts per cluster.
       Record cluster detail in domain-map.json under "cluster_detail":
-        [{{
-          "cluster": "MONITOR",
-          "prompt_count": N,
-          "session_count": N,
-          "nearest_domain": null,
-          "new_domain_candidate": true,
-          "rationale": "...",
-          "examples": ["...", "...", "..."]
-        }}]
+        [
+          {
+            "cluster": "MONITOR",
+            "prompt_count": N,
+            "session_count": N,
+            "nearest_domain": null,
+            "new_domain_candidate": true,
+            "rationale": "...",
+            "examples": ["...", "...", "..."]
+          }
+        ]
 
       Step 4 — for each domain that has at least one cluster mapped, use the Glob
       tool to list Python modules under the domain's src path:
@@ -187,9 +187,9 @@ stages:
         "core" has no CLI — always false.
 
       Write domain-map.json:
-        {{
+        {
           "domains": [
-            {{
+            {
               "domain": "mail",
               "src_path": "src/mail/",
               "cli_bin": "bin/mail",
@@ -198,11 +198,11 @@ stages:
               "module_count": N,
               "has_agentic_schema": true,
               "example_prompts": ["...", "..."]
-            }}
+            }
           ],
           "unmapped_clusters": ["MONITOR"],
           "cluster_detail": [
-            {{
+            {
               "cluster": "MONITOR",
               "prompt_count": N,
               "session_count": N,
@@ -210,15 +210,15 @@ stages:
               "new_domain_candidate": true,
               "rationale": "...",
               "examples": ["...", "..."]
-            }}
+            }
           ],
-          "served_by_skill_or_workflow": {{"review-fix-threads": 43, "pr": 28, "noise": 12}},
+          "served_by_skill_or_workflow": {"review-fix-threads": 43, "pr": 28, "noise": 12},
           "total_prompts_mapped": N,
           "total_prompts_served_or_noise": N,
           "total_prompts_unmapped": N,
-          "accounting_check": "mapped(N) + served_or_noise(N) + to_cluster(N) == total(N): OK",
+          "accounting_check": "mapped(B)(N) + served_by(C)(N) + noise(A)(N) + to_cluster(N) == total(N): OK",
           "notes": "..."
-        }}
+        }
     agent:
       role: researcher
       model: sonnet
@@ -259,9 +259,9 @@ stages:
       ./bin CLI in the baseline run). The real signal lives in tool_use records.
 
       Write and run a Python scratch script (python3 -I -S) to parse the
-      transcripts. Place the script at {workspace}/extract_sequences.py and run it
-      from the workspace directory. Do NOT attempt to parse JSONL in-context with
-      the Read tool — transcripts total hundreds of MB.
+      transcripts. Write the script to a file in the workspace directory and run
+      it from there. Do NOT attempt to parse JSONL in-context with the Read tool
+      — transcripts total hundreds of MB.
 
       Script logic:
 
@@ -303,8 +303,8 @@ stages:
          Aggregate top_subcommands: for each (cli, subcommand) pair, count sessions
          and calls; report top-20 by calls.
 
-      The script writes its output to {workspace}/intent-sequences-raw.json.
-      After running the script, read that file and write intent-sequences.json.
+      The script writes its output to intent-sequences-raw.json in the workspace
+      directory. After running the script, read that file and write intent-sequences.json.
 
       SECONDARY SOURCES (keep both; they complement tool-call mining):
 
@@ -322,35 +322,35 @@ stages:
         and how many times similar phrasing appears across sessions.
 
       Write intent-sequences.json:
-        {{
+        {
           "cli_sequences": [
-            {{
+            {
               "sequence": ["qlty-assistant", "workflow"],
               "freq": N,
               "spans": N,
               "example": "first 150 chars of opening user message of first matching span"
-            }}
+            }
           ],
           "cli_usage": [
-            {{"cli": "workflow", "sessions": N, "calls": N}}
+            {"cli": "workflow", "sessions": N, "calls": N}
           ],
           "top_subcommands": [
-            {{"command": "workflow run", "sessions": N, "calls": N}}
+            {"command": "workflow run", "sessions": N, "calls": N}
           ],
           "manual_workflow_signals": [
-            {{
+            {
               "text": "first 300 chars...",
               "session_id": "...",
               "keyword_matched": "every time",
               "freq": N
-            }}
+            }
           ],
-          "sources_summary": {{
+          "sources_summary": {
             "sessions_with_bash_clis": N,
             "total_sessions_scanned": N,
             "prompt_text_cli_mentions": N
-          }}
-        }}
+          }
+        }
     agent:
       role: code-writer
       model: sonnet
