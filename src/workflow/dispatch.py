@@ -72,6 +72,63 @@ def _ws(workspace_dir: str | Path) -> str:
     return str(Path(workspace_dir).resolve())
 
 
+_WORKSPACE_PLACEHOLDER = "{workspace}"
+
+
+def _resolve_ws(text: str, ws: str) -> str:
+    """Substitute the resolved workspace path for every ``{workspace}`` token.
+
+    Trigger params are resolved at compile time, but the workspace does not
+    exist until ``init-workspace`` runs, so this is the first point that knows
+    the path. Left literal, a stage's Task body says ``{workspace}/outputs/x``
+    while the generated sections name the real path, and the agent has to
+    guess that the two mean the same directory.
+
+    Isolated stages get the shared path too: in their descriptions
+    ``{workspace}`` always names the shared workspace they must NOT touch
+    ("do not write {workspace}/..."), never their own cwd.
+    """
+    return text.replace(_WORKSPACE_PLACEHOLDER, ws)
+
+
+def _fan_out_key(stage: ResolvedStage) -> str | None:
+    """The per-item placeholder name of an agent fan-out stage, else None.
+
+    ``worker_queue`` fan-outs substitute the key into ``fan_out.script`` in
+    Python and never render an agent prompt, so only ``agent`` mode counts.
+    """
+    fan_out = stage.spec.fan_out
+    if fan_out is None or fan_out.mode != "agent":
+        return None
+    return fan_out.key
+
+
+def _fan_out_section(stage: ResolvedStage) -> list[str]:
+    """Explain the per-item placeholder a fan-out prompt still carries.
+
+    ``{<key>}`` is left literal on purpose: one rendered prompt serves every
+    item, and the orchestrator substitutes each item's value before spawning
+    that item's agent. The note avoids spelling the braced token itself so it
+    still reads correctly after that substitution has run over it.
+    """
+    fan_out = stage.spec.fan_out
+    key = _fan_out_key(stage)
+    if fan_out is None or key is None:
+        return []
+    return [
+        "## Fan-out",
+        (
+            f"This stage runs as one agent per element of `{fan_out.field}` in the "
+            f"`{fan_out.source}` stage's output. Wherever this prompt refers to the "
+            f"item's `{key}`, the orchestrator has substituted YOUR item's value. If "
+            f"a brace-wrapped `{key}` placeholder is still visible anywhere above or "
+            "below, substitution did not happen: report status \"failed\" and do not "
+            "guess which item is yours."
+        ),
+        "",
+    ]
+
+
 def _is_isolated(stage: ResolvedStage) -> bool:
     """True if this stage's agent runs in its own git worktree."""
     agent = stage.spec.agent
@@ -132,7 +189,11 @@ def _write_paths(stage: ResolvedStage, ws: str) -> list[str]:
 
 def _completion(stage: ResolvedStage, ws: str) -> str:
     root = _ISOLATED_ROOT if _is_isolated(stage) else ws
-    result_path = f"{root}/stages/{stage.index:03d}-{stage.spec.name}.json"
+    # A fan-out stage's N agents share this prompt; without a per-item suffix
+    # every one of them is told to write the same result file.
+    key = _fan_out_key(stage)
+    suffix = f"-{{{key}}}" if key else ""
+    result_path = f"{root}/stages/{stage.index:03d}-{stage.spec.name}{suffix}.json"
     isolated_note = (
         "\n\nYou are running in your OWN git worktree. Write every path above "
         "as an absolute path under your own cwd — NOT under the shared "
@@ -156,7 +217,7 @@ def _section(heading: str, items: list[str]) -> list[str]:
     return [f"## {heading}"] + [f"- {i}" for i in items] + [""]
 
 
-def _header(stage: ResolvedStage, workflow_name: str, verb: str = "executing") -> list[str]:
+def _header(stage: ResolvedStage, workflow_name: str, ws: str, verb: str = "executing") -> list[str]:
     return [
         f"You are {verb} stage '{stage.spec.name}' in workflow '{workflow_name}'.",
         "",
@@ -184,15 +245,16 @@ def _header(stage: ResolvedStage, workflow_name: str, verb: str = "executing") -
         "- `./bin/schedule-assistant plan -- --format yaml`",
         "",
         "## Task",
-        stage.spec.description,
+        _resolve_ws(stage.spec.description, ws),
         "",
+        *_fan_out_section(stage),
     ]
 
 
 # -- Per-kind prompt builders -------------------------------------------------
 
 def _gather(stage: ResolvedStage, wf: str, ws: str) -> str:
-    lines = _header(stage, wf)
+    lines = _header(stage, wf, ws)
     write_root = _ISOLATED_ROOT if _is_isolated(stage) else ws
     lines += ["## Workspace", f"Write all output to: {write_root}/outputs/", ""]
     if stage.cli_commands:
@@ -213,7 +275,7 @@ def _gather(stage: ResolvedStage, wf: str, ws: str) -> str:
 
 def _action(stage: ResolvedStage, wf: str, ws: str, input_verb: str = "Read prior stage outputs from") -> str:
     """Shared builder for propose, execute, and publish stages."""
-    lines = _header(stage, wf)
+    lines = _header(stage, wf, ws)
     rp = _read_paths(stage, ws)
     if rp:
         lines += _section(f"Input Data\n{input_verb}", rp)
@@ -230,13 +292,13 @@ def _action(stage: ResolvedStage, wf: str, ws: str, input_verb: str = "Read prio
     return "\n".join(lines)
 
 
-def _domain_rules_section(spec: ValidationSpec) -> list[str]:
+def _domain_rules_section(spec: ValidationSpec, ws: str) -> list[str]:
     """Build the Domain Rules section lines from a validation spec."""
     rules: list[str] = []
     for r in spec.domain_rules:
-        entry = f"[{r.severity}] {r.id}: {r.description}"
+        entry = f"[{r.severity}] {r.id}: {_resolve_ws(r.description, ws)}"
         if r.source_cmd:
-            entry += f"\n  Verify with: `{r.source_cmd}`"
+            entry += f"\n  Verify with: `{_resolve_ws(r.source_cmd, ws)}`"
         rules.append(entry)
     return _section("Domain Rules", rules)
 
@@ -266,9 +328,9 @@ def _validate(stage: ResolvedStage, wf: str, ws: str) -> str:
         "", f"## Strategy: {strategy}", "",
     ]
     if spec and spec.criteria:
-        lines += _section("Criteria", list(spec.criteria))
+        lines += _section("Criteria", [_resolve_ws(c, ws) for c in spec.criteria])
     if spec and spec.domain_rules:
-        lines += _domain_rules_section(spec)
+        lines += _domain_rules_section(spec, ws)
     rp = _read_paths(stage, ws)
     if rp:
         lines += _section("Target Data\nRead outputs from", rp)

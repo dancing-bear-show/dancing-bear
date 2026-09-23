@@ -646,7 +646,37 @@ class TestAggregateFixResults(_Aggregate):
                          [REAL_ID_A, REAL_ID_TRAILING_DASH, UNLINKED_A, UNLINKED_B])
         self.assertEqual((doc["missing_results"], doc["key_mismatches"], doc["failed_tests"]), ([], [], []))
         self.assertEqual(doc["by_action"], {"fixed": 3, "rejected": 1, "moot": 0, "deferred": 0})
-        self.assertEqual(doc["files_changed"], ["src/a.py", "src/b.py"])
+        test_files = sorted(f"tests/test_{_file_id(i)}.py"
+                            for i in (REAL_ID_A, REAL_ID_TRAILING_DASH, UNLINKED_A, UNLINKED_B))
+        self.assertEqual(doc["files_changed"], ["src/a.py", "src/b.py", *test_files])
+
+    def test_test_files_are_committed_with_their_fix(self) -> None:
+        """Dry run on PR #405: the fixer listed only the src file in
+        files_changed and its test as a test id, so commit-and-push -- which
+        stages exactly files_changed -- would have pushed the fix without
+        its tests. The test file must be in the list."""
+        self._write_for(UNLINKED_A, _result(
+            UNLINKED_A, None,
+            files_changed=["src/core/dryrun_sample.py"],
+            tests_added=["tests/core_tests/test_dryrun_sample.py::TestX::test_rejects_bool",
+                         "tests/core_tests/test_dryrun_sample.py::TestX::test_accepts_int"],
+        ))
+        self.assertEqual(self._merged()["files_changed"],
+                         ["src/core/dryrun_sample.py", "tests/core_tests/test_dryrun_sample.py"])
+
+    def test_protected_test_path_reaches_the_check_paths_list(self) -> None:
+        """A test id is the one route a file could take around files_changed;
+        whatever it names must land where check-paths runs."""
+        self._write_for(UNLINKED_A, _result(UNLINKED_A, None, files_changed=["src/a.py"],
+                                            tests_added=[".claude/hooks/test_x.py::T::t"]))
+        self.assertIn(".claude/hooks/test_x.py", self._merged()["files_changed"])
+
+    def test_non_path_test_ids_are_not_guessed_into_paths(self) -> None:
+        self._write_for(UNLINKED_A, _result(
+            UNLINKED_A, None, files_changed=["src/a.py"],
+            tests_added=["tests.core_tests.test_x.TestX.test_y", "", "::orphan", 7],
+        ))
+        self.assertEqual(self._merged()["files_changed"], ["src/a.py"])
 
     def test_null_thread_findings_reconcile_on_id(self) -> None:
         """Reconciling on thread_id would look for null.json and lose both."""

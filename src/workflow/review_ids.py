@@ -409,7 +409,7 @@ class FixResults:
             "total_expected": self.total_expected,
             "total_results": len(self.results),
             "by_action": by_action,
-            "files_changed": _union_of(self.results, "files_changed"),
+            "files_changed": _files_changed(self.results),
             "tests_added": _union_of(self.results, "tests_added"),
             "missing_results": list(self.missing_results),
             "failed_tests": [_failed_test(r) for r in self.results if _is_unproven_fix(r)],
@@ -426,6 +426,37 @@ def _union_of(results: tuple[dict[str, Any], ...], field_name: str) -> list[str]
         if isinstance(items, list):
             values.update(item for item in items if isinstance(item, str))
     return sorted(values)
+
+
+def _test_file_of(test_id: str) -> str | None:
+    """``tests/x/test_y.py::Class::method`` -> ``tests/x/test_y.py``.
+
+    Only a path-shaped id yields a file. A dotted module id
+    (``tests.x.test_y.Class``) cannot be mapped to a path without guessing
+    where the module ends, so it yields None; commit-and-push's unlisted-edit
+    check is what catches a test file that reaches the tree that way.
+    """
+    path = test_id.split("::", 1)[0].strip()
+    return path if path.endswith(".py") else None
+
+
+def _files_changed(results: tuple[dict[str, Any], ...]) -> list[str]:
+    """Every file a fixer edited: its files_changed plus its tests' files.
+
+    The fixer schema records tests as test ids, not paths, and a fixer that
+    followed it listed only the source file here. commit-and-push stages
+    exactly this list, so the fix was pushed without its tests -- and
+    verify-fixes tests the working tree, where the tests still existed, so
+    the run could not see it. Deriving the paths in tested code rather than
+    trusting each fixer to repeat them also routes every test file through
+    check-paths, which runs over this list.
+    """
+    paths = set(_union_of(results, "files_changed"))
+    for test_id in _union_of(results, "tests_added"):
+        path = _test_file_of(test_id)
+        if path:
+            paths.add(path)
+    return sorted(paths)
 
 
 def _out_of_scope_requests(results: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:

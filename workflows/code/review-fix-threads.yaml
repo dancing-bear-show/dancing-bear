@@ -125,15 +125,16 @@ stages:
         mkdir -p {workspace}/outputs/replies
         mkdir -p {workspace}/validation
 
-      Step 2 — re-validate the PR number. {pr_number} is REQUIRED and the
-      engine already enforced trigger.param_rules on it at compile time,
+      Step 2 — re-validate the PR number (this run's is {pr_number}). The
+      pr_number param is REQUIRED and the engine already enforced
+      trigger.param_rules on it at compile time,
       before substitution and before this workspace existed, so a run that
       reached this stage passed that check. The caller (the
       /review-fix-threads skill) derives the number with
       `gh pr view --json number -q .number` BEFORE invoking; this stage no
       longer auto-detects it. Auto-detection here came too late: a blank
       value had already been substituted into workspace_dir and every later
-      {pr_number} site.
+      site that uses the PR number.
 
       It reaches seven interpolation sites in this workflow, several inside
       double-quoted `gh api` URLs, where a value carrying a quote or `$(...)`
@@ -163,6 +164,13 @@ stages:
       If it does not match head_branch, exit non-zero with both values in the
       message. Every fixer agent edits the working tree; fixing a PR from the
       wrong branch writes changes that will never reach it.
+
+      Step 5 — snapshot the tree's dirty paths BEFORE any fixer runs:
+        ./bin/workflow snapshot-dirty "{workspace}/outputs/dirty-baseline.json"
+      commit-and-push compares against this to find edits the fix list does
+      not name. The checkout may be shared with other sessions, so files that
+      are already dirty now are recorded with their content hash rather than
+      blamed on this run. A non-zero exit (git status failed) fails this stage.
     agent:
       role: researcher
       model: sonnet
@@ -171,6 +179,7 @@ stages:
     required: true
     writes_to:
       - pr-context.json
+      - dirty-baseline.json
 
   # ===========================================================================
   # Triage
@@ -189,8 +198,9 @@ stages:
         GITHUB_TOKEN= gh pr diff {pr_number}
 
       Step 2 — select the candidate set:
-        - Threads with is_resolved true are excluded unless
-          {include_resolved} is "true", OR the newest Copilot overview still
+        - This run has include_resolved = "{include_resolved}". Threads with
+          is_resolved true are excluded unless that value is "true", OR the
+          newest Copilot overview still
           lists that finding under a section other than "Resolved since last
           review". The overview wins over the thread's resolution state.
 
@@ -951,8 +961,8 @@ stages:
           "total_expected": N,
           "total_results": N,
           "by_action": {"fixed": N, "rejected": N, "moot": N, "deferred": N},
-          "files_changed": ["src/foo.py"],
-          "tests_added": ["tests/..."],
+          "files_changed": ["src/foo.py", "tests/test_foo.py"],
+          "tests_added": ["tests/test_foo.py::TestFoo::test_rejects_x"],
           "missing_results": ["PRRT_...", "unlinked:src/foo.py:408"],
           "failed_tests": [{"id": "...", "thread_id": "PRRT_..." | null, "test_result": "fail|not-run"}],
           "key_mismatches": [{"file": "...", "id_in_file": "..." | null, "thread_id_in_file": "..." | null, "reason": "..."}],
@@ -961,6 +971,14 @@ stages:
           ],
           "results": [ <each per-item result object that passed Step 2b, verbatim, every key> ]
         }
+
+      "files_changed" is every file to commit: the union of each credited
+      result's files_changed PLUS the file part of each tests_added id
+      (`tests/x/test_y.py::Class::method` -> `tests/x/test_y.py`). Fixers
+      record tests as ids, not paths, so a union of files_changed alone drops
+      the test files and commit-and-push, which stages exactly this list,
+      pushes a fix without its tests. Deriving it here also puts every test
+      file through check-paths.
 
       "out_of_scope_requests" is the union of every credited result's own
       out_of_scope_requests list, each entry tagged with that result's "id".
@@ -1032,6 +1050,25 @@ stages:
       agent settings would otherwise be published unreviewed. Run the command;
       do not re-derive its rules by eye.
 
+      files_changed already includes each fixer's test files: fix-aggregate
+      derives them from tests_added. On the first live run the fixer listed
+      only its source file, so the fix would have been pushed without its
+      tests, and verify-fixes — which tests the working tree — could not see
+      the gap.
+
+      Step 3b — refuse edits the list does not name, BEFORE staging:
+        ./bin/workflow check-unlisted "{workspace}/outputs/dirty-baseline.json" "{workspace}/outputs/fix-results.json"
+      It exits 1 and prints "UNLISTED: <path>" for every path changed since
+      init's snapshot that files_changed omits. Such a path would be left
+      behind by Step 3's by-name staging — and it never passed through Step
+      3a either, since check-paths runs over the same list. If it exits
+      non-zero: stage and push NOTHING, write commit-result.json with
+      {"committed": false, "pushed": false, "unlisted_paths": [...]}, report
+      this stage failed, and exit non-zero. Do not add the paths to the list
+      and retry: an unlisted edit is either a fixer that under-reported or a
+      concurrent session writing to this checkout, and a human has to say
+      which.
+
       Step 3 — stage exactly the files fix-results.json lists in
       files_changed, by name. Never `git add -A` or `git add .`: a fixer only
       has license to touch the file its thread was anchored to, and staging
@@ -1060,12 +1097,31 @@ stages:
       and exit non-zero — verify-fixes must not test a commit that never
       reached the remote the PR actually points at.
 
-      Step 5 — verify the push landed by comparing the local HEAD sha against
-      the PR's head sha:
+      Step 5 — verify the push landed, in two parts.
+
+      5a, the remote ref, which is authoritative for the push itself:
         git rev-parse HEAD
+        git ls-remote origin refs/heads/<head_branch from pr-context.json>
+      The first field of the ls-remote line must equal the local HEAD sha.
+      git has already reported the push, so there is nothing to wait for:
+      if they differ, fail now (see below).
+
+      5b, the PR's view of its head, which LAGS a successful push:
         GITHUB_TOKEN= gh pr view {pr_number} --json headRefOid -q .headRefOid
-      They must match. If they do not, write commit-result.json with
-      "pushed": false and the mismatch, report failed, exit non-zero.
+      On the first live run, gh returned the OLD sha immediately after a push
+      that ls-remote already showed had landed; a second call a few seconds
+      later matched. A single comparison therefore fails a push that worked.
+      Compare, and on a mismatch retry at most 4 more times, waiting 2, 4, 8
+      and then 16 seconds between attempts — one `sleep N` per Bash call,
+      then the gh command again. Five attempts over about 30 seconds, then
+      stop. Never loop until it matches.
+
+      If 5a fails, or 5b still differs after the last attempt, write
+      commit-result.json with "pushed": false and a reason naming every sha
+      involved — local HEAD, the ls-remote sha, and the last headRefOid — then
+      report failed and exit non-zero. A PR whose head never reaches the
+      pushed sha is pointing somewhere else, and verify-fixes must not test a
+      commit the PR does not contain.
 
       Write {workspace}/outputs/commit-result.json. files_committed must be
       exactly the list staged in Step 3 (fix-results.json's files_changed),
@@ -1075,9 +1131,10 @@ stages:
           "committed": true,
           "pushed": true,
           "sha": "<commit sha>",
-          "files_committed": ["workflows/code/review-fix-threads.yaml",
-            "workflows/resume/consolidate-schema.yaml"],
+          "files_committed": ["src/core/example.py",
+            "tests/core_tests/test_example.py"],
           "unexpected_staged": [],
+          "unlisted_paths": [],
           "reason": null
         }
     agent:
@@ -1112,11 +1169,20 @@ stages:
       passes against code you did not change. That false green is
       indistinguishable from a real one.
 
-      Step 2 — lint the changed files:
+      Step 2 — lint the changed files, with both linters:
         make lint
-      There is no standalone `ruff` on PATH, and `~/.qlty/bin/qlty check` inside
-      .claude/worktrees/ scans zero files while printing "No issues" — neither
-      absence is a passing lint.
+        ~/.qlty/bin/qlty check <every path in commit-result.json's files_committed>
+      Run the qlty command TWICE and take the union of the findings: qlty caps
+      findings per run and the cap is nondeterministic, so one clean run
+      proves nothing. `make lint` is ruff only; qlty adds bandit and
+      radarlint, which CI enforces, so skipping it passes a branch CI fails.
+      qlty scans correctly from inside .claude/worktrees/ — the exclusion was
+      narrowed to `**/.claude/worktrees/**` on 2026-08-27 — so run it from
+      wherever this stage runs. Name the paths explicitly: with no path
+      argument `qlty check` defaults to the files it considers changed, and
+      prints "No issues" whether or not it scanned anything. There is no standalone `ruff` on PATH; a missing tool
+      is not a passing lint. Any finding in either qlty run, or a non-zero
+      `make lint`, sets "lint": "fail" and goes in lint_violations.
 
       Step 3 — coverage on new behaviour. Verify against the tree, not the
       report. happy_path_covered and sad_path_covered are booleans written by

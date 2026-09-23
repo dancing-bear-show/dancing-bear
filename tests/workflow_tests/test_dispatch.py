@@ -347,6 +347,109 @@ class TestBuildDispatchInstruction(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
+class TestWorkspacePlaceholderResolved(unittest.TestCase):
+    """``{workspace}`` in stage text must reach the agent as the real path.
+
+    Trigger params are resolved at compile time; the workspace is not known
+    until dispatch. Before this was resolved here, the Task body said
+    ``{workspace}/outputs/x`` while the generated sections named the absolute
+    path, and the agent had to guess the two were the same directory.
+    """
+
+    def _render(self, stage_kind: StageKind = StageKind.execute, **overrides: object) -> tuple[str, str]:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spec = make_stage_spec(name="s", kind=stage_kind, **overrides)
+            prompt = build_agent_prompt(make_resolved_stage(spec=spec, index=1), "wf", tmp_dir)
+            return prompt, str(Path(tmp_dir).resolve())
+
+    def test_description_workspace_is_resolved(self) -> None:
+        prompt, ws = self._render(description="Read {workspace}/outputs/threads.json first.")
+        self.assertIn(f"Read {ws}/outputs/threads.json first.", prompt)
+        self.assertNotIn("{workspace}", prompt)
+
+    def test_isolated_stage_gets_the_shared_path(self) -> None:
+        """In an isolated stage, {workspace} names the tree it must NOT write."""
+        from workflow.models import AgentSpec
+
+        prompt, ws = self._render(
+            description="Do NOT write {workspace}/outputs/.",
+            agent=AgentSpec(role="code-writer", isolation="worktree"),
+        )
+        self.assertIn(f"Do NOT write {ws}/outputs/.", prompt)
+        self.assertNotIn("{workspace}", prompt)
+
+    def test_validate_criteria_and_rules_are_resolved(self) -> None:
+        spec = make_validation_spec(
+            criteria=("{workspace}/outputs/a.json exists",),
+            domain_rules=(make_domain_rule(
+                description="count rows in {workspace}/outputs/a.json",
+                source_cmd="wc -l {workspace}/outputs/a.json",
+            ),),
+        )
+        prompt, ws = self._render(stage_kind=StageKind.validate, validation=spec)
+        self.assertIn(f"{ws}/outputs/a.json exists", prompt)
+        self.assertIn(f"wc -l {ws}/outputs/a.json", prompt)
+        self.assertNotIn("{workspace}", prompt)
+
+    def test_review_fix_threads_renders_no_literal_workspace(self) -> None:
+        """The workflow whose dry run exposed this: 61 literal tokens before."""
+        from workflow.compiler import compile_workflow
+        from workflow.parser import parse_workflow
+
+        root = Path(__file__).resolve().parents[2]
+        defn = parse_workflow(str(root / "workflows/code/review-fix-threads.yaml"))
+        manifest = compile_workflow(defn, project_root=root, trigger_params={"pr_number": "405"})
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            for name, stage in manifest.resolved_stages.items():
+                with self.subTest(stage=name):
+                    prompt = build_agent_prompt(stage, defn.name, tmp_dir)
+                    self.assertNotIn("{workspace}", prompt)
+
+
+class TestFanOutPrompt(unittest.TestCase):
+    """One rendered prompt serves every fan-out item; it must say so."""
+
+    def _render(self, mode: str = "agent") -> str:
+        from workflow.models import FanOutSpec
+
+        spec = make_stage_spec(
+            name="fix",
+            kind=StageKind.execute,
+            description="Fix group {index}.",
+            fan_out=FanOutSpec(source="dispatch", field="items", key="index", mode=mode),
+        )
+        return build_agent_prompt(make_resolved_stage(spec=spec, index=5), "wf", "/ws")
+
+    def test_explains_the_per_item_placeholder(self) -> None:
+        prompt = self._render()
+        self.assertIn("## Fan-out", prompt)
+        self.assertIn("one agent per element of `items` in the `dispatch` stage", prompt)
+
+    def test_result_path_is_per_item(self) -> None:
+        """Without the suffix every item's agent writes the same result file."""
+        prompt = self._render()
+        self.assertIn("/stages/005-fix-{index}.json", prompt)
+        self.assertNotIn("/stages/005-fix.json", prompt)
+
+    def test_note_survives_orchestrator_substitution(self) -> None:
+        """After {index} -> 3 the note must not claim a placeholder is left."""
+        rendered = self._render().replace("{index}", "3")
+        self.assertIn("Fix group 3.", rendered)
+        self.assertIn("/stages/005-fix-3.json", rendered)
+        self.assertNotIn("{index}", rendered)
+
+    def test_worker_queue_fan_out_gets_no_agent_note(self) -> None:
+        prompt = self._render(mode="worker_queue")
+        self.assertNotIn("## Fan-out", prompt)
+        self.assertIn("/stages/005-fix.json", prompt)
+
+    def test_plain_stage_has_no_fan_out_section(self) -> None:
+        spec = make_stage_spec(name="plain", kind=StageKind.execute)
+        prompt = build_agent_prompt(make_resolved_stage(spec=spec, index=2), "wf", "/ws")
+        self.assertNotIn("## Fan-out", prompt)
+        self.assertIn("/stages/002-plain.json", prompt)
+
+
 class TestBuildGroupDispatch(unittest.TestCase):
     def test_returns_list_of_dicts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -638,6 +638,65 @@ def _cmd_aggregate_fix_results(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_snapshot_dirty(args: argparse.Namespace) -> int:
+    """Record the checkout's dirty paths before any fixer runs.
+
+    check-unlisted compares against this, so a file another session already
+    had dirty is not blamed on the run -- unless its content changes.
+    """
+    from core.fileutil import atomic_write_json
+    from workflow.worktree_gate import snapshot_dirty
+
+    try:
+        snapshot = snapshot_dirty(Path.cwd())
+    except RuntimeError as exc:
+        print(f"snapshot-dirty: {exc}", file=sys.stderr)
+        return 1
+    atomic_write_json(args.out, {"dirty": snapshot})
+    print(f"snapshot-dirty: {len(snapshot)} dirty path(s) recorded")
+    return 0
+
+
+def _load_json_object(path: str, what: str) -> dict:
+    try:
+        doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{what} unreadable: {exc}") from exc
+    if not isinstance(doc, dict):
+        raise ValueError(f"{what} is not a JSON object")
+    return doc
+
+
+def _cmd_check_unlisted(args: argparse.Namespace) -> int:
+    """Fail if the run changed a file fix-results.json does not list.
+
+    commit-and-push stages exactly files_changed, so an unlisted edit would be
+    left behind silently -- and it would also never pass through check-paths,
+    which runs over the same list. Fails closed: an unreadable input or a
+    failed ``git status`` is exit 1, never a pass.
+    """
+    from workflow.worktree_gate import snapshot_dirty, unlisted_changes
+
+    try:
+        baseline = _load_json_object(args.baseline, "baseline").get("dirty")
+        listed = _load_json_object(args.fix_results, "fix-results").get("files_changed")
+        if not isinstance(baseline, dict):
+            raise ValueError("baseline has no 'dirty' object")
+        if not isinstance(listed, list) or not all(isinstance(p, str) for p in listed):
+            raise ValueError("fix-results files_changed is not a list of strings")
+        current = snapshot_dirty(Path.cwd())
+    except (ValueError, RuntimeError) as exc:
+        print(f"check-unlisted: {exc}", file=sys.stderr)
+        return 1
+    unlisted = unlisted_changes(baseline, current, listed)
+    for path in unlisted:
+        print(f"UNLISTED: {path}")
+    if unlisted:
+        print(f"{len(unlisted)} changed path(s) missing from files_changed", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _cmd_resume(args: argparse.Namespace) -> int:
     """Show which stages need re-running in a workspace."""
     from workflow.persistence import list_stage_results, read_manifest

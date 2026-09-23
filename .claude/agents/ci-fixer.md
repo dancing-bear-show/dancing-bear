@@ -30,8 +30,12 @@ make cov
 Two silent-pass traps — both look identical to a green run:
 - Bare `python3 -m unittest` / `coverage run` in a worktree resolves imports to the
   **main checkout** via an inherited PYTHONPATH, so tests pass against unmodified code.
-- `qlty check` inside `.claude/worktrees/` scans zero files (excluded by
-  `.qlty/qlty.toml`) and prints "✔ No issues". Use `make lint`.
+- `qlty check` with no path argument scans only the files it considers
+  changed and prints "✔ No issues" either way. Name the paths explicitly, run
+  it twice (its per-run finding cap is nondeterministic), and run `make lint`
+  too — CI enforces qlty's bandit and radarlint findings, which ruff never
+  reports. qlty scans correctly from inside `.claude/worktrees/`; the
+  exclusion was narrowed to `**/.claude/worktrees/**` on 2026-08-27.
 
 ## Diagnosis Workflow
 

@@ -1,0 +1,106 @@
+"""Rendered-prompt checks for review-fix-threads, from its first live dry run.
+
+Four read-through reviews of this workflow missed what one live run found.
+These render the real YAML through the engine, as an agent would receive it,
+and pin the defects that run exposed in the prose no unit test otherwise
+reaches.
+"""
+
+from __future__ import annotations
+
+import re
+import tempfile
+import unittest
+from pathlib import Path
+
+from workflow.compiler import compile_workflow
+from workflow.dispatch import build_agent_prompt
+from workflow.parser import parse_workflow
+
+_ROOT = Path(__file__).resolve().parents[2]
+_WORKFLOW = _ROOT / "workflows/code/review-fix-threads.yaml"
+
+
+def _prompts(**params: str) -> dict[str, str]:
+    defn = parse_workflow(str(_WORKFLOW))
+    manifest = compile_workflow(defn, project_root=_ROOT,
+                                trigger_params={"pr_number": "405", **params})
+    with tempfile.TemporaryDirectory() as ws:
+        return {name: build_agent_prompt(stage, defn.name, ws)
+                for name, stage in manifest.resolved_stages.items()}
+
+
+def _flat(text: str) -> str:
+    return re.sub(r"\s+", " ", text)
+
+
+class TestPushVerification(unittest.TestCase):
+    """gh pr view returned the old sha right after a push ls-remote showed had
+    landed; a single comparison fails a push that worked."""
+
+    def setUp(self) -> None:
+        self.prompt = _flat(_prompts()["commit-and-push"])
+
+    def test_remote_ref_is_checked_directly(self) -> None:
+        self.assertIn("git ls-remote origin refs/heads/", self.prompt)
+
+    def test_head_ref_oid_comparison_is_retried_and_bounded(self) -> None:
+        self.assertIn("retry at most 4 more times", self.prompt)
+        self.assertIn("2, 4, 8 and then 16 seconds", self.prompt)
+        self.assertIn("Never loop until it matches", self.prompt)
+
+    def test_failure_names_every_sha(self) -> None:
+        self.assertIn("local HEAD, the ls-remote sha, and the last headRefOid", self.prompt)
+
+
+class TestUnlistedEditGate(unittest.TestCase):
+    """Test files were never committed: the gate and its baseline must be wired."""
+
+    def test_init_snapshots_before_any_fixer(self) -> None:
+        self.assertIn("./bin/workflow snapshot-dirty", _prompts()["init"])
+
+    def test_commit_runs_check_unlisted_before_staging(self) -> None:
+        prompt = _prompts()["commit-and-push"]
+        gate = prompt.index("./bin/workflow check-unlisted")
+        self.assertLess(gate, prompt.index("git add <file1>"))
+        self.assertLess(prompt.index("./bin/workflow check-paths"), gate)
+
+
+class TestParamProse(unittest.TestCase):
+    """A param embedded as if it were a variable name rendered as
+    'excluded unless false is "true"'."""
+
+    def test_include_resolved_reads_correctly_for_both_values(self) -> None:
+        for value in ("true", "false"):
+            with self.subTest(include_resolved=value):
+                prompt = _flat(_prompts(include_resolved=value)["triage-threads"])
+                self.assertIn(f'include_resolved = "{value}"', prompt)
+                self.assertNotIn(f'unless {value} is "true"', prompt)
+
+    def test_pr_number_is_not_used_as_a_sentence_subject(self) -> None:
+        prompt = _flat(_prompts()["init"])
+        self.assertNotIn("405 is REQUIRED", prompt)
+        self.assertNotIn("every later 405 site", prompt)
+
+
+class TestQltyInstruction(unittest.TestCase):
+    """verify-fixes told agents qlty scans zero files in a worktree -- untrue
+    since 2026-08-27 -- steering them off the only linter running bandit and
+    radarlint, which CI enforces."""
+
+    def test_verify_fixes_runs_qlty_twice_on_named_files(self) -> None:
+        prompt = _flat(_prompts()["verify-fixes"])
+        self.assertIn("~/.qlty/bin/qlty check <every path in commit-result.json's files_committed>",
+                      prompt)
+        self.assertIn("Run the qlty command TWICE", prompt)
+
+    def test_no_workflow_or_agent_repeats_the_stale_claim(self) -> None:
+        roots = [*(_ROOT / "workflows").rglob("*.yaml"), *(_ROOT / ".claude/agents").glob("*.md")]
+        self.assertTrue(roots)
+        for path in roots:
+            with self.subTest(path=str(path.relative_to(_ROOT))):
+                self.assertNotIn("scans zero files", _flat(path.read_text(encoding="utf-8")))
+
+
+if __name__ == "__main__":
+    unittest.main()

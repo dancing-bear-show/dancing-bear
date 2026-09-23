@@ -41,6 +41,11 @@ def build_agentic_capsule() -> str:
         "  - aggregate-fix-results: ./bin/workflow aggregate-fix-results "
         "<workspace>/outputs/fix-index.json <workspace>/outputs/fixes <workspace>/outputs/fix-results.json"
     )
+    lines.append("  - snapshot-dirty: ./bin/workflow snapshot-dirty <workspace>/outputs/dirty-baseline.json")
+    lines.append(
+        "  - check-unlisted: ./bin/workflow check-unlisted <workspace>/outputs/dirty-baseline.json "
+        "<workspace>/outputs/fix-results.json"
+    )
     lines.append("notes:")
     lines.append("  - ./bin/workflow list is the authoritative live catalog of available workflows")
     lines.append("  - file arguments are positional (./bin/workflow run <file>), not --input")
@@ -77,6 +82,11 @@ def build_agentic_capsule() -> str:
         "  - parse-overview emits Copilot overview findings (linked and unlinked, each with id "
         "and file_id); check-paths exits 1 printing REFUSED for any path that escapes the repo "
         "or is protected"
+    )
+    lines.append(
+        "  - check-unlisted exits 1 printing UNLISTED for every path changed since the "
+        "snapshot-dirty baseline (new, content-changed, or reverted) that fix-results "
+        "files_changed omits; fails closed on unreadable input or a failed git status"
     )
     return "\n".join(lines)
 

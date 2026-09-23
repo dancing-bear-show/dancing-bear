@@ -396,6 +396,14 @@ For each stage, construct the prompt:
 5. **Stage description verbatim**: copy CLI commands exactly as written —
    never paraphrase or substitute command names.
 
+   **Inline the prompt; never delegate by file pointer.** Pass the full
+   rendered prompt as the `Agent()` prompt text. A prompt that only says
+   "read your instructions from <file>" is refused: on the first live run of
+   review-fix-threads, a `reviewer` agent declined its triage stage when
+   handed a pointer, and accepted the same stage once the rendered prompt was
+   inlined. An agent cannot tell a pointer from an injection, and it should
+   not have to try.
+
 6. **Data provenance rule**:
 
    > Data provenance rule: use ONLY data from workspace files and CLI command outputs. Do not cite numbers or facts from prompt context. Every claim must trace to a file you read or a command you ran.
@@ -778,7 +786,12 @@ If a stage has `fan_out` defined, check `fan_out.mode`:
        description=f"Stage {stage_name} — {item[fan_out.key]}",
        subagent_type=ROLE_MAP[role],
        run_in_background=True,
-       prompt="...",  # substitute {fan_out.key} value into description + writes_to
+       # Substitute item[fan_out.key] for EVERY "{<key>}" in the rendered
+       # prompt, not just the Task body: the engine leaves it literal on
+       # purpose (one prompt serves every item) and also uses it in the
+       # per-item result path. The prompt's Fan-out section tells the agent
+       # to fail if a braced key survives, so a missed site halts that item.
+       prompt="...",
    )
    if team_name:
        fan_kwargs["team_name"] = team_name

@@ -740,11 +740,13 @@ stages:
         misread as a regression:
           make cov 2>&1 | tail -15
 
-      Step 3 — qlty on all modified files, run from outside .claude/:
+      Step 3 — qlty on all modified files (it scans correctly from inside a
+      worktree; the exclusion is `**/.claude/worktrees/**`, since 2026-08-27):
         git diff --name-only HEAD -- '*.py'
         ~/.qlty/bin/qlty check <files>
         Auto-fix where safe: ~/.qlty/bin/qlty check --fix <file>
-        Re-run to confirm clean. An empty scan on files you know changed means
+        Re-run to confirm clean, and treat one clean run as unproven — qlty's
+        per-run finding cap is nondeterministic, so run it twice. An empty scan on files you know changed means
         something is wrong with the invocation, not that the code is clean.
 
       Step 4 — confirm the diff contains no new re-export block:

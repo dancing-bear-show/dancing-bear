@@ -226,11 +226,20 @@ stages:
            Record both even when you made no edits; "fixed": [] with an empty
            branch is a legitimate no-op, and the merge stage distinguishes
            that from edits that were never committed.
+        7. Prove nothing was left behind — a test file you edited but did not
+           name when staging would otherwise ride along on a non-empty branch
+           and never land:
+             Bash tool: git status --porcelain --untracked-files=all -- . ':!outputs' ':!stages' ':!inputs' ':!validation'
+           Your worktree is private, so every path it prints is your own
+           uncommitted edit. Commit it (or revert it if it was not meant to
+           change), re-run, and record the remaining paths — normally none —
+           as "uncommitted_paths".
 
       Write <your-cwd>/outputs/fix/fix-code-results.json:
         {
           "branch": "worktree-agent-...",
           "head_commit": "<sha from git rev-parse HEAD>",
+          "uncommitted_paths": [],
           "fixed": [
             {
               "finding_id": "0",
@@ -309,11 +318,15 @@ stages:
              Bash tool: git rev-parse --abbrev-ref HEAD   -> "branch"
              Bash tool: git rev-parse HEAD                -> "head_commit"
            Record both even when you made no edits.
+        6. Prove nothing was left behind, exactly as fix-code's last step
+           does, and record what remains as "uncommitted_paths":
+             Bash tool: git status --porcelain --untracked-files=all -- . ':!outputs' ':!stages' ':!inputs' ':!validation'
 
       Write <your-cwd>/outputs/fix/fix-tests-results.json:
         {
           "branch": "worktree-agent-...",
           "head_commit": "<sha from git rev-parse HEAD>",
+          "uncommitted_paths": [],
           "fixed": [
             {
               "finding_id": "2",
@@ -397,10 +410,15 @@ stages:
         Record both even when you made no edits — an empty qlty bucket is
         common and is treated as a no-op, not a failure.
 
+      Step 5 — prove nothing was left behind, exactly as fix-code's last step
+        does, and record what remains as "uncommitted_paths":
+          Bash tool: git status --porcelain --untracked-files=all -- . ':!outputs' ':!stages' ':!inputs' ':!validation'
+
       Write <your-cwd>/outputs/fix/fix-sq-results.json:
         {
           "branch": "worktree-agent-...",
           "head_commit": "<sha from git rev-parse HEAD>",
+          "uncommitted_paths": [],
           "fixed": [
             {
               "key": "AY...",
@@ -499,6 +517,13 @@ stages:
            were made and never committed, so they would silently not land.
            Record the discrepancy and fail this stage.
 
+           A non-empty branch is not proof that everything landed: a fixer
+           that committed its source edit but not its test file passes the
+           check above. So also fail — recording it under "uncommitted" with
+           the paths — when the fixer's "uncommitted_paths" is non-empty or
+           ABSENT. Absent means the fixer never ran the check, and an
+           unchecked worktree is not a clean one.
+
         3. Merge (skip when step 2 found no commits):
              Bash tool: git merge --no-ff <branch> -m "merge fix stage <name>"
            On a conflict, abort the merge (`git merge --abort`), record the
@@ -522,7 +547,9 @@ stages:
           ],
           "uncommitted": [
             {"stage": "fix-tests", "reported_fixed": 3,
-             "detail": "result lists fixes but branch has no commits"}
+             "detail": "result lists fixes but branch has no commits"},
+            {"stage": "fix-code", "paths": ["tests/foo/test_bar.py"],
+             "detail": "uncommitted_paths non-empty; edits would not land"}
           ],
           "unidentifiable": [],
           "conflicts": [],
