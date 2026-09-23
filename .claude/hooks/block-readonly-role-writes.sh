@@ -278,6 +278,25 @@ _is_repo_root_file() { # _is_repo_root_file <repo-relative-path> [strict] -> 0 i
 # Shared by the Write/Edit and Bash branches so the two cannot drift into disagreeing
 # about what counts as source. A path one tool refuses and the other permits is the
 # same shape of hole as a pair of guards disagreeing about what a template is.
+# _option_values <args...> -> prints the VALUE half of every `--opt=value` token.
+#
+# A path hidden in an option value is one shell word, so the `-*` filter that skips
+# flags takes the path with it. `patch --directory=src`, `mv --target-directory=src`,
+# `cp --target-directory=src` and `install --target-directory=src` were four
+# instances of that one shape, found in three separate review rounds. Unglueing the
+# value here means a new option carrying a path is covered without another round.
+#
+# Values that are plainly not paths (numbers, empty) cost nothing: classify_path
+# returns ok for them.
+_option_values() {
+  local a
+  for a in "$@"; do
+    case "$a" in
+      --*=*) printf '%s ' "${a#*=}" ;;
+    esac
+  done
+}
+
 classify_path() {
   # Two statements, not `local p="$1" rel="$p"`. In a single `local`, bash expands the
   # later initialiser before the earlier assignment is visible, so `rel="$p"` read an
@@ -452,13 +471,32 @@ classify_path() {
           # when its parent is outside. `readlink` is a builtin-free one-shot read of
           # the link value; a non-link yields nothing and costs nothing.
           if [ -L "$p" ]; then
-            local _target
-            _target=$(readlink "$p" 2>/dev/null) || _target=""
-            case "$_target" in
-              /*) ;;
-              ?*) _target="$_parent/$_target" ;;
-            esac
-            if [ -n "$_target" ]; then
+            # Follow the CHAIN, not one hop. A single `readlink` saw only the first
+            # link, so `ln -s <repo>/src/x /tmp/a; ln -s /tmp/a /tmp/b` left a Write
+            # to /tmp/b reading `_target=/tmp/a` -- outside the repo, allowed, while
+            # the kernel followed the chain into tracked source. Both `ln -s` calls
+            # are legal on their own; the bypass is in the composition.
+            #
+            # Bounded at 40 hops, which is above every OS's own ELOOP limit, so a
+            # link cycle exits the loop rather than hanging. Reaching the bound means
+            # the chain is unresolvable, and an unresolvable path is refused rather
+            # than allowed -- the same fail-closed rule the rest of this file follows.
+            local _target="$p" _hop=0 _dir
+            while [ -L "$_target" ] && [ "$_hop" -lt 40 ]; do
+              _dir=$(dirname "$_target")
+              _target=$(readlink "$_target" 2>/dev/null) || break
+              case "$_target" in
+                /*) ;;
+                ?*) _target="$_dir/$_target" ;;
+                *) break ;;
+              esac
+              _hop=$((_hop + 1))
+            done
+            if [ "$_hop" -ge 40 ]; then
+              printf 'guarded:a symlink chain too long to resolve (possible cycle)'
+              return
+            fi
+            if [ -n "$_target" ] && [ "$_target" != "$p" ]; then
               _target=$(cd -P "$(dirname "$_target")" 2>/dev/null && pwd -P)/$(basename "$_target")
               if [ "$_target" = "$REPO_ROOT" ] || [ "${_target#"$REPO_ROOT"/}" != "$_target" ]; then
                 printf 'guarded:a symlink resolving into the repo (%s)' "$_target"
@@ -672,8 +710,14 @@ if [ "$TOOL" = "Bash" ]; then
     word=${word#\\}        # \sed     -> sed
     case "$word" in
       rm|rmdir|truncate|touch|shred|unlink|chmod|chown|patch|tee)
+        # `_option_values` unglues `--opt=path` forms so the path survives the `-*`
+        # filter downstream. Applied to the whole group rather than to the one
+        # command review named: `patch --directory=src` was the reported case, but
+        # the shape is the same for any of these, and fixing instances one at a time
+        # is what produced rounds 10 and 12 finding the same bug in cp, install, mv
+        # and patch separately.
         shift
-        targets="$targets $*"
+        targets="$targets $(_option_values "$@") $*"
         ;;
       install)
         # Wrong in BOTH directions before this, which is why it needs its own arm:
@@ -710,7 +754,52 @@ if [ "$TOOL" = "Bash" ]; then
           targets="$targets $1"
         fi
         ;;
-      cp|ln)
+      ln)
+        # A HARD link is a second NAME for the same inode, so every operand matters --
+        # including the source, which `cp` treats as a harmless read.
+        #
+        # `ln src/mail/cli.py /tmp/out` was allowed under the cp model (only the
+        # destination classified), and a later Write to /tmp/out then edited the
+        # TRACKED FILE. No amount of path resolution finds that: the two names are
+        # equally real and neither is a link to the other. This is a different class
+        # from every symlink fix on this branch, which are all about FOLLOWING a link.
+        #
+        # So for `ln` without -s, every operand is a target. With -s it is a symlink
+        # and the cp model is right -- creating a symlink writes only the link itself,
+        # and the symlink resolver above catches a later write through it.
+        shift
+        _symbolic=0
+        for a in "$@"; do
+          case "$a" in
+            -s|--symbolic) _symbolic=1 ;;
+            --*) ;;
+            -*) case "${a#-}" in *s*) _symbolic=1 ;; esac ;;
+          esac
+        done
+        if [ "$_symbolic" -eq 0 ]; then
+          targets="$targets $*"
+          continue
+        fi
+        set -- "$@"
+        _tdir=""
+        _prev=""
+        for a in "$@"; do
+          case "$a" in
+            --target-directory=*) _tdir="${a#--target-directory=}" ;;
+            *) [ "$_prev" = "-t" ] || [ "$_prev" = "--target-directory" ] && _tdir="$a" ;;
+          esac
+          _prev="$a"
+        done
+        if [ -n "$_tdir" ]; then
+          targets="$targets $_tdir"
+        else
+          set -- $(for a in "$@"; do case "$a" in -*) ;; *) printf '%s ' "$a" ;; esac; done)
+          [ "$#" -gt 0 ] || continue
+          for _ in $(seq 1 $(( $# - 1 ))); do shift; done
+          targets="$targets $1"
+        fi
+        ;;
+      cp)
         # Normally the final operand is written. `cp a b c dir/` writes into dir/
         # alone, and the earlier operands are sources being READ -- blocking those is
         # what made `cp src/mail/cli.py /tmp/copy.py` fail.
@@ -740,8 +829,13 @@ if [ "$TOOL" = "Bash" ]; then
       mv)
         # mv is NOT like cp: it REMOVES the source. `mv src /tmp/elsewhere` destroys
         # the tree just as surely as `rm -rf src`, so both ends are write targets.
+        #
+        # Every operand is already a target, so `-t src` is covered -- but
+        # `--target-directory=src` is ONE token that the `-*` filter downstream
+        # discards as a flag, taking the destination with it. Unglued here so the
+        # value survives as its own operand.
         shift
-        targets="$targets $*"
+        targets="$targets $(_option_values "$@") $*"
         ;;
       sed)
         # Rewrites in place only with -i. Without it, sed reads and prints.

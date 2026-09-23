@@ -396,6 +396,68 @@ def _check_agent_access(defn: object, result: LintResult) -> None:
     _check_stage_access(defn.stages, result)
 
 
+def _read_only_reason(agent: object, role: str, cannot_write: frozenset[str]) -> str:
+    """Why an ``access: read-only`` declaration is misleading, or "" if it is not.
+
+    Two shapes qualify, and the second needs three gates that each fixed a real
+    false positive:
+
+    * the stage names Write/Edit in ``tools`` -- a claim regardless of role;
+    * the stage declares NO tools, which means ALL tools (models.py: "allowed
+      tools (empty = all)"), so read-only is the most permissive shape rather
+      than the least.
+
+    Gates on the second: ``access_declared`` because ``access`` defaults to
+    read_only when the key is absent, and without it the branch fires on every
+    minimal stage that never mentioned access (it broke a ``--strict`` fixture
+    that was legitimately clean); ``_role_is_defined`` because ``role: inline``
+    and other pseudo-roles name no agent, so citing their frontmatter is
+    nonsense; and ``cannot_write`` because a role whose frontmatter withholds
+    Write makes the declaration accurate.
+    """
+    write_tools = sorted(t for t in agent.tools if t in {"Write", "Edit"})
+    if write_tools:
+        return f"lists {write_tools} in tools"
+    if (
+        getattr(agent, "access_declared", False)
+        and not agent.tools
+        and _role_is_defined(role)
+        and role not in cannot_write
+    ):
+        return (
+            f"declares no tools, which means ALL tools, and role '{role}' "
+            f"is permitted Write"
+        )
+    return ""
+
+
+def _access_warning(stage_name: str, role: str, reason: str) -> LintWarning:
+    """The read-only-but-writable warning, pointing at the real gate."""
+    return LintWarning(
+        stage=stage_name,
+        field="agent.access",
+        message=(
+            f"declares access: read-only but {reason} — access is not "
+            f"enforced at runtime (nothing reads it), so this restricts "
+            f"nothing; the real gate is disallowedTools in "
+            f".claude/agents/{role}.md"
+        ),
+    )
+
+
+def _unsatisfiable_warning(stage_name: str, role: str) -> LintWarning:
+    """The read-write-but-cannot-write warning: the stage stalls on its output."""
+    return LintWarning(
+        stage=stage_name,
+        field="agent.access",
+        message=(
+            f"declares access: read-write but role '{role}' disallows the "
+            f"Write tool (.claude/agents/{role}.md), so this stage cannot "
+            f"produce its outputs — use a Write-capable role"
+        ),
+    )
+
+
 def _check_stage_access(stages: tuple[StageSpec, ...], result: LintResult) -> None:
     """Apply the access cross-check to a bare sequence of stages.
 
@@ -404,6 +466,10 @@ def _check_stage_access(stages: tuple[StageSpec, ...], result: LintResult) -> No
     ``fragment: true``, well before the full-workflow checks run -- so a fragment
     carrying either mismatch was accepted silently. 19 fragment files were
     unchecked, including the shared ones every workflow includes.
+
+    The two warning paths live in helpers above: inlined, the loop plus nested
+    access branches plus the four-clause guard exceeded the repo's
+    cognitive-complexity limit.
     """
     from workflow.models import AgentAccess
 
@@ -413,68 +479,12 @@ def _check_stage_access(stages: tuple[StageSpec, ...], result: LintResult) -> No
         if agent is None:
             continue
         role = agent.role
-        write_tools = sorted(t for t in agent.tools if t in {"Write", "Edit"})
-
-        # An EMPTY tools tuple means "all tools" (models.py: "allowed tools
-        # (empty = all)"), so a stage declaring access: read-only with no tools
-        # list is the MOST permissive shape, not the least -- Write is available
-        # unless the role's own frontmatter withholds it. Filtering for a named
-        # Write/Edit reported exactly that case clean, which is backwards.
         if agent.access == AgentAccess.read_only:
-            if write_tools:
-                reason = f"lists {write_tools} in tools"
-            elif (
-                getattr(agent, "access_declared", False)
-                and not agent.tools
-                and _role_is_defined(role)
-                and role not in cannot_write
-            ):
-                # Three gates, each for a case that produced a false positive:
-                #
-                # access_declared -- `access` defaults to read_only when the key is
-                #   absent, so without this the branch fires on every minimal stage
-                #   that never mentioned access at all. That is the same trap the
-                #   docstring below records for the named-tools branch, and this
-                #   branch walked into it: it broke a --strict lint fixture that was
-                #   legitimately clean.
-                # _role_is_defined -- `role: inline` and other pseudo-roles name no
-                #   agent, so citing .claude/agents/inline.md would be nonsense.
-                # role not in cannot_write -- a role whose frontmatter withholds
-                #   Write makes `access: read-only` an accurate declaration.
-                #
-                # The named-tools branch above needs none of these: a stage listing
-                # Write is making a claim regardless of role or defaults.
-                reason = (
-                    f"declares no tools, which means ALL tools, and role '{role}' "
-                    f"is permitted Write"
-                )
-            else:
-                reason = ""
+            reason = _read_only_reason(agent, role, cannot_write)
             if reason:
-                result.warnings.append(
-                    LintWarning(
-                        stage=stage.name,
-                        field="agent.access",
-                        message=(
-                            f"declares access: read-only but {reason} — access is not "
-                            f"enforced at runtime (nothing reads it), so this restricts "
-                            f"nothing; the real gate is disallowedTools in "
-                            f".claude/agents/{role}.md"
-                        ),
-                    )
-                )
+                result.warnings.append(_access_warning(stage.name, role, reason))
         elif agent.access == AgentAccess.read_write and role in cannot_write:
-            result.warnings.append(
-                LintWarning(
-                    stage=stage.name,
-                    field="agent.access",
-                    message=(
-                        f"declares access: read-write but role '{role}' disallows the "
-                        f"Write tool (.claude/agents/{role}.md), so this stage cannot "
-                        f"produce its outputs — use a Write-capable role"
-                    ),
-                )
-            )
+            result.warnings.append(_unsatisfiable_warning(stage.name, role))
 
 
 def _release_dependents(
