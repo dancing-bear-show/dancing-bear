@@ -30,12 +30,18 @@ OVERVIEW_MARKER = "<!-- ccr-overview-v2 -->"
 COPILOT_LOGIN = "copilot-pull-request-reviewer"
 ZERO_WIDTH_SPACE = "​"
 
+#: Section naming findings the reviewer already raised and saw go unaddressed.
+PREVIOUSLY_MISSED = "previously missed"
+#: Section holding findings still outstanding in the newest overview.
+OPEN_SECTION = "open"
+
 _SECTION = re.compile(r"<summary><strong>(.*?)\s*\((\d+)\)</strong></summary>")
 _LINK = re.compile(r"\[([^\]]+)\]\(#discussion_r(\d+)\)")
 _SEVERITY = re.compile(r'alt="([^"]*?)\s*severity"', re.IGNORECASE)
 _SUMMARY_TITLE = re.compile(r"</picture>\s*(.+?)\s*</summary>")
 _PATH_LINE = re.compile(r"^`([^`]+):(\d+)`$")
-_CLAIMED = re.compile(r"\*\*Findings:\*\*\s*(\d+)")
+_CLAIMED_LINE = re.compile(r"\*\*Findings:\*\*(.*)")
+_CLAIMED_COUNT = re.compile(r"(\d+)\s*<picture")
 
 
 def strip_zwsp(text: str) -> str:
@@ -105,7 +111,16 @@ class Finding:
 
     @property
     def previously_missed(self) -> bool:
-        return any("missed" in s.lower() for s in self.sections)
+        """True when this finding has ever sat under "Previously missed".
+
+        Matched on the whole normalised section name, not a substring: a
+        section such as "Dismissed" contains "missed" and would otherwise be
+        read as the reviewer having raised the finding before — inverting the
+        signal, since a dismissed finding is the opposite of a repeat offender.
+        """
+        return any(
+            " ".join(s.lower().split()) == PREVIOUSLY_MISSED for s in self.sections
+        )
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -258,9 +273,14 @@ def _merge_drifted(findings: dict[str, Finding]) -> dict[str, Finding]:
         for section in entry.sections:
             if section not in kept.sections:
                 kept.sections.append(section)
-        # The later-folded entry is the newer one; keep its key and position.
+        # The later-folded entry is the newer one, so every field describing
+        # the finding's CURRENT state comes from it — the body included. It is
+        # the text triage and the fixer act on, and keeping the older copy
+        # feeds them review prose that the newer occurrence already replaced.
         kept.line, kept.path = entry.line, entry.path
         kept.section, kept.severity = entry.section, entry.severity
+        kept.title = entry.title or kept.title
+        kept.body = entry.body or kept.body
         kept.source_review_id = entry.source_review_id
         kept.source_submitted_at = entry.source_submitted_at
 
@@ -268,23 +288,47 @@ def _merge_drifted(findings: dict[str, Finding]) -> dict[str, Finding]:
 
 
 def _claimed_count(review: dict[str, Any]) -> int | None:
-    """The reviewer's own ``**Findings:** N``, or None when absent."""
-    match = _CLAIMED.search(review.get("body") or "")
-    return int(match.group(1)) if match else None
+    """The reviewer's own headline count, or None when absent.
+
+    The ``**Findings:**`` line is a per-severity breakdown, not one number:
+    ``**Findings:** 7 <High picture> · 8 <Medium picture>`` means fifteen.
+    Reading only the first number understates it — on PR #400 that was 7
+    against 15 — which hides a shortfall the count exists to expose. Sum every
+    count on the line.
+    """
+    line = _CLAIMED_LINE.search(review.get("body") or "")
+    if not line:
+        return None
+    counts = [int(n) for n in _CLAIMED_COUNT.findall(line.group(1))]
+    return sum(counts) if counts else None
+
+
+def _open_findings(findings: dict[str, Finding], newest_review_id: Any) -> int:
+    """Findings the newest overview listed as still open."""
+    return sum(
+        1 for f in findings.values()
+        if f.source_review_id == newest_review_id
+        and " ".join((f.section or "").lower().split()) == OPEN_SECTION
+    )
 
 
 def _shortfall(claimed: int | None, findings: dict[str, Finding],
                newest_review_id: Any) -> int:
-    """How many findings the newest overview claimed but we did not parse.
+    """How many open findings the newest overview claimed but we did not parse.
 
-    The only available evidence that a parse broke rather than the PR being
-    clean: a shape change returns zero findings and looks identical to a PR
-    with none.
+    Compare like with like. The headline count matches the ``Open`` section —
+    on PR #395 ``Findings: 4`` sits beside ``Open (4)`` while
+    ``Resolved since last review (2)`` is extra — so counting every parsed
+    finding from every section lets resolved and previously-missed entries
+    mask a genuinely missing open one and still report ``status: ok``.
+
+    This is the only available evidence that a parse broke rather than the PR
+    being clean: a shape change returns zero findings and looks identical to a
+    PR with none.
     """
     if claimed is None:
         return 0
-    parsed = sum(1 for f in findings.values() if f.source_review_id == newest_review_id)
-    return max(0, claimed - parsed)
+    return max(0, claimed - _open_findings(findings, newest_review_id))
 
 
 def _comment_index(threads: list[dict[str, Any]]) -> dict[str, str]:
@@ -373,8 +417,11 @@ def parse_overview(review_bodies: list[dict[str, Any]],
             fid for fid, f in findings.items() if f.previously_missed
         ),
         "cited_not_found": cited_not_found,
+        # Only real threads can be "uncited": threads.json also carries
+        # review-body and issue-comment entries with thread_id null, and
+        # sorting those against strings raises TypeError.
         "threads_not_cited": sorted(
-            t.get("thread_id") for t in (threads or [])
-            if t.get("thread_id") not in cited_threads
+            str(t["thread_id"]) for t in (threads or [])
+            if t.get("thread_id") and t["thread_id"] not in cited_threads
         ),
     }

@@ -377,6 +377,103 @@ class TestThreadsNotCited(unittest.TestCase):
 
         self.assertEqual(out["threads_not_cited"], ["B"])
 
+    def test_null_thread_ids_do_not_crash_the_sort(self):
+        """threads.json carries review bodies and issue comments with no id.
+
+        The fetch fragment documents `thread_id: null` for those, and sorting
+        None against a str raises TypeError — a guaranteed crash on any real
+        payload that has one alongside an uncited thread.
+        """
+        body = _body(_section("Open", 1, _linked("111", "X")))
+        threads = [
+            _thread("PRRT_a", 111),
+            _thread("PRRT_b", 222),          # real thread, uncited
+            {"thread_id": None, "comments": [{"database_id": 333}]},
+        ]
+
+        out = parse_overview([_review(body)], threads)
+
+        self.assertEqual(out["threads_not_cited"], ["PRRT_b"])
+        self.assertNotIn(None, out["threads_not_cited"])
+
+
+class TestSectionMatching(unittest.TestCase):
+    def test_dismissed_section_is_not_previously_missed(self):
+        """"Dismissed" contains "missed" but inverts the meaning."""
+        body = _body(_section("Dismissed", 1, _linked("111", "X")))
+        out = parse_overview([_review(body)], [_thread("A", 111)])
+
+        self.assertFalse(out["findings"]["111"]["previously_missed"])
+        self.assertEqual(out["previously_missed"], [])
+
+    def test_previously_missed_still_matches(self):
+        body = _body(_section("Previously missed", 1, _linked("111", "X")))
+        out = parse_overview([_review(body)], [_thread("A", 111)])
+
+        self.assertTrue(out["findings"]["111"]["previously_missed"])
+
+
+class TestClaimedCount(unittest.TestCase):
+    """The headline count is a per-severity breakdown, matched to Open."""
+
+    def _multi_severity_body(self, sections: str) -> str:
+        return "\n".join([
+            OVERVIEW_MARKER, "",
+            "**Findings:** 2 <picture>H</picture> · 1 <picture>M</picture>",
+            "", sections,
+        ])
+
+    def test_every_severity_count_is_summed(self):
+        body = self._multi_severity_body(_section(
+            "Open", 3,
+            _linked("111", "A"), _linked("222", "B"), _linked("333", "C"),
+        ))
+        threads = [_thread(f"T{i}", d) for i, d in enumerate((111, 222, 333))]
+
+        out = parse_overview([_review(body)], threads)
+
+        self.assertEqual(out["newest"]["findings_claimed"], 3)
+        self.assertEqual(out["parse_shortfall"], 0)
+        self.assertEqual(out["status"], "ok")
+
+    def test_shortfall_counts_open_findings_only(self):
+        """Resolved entries must not mask a missing open one."""
+        body = "\n".join([
+            OVERVIEW_MARKER, "", "**Findings:** 3 <picture>H</picture>", "",
+            _section("Open", 3, _linked("111", "A")),
+            _section("Resolved since last review", 2,
+                     _linked("222", "B"), _linked("333", "C")),
+        ])
+        threads = [_thread(f"T{i}", d) for i, d in enumerate((111, 222, 333))]
+
+        out = parse_overview([_review(body)], threads)
+
+        # Three parsed overall, but only one of them is Open against a claim
+        # of three — counting all sections would have reported status "ok".
+        self.assertEqual(out["parse_shortfall"], 2)
+        self.assertEqual(out["status"], "partial")
+
+
+class TestDriftMerge(unittest.TestCase):
+    def test_newer_body_wins_when_lines_drift(self):
+        """The merged finding is the one triage and the fixer act on."""
+        older = _review(
+            _body(_section("Previously missed", 1,
+                           _unlinked("Same", "a.py", 100, text="OLD BODY"))),
+            review_id=1, submitted_at="2026-09-22T22:00:00Z")
+        newer = _review(
+            _body(_section("Open", 1,
+                           _unlinked("Same", "a.py", 140, text="NEW BODY"))),
+            review_id=2, submitted_at="2026-09-22T23:00:00Z")
+
+        out = parse_overview([older, newer], [])
+
+        entry = next(v for v in out["findings"].values() if not v["linked"])
+        self.assertEqual(entry["line"], 140)
+        self.assertIn("NEW BODY", entry["body"])
+        self.assertNotIn("OLD BODY", entry["body"])
+        self.assertTrue(entry["previously_missed"])
+
 
 if __name__ == "__main__":
     unittest.main()
