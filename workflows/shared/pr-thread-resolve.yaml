@@ -170,24 +170,39 @@ stages:
       where {run_id} is the plan's "run_id". That marker is how a retry
       recognises its own prior work, and it is invisible in rendered Markdown.
 
+      Resolve the authenticated actor once, before the loop:
+        ACTOR=$(GITHUB_TOKEN= gh api user -q .login)
+
       Re-fetch each planned thread's comments before posting — the WHOLE
-      paginated chain, not just the latest — and skip the reply when any
-      comment already carries this run's marker. Record those as
+      paginated chain, not just the latest — and skip the reply only when a
+      comment BOTH carries this run's marker AND was authored by $ACTOR
+      (compare logins with any trailing "[bot]" stripped). Record those as
       "already_replied".
+
+      Both conditions are required, and each closes a different hole:
+
+        - The marker alone is forgeable. It is plaintext in an HTML comment,
+          and this run's run_id becomes visible on the PR the moment its first
+          reply posts. A reviewer who pastes that marker into another thread
+          would otherwise make this stage treat it as already answered and
+          skip a reply it owes. A comment carrying the marker but written by
+          anyone other than $ACTOR is NOT prior work: ignore it for this
+          check and record the thread id under "forged_marker" so the report
+          surfaces it.
+        - Authorship alone is not specific. The same token may post for other
+          workflows, so "a comment by this actor" can suppress a reply this
+          run genuinely owes. The marker ties it to THIS run.
 
       Search the whole chain, not the last comment. If a reviewer commented
       after the first run's reply, that reply is no longer latest, and a
       latest-only check posts a duplicate — the exact case this step exists
-      for. And match the marker, not authorship-plus-recency: the same token
-      may post for other workflows, so "a recent comment by this actor" can
-      suppress a reply this run genuinely owes, leaving a thread resolved with
-      no explanation of what changed.
+      for.
 
       Do NOT test this by comparing the reply text. A re-run composes its
       reply fresh, so a semantically identical reply is textually different
       and a text-equality check never fires — which is precisely the
-      duplicate-reply case this step exists to prevent. Authorship plus
-      recency is reproducible; string equality is not.
+      duplicate-reply case this step exists to prevent. Marker plus author is
+      reproducible; string equality is not.
 
       Step 2 — post the reply INTO the thread, not as a new top-level PR
       comment. A detached comment does not appear where the reviewer raised
@@ -268,6 +283,7 @@ stages:
           "completeness_checked": true,
           "replied": [{"thread_id": "...", "comment_url": "..."}],
           "already_replied": ["PRRT_..."],
+          "forged_marker": ["PRRT_..."],
           "resolved": ["PRRT_..."],
           "skipped": [{"thread_id": "...", "reason": "..."}],
           "failed": [{"thread_id": "...", "error": "..."}],

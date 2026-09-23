@@ -505,6 +505,54 @@ def _cmd_resume(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _require_object_list(path: Path, data: dict, key: str) -> None:
+    """Raise unless ``data[key]`` exists and is a list of objects."""
+    if key not in data:
+        raise CLIError(
+            f"{path} has no '{key}' key: it was produced by a fetch that "
+            "does not preserve it. Re-run the pr-review-threads fragment "
+            "before parsing the overview.",
+            ExitCode.USAGE,
+        )
+    if not isinstance(data[key], list):
+        raise CLIError(
+            f"{path} has a malformed '{key}': expected a list, got "
+            f"{type(data[key]).__name__}.",
+            ExitCode.USAGE,
+        )
+    for index, element in enumerate(data[key]):
+        if not isinstance(element, dict):
+            raise CLIError(
+                f"{path} has a malformed '{key}[{index}]': expected an "
+                f"object, got {type(element).__name__}.",
+                ExitCode.USAGE,
+            )
+
+
+def _load_threads_json(path: Path) -> dict:
+    """Read and shape-check a threads.json before any parsing.
+
+    Every defect caught here would otherwise degrade to present:false /
+    status:ok — indistinguishable from a PR that genuinely has no Copilot
+    overview — so a broken input would read as a clean pass and triage would
+    silently skip every overview rule.
+    """
+    if not path.is_file():
+        raise CLIError(f"threads file not found: {path}", ExitCode.USAGE)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise CLIError(f"threads file is not valid JSON: {exc}", ExitCode.USAGE) from exc
+    if not isinstance(data, dict):
+        raise CLIError(
+            f"{path} is not a JSON object (got {type(data).__name__}).",
+            ExitCode.USAGE,
+        )
+    for key in ("review_bodies", "threads"):
+        _require_object_list(path, data, key)
+    return data
+
+
 def _cmd_parse_overview(args: argparse.Namespace) -> int:
     """Parse Copilot overview bodies out of a fetched threads.json.
 
@@ -515,39 +563,7 @@ def _cmd_parse_overview(args: argparse.Namespace) -> int:
     """
     from core.copilot_overview import parse_overview
 
-    path = Path(args.threads_json)
-    if not path.is_file():
-        raise CLIError(f"threads file not found: {path}", ExitCode.USAGE)
-
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise CLIError(f"threads file is not valid JSON: {exc}", ExitCode.USAGE) from exc
-
-    # Validate the shape before parsing. Every defect below would otherwise
-    # degrade to present:false / status:ok — indistinguishable from a PR that
-    # genuinely has no Copilot overview, so a broken input would read as a
-    # clean pass and triage would silently skip every overview rule.
-    if not isinstance(data, dict):
-        raise CLIError(
-            f"{path} is not a JSON object (got {type(data).__name__}).",
-            ExitCode.USAGE,
-        )
-
-    for key in ("review_bodies", "threads"):
-        if key not in data:
-            raise CLIError(
-                f"{path} has no '{key}' key: it was produced by a fetch that "
-                "does not preserve it. Re-run the pr-review-threads fragment "
-                "before parsing the overview.",
-                ExitCode.USAGE,
-            )
-        if not isinstance(data[key], list):
-            raise CLIError(
-                f"{path} has a malformed '{key}': expected a list, got "
-                f"{type(data[key]).__name__}.",
-                ExitCode.USAGE,
-            )
+    data = _load_threads_json(Path(args.threads_json))
 
     result = parse_overview(
         review_bodies=data["review_bodies"],

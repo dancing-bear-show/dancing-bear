@@ -555,7 +555,14 @@ stages:
   # ===========================================================================
 
   - name: verify-fixes
-    kind: validate
+    # kind: execute, NOT validate. A validate stage's description is dropped —
+    # the engine renders only validation.criteria plus a generic "return a
+    # JSON findings array" block — so the commands, the Step 0 merge gate, and
+    # the {all_green: ...} schema below never reached the agent. It wrote a
+    # findings ARRAY to verify-results.json, and the shared resolve gate, which
+    # reads all_green from that file, blocked every run. review-fix-threads'
+    # verify-fixes is kind: execute for the same reason.
+    kind: execute
     depends_on: [merge-fix-worktrees]
     reads_from: [fix-code, fix-tests, fix-qlty, merge-fix-worktrees]
     description: >

@@ -22,6 +22,7 @@ findings to the wrong section.
 from __future__ import annotations
 
 import hashlib
+import posixpath
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -36,7 +37,9 @@ PREVIOUSLY_MISSED = "previously missed"
 OPEN_SECTION = "open"
 
 _SECTION = re.compile(r"<summary><strong>(.*?)\s*\((\d+)\)</strong></summary>")
-_LINK = re.compile(r"\[([^\]]+)\]\(#discussion_r(\d+)\)")
+#: Greedy title so a `]` inside it — `list[str]`, `foo[bar]` — does not end
+#: the capture early. The literal `](#discussion_r` suffix anchors the split.
+_LINK = re.compile(r"\[(.+)\]\(#discussion_r(\d+)\)")
 _SEVERITY = re.compile(r'alt="([^"]*?)\s*severity"', re.IGNORECASE)
 _SUMMARY_TITLE = re.compile(r"</picture>\s*(.+?)\s*</summary>")
 _PATH_LINE = re.compile(r"^`([^`]+):(\d+)`$")
@@ -78,6 +81,30 @@ def is_copilot_overview(body: dict[str, Any]) -> bool:
     return normalize_login(body.get("author")) == COPILOT_LOGIN
 
 
+def safe_repo_path(path: str) -> str | None:
+    """Return ``path`` normalised if it is a safe repo-relative path, else None.
+
+    An unlinked finding's path is parsed out of review-body HTML, and the
+    workflow hands it to a fixer agent that can edit files. Treat it as
+    adversarial: reject absolute paths, home-relative paths, backslashes,
+    control characters, and anything whose normalised form climbs out of the
+    repository (``..``). A rejected path is reported, never dispatched.
+    """
+    candidate = strip_zwsp(path).strip()
+    if not candidate or "\\" in candidate:
+        return None
+    if any(ord(ch) < 32 for ch in candidate):
+        return None
+    if candidate.startswith(("/", "~")) or re.match(r"^[A-Za-z]:", candidate):
+        return None
+    normalised = posixpath.normpath(candidate)
+    if normalised in (".", "..") or normalised.startswith("../"):
+        return None
+    if ".." in normalised.split("/"):
+        return None
+    return normalised
+
+
 def _sort_key(body: dict[str, Any]) -> tuple[str, int]:
     """Order oldest-to-newest, breaking timestamp ties on review id."""
     return (body.get("submitted_at") or "", int(body.get("review_id") or 0))
@@ -108,6 +135,7 @@ class Finding:
     path: str | None = None
     line: int | None = None
     body: str | None = None
+    path_rejected: str | None = None
     source_review_id: int | None = None
     source_submitted_at: str | None = None
 
@@ -136,6 +164,9 @@ class Finding:
             "path": self.path,
             "line": self.line,
             "body": self.body,
+            # The raw path the reviewer text cited when it failed
+            # safe_repo_path(). Set means "report, never dispatch".
+            "path_rejected": self.path_rejected,
             "file_id": _file_id(self.id),
             "source_review_id": self.source_review_id,
             "source_submitted_at": self.source_submitted_at,
@@ -170,6 +201,10 @@ def _dedupe_key(entry: Finding) -> tuple[str, str] | None:
     if entry.linked or not entry.path:
         return None
     title = re.sub(r"\s+", " ", strip_zwsp(entry.title or "")).strip()
+    if not title:
+        # No title means no identity beyond the path, and two unrelated
+        # findings in one file would merge on (path, ""). Never merge those.
+        return None
     return (entry.path, title)
 
 
@@ -182,13 +217,18 @@ class _Pending:
     severity: str | None
     path: str | None = None
     line: int | None = None
+    path_rejected: str | None = None
     lines: list[str] = field(default_factory=list)
 
     def absorb(self, raw: str) -> None:
         """Take a path line if we still need one, otherwise body text."""
         match = _PATH_LINE.match(strip_zwsp(raw).strip())
-        if match and self.path is None:
-            self.path = match.group(1)
+        if match and self.path is None and self.path_rejected is None:
+            safe = safe_repo_path(match.group(1))
+            if safe is None:
+                self.path_rejected = match.group(1)
+            else:
+                self.path = safe
             self.line = int(match.group(2))
         elif raw.strip():
             self.lines.append(strip_zwsp(raw))
@@ -197,7 +237,8 @@ class _Pending:
     def finding_id(self) -> str:
         if self.path:
             return f"unlinked:{self.path}:{self.line}"
-        digest = hashlib.sha1((self.title or "").encode("utf-8")).hexdigest()[:12]  # nosec B324 - key derivation, not security
+        seed = f"{self.title or ''}\0{self.path_rejected or ''}"
+        digest = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:12]  # nosec B324 - key derivation, not security
         return f"unlinked:{digest}"
 
     @property
@@ -220,10 +261,41 @@ def _open_pending(raw: str, section: str) -> _Pending:
     )
 
 
+def _record_linked(findings: dict[str, Finding], link: re.Match[str], raw: str,
+                   section: str, review: dict[str, Any]) -> None:
+    severity = _SEVERITY.search(raw)
+    _record(
+        findings, link.group(2), section, review,
+        title=link.group(1), linked=True,
+        severity=severity.group(1) if severity else None,
+    )
+
+
+def _record_unlinked(findings: dict[str, Finding], pending: _Pending,
+                     review: dict[str, Any], emitted: dict[str, int]) -> None:
+    """Record a finished unlinked block under an id unique within this review.
+
+    Two genuinely different findings can cite the same path:line; without a
+    suffix the second would silently overwrite the first. Counting per review
+    keeps the ids stable across reviews that list the same findings in the
+    same order.
+    """
+    base = pending.finding_id
+    emitted[base] = emitted.get(base, 0) + 1
+    fid = base if emitted[base] == 1 else f"{base}#{emitted[base]}"
+    _record(
+        findings, fid, pending.section, review,
+        title=pending.title, severity=pending.severity,
+        linked=False, path=pending.path, line=pending.line,
+        body=pending.body, path_rejected=pending.path_rejected,
+    )
+
+
 def parse_body(review: dict[str, Any], findings: dict[str, Finding]) -> None:
     """Fold one overview review body into ``findings``, newest call winning."""
     section: str | None = None
     pending: _Pending | None = None
+    emitted: dict[str, int] = {}  # unlinked ids already recorded by this review
 
     for raw in (review.get("body") or "").splitlines():
         header = _SECTION.search(raw)
@@ -233,24 +305,14 @@ def parse_body(review: dict[str, Any], findings: dict[str, Finding]) -> None:
 
         link = _LINK.search(raw)
         if link and section:
-            severity = _SEVERITY.search(raw)
-            _record(
-                findings, link.group(2), section, review,
-                title=link.group(1), linked=True,
-                severity=severity.group(1) if severity else None,
-            )
+            _record_linked(findings, link, raw, section, review)
             pending = None
         elif section and _starts_unlinked(raw):
             pending = _open_pending(raw, section)
         elif pending is None:
             continue
         elif raw.strip() == "</details>":
-            _record(
-                findings, pending.finding_id, pending.section, review,
-                title=pending.title, severity=pending.severity,
-                linked=False, path=pending.path, line=pending.line,
-                body=pending.body,
-            )
+            _record_unlinked(findings, pending, review, emitted)
             pending = None
         else:
             pending.absorb(raw)
@@ -267,8 +329,11 @@ def _merge_drifted(findings: dict[str, Finding]) -> dict[str, Finding]:
             merged[fid] = entry
             continue
         previous = by_key.get(key)
-        if previous is None:
-            by_key[key] = fid
+        if previous is None or merged[previous].source_review_id == entry.source_review_id:
+            # Line drift is a cross-review phenomenon. Two entries last seen in
+            # the SAME review were listed side by side, so they are distinct
+            # findings that happen to share a path and title — never merge.
+            by_key.setdefault(key, fid)
             merged[fid] = entry
             continue
         kept = merged[previous]

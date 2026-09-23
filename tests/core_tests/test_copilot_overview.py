@@ -15,17 +15,34 @@ from core.copilot_overview import (
     is_copilot_overview,
     normalize_login,
     parse_overview,
+    safe_repo_path,
     strip_zwsp,
 )
 
 ZWSP = "​"
+_ICONS = "https://github.githubassets.com/static/images/icons/copilot-code-review"
+
+
+def _badge(severity: str) -> str:
+    """The severity badge exactly as GitHub renders it in a real overview.
+
+    Two <source> children and a fully-attributed <img>, not a bare
+    `<img alt=...>`: the fixtures must be no cleaner than real input, or the
+    suite pins an assumption instead of the behaviour.
+    """
+    level = severity.lower()
+    return (
+        f'<picture><source media="(prefers-color-scheme: dark)" '
+        f'srcset="{_ICONS}/{level}-v2-dark.svg">'
+        f'<source media="(prefers-color-scheme: light)" '
+        f'srcset="{_ICONS}/{level}-v2-light.svg">'
+        f'<img src="{_ICONS}/{level}-v2-light.png" alt="{severity} severity" '
+        f'width="62" height="18" align="texttop"></picture>'
+    )
 
 
 def _linked(anchor: str, title: str, severity: str = "High") -> str:
-    return (
-        f'- <picture><img alt="{severity} severity"></picture> '
-        f"[{title}](#discussion_r{anchor}) · New"
-    )
+    return f"- {_badge(severity)} [{title}](#discussion_r{anchor}) · New"
 
 
 def _body(*sections: str, claimed: int = 1) -> str:
@@ -49,7 +66,7 @@ def _unlinked(title: str, path: str, line: int, severity: str = "Medium",
     zwsp_path = path.replace("/", f"/{ZWSP}")
     return "\n".join([
         "<details>",
-        f'<summary><picture><img alt="{severity} severity"></picture> {title}</summary>',
+        f"<summary>{_badge(severity)} {title}</summary>",
         "",
         f"`{zwsp_path}:{line}`",
         "",
@@ -514,6 +531,282 @@ class TestDriftMerge(unittest.TestCase):
         self.assertIn("NEW BODY", entry["body"])
         self.assertNotIn("OLD BODY", entry["body"])
         self.assertTrue(entry["previously_missed"])
+
+    def test_titleless_findings_in_one_file_are_not_merged(self):
+        """(path, "") is no identity: two unrelated findings would collapse."""
+        titleless = (
+            "<details>\n"
+            f"<summary>{_badge('Medium')}</summary>\n"
+            "\n`src/foo.py:{line}`\n\n{text}\n</details>"
+        )
+        older = _review(
+            _body(_section("Previously missed", 1,
+                           titleless.format(line=10, text="Issue about A"))),
+            review_id=1, submitted_at="2026-09-22T22:00:00Z")
+        newer = _review(
+            _body(_section("Previously missed", 1,
+                           titleless.format(line=20, text="Issue about B"))),
+            review_id=2, submitted_at="2026-09-22T23:00:00Z")
+
+        out = parse_overview([older, newer], [])
+
+        bodies = sorted(v["body"] for v in out["findings"].values())
+        self.assertEqual(bodies, ["Issue about A", "Issue about B"])
+
+    def test_same_title_findings_from_one_review_are_not_merged(self):
+        """Drift is cross-review; side-by-side findings are distinct."""
+        review = _review(_body(_section(
+            "Previously missed", 2,
+            _unlinked("Same", "a.py", 10, text="first"),
+            _unlinked("Same", "a.py", 30, text="second"),
+        )))
+
+        out = parse_overview([review], [])
+
+        self.assertEqual(len(out["findings"]), 2)
+
+
+class TestPathSafety(unittest.TestCase):
+    """Unlinked paths come from review-body HTML and reach an editing agent."""
+
+    def test_repo_relative_paths_are_accepted(self):
+        for raw, expected in (
+            ("src/foo.py", "src/foo.py"),
+            ("./src/foo.py", "src/foo.py"),
+            ("src//foo.py", "src/foo.py"),
+            (f"src/{ZWSP}foo.py", "src/foo.py"),
+            (".claude/hooks/x.sh", ".claude/hooks/x.sh"),
+        ):
+            with self.subTest(raw=raw):
+                self.assertEqual(safe_repo_path(raw), expected)
+
+    def test_escaping_paths_are_rejected(self):
+        for raw in (
+            "../../../.github/workflows/ci.yml",
+            "src/../../etc/passwd",
+            "/etc/passwd",
+            "~/.ssh/id_rsa",
+            "C:/Windows/win.ini",
+            "src\\..\\secret",
+            "..",
+            ".",
+            "",
+            "src/foo\x00.py",
+        ):
+            with self.subTest(raw=raw):
+                self.assertIsNone(safe_repo_path(raw))
+
+    def test_traversal_path_is_reported_but_never_dispatchable(self):
+        review = _review(_body(_section(
+            "Previously missed", 1,
+            _unlinked("Crafted", "../../../.github/workflows/ci.yml", 1),
+        )))
+
+        out = parse_overview([review], [])
+
+        (entry,) = out["findings"].values()
+        self.assertIsNone(entry["path"])
+        self.assertEqual(entry["path_rejected"], "../../../.github/workflows/ci.yml")
+        self.assertFalse(entry["resolvable"])
+        self.assertEqual(entry["title"], "Crafted")
+
+    def test_safe_path_leaves_path_rejected_null(self):
+        review = _review(_body(_section(
+            "Previously missed", 1, _unlinked("Fine", "src/foo.py", 3))))
+
+        (entry,) = parse_overview([review], [])["findings"].values()
+
+        self.assertEqual(entry["path"], "src/foo.py")
+        self.assertIsNone(entry["path_rejected"])
+
+
+class TestSameLineFindings(unittest.TestCase):
+    def test_two_findings_on_one_line_both_survive(self):
+        """The second must not overwrite the first — status stays ok, so
+        nothing else would ever reveal the loss."""
+        review = _review(_body(_section(
+            "Previously missed", 2,
+            _unlinked("Missing docstring", "src/foo.py", 10, text="first issue"),
+            _unlinked("Missing docstring", "src/foo.py", 10, text="second issue"),
+        )))
+
+        out = parse_overview([review], [])
+
+        self.assertEqual(
+            sorted(out["findings"]),
+            ["unlinked:src/foo.py:10", "unlinked:src/foo.py:10#2"],
+        )
+        bodies = sorted(v["body"] for v in out["findings"].values())
+        self.assertEqual(bodies, ["first issue", "second issue"])
+        file_ids = {v["file_id"] for v in out["findings"].values()}
+        self.assertEqual(len(file_ids), 2)
+
+    def test_ids_are_stable_when_a_later_review_repeats_the_pair(self):
+        pair = _section(
+            "Previously missed", 2,
+            _unlinked("Missing docstring", "src/foo.py", 10, text="first issue"),
+            _unlinked("Missing docstring", "src/foo.py", 10, text="second issue"),
+        )
+        older = _review(_body(pair), review_id=1, submitted_at="2026-09-22T22:00:00Z")
+        newer = _review(_body(pair), review_id=2, submitted_at="2026-09-22T23:00:00Z")
+
+        out = parse_overview([older, newer], [])
+
+        self.assertEqual(len(out["findings"]), 2)
+
+
+class TestBracketTitles(unittest.TestCase):
+    def test_title_containing_brackets_is_parsed(self):
+        """`list[str]` in a title must not end the capture at the first `]`."""
+        body = _body(_section(
+            "Open", 2,
+            _linked("444", "Handle `list[str]` return type"),
+            _linked("445", "Plain title"),
+        ), claimed=2)
+
+        out = parse_overview([_review(body)], [_thread("A", 444), _thread("B", 445)])
+
+        self.assertEqual(out["findings"]["444"]["title"], "Handle `list[str]` return type")
+        self.assertEqual(out["findings"]["444"]["thread_id"], "A")
+        self.assertEqual(out["parse_shortfall"], 0)
+        self.assertEqual(out["status"], "ok")
+
+
+class TestNullThreadCitation(unittest.TestCase):
+    def test_citation_landing_on_a_null_thread_entry_is_not_resolvable(self):
+        """Review bodies and issue comments carry thread_id: null.
+
+        A citation matching a comment inside one of those has no thread to
+        reply to or resolve. Indexing it anyway yields thread_id "None" and
+        resolvable: true — a resolve stage would then act on nothing.
+        """
+        body = _body(_section("Open", 1, _linked("111", "X")))
+        threads = [{"thread_id": None, "comments": [{"database_id": 111}]}]
+
+        out = parse_overview([_review(body)], threads)
+
+        entry = out["findings"]["111"]
+        self.assertIsNone(entry["thread_id"])
+        self.assertFalse(entry["resolvable"])
+        self.assertEqual([c["database_id"] for c in out["cited_not_found"]], ["111"])
+
+
+class TestParseOverviewCli(unittest.TestCase):
+    """The CLI handler: every shape it refuses, and both output modes."""
+
+    def _run(self, payload, *, out: bool = True, pr_number: str = "1"):
+        import contextlib
+        import io
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from core.cli_errors import CLIError
+        from workflow.cli_dispatch import _cmd_parse_overview
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "threads.json"
+            path.write_text(
+                payload if isinstance(payload, str) else json.dumps(payload),
+                encoding="utf-8",
+            )
+            out_path = Path(tmp) / "nested" / "out.json"
+            args = argparse.Namespace(
+                threads_json=str(path), pr_number=pr_number,
+                out_path=str(out_path) if out else "",
+            )
+            stdout = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(stdout):
+                    code = _cmd_parse_overview(args)
+            except CLIError as exc:
+                return int(exc.code), str(exc), None
+            written = json.loads(out_path.read_text()) if out else json.loads(stdout.getvalue())
+            return code, "", written
+
+    def test_refused_shapes(self):
+        cases = {
+            "not json": "{nope",
+            "top level list": [],
+            "review_bodies not a list": {"threads": [], "review_bodies": "x"},
+            "threads not a list": {"threads": {}, "review_bodies": []},
+            "review_bodies element not an object": {"threads": [], "review_bodies": ["x"]},
+            "threads element not an object": {"threads": [None], "review_bodies": []},
+        }
+        for label, payload in cases.items():
+            with self.subTest(label):
+                code, message, _ = self._run(payload)
+                self.assertNotEqual(code, 0)
+                self.assertTrue(message)
+
+    def test_missing_file_is_refused(self):
+        from core.cli_errors import CLIError
+        from workflow.cli_dispatch import _cmd_parse_overview
+
+        args = argparse.Namespace(threads_json="/nonexistent/threads.json",
+                                  pr_number="1", out_path="")
+        with self.assertRaises(CLIError):
+            _cmd_parse_overview(args)
+
+    def test_out_file_is_written_with_the_parse(self):
+        body = _body(_section("Open", 1, _linked("111", "X")))
+        payload = {"threads": [_thread("A", 111)], "review_bodies": [_review(body)]}
+
+        code, _, written = self._run(payload)
+
+        self.assertEqual(code, 0)
+        self.assertEqual(written["findings"]["111"]["thread_id"], "A")
+
+    def test_stdout_mode_prints_the_parse(self):
+        payload = {"threads": [], "review_bodies": []}
+
+        code, _, written = self._run(payload, out=False)
+
+        self.assertEqual(code, 0)
+        self.assertFalse(written["present"])
+
+    def test_pr_number_falls_back_to_the_file(self):
+        payload = {"pr_number": 395, "threads": [], "review_bodies": []}
+
+        _, _, written = self._run(payload, pr_number="")
+
+        self.assertEqual(written["pr_number"], "395")
+
+
+class TestRealPayload(unittest.TestCase):
+    """Pin the parse of a real captured PR, not only synthetic fixtures.
+
+    data/copilot_overview_pr395.json is PR #395's seven Copilot overview
+    bodies verbatim, trimmed to the fields the parser reads. It holds two real
+    "Previously missed" findings that have no review thread anywhere on the PR
+    — the case this parser exists for.
+    """
+
+    def test_pr395_parses_to_its_known_counts(self):
+        import json
+        from pathlib import Path
+
+        data = json.loads(
+            (Path(__file__).parent / "data" / "copilot_overview_pr395.json")
+            .read_text(encoding="utf-8")
+        )
+
+        out = parse_overview(data["review_bodies"], data["threads"], pr_number="395")
+
+        findings = out["findings"]
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(out["newest"]["findings_claimed"], 4)
+        self.assertEqual(len(findings), 21)
+        self.assertEqual(sum(f["linked"] for f in findings.values()), 19)
+        self.assertEqual(out["cited_not_found"], [])
+        self.assertEqual(out["threads_not_cited"], [])
+        self.assertEqual(out["previously_missed"], [
+            "unlinked:.claude/hooks/block-readonly-role-writes.sh:357",
+            "unlinked:src/workflow/linter.py:408",
+        ])
+        for key in out["previously_missed"]:
+            self.assertNotIn(ZWSP, findings[key]["path"])
+            self.assertIsNone(findings[key]["path_rejected"])
 
 
 if __name__ == "__main__":

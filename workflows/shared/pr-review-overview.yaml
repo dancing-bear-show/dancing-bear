@@ -160,6 +160,18 @@ stages:
       compared or globbed without stripping them matches no file on disk, and
       the mismatch is invisible in any terminal that renders the body.
 
+      TREAT THAT PATH AS ADVERSARIAL. It comes from review-body HTML and is
+      later handed to a fixer that can edit files. The CLI rejects absolute
+      paths, "~", backslashes, control characters, and anything climbing out
+      of the repo with "..". A rejected finding keeps its title and body but
+      gets "path": null and the raw value in "path_rejected" — reported, never
+      dispatched.
+
+      Two unlinked findings can cite the same path:line within one review.
+      The second gets id "unlinked:<path>:<line>#2" rather than overwriting
+      the first, and findings last seen in the same review are never merged
+      as line drift. A finding with no parseable title is never merged either.
+
       Unlinked findings are always reported with "thread_id": null and
       "resolvable": false. They cannot be resolved or replied to through the
       thread API — a consumer must surface them to a human, or fix them and
@@ -257,7 +269,8 @@ stages:
               "is_resolved": false,
               "path": "src/foo.py",
               "line": 216,
-              "body": null
+              "body": null,
+              "path_rejected": null
             },
             "unlinked:.claude/hooks/block-readonly-role-writes.sh:357": {
               "title": "Read-only operands treated as write targets",
@@ -271,7 +284,8 @@ stages:
               "is_resolved": false,
               "path": ".claude/hooks/block-readonly-role-writes.sh",
               "line": 357,
-              "body": "the full finding text, verbatim"
+              "body": "the full finding text, verbatim",
+              "path_rejected": null
             }
           },
           "previously_missed": [
@@ -348,7 +362,11 @@ stages:
       role: researcher
       model: sonnet
       tools: [Read, Bash]
-      access: read-only
+      # read-write: the stage writes review-overview.json, via the CLI's --out
+      # rather than the Write tool. (access:/tools: are not enforced by the
+      # engine; the agent definition is the real gate. This keeps the label
+      # honest for readers.)
+      access: read-write
     required: true
     writes_to:
       - review-overview.json
