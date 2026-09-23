@@ -136,7 +136,10 @@ class QwenMemoryMeasurementTests(unittest.TestCase):
 class QwenMemoryThresholdBoundaryTests(unittest.TestCase):
     """Both thresholds are inclusive: exactly the requirement passes, one byte less does not."""
 
-    MARGIN = qwen.THRESHOLDS.memory_margin_gb * GIB
+    # The thresholds are floats; memory readings are whole bytes. Both products
+    # are exact multiples of a GiB, so int() loses nothing.
+    FULL = int(FULL_REQUIREMENT)
+    MARGIN = int(qwen.THRESHOLDS.memory_margin_gb * GIB)
 
     def assess(self, available: int, loaded: bool) -> tuple[qwen.MemoryCheck, mock.MagicMock]:
         with (
@@ -146,18 +149,18 @@ class QwenMemoryThresholdBoundaryTests(unittest.TestCase):
             return qwen._assess_memory(qwen.DEFAULT_OLLAMA_HOST, MODEL), model_loaded
 
     def test_exactly_the_full_requirement_passes_without_asking_ollama(self) -> None:
-        check, model_loaded = self.assess(FULL_REQUIREMENT, loaded=False)
+        check, model_loaded = self.assess(self.FULL, loaded=False)
         self.assertIsNone(check.verdict)
         self.assertEqual(check.requirement, "model_resident+margin")
         model_loaded.assert_not_called()
 
     def test_one_byte_under_the_full_requirement_defers_a_cold_model(self) -> None:
-        check, model_loaded = self.assess(FULL_REQUIREMENT - 1, loaded=False)
+        check, model_loaded = self.assess(self.FULL - 1, loaded=False)
         self.assertEqual(check.verdict, "deferred-low-memory")
         model_loaded.assert_called_once()
 
     def test_one_byte_under_the_full_requirement_passes_a_warm_model(self) -> None:
-        check, _ = self.assess(FULL_REQUIREMENT - 1, loaded=True)
+        check, _ = self.assess(self.FULL - 1, loaded=True)
         self.assertIsNone(check.verdict)
         self.assertEqual(check.requirement, "margin_only")
 
