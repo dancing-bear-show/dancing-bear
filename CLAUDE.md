@@ -76,7 +76,7 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 | Entry point | Subcommand depth | Example |
 |---|---|---|
 | `./bin/assistant` | dispatches to app | `./bin/assistant mail labels sync` |
-| `./bin/mail-assistant` | 2–3 levels deep | `mail-assistant labels sync --dry-run` |
+| `./bin/mail` | 2–3 levels deep | `mail labels sync --dry-run` |
 | `./bin/calendar` | 2–3 levels deep | `calendar outlook add --subject "..."` |
 | `./bin/llm` | 1–2 levels deep | `llm agentic --stdout` |
 | `./bin/worker` | 1 level deep | `worker enqueue --type <type>` |
@@ -87,7 +87,7 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 - Flags (`--dry-run`, `--profile`, `--format`) always follow the subcommand
 - The `assistant` dispatcher strips the app name and passes remaining argv directly to the app's `main()`
 - The workflow engine (`src/workflow/compiler.py`) inserts `--` before flags for most skills; `llm` and `docs` CLIs are exempt (`_NO_SEPARATOR_CLIS`). `docs` is reserved for a planned external documentation CLI — no `bin/docs` ships today
-- `--` separator is now **optional** for all CLIApp-based CLIs (mail, calendar, schedule, resume, phone, whatsapp, desk, wifi, maker, apple_music, workflow, worker, slides, sheets, telemetry, qlty); `src/core/cli_framework.py` strips bare `--` tokens automatically. The workflow engine's `_NO_SEPARATOR_CLIS` exemption for `llm`/`docs` remains unchanged.
+- `--` separator is now **optional** for all CLIApp-based CLIs (mail, calendar, schedule, resume, phone, whatsapp, desk, wifi, maker, apple_music, workflow, worker, slides, sheets, telemetry, qlty, charts, diagrams); `src/core/cli_framework.py` strips bare `--` tokens automatically. The workflow engine's `_NO_SEPARATOR_CLIS` exemption for `llm`/`docs` remains unchanged.
 - Auto-derived agentic schema: **all 18 apps** support `--agentic --agentic-format json` to emit a machine-readable parser schema that never drifts from the real CLI; add `--agentic-compact` to strip low-value fields; add `--agentic-domain <prefix>` to filter to one subcommand group. Run `./bin/llm inventory --stdout` for the authoritative list — it prints the exact invocation per app, because `./bin/<app>` is wrong for four of them (`apple-music` and `qlty` use `-assistant` wrappers, `resume` goes through `./bin/assistant resume`, and `desk` has no wrapper: `python3 -m desk`).
 - Most apps get this via `CLIApp.run_with_assistant()`. Four wire it manually to preserve legacy no-subcommand exit codes: charts (1) and diagrams (0) call `assistant.add_agentic_flags(parser)` then `maybe_emit_agentic(...)` before their `cmd_func is None` branch; worker (1) and workflow (2) pass `on_no_command=` through `run_with_assistant()`.
 
@@ -170,8 +170,8 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 - **A single clean scan proves nothing.** qlty caps findings per run and the cap is
   nondeterministic: 16 identical runs on an unchanged tree yielded 0–4 findings each,
   while the union was 22. Two consecutive matching runs can both be the same capped
-  subset. Always use `./bin/qlty-assistant scan --rescan-until-stable` (a
-  qlty-assistant flag — raw `qlty check` rejects it); never trust one clean result. Do not use
+  subset. Always use `--rescan-until-stable` on `./bin/qlty-assistant scan` or
+  `triage` (a qlty-assistant flag — raw `qlty check` rejects it); never trust one clean result. Do not use
   `--filter` to verify a finding is gone — `--filter=radarlint-python` frequently
   returns "✔ No issues" in the same minute an unfiltered run reports radarlint findings.
 - **qlty now scans correctly from inside an agent worktree.** The exclusion is
