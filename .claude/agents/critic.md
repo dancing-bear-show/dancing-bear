@@ -1,7 +1,7 @@
 ---
 name: critic
 description: Adversarial plan critique agent. Use for challenging workflow designs, implementation plans, and architecture decisions before they are acted on. Finds what's wrong, missing, or risky — not a balanced review. May write workspace findings to validation/*.json.
-model: claude-opus-4-7
+model: claude-opus-5-5
 disallowedTools: Edit, NotebookEdit
 skills:
   - dancing-bear-rules

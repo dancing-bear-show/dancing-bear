@@ -1,7 +1,7 @@
 ---
 name: tester-opus
 description: Opus-powered test writing specialist. Use when tester (Sonnet) has produced incorrect tests, missed subtle edge cases, or the domain under test has complex invariants. Use sparingly.
-model: claude-opus-4-7
+model: claude-opus-5-5
 skills:
   - dancing-bear-rules
 ---
