@@ -530,18 +530,24 @@ stages:
                         echo "EXIT=$?"
            A non-zero EXIT is a failure, not an empty branch.
 
-           An empty branch is a legitimate outcome: a bucket with no findings
-           produces no edits, and the fixer prompts explicitly allow that.
-           Record it as a no-op, skip the merge, and CONTINUE.
+           An empty branch can be a legitimate outcome: a bucket with no
+           findings produces no edits, and the fixer prompts explicitly allow
+           that. It is a no-op ONLY once the worktree check below also comes
+           back clean. Run that check for EVERY fixer, whatever this step
+           found — an empty branch included. A fixer can leave its edits
+           uncommitted, report `fixed: []`, and produce no commits; skipping
+           the check for an empty branch would record that as a no-op and
+           lose the edits silently. When the branch is empty AND the check
+           is clean, record a no-op, skip the merge, and CONTINUE.
 
-           It is a failure only when the fixer's result JSON lists entries
+           It is also a failure when the fixer's result JSON lists entries
            under "fixed" while its branch has no commits — that means edits
            were made and never committed, so they would silently not land.
            Record the discrepancy and fail this stage.
 
-           A non-empty branch is not proof that everything landed: a fixer
-           that committed its source edit but not its test file passes the
-           check above. Do NOT trust the fixer's self-reported
+           Neither an empty nor a non-empty branch is proof that nothing was
+           left behind: a fixer that committed its source edit but not its
+           test file passes the check above. Do NOT trust the fixer's self-reported
            "uncommitted_paths" for this — it is produced by the same agent
            whose worktree it describes, and an empty list there is not
            evidence the check was actually run. Verify independently against
@@ -636,7 +642,10 @@ stages:
           "all_merged": true
         }
 
-      "no_op" is a normal outcome and does NOT affect "all_merged".
+      "no_op" is a normal outcome and does NOT affect "all_merged". A fixer
+      belongs in "no_op" only when its branch is empty AND its worktree
+      check was clean; an empty branch with a dirty or unverifiable worktree
+      goes in "uncommitted".
 
       Set "all_merged" false only when something was actually lost or unsafe:
       a "wrong_branch" value (checkout is not the PR's head branch, so nothing

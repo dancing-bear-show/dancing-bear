@@ -146,6 +146,24 @@ class TestMergeFixWorktreesFailsClosed(unittest.TestCase):
         self.assertIn("shell variables do not survive between calls", self.prompt)
 
 
+class TestEmptyBranchStillChecksTheWorktree(unittest.TestCase):
+    """PR #406 round 7: an empty branch was accepted as a no-op before the
+    worktree check ran, so a fixer that left its edits uncommitted and
+    reported `fixed: []` lost them silently."""
+
+    def setUp(self) -> None:
+        self.prompt = _flat(_prompts()["merge-fix-worktrees"])
+
+    def test_check_runs_for_every_fixer_including_an_empty_branch(self) -> None:
+        self.assertIn("Run that check for EVERY fixer, whatever this step found — an empty branch included.",
+                      self.prompt)
+        self.assertIn("When the branch is empty AND the check is clean, record a no-op", self.prompt)
+        self.assertNotIn("Record it as a no-op, skip the merge, and CONTINUE.", self.prompt)
+
+    def test_no_op_requires_a_clean_worktree(self) -> None:
+        self.assertIn('an empty branch with a dirty or unverifiable worktree goes in "uncommitted"', self.prompt)
+
+
 class TestMergeFixWorktreesBranchNeverTyped(unittest.TestCase):
     """PR #406 round 6: the fixer-written branch was still pasted raw into
     `git merge-base`, `git log` and `git merge`."""

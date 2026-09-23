@@ -184,8 +184,12 @@ stages:
       and no later stage is ever instructed to modify. Computing the digest
       is not enough; it must be written into the field
       _verify_baseline_provenance reads, or every run reaches check-unlisted
-      and fails closed on the missing field before any commit:
+      and fails closed on the missing field before any commit. Run these
+      lines as ONE Bash tool call — shell variables do not survive between
+      Bash tool calls, so a DIGEST set in one call is empty in the next and
+      would be recorded as "":
         DIGEST=$(shasum -a 256 "{workspace}/outputs/dirty-baseline.json" | cut -d' ' -f1)
+        [ -n "$DIGEST" ] || { echo "NO-DIGEST"; exit 3; }
         jq --arg d "$DIGEST" '. + {dirty_baseline_sha256: $d}' \
           "{workspace}/outputs/pr-context.json" > "{workspace}/outputs/pr-context.json.tmp" \
           && mv "{workspace}/outputs/pr-context.json.tmp" "{workspace}/outputs/pr-context.json"
@@ -1153,8 +1157,10 @@ stages:
       `jq`, the same pattern this workflow already uses elsewhere for
       pr-context.json fields, so the raw value only ever flows through a
       captured command's stdout and is never re-typed as shell source; then
-      pass the variable as a quoted expansion:
-        HEAD_BRANCH=$(jq -r '.head_branch' {workspace}/outputs/pr-context.json)
+      pass the variable as a quoted expansion. Run these lines as ONE Bash
+      tool call: shell variables do not survive between Bash tool calls, so
+      a HEAD_BRANCH set in one call is empty in the next:
+        HEAD_BRANCH=$(jq -er '.head_branch' {workspace}/outputs/pr-context.json) || { echo "NO-HEAD-BRANCH"; exit 3; }
         git commit -m "<summary derived from fix-results.json>"
         git push origin "$HEAD_BRANCH"
 
@@ -1167,10 +1173,13 @@ stages:
 
       Step 5 — verify the push landed, in two parts.
 
-      5a, the remote ref, which is authoritative for the push itself. Reuse
-      the same quoted $HEAD_BRANCH variable from Step 4 rather than
-      substituting head_branch into the command text again:
+      5a, the remote ref, which is authoritative for the push itself. This
+      is a NEW Bash tool call, so Step 4's HEAD_BRANCH is gone: reload it
+      with the same `jq` load inside this call, never by typing head_branch
+      into the command text. An empty $HEAD_BRANCH would query
+      "refs/heads/" and fail every push verification:
         git rev-parse HEAD
+        HEAD_BRANCH=$(jq -er '.head_branch' {workspace}/outputs/pr-context.json) || { echo "NO-HEAD-BRANCH"; exit 3; }
         git ls-remote origin "refs/heads/$HEAD_BRANCH"
       The first field of the ls-remote line must equal the local HEAD sha.
       git has already reported the push, so there is nothing to wait for:

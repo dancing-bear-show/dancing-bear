@@ -8,7 +8,10 @@ reaches.
 
 from __future__ import annotations
 
+import json
 import re
+import shutil
+import subprocess  # nosec B404 - runs git/bash against a temp repo
 import tempfile
 import unittest
 from pathlib import Path
@@ -49,7 +52,7 @@ class TestPushVerification(unittest.TestCase):
         # `jq` command substitution, never typed into shell source directly —
         # a git ref can contain "$(...)" or backticks. See PRRT_kwDOQr1kjM6lOUjx.
         self.assertIn(
-            "HEAD_BRANCH=$(jq -r '.head_branch' ", self.prompt
+            "HEAD_BRANCH=$(jq -er '.head_branch' ", self.prompt
         )
         self.assertNotIn("git push origin <head_branch", self.prompt)
         self.assertNotIn("git ls-remote origin refs/heads/<head_branch", self.prompt)
@@ -61,6 +64,70 @@ class TestPushVerification(unittest.TestCase):
 
     def test_failure_names_every_sha(self) -> None:
         self.assertIn("local HEAD, the ls-remote sha, and the last headRefOid", self.prompt)
+
+
+def _five_a_commands(workspace: str) -> str:
+    """Step 5a's shell lines exactly as the commit-and-push agent receives them."""
+    defn = parse_workflow(str(_WORKFLOW))
+    manifest = compile_workflow(defn, project_root=_ROOT, trigger_params={"pr_number": "405"})
+    prompt = build_agent_prompt(manifest.resolved_stages["commit-and-push"], defn.name, workspace)
+    section = prompt[prompt.index("5a, the remote ref"): prompt.index("The first field of the ls-remote line")]
+    cmds = [ln.strip() for ln in section.splitlines()
+            if ln.strip().startswith(("git ", "HEAD_BRANCH="))]
+    return "\n".join(cmds)
+
+
+@unittest.skipUnless(all(map(shutil.which, ("git", "jq", "bash"))), "needs git, jq and bash")
+class TestPushVerificationRunsAsItsOwnCall(unittest.TestCase):
+    """PR #406 round 7: Step 5a used $HEAD_BRANCH from Step 4, a separate
+    Bash call where it no longer exists, so ls-remote queried "refs/heads/"
+    and every push verification failed. Run 5a alone, as the agent would."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        self.ws, repo, origin = root / "ws", root / "repo", root / "origin.git"
+        (self.ws / "outputs").mkdir(parents=True)
+        self._git("init", "-q", "--bare", str(origin))
+        self._git("init", "-q", "-b", "feat/x", str(repo))
+        self._git("-C", str(repo), "commit", "-q", "--allow-empty", "-m", "i")
+        self._git("-C", str(repo), "remote", "add", "origin", str(origin))
+        self._git("-C", str(repo), "push", "-q", "origin", "feat/x")
+        self.repo = repo
+        self.head = self._git("-C", str(repo), "rev-parse", "HEAD").decode().strip()
+
+    @staticmethod
+    def _git(*args: str) -> bytes:
+        argv = [str(shutil.which("git")), "-c", "user.name=t", "-c", "user.email=t@t", *args]
+        return subprocess.run(argv, check=True, capture_output=True).stdout  # nosec B603 - fixed argv, temp repo
+
+    def _run_5a(self, context: dict[str, object]) -> subprocess.CompletedProcess[str]:
+        (self.ws / "outputs/pr-context.json").write_text(json.dumps(context))
+        argv = [str(shutil.which("bash")), "-c", _five_a_commands(str(self.ws))]
+        return subprocess.run(argv, cwd=self.repo, capture_output=True, text=True)  # nosec B603 - runs the workflow's own rendered lines in a temp repo
+
+    def test_5a_finds_the_pushed_ref_without_step_4s_shell(self) -> None:
+        out = self._run_5a({"head_branch": "feat/x"}).stdout
+        self.assertIn(f"{self.head}\trefs/heads/feat/x", out)
+
+    def test_5a_fails_loudly_when_head_branch_is_missing(self) -> None:
+        res = self._run_5a({})
+        self.assertIn("NO-HEAD-BRANCH", res.stdout)
+        self.assertNotEqual(res.returncode, 0)
+
+
+class TestShellStateDoesNotCrossCalls(unittest.TestCase):
+    """Each multi-line shell block that sets a variable says it is one call."""
+
+    def test_init_digest_is_guarded_and_single_call(self) -> None:
+        prompt = _flat(_prompts()["init"])
+        self.assertIn('[ -n "$DIGEST" ] || { echo "NO-DIGEST"; exit 3; }', prompt)
+        self.assertIn("a DIGEST set in one call is empty in the next", prompt)
+
+    def test_step_4_push_is_single_call(self) -> None:
+        prompt = _flat(_prompts()["commit-and-push"])
+        self.assertIn("a HEAD_BRANCH set in one call is empty in the next", prompt)
 
 
 class TestUnlistedEditGate(unittest.TestCase):
