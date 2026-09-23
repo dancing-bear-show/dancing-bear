@@ -133,6 +133,45 @@ class QwenMemoryMeasurementTests(unittest.TestCase):
             self.assertIsNone(qwen._total_memory_bytes())
 
 
+class QwenMemoryThresholdBoundaryTests(unittest.TestCase):
+    """Both thresholds are inclusive: exactly the requirement passes, one byte less does not."""
+
+    MARGIN = qwen.THRESHOLDS.memory_margin_gb * GIB
+
+    def assess(self, available: int, loaded: bool) -> tuple[qwen.MemoryCheck, mock.MagicMock]:
+        with (
+            mock.patch("worker.qwen._available_memory_bytes", return_value=available),
+            mock.patch("worker.qwen._model_loaded", return_value=loaded) as model_loaded,
+        ):
+            return qwen._assess_memory(qwen.DEFAULT_OLLAMA_HOST, MODEL), model_loaded
+
+    def test_exactly_the_full_requirement_passes_without_asking_ollama(self) -> None:
+        check, model_loaded = self.assess(FULL_REQUIREMENT, loaded=False)
+        self.assertIsNone(check.verdict)
+        self.assertEqual(check.requirement, "model_resident+margin")
+        model_loaded.assert_not_called()
+
+    def test_one_byte_under_the_full_requirement_defers_a_cold_model(self) -> None:
+        check, model_loaded = self.assess(FULL_REQUIREMENT - 1, loaded=False)
+        self.assertEqual(check.verdict, "deferred-low-memory")
+        model_loaded.assert_called_once()
+
+    def test_one_byte_under_the_full_requirement_passes_a_warm_model(self) -> None:
+        check, _ = self.assess(FULL_REQUIREMENT - 1, loaded=True)
+        self.assertIsNone(check.verdict)
+        self.assertEqual(check.requirement, "margin_only")
+
+    def test_exactly_the_margin_passes_a_warm_model(self) -> None:
+        check, _ = self.assess(self.MARGIN, loaded=True)
+        self.assertIsNone(check.verdict)
+        self.assertEqual(check.requirement, "margin_only")
+
+    def test_one_byte_under_the_margin_defers_even_a_warm_model_without_asking(self) -> None:
+        check, model_loaded = self.assess(self.MARGIN - 1, loaded=True)
+        self.assertEqual(check.verdict, "deferred-low-memory")
+        model_loaded.assert_not_called()
+
+
 class QwenWarmModelTests(QwenHandlerCase):
     """A model Ollama already holds needs only memory_margin_gb, not the full load."""
 
