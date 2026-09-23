@@ -203,6 +203,8 @@ class TestPricing(unittest.TestCase):
         self.assertEqual(model_tier("claude-opus-4-6"), "opus")
         self.assertEqual(model_tier("claude-sonnet-4-6"), "sonnet")
         self.assertEqual(model_tier("claude-haiku-4-5-20251001"), "haiku")
+        self.assertEqual(model_tier("claude-fable-5-1"), "fable")
+        self.assertEqual(model_tier("claude-mythos-5"), "mythos")
         self.assertEqual(model_tier("unknown-model"), "unknown")
 
     def test_compute_cost(self):
@@ -212,6 +214,57 @@ class TestPricing(unittest.TestCase):
 
         cost = compute_cost(TokenMetrics(0, 1_000_000, 0, 0), "claude-opus-4-6")
         self.assertAlmostEqual(cost, 25.0, places=2)
+
+    @mock.patch("telemetry.pricing._cost_multiplier", return_value=1.0)
+    def test_compute_cost_opus_5_5(self, _mult):
+        # Opus 5.5 is $4/M input, $20/M output — below the generic opus rate
+        for model in ("claude-opus-5-5", "claude-opus-5-5[1m]"):
+            with self.subTest(model=model):
+                self.assertAlmostEqual(compute_cost(TokenMetrics(1_000_000, 0, 0, 0), model), 4.0, places=2)
+                self.assertAlmostEqual(compute_cost(TokenMetrics(0, 1_000_000, 0, 0), model), 20.0, places=2)
+
+    @mock.patch("telemetry.pricing._cost_multiplier", return_value=1.0)
+    def test_compute_cost_current_models(self, _mult):
+        # (model, input $/M, output $/M). Before these entries, sonnet-5 fell to the
+        # sonnet-4 rate and fable/mythos fell through to the haiku default.
+        cases = [
+            ("claude-sonnet-5", 2.0, 10.0),
+            ("claude-sonnet-5[1m]", 2.0, 10.0),
+            ("claude-fable-5", 10.0, 50.0),
+            ("claude-fable-5-1", 10.0, 50.0),
+            ("claude-mythos-5-1", 10.0, 50.0),
+        ]
+        for model, in_rate, out_rate in cases:
+            with self.subTest(model=model):
+                self.assertAlmostEqual(compute_cost(TokenMetrics(1_000_000, 0, 0, 0), model), in_rate, places=2)
+                self.assertAlmostEqual(compute_cost(TokenMetrics(0, 1_000_000, 0, 0), model), out_rate, places=2)
+
+    @mock.patch("telemetry.pricing._cost_multiplier", return_value=1.0)
+    def test_compute_cost_cache_reads_use_per_model_multiplier(self, _mult):
+        # 1M cache-read tokens: input rate x that model's cache-read multiplier
+        cases = [
+            ("claude-opus-5-5", 4.0 * 0.05),
+            ("claude-opus-5-5[1m]", 4.0 * 0.05),
+            ("claude-fable-5-1", 10.0 * 0.025),
+            ("claude-mythos-5-1", 10.0 * 0.025),
+            ("claude-fable-5", 10.0 * 0.1),
+            ("claude-sonnet-4-6", 3.0 * 0.1),
+        ]
+        for model, expected in cases:
+            with self.subTest(model=model):
+                cost = compute_cost(TokenMetrics(0, 0, 1_000_000, 0), model)
+                self.assertAlmostEqual(cost, expected, places=6)
+
+    @mock.patch("telemetry.pricing._cost_multiplier", return_value=1.0)
+    def test_compute_cost_older_sonnet_unaffected(self, _mult):
+        for model in ("claude-sonnet-4-6", "claude-sonnet-4-6[1m]"):
+            with self.subTest(model=model):
+                self.assertAlmostEqual(compute_cost(TokenMetrics(1_000_000, 0, 0, 0), model), 3.0, places=2)
+
+    @mock.patch("telemetry.pricing._cost_multiplier", return_value=1.0)
+    def test_compute_cost_other_opus_1m_unaffected(self, _mult):
+        cost = compute_cost(TokenMetrics(1_000_000, 0, 0, 0), "claude-opus-5[1m]")
+        self.assertAlmostEqual(cost, 5.0, places=2)
 
     def test_zero_tokens(self):
         cost = compute_cost(TokenMetrics(0, 0, 0, 0), "claude-opus-4-6")

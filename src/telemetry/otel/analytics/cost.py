@@ -9,15 +9,16 @@ To update pricing when Anthropic releases new pricing:
 
 1. Check official pricing at https://platform.claude.com/docs/en/about-claude/pricing
 2. Update MODEL_PRICING dict below
-3. Update get_model_pricing() for intelligent fallback matching
-4. Run validation tests: python3 -m unittest discover tests/ -v
+3. Update _PRICING_FALLBACK_RULES for fallback matching (order matters)
+4. Update CACHE_READ_MULTIPLIERS for any model whose cache reads are not 0.1x
+5. Run validation tests: make test
 
 ## Pricing Notes
 
 - Base pricing: Listed in MODEL_PRICING
 - Long context (4.x models with 1M context): no premium — same price as base
 - Prompt caching writes: 1.25x base input price
-- Prompt caching reads: 0.1x base input price
+- Prompt caching reads: 0.1x base input price, except per CACHE_READ_MULTIPLIERS
 - Batch API: 50% discount on all tokens
 """
 
@@ -57,19 +58,22 @@ __all__ = [
 # Format: (input_cost_per_million, output_cost_per_million)
 # Source: https://platform.claude.com/docs/en/about-claude/pricing
 MODEL_PRICING: dict[str, tuple[float, float]] = {
+    "claude-opus-5-5": (4.0, 20.0),
     "claude-opus-4-8": (5.0, 25.0),
     "claude-opus-4-7": (5.0, 25.0),
     "claude-opus-4-6": (5.0, 25.0),
     "claude-opus-4-5": (5.0, 25.0),
     "claude-opus-4-1": (15.0, 75.0),
     "claude-opus-4-1-20250805": (15.0, 75.0),
-    # Sonnet 5 introductory pricing through Aug 31, 2026; standard is (3.0, 15.0)
+    # Sonnet 5 launch pricing became standard; the planned Sep 2026 rise to (3.0, 15.0) was cancelled
     "claude-sonnet-5": (2.0, 10.0),
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-sonnet-4-5": (3.0, 15.0),
     "claude-haiku-4-5": (1.0, 5.0),
     "claude-haiku-4-5-20251001": (1.0, 5.0),
+    "claude-fable-5-1": (10.0, 50.0),
     "claude-fable-5": (10.0, 50.0),
+    "claude-mythos-5-1": (10.0, 50.0),
     "claude-mythos-5": (10.0, 50.0),
     "claude-opus-4-7-1m": (5.0, 25.0),
     "claude-opus-4-6-1m": (5.0, 25.0),
@@ -81,21 +85,46 @@ MODEL_PRICING: dict[str, tuple[float, float]] = {
 
 DEFAULT_MODEL = "claude-haiku-4-5"
 
+# Cache reads cost this fraction of the input rate. Most models use 0.1x;
+# keys are MODEL_PRICING keys, so fallback-matched variants inherit them.
+DEFAULT_CACHE_READ_MULTIPLIER = 0.1
+CACHE_READ_MULTIPLIERS: dict[str, float] = {
+    "claude-opus-5-5": 0.05,
+    "claude-fable-5-1": 0.025,
+    "claude-mythos-5-1": 0.025,
+}
+
 
 # Ordered fallback rules for get_model_pricing(): evaluated top-to-bottom after
 # an exact MODEL_PRICING match fails. Each predicate takes the lowercased model
-# name; the first match wins. Order matters — sonnet-5 and the "1m" combos must
-# be checked before the generic opus/sonnet/haiku substring checks.
+# name; the first match wins. Order matters — opus-5-5, sonnet-5 and the "1m"
+# combos must be checked before the generic opus/sonnet/haiku substring checks.
 _PRICING_FALLBACK_RULES: list[tuple[Callable[[str], bool], str]] = [
+    (lambda m: "opus-5-5" in m, "claude-opus-5-5"),
     (lambda m: "sonnet-5" in m, "claude-sonnet-5"),
     (lambda m: "opus" in m and "1m" in m, "claude-opus-4-7-1m"),
     (lambda m: "sonnet" in m and "1m" in m, "claude-sonnet-4-6-1m"),
+    (lambda m: "mythos-5-1" in m, "claude-mythos-5-1"),
+    (lambda m: "fable-5-1" in m, "claude-fable-5-1"),
     (lambda m: "mythos" in m, "claude-mythos-5"),
     (lambda m: "fable" in m, "claude-fable-5"),
     (lambda m: "opus" in m, "claude-opus"),
     (lambda m: "sonnet" in m, "claude-sonnet"),
     (lambda m: "haiku" in m, "claude-haiku"),
 ]
+
+
+def _resolve_pricing_key(model_name: str) -> str:
+    """Map a model identifier to its MODEL_PRICING key, with fallback matching."""
+    if model_name in MODEL_PRICING:
+        return model_name
+
+    model_lower = model_name.lower()
+    for predicate, key in _PRICING_FALLBACK_RULES:
+        if predicate(model_lower):
+            return key
+
+    return DEFAULT_MODEL
 
 
 def get_model_pricing(model_name: str) -> tuple[float, float]:
@@ -107,15 +136,12 @@ def get_model_pricing(model_name: str) -> tuple[float, float]:
     Returns:
         (input_cost_per_million, output_cost_per_million)
     """
-    if model_name in MODEL_PRICING:
-        return MODEL_PRICING[model_name]
+    return MODEL_PRICING[_resolve_pricing_key(model_name)]
 
-    model_lower = model_name.lower()
-    for predicate, key in _PRICING_FALLBACK_RULES:
-        if predicate(model_lower):
-            return MODEL_PRICING[key]
 
-    return MODEL_PRICING[DEFAULT_MODEL]
+def get_cache_read_multiplier(model_name: str) -> float:
+    """Return the fraction of the input rate charged for a model's cache reads."""
+    return CACHE_READ_MULTIPLIERS.get(_resolve_pricing_key(model_name), DEFAULT_CACHE_READ_MULTIPLIER)
 
 
 @dataclass(frozen=True)
@@ -128,17 +154,19 @@ class TokenCounts:
     cache_read_tokens: int
 
 
-def _compute_token_cost(counts: TokenCounts, input_cost: float, output_cost: float) -> float:
-    """Compute USD cost for a token breakdown at the given per-million rates.
+def _compute_token_cost(counts: TokenCounts, model_name: str) -> float:
+    """Compute USD cost for a token breakdown at the model's per-million rates.
 
-    Cache-creation writes are billed at 1.25x the input rate; cache reads at
-    0.1x the input rate — matching Anthropic's prompt-caching pricing.
+    Cache-creation writes are billed at 1.25x the input rate; cache reads at the
+    model's cache-read multiplier (0.1x for most models) — matching Anthropic's
+    prompt-caching pricing.
     """
+    input_cost, output_cost = get_model_pricing(model_name)
     return (
         (counts.input_tokens * input_cost / 1_000_000)
         + (counts.output_tokens * output_cost / 1_000_000)
         + (counts.cache_creation_tokens * input_cost * 1.25 / 1_000_000)
-        + (counts.cache_read_tokens * input_cost * 0.1 / 1_000_000)
+        + (counts.cache_read_tokens * input_cost * get_cache_read_multiplier(model_name) / 1_000_000)
     )
 
 
@@ -225,13 +253,12 @@ def _build_session_costs(
     )
 
     for (session_id, model), data in session_model_data.items():
-        input_cost, output_cost = get_model_pricing(model)
         cost = _compute_token_cost(
             TokenCounts(
                 data["input_tokens"], data["output_tokens"],
                 data["cache_creation_tokens"], data["cache_read_tokens"],
             ),
-            input_cost, output_cost,
+            model,
         )
         st = session_totals[session_id]
         st["api_calls"] += data["api_calls"]
@@ -274,13 +301,12 @@ def _build_model_costs(model_data: dict[str, dict]) -> list[ModelCost]:
     """Build ModelCost objects from aggregated model data."""
     model_costs = []
     for model_name, data in sorted(model_data.items()):
-        input_cost, output_cost = get_model_pricing(model_name)
         cost = _compute_token_cost(
             TokenCounts(
                 data["input_tokens"], data["output_tokens"],
                 data["cache_creation_tokens"], data["cache_read_tokens"],
             ),
-            input_cost, output_cost,
+            model_name,
         )
         eff = (
             (data["output_tokens"] / data["input_tokens"])
@@ -402,13 +428,12 @@ def get_daily_costs(
 
     for req in api_requests:
         date_str = req["timestamp"].strftime("%Y-%m-%d")
-        input_price, output_price = get_model_pricing(req["model"])
         cost = _compute_token_cost(
             TokenCounts(
                 req["input_tokens"], req["output_tokens"],
                 req["cache_creation_tokens"], req["cache_read_tokens"],
             ),
-            input_price, output_price,
+            req["model"],
         )
         daily[date_str]["api_calls"] += 1
         daily[date_str]["cost"] += cost

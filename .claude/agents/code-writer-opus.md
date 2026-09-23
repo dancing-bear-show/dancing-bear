@@ -1,7 +1,7 @@
 ---
 name: code-writer-opus
 description: Opus-powered code implementation agent. Use when code-writer (Sonnet) has failed, gotten confused, or the task requires sustained multi-step reasoning across many files. Same capabilities as code-writer but with stronger reasoning. Use sparingly.
-model: claude-opus-4-7
+model: claude-opus-5-5
 skills:
   - dancing-bear-rules
 ---
