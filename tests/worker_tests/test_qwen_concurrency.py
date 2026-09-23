@@ -33,7 +33,7 @@ from pathlib import Path
 import unittest.mock as mock
 
 from worker import qwen
-from tests.worker_tests.qwen_fixtures import QwenHandlerCase
+from tests.worker_tests.qwen_fixtures import QwenHandlerCase, require
 
 
 class QwenLockHeldTests(QwenHandlerCase):
@@ -63,8 +63,8 @@ class QwenLockReleaseTests(QwenHandlerCase):
     def _assert_lock_free(self, message: str) -> None:
         acquired = qwen._acquire_model_lock("job-2", wait_ceiling_sec=1)
         if acquired:
-            qwen._release_model_lock("job-2")
-        self.assertTrue(acquired, message)
+            qwen._release_model_lock("job-2", acquired)
+        self.assertIsNotNone(acquired, message)
 
     def test_lock_released_after_successful_job_allows_second_job_to_acquire(self) -> None:
         ok, _ = self.run_handler(id="job-1")
@@ -134,8 +134,8 @@ class QwenStaleLockTests(QwenHandlerCase):
     def _acquire(self, job_id: str) -> bool:
         acquired = qwen._acquire_model_lock(job_id, wait_ceiling_sec=1)
         if acquired:
-            qwen._release_model_lock(job_id)
-        return acquired
+            qwen._release_model_lock(job_id, acquired)
+        return acquired is not None
 
     def test_dead_holder_pid_is_reclaimed(self) -> None:
         self._write_lock(pid=999999, age_sec=5)
@@ -228,7 +228,7 @@ class QwenLockCompareAndDeleteTests(QwenHandlerCase):
             acquired = qwen._handle_existing_lock(self.lock_path)
 
         self.assertTrue(swapped, "the interleaving never happened")
-        self.assertFalse(acquired, "this worker acquired a lock another worker holds")
+        self.assertIsNone(acquired, "this worker acquired a lock another worker holds")
         self.assertEqual(json.loads(self.lock_path.read_text(encoding="utf-8")), new_holder)
         self.assertEqual(self._lock_dir_names(), ["model.lock"], "a reclaim tombstone was left behind")
 
@@ -236,24 +236,69 @@ class QwenLockCompareAndDeleteTests(QwenHandlerCase):
         self._write_lock({"pid": 999999, "started_at": time.time() - 5})
 
         with mock.patch("worker.qwen._pid_alive", return_value=False):
-            self.assertTrue(qwen._handle_existing_lock(self.lock_path))
+            acquired = qwen._handle_existing_lock(self.lock_path)
 
+        self.assertIsNotNone(acquired)
         self.assertEqual(json.loads(self.lock_path.read_text(encoding="utf-8"))["pid"], os.getpid())
-        qwen._release_model_lock("job")
+        qwen._release_model_lock("job", require(acquired))
         self.assertFalse(self.lock_path.exists())
         self.assertEqual(self._lock_dir_names(), [])
 
     def test_release_leaves_a_lock_that_is_no_longer_ours(self) -> None:
         """Our lock was reclaimed and another job acquired: release must not delete theirs."""
-        self.assertTrue(qwen._try_acquire_lock(self.lock_path))
+        mine = require(qwen._try_acquire_lock(self.lock_path))
         other = {"pid": os.getpid() + 1, "started_at": time.time() + 1}
         self.lock_path.unlink()
         self._write_lock(other)
 
-        qwen._release_lock(self.lock_path)
+        qwen._release_lock(self.lock_path, mine)
 
         self.assertEqual(json.loads(self.lock_path.read_text(encoding="utf-8")), other)
         self.assertEqual(self._lock_dir_names(), ["model.lock"])
+
+    def test_release_after_a_same_process_reclaim_leaves_the_new_acquisitions_lock(self) -> None:
+        """Two handler threads share one pid. Thread 1's lock is reclaimed and
+        thread 2 acquires before thread 1's finally runs: thread 1's release
+        must not remove thread 2's lock."""
+        first = require(qwen._try_acquire_lock(self.lock_path))
+        with mock.patch("worker.qwen._lock_verdict", return_value="STALE"):
+            second = require(qwen._handle_existing_lock(self.lock_path))
+        self.assertEqual(first.pid, second.pid)
+
+        qwen._release_lock(self.lock_path, first)
+
+        self.assertEqual(qwen._read_lock_holder(self.lock_path), second, "the new acquisition's lock was removed")
+        qwen._release_lock(self.lock_path, second)
+        self.assertEqual(self._lock_dir_names(), [])
+
+    def test_token_distinguishes_acquisitions_with_the_same_pid_and_start_time(self) -> None:
+        """pid + started_at cannot tell two same-process acquisitions apart on
+        a coarse clock; only the per-acquisition token can."""
+        with mock.patch("worker.qwen.time") as clock:
+            clock.time.return_value = 1_000.0
+            first = require(qwen._try_acquire_lock(self.lock_path))
+            self.assertTrue(qwen._remove_lock_if_held_by(self.lock_path, first))
+            second = require(qwen._try_acquire_lock(self.lock_path))
+        self.assertEqual((first.pid, first.started_at), (second.pid, second.started_at))
+
+        qwen._release_lock(self.lock_path, first)
+
+        self.assertEqual(qwen._read_lock_holder(self.lock_path), second)
+
+    def test_lock_file_keeps_the_fields_qwen_admin_reads_and_adds_the_token(self) -> None:
+        holder = require(qwen._try_acquire_lock(self.lock_path))
+
+        raw = json.loads(self.lock_path.read_text(encoding="utf-8"))
+        self.assertEqual(raw, {"pid": os.getpid(), "started_at": holder.started_at, "token": holder.token})
+
+    def test_lock_without_a_token_is_read_and_reclaimed(self) -> None:
+        """A lock written before the token existed still parses and still reclaims."""
+        legacy = {"pid": 999999, "started_at": time.time() - 5}
+        self._write_lock(legacy)
+        self.assertEqual(qwen._read_lock_holder(self.lock_path), qwen._LockHolder(999999, legacy["started_at"]))
+
+        with mock.patch("worker.qwen._pid_alive", return_value=False):
+            self.assertIsNotNone(qwen._handle_existing_lock(self.lock_path))
 
     def test_restore_never_overwrites_a_lock_acquired_meanwhile(self) -> None:
         tombstone = self.lock_path.with_name(".model.lock.reclaim.test")

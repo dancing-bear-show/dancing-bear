@@ -114,8 +114,9 @@ class QwenHandlerHappyPathTests(QwenHandlerCase):
         self.assertTrue(ok)
         self.assertEqual(self.generate_requests()[0][0], "http://ollama.test:1234/api/generate")
 
-    def test_timeout_payload_falls_back_to_600_unless_positive_number(self) -> None:
-        cases = ((0, 600), (-5, 600), ("30", 600), (None, 600), (42, 42), (7.5, 7.5))
+    def test_timeout_payload_defaults_to_600_and_honours_a_positive_number(self) -> None:
+        """Invalid timeouts are covered by QwenOptionValidationTests."""
+        cases = ((None, 600), (42, 42), (7.5, 7.5))
         for raw, expected in cases:
             with self.subTest(timeout=raw):
                 self.requests.clear()
@@ -260,12 +261,12 @@ class QwenRetryMapTests(QwenHandlerCase):
         self.assertEqual(out, "terminal-prompt-too-large")
         self.assertEqual(self.generate_requests(), [])
 
-    def test_max_tokens_at_or_above_num_ctx_is_prompt_too_large(self) -> None:
-        for max_tokens in (8192, 9000):
-            with self.subTest(max_tokens=max_tokens):
-                self.assertEqual(
-                    self.run_handler({"max_tokens": max_tokens}), (False, "terminal-prompt-too-large")
-                )
+    def test_max_tokens_leaving_no_room_for_the_prompt_is_prompt_too_large(self) -> None:
+        """num_ctx - 1 is the largest valid max_tokens; it leaves one token of
+        budget, which no real prompt fits. Larger values are invalid payloads."""
+        self.assertEqual(
+            self.run_handler({"max_tokens": qwen.THRESHOLDS.num_ctx - 1}), (False, "terminal-prompt-too-large")
+        )
         self.assertEqual(self.generate_requests(), [])
 
     def test_invalid_payload_is_terminal(self) -> None:
@@ -1086,7 +1087,7 @@ class QwenExplainModeTests(QwenHandlerCase):
         big.write_text("x" * (qwen.THRESHOLDS.max_file_bytes - 1000), encoding="utf-8")
         cases: tuple[tuple[dict[str, object], str], ...] = (
             ({}, "pass"),
-            ({"max_tokens": qwen.THRESHOLDS.num_ctx}, "terminal-prompt-too-large"),
+            ({"max_tokens": qwen.THRESHOLDS.num_ctx - 1}, "terminal-prompt-too-large"),
             ({"files": ["src/example/big.py"]}, "terminal-prompt-too-large"),
         )
         for extra, expected in cases:
@@ -1135,6 +1136,95 @@ class QwenSeamTests(unittest.TestCase):
         with mock.patch("shutil.disk_usage", side_effect=OSError("gone")):
             self.assertIsNone(qwen._free_disk_bytes(missing))
         self.assertIsInstance(qwen._free_disk_bytes(Path(__file__)), int)
+
+
+class QwenSystemPromptBudgetTests(QwenHandlerCase):
+    """options.system is sent to Ollama as its own field but shares the
+    context window, so the budget guard must count it."""
+
+    def _oversized_system(self) -> str:
+        budget = qwen.THRESHOLDS.num_ctx - qwen.DEFAULT_MAX_TOKENS
+        return "s" * (4 * budget + 4)
+
+    def test_small_prompt_with_oversized_system_is_prompt_too_large(self) -> None:
+        ok, out = self.run_handler({"system": self._oversized_system()})
+
+        self.assertEqual((ok, out), (False, "terminal-prompt-too-large"))
+        self.assertEqual(self.generate_requests(), [])
+
+    def test_explain_reports_the_system_text_in_the_budget(self) -> None:
+        system = self._oversized_system()
+
+        ok, report = self.run_handler({"explain": True, "system": system})
+
+        self.assertTrue(ok)
+        report = self.as_dict(report)
+        self.assertEqual(self.as_dict(report["guard_results"])["prompt_budget"], "terminal-prompt-too-large")
+        size = (self.repo_root / GREET_PATH).stat().st_size
+        self.assertEqual(report["total_prompt_chars"], len("return the greeting") + size + len(system))
+        tokens = report["assembled_prompt_tokens"]
+        self.assertIsInstance(tokens, int)
+        self.assertGreater(int(str(tokens)), len(system) // 4)
+
+    def test_small_system_still_fits(self) -> None:
+        ok, _ = self.run_handler({"system": "be terse"})
+
+        self.assertTrue(ok)
+
+
+class QwenOptionValidationTests(QwenHandlerCase):
+    """Every optional payload key is type- and range-checked up front: an
+    invalid one is terminal-invalid-payload before any file is touched and
+    before the prompt-budget guard."""
+
+    def _assert_invalid(self, key: str, raw: object, message: str) -> None:
+        with (
+            self.subTest(key=key, raw=raw),
+            mock.patch("worker.qwen._resolve_real_path", side_effect=AssertionError("touched a file")),
+        ):
+            self.assertEqual(self.run_handler({key: raw}), (False, f"terminal-invalid-payload: {message}"))
+
+    def test_invalid_max_tokens_is_rejected(self) -> None:
+        upper = qwen.THRESHOLDS.num_ctx - 1
+        for raw in (-1, 0, True, False, 4096.0, "4096", upper + 1, 10**9):
+            self._assert_invalid("max_tokens", raw, f"max_tokens must be an int in [1, {upper}]")
+        self.assertEqual(self.generate_requests(), [])
+
+    def test_invalid_temperature_is_rejected(self) -> None:
+        for raw in (float("nan"), float("inf"), float("-inf"), -0.1, 2.5, True, "0.2"):
+            self._assert_invalid("temperature", raw, "temperature must be a finite number in [0, 2.0]")
+        self.assertEqual(self.generate_requests(), [])
+
+    def test_invalid_timeout_is_rejected(self) -> None:
+        for raw in (0, -5, "30", True, float("nan"), float("inf")):
+            self._assert_invalid("timeout", raw, "timeout must be a finite number > 0")
+        self.assertEqual(self.generate_requests(), [])
+
+    def test_non_string_and_non_bool_options_are_rejected(self) -> None:
+        for key, raw, message in (
+            ("system", 123, "system must be a str"),
+            ("model", ["qwen"], "model must be a str"),
+            ("explain", "false", "explain must be a bool"),
+            ("explain", 1, "explain must be a bool"),
+        ):
+            self._assert_invalid(key, raw, message)
+        self.assertEqual(self.generate_requests(), [])
+
+    def test_explain_mode_rejects_an_invalid_option_too(self) -> None:
+        self.assertEqual(
+            self.run_handler({"explain": True, "max_tokens": -1}),
+            (False, f"terminal-invalid-payload: max_tokens must be an int in [1, {qwen.THRESHOLDS.num_ctx - 1}]"),
+        )
+
+    def test_boundary_values_are_accepted_and_sent(self) -> None:
+        for temperature in (0, 1, 2.0):
+            with self.subTest(temperature=temperature):
+                self.requests.clear()
+                ok, _ = self.run_handler({"temperature": temperature, "max_tokens": 1})
+                self.assertTrue(ok)
+                [(_, body, _)] = self.generate_requests()
+                options = require(body)["options"]
+                self.assertEqual((options["temperature"], options["num_predict"]), (temperature, 1))
 
 
 if __name__ == "__main__":

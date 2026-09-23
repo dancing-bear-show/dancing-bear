@@ -22,7 +22,7 @@ from pathlib import Path
 import unittest.mock as mock
 
 from tests.fixtures import TempDirMixin
-from tests.worker_tests.qwen_fixtures import GREET_PATH, QwenHandlerCase
+from tests.worker_tests.qwen_fixtures import GREET_PATH, QwenHandlerCase, require
 from worker import qwen
 
 ALLOWLIST_DIRS = ("src", "tests", "bin", "workflows", "concerns", "docs")
@@ -292,6 +292,43 @@ class QwenConfinementDescriptorTests(QwenConfinementBaseTests):
 
         with mock.patch("worker.qwen._fd_real_path", return_value=None):
             self.assert_read_rejected(resolved)
+
+
+class QwenInputFileBoundTests(QwenHandlerCase):
+    """payload.files is capped before any path is touched, and duplicate
+    spellings of one file collapse to a single read."""
+
+    def test_repeated_paths_over_the_cap_are_rejected_without_any_file_access(self) -> None:
+        payload: dict[str, object] = {"files": [GREET_PATH] * 10_000, "instruction": "x"}
+        expected = f"terminal-invalid-payload: files must list at most {qwen.THRESHOLDS.max_input_files} entries"
+
+        with _no_file_reads(), self.assertRaises(qwen.QwenGuardError) as ctx:
+            qwen._validate_payload(payload)
+        self.assertEqual(str(ctx.exception), expected)
+
+        with mock.patch("worker.qwen._resolve_real_path", side_effect=AssertionError("resolved a path")):
+            self.assertEqual(self.run_handler({"files": [GREET_PATH] * 10_000}), (False, expected))
+        self.assertEqual(self.generate_requests(), [])
+
+    def test_cap_boundary(self) -> None:
+        cap = qwen.THRESHOLDS.max_input_files
+        with _no_file_reads():
+            qwen._validate_payload({"files": [GREET_PATH] * cap, "instruction": "x"})
+            with self.assertRaises(qwen.QwenGuardError):
+                qwen._validate_payload({"files": [GREET_PATH] * (cap + 1), "instruction": "x"})
+
+    def test_duplicate_spellings_collapse_to_one_read(self) -> None:
+        spellings = [GREET_PATH, f"./{GREET_PATH}", GREET_PATH, "src/example/../example/greet.py"]
+        greet = (self.repo_root / GREET_PATH).resolve()
+
+        with mock.patch("worker.qwen._read_open_confined", wraps=qwen._read_open_confined) as read:
+            ok, _ = self.run_handler({"files": spellings})
+
+        self.assertTrue(ok)
+        self.assertEqual(read.call_count, 1)
+        [(_, body, _)] = self.generate_requests()
+        self.assertEqual(str(require(body)["prompt"]).count(f"--- {greet} ---"), 1)
+        self.assertEqual(qwen.resolve_input_files(spellings, self.repo_root), [greet])
 
 
 class QwenConfinementDescriptorHandlerTests(QwenHandlerCase):

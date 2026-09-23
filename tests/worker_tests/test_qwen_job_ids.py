@@ -78,6 +78,81 @@ class QwenJobIdPathTests(QwenHandlerCase):
         self.assertFalse(outside.exists())
 
 
+class QwenSameDirSymlinkTests(QwenHandlerCase):
+    """job-a's file name planted as a symlink to job-b's file in the SAME
+    directory resolves inside the dir, so a resolved-parent check admits it.
+    Every job-scoped write must refuse it and leave job-b's file untouched."""
+
+    OLD_MTIME_NS = 1_000_000_000 * 1_000_000_000
+
+    def _plant(self, directory: Path, suffix: str) -> tuple[Path, Path, bytes]:
+        directory.mkdir(parents=True, exist_ok=True)
+        victim = directory / f"job-b{suffix}"
+        content = b'{"count": 1, "reasons": {"low-disk": 1}, "first_deferred_at": 1.0}'
+        victim.write_bytes(content)
+        os.utime(victim, ns=(self.OLD_MTIME_NS, self.OLD_MTIME_NS))
+        link = directory / f"job-a{suffix}"
+        os.symlink(victim.name, link)  # relative: resolves to a sibling in the same dir
+        return link, victim, content
+
+    def _assert_untouched(self, victim: Path, content: bytes) -> None:
+        self.assertEqual(victim.read_bytes(), content, "job-b's file was written through job-a's link")
+        self.assertEqual(victim.stat().st_mtime_ns, self.OLD_MTIME_NS)
+
+    def test_deferral_write_through_a_same_dir_link_is_refused(self) -> None:
+        link, victim, content = self._plant(self.deferral_dir, ".json")
+
+        with self.assertRaises(qwen.QwenGuardError) as ctx:
+            qwen._record_deferral("job-a", "low-memory")
+
+        self.assertEqual(str(ctx.exception), qwen.INVALID_JOB_ID_OUTCOME)
+        self._assert_untouched(victim, content)
+        self.assertTrue(link.is_symlink())
+
+    def test_patch_write_through_a_same_dir_link_is_refused(self) -> None:
+        link, victim, content = self._plant(self.patch_dir, ".patch")
+
+        with self.assertRaises(qwen.QwenGuardError) as ctx:
+            qwen._write_patch_file("job-a", "diff\n")
+
+        self.assertEqual(str(ctx.exception), qwen.INVALID_JOB_ID_OUTCOME)
+        self._assert_untouched(victim, content)
+        self.assertTrue(link.is_symlink())
+
+    def test_handler_refuses_and_clearing_removes_only_the_link(self) -> None:
+        """End to end: a deferral under a planted link is terminal, and the
+        terminal-exit cleanup unlinks the link itself, never its target."""
+        link, victim, content = self._plant(self.deferral_dir, ".json")
+
+        with mock.patch("worker.qwen._available_memory_bytes", return_value=GIB):
+            ok, out = self.run_handler(id="job-a")
+
+        self.assertEqual((ok, out), (False, qwen.INVALID_JOB_ID_OUTCOME))
+        self._assert_untouched(victim, content)
+        self.assertFalse(os.path.lexists(link), "the planted link was left in place")
+
+    def test_successful_job_refuses_a_patch_link(self) -> None:
+        _, victim, content = self._plant(self.patch_dir, ".patch")
+
+        ok, out = self.run_handler(id="job-a")
+
+        self.assertEqual((ok, out), (False, qwen.INVALID_JOB_ID_OUTCOME))
+        self._assert_untouched(victim, content)
+
+    def test_link_planted_after_the_check_is_replaced_not_followed(self) -> None:
+        """The check-to-write race: the atomic write renames over the name,
+        so a link that appears after job_scoped_path ran is swapped out for a
+        regular file and its target is never opened."""
+        link, victim, content = self._plant(self.deferral_dir, ".json")
+
+        qwen._write_job_file(link, '{"count": 1}')
+
+        self._assert_untouched(victim, content)
+        self.assertFalse(link.is_symlink())
+        self.assertEqual(link.read_text(encoding="utf-8"), '{"count": 1}')
+        self.assertEqual(sorted(p.name for p in self.deferral_dir.iterdir()), ["job-a.json", "job-b.json"])
+
+
 class QwenJobIdHandlerTests(QwenHandlerCase):
     def test_unsafe_job_id_is_terminal_before_any_path_is_built(self) -> None:
         """Low memory would otherwise record a deferral under ../escape.json."""

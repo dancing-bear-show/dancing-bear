@@ -181,6 +181,28 @@ class QwenWrapperMainTests(unittest.TestCase):
                     self.assertIn("invalid job id", err.getvalue())
                     find.assert_not_called()
 
+    def test_apply_refuses_a_patch_path_that_is_a_symlink(self) -> None:
+        """job-a.patch -> job-b.patch would make --apply print a command that
+        applies another job's patch. It must refuse with a clear error."""
+        bq = _load_module()
+
+        with tempfile.TemporaryDirectory() as data_home:
+            patches = Path(data_home) / "qwen" / "patches"
+            patches.mkdir(parents=True)
+            (patches / "job-b.patch").write_text("diff\n", encoding="utf-8")
+            os.symlink("job-b.patch", patches / "job-a.patch")
+            out, err = io.StringIO(), io.StringIO()
+            with (
+                mock.patch.dict(os.environ, {"DANCING_BEAR_DATA_HOME": data_home}),
+                redirect_stdout(out),
+                contextlib.redirect_stderr(err),
+            ):
+                exit_code = bq.main(["--apply", "job-a"])
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(out.getvalue(), "")
+        self.assertIn("symlink", err.getvalue())
+
     def test_patch_path_builder_refuses_an_unsafe_job_id(self) -> None:
         from worker import qwen
 

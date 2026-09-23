@@ -126,7 +126,14 @@ def _cmd_patch(args: argparse.Namespace) -> int:
 
 
 def _cmd_apply(job_id: str) -> int:
-    print(apply_command(job_id))
+    """Print the git apply command, or refuse when the stored patch path is a
+    symlink: applying it would apply whatever file the link points at."""
+    try:
+        command = apply_command(job_id)
+    except qwen.QwenGuardError:
+        print(f"refusing job id {job_id!r}: its patch path is a symlink", file=sys.stderr)
+        return 2
+    print(command)
     return 0
 
 

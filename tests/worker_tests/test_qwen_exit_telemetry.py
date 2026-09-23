@@ -34,7 +34,7 @@ class QwenEveryExitEmitsTelemetryTests(QwenHandlerCase):
                 {},
             ),
             ("deferred-low-memory", lambda: mock.patch("worker.qwen._available_memory_bytes", return_value=1024), {}, {}),
-            ("terminal-prompt-too-large", contextlib.nullcontext, {"max_tokens": qwen.THRESHOLDS.num_ctx}, {}),
+            ("terminal-prompt-too-large", contextlib.nullcontext, {"max_tokens": qwen.THRESHOLDS.num_ctx - 1}, {}),
             ("deferred-low-disk", lambda: mock.patch("worker.qwen._free_disk_bytes", return_value=1024), {}, {}),
             ("deferred-qwen-busy", lambda: mock.patch("worker.qwen._acquire_model_lock", return_value=False), {}, {}),
             (qwen.INVALID_JOB_ID_OUTCOME, contextlib.nullcontext, {}, {"id": "../x"}),

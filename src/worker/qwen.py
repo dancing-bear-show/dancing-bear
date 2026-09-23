@@ -8,7 +8,8 @@ writes it to a patch file under ``core.paths.output_dir("qwen")``. The patch
 is never applied by this handler.
 
 Guard order (contract.json): the job id is validated first (it becomes a
-file name under the qwen state and patch dirs), then input confinement runs
+file name under the qwen state and patch dirs), then the payload shape and
+every option are validated (no disk access), then input confinement runs
 (before any file is opened and before the concurrency lock), then the memory
 precheck, then the lock/model call, then patch validation/caps/disk precheck.
 See ``handle_qwen_patch`` for the full sequence.
@@ -39,6 +40,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import posixpath
 import re
@@ -68,6 +70,12 @@ class QwenThresholds:
     model_resident_gb: float = 9
     memory_margin_gb: float = 4
     max_file_bytes: int = 200_000
+    # payload.files entries accepted, checked on the raw list before any
+    # path is resolved, stat'd or opened. At num_ctx 8192 the whole prompt
+    # is ~32 KiB of text (chars/4), so a request naming more than 32 files
+    # cannot carry a useful share of each one; the cap bounds the per-file
+    # confinement work that runs before the prompt-budget guard can refuse.
+    max_input_files: int = 32
     max_files: int = 8
     max_lines: int = 400
     min_free_disk_gb: float = 5
@@ -118,20 +126,50 @@ def is_safe_job_id(job_id: object) -> bool:
     return isinstance(job_id, str) and _SAFE_JOB_ID_RE.fullmatch(job_id) is not None
 
 
-def job_scoped_path(base: Path, job_id: str, suffix: str) -> Path:
-    """Return base/<job_id><suffix>, the ONLY way a job id becomes a path.
-
-    Raises QwenGuardError(INVALID_JOB_ID_OUTCOME) for an id that fails
-    is_safe_job_id. As defence in depth, the candidate is also resolved
-    (following any symlink already sitting at that name) and must land
-    directly inside base.
-    """
+def _job_file_name(job_id: str, suffix: str) -> str:
+    """<job_id><suffix>; raises QwenGuardError(INVALID_JOB_ID_OUTCOME) for an unsafe id."""
     if not is_safe_job_id(job_id):
         raise QwenGuardError(INVALID_JOB_ID_OUTCOME)
-    candidate = base / f"{job_id}{suffix}"
-    if candidate.resolve().parent != base.resolve():
+    return f"{job_id}{suffix}"
+
+
+def job_scoped_path(base: Path, job_id: str, suffix: str) -> Path:
+    """Return base/<job_id><suffix>, the path every job-scoped read and write uses.
+
+    Raises QwenGuardError(INVALID_JOB_ID_OUTCOME) for an id that fails
+    is_safe_job_id, and for a name that is already a symlink - even one
+    pointing at another job's file in the same directory, which a
+    resolved-parent check alone would admit. The resolved parent must also
+    be base itself. A symlink planted after this check is handled by the
+    writer: _write_job_file replaces the name rather than following it.
+    """
+    candidate = base / _job_file_name(job_id, suffix)
+    if candidate.is_symlink() or candidate.resolve().parent != base.resolve():
         raise QwenGuardError(INVALID_JOB_ID_OUTCOME)
     return candidate
+
+
+def _write_job_file(path: Path, text: str) -> None:
+    """Write text to a job-scoped path atomically, never through a symlink.
+
+    The bytes go to a private temp file in the same directory, which
+    os.replace then renames over path. A rename replaces whatever directory
+    entry sits at path - a symlink included - instead of writing into its
+    target, so a link planted between job_scoped_path's check and this write
+    is swapped out rather than followed, and a reader never sees a
+    half-written file.
+    """
+    import tempfile
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp_name, str(path))
+    except BaseException:
+        _unlink_quietly(Path(tmp_name))
+        raise
 
 
 def _repo_root() -> Path:
@@ -240,14 +278,26 @@ def resolve_input_files(files: list[str], repo_root: Path) -> list[Path]:
     not-allowed even when it does not exist) but cannot by itself stop a
     swap between check and open. _read_confined_bytes closes that gap by
     re-running the same policy on the descriptor it actually reads.
+
+    Duplicates collapse, preserving first-seen order: identical strings
+    before anything is resolved, then spellings that resolve to the same
+    file (src/a.py and ./src/a.py), so each file is read and prompted once.
     """
     root = repo_root.resolve()
-    return [_validate_one_input_file(raw, root) for raw in files]
+    resolved = [_validate_one_input_file(raw, root) for raw in dict.fromkeys(files)]
+    return list(dict.fromkeys(resolved))
 
 
 def _validate_payload(payload: dict[str, object]) -> tuple[list[str], str]:
-    """Validate required payload fields. Raises QwenGuardError on failure."""
+    """Validate required payload fields. Raises QwenGuardError on failure.
+
+    The files count is a payload-shape error (terminal-invalid-payload), not
+    a confinement verdict: no single path is at fault, and it is checked on
+    the raw list so an oversized one is refused without touching the disk.
+    """
     files = payload.get("files")
+    if isinstance(files, list) and len(files) > THRESHOLDS.max_input_files:
+        raise QwenGuardError(f"terminal-invalid-payload: files must list at most {THRESHOLDS.max_input_files} entries")
     if not isinstance(files, list) or not files or not all(isinstance(f, str) for f in files):
         raise QwenGuardError("terminal-invalid-payload: files must be a non-empty list[str]")
     instruction = payload.get("instruction")
@@ -811,8 +861,19 @@ def _check_admission_cap() -> str | None:
 
 @dataclass(frozen=True)
 class _LockHolder:
+    """One acquisition of the lock, as recorded in the lock file.
+
+    token is unique per acquisition. pid alone cannot tell two acquisitions
+    apart - a worker runs several qwen handlers as threads of one process -
+    so equality (and therefore every compare-and-delete) includes it. The
+    pid/started_at pair still drives the staleness verdict, exactly as
+    qwen-admin reads it. A lock file written before the token existed
+    reads back with token None.
+    """
+
     pid: int
     started_at: float
+    token: str | None = None
 
 
 def _read_lock_holder(lock_path: Path) -> _LockHolder | None:
@@ -821,8 +882,13 @@ def _read_lock_holder(lock_path: Path) -> _LockHolder | None:
     except (OSError, json.JSONDecodeError):
         return None
     try:
-        return _LockHolder(pid=int(raw["pid"]), started_at=float(raw["started_at"]))
-    except (KeyError, TypeError, ValueError):
+        token = raw.get("token")
+        return _LockHolder(
+            pid=int(raw["pid"]),
+            started_at=float(raw["started_at"]),
+            token=token if isinstance(token, str) else None,
+        )
+    except (AttributeError, KeyError, TypeError, ValueError):
         return None
 
 
@@ -836,8 +902,15 @@ def _lock_verdict(holder: _LockHolder, now: float) -> str:
     return "SUSPECT"
 
 
-def _try_acquire_lock(lock_path: Path) -> bool:
-    """Atomically create lock_path holding {pid, started_at}; False if it already exists.
+def _try_acquire_lock(lock_path: Path) -> _LockHolder | None:
+    """Atomically create lock_path holding {pid, started_at, token}.
+
+    Returns the holder record written - the caller's proof of ownership,
+    handed back to _release_lock - or None if the lock already exists.
+    Ownership travels with the acquisition rather than living in a
+    per-path table: with several handler threads in one process, a table
+    keyed by lock path let a later acquisition overwrite an earlier one's
+    entry, and the earlier thread's release then deleted the newer lock.
 
     The payload is written to a private temp file first and then hard-linked
     into place. os.link fails with FileExistsError exactly as O_EXCL does,
@@ -848,25 +921,19 @@ def _try_acquire_lock(lock_path: Path) -> bool:
     import tempfile
 
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    holder = _LockHolder(pid=os.getpid(), started_at=time.time())
-    payload = json.dumps({"pid": holder.pid, "started_at": holder.started_at}).encode("utf-8")
+    holder = _LockHolder(pid=os.getpid(), started_at=time.time(), token=uuid.uuid4().hex)
+    payload = json.dumps({"pid": holder.pid, "started_at": holder.started_at, "token": holder.token})
     fd, tmp_name = tempfile.mkstemp(dir=str(lock_path.parent), prefix=".model.lock.")
     try:
         with os.fdopen(fd, "wb") as fh:
-            fh.write(payload)
+            fh.write(payload.encode("utf-8"))
         try:
             os.link(tmp_name, str(lock_path))
         except FileExistsError:
-            return False
-        _held_locks[str(lock_path)] = holder
-        return True
+            return None
+        return holder
     finally:
         os.unlink(tmp_name)
-
-
-# lock path -> the holder record this process wrote when it acquired it, so
-# release can prove the lock on disk is still its own before removing it.
-_held_locks: dict[str, _LockHolder] = {}
 
 
 def _unlink_quietly(path: Path) -> None:
@@ -921,13 +988,14 @@ def _remove_lock_if_held_by(lock_path: Path, expected: _LockHolder | None) -> bo
     return False
 
 
-def _reclaim_lock(lock_path: Path, expected: _LockHolder | None) -> bool:
+def _reclaim_lock(lock_path: Path, expected: _LockHolder | None) -> _LockHolder | None:
     """Remove a STALE/reclaimable lock still held by expected, then re-attempt acquisition.
 
     expected is None for a lock that was unreadable or corrupt when inspected.
+    Returns the new holder record on acquisition, else None.
     """
     if not _remove_lock_if_held_by(lock_path, expected):
-        return False
+        return None
     return _try_acquire_lock(lock_path)
 
 
@@ -942,8 +1010,11 @@ def _suspect_is_reclaimable(holder: _LockHolder) -> bool:
     return not is_worker or _lane_depth(JOB_TYPE) == 0
 
 
-def _handle_existing_lock(lock_path: Path) -> bool:
-    """Inspect an existing lock; reclaim if STALE or reclaimable SUSPECT. Returns True if acquired."""
+def _handle_existing_lock(lock_path: Path) -> _LockHolder | None:
+    """Inspect an existing lock; reclaim if STALE or reclaimable SUSPECT.
+
+    Returns the new holder record if this call acquired the lock, else None.
+    """
     holder = _read_lock_holder(lock_path)
     if holder is None:
         # Unreadable/corrupt lock file: treat as stale and reclaim.
@@ -951,52 +1022,51 @@ def _handle_existing_lock(lock_path: Path) -> bool:
     verdict = _lock_verdict(holder, time.time())
     if verdict == "STALE" or (verdict == "SUSPECT" and _suspect_is_reclaimable(holder)):
         return _reclaim_lock(lock_path, holder)
-    return False
+    return None
 
 
-def _acquire_lock_with_wait(lock_path: Path, wait_ceiling_sec: float | None = None) -> bool:
-    """Poll for the lock up to wait_ceiling_sec. Returns True on acquisition."""
+def _acquire_lock_with_wait(lock_path: Path, wait_ceiling_sec: float | None = None) -> _LockHolder | None:
+    """Poll for the lock up to wait_ceiling_sec. Returns the holder record on acquisition."""
     ceiling = THRESHOLDS.wait_ceiling_sec if wait_ceiling_sec is None else wait_ceiling_sec
     deadline = time.time() + ceiling
-    if _try_acquire_lock(lock_path):
-        return True
-    while time.time() < deadline:
-        if _handle_existing_lock(lock_path):
-            return True
-        time.sleep(THRESHOLDS.lock_poll_interval_sec)
-    return False
+    acquired = _try_acquire_lock(lock_path)
+    while acquired is None and time.time() < deadline:
+        acquired = _handle_existing_lock(lock_path)
+        if acquired is None:
+            time.sleep(THRESHOLDS.lock_poll_interval_sec)
+    return acquired
 
 
-def _release_lock(lock_path: Path) -> None:
-    """Release a lock this process acquired, compare-and-delete like a reclaim.
+def _release_lock(lock_path: Path, mine: _LockHolder) -> None:
+    """Release the acquisition recorded by mine, compare-and-delete like a reclaim.
 
-    If our lock was reclaimed out from under us and someone else now holds
-    lock_path, their lock is left alone.
+    If that acquisition was reclaimed out from under us and someone else -
+    another thread of this same process included - now holds lock_path,
+    the token differs and their lock is left alone.
     """
-    mine = _held_locks.pop(str(lock_path), None)
-    if mine is None:
-        return  # never acquired here, or already released: nothing of ours to remove
     if not _remove_lock_if_held_by(lock_path, mine):
         _log.warning("qwen: %s is held by another job; leaving it in place on release", lock_path)
 
 
-def _acquire_model_lock(job_id: str, wait_ceiling_sec: float | None = None) -> bool:
+def _acquire_model_lock(job_id: str, wait_ceiling_sec: float | None = None) -> _LockHolder | None:
     """job_id-keyed public entry point over the real lock primitives above.
 
     _run_with_lock calls this (not _acquire_lock_with_wait directly) so it is
     the single seam that gates every model call; job_id is accepted for
     parity with _release_model_lock and future per-job diagnostics, but the
     lock itself is process-wide (contract.concurrency.scope: model call
-    only), keyed by _lock_path(), not by job_id.
+    only), keyed by _lock_path(), not by job_id. Returns the acquisition's
+    holder record, which the caller hands back to _release_model_lock, or
+    None when the lock could not be taken.
     """
     del job_id  # the lock is process-wide, not per-job; kept for API symmetry
     return _acquire_lock_with_wait(_lock_path(), wait_ceiling_sec)
 
 
-def _release_model_lock(job_id: str) -> None:
+def _release_model_lock(job_id: str, holder: _LockHolder) -> None:
     """job_id-keyed public entry point over _release_lock. See _acquire_model_lock."""
     del job_id
-    _release_lock(_lock_path())
+    _release_lock(_lock_path(), holder)
 
 
 # ---------------------------------------------------------------------------
@@ -1005,8 +1075,11 @@ def _release_model_lock(job_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+_DEFERRAL_SUFFIX = ".json"
+
+
 def _deferral_path(job_id: str) -> Path:
-    return job_scoped_path(_deferral_dir(), job_id, ".json")
+    return job_scoped_path(_deferral_dir(), job_id, _DEFERRAL_SUFFIX)
 
 
 def patch_path_for_job(job_id: str) -> Path:
@@ -1047,9 +1120,7 @@ def _record_deferral(job_id: str, reason: str) -> int:
     reasons[reason] = _as_int(reasons.get(reason, 0), 0) + 1
     first_deferred_at = _as_float(state.get("first_deferred_at"), time.time())
     new_state = {"count": count, "reasons": reasons, "first_deferred_at": first_deferred_at}
-    path = _deferral_path(job_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(new_state))
+    _write_job_file(_deferral_path(job_id), json.dumps(new_state))
     return count
 
 
@@ -1084,11 +1155,16 @@ def _clear_deferral_state(job_id: str) -> None:
     Called after the job's outcome is decided, so a failure here is logged
     and never changes that outcome. An unsafe id never had a deferral file
     (every path builder refuses it), so there is nothing to clear.
+
+    Deliberately not job_scoped_path: that refuses a symlink, and raising
+    here would escape the handler's boundary. Unlink removes a planted
+    symlink itself and never its target, so clearing one is safe and
+    leaves the directory clean.
     """
     if not is_safe_job_id(job_id):
         return
     try:
-        _deferral_path(job_id).unlink()
+        (_deferral_dir() / _job_file_name(job_id, _DEFERRAL_SUFFIX)).unlink()
     except FileNotFoundError:  # nosec B110 - nothing to clear, e.g. a job that never deferred
         pass
     except OSError:
@@ -1202,14 +1278,16 @@ def _explain_report(
     """
     contents = _read_confined_bytes(files, root)
     per_file_bytes = {path: len(data) for path, data in contents.items()}
-    prompt_chars = len(instruction) + sum(per_file_bytes.values())
+    # The system text shares the context window, so it counts here exactly
+    # as it does in _check_prompt_budget.
+    prompt_chars = len(instruction) + sum(per_file_bytes.values()) + len(options.system or "")
     prompt = _build_prompt(instruction, _decode_contents(contents))
     return {
         "resolved_files": [str(f) for f in files],
         "per_file_bytes": per_file_bytes,
         "total_prompt_chars": prompt_chars,
         "estimated_prompt_tokens": prompt_chars // 4,
-        "assembled_prompt_tokens": _estimate_prompt_tokens(prompt),
+        "assembled_prompt_tokens": _estimate_request_tokens(prompt, options),
         "model": options.model,
         "options": {
             "system": options.system,
@@ -1315,15 +1393,22 @@ def _estimate_prompt_tokens(prompt: str) -> int:
     return len(prompt) // 4
 
 
-def _check_prompt_budget(prompt: str, options: GenerationOptions) -> str | None:
-    """Return "terminal-prompt-too-large" if the assembled prompt exceeds the
+def _estimate_request_tokens(prompt: str, options: GenerationOptions) -> int:
+    """Estimate every input token the request spends: the prompt AND the
+    system text, which is sent to Ollama as its own field but occupies the
+    same context window."""
+    return _estimate_prompt_tokens(prompt + (options.system or ""))
 
-    context budget (num_ctx minus the reserved max_tokens), else None. Fails
-    loudly per contract.retry_map rather than silently truncating file
-    content the user never approved truncating.
+
+def _check_prompt_budget(prompt: str, options: GenerationOptions) -> str | None:
+    """Return "terminal-prompt-too-large" if the assembled prompt plus the
+
+    system text exceeds the context budget (num_ctx minus the reserved
+    max_tokens), else None. Fails loudly per contract.retry_map rather than
+    silently truncating content the user never approved truncating.
     """
     budget = THRESHOLDS.num_ctx - options.max_tokens
-    if budget <= 0 or _estimate_prompt_tokens(prompt) > budget:
+    if budget <= 0 or _estimate_request_tokens(prompt, options) > budget:
         return "terminal-prompt-too-large"
     return None
 
@@ -1439,30 +1524,100 @@ def _generate_and_validate_patch(
 
 
 def _write_patch_file(job_id: str, diff: str) -> Path:
-    _patch_dir().mkdir(parents=True, exist_ok=True)
     patch_path = patch_path_for_job(job_id)
-    patch_path.write_text(_ensure_trailing_newline(diff))
+    _write_job_file(patch_path, _ensure_trailing_newline(diff))
     return patch_path
 
 
+DEFAULT_TEMPERATURE = 0.2
+DEFAULT_MAX_TOKENS = 4096
+# Ollama accepts any float, but above 2 sampling degenerates into noise that
+# will never parse as a diff; below 0 is meaningless.
+MAX_TEMPERATURE = 2.0
+
+
+def _invalid_option(message: str) -> QwenGuardError:
+    return QwenGuardError(f"terminal-invalid-payload: {message}")
+
+
+def _finite_number(value: object) -> float | None:
+    """value as a float when it is a finite JSON number, else None.
+
+    bool is refused although Python counts True as an int, and so are NaN
+    and the infinities, which compare false against every bound.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
+def _option_max_tokens(raw: object) -> int:
+    """max_tokens is Ollama's num_predict, where -1 means unlimited, so the
+    range is enforced: at least one token, and less than the whole context."""
+    if raw is None:
+        return DEFAULT_MAX_TOKENS
+    upper = THRESHOLDS.num_ctx - 1
+    if not isinstance(raw, int) or isinstance(raw, bool) or not 1 <= raw <= upper:
+        raise _invalid_option(f"max_tokens must be an int in [1, {upper}]")
+    return raw
+
+
+def _option_temperature(raw: object) -> float:
+    if raw is None:
+        return DEFAULT_TEMPERATURE
+    value = _finite_number(raw)
+    if value is None or not 0 <= value <= MAX_TEMPERATURE:
+        raise _invalid_option(f"temperature must be a finite number in [0, {MAX_TEMPERATURE}]")
+    return value
+
+
+def _option_str(raw: object, name: str) -> str | None:
+    """An optional string option; None when absent or empty."""
+    if raw is None:
+        return None
+    if not isinstance(raw, str):
+        raise _invalid_option(f"{name} must be a str")
+    return raw or None
+
+
+def _option_explain(raw: object) -> bool:
+    if raw is None:
+        return False
+    if not isinstance(raw, bool):
+        raise _invalid_option("explain must be a bool")
+    return raw
+
+
 def _resolve_payload_options(payload: dict[str, object]) -> GenerationOptions:
-    raw_system = payload.get("system")
-    system = raw_system if isinstance(raw_system, str) else None
+    """Validate and resolve the optional payload keys. Raises QwenGuardError.
+
+    Runs before any file is touched and before the prompt-budget guard.
+    Every key is type-checked rather than coerced: a coercion let
+    max_tokens -1 (Ollama's "unlimited") or a NaN temperature through, and
+    turned a non-string system prompt into a silent no-op.
+    """
     return GenerationOptions(
-        model=str(payload.get("model") or DEFAULT_MODEL_TAG),
-        system=system,
-        temperature=_as_float(payload.get("temperature"), 0.2),
-        max_tokens=_as_int(payload.get("max_tokens"), 4096),
-        explain=bool(payload.get("explain") or False),
+        model=_option_str(payload.get("model"), "model") or DEFAULT_MODEL_TAG,
+        system=_option_str(payload.get("system"), "system"),
+        temperature=_option_temperature(payload.get("temperature")),
+        max_tokens=_option_max_tokens(payload.get("max_tokens")),
+        explain=_option_explain(payload.get("explain")),
     )
 
 
 def _resolve_timeout(payload: dict[str, object]) -> float:
-    """payload["timeout"] is only injected by job_runtime for a positive resolved timeout_sec."""
+    """payload["timeout"] is only injected by job_runtime, and only for a
+    positive resolved timeout_sec; anything else there was put in the payload
+    by hand and is rejected like any other invalid option. Raises QwenGuardError.
+    """
     raw = payload.get("timeout")
-    if isinstance(raw, (int, float)) and raw > 0:
-        return float(raw)
-    return THRESHOLDS.ollama_request_timeout_sec
+    if raw is None:
+        return THRESHOLDS.ollama_request_timeout_sec
+    value = _finite_number(raw)
+    if value is None or value <= 0:
+        raise _invalid_option("timeout must be a finite number > 0")
+    return value
 
 
 def _run_with_lock(
@@ -1485,7 +1640,8 @@ def _run_with_lock(
     the outcome non-empty even when the exception message is. Masking
     happens once, at handle_qwen_patch's boundary.
     """
-    if not _acquire_model_lock(job_id):
+    holder = _acquire_model_lock(job_id)
+    if not holder:
         return "deferred-qwen-busy"
     try:
         return _generate_and_validate_patch(host, prompt, options, timeout)
@@ -1494,7 +1650,7 @@ def _run_with_lock(
     except QwenTransientError as exc:
         return f"{TRANSIENT_OUTCOME_PREFIX}: {exc}"
     finally:
-        _release_model_lock(job_id)
+        _release_model_lock(job_id, holder)
 
 
 @dataclass
@@ -1684,11 +1840,14 @@ def _run_guarded(payload: dict[str, object], run: _JobRun) -> tuple[bool, object
         # Before anything else: every later step may build a path from it.
         return (False, INVALID_JOB_ID_OUTCOME)
     files, instruction = _validate_payload(payload)
+    # Every option is validated before confinement touches the disk.
+    options = _resolve_payload_options(payload)
+    timeout = _resolve_timeout(payload)
     root = _repo_root().resolve()
     prepared = _PreparedJob(
         files=resolve_input_files(files, root),
         instruction=instruction,
-        options=_resolve_payload_options(payload),
+        options=options,
         host=os.environ.get("QWEN_OLLAMA_HOST", DEFAULT_OLLAMA_HOST),
         root=root,
     )
@@ -1705,7 +1864,7 @@ def _run_guarded(payload: dict[str, object], run: _JobRun) -> tuple[bool, object
     if memory_verdict is not None:
         return (False, _deferral_outcome(job_id, "low-memory", memory_verdict))
 
-    return _run_generation(run, prepared, _resolve_timeout(payload))
+    return _run_generation(run, prepared, timeout)
 
 
 def _job_identity(job: dict[str, object], payload: dict[str, object]) -> JobIdentity:
