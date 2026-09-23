@@ -15,6 +15,7 @@ Subcommands:
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 from functools import lru_cache
 
@@ -56,10 +57,10 @@ def _parse_interval(args: argparse.Namespace) -> float:
 
 
 def _parse_shutdown_grace(args: argparse.Namespace) -> float:
-    """Parse and validate --shutdown-grace; raises UsageError on a negative value."""
+    """Parse and validate --shutdown-grace; raises UsageError on a negative or non-finite value."""
     value = float(getattr(args, "shutdown_grace", 10.0))
-    if value < 0:
-        raise UsageError(f"--shutdown-grace must be >= 0, got {value!r}")
+    if not math.isfinite(value) or value < 0:
+        raise UsageError(f"--shutdown-grace must be a finite number >= 0, got {value!r}")
     return value
 
 

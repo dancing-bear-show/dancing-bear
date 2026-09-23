@@ -457,7 +457,12 @@ class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
         # tick() returns before its threads run; join them before asserting.
         _join_live_threads(self, runner)
         self.assertEqual(result, 1)
-        mock_proc.process_one.assert_called_once_with(pending_path, job_data)
+        # _process_one_guarded now passes stop_event as a keyword arg so
+        # process_one can requeue the job on shutdown.  Verify positional args
+        # only; stop_event is an implementation detail of the daemon-tick path.
+        call_args = mock_proc.process_one.call_args
+        self.assertEqual(call_args.args, (pending_path, job_data))
+        self.assertIn("stop_event", call_args.kwargs)
 
     def test_run_once_returns_zero(self):
         from worker.queue_ops import _ensure_dirs

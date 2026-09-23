@@ -320,17 +320,40 @@ class JobProcessor:
         self.config = config
         self.command = command
 
-    def process_one(self, job_path: Path, job_data: dict[str, object]) -> int:
+    def process_one(
+        self,
+        job_path: Path,
+        job_data: dict[str, object],
+        *,
+        stop_event: threading.Event | None = None,
+    ) -> int:
         """Process a single job.
 
+        ``stop_event``, when provided, is checked immediately after the job is
+        claimed (moved from pending/ to processing/).  If it is already set the
+        job is requeued instead of run.  This closes the shutdown/claim race:
+        even if ``drain_live_threads`` ran while this thread had not yet claimed
+        the job (so ``requeue_processing`` found nothing and returned None), the
+        worker still requeues it after the claim rather than leaving it stranded
+        in processing/ when the daemon exits.
+
         Returns:
-            1 if processed, 0 if skipped (already claimed)
+            1 if processed, 0 if skipped (already claimed) or requeued on shutdown
         """
         st = time.time()
         proc_path = q.start_processing(job_path)
 
         if not proc_path:
             # Already claimed by another worker
+            return 0
+
+        if stop_event is not None and stop_event.is_set():
+            # A stop was requested between thread registration and the claim.
+            # Requeue so the job is not stranded if the daemon exits before the
+            # handler finishes.  The thread continues running after
+            # requeue_processing moves the file (at-least-once; documented in
+            # drain_live_threads).
+            q.requeue_processing(job_path.stem, reason=SHUTDOWN_REQUEUE_REASON, root=q.QUEUE_ROOT)
             return 0
 
         ctx = JobContext.from_item(job_path, job_data)
@@ -470,9 +493,13 @@ class DaemonRunner:
         Shared thread target for both the daemon tick and run_once, so an
         error raised outside SafeProcessor (bad job metadata, queue I/O)
         never surfaces as an uncaught thread exception.
+
+        Passes ``stop_event`` so ``process_one`` can requeue the job instead
+        of running it when a shutdown was requested after the claim — see
+        ``process_one`` for the race-closure details.
         """
         try:
-            return self.processor.process_one(job_path, job_data)
+            return self.processor.process_one(job_path, job_data, stop_event=self.stop_event)
         except Exception:  # nosec B110 - thread boundary; logged, counted as processed
             logger.exception("worker job %s raised outside the handler", job_path.stem)
             return 1
@@ -632,6 +659,9 @@ class DaemonRunner:
         # Anchor the daemon's cwd to the repo root so job scripts that use
         # relative paths (./bin/...) resolve correctly.
         os.chdir(str(get_repo_root()))
+        # Complete any interrupted requeue_processing transitions left by a
+        # previous crash (*.json.requeue files invisible to the normal listing).
+        q.recover_staged_requeues(root=q.QUEUE_ROOT)
         previous = _install_stop_handlers(self.stop_event)
         try:
             try:

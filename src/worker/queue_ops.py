@@ -28,14 +28,28 @@ except Exception:  # pragma: no cover - defensive fallback  # nosec B110 - best-
     QUEUE_ROOT = Path("_data/queue")
 
 QUEUE_FOLDERS: tuple[str, ...] = ("pending", "processing", "done", "error")
+_JOB_SUFFIX = ".json"
 
 
-def _ensure_dirs(root: Path = QUEUE_ROOT) -> dict[str, Path]:
+def _q(root: Path | None) -> Path:
+    """Return *root* if given, otherwise the current module-level QUEUE_ROOT.
+
+    Using this helper instead of ``root: Path = QUEUE_ROOT`` as a default
+    argument makes the resolution happen at *call* time, not import time.
+    Tests can therefore reassign ``queue_ops.QUEUE_ROOT`` after import and
+    have the change picked up without patching every default argument
+    individually.
+    """
+    return root if root is not None else QUEUE_ROOT
+
+
+def _ensure_dirs(root: Path | None = None) -> dict[str, Path]:
+    r = _q(root)
     paths = {
-        "pending": root / "pending",
-        "processing": root / "processing",
-        "done": root / "done",
-        "error": root / "error",
+        "pending": r / "pending",
+        "processing": r / "processing",
+        "done": r / "done",
+        "error": r / "error",
     }
     for p in paths.values():
         p.mkdir(parents=True, exist_ok=True)
@@ -64,10 +78,10 @@ class Job:
 
 
 def _job_path(folder: Path, job_id: str) -> Path:
-    return folder / f"{job_id}.json"
+    return folder / f"{job_id}{_JOB_SUFFIX}"
 
 
-def enqueue(job: Job, *, root: Path = QUEUE_ROOT) -> Path:
+def enqueue(job: Job, *, root: Path | None = None) -> Path:
     """Enqueue a job by writing it to pending/ with atomic rename.
 
     Raises:
@@ -90,10 +104,10 @@ def enqueue(job: Job, *, root: Path = QUEUE_ROOT) -> Path:
 def _list_job_paths(folder: Path) -> list[Path]:
     if not folder.exists():
         return []
-    return [p for p in folder.iterdir() if p.is_file() and p.suffix == ".json"]
+    return [p for p in folder.iterdir() if p.is_file() and p.suffix == _JOB_SUFFIX]
 
 
-def list_pending(root: Path = QUEUE_ROOT) -> list[tuple[Path, dict[str, object]]]:
+def list_pending(root: Path | None = None) -> list[tuple[Path, dict[str, object]]]:
     paths = _ensure_dirs(root)
     items: list[tuple[Path, dict[str, object]]] = []
     now = datetime.now(UTC)
@@ -134,7 +148,7 @@ def _rename(src: Path, dst: Path) -> None:
     src.replace(dst)
 
 
-def start_processing(job_path: Path, root: Path = QUEUE_ROOT) -> Path | None:
+def start_processing(job_path: Path, root: Path | None = None) -> Path | None:
     """Move a job from pending/ to processing/ and return new path, or None.
 
     Returns None when another worker has already claimed the job between
@@ -168,7 +182,7 @@ def finish(
     job_path: Path,
     success: bool,
     *,
-    root: Path = QUEUE_ROOT,
+    root: Path | None = None,
     error_msg: str | None = None,
     result: object | None = None,
 ) -> Path:
@@ -200,7 +214,7 @@ def retry(
     job_path: Path,
     *,
     delay_sec: int = 60,
-    root: Path = QUEUE_ROOT,
+    root: Path | None = None,
     reason: str | None = None,
 ) -> Path:
     """Bump attempts, set not_before to now+delay, and move back to pending/."""
@@ -221,7 +235,7 @@ def retry(
 _REQUEUE_STAGING_SUFFIX = ".requeue"
 
 
-def requeue_processing(job_id: str, *, reason: str, root: Path = QUEUE_ROOT) -> Path | None:
+def requeue_processing(job_id: str, *, reason: str, root: Path | None = None) -> Path | None:
     """Move processing/<job_id> back to pending/ without consuming an attempt.
 
     The job becomes eligible immediately and records ``reason`` as
@@ -256,7 +270,40 @@ def requeue_processing(job_id: str, *, reason: str, root: Path = QUEUE_ROOT) -> 
     return new_path
 
 
-def list_processing(root: Path = QUEUE_ROOT) -> list[tuple[Path, dict[str, object]]]:
+def recover_staged_requeues(root: Path | None = None) -> list[str]:
+    """Complete any interrupted requeue_processing transitions in processing/.
+
+    A crash between the ``src.rename(staged)`` and the final ``_rename(staged,
+    new_path)`` inside ``requeue_processing`` leaves a ``*.json.requeue`` file
+    that ``_list_job_paths`` never matches (it filters to ``suffix == ".json"``).
+    On startup this function scans for those orphaned staging files and moves
+    them to pending/ idempotently, returning the job stems that were recovered.
+    Each call is safe to run more than once: if the pending/ copy already exists
+    the staging file is simply removed.
+    """
+    paths = _ensure_dirs(root)
+    proc_dir = paths["processing"]
+    if not proc_dir.exists():
+        return []
+    recovered: list[str] = []
+    for staged in list(proc_dir.iterdir()):
+        if not staged.name.endswith(_REQUEUE_STAGING_SUFFIX):
+            continue
+        stem = staged.name[: -len(_REQUEUE_STAGING_SUFFIX)]
+        if not stem.endswith(_JOB_SUFFIX):
+            continue
+        job_id = stem[:-len(_JOB_SUFFIX)]
+        new_path = _job_path(paths["pending"], job_id)
+        try:
+            _rename(staged, new_path)
+            recovered.append(job_id)
+            _log.info("recovered staged requeue for job %s", job_id)
+        except Exception as exc:  # nosec B110 - best-effort recovery; log and continue
+            _log.debug("Failed to recover staged requeue %s: %s", staged, exc)
+    return recovered
+
+
+def list_processing(root: Path | None = None) -> list[tuple[Path, dict[str, object]]]:
     """Return list of (path, data) for jobs currently in processing/."""
     paths = _ensure_dirs(root)
     items: list[tuple[Path, dict[str, object]]] = []
@@ -265,7 +312,7 @@ def list_processing(root: Path = QUEUE_ROOT) -> list[tuple[Path, dict[str, objec
     return items
 
 
-def list_error(root: Path = QUEUE_ROOT) -> list[tuple[Path, dict[str, object]]]:
+def list_error(root: Path | None = None) -> list[tuple[Path, dict[str, object]]]:
     """Return list of (path, data) for jobs currently in error/."""
     paths = _ensure_dirs(root)
     items: list[tuple[Path, dict[str, object]]] = []
@@ -321,7 +368,7 @@ def requeue_error(
     job_path: Path,
     *,
     delay_sec: int = 0,
-    root: Path = QUEUE_ROOT,
+    root: Path | None = None,
     reset_attempts: bool = False,
     new_max_attempts: int | None = None,
 ) -> Path:
@@ -348,7 +395,7 @@ def requeue_error(
     return new_path
 
 
-def find_job_path_by_id(job_id: str, root: Path = QUEUE_ROOT) -> Path | None:
+def find_job_path_by_id(job_id: str, root: Path | None = None) -> Path | None:
     """Return the path for a job id across folders or None."""
     paths = _ensure_dirs(root)
     for folder in QUEUE_FOLDERS:
@@ -473,7 +520,7 @@ def _reap_one_job(p: Path, job_timeout: int, paths: dict, now: datetime, log: lo
 def reap_stale_processing_jobs(
     job_timeout: int,
     *,
-    root: Path = QUEUE_ROOT,
+    root: Path | None = None,
 ) -> list[str]:
     """Move processing jobs older than their effective timeout back to pending/."""
     import logging as _logging
@@ -509,7 +556,7 @@ def _purge_file(p: Path, now: datetime, older_than_sec: int) -> bool:
 
 
 def purge(
-    older_than_sec: int, *, root: Path = QUEUE_ROOT, folders: list[str] | None = None
+    older_than_sec: int, *, root: Path | None = None, folders: list[str] | None = None
 ) -> dict[str, int]:
     """Delete jobs in given folders older than threshold; returns counts per folder."""
     paths = _ensure_dirs(root)
