@@ -85,7 +85,10 @@ def _read_body(path: str) -> str:
     """
     if path == "-":
         return sys.stdin.read()
-    return Path(path).read_text(encoding="utf-8")
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise CLIError(f"cannot read --body-file {path}: {exc}", ExitCode.USAGE) from exc
 
 
 def _write_or_print(path: str | None, text: str) -> None:
@@ -343,12 +346,14 @@ def cmd_pr_view(args) -> int:
         # yields a usable scalar. Non-scalars (object, list) print as compact
         # JSON on one line -- a workflow that then pipes into `jq .login` needs
         # a valid JSON literal, and Python's repr of a dict is not one.
+        # Booleans go through json.dumps too: print(True) emits `True`, which
+        # neither JSON nor a shell `[ "$x" = true ]` test recognises.
         if value is None:
             print("")
-        elif isinstance(value, (dict, list)):
-            print(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
-        else:
+        elif isinstance(value, str):
             print(value)
+        else:
+            print(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
         return ExitCode.SUCCESS
     fields = [f.strip() for f in args.fields.split(",") if f.strip()]
     _print_json(_pulls.pr_view(gh, _pr_arg(args), fields, repo=_repo(args)))

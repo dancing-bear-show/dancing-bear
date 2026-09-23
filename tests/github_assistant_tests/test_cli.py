@@ -489,6 +489,21 @@ class TestThreadsReplyForgedMarker(unittest.TestCase):
         self.assertFalse(any("addPullRequestReviewThreadReply" in c.all_text() for c in fake.calls))
 
 
+class TestThreadsReplyUnreadableBodyFile(unittest.TestCase):
+    """A missing or unreadable body file is a usage error, not a traceback."""
+
+    def test_missing_body_file_is_usage_error_and_posts_nothing(self):
+        fake = FakeGhRunner()
+        fake.add(["addPullRequestReviewThreadReply"], **_reply_success_response().__dict__)
+        with TemporaryDirectory() as td, _install_client(fake):
+            rc, _out, err = _run_cli(["threads", "reply", "--thread", "PRT_kwABC",
+                                      "--body-file", str(Path(td) / "absent.md")])
+        self.assertEqual(rc, 2)
+        self.assertIn("cannot read --body-file", err)
+        self.assertNotIn("Traceback", err)
+        self.assertEqual(fake.calls, [])
+
+
 class TestThreadsReplyStripsQuotedMarkers(unittest.TestCase):
     """A marker quoted in the reply text must never be posted under our account."""
 
@@ -608,6 +623,23 @@ class TestPrView(unittest.TestCase):
         self.assertEqual(rc, 0)
         # No JSON quoting, no brackets.
         self.assertEqual(out.strip(), "42")
+
+    def test_value_prints_booleans_as_json_literals(self):
+        # Python would print `True`; JSON and shell tests expect `true`.
+        for raw, expected in ((True, "true"), (False, "false")):
+            fake = FakeGhRunner()
+            fake.add(["pr", "view"], stdout=json.dumps({"isDraft": raw}))
+            with self.subTest(raw=raw), _install_client(fake):
+                rc, out, _err = _run_cli(["pr", "view", "--pr", "4", "--value", "isDraft"])
+                self.assertEqual(rc, 0)
+                self.assertEqual(out.strip(), expected)
+
+    def test_value_prints_strings_bare_not_json_quoted(self):
+        fake = FakeGhRunner()
+        fake.add(["pr", "view"], stdout=json.dumps({"headRefOid": "abc123"}))
+        with _install_client(fake):
+            _rc, out, _err = _run_cli(["pr", "view", "--pr", "4", "--value", "headRefOid"])
+        self.assertEqual(out.strip(), "abc123")
 
     def test_no_fields_or_value_is_a_usage_error(self):
         fake = FakeGhRunner()
