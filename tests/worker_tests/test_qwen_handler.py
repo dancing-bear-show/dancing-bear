@@ -839,10 +839,24 @@ class QwenPatchCapsThroughHandlerTests(QwenHandlerCase):
         self.assertEqual((ok, out), (False, "terminal-patch-too-broad"))
         self.assertEqual(self.patch_files(), [])
 
-    def test_case_variant_of_denied_prefix_is_too_broad_through_handler(self) -> None:
-        self.generate_response = fenced(_single_file_diff("Bin/qwen"))
+    def test_denied_or_escaping_target_is_too_broad_through_handler(self) -> None:
+        """Even when git apply --check accepts it (a case-insensitive volume
+        applies Bin/qwen onto bin/qwen), the caps check rejects it."""
+        for target in ("Bin/qwen", "../outside.py", "./configs/x.plist"):
+            with self.subTest(target=target):
+                self.generate_response = fenced(_single_file_diff(target))
+                self.assertEqual(self.run_handler(), (False, "terminal-patch-too-broad"))
+        self.assertEqual(self.patch_files(), [])
 
-        self.assertEqual(self.run_handler(), (False, "terminal-patch-too-broad"))
+    def test_diff_truncated_at_num_predict_does_not_apply(self) -> None:
+        """done_reason 'length': generation stopped mid-hunk."""
+        truncated = REAL_DIFF.split('+    return f"hello')[0].rstrip("\n")
+        self.generate_response = {**fenced(truncated), "done_reason": "length"}
+
+        with mock.patch("worker.qwen._git_apply_check", wraps=REAL_GIT_APPLY_CHECK):
+            ok, out = self.run_handler()
+
+        self.assertEqual((ok, out), (False, "terminal-patch-does-not-apply"))
 
 
 class QwenExplainModeTests(QwenHandlerCase):
