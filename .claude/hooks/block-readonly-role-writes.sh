@@ -159,12 +159,20 @@ fi
 # Not cwd, in either branch: a subagent's cwd may be its own worktree, the main
 # checkout, or somewhere else entirely, and reading the guarded prefixes relative to a
 # moving cwd is how a guard ends up protecting the wrong tree.
+# `pwd -P`, not `pwd`, in BOTH branches.
+#
+# A logical root and a physical path do not compare equal. The symlink check below
+# canonicalises candidate parents with `pwd -P`, so if CLAUDE_PROJECT_DIR is itself a
+# symlink -- or the payload simply spells the checkout physically -- a path physically
+# inside the repo failed the textual `REPO_ROOT/` test, `_real` was compared against
+# the logical spelling, and the strong Write/Edit check returned ok. Two halves of the
+# same file disagreeing about what the root is.
 if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -d "${CLAUDE_PROJECT_DIR}" ]; then
-  REPO_ROOT=$(cd "$CLAUDE_PROJECT_DIR" 2>/dev/null && pwd) || REPO_ROOT=""
+  REPO_ROOT=$(cd -P "$CLAUDE_PROJECT_DIR" 2>/dev/null && pwd -P) || REPO_ROOT=""
 else
   # Repo-local install: the script lives at <repo>/.claude/hooks/, so <repo> is two
   # levels up. Correct when the hook ships inside the checkout it guards.
-  REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd) || REPO_ROOT=""
+  REPO_ROOT=$(cd -P "$(dirname "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd -P) || REPO_ROOT=""
 fi
 
 # Tracked trees a read-only-contract agent must never modify, even when a caller names
@@ -232,16 +240,37 @@ SOURCE_TREES=(
 # ALLOW half.
 #
 # Deliberately not `git ls-files`: it forks a process per call, answers "no" for a NEW
-# root file (a case worth blocking), and misbehaves when cwd is not a repo. A `-e` test
-# against REPO_ROOT costs nothing and does not depend on the index. The tradeoff is
-# that a *new* root file is not guarded until it exists -- acceptable, because creating
-# one is itself the write we would want to catch, and the SOURCE_TREES rules already
-# cover everything under a directory.
-_is_repo_root_file() { # _is_repo_root_file <repo-relative-path> -> 0 if yes
+# root file, and misbehaves when cwd is not a repo.
+#
+# THE EXISTENCE TEST IS TOOL-DEPENDENT, and treating it as universal was a regression
+# I introduced. The old comment here called "a new root file is not guarded until it
+# exists" an acceptable tradeoff, on the reasoning that creating one is itself the
+# write we would catch. That is circular: the create IS the write, and it was allowed.
+# `Write new.py` put new source at the repo root, contradicting the README's claim
+# that every repo-root file is guarded.
+#
+# The two tools ask different questions, so they get different answers:
+#
+#   Write/Edit -- `file_path` is a real path the harness is about to write. A
+#     slashless path IS a repo-root file whether or not it exists yet, so existence
+#     must not be required. STRICT=1.
+#   Bash -- operands are bare words that may be anything: `rm -rf srcfoo`, the `1`
+#     from `2>&1`, an unexpanded `$P`. Requiring existence is what stops those being
+#     refused as root files. STRICT=0.
+#
+# That split is the whole fix: the over-blocking the existence test was added to
+# prevent is a Bash-side problem, and it was costing the Write side its guarantee.
+_is_repo_root_file() { # _is_repo_root_file <repo-relative-path> [strict] -> 0 if yes
   case "$1" in
     */*|"") return 1 ;;   # has a directory component, or is empty
   esac
-  [ -n "$REPO_ROOT" ] && [ -e "$REPO_ROOT/$1" ]
+  [ -n "$REPO_ROOT" ] || return 1
+  # A dash-led token is a flag, never a filename, in either mode.
+  case "$1" in -*) return 1 ;; esac
+  if [ "${2:-0}" = "1" ]; then
+    return 0
+  fi
+  [ -e "$REPO_ROOT/$1" ]
 }
 
 # classify_path <path> -> prints "guarded:<reason>" or "ok"; never exits.
@@ -258,6 +287,9 @@ classify_path() {
   # avoid; caught by the suite, not by reading.
   local p="$1"
   local base="${2:-}"
+  # strict=1 when the caller hands us a real path (Write/Edit), 0 when it hands us a
+  # bare shell word (Bash). See _is_repo_root_file for why the two differ.
+  local strict="${3:-0}"
   local rel="$p"
 
   # A RELATIVE path is relative to the caller's cwd, not to the repo root.
@@ -354,6 +386,19 @@ classify_path() {
       if [ -n "$REPO_ROOT" ] && { [ "$p" = "$REPO_ROOT" ] || [ "$p" = "$REPO_ROOT/" ]; }; then
         printf 'guarded:the repository root itself (%s)' "$REPO_ROOT"
         return
+      fi
+      # REPO_ROOT is physical now, so a path spelled through a symlinked checkout does
+      # not match it textually. Canonicalise the path's own directory prefix the same
+      # way before the comparison, or the fix above simply inverts the bug: physical
+      # paths start working and logical ones stop.
+      if [ -n "$REPO_ROOT" ] && [ "${p#"$REPO_ROOT"/}" = "$p" ] && [ "$p" != "$REPO_ROOT" ]; then
+        _pdir=$(dirname "$p")
+        if [ -d "$_pdir" ]; then
+          _pcanon=$(cd -P "$_pdir" 2>/dev/null && pwd -P) || _pcanon=""
+          if [ -n "$_pcanon" ]; then
+            p="$_pcanon/$(basename "$p")"
+          fi
+        fi
       fi
       if [ -n "$REPO_ROOT" ] && [ "${p#"$REPO_ROOT"/}" != "$p" ]; then
         rel="${p#"$REPO_ROOT"/}"
@@ -499,7 +544,7 @@ classify_path() {
       return
     fi
   done
-  if _is_repo_root_file "$bare"; then
+  if _is_repo_root_file "$bare" "$strict"; then
     printf 'guarded:a file at the repo root (%s) -- tracked content, not an artifact' "$bare"
     return
   fi
@@ -559,10 +604,26 @@ if [ "$TOOL" = "Bash" ]; then
   #    nothing, and the write goes through. Review found that live; the suite pins it.
   #    (`>&1` and friends are digits, not paths, so they classify as ok and cost
   #    nothing.)
+  #
+  #    SEPARATORS GLUED TO THE TARGET must be split before word-splitting, or they
+  #    stay attached to it: `echo x >AGENTS.md; make test` yields the token
+  #    `AGENTS.md;`. Prefix rules tolerate that (`src/mail/cli.py;` still starts with
+  #    `src/`, which is why a src/ example appeared to be safe), but every EXACT
+  #    comparison fails on it -- repo-root files, the bare directory token, the repo
+  #    root itself. So `echo x >AGENTS.md; make test` wrote a root policy file while
+  #    `echo x >src/...; make test` was blocked by luck. Split them here rather than
+  #    trimming the token later, so one normalisation serves every rule.
   redir=${CMD//>>/ >}
   redir=${redir//>|/ >}
   redir=${redir//>&/ >}
   redir=${redir//>/ > }
+  redir=${redir//&&/ }
+  redir=${redir//||/ }
+  redir=${redir//;/ }
+  redir=${redir//|/ }
+  redir=${redir//&/ }
+  redir=${redir//$'\n'/ }
+  redir=${redir//$'\r'/ }
   targets=""
   prev=""
   for tok in $redir; do
@@ -783,7 +844,7 @@ fi
 # an absolute path is unaffected and a relative one still meets every other rule.
 CWD=$(jq -r 'if (.cwd | type) == "string" then .cwd else "" end' <<< "$PAYLOAD" 2>/dev/null || echo "")
 
-VERDICT=$(classify_path "$FILE" "$CWD")
+VERDICT=$(classify_path "$FILE" "$CWD" 1)
 # Same fail-closed check as the Bash branch: an empty verdict is a dead helper, not
 # an approval.
 if [ -z "$VERDICT" ]; then

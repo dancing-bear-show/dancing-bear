@@ -237,6 +237,15 @@ promises:
       - {what: ">&",       tool: Bash, input: "echo x >&src/mail/cli.py",  expect: block}
       - {what: "no space", tool: Bash, input: "echo x >src/mail/cli.py",   expect: block}
       - {what: "fd dup is not a path", tool: Bash, input: "make test 2>&1", expect: allow}
+      # Round 11: a separator glued to the target stayed attached to the token
+      # (`AGENTS.md;`). PREFIX rules tolerated that -- which is why a src/ example
+      # appeared safe -- but every EXACT comparison failed on it, so a root policy
+      # file was writable. Separators are now split before word-splitting.
+      - {what: "; glued, root file",   tool: Bash, input: "echo x >AGENTS.md; make test",       expect: block}
+      - {what: "&& glued, root file",  tool: Bash, input: "echo x >CLAUDE.md&&true",            expect: block}
+      - {what: "| glued, root file",   tool: Bash, input: "echo x >Makefile|cat",               expect: block}
+      - {what: "; glued, source",      tool: Bash, input: "echo x >src/mail/cli.py; make test", expect: block}
+      - {what: "; glued, artifact ok", tool: Bash, input: "echo x >outputs/r.json; make test",  expect: allow}
 
   - group: "Repo-root files are tracked content"
     why: >
@@ -254,6 +263,16 @@ promises:
       - {what: "root file via Bash",  tool: Bash,  input: "echo x > AGENTS.md",      expect: block}
       - {what: "same name in /tmp",   tool: Write, input: "/tmp/AGENTS.md",          expect: allow}
       - {what: "same name nested",    tool: Write, input: "outputs/AGENTS.md",       expect: allow}
+      # Round 11: the guard required the root file to ALREADY EXIST (`-e`), so a
+      # read-only role could CREATE new source at the root -- the create is the write
+      # we meant to catch, and it was allowed. Write/Edit names a real path and is
+      # now strict; Bash keeps the existence test, because its operands are bare
+      # words (`rm -rf srcfoo`, the `1` from `2>&1`, an unexpanded `$P`).
+      - {what: "NEW root file",        tool: Write, input: "brand_new_file.py", expect: block}
+      - {what: "NEW root file, py",    tool: Write, input: "new.py",            expect: block}
+      - {what: "NEW root dotfile",     tool: Edit,  input: ".newrc",            expect: block}
+      - {what: "bare word is not a root file", tool: Bash, input: "rm -rf srcfoo",  expect: allow}
+      - {what: "fd number is not a file",      tool: Bash, input: "make test 2>&1", expect: allow}
 
   - group: "The Edit tool is bound like Write"
     why: >
