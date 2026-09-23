@@ -36,7 +36,7 @@ class ListSectionRenderer:
         self.bullets = BulletRenderer(doc, page_cfg)
         self.text = TextFormatter()
 
-    def render(self, resume: "Resume", *args: Any, **kwargs: Any) -> Any:
+    def render(self, resume: "Resume", sec: dict[str, Any] | None = None, *args: Any, **kwargs: Any) -> Any:
         """Render the section into the document. Overridden by each subclass."""
         raise NotImplementedError(f"{type(self).__name__} must implement render()")
 
