@@ -94,38 +94,97 @@ stages:
         The keyword table in Step 2 is a starting hint, not the source of
         truth — if a domain exists on disk that the table omits, include it
         anyway and note the omission in the output's "notes" field.
+        NOTE: "core" is a shared-library domain (src/core/) with no CLI; include it
+        in the domains list with cli_bin null and has_agentic_schema false.
 
-      Step 2 — read prompt-corpus.json. For each prompt in "prompts", apply
-      the following keyword-to-domain mapping (case-insensitive, first match wins):
+      Step 2 — read prompt-corpus.json. For each prompt in "prompts", apply a
+      three-phase classification:
 
-        mail, gmail, outlook, inbox, label, filter → mail
-        calendar, event, invite, meeting           → calendars
-        schedule, plan, apply, recurring           → schedule
-        resume, cv, cover letter, overlay          → resume
-        phone, ios, layout, home screen, dock      → phone
-        whatsapp, chat, message search             → whatsapp
-        chart, graph, plot, time series            → charts
-        diagram, mermaid, flowchart, sequence      → diagrams
-        slides, deck, powerpoint, pptx             → slides
-        sheet, xlsx, spreadsheet, workbook         → sheets
-        workflow, yaml, stages, fragment, dag      → workflow
-        telemetry, cost, token, session            → telemetry
-        worker, enqueue, queue, daemon, job        → worker
-        qlty, lint, ruff, bandit, complexity       → qlty
-        desk, workspace, desktop                   → desk
-        wifi, network, ssid                        → wifi
-        music, apple music, playlist, track        → apple_music
-        maker, generate, scaffold, template        → maker
+      PHASE A — NOISE EXCLUSION: remove conversational noise first.
+        Single words or short phrases with no actionable task content
+        (e.g., "yes", "no", "ok", "continue", "which pr?", "thanks").
+        Record count under served_by_skill_or_workflow["noise"].
+        These are NOT passed to phase B or C.
 
-      If no keyword matches, mark as "unmapped" — strong new-domain signal.
-      Do NOT force a weak match to avoid an unmapped cluster; unmapped
-      clusters are the primary signal this workflow exists to surface.
+      PHASE B — DOMAIN KEYWORD MAPPING: apply to all non-noise prompts.
+      Use WORD-BOUNDARY, CASE-INSENSITIVE matching with optional s/es plurals.
+      Implement each pattern as r'\b<stem>(?:s|es)?\b' so that e.g. "calendars"
+      and "schedules" match their respective domains. Boundary rules prevent
+      false matches: e.g. "cv" must not match inside "cvs". Note: "plan" and
+      "apply" are deliberately excluded from the keyword table as generic dev
+      verbs — they route too many non-schedule prompts ("apply the fix",
+      "make a plan") to the schedule domain. First domain whose regex matches
+      wins. A prompt matched here goes into that domain's bucket regardless of
+      whether it also contains meta-work keywords — domain signal takes priority.
 
-      Step 3 — for each domain that has at least one cluster mapped, use the Glob
+        \bmail\b, \bgmail\b, \boutlook\b, \binbox(?:es)?\b, \blabels?\b, \bfilters?\b → mail
+        \bcalendars?\b, \bevents?\b, \binvites?\b, \bmeetings?\b                       → calendars
+        \bschedules?\b, \brecurring\b                                                   → schedule
+        \bresumes?\b, \bcv\b, \bcover letters?\b, \boverlay\b                          → resume
+        \bphones?\b, \bios\b, \blayouts?\b, \bhome screens?\b, \bdocks?\b             → phone
+        \bwhatsapp\b, \bchats?\b, \bmessage search\b                                   → whatsapp
+        \bcharts?\b, \bgraphs?\b, \bplots?\b, \btime series\b                         → charts
+        \bdiagrams?\b, \bmermaid\b, \bflowcharts?\b, \bsequences?\b                   → diagrams
+        \bslides?\b, \bdecks?\b, \bpowerpoint\b, \bpptx\b                             → slides
+        \bsheets?\b, \bxlsx\b, \bspreadsheets?\b, \bworkbooks?\b                      → sheets
+        \bworkflows?\b, \byaml\b, \bstages?\b, \bfragments?\b, \bdag\b               → workflow
+        \btelemetry\b, \bcosts?\b, \btokens?\b, \bsessions?\b                         → telemetry
+        \bworkers?\b, \benqueue\b, \bqueues?\b, \bdaemon\b, \bjobs?\b                 → worker
+        \bqlty\b, \blints?\b, \bruff\b, \bbandit\b, \bcomplexity\b                    → qlty
+        \bdesk\b, \bworkspaces?\b, \bdesktop\b                                         → desk
+        \bwifi\b, \bnetworks?\b, \bssid\b                                              → wifi
+        \bmusic\b, \bapple music\b, \bplaylists?\b, \btracks?\b                       → apple_music
+        \bmaker\b, \bscaffolds?\b, \btemplates?\b                                      → maker
+        \bcore\b, \bshared library\b, \butilities?\b                                   → core
+
+      PHASE C — META-WORK EXCLUSION: applies ONLY to prompts that were NOT
+      matched by phase B (i.e., no domain keyword fired).
+        Classify as served_by_skill_or_workflow any prompt that:
+        (i) is a slash command of the form <command-name>/X</command-name> where X names a
+            skill under .claude/skills/ — enumerate that directory at run time
+            (do NOT hardcode the list); these are always unambiguous and are
+            classified even before phase B in practice, but checking here is fine
+            since a slash command is unlikely to also trigger a domain keyword.
+        (ii) matches one or more of these keywords (word-boundary, case-insensitive):
+              pr, pull request, review, thread, copilot, ci, merge, rebase,
+              branch, commit, github.com/.../pull/
+        Record counts per skill/keyword under served_by_skill_or_workflow.
+        These are NOT clustered and do NOT appear in unmapped_clusters.
+
+      What remains after phases A, B, C is placed in the "to_cluster" bucket.
+
+      ACCOUNTING CHECK — after all three phases, verify:
+        mapped(B) + served_by(C) + noise(A) + to_cluster == total corpus entries
+      served_by(C) is the COUNT OF DISTINCT PROMPTS classified in phase C, NOT
+      the sum of keyword-bucket values (a prompt matching two keywords increments
+      two buckets but is only one prompt). Track a unique set of prompt indices
+      for phase C and take its len() as served_by(C) in the formula.
+      Record this check in the "notes" field; flag a mismatch.
+
+      Step 3 — cluster unmapped prompts by intent into UPPER_SNAKE labels using
+      the agent's own judgment. For each cluster assign nearest_domain (an
+      existing src/ domain name or null). Only null-nearest_domain clusters are
+      new-domain signal. Collect up to 3 verbatim example prompts per cluster.
+      Record cluster detail in domain-map.json under "cluster_detail":
+        [
+          {
+            "cluster": "MONITOR",
+            "prompt_count": N,
+            "session_count": N,
+            "nearest_domain": null,
+            "new_domain_candidate": true,
+            "rationale": "...",
+            "examples": ["...", "...", "..."]
+          }
+        ]
+
+      Step 4 — for each domain that has at least one cluster mapped, use the Glob
       tool to list Python modules under the domain's src path:
         Glob: src/<domain>/**/*.py
+      Collect up to 5 example prompts per domain (verbatim, first 80 chars each)
+      and include them as "example_prompts" in each domain entry.
 
-      Step 4 — check whether each domain's bin CLI exposes an agentic schema:
+      Step 5 — check whether each domain's bin CLI exposes an agentic schema:
         Run: ./bin/<cli> --agentic --agentic-format yaml --agentic-compact 2>/dev/null
         Set has_agentic_schema=true if exit code == 0.
         Every app supports --agentic, so a false here is a defect worth
@@ -134,6 +193,7 @@ stages:
         ./bin/qlty-assistant, resume is ./bin/assistant resume, and desk has
         no wrapper at all (python3 -m desk). Run ./bin/llm inventory --stdout
         for the authoritative list rather than assuming ./bin/<cli>.
+        "core" has no CLI — always false.
 
       Write domain-map.json:
         {
@@ -145,12 +205,27 @@ stages:
               "clusters": ["MAIL"],
               "prompt_count": N,
               "module_count": N,
-              "has_agentic_schema": true
+              "has_agentic_schema": true,
+              "example_prompts": ["...", "..."]
             }
           ],
           "unmapped_clusters": ["MONITOR"],
+          "cluster_detail": [
+            {
+              "cluster": "MONITOR",
+              "prompt_count": N,
+              "session_count": N,
+              "nearest_domain": null,
+              "new_domain_candidate": true,
+              "rationale": "...",
+              "examples": ["...", "..."]
+            }
+          ],
+          "served_by_skill_or_workflow": {"review-fix-threads": 43, "pr": 28, "noise": 12},
           "total_prompts_mapped": N,
+          "total_prompts_served_or_noise": N,
           "total_prompts_unmapped": N,
+          "accounting_check": "mapped(B)(N) + served_by(C)(N) + noise(A)(N) + to_cluster(N) == total(N): OK",
           "notes": "..."
         }
     agent:
@@ -166,8 +241,10 @@ stages:
       - name: domain-map
         mode: generate
         description: >
-          Enumerate src/ domains, map each prompt cluster by keyword, glob
-          module counts, check agentic schemas, write domain-map.json.
+          Enumerate src/ domains, classify prompts with pre-pass exclusion and
+          word-boundary keyword mapping, cluster unmapped prompts, collect
+          example_prompts per domain, write domain-map.json with cluster_detail
+          and accounting check.
     required: true
     writes_to:
       - domain-map.json
@@ -181,21 +258,156 @@ stages:
     depends_on: [pm-score-efficiency]
     reads_from: [pm-extract-prompts]
     description: >
-      Extract sequences of CLI co-invocations and strong manual-workflow signals.
+      Extract CLI co-invocation pairs from session transcripts (primary) and
+      strong manual-workflow signals from prompt text (secondary).
 
-      Step 1 — read prompt-corpus.json. Within each session (grouped by session_id,
-      sorted by prompt_index), find sequences of 2–4 consecutive prompts where each
-      prompt mentions at least one ./bin/ CLI. Extract CLI names via:
-        regex: \./bin/([\w][\w-]*)
+      PRIMARY SOURCE: mine Bash tool_use calls from session transcripts.
 
-      Step 2 — deduplicate and count sequences:
-        - Normalize: strip bin/ prefix, lowercase, sort within each sequence.
-        - Count how many sessions contain the same normalized sequence.
-        - Retain sequences with frequency >= {min_pattern_freq} (across sessions).
-        - For each retained sequence, record the example prompt text (first 150 chars
-          of the first prompt in the sequence).
+      Users rarely name CLIs in prompt text; agents run them in Bash tool calls.
+      Mining prompt text yields near-zero signal (5 of 674 prompts named a
+      ./bin CLI in the baseline run). The real signal lives in tool_use records.
 
-      Step 3 — scan all prompts for manual-workflow language:
+      Write and run a Python scratch script (python3 -I -S) to parse the
+      transcripts. Write the script to a file in the workspace directory and run
+      it from there. Do NOT attempt to parse JSONL in-context with the Read tool
+      — transcripts total hundreds of MB.
+
+      Script logic:
+
+      1. Read sessions-index.json from the workspace (produced by pm-index-sessions).
+         Deduplicate entries by session_id first — sessions-index.json may contain
+         duplicate rows for the same session_id (the provider collects from both
+         flat and subdir layouts and appends without cross-dedup). Build a dict
+         keyed by session_id, keeping the last entry seen, before iterating.
+         For each unique session_id, locate its transcript files using BOTH layouts:
+           Expand {projects_dir} before constructing any glob:
+             projects_dir = os.path.expandvars(os.path.expanduser("{projects_dir}"))
+           If the expanded directory does not exist, print an error to stderr and
+           exit non-zero (do NOT silently return an empty result — a missing
+           directory means no transcripts were found and the signal is void).
+           Flat layout (post-Apr 2026):
+             Glob: <projects_dir>/**/<session_id>.jsonl
+           Subdir layout (pre-Apr 2026):
+             Glob: <projects_dir>/**/<session_id>/subagents/*.jsonl
+         Collect ALL matching files across both globs. If the flat glob matches
+         multiple files, take the largest (by byte size) from that set.
+         Each located .jsonl file is an independent conversation stream — parse
+         spans independently per file (never carry a span across a file boundary),
+         then union the resulting pair/session identities at the session-aggregation
+         step (step 5/6). Do not skip subdir-layout files when a flat file also
+         exists; each subagents/*.jsonl is a separate stream that contributes its
+         own spans to the union.
+
+      2. Parse each .jsonl file line by line. Each line is a JSON record.
+         Malformed-input handling (per line):
+           - Wrap json.loads() in a try/except json.JSONDecodeError; on error,
+             increment a skipped_lines counter and continue to the next line.
+           - After parsing, verify the record is a dict; if not, skip and count.
+           - Records without a dict "message" (e.g. mode, attachment, summary)
+             are normal: ignore them WITHOUT counting them as malformed.
+           - Do NOT require content to be a list for every record: a user
+             record whose content is a STRING is a span opener (step 4). Check
+             that content is a list only when extracting tool_use blocks from
+             an assistant record; if an assistant record's content is not a
+             list, skip it and count it.
+         After processing all files, record the total skipped_lines count in the
+         "notes" field of intent-sequences.json (e.g. "skipped_malformed_lines: N").
+         Do NOT abort on a malformed line — continue processing the rest of the file.
+         Focus on assistant records (type == "assistant").
+         message.content is a LIST; iterate blocks.
+         Extract Bash tool_use blocks: block["type"] == "tool_use" and
+           block["name"] == "Bash" and "input" in block and "command" in block["input"].
+
+      3. Extract CLI invocations from each command string using:
+           Primary pattern: r'(?:^|[\s;&|(])\./bin/([\w][\w-]*)'
+           Desk (no wrapper): r'python3\s+(?:-[^\s]+\s+)*-m\s+desk'
+         After capturing the CLI name, apply dispatcher normalisation:
+           If the captured name is "assistant", discard "assistant" and take the
+           NEXT shell token as a candidate app name. Accept it ONLY if it matches
+           r'^[a-z][a-z_-]*$' AND appears in the known-app list from
+           ./bin/llm inventory --stdout (run once at script startup and cache the
+           result as a set). If the next token is a flag (starts with '-'), a
+           shell operator (&&, ;, |, ||), or is absent, or is not in the
+           known-app set, DISCARD the entire invocation — do not count it as
+           "assistant" or as anything else. Shift subcommand capture by one
+           position for accepted invocations.
+           The "python3 -m desk" special case is unchanged.
+           (e.g. "./bin/assistant resume export" → "resume";
+                "./bin/assistant --help" → discarded;
+                "./bin/assistant && ls"  → discarded.)
+         All downstream tallies (cli_usage, top_subcommands, pairs) use the
+         normalised app name — "assistant" must never appear as a CLI name in
+         any output field.
+         Also capture up to two following tokens as subcommand hints, but ONLY
+         if each token looks like a subcommand — not a flag, not a path segment:
+           After the CLI name, match each candidate token with r'[a-z][a-z-]*'
+           and skip it (stop capturing) if it:
+             - starts with '-' (a flag), or
+             - contains '/' (a path argument), or
+             - contains '.' (a filename), or
+             - is a known non-subcommand positional token for that CLI
+           In practice: after the CLI name, consume whitespace, then check the
+           next word; if it fails any of the stop conditions above, do not
+           record it as a subcommand. Apply the same check to the second token.
+         Use these for cli_usage and top_subcommands tallies.
+
+      4. Group tool_use Bash blocks by prompt span — one file at a time.
+         Process each .jsonl file independently. A span starts at each user record
+         whose message.content is a non-empty STRING. (Tool-result user records
+         have message.content as a LIST — they must NOT start a new span; they
+         belong to the current span.) A span runs from its opening user record to
+         the next string user record within the SAME file. Never carry a span
+         across a file boundary.
+         Define span identity explicitly as the triple
+           (session_id, file_path, opening_line_number)
+         where file_path is the absolute path of the .jsonl file being parsed and
+         opening_line_number is the 0-based index of the user record that opened
+         the span. Carry this triple through all downstream uses: pair counting
+         (step 5), the secondary-source union, and any deduplication — two spans
+         with the same session_id but different file_path are DISTINCT spans and
+         must never be merged. The span set for each pair is therefore a set of
+         these triples, not a set of (session_id, ordinal) pairs.
+         Collect all CLIs invoked by assistant tool_use blocks within each span.
+
+      5. Within each span, enumerate all unordered pairs of distinct CLIs.
+         A pair is a frozenset of two CLI names.
+         Count:
+           - spans: number of prompt spans containing that pair
+           - sessions: number of distinct session_ids containing that pair
+           - For each pair, record the first 150 chars of the opening user
+             message of the first matching span as "example". Apply the same
+             redaction patterns used by pm-extract-prompts before storing:
+               sk-[A-Za-z0-9_-]{16,}                                    -> [redacted]
+               ghp_[A-Za-z0-9]{20,}  and  gho_[A-Za-z0-9]{20,}          -> [redacted]
+               AKIA[0-9A-Z]{12,}                                        -> [redacted]
+               eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+   -> [redacted]
+               (?i)(api[_-]?key|token|password|secret|bearer)\s*[=:]\s*\S+  -> \1=[redacted]
+             Also replace home-path user segments:
+               /Users/<name>/  ->  /Users/[user]/
+               /home/<name>/   ->  /home/[user]/
+         Retain pairs with sessions >= {min_pattern_freq}.
+
+      6. Aggregate cli_usage: for each CLI, count total sessions and total calls.
+         Aggregate top_subcommands: for each (cli, subcommand) pair, count sessions
+         and calls; report top-20 by calls.
+
+      The script writes its output to intent-sequences-raw.json in the workspace
+      directory. After running the script, read that file and write intent-sequences.json.
+
+      SECONDARY SOURCES (keep both; they complement tool-call mining):
+
+      (a) Prompt-text regex — scan prompt-corpus.json "prompts" for prompts whose
+      text mentions ./bin/ CLIs directly. Apply the same regex as the primary
+      source. Treat these as additional signal — a prompt that names a CLI is
+      higher-intent than one where only the agent ran it. For each pair found
+      here, union its session and span identity sets with those from the primary
+      source (do NOT add counts — a session present in both the primary and
+      secondary sets must be counted once, not twice). After unioning, recompute
+      sessions = len(union_session_set) and spans = len(union_span_set).
+      Include the pair in cli_sequences if its post-union sessions count meets
+      the freq threshold.
+
+      (b) Manual-workflow signals — scan all prompt text for:
         Keywords: "every time", "keep having to", "always need to", "i always",
                   "we always", "repeatedly", "constantly", "have to run"
         For each match record session_id, the full prompt text (first 300 chars),
@@ -205,10 +417,17 @@ stages:
         {
           "cli_sequences": [
             {
-              "sequence": ["mail", "calendar"],
+              "sequence": ["qlty-assistant", "workflow"],
               "freq": N,
-              "example": "first 150 chars of first prompt in sequence"
+              "spans": N,
+              "example": "first 150 chars of opening user message of first matching span"
             }
+          ],
+          "cli_usage": [
+            {"cli": "workflow", "sessions": N, "calls": N}
+          ],
+          "top_subcommands": [
+            {"command": "workflow run", "sessions": N, "calls": N}
           ],
           "manual_workflow_signals": [
             {
@@ -217,22 +436,31 @@ stages:
               "keyword_matched": "every time",
               "freq": N
             }
-          ]
+          ],
+          "sources_summary": {
+            "sessions_with_bash_clis": N,
+            "total_sessions_scanned": N,
+            "prompt_text_cli_mentions": N
+          }
         }
     agent:
-      role: researcher
+      role: code-writer
       model: sonnet
       tools:
+        - Bash
         - Read
+        - Glob
         - Write
       access: read-write
     outputs:
       - name: intent-sequences
         mode: generate
         description: >
-          Scan prompt-corpus.json for CLI co-occurrence sequences
-          (freq >= {min_pattern_freq}) and manual-workflow signal language.
-          Write intent-sequences.json.
+          Write and run a Python script that mines Bash tool_use CLI invocations
+          from session transcripts, groups co-invocations by prompt span, counts
+          pairs by distinct sessions, and writes intent-sequences.json with
+          cli_sequences (freq >= {min_pattern_freq}), cli_usage, top_subcommands,
+          and manual_workflow_signals from prompt text.
     required: true
     writes_to:
       - intent-sequences.json
@@ -261,10 +489,17 @@ stages:
 
       Step 1 — subcommand gap detection:
         For each domain in domain-map.json with at least one mapped cluster:
+          Skip any domain whose cli_bin is null (e.g. "core") — these are
+          shared-library domains with no CLI entry point. Do not attempt to run
+          ./bin/<None> or invent a CLI path for them; move on to the next domain.
           Run: ./bin/<cli> --agentic --agentic-format yaml --agentic-compact
           Parse the YAML output to extract existing subcommand names.
           If the CLI has no agentic schema, fall back to: ./bin/<cli> --help
-          Read the example_prompts for each cluster assigned to this domain.
+          Read the domain's example_prompts from domain-map.json:
+            domain-map.json stores example_prompts at the DOMAIN level
+            (domains[].example_prompts) — not per cluster. Clusters under a
+            domain do NOT carry their own example_prompts in domain-map.json;
+            use the domain-level list for gap analysis.
           Determine whether any example_prompt intent is NOT covered by an
           existing subcommand. Heuristic: if the prompt describes an action that
           matches no subcommand name (keyword overlap < 0.3), mark as a gap.
@@ -307,17 +542,19 @@ stages:
 
         This test must run here, on every Step 1 candidate. Step 3 carries a
         similar check but is driven by intent-sequences.json cli_sequences,
-        which is frequently EMPTY — users describe a whole workflow in one
-        prompt rather than across consecutive ones — so a check that lives only
-        in Step 3 silently never executes.
+        which is now sourced from Bash tool_use records rather than prompt text
+        and carries real signal — so run the MULTI-SOURCE TEST in Step 3 as well;
+        do not skip it under the assumption cli_sequences will be empty.
 
       Step 2 — new domain candidates:
-        For each cluster in domain-map.json "unmapped_clusters":
+        For each cluster in domain-map.json "cluster_detail" where
+        new_domain_candidate is true (nearest_domain is null):
           Propose a domain name: snake_case, max 20 chars.
           Verify it does not already exist: ls src/<name> must fail.
           Propose a bin/ CLI name matching the domain name.
-          List 2–3 candidate subcommands inferred from the example prompts.
-          Estimate prompt_freq as the count of prompts in that cluster.
+          List 2–3 candidate subcommands inferred from the example prompts
+          (available in cluster_detail[].examples).
+          Estimate prompt_freq as the cluster's prompt_count from cluster_detail.
 
       Step 3 — consolidation candidates:
         For each sequence in intent-sequences.json cli_sequences with freq >= 3:
