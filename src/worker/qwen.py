@@ -161,9 +161,19 @@ def _has_git_segment(path: Path) -> bool:
 
 
 def _is_within_allowlist(resolved: Path, root: Path) -> bool:
+    """True when resolved sits under an allowlisted directory INSIDE root.
+
+    Resolving an allowlist directory follows a symlink, so a checkout whose
+    src/ points at /sensitive would otherwise move the trust boundary itself
+    and admit /sensitive/anything. Both the directory and the file must
+    therefore resolve under the resolved repo root.
+    """
+    real_root = root.resolve()
+    if not resolved.is_relative_to(real_root):
+        return False
     for allowed in ALLOWLIST_DIRS:
-        candidate = (root / allowed).resolve()
-        if resolved.is_relative_to(candidate):
+        candidate = (real_root / allowed).resolve()
+        if candidate.is_relative_to(real_root) and resolved.is_relative_to(candidate):
             return True
     return False
 

@@ -111,6 +111,34 @@ class QwenConfinementRejectionTests(QwenConfinementBaseTests):
 
         self.assert_rejected_unread("src/escape_link.txt")
 
+    def _symlink_allowlist_dir(self, name: str, target: Path) -> None:
+        """Replace the empty allowlist directory `name` with a symlink to target."""
+        (self.repo_root / name).rmdir()
+        os.symlink(target, self.repo_root / name)
+
+    def test_allowlist_dir_symlinked_outside_the_repo_is_rejected(self) -> None:
+        """src/ -> /sensitive must not move the trust boundary to /sensitive."""
+        sensitive = self.repo_root.parent / "sensitive"
+        sensitive.mkdir()
+        (sensitive / "private.txt").write_text("leaked content\n", encoding="utf-8")
+        self._symlink_allowlist_dir("src", sensitive)
+
+        self.assert_rejected_unread("src/private.txt")
+        # The post-open check applies the same policy to the kernel's path for
+        # the descriptor, so it must refuse the real outside file too.
+        with self.assertRaises(qwen.QwenGuardError):
+            qwen._read_confined_bytes([(sensitive / "private.txt").resolve()], self.repo_root.resolve())
+
+    def test_allowlist_dir_symlinked_inside_the_repo_is_still_accepted(self) -> None:
+        """A symlinked allowlist dir that stays in the checkout is legitimate."""
+        real_docs = self.repo_root / "src" / "real_docs"
+        real_docs.mkdir()
+        (real_docs / "guide.md").write_text("ok\n", encoding="utf-8")
+        self._symlink_allowlist_dir("docs", real_docs)
+
+        [resolved] = qwen.resolve_input_files(["docs/guide.md"], self.repo_root)
+        self.assertEqual(resolved, (real_docs / "guide.md").resolve())
+
     def test_each_denylist_entry_is_rejected_even_inside_root(self) -> None:
         for rel in (
             "src/credentials.ini",
