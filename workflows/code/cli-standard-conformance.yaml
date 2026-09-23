@@ -160,7 +160,7 @@ stages:
         appmeta=false — a false negative that would fail verify-conformance's
         improvement gate against work that had actually landed. Derive each
         field by importing or globbing at run time:
-          appmeta        -> importlib.import_module(f"`{pkg}`.meta").META exists
+          appmeta        -> `importlib.import_module(f"{pkg}.meta").META` exists
                             and produces a non-empty agentic_fallback
           cliapp         -> a CLIApp instance is reachable; CHECK BOTH
                             <pkg>.cli AND <pkg>.cli.main. Many packages define

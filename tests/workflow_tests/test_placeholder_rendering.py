@@ -256,12 +256,16 @@ class TestValidateThenRenderFragment(unittest.TestCase):
     """validate-then-render's criterion resolves validation_criteria pipe-param."""
 
     def test_criteria_expanded_from_pipe_separated_param(self) -> None:
-        """Compile the validate stage with a pipe-separated validation_criteria param."""
+        """Compile the validate stage with a pipe-separated validation_criteria param.
+
+        validate-then-render now uses '{validation_criteria}' (bare param) so each
+        pipe item becomes its own standalone criterion.
+        """
         spec = make_validation_spec(
             strategy=ValidationStrategy.unit,
             criteria=(
                 "Every quantitative claim traces to a source file in the workspace",
-                "All criteria in {validation_criteria} are checked",
+                "{validation_criteria}",
             ),
         )
         stage = make_stage_spec(
@@ -286,14 +290,11 @@ class TestValidateThenRenderFragment(unittest.TestCase):
             "Every quantitative claim traces to a source file in the workspace",
             criteria,
         )
-        # Each pipe item is substituted into the criterion's prefix/suffix.
-        self.assertIn("All criteria in counts match source are checked", criteria)
-        self.assertIn("All criteria in no fabricated numbers are checked", criteria)
-        self.assertIn("All criteria in all paths exist are checked", criteria)
-        self.assertNotIn(
-            "All criteria in {validation_criteria} are checked",
-            criteria,
-        )
+        # Each pipe item becomes a bare standalone criterion.
+        self.assertIn("counts match source", criteria)
+        self.assertIn("no fabricated numbers", criteria)
+        self.assertIn("all paths exist", criteria)
+        self.assertNotIn("{validation_criteria}", criteria)
         # No raw | should appear in any criterion.
         self.assertFalse(any("|" in c for c in criteria))
 
@@ -396,7 +397,7 @@ class TestUndeclaredVarLintBacktickExemption(unittest.TestCase):
     def test_backtick_var_no_undeclared_warning(self) -> None:
         """{pkg} inside a backtick span is not flagged as undeclared."""
         warnings = self._check_var_warnings(
-            description='Run `importlib.import_module(f"`{pkg}`.meta")`',
+            description="importlib.import_module(f\"`{pkg}`.meta\")",
             declared_params={},
         )
         self.assertFalse(any("pkg" in w for w in warnings))
