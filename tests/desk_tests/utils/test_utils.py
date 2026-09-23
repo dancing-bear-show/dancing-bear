@@ -3,6 +3,7 @@
 import json
 import os
 import unittest
+import unittest.mock
 
 from tests.fixtures import TempDirMixin
 from desk.utils import (
@@ -186,9 +187,26 @@ class DumpOutputTests(TempDirMixin, unittest.TestCase):
         self.assertTrue(os.path.exists(out_path))
 
     def test_expands_tilde(self):
-        # This test just verifies no error is raised
-        # We don't actually write to home dir
-        pass
+        fake_home = os.path.join(self.tmpdir, "home", "fakeuser")
+        rel_path = os.path.join("nested", "output.json")
+        out_path = os.path.join("~", rel_path)
+        data = {"key": "value"}
+        with unittest.mock.patch.dict(os.environ, {"HOME": fake_home}):
+            dump_output(data, out_path)
+        expanded_path = os.path.join(fake_home, rel_path)
+        self.assertTrue(os.path.exists(expanded_path))
+        with open(expanded_path) as f:
+            loaded = json.load(f)
+        self.assertEqual(loaded, data)
+
+    def test_does_not_expand_path_without_tilde(self):
+        out_path = os.path.join(self.tmpdir, "no_tilde", "output.json")
+        data = {"key": "value"}
+        dump_output(data, out_path)
+        self.assertTrue(os.path.exists(out_path))
+        with open(out_path) as f:
+            loaded = json.load(f)
+        self.assertEqual(loaded, data)
 
 
 if __name__ == "__main__":

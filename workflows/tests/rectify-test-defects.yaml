@@ -1,0 +1,689 @@
+name: rectify-test-defects
+version: "1.0"
+description: >
+  Implementation companion to categorize-test-cases.yaml that rectifies the test
+  defects fill-sad-path-gaps.yaml does NOT address.
+
+  categorize-test-cases classifies every test method and emits a sad-path gap
+  matrix. fill-sad-path-gaps consumes ONE defect class from it: symbols with
+  happy coverage and no sad coverage. Three further classes are visible in the
+  same shard data and have no implementation workflow:
+
+    A. ASSERTION-FREE TESTS  — methods that execute code and assert nothing
+       meaningful: `assertTrue(callable(mod.main))`, `assertTrue(x or True)`,
+       pass-only bodies, docstring-only stubs. They inflate coverage while
+       verifying nothing, and a coverage percentage cannot see them.
+    B. UNCOVERED SYMBOLS     — symbols a test file references but which have
+       neither happy nor sad coverage (classified unassigned-only).
+    C. HAPPY-PATH GAPS       — symbols with sad coverage and NO happy coverage:
+       error handling is tested, the success path is not.
+
+  Input is the SHARD directory from a categorize-test-cases run, not just its
+  gap matrix, because the reasons and category sets needed to find class A are
+  only in the shards.
+
+  Runs strictly additive except for class A, where rewriting a weak assertion
+  is the entire point — that class is gated separately and diffed line by line.
+
+  Stage dependency graph:
+
+        load-defects                          (G0 - read shards, build 3 work lists)
+             |
+        triage-defects                        (G1 - verify each against source)
+             |
+        approve-plan  [human gate]            (G2 - approve BEFORE any writes)
+             |
+        fix-file x N  (parallel fan-out)      (G3 - one isolated agent per test file)
+             |
+        validate-fixes                        (G4 - mechanical verification)
+             |
+        report  [human gate]                  (G5 - final summary)
+
+metadata:
+  author: dancing-bear
+  created: "2026-09-22"
+
+trigger:
+  source: manual
+  params:
+    shards_dir: ""          # REQUIRED: outputs/shards from a categorize-test-cases run
+    source_sha: ""          # optional: that run's source_sha; if blank it is read
+                            # from {shards_dir}/../sad-path-gaps.json (shards
+                            # themselves carry no SHA)
+    max_files: "20"         # hard cap on test files touched this run
+    classes: "A,B,C"        # which defect classes to rectify
+    min_sad: "3"          # class C: min sad tests a symbol needs to qualify as
+                          # a happy-path gap (it must have zero happy tests)
+
+stages:
+  # ===========================================================================
+  # G0: Read the shards and build one work list per defect class.
+  # ===========================================================================
+  - name: load-defects
+    kind: gather
+    description: >
+      Read every shard JSON in {shards_dir} and derive three defect lists.
+      FAIL this stage (status: failed) if {shards_dir} is empty or unset — never
+      search for another run's output, and never proceed on partial data.
+
+      "Not partial" needs an actual check, not just a non-empty directory. A
+      run missing one shard looks identical to a complete one, and the defects
+      in that file silently disappear — the most dangerous failure here,
+      because it under-reports rather than erroring. The categorize run emits
+      the expected file set alongside the shards, so reconcile against it:
+        expected = {file for entry in
+                    json(<shards_dir>/../classification.json)["by_file"]}
+        actual   = {shard["file"] for shard in <shards_dir>/*.json}
+      and FAIL, naming the offenders, on any of:
+        - missing:    expected - actual  (a shard that should exist does not)
+        - extra:      actual - expected  (a shard for a file not in the run)
+        - duplicate:  two shards claiming the same "file" value
+        - malformed:  a shard that does not parse, or lacks "file"/"methods"
+      Report the four counts even when all are zero, so a later reader can see
+      the check ran rather than assuming it. If classification.json is absent,
+      say so explicitly and FAIL — an unverifiable shard set is partial data by
+      definition, and this stage's whole contract is not to proceed on that.
+
+      First record provenance. Run `git rev-parse HEAD` and store it as
+      head_sha, then establish the SHA the shards were computed against.
+
+      The shards themselves do NOT carry it — a categorize-test-cases shard has
+      exactly two keys, "file" and "methods". The SHA lives in that run's
+      sibling artifact, outputs/sad-path-gaps.json ("source_sha"). So read
+      {shards_dir}/../sad-path-gaps.json and take source_sha from there.
+
+      If {source_sha} was passed as a trigger param, prefer it and verify it
+      matches the sibling artifact; disagreement is itself a provenance failure
+      — report both and FAIL.
+
+      If neither is available, set shard_sha to null and sha_drift to true —
+      never silently assume the shards match the current tree. Unknown
+      provenance is drift, not agreement.
+
+      Set sha_drift = (shard_sha != head_sha) and record both. Drift does not
+      halt this stage; it is surfaced at the approve-plan gate, where a human
+      decides whether line numbers and symbols computed against another tree
+      are still trustworthy.
+
+      Record head_sha as "baseline_sha" too, and capture the PRE-RUN suite size
+      into "baseline_test_count" by running `make test` once and reading the
+      "Ran N tests" line (not the exit code). validate-fixes reconciles against
+      BOTH, so they must be captured here, before any agent writes:
+        - baseline_sha is the commit every later `git diff` is taken against.
+          head_sha alone is not enough — by the time validate-fixes runs, HEAD
+          has moved, since each fan-out tester commits inside its worktree and
+          the orchestrator merges those branches back.
+        - baseline_test_count is the number the net-delta check subtracts from.
+      A validate stage that picks its own baseline is not deterministic; these
+      two fields are what make that check reproducible.
+
+      Prefer a short python3 script for this aggregation; it is deterministic
+      and there may be hundreds of shards. Do NOT read shards one by one with
+      the Read tool.
+
+      Skip any shard entry whose "method" is null or does not start with
+      "test_", and count those as skipped_malformed.
+
+      CLASS A — assertion-free tests. Select entries whose recorded reason
+      indicates the body asserts nothing meaningful (case-insensitive match on:
+      stub, tautolog, pass-only, smoke, "no assertion", "asserts nothing",
+      "no real assertion", "is callable", "just ensure it ran"). This is a
+      CANDIDATE list produced from classifier prose — triage verifies each
+      against the real body, and false positives are expected here.
+
+      CLASS B — uncovered symbols. Aggregate every target (module, symbol)
+      across all shards. Select symbols where no targeting method carries
+      "happy" and none carries "sad" (i.e. only unassigned methods point at it).
+
+      CLASS C — happy-path gaps. Select symbols with >= {min_sad} methods
+      carrying "sad" and ZERO carrying "happy": the failure modes are tested
+      and the success path is not.
+
+      EXPECT A HIGH REJECTION RATE HERE, and let triage do that work. This
+      heuristic systematically over-selects ERROR-HANDLING functions. When the
+      symbol under test IS an error handler (_handle_timeout_error,
+      handle_error, _log_transient, an argparse error hook), the classifier
+      reasonably labels every test of it "sad" because the scenario is a
+      failure — even when those tests thoroughly cover the function's own
+      success path ("returned True and slept because retries remained"). The
+      symbol then looks like all-sad-no-happy while being fully covered. In a
+      real run 6 of 7 class-C candidates were rejected for exactly this. Emit
+      them anyway — cheap to reject with evidence, and the alternative
+      (filtering on a name heuristic here) would hide genuine gaps.
+
+      Normalize every module to canonical dotted form (strip a leading "src/",
+      drop ".py", "/" -> "."). Drop any target whose confidence is "low" from
+      classes B and C — a guessed symbol may not name real code. Keep
+      low-confidence entries in class A, which is anchored to a concrete method
+      in a concrete file rather than to an inferred symbol.
+
+      Restrict output to the classes named in {classes}.
+
+      REGROUP everything by test_file, so one downstream agent owns one file and
+      no two agents ever touch the same path. Apply {max_files}, ranking files
+      by total defect count. Record dropped_files by name — never truncate
+      silently.
+
+      RANKING MUST BE DETERMINISTIC. Many files tie on defect count (in a real
+      run, 22 files tied at 1 defect for 11 remaining slots), so defect_total
+      alone leaves the cut arbitrary and two runs of this stage select different
+      files. Sort by this exact key, descending on the first three:
+        1. defect_total
+        2. class_a count   (rewrites are the highest-value defect class)
+        3. class_c count   (a tested-for-failure symbol with no success test)
+        4. test_file       (ASCII ascending — the final tiebreaker)
+      Never rely on dict or glob iteration order.
+
+      Write {workspace}/outputs/defects.json:
+        {
+          "items": [
+            {"test_file": "tests/...", "file_slug": "tests_..._py",
+             "class_a": [{"cls":..., "method":..., "line":..., "reason":...}],
+             "class_b": [{"module":..., "symbol":...}],
+             "class_c": [{"module":..., "symbol":..., "sad_test_count":N}],
+             "defect_total": N}
+          ],
+          "counts": {"class_a":N, "class_b":N, "class_c":N, "files":N},
+          "dropped_files": [...], "skipped_malformed": N,
+          "head_sha": "...", "shard_sha": "...", "sha_drift": false,
+          "baseline_sha": "...", "baseline_test_count": N
+        }
+      The array MUST be named "items" so the fan_out below resolves. If there is
+      no work, write count 0 and say so plainly rather than inventing items.
+    agent:
+      role: researcher
+      model: haiku
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    outputs:
+      - name: defects
+        mode: generate
+        description: >
+          JSON with key "items": per-test-file defect work items across the
+          three classes, plus counts, dropped_files and provenance.
+    validates_output:
+      - path: outputs/defects.json
+        checks: [is_json, has_key:items]
+    writes_to:
+      - outputs/defects.json
+
+  # ===========================================================================
+  # G1: Verify every candidate against real source before proposing any change.
+  # ===========================================================================
+  - name: triage-defects
+    kind: execute
+    depends_on: [load-defects]
+    reads_from: [load-defects]
+    description: >
+      Confirm each candidate defect against the actual code. The upstream lists
+      come from classifier prose and inferred symbols, so a false-positive rate
+      is expected — this stage exists to find it BEFORE the human gate, not to
+      rubber-stamp it.
+
+      Read {workspace}/outputs/defects.json. For each item:
+
+      CLASS A — Read the named method body. CONFIRM only if its assertions
+      cannot fail or verify nothing about behaviour, e.g.:
+        - assertTrue(callable(x)) / assertIsNotNone(import) and nothing else
+        - any assertion of the form `<expr> or True`, assertTrue(True)
+        - a pass-only or docstring-only body
+        - the method's own comment claims a check the code never makes
+      REJECT if the body makes any real behavioural assertion. Record the exact
+      current assertion line(s) verbatim as `current_assertion` — the fix stage
+      needs them and must not re-derive them.
+
+      CLASS B/C — resolve the symbol in src/ and Read its definition. REJECT if:
+        - the symbol does not exist, or is a re-export of something defined
+          elsewhere;
+        - it is private-by-convention and untested elsewhere;
+        - it is a MODULE CONSTANT (a bare assignment such as
+          `GRAPH_API_URL = "https://..."`, `DEFAULT_FONT_SIZES: dict = {...}`).
+          A test for a constant can only assert a literal equals itself — that
+          is precisely the assertion-free theatre class A exists to remove, so
+          generating one here would manufacture the defect this workflow is
+          meant to fix;
+        - it is a plain data container (a @dataclass / NamedTuple with no
+          methods and no __post_init__ validation). Field defaults are not
+          behaviour. CONFIRM it only if it has real logic — validation, a
+          computed property, a custom method — and then test THAT logic, not
+          the field defaults.
+      For a CONFIRMED item, read the implementation and record what a real test
+      would assert: for class C the concrete success-path behaviour; for class B
+      both. Never propose a test for behaviour the code does not have.
+
+      Record the rejection reason verbatim for every rejected item — a high
+      class-B rejection rate is expected and is useful signal about how the
+      upstream classifier attributes targets, not a failure of this stage.
+
+      Use the Grep tool to locate symbols and the Read tool for bodies. Do not
+      modify any file in this stage.
+
+      Write {workspace}/outputs/triage.json mirroring the input items, each
+      defect annotated with "verdict": "confirmed" | "rejected", "evidence"
+      (what you read), and for class A also "current_assertion". Add
+      "counts": {"confirmed":N,"rejected":N} per class.
+      Drop any file whose defects are ALL rejected from the items array, so the
+      fan-out never spawns an agent with nothing to do.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Grep, Write, Bash]
+      access: read-write
+    required: true
+    validates_output:
+      - path: outputs/triage.json
+        checks: [is_json, has_key:items]
+    writes_to:
+      - outputs/triage.json
+
+  # ===========================================================================
+  # G2: Human gate. Class A rewrites existing tests, so this is not optional.
+  # ===========================================================================
+  - name: approve-plan
+    kind: propose
+    human_gate: true
+    depends_on: [triage-defects]
+    reads_from: [triage-defects, load-defects]
+    description: >
+      Present the rectification plan for approval before anything is written.
+
+      Read {workspace}/outputs/triage.json and write {workspace}/outputs/plan.md:
+
+        ## Test defect rectification plan
+        - Files to touch: N (cap {max_files}); dropped by cap: K (name them)
+        - Confirmed / rejected per class, with the rejection rate called out —
+          a high rejection rate in class A means the classifier prose was
+          unreliable and the run is worth reconsidering.
+        - SHA drift: yes/no. If yes, WARN that line numbers and symbols may be
+          stale relative to the tree that will be edited.
+
+        ### Class A — assertion-free tests to REWRITE  (MODIFIES EXISTING TESTS)
+        Table: | Test file | Method | Current assertion | Proposed assertion |
+        Flag this section prominently: every other class is additive, this one
+        is not. Approving it means accepting edits to existing test bodies.
+
+        ### Class B — uncovered symbols  (additive)
+        ### Class C — happy-path gaps  (additive)
+        Table each: | Test file | Module | Symbol | What will be asserted |
+
+      State the total method count to be added and rewritten. Do not proceed on
+      an empty plan — say there is no work.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/plan.md
+
+  # ===========================================================================
+  # G3: One isolated agent per test file. Per-file fan-out = no write collisions.
+  # ===========================================================================
+  - name: fix-file
+    kind: execute
+    depends_on: [approve-plan]
+    reads_from: [triage-defects]
+    description: >
+      ORCHESTRATOR — RESOLVE THESE BEFORE SPAWNING (the fan-out substitutes ONLY
+      fan_out.key, which is {file_slug}; every other placeholder below arrives
+      literal unless you fill it in):
+        - {test_file}: look up this item in outputs/triage.json by its
+          file_slug and substitute the real repo-relative path.
+        - Because this stage is isolation:"worktree", the agent cannot read the
+          shared workspace. The engine copies declared upstream outputs to
+          <agent-cwd>/inputs/outputs/triage.json, but that is the WHOLE triage
+          file, not this item. Two options, in order of preference:
+            (a) PER-ITEM STAGING (preferred, and what the first real run did):
+                after the worktree exists and before the agent starts work,
+                write just this item's confirmed defects to
+                <agent-cwd>/inputs/defects.json and give the agent that
+                absolute path. It cannot then pick the wrong slug.
+            (b) If you cannot stage per item, point the agent at the copied
+                <agent-cwd>/inputs/outputs/triage.json and tell it to select
+                the entry whose file_slug matches ITS slug — and to FAIL if no
+                entry matches, never to fall back to the first item.
+          Whichever you choose, say which path the agent should read. Do NOT
+          tell it to read {workspace}/outputs/... — that path is unreachable
+          from inside the worktree.
+
+      Rectify every CONFIRMED defect in ONE test file ({test_file}, resolved
+      above). Because fan-out is per file, you are the only writer for it.
+
+      Read your defect list from the absolute path under YOUR OWN cwd that the
+      orchestrator named for you — either inputs/defects.json (already narrowed
+      to your file) or inputs/outputs/triage.json (the whole triage file, from
+      which you select the entry whose file_slug matches YOUR slug, and FAIL if
+      none does rather than defaulting to the first item). Work ONLY on defects
+      whose verdict is "confirmed"; ignore rejected ones entirely.
+
+      Before writing: Read {test_file} and match its imports, fixtures, class
+      structure and assertion style. Read tests/AGENTS.md, tests/fixtures.py and
+      tests/fakes/ if they exist (do not fail if absent). For every symbol, Read
+      its source module and assert what the code ACTUALLY does — never invent
+      behaviour, and discard any upstream suggestion the source cannot produce.
+
+      CLASS A (rewrite, the ONLY non-additive work):
+        Replace the recorded current_assertion with one that would FAIL if the
+        behaviour regressed. Keep the method name unless it misdescribes the new
+        assertion. Change nothing else in the method, and no other method.
+        A rewritten test MUST assert a value, a call, a state change or a raise.
+        `assertTrue(callable(...))` is never an acceptable result.
+
+        SUB-CASE — re-export surface tests. Some `assertTrue(callable(mod.x))`
+        methods sit in a deliberate re-export module (its docstring says it
+        re-exports so tests can patch through it, e.g. telemetry/menubar.py).
+        Those tests ARE guarding something real — that the re-export surface is
+        intact — but in the weakest possible way. Do NOT delete them and do NOT
+        replace them with an unrelated behavioural test of the underlying
+        function, which belongs in that function's own test file. Instead
+        strengthen the assertion to pin IDENTITY: assert the re-exported name is
+        the same object as the implementation it re-exports, e.g.
+          from telemetry.menubar_impl import _safe_float as impl
+          self.assertIs(menubar._safe_float, impl)
+        That fails if the re-export is dropped, rebound, or silently shadowed —
+        which a callable() check never would. Where several names share one
+        module, one method asserting the whole surface via subTest is better
+        than six near-identical methods; keep the existing method names so the
+        diff stays reviewable.
+
+      CLASS B and C (additive only):
+        Add test methods asserting real behaviour. Class C covers the success
+        path: correct return value or state for valid input. Class B covers both
+        success and the primary failure mode.
+
+      Test authoring rules (strict):
+        - unittest.TestCase only, no pytest.
+        - No network, no real file I/O outside tmp, no subprocess to external
+          services, no real credentials or tokens.
+        - Patch at the point of use, not the point of definition.
+        - Prefer existing fakes/fixtures over raw dicts.
+        - Assert precisely: a concrete value, call assertion, or
+          assertRaises(SpecificError) / assertRaisesRegex. Never
+          assertTrue(x is not None) as the sole assertion, never a bare
+          "does not raise", never `<expr> or True`.
+        - Descriptive names: test_<symbol>_<behaviour>.
+        - Apart from the class A rewrites, ADD ONLY: do not modify, reformat,
+          reorder or delete any existing method. Do NOT run `qlty --fix` on
+          {test_file}; it reformats untouched code. `qlty check` read-only is
+          fine, fix only within your own lines.
+
+      After writing, run ONLY this file and fix until green, up to 3 cycles.
+      Derive the module path from the FULL {test_file} — strip ".py" and
+      replace "/" with "." — and pass that whole dotted path. {test_file} is
+      repo-relative and already starts with "tests/", so it derives to
+      "tests.mail_tests.providers.test_base_provider"; do NOT prefix another
+      "tests." or you get "tests.tests..." and the command fails:
+        PYTHONPATH="$PWD/src" python3 -m unittest <dotted-module-path> -q
+      e.g. tests/mail_tests/providers/test_base_provider.py becomes
+        PYTHONPATH="$PWD/src" python3 -m unittest tests.mail_tests.providers.test_base_provider -q
+      The PYTHONPATH prefix is mandatory — without it a worktree run resolves
+      imports to the main checkout and passes against code you did not edit.
+      Never weaken an assertion to get green.
+
+      PROVE THE CLASS A REWRITES HAVE TEETH. For each rewritten method, break
+      the behaviour it now asserts (temporarily, in your worktree — e.g. make
+      the function return a wrong value), re-run the single test, and confirm it
+      FAILS. Restore the source immediately and re-run to confirm green again.
+      Record the observed failure message. A rewrite that still passes against
+      broken code has not fixed anything. Your final diff MUST contain no source
+      change — only the test file.
+
+      Then COMMIT inside your worktree (your edits do not merge back on their
+      own, and an uncommitted worktree leaves nothing for the orchestrator to
+      merge):
+        git add {test_file} && git commit -m "test: rectify defects in {test_file}"
+
+      Write your summary to outputs/fixed/{file_slug}.json UNDER YOUR OWN CWD
+      (an absolute path inside your worktree — you cannot write the shared
+      workspace from here; the orchestrator copies it back after merging your
+      branch):
+        {
+          "test_file": "{test_file}",
+          "rewritten": [{"method":..., "old_assertion":..., "new_assertion":...,
+                         "teeth_proof":"failed with: <message>"}],
+          "added": [{"method":..., "symbol":..., "class":"B"|"C",
+                     "assertion":"..."}],
+          "consolidated": [{"replaced_by":"test_new_subtest_method",
+                            "removed":["test_old_a","test_old_b"]}],
+          "renamed": [{"from":"test_workflow_stage_is_callable",
+                       "to":"test_workflow_stage_invocation_returns_result"}],
+          "unittest": "PASS"|"FAIL",
+          "committed": true,
+          "notes": "..."
+        }
+      "consolidated" MUST list every method you collapsed away, and "renamed"
+      MUST list every method whose name you changed — Class A permits a rename
+      when the old name misdescribes the strengthened assertion, but an
+      unrecorded rename is indistinguishable from a deletion plus an unrelated
+      addition, and validate-fixes will fail the run on it. Empty lists if you
+      did neither.
+
+      A rename is net-zero for the suite count (one name out, one name in), so
+      it must NOT be counted as either an addition or an approved removal in
+      the delta arithmetic — record it here and nowhere else.
+
+      ORCHESTRATOR — MERGE-BACK, AFTER THE WHOLE FAN-OUT GROUP COMPLETES AND
+      BEFORE validate-fixes RUNS. Committing inside the worktree is necessary
+      but NOT sufficient: isolation:"worktree" puts each tester on its own
+      worktree-agent-* branch, and validate-fixes reads the PARENT working
+      tree. Skip this and every method will read as missing — the first real
+      run only passed because these merges were performed by hand.
+
+      For each fan-out item:
+        1. git log --oneline <target-branch>..<agent-branch>
+           MUST be non-empty. An empty range means the tester edited without
+           committing, so the merge would be a silent no-op that still reports
+           success. Fail that item loudly instead.
+        2. git merge --no-ff <agent-branch> -m "merge: <file_slug>"
+           Each tester touches exactly ONE distinct test file, so these cannot
+           conflict with each other; a conflict means the per-file invariant
+           was violated and is a hard failure, not something to resolve.
+        3. Copy <agent-cwd>/outputs/fixed/<file_slug>.json back to
+           {workspace}/outputs/fixed/, since the agent wrote it inside its own
+           worktree and validate-fixes reads the shared workspace.
+        4. After all merges, confirm `git diff --name-only <baseline_sha>...HEAD`
+           lists exactly the expected test files and NO source file. A source
+           file here means a tester left a teeth-proof edit behind.
+    agent:
+      role: tester
+      model: sonnet
+      tools: [Read, Write, Edit, Bash, Grep]
+      access: read-write
+      isolation: worktree
+    required: true
+    fan_out:
+      source: triage-defects
+      field: items
+      key: file_slug
+      mode: agent
+    writes_to:
+      - outputs/fixed/{file_slug}.json
+
+  # ===========================================================================
+  # G4: Mechanical validation. Trust the tree, not the agents' summaries.
+  # ===========================================================================
+  # kind is `execute`, not `validate`, deliberately: the engine builds a
+  # validate-stage prompt from validation.criteria alone and never reads a
+  # validate stage's description (src/workflow/dispatch.py::_validate), which
+  # would silently drop the whole procedure below.
+  - name: validate-fixes
+    kind: execute
+    depends_on: [fix-file]
+    reads_from: [fix-file, triage-defects, load-defects]
+    description: >
+      Verify every claimed fix against the working tree. Agent self-reports are
+      NOT evidence: read the files and run the tests.
+
+      Step 1 — collect every {workspace}/outputs/fixed/*.json. Any confirmed
+      file from triage.json with no corresponding summary is a MISSING fix;
+      list it and fail the run.
+
+      Step 2 — presence. For each rewritten and added method, confirm the method
+      exists in its test_file on disk and that its body contains the recorded
+      assertion. A summary naming a method that is not there means the edit did
+      not land (a common worktree merge-back failure).
+
+      Step 3 — genuineness. Re-scan every touched test file for assertion-free
+      patterns: `assertTrue(callable(`, `or True)`, `assertTrue(True)`,
+      pass-only bodies. NONE may remain in a method this run rewrote, and none
+      may have been introduced. Fail the file otherwise.
+
+      Step 4 — scope. `git diff` each touched test file against the pre-run
+      state (baseline_sha). Judge scope PER FILE by what that file's work item
+      actually contained, not by a single blanket rule — load-defects groups
+      every selected class by test_file, so one file can carry class A
+      rewrites AND class B/C additions together. A flat additions-only rule
+      would reject the class A rewrites this workflow exists to make.
+
+      A file whose item has NO class A defects: additions only.
+
+      A file whose item HAS class A defects may additionally show:
+        - modified lines inside methods listed in "rewritten";
+        - removal of methods listed in "consolidated", and the single method
+          named by that entry's "replaced_by";
+        - the rename pair recorded in "renamed";
+        - supporting non-method edits REQUIRED by those rewrites — typically a
+          new import the strengthened assertion needs, or an updated
+          class-level docstring describing what is now pinned. The menubar
+          rewrite in the first real run needed both: it imports the
+          implementation modules to assert identity against them, and its class
+          docstring no longer described a callable() check. These are correct
+          edits outside any rewritten method, so a rule that forbade them would
+          fail the workflow's own approved output.
+
+      Anything else fails that file: a change to a non-test file, a modification
+      to a method that is in none of those four lists, or an unrelated
+      reformat. Report it rather than reverting — silently fixing a scope
+      violation hides that an agent exceeded its brief.
+
+      Step 5 — run each touched file individually (module path form, never
+      whole-dir discover). Derive the dotted path from the FULL repo-relative
+      test_file (strip ".py", "/" -> "."); it already begins with "tests", so
+      do not prefix another "tests.":
+        PYTHONPATH="$PWD/src" python3 -m unittest <dotted-module-path> -q
+      Confirm the "Ran N tests" line appears and the run is OK — an exit code
+      alone is not evidence the suite executed. Up to 3 fix cycles per file for
+      breakage in the new/rewritten tests only. Never weaken an assertion.
+
+      Step 6 — whole-suite regression. First read the two baseline fields
+      load-defects recorded BEFORE any agent wrote:
+        baseline_sha        = defects.json.baseline_sha
+        baseline_count      = defects.json.baseline_test_count
+      Both come from {workspace}/outputs/defects.json. Do NOT re-derive either
+      one here: HEAD has moved (each tester committed in its worktree and those
+      branches were merged back), so `git rev-parse HEAD` now names a commit
+      that already contains the changes under test, and re-running a "before"
+      count is impossible. If either field is missing, FAIL this stage rather
+      than guessing a baseline — an unreproducible check is worse than none.
+
+      Then run `make test` once, confirming the "Ran N tests" summary line (an
+      exit code alone is not evidence the suite ran).
+
+      Reconcile the count against the EXPECTED NET DELTA, not against
+      "baseline + added". Class A explicitly permits collapsing several
+      assertion-free methods into one subTest, which LOWERS the count while
+      every approved rewrite is present — the first real run went 13583 ->
+      13582 for exactly that reason (six menubar methods became one, plus a
+      rename). A rule of "at least baseline + added" would report that correct
+      run as a deletion.
+
+      Compute:
+        observed_delta = (Ran N tests) - baseline_count
+        expected_delta = (methods added, summed over outputs/fixed/*.json)
+                       - (methods removed by an APPROVED consolidation, summed
+                          over the same files' "consolidated" entries)
+      and require observed_delta == expected_delta EXACTLY. Cross-check it
+      against the diff itself, using the recorded baseline_sha — three dots,
+      so the comparison is against the merge-base and unrelated commits landed
+      on the target branch since the run started do not leak in:
+        git diff <baseline_sha>...HEAD -- tests/ | grep -c '^+    def test_'
+        git diff <baseline_sha>...HEAD -- tests/ | grep -c '^-    def test_'
+      Renames are net-zero and must be neutralised on BOTH sides before
+      comparing: for every entry in a summary's "renamed" list, the old name
+      appears as a '-    def test_' line and the new name as a '+    def test_'
+      line, so subtract one from each raw diff count. A rename left in the raw
+      counts looks exactly like an unapproved deletion paired with a stray
+      addition. The first real run renamed one method in test_handlers.py, so
+      this is not hypothetical.
+
+      Those two counts must reconcile with the suite delta. Any discrepancy —
+      in either direction — is an unapproved deletion or an accidental
+      addition; report it and fail. Never accept a count you cannot explain.
+
+      Also verify every recorded rename actually happened: the "from" name must
+      be ABSENT from the file on disk and the "to" name PRESENT. A rename
+      recorded but not performed, or performed but not recorded, both fail.
+
+      Record baseline_count, the observed count, both diff counts (raw and
+      rename-adjusted) and the two deltas in validation.md, so the arithmetic
+      can be checked by a reader rather than taken on trust.
+
+      A consolidation counts as APPROVED only if the per-file summary lists it
+      under "consolidated" with the removed method names and the single method
+      that replaced them. A tester that collapses methods without recording
+      them there fails this step.
+
+      Do NOT take that list on trust — it authorises deletions, so an unchecked
+      "consolidated" entry is a way to launder one. A tester could delete an
+      unrelated passing test, name it here, and the delta arithmetic would
+      balance while real coverage vanished. Verify every entry against the tree
+      before subtracting it:
+        - each name in "removed" MUST have existed at baseline_sha:
+            git show <baseline_sha>:<test_file> | grep -q 'def <name>'
+          A name that was never there is fabricated; fail the file.
+        - each name in "removed" MUST be absent from the file now.
+        - "replaced_by" MUST exist in the file now, and MUST be one of the
+          methods listed in "rewritten" or otherwise present at baseline —
+          a consolidation that replaces N methods with nothing is a deletion.
+        - the removed methods and replaced_by MUST all belong to the same
+          TestCase class; collapsing across classes is not a consolidation.
+      Only entries passing all four checks may reduce the expected delta.
+
+      Write {workspace}/outputs/validation.md with a row per file:
+        | Test file | Rewritten | Added | unittest | Scope OK | Teeth proven | Notes |
+      and a final PASS/FAIL line, plus the suite count before and after.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash, Grep]
+      access: read-write
+    required: true
+    validates_output:
+      - path: outputs/validation.md
+        checks: [non_empty]
+    writes_to:
+      - outputs/validation.md
+
+  # ===========================================================================
+  # G5: Report and final gate.
+  # ===========================================================================
+  - name: report
+    kind: propose
+    human_gate: true
+    depends_on: [validate-fixes]
+    reads_from: [validate-fixes, fix-file, load-defects]
+    description: >
+      Summarize what actually changed, for the commit/PR decision.
+
+      Read validation.md and every outputs/fixed/*.json, and write
+      {workspace}/outputs/report.md:
+        - Files touched, methods rewritten, methods added, per class.
+        - Every class A rewrite: old assertion -> new assertion, with its
+          teeth-proof failure message. This is the section a reviewer reads
+          most carefully, because it changed existing tests.
+        - Suite count before and after.
+        - Anything that failed validation, stated plainly and NOT hidden.
+        - Defects rejected at triage, with the reason — useful signal about
+          classifier reliability for the next run.
+
+      Do not claim success for any file whose validation row is not PASS.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/report.md

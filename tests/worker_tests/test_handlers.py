@@ -29,8 +29,14 @@ class TestHandlerRegistry(unittest.TestCase):
     def test_workflow_stage_registered(self) -> None:
         self.assertIn("workflow_stage", REGISTRY)
 
-    def test_workflow_stage_is_callable(self) -> None:
-        self.assertTrue(callable(REGISTRY["workflow_stage"]))
+    def test_workflow_stage_invocation_returns_handler_result(self) -> None:
+        job = _make_job({"script": "echo hello", "workspace_dir": ""})
+
+        with patch("worker.handlers.handle_run_shell", return_value=(True, {"returncode": 0})) as mock_shell:
+            ok, result = REGISTRY["workflow_stage"](job)
+
+        mock_shell.assert_called_once()
+        self.assertEqual((ok, result), (True, {"returncode": 0}))
 
     def test_registry_entry_is_handle_workflow_stage(self) -> None:
         self.assertIs(REGISTRY["workflow_stage"], handle_workflow_stage)

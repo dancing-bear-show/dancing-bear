@@ -42,6 +42,9 @@ class EnqueueCommand:
         except Exception:
             logger.exception("Invalid --payload-json")
             return 2
+        if not isinstance(payload, dict):
+            logger.error("Invalid --payload-json: expected a JSON object, got %s", type(payload).__name__)
+            return 2
 
         job_id = str(getattr(args, "job_id", "") or uuid.uuid4().hex)
         job = q.Job(

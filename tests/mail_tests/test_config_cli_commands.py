@@ -210,7 +210,9 @@ class TestRunCachePrune(unittest.TestCase):
         run_cache_prune(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
 
         # Days was passed as int(args.days)
-        self.assertTrue(any(True for _ in captured) or True)  # Just ensure it ran
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(captured[0].days, 14)
+        self.assertIsInstance(captured[0].days, int)
 
 
 class TestRunConfigInspect(unittest.TestCase):
