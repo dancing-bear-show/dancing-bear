@@ -11,6 +11,10 @@ per-test mock lists used to leave to chance:
 * No telemetry egress. worker.qwen_telemetry._post is a recording stub,
   and worker.qwen.export_job_span wraps the real function so span
   attributes can be asserted and the real OTLP document still gets built.
+  The handler exports on a background thread; run_handler waits for it
+  (qwen_telemetry.wait_for_exports), so telemetry assertions made after
+  run_handler are deterministic, and cleanup waits again before any patch
+  is undone.
 * No writes outside the test's temp dir. The lock, deferral, patch and
   digest-record paths all point into it.
 
@@ -180,11 +184,17 @@ class QwenHandlerCase(TempDirMixin, unittest.TestCase):
         qwen_log.addHandler(null_handler)
         self.addCleanup(qwen_log.removeHandler, null_handler)
         self.addCleanup(self._assert_no_unexpected_egress)
+        # Registered last so it runs first: no export thread may outlive the
+        # patches above, or it would post through the real _post.
+        self.addCleanup(self._wait_for_exports)
 
     def _start(self, patcher: Any) -> Any:
         started = patcher.start()
         self.addCleanup(patcher.stop)
         return started
+
+    def _wait_for_exports(self) -> None:
+        self.assertTrue(qwen_telemetry.wait_for_exports(timeout=10), "a telemetry export thread did not finish")
 
     def _assert_no_unexpected_egress(self) -> None:
         self.assertEqual(self.unexpected_urls, [], "a test reached an unmocked network endpoint")
@@ -223,7 +233,9 @@ class QwenHandlerCase(TempDirMixin, unittest.TestCase):
         return record
 
     def run_handler(self, payload: dict[str, object] | None = None, **overrides: object) -> tuple[bool, object]:
-        return qwen.handle_qwen_patch(self.job(payload, **overrides))
+        result = qwen.handle_qwen_patch(self.job(payload, **overrides))
+        self._wait_for_exports()
+        return result
 
     def as_dict(self, value: object) -> dict[str, object]:
         """Assert value is a dict and return it typed as one."""

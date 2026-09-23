@@ -65,6 +65,7 @@ JOB_TYPE = "qwen_patch"
 # mock.patch.object(bq, "enqueue"/"find_job_path_by_id", ...) — patch where
 # the name is used, per house convention — actually intercepts these calls.
 from worker import queue_ops  # noqa: E402 - after sys.path repair above, by design
+from worker import qwen  # noqa: E402 - after sys.path repair above, by design
 
 enqueue = queue_ops.enqueue
 find_job_path_by_id = queue_ops.find_job_path_by_id
@@ -81,10 +82,12 @@ def build_payload(files: list[str], instruction: str, explain: bool) -> dict[str
 
 
 def _patch_path_for_job(job_id: str) -> Path:
-    """Absolute path of job_id's stored patch file (contract.result_schema.patch_path)."""
-    from core.paths import output_dir
+    """Absolute path of job_id's stored patch file (contract.result_schema.patch_path).
 
-    return output_dir("qwen") / "patches" / f"{job_id}.patch"
+    Delegates to the handler's own builder, which refuses any id that is not
+    a single safe file-name component (raises qwen.QwenGuardError).
+    """
+    return qwen.patch_path_for_job(job_id)
 
 
 def apply_command(job_id: str) -> str:
@@ -157,10 +160,25 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _reject_unsafe_job_id(job_id: str) -> bool:
+    """True (after printing why) when job_id must not be turned into a path.
+
+    Both --apply and --show build a file name from JOB_ID, so an id such as
+    ../../x must be refused before either runs.
+    """
+    if qwen.is_safe_job_id(job_id):
+        return False
+    print(f"invalid job id: {job_id!r} (expected letters, digits, '.', '_' or '-')", file=sys.stderr)
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
+    for job_id in (args.apply, args.show):
+        if job_id is not None and _reject_unsafe_job_id(str(job_id)):
+            return 2
     if args.apply:
         return _cmd_apply(str(args.apply))
     if args.show:

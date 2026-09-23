@@ -163,6 +163,32 @@ class QwenWrapperMainTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
 
+    def test_apply_and_show_refuse_an_unsafe_job_id_before_building_a_path(self) -> None:
+        bq = _load_module()
+
+        for flag in ("--apply", "--show"):
+            for job_id in ("../../etc/passwd", "..", "a/b", ".hidden"):
+                with self.subTest(flag=flag, job_id=job_id):
+                    out, err = io.StringIO(), io.StringIO()
+                    with (
+                        mock.patch.object(bq, "find_job_path_by_id") as find,
+                        redirect_stdout(out),
+                        contextlib.redirect_stderr(err),
+                    ):
+                        exit_code = bq.main([flag, job_id])
+                    self.assertEqual(exit_code, 2)
+                    self.assertEqual(out.getvalue(), "")
+                    self.assertIn("invalid job id", err.getvalue())
+                    find.assert_not_called()
+
+    def test_patch_path_builder_refuses_an_unsafe_job_id(self) -> None:
+        from worker import qwen
+
+        bq = _load_module()
+
+        with self.assertRaises(qwen.QwenGuardError):
+            bq._patch_path_for_job("../escape")
+
     def test_job_type_is_registered_to_the_qwen_handler(self) -> None:
         from worker import handlers, qwen
 

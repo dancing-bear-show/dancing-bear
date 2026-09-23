@@ -22,6 +22,7 @@ from pathlib import Path
 import unittest.mock as mock
 
 from tests.fixtures import TempDirMixin
+from tests.worker_tests.qwen_fixtures import GREET_PATH, QwenHandlerCase
 from worker import qwen
 
 ALLOWLIST_DIRS = ("src", "tests", "bin", "workflows", "concerns", "docs")
@@ -189,6 +190,101 @@ class QwenConfinementAcceptanceTests(QwenConfinementBaseTests):
             with self.subTest(directory=d):
                 ok_file = self._write(f"{d}/file.txt", "ok\n")
                 self.assertEqual(qwen.resolve_input_files([f"{d}/file.txt"], self.repo_root), [ok_file.resolve()])
+
+
+_OUTSIDE_CONTENT = "CONTENT-FROM-OUTSIDE-THE-REPO\n"
+
+
+class QwenConfinementDescriptorTests(QwenConfinementBaseTests):
+    """Check-then-open: a path swapped after resolve_input_files approved it.
+
+    The read must validate the descriptor it actually opened, so each test
+    approves a legitimate file, swaps something else in under that path,
+    and requires the read to be rejected without the swapped-in bytes.
+    """
+
+    def _approve(self, rel: str) -> tuple[Path, Path]:
+        """Write rel, run the pre-open check on it, and return (file, resolved)."""
+        target = self._write(rel, "legitimate\n")
+        [resolved] = qwen.resolve_input_files([rel], self.repo_root)
+        return target, resolved
+
+    def _outside_file(self, name: str = "outside_secret.txt") -> Path:
+        outside = self.repo_root.parent / name
+        outside.write_text(_OUTSIDE_CONTENT, encoding="utf-8")
+        return outside
+
+    def assert_read_rejected(self, resolved: Path) -> None:
+        with self.assertRaises(qwen.QwenGuardError) as ctx:
+            contents = qwen._read_confined_bytes([resolved], self.repo_root.resolve())
+            self.fail(f"read returned {contents!r}")
+        self.assertEqual(str(ctx.exception), f"terminal-path-not-allowed: {resolved}")
+
+    def test_approved_file_reads_through_its_descriptor(self) -> None:
+        _, resolved = self._approve("src/ok.py")
+
+        self.assertEqual(qwen._read_confined_bytes([resolved], self.repo_root.resolve()), {str(resolved): b"legitimate\n"})
+
+    def test_file_swapped_for_a_symlink_after_the_check_is_rejected(self) -> None:
+        target, resolved = self._approve("src/ok.py")
+        target.unlink()
+        os.symlink(self._outside_file(), target)
+
+        self.assert_read_rejected(resolved)
+
+    def test_parent_directory_swapped_for_a_symlink_after_the_check_is_rejected(self) -> None:
+        """O_NOFOLLOW only guards the last component; the descriptor's own
+        path must be checked to catch an intermediate directory swap."""
+        target, resolved = self._approve("src/pkg/mod.py")
+        outside_dir = self.repo_root.parent / "outside_pkg"
+        outside_dir.mkdir()
+        (outside_dir / "mod.py").write_text(_OUTSIDE_CONTENT, encoding="utf-8")
+        target.unlink()
+        target.parent.rmdir()
+        os.symlink(outside_dir, target.parent)
+
+        self.assert_read_rejected(resolved)
+
+    def test_fifo_swapped_in_after_the_check_is_rejected_without_hanging(self) -> None:
+        target, resolved = self._approve("src/ok.py")
+        target.unlink()
+        os.mkfifo(target)
+
+        self.assert_read_rejected(resolved)
+
+    def test_file_grown_past_the_cap_after_the_check_is_rejected(self) -> None:
+        target, resolved = self._approve("src/ok.py")
+        target.write_bytes(b"x" * 100)
+
+        with mock.patch("worker.qwen.THRESHOLDS", qwen.QwenThresholds(max_file_bytes=20)):
+            self.assert_read_rejected(resolved)
+
+    def test_platform_without_a_descriptor_path_fails_closed(self) -> None:
+        _, resolved = self._approve("src/ok.py")
+
+        with mock.patch("worker.qwen._fd_real_path", return_value=None):
+            self.assert_read_rejected(resolved)
+
+
+class QwenConfinementDescriptorHandlerTests(QwenHandlerCase):
+    def test_swap_after_the_check_never_reaches_the_model(self) -> None:
+        outside = Path(self.tmpdir) / "outside_secret.txt"
+        outside.write_text(_OUTSIDE_CONTENT, encoding="utf-8")
+        greet = self.repo_root / GREET_PATH
+        real_resolve = qwen.resolve_input_files
+
+        def resolve_then_swap(files: list[str], repo_root: Path) -> list[Path]:
+            resolved = real_resolve(files, repo_root)
+            greet.unlink()
+            os.symlink(outside, greet)
+            return resolved
+
+        with mock.patch("worker.qwen.resolve_input_files", side_effect=resolve_then_swap):
+            ok, out = self.run_handler()
+
+        self.assertFalse(ok)
+        self.assertTrue(str(out).startswith("terminal-path-not-allowed: "), out)
+        self.assertEqual(self.generate_requests(), [])
 
 
 if __name__ == "__main__":

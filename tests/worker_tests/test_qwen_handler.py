@@ -26,7 +26,7 @@ import unittest.mock as mock
 
 from telemetry.otel.models import OTLPSpansRecord
 from worker import queue_ops as q
-from worker import qwen
+from worker import qwen, qwen_telemetry
 from tests.worker_tests.qwen_fixtures import (
     GREET_PATH,
     MODEL,
@@ -357,7 +357,7 @@ class QwenTelemetryTests(QwenHandlerCase):
         [call] = self.otlp_posts(path_suffix="/v1/traces")
         url, doc = call.args[0], call.args[1]
         self.assertEqual(url, "http://localhost:4318/v1/traces")
-        self.assertEqual(call.kwargs, {"timeout": 5})
+        self.assertEqual(call.kwargs, {"timeout": qwen_telemetry.EXPORT_TIMEOUT_SEC})
         span = OTLPSpansRecord.from_dict(doc).spans[0]
         self.assertEqual(span.name, "qwen.job")
         self.assertEqual(span.get_attr("qwen.outcome"), "success")
@@ -738,6 +738,27 @@ class QwenAdmissionCapTests(QwenHandlerCase):
 
         self.assertTrue(ok, "a full run_cli lane must not trip the qwen_patch admission cap")
 
+    def test_deferred_job_with_future_not_before_counts_toward_the_cap(self) -> None:
+        """Every deferral sets a future not_before; list_pending hides such jobs,
+        so a count built on it would let a deferred backlog grow unbounded."""
+        queue_root = Path(self.tmpdir) / "queue"
+        q.enqueue(
+            q.Job(id="qwen-deferred", type="qwen_patch", payload={}, not_before="2999-01-01T00:00:00Z"),
+            root=queue_root,
+        )
+        for i in range(qwen.THRESHOLDS.max_lane_depth - 1):
+            q.enqueue(q.Job(id=f"qwen-{i}", type="qwen_patch", payload={}), root=queue_root)
+
+        with (
+            mock.patch("worker.queue_ops.QUEUE_ROOT", queue_root),
+            mock.patch("worker.qwen._lane_depth", wraps=REAL_LANE_DEPTH),
+        ):
+            self.assertEqual(qwen._lane_depth("qwen_patch"), qwen.THRESHOLDS.max_lane_depth)
+            ok, out = self.run_handler()
+
+        self.assertEqual((ok, out), (False, "terminal-lane-over-capacity"))
+        self.assertEqual(self.generate_requests(), [])
+
 
 class QwenRedactionTests(QwenHandlerCase):
     """contract.redaction: no secret reaches the outcome or the span."""
@@ -883,6 +904,83 @@ class QwenPatchCapsTests(unittest.TestCase):
         self.assertEqual(qwen.check_patch_caps(diff), "terminal-patch-too-broad")
 
 
+class QwenPatchHeaderParsingTests(unittest.TestCase):
+    """Headers the caps check must read the way git apply reads them.
+
+    A patch with no ---/+++ lines (mode change, rename, binary) names its
+    paths only in the diff --git and extended headers, so an unparsed header
+    there is an unchecked write.
+    """
+
+    def test_quoted_diff_git_header_with_spaces_into_denied_prefix(self) -> None:
+        diff = 'diff --git "a/bin/x y" "b/bin/x y"\nold mode 100644\nnew mode 100755\n'
+
+        self.assertEqual(qwen.diff_stats(diff)[0], ["bin/x y"])
+        self.assertEqual(qwen.check_patch_caps(diff), "terminal-patch-too-broad")
+
+    def test_octal_escaped_quoted_names_are_decoded(self) -> None:
+        """git writes non-ASCII bytes as C-style octal escapes: \\303\\251 is UTF-8 e-acute."""
+        diff = 'diff --git "a/bin/caf\\303\\251" "b/bin/caf\\303\\251"\nold mode 100644\nnew mode 100755\n'
+
+        self.assertEqual(qwen.diff_stats(diff)[0], ["bin/café"])
+        self.assertEqual(qwen.check_patch_caps(diff), "terminal-patch-too-broad")
+
+    def test_quoted_rename_headers_are_decoded(self) -> None:
+        diff = (
+            'diff --git a/src/tool.py "b/bin/t\\303\\251 x"\n'
+            "similarity index 100%\n"
+            "rename from src/tool.py\n"
+            'rename to "bin/t\\303\\251 x"\n'
+        )
+
+        self.assertEqual(qwen.diff_stats(diff)[0], ["src/tool.py", "bin/té x"])
+        self.assertEqual(qwen.check_patch_caps(diff), "terminal-patch-too-broad")
+
+    def test_unparseable_path_header_fails_closed(self) -> None:
+        for header in (
+            'diff --git "a/bin/x',
+            "diff --git a/src/x",
+            'diff --git "a/src/x"b/src/x',
+            'diff --git "a/src/\\q" "b/src/x"',
+            'diff --git "a/src/x" "b/src/x" trailing',
+            'rename to "src/unterminated',
+        ):
+            with self.subTest(header=header):
+                diff = f"{header}\nold mode 100644\nnew mode 100755\n"
+                self.assertEqual(qwen.check_patch_caps(diff), "terminal-patch-too-broad")
+
+    def test_binary_patches_are_too_broad_even_on_allowed_paths(self) -> None:
+        git_binary = (
+            "diff --git a/src/blob.bin b/src/blob.bin\n"
+            "new file mode 100644\n"
+            "index 0000000..6b0c3d4\n"
+            "GIT binary patch\n"
+            "literal 3\n"
+            "KcmZ?wdnf=\n"
+            "\n"
+            "literal 0\n"
+            "HcmV?d00001\n"
+        )
+        summary = "diff --git a/src/blob.bin b/src/blob.bin\nindex 1..2 100644\nBinary files a/src/blob.bin and b/src/blob.bin differ\n"
+        for name, diff in (("git-binary-patch", git_binary), ("binary-files-differ", summary)):
+            with self.subTest(name=name):
+                self.assertEqual(qwen.check_patch_caps(diff), "terminal-patch-too-broad")
+
+    def test_any_first_component_is_stripped_like_git_apply_p1(self) -> None:
+        """git apply strips the first component whatever it is: +++ y/bin/qwen writes bin/qwen."""
+        diff = "--- x/bin/qwen\n+++ y/bin/qwen\n@@ -1 +1 @@\n-a\n+b\n"
+
+        self.assertEqual(qwen.diff_stats(diff)[0], ["bin/qwen"])
+        self.assertEqual(qwen.check_patch_caps(diff), "terminal-patch-too-broad")
+
+    def test_removed_line_that_reads_like_a_header_is_a_change(self) -> None:
+        """Removing the SQL comment "-- note" shows as "--- note" inside the hunk."""
+        diff = "--- a/src/q.sql\n+++ b/src/q.sql\n@@ -1,2 +1 @@\n--- note\n keep\n"
+
+        self.assertEqual(qwen.diff_stats(diff), (["src/q.sql"], 1))
+        self.assertIsNone(qwen.check_patch_caps(diff))
+
+
 class QwenPatchCapsThroughHandlerTests(QwenHandlerCase):
     """The caps check catches what git apply --check accepts."""
 
@@ -955,7 +1053,13 @@ class QwenExplainModeTests(QwenHandlerCase):
         self.assertEqual(report["model"], MODEL)
 
     def test_explain_mode_reports_each_guards_real_verdict(self) -> None:
-        all_pass = {"confinement": "pass", "memory": "pass", "disk": "pass", "admission": "pass"}
+        all_pass = {
+            "confinement": "pass",
+            "memory": "pass",
+            "disk": "pass",
+            "admission": "pass",
+            "prompt_budget": "pass",
+        }
         cases = (
             (None, all_pass),
             (("_available_memory_bytes", 1024), {**all_pass, "memory": "deferred-low-memory"}),
@@ -976,6 +1080,25 @@ class QwenExplainModeTests(QwenHandlerCase):
                 self.assertEqual(report["guard_results"], expected)
         self.assertFalse(self.deferral_file().exists(), "explain mode must not record deferrals")
 
+    def test_explain_mode_reports_the_real_prompt_budget_verdict(self) -> None:
+        """The budget check runs on the assembled prompt, as a real run would."""
+        big = self.repo_root / "src" / "example" / "big.py"
+        big.write_text("x" * (qwen.THRESHOLDS.max_file_bytes - 1000), encoding="utf-8")
+        cases: tuple[tuple[dict[str, object], str], ...] = (
+            ({}, "pass"),
+            ({"max_tokens": qwen.THRESHOLDS.num_ctx}, "terminal-prompt-too-large"),
+            ({"files": ["src/example/big.py"]}, "terminal-prompt-too-large"),
+        )
+        for extra, expected in cases:
+            with self.subTest(extra=extra):
+                ok, report = self.run_handler({"explain": True, **extra})
+                self.assertTrue(ok)
+                report = self.as_dict(report)
+                guard_results = self.as_dict(report["guard_results"])
+                self.assertEqual(guard_results["prompt_budget"], expected)
+                self.assertIsInstance(report["assembled_prompt_tokens"], int)
+        self.assertEqual(self.generate_requests(), [])
+
     def test_explain_mode_still_rejects_disallowed_path(self) -> None:
         """The assertion that stops explain mode from becoming a guard bypass."""
         ok, out = self.run_handler({"files": ["../../etc/passwd"], "explain": True})
@@ -994,12 +1117,18 @@ class QwenSeamTests(unittest.TestCase):
         cases = (
             (ps("/usr/bin/python3 -m worker daemon\n"), True),
             (ps("/bin/zsh\n"), False),
-            (ps("", rc=1), False),
+            (ps("", rc=1), None),
         )
         for completed, expected in cases:
             with self.subTest(stdout=completed.stdout), mock.patch("subprocess.run", return_value=completed) as run:
                 self.assertIs(qwen._pid_is_worker(123), expected)
                 self.assertEqual(run.call_args.args[0], ["ps", "-p", "123", "-o", "command="])
+
+    def test_pid_is_worker_is_unknown_when_ps_cannot_run(self) -> None:
+        """An unreadable process table is "unknown", never "confirmed not a worker"."""
+        for error in (FileNotFoundError("ps"), subprocess.TimeoutExpired(["ps"], 5)):
+            with self.subTest(error=type(error).__name__), mock.patch("subprocess.run", side_effect=error):
+                self.assertIsNone(qwen._pid_is_worker(123))
 
     def test_free_disk_bytes_falls_back_to_parent_and_none_on_error(self) -> None:
         missing = Path(os.sep) / "definitely" / "not" / "here"

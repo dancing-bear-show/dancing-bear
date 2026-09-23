@@ -5,7 +5,9 @@ tangle with job control flow: a collector that is down, unreachable, or slow
 must not fail, delay, or retry the job. ``export_job_span`` and
 ``export_job_metrics`` therefore each wrap their own network call in a broad
 exception guard, and are independent of each other — one failing must never
-skip the other.
+skip the other. The handler runs both on one daemon thread via
+``export_in_background``, so even a blackholed collector (up to two
+``EXPORT_TIMEOUT_SEC`` waits) adds nothing to the job's own run time.
 
 Attributes and metrics follow contract.json's telemetry section: one OTLP
 span per job under ``qwen.job``, attributes ``qwen.*``, tokens/duration as
@@ -17,8 +19,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
 import uuid
+from collections.abc import Callable
 
 _log = logging.getLogger(__name__)
 
@@ -26,6 +30,9 @@ SPAN_NAME = "qwen.job"
 SERVICE_NAME = "qwen-worker"
 DEFAULT_OTLP_ENDPOINT = "http://localhost:4318"
 TRACES_PATH = "/v1/traces"
+# Per-request timeout. Short because nothing waits on the answer: export runs
+# off the job's thread, and a slow collector should cost little even there.
+EXPORT_TIMEOUT_SEC = 2.0
 METRICS_PATH = "/v1/metrics"
 
 # Generic (signal-agnostic) OTel exporter env vars.
@@ -278,7 +285,7 @@ def export_job_span(attrs: dict[str, object], start_ns: int, end_ns: int) -> Non
     try:
         endpoint = _resolve_traces_endpoint()
         span_doc = build_job_span(attrs, start_ns, end_ns)
-        _post(endpoint, span_doc, timeout=5)
+        _post(endpoint, span_doc, timeout=EXPORT_TIMEOUT_SEC)
     except Exception:  # nosec B110 - best-effort telemetry: a down/slow/unreachable collector must never affect job outcome
         _log.debug("qwen: span export failed (non-fatal)", exc_info=True)
 
@@ -297,6 +304,52 @@ def export_job_metrics(
     try:
         endpoint = _resolve_metrics_endpoint()
         metrics_doc = build_job_metrics(attrs, duration_ms, prompt_tokens, completion_tokens)
-        _post(endpoint, metrics_doc, timeout=5)
+        _post(endpoint, metrics_doc, timeout=EXPORT_TIMEOUT_SEC)
     except Exception:  # nosec B110 - best-effort telemetry: a down/slow/unreachable collector must never affect job outcome
         _log.debug("qwen: metrics export failed (non-fatal)", exc_info=True)
+
+
+# Export threads that have started and not yet finished. Only
+# wait_for_exports reads it; production code never waits on an export.
+_inflight: set[threading.Thread] = set()
+_inflight_lock = threading.Lock()
+
+
+def _run_export_task(task: Callable[[], None]) -> None:
+    try:
+        task()
+    except Exception:  # nosec B110 - best-effort telemetry: an export failure must never surface anywhere
+        _log.debug("qwen: background telemetry export failed (non-fatal)", exc_info=True)
+    finally:
+        with _inflight_lock:
+            _inflight.discard(threading.current_thread())
+
+
+def export_in_background(task: Callable[[], None]) -> threading.Thread:
+    """Run task (one job's span + metrics export) on a daemon thread and return at once.
+
+    Fire-and-forget: the caller never joins it. daemon=True means a pending
+    export can never hold the worker process open at exit; the export is
+    simply dropped, which is acceptable for best-effort telemetry. The
+    thread is returned for callers that want to observe it.
+    """
+    thread = threading.Thread(target=_run_export_task, args=(task,), name="qwen-telemetry-export", daemon=True)
+    with _inflight_lock:
+        _inflight.add(thread)
+    thread.start()
+    return thread
+
+
+def wait_for_exports(timeout: float | None = None) -> bool:
+    """Join every export thread started so far; True when all have finished.
+
+    A test hook: tests that assert on posted telemetry call this instead of
+    sleeping. timeout bounds the whole wait, not each join.
+    """
+    with _inflight_lock:
+        threads = list(_inflight)
+    deadline = None if timeout is None else time.monotonic() + timeout
+    for thread in threads:
+        remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
+        thread.join(remaining)
+    return not any(thread.is_alive() for thread in threads)

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import unittest
 import unittest.mock as mock
 
@@ -366,6 +367,42 @@ class QwenTelemetryExportIndependenceTests(_OtelEnvIsolationMixin, unittest.Test
             export_job_metrics(_METRIC_ATTRS, 500.0, 12, 34)
 
         self.assertEqual(mock_post.call_count, 2)
+
+
+class QwenTelemetryBackgroundExportTests(unittest.TestCase):
+    """export_in_background: one daemon thread per job, never joined in production."""
+
+    def test_task_runs_on_a_daemon_thread_that_cannot_hold_the_process_open(self) -> None:
+        from worker.qwen_telemetry import export_in_background, wait_for_exports
+
+        ran_on: list[str] = []
+        thread = export_in_background(lambda: ran_on.append(threading.current_thread().name))
+
+        self.assertTrue(thread.daemon)
+        self.assertTrue(wait_for_exports(timeout=5))
+        self.assertEqual(ran_on, [thread.name])
+        self.assertNotEqual(thread.name, threading.current_thread().name)
+
+    def test_a_raising_task_is_swallowed_and_not_left_in_flight(self) -> None:
+        from worker.qwen_telemetry import export_in_background, wait_for_exports
+
+        def boom() -> None:
+            raise RuntimeError("collector exploded")
+
+        thread = export_in_background(boom)
+
+        self.assertTrue(wait_for_exports(timeout=5))
+        self.assertFalse(thread.is_alive())
+
+    def test_requests_use_the_short_export_timeout(self) -> None:
+        from worker import qwen_telemetry
+
+        with mock.patch("worker.qwen_telemetry._post") as mock_post:
+            qwen_telemetry.export_job_span(_METRIC_ATTRS, 0, 1)
+            qwen_telemetry.export_job_metrics(_METRIC_ATTRS, 1.0, None, None)
+
+        self.assertEqual({c.kwargs["timeout"] for c in mock_post.call_args_list}, {qwen_telemetry.EXPORT_TIMEOUT_SEC})
+        self.assertLessEqual(qwen_telemetry.EXPORT_TIMEOUT_SEC, 2.0)
 
 
 if __name__ == "__main__":
