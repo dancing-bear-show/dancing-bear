@@ -1019,7 +1019,7 @@ stages:
       what must change.
 
       Do NOT open a PR, commit, or push. That is the human's call.
-      Write the summary to {workspace}/outputs/summary.md.
+      Write the summary to {workspace}/outputs/run-summary.md.
     agent:
       role: doc-writer
       access: read-write
@@ -1032,4 +1032,4 @@ stages:
         mode: generate
         description: Human-facing readiness summary.
     writes_to:
-      - outputs/summary.md
+      - outputs/run-summary.md

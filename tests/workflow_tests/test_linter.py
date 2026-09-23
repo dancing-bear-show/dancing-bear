@@ -536,5 +536,88 @@ class TestCheckAgentAccess(unittest.TestCase):
         self.assertEqual(self._access_warnings(result), [])
 
 
+def _output_yaml(output: str, *, executor_line: str = "") -> str:
+    return (
+        'name: t\nversion: "1.0"\ndescription: d\n'
+        "trigger:\n  source: manual\n"
+        "stages:\n  - name: write-it\n    kind: execute\n    description: d\n"
+        f"{executor_line}"
+        "    agent:\n      role: doc-writer\n"
+        f"    writes_to:\n      - {output}\n"
+    )
+
+
+class TestRefusedOutputNames(unittest.TestCase):
+    """The harness refuses a subagent Write of report.md / summary.md / findings.md.
+
+    Eight workflows declared one of those names from a doc-writer stage, so their
+    final stage could never write its deliverable; review-fix-threads hit it on
+    PR #408. Error, not warning: the stage fails every time it runs.
+    """
+
+    def _lint(self, yaml_str: str) -> LintResult:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            wf = Path(tmp_dir) / "wf.yaml"
+            wf.write_text(yaml_str, encoding="utf-8")
+            return lint_workflow(wf)
+
+    def _refusals(self, result: LintResult) -> list[LintError]:
+        return [e for e in result.errors if e.field == "writes_to"]
+
+    def test_each_refused_name_is_an_error_in_any_directory_and_case(self) -> None:
+        for output in ("report.md", "outputs/report.md", "validation/summary.md",
+                       "findings.md", "outputs/REPORT.md", '"{workspace}/report.md"'):
+            with self.subTest(output=output):
+                result = self._lint(_output_yaml(output))
+                self.assertFalse(result.valid)
+                refusals = self._refusals(result)
+                self.assertEqual(len(refusals), 1)
+                self.assertEqual(refusals[0].stage, "write-it")
+                self.assertIn("run-report.md", refusals[0].message)
+
+    def test_names_the_harness_accepts_are_clean(self) -> None:
+        # Each of these was written successfully by a subagent in the probe.
+        for output in ("run-report.md", "outputs/final-report.md", "outputs/run-summary.md",
+                       "outputs/report.json", "outputs/results.md", "ci-debug-report.md"):
+            with self.subTest(output=output):
+                result = self._lint(_output_yaml(output))
+                self.assertEqual(self._refusals(result), [])
+                self.assertTrue(result.valid)
+
+    def test_inline_stage_is_exempt(self) -> None:
+        """The orchestrator writes an inline stage's outputs itself; no subagent is refused."""
+        result = self._lint(_output_yaml("outputs/report.md", executor_line="    executor: inline\n"))
+        self.assertEqual(self._refusals(result), [])
+
+    def test_fragment_stages_are_checked_and_invalidate(self) -> None:
+        """shared/report-generate.yaml is a fragment and had the defect, so fragments count."""
+        result = self._lint(
+            "fragment: true\n"
+            "stages:\n"
+            "  - name: frag-report\n"
+            "    kind: execute\n"
+            "    description: d\n"
+            "    agent:\n"
+            "      role: doc-writer\n"
+            "    writes_to:\n"
+            "      - outputs/report.md\n"
+        )
+        self.assertEqual([e.stage for e in self._refusals(result)], ["frag-report"])
+        self.assertFalse(result.valid)
+
+    def test_no_shipped_workflow_declares_a_refused_name(self) -> None:
+        """Every workflow and fragment in the tree, not a sample."""
+        root = Path(__file__).resolve().parents[2] / "workflows"
+        files = sorted(root.rglob("*.yaml"))
+        self.assertGreater(len(files), 50, msg="found too few workflows to be the real tree")
+        offenders = [
+            f"{f.relative_to(root)}: {e.stage}: {e.message}"
+            for f in files
+            for e in lint_workflow(f).errors
+            if e.field == "writes_to"
+        ]
+        self.assertEqual(offenders, [])
+
+
 if __name__ == "__main__":
     unittest.main()

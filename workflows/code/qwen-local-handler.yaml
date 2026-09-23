@@ -3155,7 +3155,7 @@ stages:
     depends_on: [acceptance]
     reads_from: [acceptance, verify, validate-config, install, integrate, merge-impl, design, survey]
     description: >
-      Read every prior stage output and write {workspace}/validation/report.md.
+      Read every prior stage output and write {workspace}/validation/run-report.md.
       Cite the stage files for each claim; do not restate intent as outcome.
 
       ## Qwen Local Handler — Report
@@ -3257,7 +3257,7 @@ stages:
       - name: final_report
         mode: generate
         description: >
-          report.md summarizing shipped files, design decisions, gate results,
+          run-report.md summarizing shipped files, design decisions, gate results,
           install state, verification, usage, and honest known limits.
     writes_to:
-      - validation/report.md
+      - validation/run-report.md

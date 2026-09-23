@@ -131,7 +131,11 @@ class TestGuardHookSuites(unittest.TestCase):
             encoding="utf-8",
             errors="replace",
             cwd=str(repo_root()),
-            timeout=180,
+            # 600, not 180. block-destructive-bash.test.sh needs ~196s on an idle
+            # machine and more under parallel-agent load, so 180 timed out and read
+            # as a regression (it failed PR #408's first verify run). The timeout
+            # exists to stop a hung suite, not to benchmark a slow one.
+            timeout=600,
         )
         # The suite's own output is the useful failure message: it names every case
         # that failed and what it expected. Reproducing that in assert messages would

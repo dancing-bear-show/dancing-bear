@@ -165,6 +165,7 @@ def lint_workflow(path: str | Path, *, check_commands: bool = False) -> LintResu
     _check_fan_out_worker_queue(defn, result)
     _check_inline_executor(defn, result)
     _check_agent_access(defn, result)
+    _check_refused_output_names(defn.stages, result)
 
     if check_commands:
         _check_cli_commands(defn, result)
@@ -190,7 +191,8 @@ def _lint_fragment(p: Path, text: str, result: LintResult) -> LintResult:
     result.stages = len(stages)
     result.dag_depth = _compute_dag_depth(stages)
     _check_stage_access(stages, result)
-    result.valid = True
+    _check_refused_output_names(stages, result)
+    result.valid = len(result.errors) == 0
     return result
 
 
@@ -307,6 +309,39 @@ def _check_inline_executor(defn: object, result: LintResult) -> None:
                     ),
                 )
             )
+
+
+# Output names the Claude Code harness refuses when a SUBAGENT writes them: the Write
+# is rejected with "Subagents should return findings as text, not write report files."
+# Matched on the exact basename, case-insensitive, in any directory; `run-report.md`,
+# `final-report.md`, `run-summary.md` and `report.json` are all accepted. Measured by
+# probe on 2026-09-23 after review-fix-threads' report stage failed on PR #408 -- eight
+# workflows were declaring one of these names from a doc-writer stage, so each run's
+# final stage could never produce its deliverable. The rule is the harness's, not ours,
+# so it is re-measured rather than reasoned about if this list is ever questioned.
+_HARNESS_REFUSED_OUTPUTS = frozenset({"report.md", "summary.md", "findings.md"})
+
+
+def _check_refused_output_names(stages: tuple[StageSpec, ...], result: LintResult) -> None:
+    """Emit an error for every agent stage that declares a harness-refused output name."""
+    for stage in stages:
+        if stage.executor != "agent":
+            continue  # inline/local/skill stages are not written by a subagent
+        for path in stage.writes_to:
+            name = Path(path).name
+            if name.lower() in _HARNESS_REFUSED_OUTPUTS:
+                result.errors.append(
+                    LintError(
+                        stage=stage.name,
+                        field="writes_to",
+                        message=(
+                            f"'{path}': the harness refuses a subagent Write of a file named "
+                            f"{name!r} (report.md, summary.md and findings.md are blocked), so "
+                            "this stage can never produce it -- use a prefixed name such as "
+                            "run-report.md"
+                        ),
+                    )
+                )
 
 
 _AGENTS_DIR = Path(__file__).resolve().parents[2] / ".claude" / "agents"
