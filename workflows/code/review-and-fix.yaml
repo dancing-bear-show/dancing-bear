@@ -606,11 +606,28 @@ stages:
              its worktree after committing only part of its edits would
              pass a gate that trusted it.
 
-        3. Merge (skip when step 2 found no commits):
-             Bash tool: BRANCH="$(jq -er '.branch' {workspace}/outputs/fix/<fixer result file>)" &&
-                        git check-ref-format --branch "$BRANCH" >/dev/null &&
-                        git merge --no-ff "refs/heads/$BRANCH" -m "merge fix stage <name>"
+        3. Merge (skip when step 2 found no commits). Merge the fixer's
+           RECORDED head_commit, and only after confirming the branch tip is
+           still that commit. Checking ancestry from PRE_FIX_SHA is not
+           enough: if anything advanced the branch after the fixer wrote its
+           result, merging the branch ref would import commits the fixer
+           never recorded. head_commit is agent-written too, so it is
+           loaded by `jq` and must be exactly 40 lowercase hex characters
+           before it is used. Run as ONE Bash tool call:
+             Bash tool: F="{workspace}/outputs/fix/<fixer result file>"
+                        BRANCH="$(jq -er '.branch' "$F")" && git check-ref-format --branch "$BRANCH" >/dev/null || { echo "BAD-BRANCH"; exit 3; }
+                        WANT="$(jq -er '.head_commit' "$F")" || { echo "BAD-HEAD-COMMIT"; exit 3; }
+                        case "$WANT" in *[!0-9a-f]*|"") echo "BAD-HEAD-COMMIT"; exit 3;; esac
+                        [ "${#WANT}" -eq 40 ] || { echo "BAD-HEAD-COMMIT"; exit 3; }
+                        TIP="$(git rev-parse --verify -q "refs/heads/$BRANCH^{commit}")" || { echo "NO-TIP"; exit 3; }
+                        [ "$TIP" = "$WANT" ] || { echo "HEAD-MISMATCH $TIP"; exit 4; }
+                        git merge --no-ff "$WANT" -m "merge fix stage <name>"
                         echo "EXIT=$?"
+           BAD-BRANCH, BAD-HEAD-COMMIT or NO-TIP goes under "unidentifiable"
+           with that token as the detail; HEAD-MISMATCH goes under
+           "unidentifiable" with detail "branch tip <TIP> != recorded
+           head_commit". Nothing was merged in any of those cases; fail
+           this stage for that fixer.
            On a conflict, abort the merge (`git merge --abort`), record the
            conflicting paths, and fail this stage. Do NOT resolve conflicts
            here — a conflict means two fixers changed the same lines and a

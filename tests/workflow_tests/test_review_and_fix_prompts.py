@@ -11,6 +11,7 @@ and ignored a non-zero exit code.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess  # nosec B404 - runs git/bash against a temp repo
@@ -180,7 +181,8 @@ class TestMergeFixWorktreesBranchNeverTyped(unittest.TestCase):
     def test_every_consumer_validates_and_quotes_the_full_ref(self) -> None:
         for cmd in ('git merge-base --is-ancestor <PRE_FIX_SHA> "refs/heads/$BRANCH"',
                     'git log --oneline <PRE_FIX_SHA>.."refs/heads/$BRANCH"',
-                    'git merge --no-ff "refs/heads/$BRANCH"'):
+                    'git rev-parse --verify -q "refs/heads/$BRANCH^{commit}"',
+                    'git merge --no-ff "$WANT"'):
             with self.subTest(cmd=cmd):
                 self.assertIn(cmd, self.prompt)
         self.assertEqual(self.prompt.count('git check-ref-format --branch "$BRANCH"'), 4)
@@ -188,10 +190,15 @@ class TestMergeFixWorktreesBranchNeverTyped(unittest.TestCase):
 
 def _worktree_check_block(workspace: str) -> str:
     """The worktree-check Bash block exactly as the agent receives it."""
+    return _bash_block(workspace, 'WORKTREE_PATH="$(')
+
+
+def _bash_block(workspace: str, marker: str) -> str:
+    """The merge-fix-worktrees Bash block containing *marker*, as rendered."""
     defn = parse_workflow(str(_WORKFLOW))
     manifest = compile_workflow(defn, project_root=_ROOT, trigger_params={"pr_number": "406"})
     prompt = build_agent_prompt(manifest.resolved_stages["merge-fix-worktrees"], defn.name, workspace)
-    chunk = next(c for c in prompt.split("Bash tool: ") if 'WORKTREE_PATH="$(' in c)
+    chunk = next(c for c in prompt.split("Bash tool: ") if marker in c)
     block = chunk[: chunk.index('echo "EXIT=$?"') + len('echo "EXIT=$?"')]
     return "\n".join(line.strip() for line in block.splitlines()).replace(
         "<fixer result file>", "r.json")
@@ -250,6 +257,65 @@ class TestWorktreeCheckBlockExecutes(unittest.TestCase):
 
     def test_option_shaped_branch_is_rejected(self) -> None:
         self.assertIn("BAD-BRANCH", self._run("-foo").stdout)
+
+
+@unittest.skipUnless(all(map(shutil.which, ("git", "jq", "bash"))), "needs git, jq and bash")
+class TestMergeBlockBindsToRecordedHead(unittest.TestCase):
+    """PR #406 round 9: the merge took the branch ref, so a branch advanced
+    after the fixer recorded head_commit merged commits nobody recorded.
+    Run the rendered merge block against a real repo."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        self.ws, self.repo = root / "ws", root / "repo"
+        (self.ws / "outputs/fix").mkdir(parents=True)
+        self._git("init", "-q", "-b", "main", str(self.repo))
+        self._git("-C", str(self.repo), "commit", "-q", "--allow-empty", "-m", "base")
+        self._git("-C", str(self.repo), "checkout", "-q", "-b", "worktree-agent-abc")
+        (self.repo / "fix.py").write_text("fixed = 1\n")
+        self._git("-C", str(self.repo), "add", "fix.py")
+        self._git("-C", str(self.repo), "commit", "-q", "-m", "fix")
+        self.recorded = self._git("-C", str(self.repo), "rev-parse", "HEAD").decode().strip()
+        self._git("-C", str(self.repo), "checkout", "-q", "main")
+        self.block = _bash_block(str(self.ws), "git merge --no-ff")
+
+    @staticmethod
+    def _git(*args: str) -> bytes:
+        argv = [str(shutil.which("git")), "-c", "user.name=t", "-c", "user.email=t@t", *args]
+        return subprocess.run(argv, check=True, capture_output=True).stdout  # nosec B603 - fixed argv, temp repo
+
+    def _run(self, head_commit: object) -> subprocess.CompletedProcess[str]:
+        (self.ws / "outputs/fix/r.json").write_text(
+            json.dumps({"branch": "worktree-agent-abc", "head_commit": head_commit}))
+        argv = [str(shutil.which("bash")), "-c", self.block]
+        env = {"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", ""),
+               "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+        return subprocess.run(argv, cwd=self.repo, env=env, capture_output=True, text=True)  # nosec B603 - runs the workflow's own rendered block in a temp repo
+
+    def test_matching_head_is_merged(self) -> None:
+        out = self._run(self.recorded).stdout
+        self.assertIn("EXIT=0", out)
+        self.assertTrue((self.repo / "fix.py").exists())
+
+    def test_branch_advanced_after_recording_is_refused(self) -> None:
+        self._git("-C", str(self.repo), "checkout", "-q", "worktree-agent-abc")
+        (self.repo / "extra.py").write_text("extra = 1\n")
+        self._git("-C", str(self.repo), "add", "extra.py")
+        self._git("-C", str(self.repo), "commit", "-q", "-m", "unrecorded")
+        self._git("-C", str(self.repo), "checkout", "-q", "main")
+        res = self._run(self.recorded)
+        self.assertIn("HEAD-MISMATCH", res.stdout)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertFalse((self.repo / "extra.py").exists())
+        self.assertFalse((self.repo / "fix.py").exists())
+
+    def test_non_sha_head_commit_is_rejected_not_run(self) -> None:
+        res = self._run("$(touch PWNED)")
+        self.assertIn("BAD-HEAD-COMMIT", res.stdout)
+        self.assertFalse((self.repo / "PWNED").exists())
 
 
 if __name__ == "__main__":
