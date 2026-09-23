@@ -18,7 +18,9 @@ Supports `--agentic`: `./bin/workflow --agentic --agentic-format yaml --agentic-
 ./bin/workflow resume <workspace-dir>      # show which stages need re-running
 ./bin/workflow validate-fragment frag.yaml # validate a workflow fragment
 ./bin/workflow check-params "<ws>/manifest.json" --check 'name=regex'  # guard a param
-./bin/workflow check-finding-keys "<ws>/outputs/fix-index.json"         # finding_key gate
+./bin/workflow parse-overview "<ws>/outputs/threads.json" --pr N --out "<ws>/outputs/review-overview.json"
+./bin/workflow check-paths <path> [<path> ...]                          # refuse escaping/protected paths
+./bin/workflow check-fix-index "<ws>/outputs/fix-index.json"            # id / file_id gate
 ./bin/workflow thread-fingerprints "<ws>/outputs/threads.json"          # per-thread discriminators
 ./bin/workflow check-thread-ids "<ws>/outputs/threads.json" "<ws>/outputs/triage.json" [--repair]
 ./bin/workflow aggregate-fix-results "<ws>/outputs/fix-index.json" "<ws>/outputs/fixes" "<ws>/outputs/fix-results.json"
@@ -34,8 +36,13 @@ and name an entry, never its rejected value.
   writes that one value to stdout only if every check passed, and only for a
   name some `--check` covers. It lets a stage write `X=$(...)` instead of
   interpolating a raw param.
-- `check-finding-keys` checks that every `finding_key` in a fix-index is
-  present, unique, and matches `[A-Za-z0-9][A-Za-z0-9_-]{0,99}`.
+- `check-fix-index` checks that every fix-index entry has a unique string
+  `id` and a unique `file_id` matching `[A-Za-z0-9][A-Za-z0-9._-]{0,199}`.
+- `check-paths` exits 1 and prints `REFUSED <reason>: <path>` for any path that
+  escapes the repo or is protected (`.git`, `.github/`, `.claude/`, `.envrc`).
+- `parse-overview` parses Copilot overview review bodies from a threads.json
+  into linked and unlinked findings, each with an `id` and a `file_id`. See
+  `core/copilot_overview.py`.
 - `thread-fingerprints` prints JSON `[{index, thread_id, database_id,
   body_fingerprint}]` for a threads.json. It is the one tested body hash.
 - `check-thread-ids` is the review-fix-threads id-coherence gate. It skips null
@@ -43,10 +50,10 @@ and name an entry, never its rejected value.
   recorded (`database_id`, or `fingerprint` as a fallback), so swapped ids
   halt. A coordinate-only difference halts unless `--repair` is given, which
   rewrites triage.json and records `_id_repairs`. See `review_ids.py`.
-- `aggregate-fix-results` merges fixer results into fix-results.json on
-  `finding_key`, never `thread_id`. A file counts only if its name, in-file
-  `finding_key` and `thread_id` all match the index; otherwise it is a
-  `key_mismatch` and its finding is reported missing.
+- `aggregate-fix-results` merges `fixes/<file_id>.json` into fix-results.json
+  on `id`, never `thread_id`. A file counts only if its name is an expected
+  `file_id` and its in-file `id` and `thread_id` equal that entry's; otherwise
+  it is a `key_mismatch` and its finding is reported missing.
 
 `run` defaults to dry-run; pass `--execute` to execute. `--params key=value` overrides trigger parameters (repeatable).
 
@@ -108,7 +115,7 @@ Set `human_gate: true` on any stage to pause execution for human review after th
 - `linter.py` — structural lint checks
 - `output_checks.py` — post-stage output validation
 - `param_guard.py` — `check-params`: validate params read as JSON data
-- `review_ids.py` — `check-finding-keys`, `thread-fingerprints`, `check-thread-ids`, `aggregate-fix-results`
+- `review_ids.py` — `check-fix-index`, `thread-fingerprints`, `check-thread-ids`, `aggregate-fix-results`
 
 ## Tests
 

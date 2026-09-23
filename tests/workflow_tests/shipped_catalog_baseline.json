@@ -52,7 +52,6 @@
     "workflows/code/pdffill-domain-build.yaml::critique-design",
     "workflows/code/pdffill-domain-build.yaml::integration-review",
     "workflows/code/pdffill-domain-build.yaml::verify",
-    "workflows/code/review-and-fix.yaml::verify-fixes",
     "workflows/code/synthesize-workflow-from-telemetry.yaml::validate-workflow",
     "workflows/resume/consolidate-schema.yaml::verify-pdf-fidelity",
     "workflows/resume/consolidate-schema.yaml::verify-schema",

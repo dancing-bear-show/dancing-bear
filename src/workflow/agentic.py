@@ -23,7 +23,12 @@ def build_agentic_capsule() -> str:
         "--check 'name=regex' [--top-level] [--print name]"
     )
     lines.append(
-        "  - check-finding-keys: ./bin/workflow check-finding-keys <workspace>/outputs/fix-index.json"
+        "  - parse-overview: ./bin/workflow parse-overview <workspace>/outputs/threads.json "
+        "[--pr N] [--out <workspace>/outputs/review-overview.json]"
+    )
+    lines.append("  - check-paths: ./bin/workflow check-paths <path> [<path> ...]")
+    lines.append(
+        "  - check-fix-index: ./bin/workflow check-fix-index <workspace>/outputs/fix-index.json"
     )
     lines.append(
         "  - thread-fingerprints: ./bin/workflow thread-fingerprints <workspace>/outputs/threads.json"
@@ -49,7 +54,7 @@ def build_agentic_capsule() -> str:
         "handler.json rather than the manifest's trigger_params"
     )
     lines.append(
-        "  - check-finding-keys / check-thread-ids are review-fix-threads gates (exit 0 pass, "
+        "  - check-fix-index / check-thread-ids are review-fix-threads gates (exit 0 pass, "
         "1 fail); failures go to stderr naming entries by position, never echoing a value; "
         "check-thread-ids --repair rewrites triage.json coordinates from the fetch and records "
         "_id_repairs, every other mismatch halts"
@@ -59,9 +64,19 @@ def build_agentic_capsule() -> str:
         "the fingerprint is the one tested sha256 every stage must use"
     )
     lines.append(
-        "  - aggregate-fix-results credits a result only if its filename, in-file finding_key and "
-        "thread_id all match fix-index.json; anything else is a key_mismatch and its finding is "
-        "missing. Exit 0 once written, 1 (nothing written) on a bad index"
+        "  - check-fix-index requires every fix-index entry's id unique and file_id unique and "
+        "matching [A-Za-z0-9][A-Za-z0-9._-]{0,199}"
+    )
+    lines.append(
+        "  - aggregate-fix-results credits fixes/<file_id>.json only if the stem is an expected "
+        "file_id and its in-file id and thread_id equal that entry's; anything else is a "
+        "key_mismatch and its finding is missing (missing_results lists ids). Exit 0 once "
+        "written, 1 (nothing written) on a bad index"
+    )
+    lines.append(
+        "  - parse-overview emits Copilot overview findings (linked and unlinked, each with id "
+        "and file_id); check-paths exits 1 printing REFUSED for any path that escapes the repo "
+        "or is protected"
     )
     return "\n".join(lines)
 

@@ -104,10 +104,24 @@ stages:
       Step 2 — REST review bodies. Top-level review summaries belong to no
       thread, so Step 1 cannot see them, and Copilot puts its overall verdict
       there:
-        GITHUB_TOKEN= gh api "repos/$OWNER/$REPO/pulls/{pr_number}/reviews"
+        GITHUB_TOKEN= gh api --paginate "repos/$OWNER/$REPO/pulls/{pr_number}/reviews"
+
+      `--paginate` is required, not tidiness. REST returns 30 per page by
+      default, and a PR under active review passes 30 quickly — this one
+      reached 23 in a day. Without it the NEWEST reviews are the ones missing,
+      so the overview parser reports present:false or folds a stale review as
+      newest, and every downstream decision keyed on "the newest overview"
+      silently uses the wrong one.
+
+      Copilot also posts a summary review body carrying an index of its
+      findings, their severity, and whether it has raised each one before.
+      Parsing that is a separate concern with its own consumers, so it lives
+      in workflows/shared/pr-review-overview.yaml. This stage's job is to
+      fetch the review bodies faithfully (Step 2 above) and leave them intact
+      in threads.json; that fragment reads them from there.
 
       Step 3 — REST issue comments (PR-level conversation):
-        GITHUB_TOKEN= gh api "repos/$OWNER/$REPO/issues/{pr_number}/comments"
+        GITHUB_TOKEN= gh api --paginate "repos/$OWNER/$REPO/issues/{pr_number}/comments"
 
       Step 4 — normalise into one list. Author classification must handle BOTH
       spellings GitHub returns for the same account: GraphQL reports the
@@ -158,8 +172,24 @@ stages:
               "opening_body": "the first comment's full text",
               "latest_author_kind": "bot|human"
             }
+          ],
+          "review_bodies": [
+            {
+              "review_id": 5285429513,
+              "author": "copilot-pull-request-reviewer",
+              "author_kind": "bot",
+              "state": "COMMENTED",
+              "submitted_at": "2026-09-23T00:12:35Z",
+              "body": "the full review body, verbatim and unmodified"
+            }
           ]
         }
+
+      Keep "review_bodies" verbatim — do not strip HTML, collapse whitespace,
+      or summarise. A Copilot overview body is structured data that
+      pr-review-overview.yaml parses downstream, and a body that has been
+      "tidied" is a body it cannot read. Include every review with a non-empty
+      body, bot or human.
 
       Only threads from Step 1 carry a resolvable thread_id. Entries from Steps
       2 and 3 have thread_id null — they are context for triage and CANNOT be

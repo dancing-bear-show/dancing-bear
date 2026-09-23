@@ -28,8 +28,8 @@ from tests.cli_no_subcommand_contract import NoSubcommandContractMixin
 #: Subcommands a workflow stage branches on by exit status. Their flags are
 #: derived from the parser below; only the command names are listed.
 _GUARD_COMMANDS = (
-    "check-params", "check-finding-keys", "thread-fingerprints", "check-thread-ids",
-    "aggregate-fix-results",
+    "check-params", "check-fix-index", "thread-fingerprints", "check-thread-ids",
+    "aggregate-fix-results", "parse-overview", "check-paths",
 )
 
 
@@ -119,7 +119,7 @@ class TestWorkflowCapsuleContent(unittest.TestCase):
                 with self.subTest(cmd=cmd, flag=flag):
                     self.assertIn(flag, line)
         # Canaries: prove the derivation reaches real flags on each shape.
-        for flag in ("--print", "--top-level", "--repair"):
+        for flag in ("--print", "--top-level", "--repair", "--pr", "--out"):
             self.assertIn(flag, seen_flags, "parser wiring changed; fix this test")
 
 

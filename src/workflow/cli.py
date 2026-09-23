@@ -32,13 +32,15 @@ from workflow.meta import META
 from workflow.cli_compile import _cmd_compile
 from workflow.cli_dispatch import (
     _cmd_aggregate_fix_results,
-    _cmd_check_finding_keys,
+    _cmd_check_fix_index,
     _cmd_check_params,
+    _cmd_check_paths,
     _cmd_check_thread_ids,
     _cmd_init_workspace,
     _cmd_lint,
     _cmd_list,
     _cmd_parse,
+    _cmd_parse_overview,
     _cmd_resume,
     _cmd_run,
     _cmd_status,
@@ -165,6 +167,26 @@ def cmd_list(args: argparse.Namespace) -> int:
     return _cmd_list(args)
 
 
+@app.command(
+    "parse-overview",
+    help="Parse Copilot ccr-overview-v2 review bodies into structured findings",
+)
+@app.argument("threads_json", help="Path to threads.json from the pr-review-threads fragment")
+@app.argument("--pr", dest="pr_number", default="", help="PR number, recorded in the output")
+@app.argument("--out", dest="out_path", default="", help="Write JSON here (default: stdout)")
+def cmd_parse_overview(args: argparse.Namespace) -> int:
+    return _cmd_parse_overview(args)
+
+
+@app.command(
+    "check-paths",
+    help="Exit non-zero if any path escapes the repo or is protected (.git, .github, .claude, .envrc)",
+)
+@app.argument("paths", nargs="+", help="Repo-relative paths to check")
+def cmd_check_paths(args: argparse.Namespace) -> int:
+    return _cmd_check_paths(args)
+
+
 @app.command("status", help="Show status of a workflow run")
 @app.argument("workspace_dir", help="Workspace directory of the run")
 @app.argument("--format", "-f", **_format_kwargs(default="table"))
@@ -231,12 +253,12 @@ def cmd_check_params(args: argparse.Namespace) -> int:
 
 
 @app.command(
-    "check-finding-keys",
-    help="Fail unless every finding_key in a fix-index.json is present, unique, filename-safe",
+    "check-fix-index",
+    help="Fail unless every fix-index.json id is unique and every file_id unique and filename-safe",
 )
 @app.argument("file", help="Path to fix-index.json")
-def cmd_check_finding_keys(args: argparse.Namespace) -> int:
-    return _cmd_check_finding_keys(args)
+def cmd_check_fix_index(args: argparse.Namespace) -> int:
+    return _cmd_check_fix_index(args)
 
 
 @app.command(
@@ -264,10 +286,10 @@ def cmd_check_thread_ids(args: argparse.Namespace) -> int:
 
 @app.command(
     "aggregate-fix-results",
-    help="Merge fixes/<finding_key>.json into fix-results.json, verifying each result's identity",
+    help="Merge fixes/<file_id>.json into fix-results.json, verifying each result's identity",
 )
 @app.argument("index", help="Path to fix-index.json")
-@app.argument("fixes_dir", help="Directory holding <finding_key>.json result files")
+@app.argument("fixes_dir", help="Directory holding <file_id>.json result files")
 @app.argument("out", help="Path to write fix-results.json")
 def cmd_aggregate_fix_results(args: argparse.Namespace) -> int:
     return _cmd_aggregate_fix_results(args)
@@ -279,8 +301,8 @@ def _no_command_usage() -> int:
     since this is a public CLI surface."""
     print(
         "Usage: workflow {parse,compile,run,lint,list,status,init-workspace,resume,"
-        "validate-fragment,check-params,check-finding-keys,thread-fingerprints,"
-        "check-thread-ids,aggregate-fix-results} [options]",
+        "validate-fragment,parse-overview,check-paths,check-params,check-fix-index,"
+        "thread-fingerprints,check-thread-ids,aggregate-fix-results} [options]",
         file=sys.stderr,
     )
     return ExitCode.USAGE

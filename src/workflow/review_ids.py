@@ -9,19 +9,19 @@ one tested implementation cannot.
 These live here, each behind a ``./bin/workflow`` subcommand:
 
 * :func:`body_fingerprint` -- the fallback discriminator for a review thread.
-* :func:`check_finding_keys` -- every fixer writes ``fixes/<finding_key>.json``,
-  so a key that is missing, repeated, or not filename-safe loses or misplaces
-  a result.
+* :func:`check_fix_index` -- every fixer writes ``fixes/<file_id>.json`` and
+  aggregation matches it back by ``id``, so an id or file_id that is missing,
+  repeated, or (for file_id) not filename-safe loses or misplaces a result.
 * :func:`check_thread_ids` -- the id-coherence gate: triage has been observed
   shifting thread ids by one position and fabricating one, and a shifted id
   resolves the wrong thread successfully rather than erroring.
-* :func:`aggregate_fix_results` -- merges ``fixes/<finding_key>.json`` into
+* :func:`aggregate_fix_results` -- merges ``fixes/<file_id>.json`` into
   fix-results.json, crediting a result only when its identity checks out.
 
 Inputs are always read from workspace JSON files by path. Nothing a reviewer
 or an LLM wrote is ever taken from the command line, and diagnostics name an
 offending entry by its POSITION in the file, never by echoing its value: a
-rejected finding_key or thread_id is untrusted text by definition.
+rejected id, file_id or thread_id is untrusted text by definition.
 """
 
 from __future__ import annotations
@@ -35,11 +35,14 @@ from typing import Any
 from core.fileutil import atomic_write_json
 from workflow.param_guard import load_params
 
-#: Allowlist for a finding_key. The key becomes a filename, and triage (an LLM)
-#: produces it, so only this narrow shape is accepted. Every legitimate key
-#: already fits it: a ``PRRT_...`` thread id, a numeric database id, or
-#: ``body-<n>``. Do not widen it into a denylist.
-FINDING_KEY_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,99}")
+#: Allowlist for a fix-index file_id. It becomes a filename, and an LLM stage
+#: builds the index, so only this narrow shape is accepted. Every legitimate
+#: file_id already fits it: core.copilot_overview._file_id replaces everything
+#: outside ``[A-Za-z0-9._-]`` and appends a hash, and every id starts with an
+#: alphanumeric (``PRRT_``, ``unlinked:``, ``comment:``). The alphanumeric first
+#: character rules out ``.``/``..``/hidden names and a leading ``-`` read as an
+#: option. Do not widen it into a denylist.
+FILE_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}")
 
 DISCRIMINATOR_DATABASE_ID = "database_id"
 DISCRIMINATOR_FINGERPRINT = "fingerprint"
@@ -121,16 +124,16 @@ def thread_fingerprints(threads_path: str | Path) -> list[ThreadFingerprint]:
 
 
 # ---------------------------------------------------------------------------
-# finding_key gate
+# fix-index gate: id and file_id
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
-class FindingKeyResult:
-    """Outcome of the finding_key gate. ``ok`` is the contract.
+class FixIndexResult:
+    """Outcome of the fix-index gate. ``ok`` is the contract.
 
-    Each failure names an entry by position only; the key itself is never
-    included, because a rejected key is untrusted text.
+    Each failure names an entry by position only; the value itself is never
+    included, because a rejected id or file_id is untrusted text.
     """
 
     checked: int
@@ -141,44 +144,63 @@ class FindingKeyResult:
         return not self.failures
 
 
-def check_finding_keys(index_path: str | Path) -> FindingKeyResult:
-    """Validate every finding_key in a fix-index.json.
-
-    A key must be present, unique across the whole index, and match
-    :data:`FINDING_KEY_PATTERN` in full. Several missing keys are reported as
-    missing, never as duplicates of one another.
+def _index_entries(index_path: str | Path) -> list[tuple[str, dict[str, Any]]]:
+    """Return ``(position, entry)`` for every finding in a fix-index.json.
 
     Raises:
         ValueError: if the file is unreadable or not the expected shape.
     """
     items = _list_at(load_params(index_path, key=None), "items", index_path)
-    failures: list[str] = []
-    first_seen: dict[str, str] = {}
-    checked = 0
+    entries: list[tuple[str, dict[str, Any]]] = []
     for i, item in enumerate(items):
         data = item.get("data") if isinstance(item, dict) else None
         if not isinstance(data, dict) or not isinstance(data.get("threads"), list):
             raise ValueError(f"{index_path}: items[{i}].data.threads is not a JSON list")
-        for j, thread in enumerate(data["threads"]):
-            where = f"items[{i}].data.threads[{j}]"
-            checked += 1
-            key = thread.get("finding_key") if isinstance(thread, dict) else None
-            failure = _finding_key_failure(key, where, first_seen)
+        for j, entry in enumerate(data["threads"]):
+            entries.append((f"items[{i}].data.threads[{j}]",
+                            entry if isinstance(entry, dict) else {}))
+    return entries
+
+
+def check_fix_index(index_path: str | Path) -> FixIndexResult:
+    """Validate every finding's ``id`` and ``file_id`` in a fix-index.json.
+
+    ``id`` must be a non-empty string, unique across the whole index: it is
+    what aggregation matches a result back to. ``file_id`` must be a string,
+    unique, and match :data:`FILE_ID_PATTERN` in full: it names the result
+    file, so a repeat makes one fixer overwrite another's result. Several
+    missing values are reported as missing, never as duplicates of one another.
+
+    Raises:
+        ValueError: if the file is unreadable or not the expected shape.
+    """
+    entries = _index_entries(index_path)
+    failures: list[str] = []
+    seen_ids: dict[str, str] = {}
+    seen_files: dict[str, str] = {}
+    for where, entry in entries:
+        for failure in (
+            _unique_string_failure("id", entry.get("id"), where, seen_ids, None),
+            _unique_string_failure("file_id", entry.get("file_id"), where, seen_files,
+                                   FILE_ID_PATTERN),
+        ):
             if failure:
                 failures.append(failure)
-    return FindingKeyResult(checked=checked, failures=tuple(failures))
+    return FixIndexResult(checked=len(entries), failures=tuple(failures))
 
 
-def _finding_key_failure(key: object, where: str, first_seen: dict[str, str]) -> str | None:
-    if key is None or key == "":
-        return f"{where}: finding_key is missing"
-    if not isinstance(key, str):
-        return f"{where}: finding_key is not a string"
-    if not FINDING_KEY_PATTERN.fullmatch(key):
-        return f"{where}: finding_key is not [A-Za-z0-9][A-Za-z0-9_-]{{0,99}}"
-    if key in first_seen:
-        return f"{where}: finding_key duplicates {first_seen[key]}"
-    first_seen[key] = where
+def _unique_string_failure(field_name: str, value: object, where: str,
+                           first_seen: dict[str, str],
+                           pattern: re.Pattern[str] | None) -> str | None:
+    if value is None or value == "":
+        return f"{where}: {field_name} is missing"
+    if not isinstance(value, str):
+        return f"{where}: {field_name} is not a string"
+    if pattern is not None and not pattern.fullmatch(value):
+        return f"{where}: {field_name} is not {pattern.pattern}"
+    if value in first_seen:
+        return f"{where}: {field_name} duplicates {first_seen[value]}"
+    first_seen[value] = where
     return None
 
 
@@ -364,7 +386,8 @@ _UNPROVEN_TEST_RESULTS = ("fail", "not-run")
 
 @dataclass(frozen=True)
 class _Expected:
-    finding_key: str
+    id: str
+    file_id: str
     thread_id: object
 
 
@@ -374,7 +397,7 @@ class FixResults:
 
     total_expected: int
     results: tuple[dict[str, Any], ...]
-    missing_results: tuple[dict[str, Any], ...]
+    missing_results: tuple[str, ...]
     key_mismatches: tuple[dict[str, Any], ...]
 
     def to_json(self) -> dict[str, Any]:
@@ -391,6 +414,7 @@ class FixResults:
             "missing_results": list(self.missing_results),
             "failed_tests": [_failed_test(r) for r in self.results if _is_unproven_fix(r)],
             "key_mismatches": list(self.key_mismatches),
+            "out_of_scope_requests": _out_of_scope_requests(self.results),
             "results": list(self.results),
         }
 
@@ -404,6 +428,21 @@ def _union_of(results: tuple[dict[str, Any], ...], field_name: str) -> list[str]
     return sorted(values)
 
 
+def _out_of_scope_requests(results: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
+    """Lift every credited result's out_of_scope_requests, tagged with its id.
+
+    A security signal -- comment text that tried to steer a fixer outside its
+    file -- so it is surfaced at the top level rather than left for a reader
+    to dig out of each result.
+    """
+    lifted: list[dict[str, Any]] = []
+    for result in results:
+        requests = result.get("out_of_scope_requests")
+        if isinstance(requests, list):
+            lifted.extend({"id": result["id"], "request": r} for r in requests)
+    return lifted
+
+
 def _is_unproven_fix(result: dict[str, Any]) -> bool:
     """A "fixed" result whose tests did not demonstrably pass."""
     return result.get("action") == "fixed" and result.get("test_result") != "pass"
@@ -412,7 +451,7 @@ def _is_unproven_fix(result: dict[str, Any]) -> bool:
 def _failed_test(result: dict[str, Any]) -> dict[str, Any]:
     reported = result.get("test_result")
     return {
-        "finding_key": result["finding_key"],
+        "id": result["id"],
         "thread_id": result.get("thread_id"),
         # Anything but a recognised failure value is treated as not run.
         "test_result": reported if reported in _UNPROVEN_TEST_RESULTS else "not-run",
@@ -420,15 +459,13 @@ def _failed_test(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def _expected_findings(index_path: str | Path) -> list[_Expected]:
-    """Every finding in fix-index.json, after re-asserting the key gate."""
-    gate = check_finding_keys(index_path)
+    """Every finding in fix-index.json, after re-asserting the index gate."""
+    gate = check_fix_index(index_path)
     if not gate.ok:
-        raise ValueError(f"{index_path}: finding_key gate fails; run check-finding-keys")
-    items = _list_at(load_params(index_path, key=None), "items", index_path)
+        raise ValueError(f"{index_path}: fix-index gate fails; run check-fix-index")
     return [
-        _Expected(finding_key=t["finding_key"], thread_id=t.get("thread_id"))
-        for item in items
-        for t in item["data"]["threads"]
+        _Expected(id=entry["id"], file_id=entry["file_id"], thread_id=entry.get("thread_id"))
+        for _, entry in _index_entries(index_path)
     ]
 
 
@@ -442,7 +479,7 @@ def _read_result(path: Path) -> dict[str, Any] | None:
 def _mismatch(stem: str, obj: dict[str, Any] | None, reason: str) -> dict[str, Any]:
     return {
         "file": f"{stem}.json",
-        "finding_key_in_file": (obj or {}).get("finding_key"),
+        "id_in_file": (obj or {}).get("id"),
         "thread_id_in_file": (obj or {}).get("thread_id"),
         "reason": reason,
     }
@@ -454,33 +491,34 @@ def _identity_failure(stem: str, obj: dict[str, Any] | None,
     if obj is None:
         return "not a readable JSON object"
     if stem not in expected:
-        return "filename is not a finding_key in fix-index.json"
-    if "finding_key" not in obj:
-        return "finding_key field is missing"
-    if obj["finding_key"] != stem:
-        return "finding_key field does not equal the filename"
+        return "filename is not a file_id in fix-index.json"
+    if "id" not in obj:
+        return "id field is missing"
+    if obj["id"] != expected[stem].id:
+        return "id field does not equal the fix-index entry's"
     if obj.get("thread_id") != expected[stem].thread_id:
         return "thread_id does not equal the fix-index entry's"
     return None
 
 
 def aggregate_fix_results(index_path: str | Path, fixes_dir: str | Path) -> FixResults:
-    """Merge ``fixes/<finding_key>.json`` files against fix-index.json.
+    """Merge ``fixes/<file_id>.json`` files against fix-index.json.
 
-    Reconciles on finding_key, never thread_id: null-id findings share
-    ``thread_id: null`` and would all look for ``null.json``. A result is
-    credited only if its filename is an expected key, its in-file
-    ``finding_key`` equals that name exactly (never backfilled from it), and
-    its ``thread_id`` equals the index entry's (null only equals null). Any
-    other file is a key mismatch; if its name is an expected key, that finding
-    is also reported missing, because its outcome is unknown.
+    Reconciles on the index's ``id``, never thread_id: findings with no thread
+    share ``thread_id: null`` and would all look for ``null.json``. A result is
+    credited only if its filename stem is an expected file_id, its in-file
+    ``id`` equals that entry's ``id`` exactly (never backfilled from the
+    filename), and its ``thread_id`` equals the entry's (null only equals
+    null). Any other file is a key mismatch; if its name is an expected
+    file_id, that finding is also reported missing, because its outcome is
+    unknown. ``missing_results`` lists ids.
 
     Raises:
         ValueError: if fix-index.json is unreadable, malformed, or fails the
-            finding_key gate.
+            fix-index gate.
     """
     expected_list = _expected_findings(index_path)
-    expected = {e.finding_key: e for e in expected_list}
+    expected = {e.file_id: e for e in expected_list}
     directory = Path(fixes_dir)
     files = sorted(p for p in directory.glob("*.json") if p.is_file()) if directory.is_dir() else []
     credited: dict[str, dict[str, Any]] = {}
@@ -494,10 +532,7 @@ def aggregate_fix_results(index_path: str | Path, fixes_dir: str | Path) -> FixR
             credited[path.stem] = obj
     return FixResults(
         total_expected=len(expected_list),
-        results=tuple(credited[e.finding_key] for e in expected_list if e.finding_key in credited),
-        missing_results=tuple(
-            {"finding_key": e.finding_key, "thread_id": e.thread_id}
-            for e in expected_list if e.finding_key not in credited
-        ),
+        results=tuple(credited[e.file_id] for e in expected_list if e.file_id in credited),
+        missing_results=tuple(e.id for e in expected_list if e.file_id not in credited),
         key_mismatches=tuple(mismatches),
     )
