@@ -214,7 +214,7 @@ class TestWorktreeCheckBlockExecutes(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
-        self.ws, self.repo = root / "ws", root / "repo"
+        self.ws, self.repo = root / "work space", root / "repo"  # space: {workspace} must be quoted
         (self.ws / "outputs/fix").mkdir(parents=True)
         (self.ws / "validation").mkdir()
         self.wt = root / "wt dir"
@@ -269,17 +269,19 @@ class TestMergeBlockBindsToRecordedHead(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
-        self.ws, self.repo = root / "ws", root / "repo"
+        self.ws, self.repo = root / "work space", root / "repo"  # space: {workspace} must be quoted
         (self.ws / "outputs/fix").mkdir(parents=True)
+        (self.ws / "validation").mkdir()
         self._git("init", "-q", "-b", "main", str(self.repo))
         self._git("-C", str(self.repo), "commit", "-q", "--allow-empty", "-m", "base")
+        base = self._git("-C", str(self.repo), "rev-parse", "HEAD").decode().strip()
         self._git("-C", str(self.repo), "checkout", "-q", "-b", "worktree-agent-abc")
         (self.repo / "fix.py").write_text("fixed = 1\n")
         self._git("-C", str(self.repo), "add", "fix.py")
         self._git("-C", str(self.repo), "commit", "-q", "-m", "fix")
         self.recorded = self._git("-C", str(self.repo), "rev-parse", "HEAD").decode().strip()
         self._git("-C", str(self.repo), "checkout", "-q", "main")
-        self.block = _bash_block(str(self.ws), "git merge --no-ff")
+        self.block = _bash_block(str(self.ws), "git merge --no-ff").replace("<PRE_FIX_SHA>", base)
 
     @staticmethod
     def _git(*args: str) -> bytes:
@@ -310,6 +312,22 @@ class TestMergeBlockBindsToRecordedHead(unittest.TestCase):
         self.assertIn("HEAD-MISMATCH", res.stdout)
         self.assertNotEqual(res.returncode, 0)
         self.assertFalse((self.repo / "extra.py").exists())
+        self.assertFalse((self.repo / "fix.py").exists())
+
+    def test_commit_into_an_engine_directory_is_never_merged(self) -> None:
+        """PR #406 round 12: the worktree status check excludes outputs/,
+        stages/, inputs/ and validation/, so a fixer could COMMIT an edit
+        there and the merge took it. The merge block now refuses it."""
+        self._git("-C", str(self.repo), "checkout", "-q", "worktree-agent-abc")
+        (self.repo / "outputs").mkdir()
+        (self.repo / "outputs/planted.json").write_text("{}\n")
+        self._git("-C", str(self.repo), "add", "-f", "outputs/planted.json")
+        self._git("-C", str(self.repo), "commit", "-q", "-m", "planted")
+        head = self._git("-C", str(self.repo), "rev-parse", "HEAD").decode().strip()
+        self._git("-C", str(self.repo), "checkout", "-q", "main")
+        res = self._run(head)
+        self.assertIn("ENGINE-PATHS", res.stdout)
+        self.assertNotEqual(res.returncode, 0)
         self.assertFalse((self.repo / "fix.py").exists())
 
     def test_non_sha_head_commit_is_rejected_not_run(self) -> None:

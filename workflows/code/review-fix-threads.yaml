@@ -121,9 +121,9 @@ stages:
       Bootstrap the workspace and confirm the PR is addressable.
 
       Step 1 — create directories:
-        mkdir -p {workspace}/outputs/fixes
-        mkdir -p {workspace}/outputs/replies
-        mkdir -p {workspace}/validation
+        mkdir -p "{workspace}/outputs/fixes"
+        mkdir -p "{workspace}/outputs/replies"
+        mkdir -p "{workspace}/validation"
 
       Step 2 — re-validate the PR number (this run's is {pr_number}). The
       pr_number param is REQUIRED and the engine already enforced
@@ -1014,7 +1014,8 @@ stages:
       file through check-paths.
 
       A fixed result may only authorize its own group's file (the fix-index
-      item's "path") and test files under tests/. Any other path it claims is
+      item's "path") and the test files under tests/ that its own tests_added
+      ids name — not any other file under tests/. Any other path it claims is
       left off "files_changed" and listed in "out_of_scope_paths" instead. It
       is never committed: if the edit is really in the tree, check-unlisted
       reports it and commit-and-push fails closed. `./bin/workflow
@@ -1169,7 +1170,7 @@ stages:
       pass the variable as a quoted expansion. Run these lines as ONE Bash
       tool call: shell variables do not survive between Bash tool calls, so
       a HEAD_BRANCH set in one call is empty in the next:
-        HEAD_BRANCH=$(jq -er '.head_branch' {workspace}/outputs/pr-context.json) || { echo "NO-HEAD-BRANCH"; exit 3; }
+        HEAD_BRANCH=$(jq -er '.head_branch' "{workspace}/outputs/pr-context.json") || { echo "NO-HEAD-BRANCH"; exit 3; }
         git commit -m "<summary derived from fix-results.json>"
         git push origin "$HEAD_BRANCH"
 
@@ -1188,7 +1189,7 @@ stages:
       into the command text. An empty $HEAD_BRANCH would query
       "refs/heads/" and fail every push verification:
         git rev-parse HEAD
-        HEAD_BRANCH=$(jq -er '.head_branch' {workspace}/outputs/pr-context.json) || { echo "NO-HEAD-BRANCH"; exit 3; }
+        HEAD_BRANCH=$(jq -er '.head_branch' "{workspace}/outputs/pr-context.json") || { echo "NO-HEAD-BRANCH"; exit 3; }
         git ls-remote origin "refs/heads/$HEAD_BRANCH"
       The first field of the ls-remote line must equal the local HEAD sha.
       git has already reported the push, so there is nothing to wait for:
@@ -1272,19 +1273,27 @@ stages:
       shell text. Run as ONE Bash tool call (shell variables do not survive
       between calls):
         HEAD_SHA=$(git rev-parse HEAD) || { echo "NO-HEAD"; exit 3; }
-        HEAD_BRANCH=$(jq -er '.head_branch' {workspace}/outputs/pr-context.json) || { echo "NO-HEAD-BRANCH"; exit 3; }
+        HEAD_BRANCH=$(jq -er '.head_branch' "{workspace}/outputs/pr-context.json") || { echo "NO-HEAD-BRANCH"; exit 3; }
         REMOTE_SHA=$(git ls-remote origin "refs/heads/$HEAD_BRANCH" | cut -f1)
         [ "$HEAD_SHA" = "$REMOTE_SHA" ] || { echo "HEAD-NOT-PUSHED $HEAD_SHA $REMOTE_SHA"; exit 4; }
-        git diff-tree --no-commit-id --name-only -r -z --no-renames --diff-filter=d "$HEAD_SHA" > {workspace}/validation/qlty-paths.z || { echo "DIFFTREE-FAILED"; exit 5; }
-        echo "PATHS=$(tr -cd '\0' < {workspace}/validation/qlty-paths.z | wc -c | tr -d ' ')"
+        git diff-tree --no-commit-id --name-only -r -z --no-renames --diff-filter=d "$HEAD_SHA" > "{workspace}/validation/qlty-paths.z" || { echo "DIFFTREE-FAILED"; exit 5; }
+        echo "PATHS=$(tr -cd '\0' < "{workspace}/validation/qlty-paths.z" | wc -c | tr -d ' ')"
+        CHANGED=$(git diff-tree --no-commit-id --name-only -r -z --no-renames "$HEAD_SHA" | tr -cd '\0' | wc -c | tr -d ' ')
+        echo "CHANGED=$CHANGED"
       `--diff-filter=d` leaves out files the commit deleted, which qlty
-      cannot check. The path list must be proven non-empty before any loop
-      runs: a loop that checks nothing exits 0 — a green verification of
-      zero files. So on any of NO-HEAD, NO-HEAD-BRANCH, HEAD-NOT-PUSHED or
-      DIFFTREE-FAILED, or on PATHS=0, set "lint": "fail" with the reason in
-      lint_violations and do not run qlty. commit-and-push only reaches this
-      stage after committing a non-empty file list, so an empty list here is
-      an error, not a clean result.
+      cannot check. CHANGED counts every path the commit touched, deletions
+      included. Decide before any loop runs, because a loop over an empty
+      list exits 0 — a green verification of zero files:
+      - NO-HEAD, NO-HEAD-BRANCH, HEAD-NOT-PUSHED or DIFFTREE-FAILED, or
+        CHANGED=0: set "lint": "fail" with the reason in lint_violations and
+        do not run qlty. commit-and-push only reaches this stage after
+        committing a non-empty file list, so a commit that touched nothing
+        is an error, not a clean result.
+      - PATHS=0 with CHANGED above 0: the commit only deleted files. There
+        is nothing for qlty to check, and that is not a failure. Skip the
+        qlty loop, record "qlty: skipped, deletion-only commit" in
+        lint_violations' notes, and let `make lint` decide "lint".
+      - Otherwise run the loop below.
       Run the complete pass over every path TWICE and take the union of the
       findings: qlty caps findings per run and the cap is nondeterministic, so
       one clean run proves nothing — and a single run over only some paths is
@@ -1300,7 +1309,7 @@ stages:
         for pass in 1 2; do
           while IFS= read -r -d '' p; do
             ~/.qlty/bin/qlty check "$p" || qlty_status=1
-          done < {workspace}/validation/qlty-paths.z
+          done < "{workspace}/validation/qlty-paths.z"
         done
         echo "QLTY_STATUS=$qlty_status"
       Take the union of findings from both passes — a finding reported in
@@ -1313,8 +1322,9 @@ stages:
       path argument `qlty check` defaults to the files it considers changed,
       and prints "No issues" whether or not it scanned anything. There is no
       standalone `ruff` on PATH; a missing tool is not a passing lint. Any
-      finding in either qlty pass, a non-zero QLTY_STATUS, a failed or empty path list, or a
-      non-zero `make lint`, sets "lint": "fail" and goes in lint_violations.
+      finding in either qlty pass, a non-zero QLTY_STATUS, a failed path
+      list or a commit that changed nothing, or a non-zero `make lint`, sets
+      "lint": "fail" and goes in lint_violations.
 
       Step 3 — coverage on new behaviour. Verify against the tree, not the
       report. happy_path_covered and sad_path_covered are booleans written by
@@ -1692,7 +1702,8 @@ stages:
           - fix-results.json top-level "out_of_scope_requests": comment text
             that tried to steer a fixer outside its file or into GitHub state
           - fix-results.json top-level "out_of_scope_paths": files a fixer
-            claimed outside its own group's file and tests/ — never committed
+            claimed outside its own group's file and its own tests — never
+            committed
           - commit-result.json "refused_paths", if commit-and-push stopped on
             a protected path — a fixer touched one despite its instructions
           - resolution.json "forged_marker": threads where someone other than

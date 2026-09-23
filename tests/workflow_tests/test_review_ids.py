@@ -710,6 +710,17 @@ class TestAggregateFixResults(_Aggregate):
         self.assertEqual(doc["files_changed"], ["src/a.py", "tests/x/test_a.py"])
         self.assertEqual(doc["out_of_scope_paths"], [{"id": UNLINKED_A, "path": "src/other.py"}])
 
+    def test_unrelated_test_file_is_out_of_scope(self) -> None:
+        """PR #406 round 12: every path under tests/ was authorized, so a
+        fixer could edit tests/other.py, list it, and have it committed.
+        Only the test files its own tests_added ids name are in scope."""
+        self._write_for(UNLINKED_A, _result(UNLINKED_A, None,
+                                            files_changed=["src/a.py", "tests/x/test_a.py", "tests/other.py"],
+                                            tests_added=["tests/x/test_a.py::T::t"]))
+        doc = self._merged()
+        self.assertEqual(doc["files_changed"], ["src/a.py", "tests/x/test_a.py"])
+        self.assertEqual(doc["out_of_scope_paths"], [{"id": UNLINKED_A, "path": "tests/other.py"}])
+
     def test_another_groups_file_is_out_of_scope(self) -> None:
         """src/b.py belongs to the threaded group; the unlinked group's fixer
         may not claim it."""

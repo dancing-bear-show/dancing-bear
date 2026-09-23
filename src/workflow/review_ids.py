@@ -527,9 +527,10 @@ def _files_changed(results: tuple[dict[str, Any], ...],
     the commit fails closed.
 
     Each fixed result is also held to its own scope: the one source file its
-    group was dispatched for (``scopes[id]``) plus test files under
-    ``tests/``. A fixer that lists any other path -- a compromised or
-    over-eager fixer claiming ``src/other.py`` -- does not get it authorized.
+    group was dispatched for (``scopes[id]``) plus the files under ``tests/``
+    its own ``tests_added`` ids name. A fixer that lists any other path -- a
+    compromised or over-eager fixer claiming ``src/other.py`` or
+    ``tests/other.py`` -- does not get it authorized.
     That path is returned in the second list instead, so the run reports it,
     and because it is left off the first list, check-unlisted still sees the
     edit and the commit fails closed.
@@ -544,12 +545,24 @@ def _files_changed(results: tuple[dict[str, Any], ...],
         if result.get("action") != "fixed":
             continue
         scope = scopes.get(str(result.get("id")))
+        allowed = {scope} | _own_test_files(result)
         for path in _claimed_paths(result):
-            if path == scope or _is_test_path(path):
+            if path in allowed:
                 paths.add(path)
             else:
                 out_of_scope.append({"id": result.get("id"), "path": path})
     return sorted(paths), sorted(out_of_scope, key=lambda r: (str(r["id"]), r["path"]))
+
+
+def _own_test_files(result: dict[str, Any]) -> set[str]:
+    """Files under tests/ named by this result's own tests_added ids.
+
+    Only these test files are in the result's scope -- not every path under
+    tests/. A fixer that edits some other test file and lists it in
+    files_changed does not get it authorized.
+    """
+    files = (_test_file_of(t) for t in _union_of((result,), "tests_added"))
+    return {f for f in files if f and f.startswith("tests/")}
 
 
 def _claimed_paths(result: dict[str, Any]) -> set[str]:
@@ -561,10 +574,6 @@ def _claimed_paths(result: dict[str, Any]) -> set[str]:
         if path:
             claimed.add(path)
     return claimed
-
-
-def _is_test_path(path: str) -> bool:
-    return path.startswith("tests/")
 
 
 def _out_of_scope_requests(results: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:

@@ -65,15 +65,15 @@ stages:
     description: >
       Bootstrap the workspace. Use the Bash tool to create the directory
       structure needed by downstream stages:
-        mkdir -p {workspace}/outputs/diffs
-        mkdir -p {workspace}/outputs/findings
-        mkdir -p {workspace}/outputs/fix
-        mkdir -p {workspace}/validation
+        mkdir -p "{workspace}/outputs/diffs"
+        mkdir -p "{workspace}/outputs/findings"
+        mkdir -p "{workspace}/outputs/fix"
+        mkdir -p "{workspace}/validation"
       Exit 0 immediately. All substantive work begins in fetch-pr-context.
 
       If skip_review is "true", also write a sentinel file so Phase 2 stages
       know the swarm output already exists:
-        echo "skip_review=true" > {workspace}/outputs/skip-review.txt
+        echo "skip_review=true" > "{workspace}/outputs/skip-review.txt"
     agent:
       role: researcher
       model: sonnet
@@ -515,7 +515,7 @@ stages:
            output; confirm it is 40 hex characters before using it.
 
            Verify the branch belongs to this run before merging it:
-             Bash tool: BRANCH="$(jq -er '.branch' {workspace}/outputs/fix/<fixer result file>)" &&
+             Bash tool: BRANCH="$(jq -er '.branch' "{workspace}/outputs/fix/<fixer result file>")" &&
                         git check-ref-format --branch "$BRANCH" >/dev/null &&
                         git merge-base --is-ancestor <PRE_FIX_SHA> "refs/heads/$BRANCH"
                         echo "EXIT=$?"
@@ -524,7 +524,7 @@ stages:
            under "unidentifiable" and fail — do not merge it.
 
         2. Decide whether there is anything to merge:
-             Bash tool: BRANCH="$(jq -er '.branch' {workspace}/outputs/fix/<fixer result file>)" &&
+             Bash tool: BRANCH="$(jq -er '.branch' "{workspace}/outputs/fix/<fixer result file>")" &&
                         git check-ref-format --branch "$BRANCH" >/dev/null &&
                         git log --oneline <PRE_FIX_SHA>.."refs/heads/$BRANCH"
                         echo "EXIT=$?"
@@ -552,7 +552,7 @@ stages:
            whose worktree it describes, and an empty list there is not
            evidence the check was actually run. Verify independently against
            the fixer's actual worktree instead:
-             Bash tool: git worktree list --porcelain -z > {workspace}/validation/worktree-list.txt
+             Bash tool: git worktree list --porcelain -z > "{workspace}/validation/worktree-list.txt"
            Its "branch" field is the full ref (e.g. "refs/heads/<branch>"),
            not the short name recorded in the fixer's result file. Find the
            entry whose "branch" equals "refs/heads/<branch>" (not a bare
@@ -574,13 +574,13 @@ stages:
            NUL, sees only the main worktree, and never matches a fixer's. Run the whole block as ONE Bash
            tool call — shell variables do not survive between calls, so a
            WORKTREE_PATH set in one call is empty in the next:
-             Bash tool: BRANCH="$(jq -er '.branch' {workspace}/outputs/fix/<fixer result file>)" &&
+             Bash tool: BRANCH="$(jq -er '.branch' "{workspace}/outputs/fix/<fixer result file>")" &&
                         git check-ref-format --branch "$BRANCH" >/dev/null || { echo "BAD-BRANCH"; exit 3; }
                         WORKTREE_PATH="$(REF="refs/heads/$BRANCH" jq -Rrs '
                           split("\u0000\u0000")[] | split("\u0000")
                           | select(any(. == "branch " + env.REF))
                           | map(select(startswith("worktree ")))[0][9:]
-                        ' {workspace}/validation/worktree-list.txt)"
+                        ' "{workspace}/validation/worktree-list.txt")"
                         [ -n "$WORKTREE_PATH" ] || { echo "NO-MATCH"; exit 4; }
                         git -C "$WORKTREE_PATH" status --porcelain --untracked-files=all -- . ':!outputs' ':!stages' ':!inputs' ':!validation'
                         echo "EXIT=$?"
@@ -621,13 +621,20 @@ stages:
                         [ "${#WANT}" -eq 40 ] || { echo "BAD-HEAD-COMMIT"; exit 3; }
                         TIP="$(git rev-parse --verify -q "refs/heads/$BRANCH^{commit}")" || { echo "NO-TIP"; exit 3; }
                         [ "$TIP" = "$WANT" ] || { echo "HEAD-MISMATCH $TIP"; exit 4; }
+                        git diff --name-only -z <PRE_FIX_SHA> "$WANT" -- outputs stages inputs validation > "{workspace}/validation/engine-paths.z" || { echo "ENGINE-CHECK-FAILED"; exit 3; }
+                        [ ! -s "{workspace}/validation/engine-paths.z" ] || { echo "ENGINE-PATHS"; exit 4; }
                         git merge --no-ff "$WANT" -m "merge fix stage <name>"
                         echo "EXIT=$?"
            BAD-BRANCH, BAD-HEAD-COMMIT or NO-TIP goes under "unidentifiable"
            with that token as the detail; HEAD-MISMATCH goes under
            "unidentifiable" with detail "branch tip <TIP> != recorded
-           head_commit". Nothing was merged in any of those cases; fail
-           this stage for that fixer.
+           head_commit". ENGINE-PATHS or ENGINE-CHECK-FAILED goes under
+           "unidentifiable" too. The worktree check above excludes the engine
+           directories (outputs, stages, inputs, validation) because the
+           fixer writes its result files there, so it cannot see a COMMITTED
+           edit to them. This check covers that, and a branch that commits
+           into them is never merged. Nothing was merged in any of those
+           cases; fail this stage for that fixer.
            On a conflict, abort the merge (`git merge --abort`), record the
            conflicting paths, and fail this stage. Do NOT resolve conflicts
            here — a conflict means two fixers changed the same lines and a
@@ -807,7 +814,7 @@ stages:
         the count — the old raw GraphQL approach capped at 100 threads with no
         pagination check:
           ./bin/github threads fetch --pr {pr_number} \
-            --out {workspace}/outputs/fix/threads-for-resolve.json
+            --out "{workspace}/outputs/fix/threads-for-resolve.json"
 
         If it exits non-zero, STOP: do not build resolve-plan.json from the
         file. A count mismatch still writes it (with `truncated: true`) for

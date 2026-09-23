@@ -300,8 +300,8 @@ class TestQltyLoopAccumulatesStatus(unittest.TestCase):
 
     def test_lint_fail_is_set_from_either_pass_or_a_nonzero_status(self) -> None:
         self.assertIn(
-            'finding in either qlty pass, a non-zero QLTY_STATUS, a failed or '
-            'empty path list, or a non-zero `make lint`, sets "lint": "fail"',
+            'finding in either qlty pass, a non-zero QLTY_STATUS, a failed path '
+            'list or a commit that changed nothing, or a non-zero `make lint`, sets "lint": "fail"',
             self.prompt,
         )
 
@@ -317,8 +317,14 @@ class TestQltyPathListMustBeNonEmpty(unittest.TestCase):
         self.assertIn("echo \"PATHS=$(tr -cd '\\0' <", self.prompt)
 
     def test_empty_or_failed_list_is_a_lint_failure_not_a_pass(self) -> None:
-        self.assertIn("or DIFFTREE-FAILED, or on PATHS=0, set \"lint\": \"fail\"", self.prompt)
+        self.assertIn("or DIFFTREE-FAILED, or CHANGED=0: set \"lint\": \"fail\"", self.prompt)
         self.assertIn("do not run qlty", self.prompt)
+
+    def test_deletion_only_commit_skips_qlty_without_failing(self) -> None:
+        """PR #406 round 12: --diff-filter=d leaves a deletion-only commit
+        with PATHS=0, which used to fail lint and abort the run."""
+        self.assertIn("PATHS=0 with CHANGED above 0: the commit only deleted files", self.prompt)
+        self.assertIn("Skip the qlty loop", self.prompt)
 
 
 def _qlty_paths_block(workspace: str) -> str:
@@ -327,6 +333,7 @@ def _qlty_paths_block(workspace: str) -> str:
     manifest = compile_workflow(defn, project_root=_ROOT, trigger_params={"pr_number": "405"})
     prompt = build_agent_prompt(manifest.resolved_stages["verify-fixes"], defn.name, workspace)
     section = prompt[prompt.index("HEAD_SHA=$(git rev-parse HEAD)"): prompt.index("`--diff-filter=d` leaves out")]
+    # Only command lines; the block ends at echo "CHANGED=...".
     return "\n".join(ln.strip() for ln in section.splitlines() if ln.strip())
 
 
@@ -339,7 +346,9 @@ class TestQltyPathsComeFromThePushedCommit(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
-        self.ws, self.repo, origin = root / "ws", root / "repo", root / "origin.git"
+        # The workspace name carries a space: every {workspace} path in the
+        # block must be quoted (PR #406 round 12).
+        self.ws, self.repo, origin = root / "work space", root / "repo", root / "origin.git"
         (self.ws / "outputs").mkdir(parents=True)
         (self.ws / "validation").mkdir()
         (self.ws / "outputs/pr-context.json").write_text(json.dumps({"head_branch": "feat/x"}))
@@ -366,8 +375,17 @@ class TestQltyPathsComeFromThePushedCommit(unittest.TestCase):
     def test_lists_the_pushed_commits_files_nul_delimited(self) -> None:
         res = self._run()
         self.assertIn("PATHS=1", res.stdout)
+        self.assertIn("CHANGED=2", res.stdout)
         listed = (self.ws / "validation/qlty-paths.z").read_bytes().split(b"\0")
         self.assertEqual([p for p in listed if p], [b"fixed file.py"])
+
+    def test_deletion_only_commit_reports_paths_zero_but_changed(self) -> None:
+        self.git("-C", str(self.repo), "rm", "-q", "fixed file.py")
+        self.git("-C", str(self.repo), "commit", "-q", "-m", "delete only")
+        self.git("-C", str(self.repo), "push", "-q", "origin", "feat/x")
+        res = self._run()
+        self.assertIn("PATHS=0", res.stdout)
+        self.assertIn("CHANGED=1", res.stdout)
 
     def test_unpushed_head_is_refused(self) -> None:
         self.git("-C", str(self.repo), "commit", "-q", "--allow-empty", "-m", "local only")
