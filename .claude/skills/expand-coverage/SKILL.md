@@ -28,7 +28,7 @@ PYTHONPATH="$PWD/src" python3 -m coverage run -m unittest discover -s tests/<dom
 PYTHONPATH="$PWD/src" python3 -m coverage report -m --include="src/<domain>/*"
 
 # Lint-level complexity/smell signals (not coverage, but flags files needing tests)
-~/.qlty/bin/qlty check <domain>/
+~/.qlty/bin/qlty check src/<domain>/
 ```
 
 ## Step 2: Prioritize
