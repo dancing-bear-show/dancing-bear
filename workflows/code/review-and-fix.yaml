@@ -14,7 +14,7 @@
 #       \              |              /
 #              verify-fixes
 #                    |
-#            resolve-threads
+#            plan-thread-resolution -> resolve-threads (shared fragment)
 #                    |
 #          human-gate-fixes
 
@@ -102,7 +102,7 @@ stages:
 
       Step 2 — read post-comments results:
         Use the Read tool on {workspace}/outputs/post-results.json.
-        Extract comment_urls so resolve-threads can match findings to threads.
+        Extract comment_urls so plan-thread-resolution can match findings to threads.
 
       Step 3 — fetch current qlty issues:
         Bash tool: ~/.qlty/bin/qlty check --format json
@@ -630,36 +630,32 @@ stages:
   # Phase 2: Resolve posted PR threads for fixed findings
   # ===========================================================================
 
-  - name: resolve-threads
-    kind: publish
+  - name: plan-thread-resolution
+    kind: propose
     depends_on: [verify-fixes]
     reads_from: [verify-fixes, triage-findings, post-comments]
     description: >
-      Resolve GitHub PR review threads that correspond to fixed findings.
-      Only resolve threads whose finding_id appears in fix-code-results.json
-      or fix-tests-results.json with action != "skipped".
+      Decide which review threads this run has earned the right to close, and
+      write the plan. The mutations themselves are done by the shared
+      pr-thread-resolve fragment — this stage makes the judgement, not the
+      API calls.
 
-      Step 1 — build resolved finding set:
+      Step 1 — build the fixed finding set:
         Use the Read tool on {workspace}/outputs/fix/fix-code-results.json.
         Use the Read tool on {workspace}/outputs/fix/fix-tests-results.json.
-        Collect all finding_ids with a "fixed" disposition.
+        Collect all finding_ids with a "fixed" disposition and action !=
+        "skipped".
 
-      Step 2 — match findings to comment URLs:
-        Use the Read tool on {workspace}/outputs/fix-manifest.json.
-        For each fixed finding_id, extract comment_url from the manifest entry.
+      Step 2 — map each fixed finding to its thread.
+        Use the Read tool on {workspace}/outputs/fix-manifest.json and extract
+        each entry's comment_url.
 
-      Step 3 — resolve threads, one at a time.
-
-        Use the native gh CLI. Prefix every command with `GITHUB_TOKEN=`
-        (a stale token env var breaks auth).
-
-        Resolve owner/repo first, never hardcode:
+        Prefix gh with `GITHUB_TOKEN=` and resolve owner/repo, never hardcode:
           NWO=$(GITHUB_TOKEN= gh repo view --json nameWithOwner -q .nameWithOwner)
           OWNER=${NWO%%/*}; REPO=${NWO##*/}
 
         A comment_url does not carry the GraphQL thread id needed to resolve,
-        so map each fixed finding to its thread. Fetch the threads with their
-        comment database ids:
+        so fetch the threads with their comment database ids:
           GITHUB_TOKEN= gh api graphql -f query='
           query($owner:String!,$name:String!,$pr:Int!,$after:String){
             repository(owner:$owner,name:$name){
@@ -690,28 +686,33 @@ stages:
         is not that thread's opening comment, and matching only the first
         comment would fail to find it.
 
-        Resolve ONLY the matched threads, individually:
-          GITHUB_TOKEN= gh api graphql -f query='
-          mutation($threadId:ID!){
-            resolveReviewThread(input:{threadId:$threadId}){
-              thread{ id isResolved }
-            }
-          }' -F threadId="<thread_id>"
+      Step 3 — write {workspace}/outputs/resolve-plan.json in the schema the
+      pr-thread-resolve fragment consumes:
 
-        Never resolve every thread on the PR in one sweep. A thread whose
-        finding was skipped, or that a human opened about something else, must
-        stay open — resolving it asserts a concern was handled when it was not.
+        {
+          "threads": [
+            {"thread_id": "PRRT_...", "action": "reply-and-resolve",
+             "reply": "Fixed in <sha>: <one line on what changed>."},
+            {"thread_id": "PRRT_...", "action": "skip",
+             "reason": "skipped — finding no longer present"}
+          ]
+        }
 
-        Check thread.isResolved in the response rather than trusting the exit
-        code: a GraphQL error returns HTTP 200 with an errors array, so gh
-        exits 0 on a failed mutation.
+      Every thread gets a reply, including the ones being resolved. A thread
+      closed with no explanation makes the reviewer re-derive what happened.
 
-      Write {workspace}/outputs/fix/thread-resolution.json:
+      Never plan a sweep over every thread on the PR. A thread whose finding
+      was skipped, or that a human opened about something else, must stay open
+      — resolving it asserts a concern was handled when it was not. Anything
+      not in the fixed set is action "skip" with the reason recorded.
+
+      Also write {workspace}/outputs/fix/thread-resolution.json for the human
+      gate, recording the plan (not its outcome — the fragment reports that):
         {
           "resolved_finding_ids": ["0", "2"],
           "unresolved_finding_ids": ["1"],
           "unresolved_reason": {"1": "skipped — finding no longer present"},
-          "resolve_status": "ok|error"
+          "plan_status": "ok|error"
         }
     agent:
       role: code-writer
@@ -720,6 +721,7 @@ stages:
       access: read-write
     required: true
     writes_to:
+      - resolve-plan.json
       - outputs/fix/thread-resolution.json
 
   # ===========================================================================
@@ -729,7 +731,7 @@ stages:
   - name: human-gate-fixes
     kind: propose
     depends_on: [verify-fixes, resolve-threads]
-    reads_from: [verify-fixes, resolve-threads, triage-findings]
+    reads_from: [verify-fixes, resolve-threads, plan-thread-resolution, triage-findings]
     human_gate: true
     description: >
       Present a full fix-round summary and ask the operator whether to approve
@@ -782,3 +784,11 @@ include:
     prefix: ""
     depends_on: [init]
     reads_from: []
+
+  # Reply-and-resolve, with idempotency against a partial previous run and a
+  # verified post-run re-fetch. Consumes outputs/resolve-plan.json.
+  # Injects: resolve-threads
+  - path: workflows/shared/pr-thread-resolve.yaml
+    prefix: ""
+    depends_on: [plan-thread-resolution]
+    reads_from: [plan-thread-resolution, verify-fixes]

@@ -91,15 +91,16 @@ Skill(skill="workflow", args="--workflow workflows/code/review-fix-threads.yaml 
 
 1. **init** — resolve and validate the PR; confirm the checkout is on its head branch
 2. **fetch-threads** *(fragment)* — all three comment surfaces, full comment chains
-3. **triage-threads** — classify each thread: fix / reject / moot / defer / context
-4. **fix-dispatch** — group actionable threads **by file** into a fan-out index
-5. **fix-threads** — one `thread-fixer` agent per file group, in parallel
-6. **fix-aggregate** — merge per-thread results; flag any that are missing
-7. **verify-fixes** — `make test`, `make lint`, and a happy/sad-path coverage audit
-8. **check-prose** — every outgoing reply checked against `.claude/WRITING_GUIDE.md`
-9. **update-pr-description** *(fragment)* — regenerate title and body from the final diff
-10. **resolve-threads** — reply, then resolve; aborts if verification was not green
-11. **report** — per-thread outcome table
+3. **parse-review-overview** *(fragment)* — reviewer-stated severity, repeat-offender history, and the findings Copilot writes inline with no thread at all
+4. **triage-threads** — classify each thread: fix / reject / moot / defer / context
+5. **fix-dispatch** — group actionable threads **by file** into a fan-out index
+6. **fix-threads** — one `thread-fixer` agent per file group, in parallel
+7. **fix-aggregate** — merge per-thread results; flag any that are missing
+8. **verify-fixes** — `make test`, `make lint`, and a happy/sad-path coverage audit
+9. **check-prose** — every outgoing reply checked against `.claude/WRITING_GUIDE.md`
+10. **update-pr-description** *(fragment)* — regenerate title and body from the final diff
+11. **resolve-threads** — reply, then resolve; aborts if verification was not green
+12. **report** — per-thread outcome table
 
 ## Triage Directives
 
@@ -113,13 +114,42 @@ Skill(skill="workflow", args="--workflow workflows/code/review-fix-threads.yaml 
 
 ## Shared Fragments
 
-Both are reusable outside this workflow:
+All four are reusable outside this workflow:
 
 - **`workflows/shared/pr-review-threads.yaml`** — the correct thread fetch.
   GraphQL review threads *plus* REST review bodies *plus* REST issue comments,
   with full comment chains, pagination, and `[bot]`-suffix reconciliation.
+- **`workflows/shared/pr-review-overview.yaml`** — parses Copilot's summary
+  review body: the reviewer's own severity, the section history that marks a
+  repeat offender, and the findings it writes inline with no thread at all.
+- **`workflows/shared/pr-thread-resolve.yaml`** — reply-then-resolve, with
+  idempotency against a partial previous run and a verified re-fetch. Also
+  used by `review-and-fix`.
 - **`workflows/shared/pr-describe.yaml`** — regenerate PR title and body from
   the final diff, checked against the writing guide, pushed via `--body-file`.
+
+## Why the Overview Is a Fragment
+
+Copilot states a finding in two places and only one was ever read. The inline
+thread carries the finding; the summary review body carries the severity, the
+count, and the section — `Open`, `Previously missed` — saying whether it has
+asked before and been ignored. Every consumer fetched those bodies and then
+discarded them as prose.
+
+Two failure modes follow, both measured on PR 395:
+
+- **Findings with no thread at all.** `Previously missed` entries — raised
+  against code that has not changed since the last review — are written inline
+  in the overview body with no `#discussion_r` anchor and no thread anywhere on
+  the PR. No thread query reaches them. PR 395 has two, and both were invisible
+  to every workflow.
+- **Paths that match no file.** GitHub injects zero-width spaces (U+200B) into
+  the file path in those inline findings. A path used without stripping them
+  matches nothing on disk, and the mismatch is invisible in a terminal.
+
+The parser is line-oriented for a reason: the `<details>` blocks nest, so a
+`(?s)<details>.*?</details>` regex attributes findings to the wrong section.
+That was tried first and returned zero findings on a body containing thirteen.
 
 ## Why the Fetch Is a Fragment
 

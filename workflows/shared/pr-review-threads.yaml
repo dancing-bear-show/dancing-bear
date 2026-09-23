@@ -106,6 +106,13 @@ stages:
       there:
         GITHUB_TOKEN= gh api "repos/$OWNER/$REPO/pulls/{pr_number}/reviews"
 
+      Copilot also posts a summary review body carrying an index of its
+      findings, their severity, and whether it has raised each one before.
+      Parsing that is a separate concern with its own consumers, so it lives
+      in workflows/shared/pr-review-overview.yaml. This stage's job is to
+      fetch the review bodies faithfully (Step 2 above) and leave them intact
+      in threads.json; that fragment reads them from there.
+
       Step 3 — REST issue comments (PR-level conversation):
         GITHUB_TOKEN= gh api "repos/$OWNER/$REPO/issues/{pr_number}/comments"
 
@@ -158,8 +165,24 @@ stages:
               "opening_body": "the first comment's full text",
               "latest_author_kind": "bot|human"
             }
+          ],
+          "review_bodies": [
+            {
+              "review_id": 5285429513,
+              "author": "copilot-pull-request-reviewer",
+              "author_kind": "bot",
+              "state": "COMMENTED",
+              "submitted_at": "2026-09-23T00:12:35Z",
+              "body": "the full review body, verbatim and unmodified"
+            }
           ]
         }
+
+      Keep "review_bodies" verbatim — do not strip HTML, collapse whitespace,
+      or summarise. A Copilot overview body is structured data that
+      pr-review-overview.yaml parses downstream, and a body that has been
+      "tidied" is a body it cannot read. Include every review with a non-empty
+      body, bot or human.
 
       Only threads from Step 1 carry a resolvable thread_id. Entries from Steps
       2 and 3 have thread_id null — they are context for triage and CANNOT be

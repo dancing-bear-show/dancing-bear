@@ -1,0 +1,154 @@
+# Shared workflow fragment — not runnable standalone.
+# Include via:
+#   include:
+#     - path: workflows/shared/pr-thread-resolve.yaml
+#       prefix: ""
+#       depends_on: [verify-fixes]
+#       reads_from: [verify-fixes, fetch-threads]
+#
+# Stage injected: {prefix}-resolve-threads  (bare when prefix is "")
+#
+# Caller must set trigger.params: pr_number
+# Caller must provide {workspace}/outputs/resolve-plan.json — see Step 0.
+#
+# Output: {workspace}/outputs/resolution.json
+#
+# Why this fragment exists: replying to a review thread and resolving it were
+# implemented twice, and the two copies disagreed on every safety property that
+# matters. review-fix-threads.yaml checks for an existing reply before posting,
+# orders reply-before-resolve, and verifies thread.isResolved because a failed
+# GraphQL mutation still exits 0. review-and-fix.yaml did none of those: it
+# resolved threads with no reply at all, and trusted the exit code. A thread
+# resolved on an unverified fix costs a human far more than one left open, so
+# the careful implementation is the one that survives here and callers include
+# it rather than re-deriving.
+fragment: true
+name: pr-thread-resolve
+version: "1.0"
+description: >
+  Shared PR review-thread reply-and-resolve fragment. Posts one reply into each
+  thread and resolves only those whose fix was verified, with idempotency
+  against a partial previous run and a post-run re-fetch that reports the PR's
+  observed state rather than the intended one.
+
+  Mutating. This is the only fragment in the shared set that writes to GitHub.
+
+  Params consumed from trigger.params: {pr_number}.
+
+stages:
+
+  - name: resolve-threads
+    kind: publish
+    depends_on: []      # overridden by include.depends_on
+    reads_from: []      # overridden by include.reads_from
+    description: >
+      Reply to and resolve the review threads on PR {pr_number} that the caller
+      has marked safe to close.
+
+      Prefix every gh command with `GITHUB_TOKEN=` (a stale token env var
+      silently breaks auth). Resolve owner/repo first, never hardcode:
+        NWO=$(GITHUB_TOKEN= gh repo view --json nameWithOwner -q .nameWithOwner)
+        OWNER=${NWO%%/*}; REPO=${NWO##*/}
+
+      Step 0 — read the caller's plan from
+      {workspace}/outputs/resolve-plan.json. The caller owns the decision about
+      what deserves closing; this fragment owns doing it safely. Schema:
+
+        {
+          "threads": [
+            {
+              "thread_id": "PRRT_kwDO...",
+              "action": "reply-and-resolve|reply-only|skip",
+              "reply": "the text to post",
+              "reason": "why, for the skip case"
+            }
+          ]
+        }
+
+      A thread with no thread_id (review bodies, issue comments) cannot be
+      resolved — resolveReviewThread fails on them. Treat any such entry as
+      "skip" with reason "not resolvable" regardless of what the plan says.
+
+      Step 1 — idempotency. Reply and resolve are two API calls and are not
+      atomic: a run that died between them leaves a thread replied-to but
+      unresolved, and a re-run that does not check posts a second
+      near-identical reply.
+
+      Re-fetch each planned thread's current comments before posting. Skip the
+      reply for any thread whose latest comment already matches the reply you
+      are about to post, and go straight to resolving it. Record those as
+      "already_replied" so the report distinguishes them from fresh posts.
+
+      Step 2 — post the reply INTO the thread, not as a new top-level PR
+      comment. A detached comment does not appear where the reviewer raised
+      the concern:
+
+        GITHUB_TOKEN= gh api graphql -f query='
+        mutation($threadId:ID!,$body:String!){
+          addPullRequestReviewThreadReply(
+            input:{pullRequestReviewThreadId:$threadId, body:$body}
+          ){ comment{ id url } }
+        }' -F threadId="<thread_id>" -F body="<reply text>"
+
+      Pass the body via -F, never interpolated into the query string: reply
+      text contains backticks and quotes that would break the GraphQL document.
+
+      Step 3 — resolve, but only for action "reply-and-resolve" AND only when
+      that thread's reply posted successfully.
+
+      Order matters: reply first, resolve second. A resolve that lands without
+      its reply leaves a silently closed thread, which is the outcome this
+      fragment exists to prevent. If a reply fails, skip the resolve for that
+      thread and record it.
+
+        GITHUB_TOKEN= gh api graphql -f query='
+        mutation($threadId:ID!){
+          resolveReviewThread(input:{threadId:$threadId}){
+            thread{ id isResolved }
+          }
+        }' -F threadId="<thread_id>"
+
+      Verify the response: check thread.isResolved is true rather than trusting
+      exit code 0. A GraphQL error returns HTTP 200 with an errors array, so
+      `gh` exits 0 on a failed mutation. An unverified resolve recorded as a
+      success is indistinguishable from a real one.
+
+      Step 4 — write {workspace}/outputs/resolution.json:
+        {
+          "status": "ok|partial|blocked",
+          "replied": [{"thread_id": "...", "comment_url": "..."}],
+          "already_replied": ["PRRT_..."],
+          "resolved": ["PRRT_..."],
+          "skipped": [{"thread_id": "...", "reason": "..."}],
+          "failed": [{"thread_id": "...", "error": "..."}],
+          "unresolved_after": 3
+        }
+
+      Step 5 — re-fetch to confirm the PR's actual state, paging the query:
+
+        GITHUB_TOKEN= gh api graphql -f query='
+        query($owner:String!,$name:String!,$pr:Int!,$after:String){
+          repository(owner:$owner,name:$name){
+            pullRequest(number:$pr){
+              reviewThreads(first:100, after:$after){
+                pageInfo{ hasNextPage endCursor }
+                nodes{ id isResolved }
+              }
+            }
+          }
+        }' -F owner="$OWNER" -F name="$REPO" -F pr={pr_number}
+
+      A truncated re-fetch reports fewer unresolved threads than exist and
+      makes a partial run look complete. If you cannot complete the pagination,
+      set "unresolved_after": null and record the reason rather than writing a
+      number you did not verify.
+
+      Report the observed state, not the intended one.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - resolution.json

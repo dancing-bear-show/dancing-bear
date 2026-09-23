@@ -77,5 +77,11 @@ Skill(skill="workflow", args="--workflow workflows/code/review-and-fix.yaml --pa
 13. **fix-tests** (worker_queue, parallel with fix-code) — add missing tests, strengthen weak assertions; run python3 -m unittest per fix
 14. **fix-qlty** (parallel with fix-code and fix-tests) — fix new-code SQ issues; verify gate after
 15. **verify-fixes** — run ruff, test suite, and SQ gate; confirm all green
-16. **resolve-threads** — resolve GitHub threads for findings that were fixed
-17. **human-gate-fixes** — present fix summary; user approves for merge or requests another round
+16. **plan-thread-resolution** — map fixed findings to their threads; write `resolve-plan.json`
+17. **resolve-threads** (shared fragment) — reply into each thread, then resolve only the verified ones
+18. **human-gate-fixes** — present fix summary; user approves for merge or requests another round
+
+Steps 16–17 were one stage until the reply-and-resolve logic was extracted to
+`workflows/shared/pr-thread-resolve.yaml`. The split matters: this workflow
+used to resolve threads without replying to them at all, closing a reviewer's
+concern with no explanation of what changed.

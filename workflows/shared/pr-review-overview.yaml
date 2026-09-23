@@ -1,0 +1,247 @@
+# Shared workflow fragment — not runnable standalone.
+# Include via:
+#   include:
+#     - path: workflows/shared/pr-review-overview.yaml
+#       prefix: ""
+#       depends_on: [fetch-threads]
+#       reads_from: [fetch-threads]
+#
+# Stage injected: {prefix}-parse-review-overview  (bare when prefix is "")
+#
+# Caller must set trigger.params: pr_number
+# Caller must provide {workspace}/outputs/threads.json with a "review_bodies"
+# list — i.e. include workflows/shared/pr-review-threads.yaml first.
+#
+# Output: {workspace}/outputs/review-overview.json
+#
+# Why this fragment exists: the Copilot reviewer states a finding twice, in two
+# places, and only one of them was ever read. The inline review thread carries
+# the finding; the summary review body carries the reviewer's own severity, its
+# own count, and the section — "Open", "Previously missed" — that says whether
+# it has asked for this before and been ignored. Every consumer fetched the
+# review bodies and then discarded them as prose, so a finding that had already
+# been raised and dropped looked identical to a brand-new one. On PR 395 the bot
+# listed five findings under "Previously missed" across two rounds; nothing in
+# any workflow could see that word.
+fragment: true
+name: pr-review-overview
+version: "1.0"
+description: >
+  Shared Copilot review-overview parser. Reads the raw review bodies collected
+  by pr-review-threads.yaml, extracts the structured finding index Copilot
+  embeds in its summary review, and reconciles it against the fetched threads.
+
+  Produces the reviewer's own severity and repeat-offender history per thread,
+  plus the citation reconciliation that catches a finding referenced by an
+  overview but missing from the thread list.
+
+  Read-only. Fetches nothing and mutates nothing; it is pure parsing over data
+  the caller already has.
+
+  Params consumed from trigger.params: {pr_number}.
+
+stages:
+
+  - name: parse-review-overview
+    kind: gather
+    depends_on: []      # overridden by include.depends_on
+    reads_from: []      # overridden by include.reads_from
+    description: >
+      Parse the Copilot review overview for PR {pr_number} and reconcile it
+      against the fetched threads.
+
+      This stage makes no network calls. Read
+      {workspace}/outputs/threads.json and work from its "review_bodies" and
+      "threads" lists. If that file has no "review_bodies" key, the caller
+      included this fragment without pr-review-threads.yaml — fail with that
+      message rather than silently writing an empty result.
+
+      Step 1 — select the overview bodies.
+
+      Copilot posts a summary review whose body starts with the marker
+      `<!-- ccr-overview-v2 -->`. Select every review body carrying that
+      marker. Ignore bodies without it: human review summaries and other bots
+      have no finding index to parse.
+
+      Its shape:
+
+        <!-- ccr-overview-v2 -->
+        ## Copilot review overview
+        ### 🟡 Changes recommended
+        **Findings:** 4 <picture>...alt="High severity"...</picture>
+        <details open>
+        <summary><strong>Open (4)</strong></summary>
+        - <picture>...alt="High severity"...</picture> [Title](#discussion_r4077827266) · New
+        </details>
+        <details>
+        <summary><strong>Resolved since last review (2)</strong></summary>
+        - ... [Title](#discussion_r4077652397)
+        </details>
+
+      Step 2 — parse each body with a LINE-ORIENTED scan, not one regex over
+      the whole body. The `<details>` blocks nest, so a
+      `(?s)<details>.*?</details>` pattern matches across section boundaries
+      and attributes findings to the wrong section. Walk the lines, update the
+      current section on each `<summary>` line, and attach each
+      `[Title](#discussion_r<id>)` on a later line to whatever section is
+      current. This is not hypothetical: the naive regex was tried first and
+      returned zero findings on a body that has thirteen.
+
+      Section headers seen in the wild: "Open", "Resolved since last review",
+      and "Previously missed". Treat the set as open-ended — match the
+      `<summary><strong>NAME (N)</strong></summary>` pattern and keep NAME
+      verbatim rather than matching against a fixed list, so a new section
+      name degrades to "carried through unclassified" instead of silently
+      dropping its findings.
+
+      Findings are keyed by the REST comment databaseId in the
+      `#discussion_r<id>` anchor, which joins to a thread's
+      comments[0].database_id in threads.json.
+
+      Step 2b — UNLINKED findings. Not every section uses the link form, and
+      assuming it does silently drops entire sections.
+
+      "Previously missed" findings — the ones raised against code that has not
+      changed since the last review — are written INLINE, with no
+      `#discussion_r` anchor and no review thread anywhere on the PR. They
+      look like this, nested one `<details>` deeper than a linked finding:
+
+        <summary><strong>Previously missed (1)</strong></summary>
+
+        In code that hasn't changed since last review
+
+        <details>
+        <summary><picture>...alt="Medium severity"...</picture> Title</summary>
+
+        `.claude/​hooks/​block-readonly-role-writes.sh:357`
+
+        🟡 The full finding body, verbatim, several sentences long.
+        </details>
+
+      These are the highest-value findings in the whole overview and the only
+      ones thread-fetching CANNOT reach: there is no thread to fetch. A parser
+      that keys on `#discussion_r` returns zero of them while reporting
+      success. That is not hypothetical — it is how this fragment's own first
+      draft behaved on PR 395, which has two such findings.
+
+      So: within a section, capture BOTH forms.
+        - Linked: `[Title](#discussion_r<id>)` — key by the id, join to a
+          thread as above.
+        - Unlinked: a nested `<details>` whose `<summary>` carries a severity
+          `<picture>` and a title. Key it by
+          "unlinked:<path>:<line>" from the inline-code path line that
+          follows, falling back to "unlinked:<sha1 of title>" when no path
+          line is present. Set thread_id null and carry the body verbatim.
+
+      STRIP ZERO-WIDTH SPACES (U+200B) before using that path. GitHub injects
+      them into the path for display wrapping: the body literally contains
+      `.claude/​hooks/​block-readonly-role-writes.sh:357`. A path
+      compared or globbed without stripping them matches no file on disk, and
+      the mismatch is invisible in any terminal that renders the body.
+
+      Unlinked findings are always reported with "thread_id": null and
+      "resolvable": false. They cannot be resolved or replied to through the
+      thread API — a consumer must surface them to a human, or fix them and
+      mention them in a reply on some other thread.
+
+      Severity comes from the `alt` attribute of the `<picture>` immediately
+      preceding the link ("High severity", "Medium severity", ...). Prefer it
+      over any severity a downstream stage would infer: it is the reviewer's
+      own rating, not a guess.
+
+      Step 3 — fold the bodies together, oldest to newest.
+
+      Reviews are chronological. Order them by submitted_at and let the NEWEST
+      overview win per finding — an id listed "Open" at 22:17 and "Resolved
+      since last review" at 22:32 is resolved. Collect the union of every
+      section a finding has ever appeared in as well; a finding that has ever
+      been "Previously missed" stays flagged even once it is resolved, because
+      that history is what marks a repeat offender.
+
+      Step 4 — reconcile against the threads. This is the check no consumer
+      previously made:
+
+        - cited_not_found — a LINKED id cited by an overview with NO matching
+          thread. This means the thread fetch missed a comment, so it must be
+          loud. Record the id, its title, and its section. Do not fail the
+          stage; record it and let the report show it.
+
+          Unlinked findings (Step 2b) are excluded from this check. They have
+          no thread by construction, so counting them here would report a
+          permanent false positive on every PR that has one and train a reader
+          to ignore the field.
+        - threads_not_cited — a thread carrying no overview citation. Normal
+          for human threads and for bots other than Copilot; recorded for
+          completeness, not as a problem.
+
+      Step 5 — write {workspace}/outputs/review-overview.json:
+
+        {
+          "pr_number": "{pr_number}",
+          "present": true,
+          "newest": {
+            "review_id": 5285429513,
+            "submitted_at": "2026-09-23T00:12:35Z",
+            "verdict": "Changes recommended",
+            "findings_claimed": 4,
+            "sections": {"Open": 4, "Resolved since last review": 2}
+          },
+          "findings": {
+            "4077827266": {
+              "title": "Resolve relative write paths against the payload cwd",
+              "severity": "High",
+              "section": "Open",
+              "sections": ["Open"],
+              "previously_missed": false,
+              "linked": true,
+              "resolvable": true,
+              "thread_id": "PRRT_kwDO...",
+              "is_resolved": false,
+              "path": "src/foo.py",
+              "line": 216,
+              "body": null
+            },
+            "unlinked:.claude/hooks/block-readonly-role-writes.sh:357": {
+              "title": "Read-only operands treated as write targets",
+              "severity": "Medium",
+              "section": "Previously missed",
+              "sections": ["Previously missed"],
+              "previously_missed": true,
+              "linked": false,
+              "resolvable": false,
+              "thread_id": null,
+              "is_resolved": false,
+              "path": ".claude/hooks/block-readonly-role-writes.sh",
+              "line": 357,
+              "body": "the full finding text, verbatim"
+            }
+          },
+          "previously_missed": [4077044519, 4077044588],
+          "cited_not_found": [
+            {"database_id": 123, "title": "...", "section": "Open"}
+          ],
+          "threads_not_cited": ["PRRT_kwDO..."]
+        }
+
+      "findings_claimed" is the reviewer's own count, parsed from
+      `**Findings:** N`. Carry it through verbatim even when it disagrees with
+      the number of entries actually listed — the disagreement is signal, and
+      a stage that silently reconciles it destroys the evidence.
+
+      Keys in "findings" are the discussion ids as strings, so the file
+      round-trips through JSON without integer-key coercion.
+
+      If no review body carries the `<!-- ccr-overview-v2 -->` marker, write
+      {"pr_number": ..., "present": false, "findings": {},
+      "previously_missed": [], "cited_not_found": [],
+      "threads_not_cited": []} and exit 0. A PR reviewed only by humans is the
+      common case, not a failure. Downstream stages must branch on "present"
+      rather than assuming the findings map is populated.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - review-overview.json

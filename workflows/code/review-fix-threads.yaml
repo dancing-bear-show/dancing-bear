@@ -110,18 +110,62 @@ stages:
 
   - name: triage-threads
     kind: propose
-    depends_on: [fetch-threads]
-    reads_from: [fetch-threads, init]
+    depends_on: [fetch-threads, parse-review-overview]
+    reads_from: [fetch-threads, parse-review-overview, init]
     description: >
       Decide what to do with each thread in {workspace}/outputs/threads.json.
 
-      Step 1 — read the threads file and the PR diff:
+      Step 1 — read the threads file, the overview, and the PR diff:
         Read {workspace}/outputs/threads.json
+        Read {workspace}/outputs/review-overview.json
         GITHUB_TOKEN= gh pr diff {pr_number}
 
       Step 2 — select the candidate set:
         - Threads with is_resolved true are excluded unless
-          {include_resolved} is "true".
+          {include_resolved} is "true", OR the newest Copilot overview still
+          lists that finding under a section other than "Resolved since last
+          review". The overview wins over the thread's resolution state.
+
+          GitHub marks a thread resolved when someone clicks resolve; the
+          overview says whether the reviewer agrees the concern is addressed.
+          Those disagree exactly when a thread was closed without the fix
+          landing, which is the case this workflow keeps missing. Carry such a
+          thread into triage and record "overview_open_override" as the reason
+          it is in the candidate set, so the report shows why a resolved
+          thread was re-examined.
+
+        - A thread whose finding has ever appeared under "Previously missed"
+          (review-overview.json "previously_missed") carries extra weight. The
+          reviewer has already raised it and watched it go unaddressed. It may
+          NOT be classified "moot" or "reject" on the absence of evidence —
+          only on positive evidence, held to the same bar Step 3 sets for
+          "moot". A second silent dismissal is how a finding reaches round
+          five.
+
+        - Findings in review-overview.json with "linked": false have NO
+          review thread — they are written inline in the overview body, and
+          fetch-threads cannot see them by any query. They are still real
+          findings and are usually "Previously missed" ones, meaning the
+          reviewer has already raised them once.
+
+          Triage them exactly like threads, from their "body", "path" and
+          "line", and dispatch fixes for them. They differ only at the end:
+          with no thread_id they cannot be replied to or resolved, so they
+          must never enter the resolve plan. Carry each one into the report
+          under its own heading so a human sees what was fixed with no thread
+          to close, and what still needs attention.
+
+        - Use the reviewer's own severity from review-overview.json where a
+          finding has one, instead of inferring it. Fall back to your own
+          judgement only for threads the overview does not cite.
+
+        - If review-overview.json has "present": false, skip every rule above
+          and select on thread state alone. A human-only PR has no overview.
+
+        - review-overview.json "cited_not_found" is non-empty only when the
+          fetch missed a comment the reviewer cited. Do not attempt to triage
+          those — carry them into the report so the gap is visible rather than
+          silently absent.
         - Threads with source "review-body" or "issue-comment" have no
           thread_id and cannot be resolved. Include them for triage only if
           they contain a specific actionable ask; otherwise mark them
@@ -850,6 +894,14 @@ include:
     prefix: ""
     depends_on: [init]
     reads_from: [init]
+
+  # Copilot overview parsing: reviewer-stated severity, and the "Previously
+  # missed" history that marks a finding it has already raised and been
+  # ignored on. Injects: parse-review-overview
+  - path: workflows/shared/pr-review-overview.yaml
+    prefix: ""
+    depends_on: [fetch-threads]
+    reads_from: [fetch-threads]
 
   # Title/description regeneration against the writing guide.
   # Injects: update-pr-description. Runs after prose check, before resolve, so
