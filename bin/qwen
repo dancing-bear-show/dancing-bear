@@ -1,0 +1,208 @@
+#!/usr/bin/env python3
+"""Enqueue and inspect qwen_patch jobs (local Ollama-backed code patches).
+
+Usage:
+  qwen patch --files a.py b.py --instruction "..." [--model TAG] [--explain]
+  qwen --apply JOB_ID
+
+`patch` enqueues a qwen_patch job via the same queue API `worker enqueue`
+uses. This script never applies a patch itself — `--apply` only PRINTS the
+`git apply` command for the stored patch file; running it is left to the
+caller.
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import json
+import os
+import shlex
+import sys
+import uuid
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+# Load bin/_pathrepair.py by explicit filesystem path, NOT by `import`.
+#
+# That module's job is to fix a broken import path, so it cannot itself depend
+# on the import path being correct: a plain `import` would either fail or —
+# far worse — silently load a FOREIGN checkout's copy and repair nothing.
+# Anchoring to __file__ also keeps this correct when bin/qwen is invoked
+# through a symlink or found on $PATH, since Path.resolve() follows symlinks.
+_spec = importlib.util.spec_from_file_location(
+    "_dancing_bear_pathrepair", _REPO_ROOT / "bin" / "_pathrepair.py"
+)
+if _spec is None or _spec.loader is None:  # pragma: no cover - defensive
+    raise SystemExit("bin/qwen: cannot load bin/_pathrepair.py")
+_pathrepair = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_pathrepair)
+
+# Must run BEFORE the .venv re-exec below so the corrected PYTHONPATH is
+# inherited across os.execv.
+_pathrepair.strip_foreign_src_paths(_REPO_ROOT)
+
+# Re-exec under the repo .venv interpreter when available, mirroring bin/llm.
+_VENV_PY = _REPO_ROOT / ".venv" / "bin" / "python3"
+_VENV_PY_REAL = os.path.realpath(str(_VENV_PY)) if _VENV_PY.exists() else ""
+if (
+    _VENV_PY.exists()
+    and sys.prefix == sys.base_prefix  # no venv active
+    and os.path.realpath(sys.executable) != _VENV_PY_REAL
+    and os.environ.get("_DANCING_BEAR_VENV_EXEC") != _VENV_PY_REAL
+):
+    os.environ["_DANCING_BEAR_VENV_EXEC"] = _VENV_PY_REAL
+    os.execv(str(_VENV_PY), [str(_VENV_PY)] + sys.argv)
+
+# After the re-exec, immediately before the first repo import: force our src/
+# to the FRONT of sys.path. A membership test is not enough — if our src/ is
+# on the path but sits behind another checkout's, that one wins.
+SRC_ROOT = Path(_pathrepair.force_own_src_first(_REPO_ROOT))
+
+JOB_TYPE = "qwen_patch"
+
+# Imported at module scope, not lazily inside each _cmd_* function, so
+# mock.patch.object(bq, "enqueue"/"find_job_path_by_id", ...) — patch where
+# the name is used, per house convention — actually intercepts these calls.
+from worker import queue_ops  # noqa: E402 - after sys.path repair above, by design
+from worker import qwen  # noqa: E402 - after sys.path repair above, by design
+
+enqueue = queue_ops.enqueue
+find_job_path_by_id = queue_ops.find_job_path_by_id
+Job = queue_ops.Job
+QUEUE_ROOT = queue_ops.QUEUE_ROOT
+
+
+def build_payload(files: list[str], instruction: str, explain: bool) -> dict[str, object]:
+    """Build the qwen_patch job payload per contract.json's payload_schema."""
+    payload: dict[str, object] = {"files": files, "instruction": instruction}
+    if explain:
+        payload["explain"] = True
+    return payload
+
+
+def _patch_path_for_job(job_id: str) -> Path:
+    """Absolute path of job_id's stored patch file (contract.result_schema.patch_path).
+
+    Delegates to the handler's own builder, which refuses any id that is not
+    a single safe file-name component (raises qwen.QwenGuardError).
+    """
+    return qwen.patch_path_for_job(job_id)
+
+
+def apply_command(job_id: str) -> str:
+    """Return the `git apply` command text for job_id's stored patch. Never runs it.
+
+    The path is shell-quoted: it sits under the data home, which
+    DANCING_BEAR_DATA_HOME / XDG_DATA_HOME can put anywhere, including a
+    directory with spaces or shell metacharacters, and the user pastes this
+    line into a shell.
+    """
+    return f"git apply {shlex.quote(str(_patch_path_for_job(job_id)))}"
+
+
+def _resolve_instruction(args: argparse.Namespace) -> str:
+    """--instruction-file takes precedence when both are given; usually only one is."""
+    instruction_file = getattr(args, "instruction_file", None)
+    if instruction_file:
+        return Path(instruction_file).read_text(encoding="utf-8").strip()
+    return str(args.instruction)
+
+
+def _cmd_patch(args: argparse.Namespace) -> int:
+    from core.date_utils import iso_now
+
+    instruction = _resolve_instruction(args)
+    payload = build_payload(list(args.files), instruction, bool(args.explain))
+    if args.model:
+        payload["model"] = args.model
+
+    job_id = uuid.uuid4().hex
+    job = Job(
+        id=job_id,
+        type=JOB_TYPE,
+        payload=payload,
+        priority=int(args.priority),
+        max_attempts=int(args.max_attempts),
+        enqueued_at=iso_now(),
+    )
+    path = enqueue(job, root=QUEUE_ROOT)
+    print(json.dumps({"enqueued": True, "id": job_id, "path": str(path)}))
+    return 0
+
+
+def _cmd_apply(job_id: str) -> int:
+    """Print the git apply command, or refuse when the stored patch path is a
+    symlink: applying it would apply whatever file the link points at."""
+    try:
+        command = apply_command(job_id)
+    except qwen.QwenGuardError:
+        print(f"refusing job id {job_id!r}: its patch path is a symlink", file=sys.stderr)
+        return 2
+    print(command)
+    return 0
+
+
+def _cmd_show(job_id: str) -> int:
+    """Print the stored job JSON for job_id, or a not-found message with a nonzero exit."""
+    path = find_job_path_by_id(job_id, root=QUEUE_ROOT)
+    if path is None:
+        print(f"job not found: {job_id}", file=sys.stderr)
+        return 1
+    print(path.read_text(encoding="utf-8"))
+    return 0
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="qwen", description=__doc__.splitlines()[0])
+    parser.add_argument("--apply", metavar="JOB_ID", help="print the git apply command for a stored patch")
+    parser.add_argument("--show", metavar="JOB_ID", help="print the stored job JSON for JOB_ID")
+
+    sub = parser.add_subparsers(dest="command")
+    patch = sub.add_parser("patch", help="enqueue a qwen_patch job")
+    patch.add_argument("--files", nargs="+", required=True, help="repo-relative file paths")
+    instruction_group = patch.add_mutually_exclusive_group(required=True)
+    instruction_group.add_argument("--instruction", help="natural-language change request")
+    instruction_group.add_argument(
+        "--instruction-file", dest="instruction_file", help="path to a file holding the instruction text"
+    )
+    patch.add_argument("--model", default=None, help="override the default model tag")
+    patch.add_argument("--explain", action="store_true", help="run guards and report without calling the model")
+    patch.add_argument("--priority", type=int, default=5)
+    patch.add_argument("--max-attempts", dest="max_attempts", type=int, default=3)
+    return parser
+
+
+def _reject_unsafe_job_id(job_id: str) -> bool:
+    """True (after printing why) when job_id must not be turned into a path.
+
+    Both --apply and --show build a file name from JOB_ID, so an id such as
+    ../../x must be refused before either runs.
+    """
+    if qwen.is_safe_job_id(job_id):
+        return False
+    print(f"invalid job id: {job_id!r} (expected letters, digits, '.', '_' or '-')", file=sys.stderr)
+    return True
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    for job_id in (args.apply, args.show):
+        if job_id is not None and _reject_unsafe_job_id(str(job_id)):
+            return 2
+    if args.apply:
+        return _cmd_apply(str(args.apply))
+    if args.show:
+        return _cmd_show(str(args.show))
+    if args.command == "patch":
+        return _cmd_patch(args)
+
+    parser.print_help(sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

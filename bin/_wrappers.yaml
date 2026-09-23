@@ -50,6 +50,7 @@ python:
 manual:
   - llm
   - path-guard
+  - qwen
   - ios-install-profile
   - ios-p12-to-der
   - ios-setup-device
