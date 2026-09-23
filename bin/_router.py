@@ -89,6 +89,7 @@ _MODULE_MAP: dict[str, str] = {
     "schedule": "schedule",
     "whatsapp": "whatsapp",
     "wifi": "wifi",
+    "desk": "desk",
     "slides": "slides",
     "sheets": "sheets",
     "maker": "maker",

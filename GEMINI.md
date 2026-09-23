@@ -24,7 +24,7 @@ Prefer agentic schemas over `--help`:
 ./bin/llm agentic --stdout
 ```
 
-All 18 apps support `--agentic`. `./bin/llm inventory --stdout` prints the exact invocation for each — `./bin/<app>` is wrong for four of them.
+All 19 apps support `--agentic`. `./bin/llm inventory --stdout` prints the exact invocation for each — `./bin/<app>` is wrong for three of them.
 
 ## Token Budgets
 Respect token budgets defined in `.llm/AGENTIC_BUDGETS.yaml`.

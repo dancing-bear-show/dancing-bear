@@ -35,11 +35,10 @@ _JOB_SUFFIX = ".json"
 def _q(root: Path | None) -> Path:
     """Return *root* if given, otherwise the current module-level QUEUE_ROOT.
 
-    Using this helper instead of ``root: Path = QUEUE_ROOT`` as a default
-    argument makes the resolution happen at *call* time, not import time.
-    Tests can therefore reassign ``queue_ops.QUEUE_ROOT`` after import and
-    have the change picked up without patching every default argument
-    individually.
+    Resolving here at call time, rather than writing QUEUE_ROOT as the parameter
+    default, matters: a default is bound at import, so a caller that omits ``root`` would
+    reach the user's real queue even after a test reassigned QUEUE_ROOT, and the
+    live daemon would then run the test's jobs.
     """
     return root if root is not None else QUEUE_ROOT
 

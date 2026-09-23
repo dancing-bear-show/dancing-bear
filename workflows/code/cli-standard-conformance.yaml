@@ -223,7 +223,7 @@ stages:
         the BYTE-IDENTICAL script rather than a reimplementation.
 
       Step 5 — sanity-check the result.
-        An audit reporting zero violations across 18 apps is far more likely to
+        An audit reporting zero violations across 19 apps is far more likely to
         be a broken audit than a conformant repo.
 
         These are SHAPE checks, not fixed expected values. Do NOT "correct" the
@@ -386,7 +386,7 @@ stages:
       every app package under src/ has a meta.py (18 of 18; only `core`, which
       is not an app, lacks one). Run
 
-        python3 -c "import pathlib; print([d.name for d in pathlib.Path('src').iterdir() if d.is_dir() and (d/'__init__.py').exists() and not (d/'meta.py').exists()])"
+        python3 -I -S -c "import pathlib; print([d.name for d in pathlib.Path('src').iterdir() if d.is_dir() and (d/'__init__.py').exists() and not (d/'meta.py').exists()])"
 
       A meta.py file is NOT sufficient on its own — P1 has two halves, and this
       check only covers the first. Declare P1 done only when ALL THREE hold:
@@ -397,7 +397,7 @@ stages:
            file — a per-file grep false-positives on shims (telemetry/cli.py
            re-exports; the wiring lives in telemetry/cli_sessions.py):
 
-             python3 -c "import pathlib; print([d.name for d in pathlib.Path('src').iterdir() if d.is_dir() and (d/'__init__.py').exists() and d.name != 'core' and not any('agentic_fallback' in p.read_text(errors='replace') for p in d.rglob('*.py'))])"
+             python3 -I -S -c "import pathlib; print([d.name for d in pathlib.Path('src').iterdir() if d.is_dir() and (d/'__init__.py').exists() and d.name != 'core' and not any('agentic_fallback' in p.read_text(errors='replace') for p in d.rglob('*.py'))])"
 
            Measured 2026-09-11: prints [] — all 18 apps wired. This is a guard
            against a future meta.py landing without its call-site change, not a
@@ -421,7 +421,7 @@ stages:
       backwards-compatible re-export, alias, or shim behind.
 
       Verify per app that the capsule is unchanged where it should be:
-        python3 -c "import <app>.__main__ as m; m.main(['--agentic'])"
+        PYTHONPATH="$PWD/src" python3 -c "import <app>.__main__ as m; m.main(['--agentic'])"
       The fallback only fires on failure, so a correct refactor leaves normal
       output byte-identical. If output CHANGES, you have broken something.
     agent:
@@ -511,7 +511,7 @@ stages:
       figure here — three different numbers have been written into this line,
       because "mentions CONFIG" and "dereferences mod.CONFIG" differ:
 
-        python3 -c "import re,pathlib; t=pathlib.Path('tests/llm_cli_contract.py').read_text(); m=re.findall(r'def (test_\\w+)\\(self[^)]*\\):((?:\\n(?!    def ).*)*)', t); print(sum(1 for _,b in m if re.search(r'mod\\.CONFIG\\.', b)), 'of', len(m))"
+        python3 -I -S -c "import re,pathlib; t=pathlib.Path('tests/llm_cli_contract.py').read_text(); m=re.findall(r'def (test_\\w+)\\(self[^)]*\\):((?:\\n(?!    def ).*)*)', t); print(sum(1 for _,b in m if re.search(r'mod\\.CONFIG\\.', b)), 'of', len(m))"
 
       Measured 2026-09-11: 11 of 19 dereference mod.CONFIG. Its derive-all also
       produces no AGENTIC_MAIL.md / DOMAIN_MAP_MAIL.md.
@@ -519,7 +519,7 @@ stages:
       is not a refactor.
 
       Verify rather than assume: run
-        python3 -c "import mail.llm_cli as m; print(hasattr(m,'CONFIG'))"
+        PYTHONPATH="$PWD/src" python3 -c "import mail.llm_cli as m; print(hasattr(m,'CONFIG'))"
       If that prints False, the exemption holds — record it and move on.
       Only if it prints True should you reconsider adoption.
 
@@ -668,11 +668,14 @@ stages:
           every failure. No "Ran N tests" line means the suite did not run:
           re-run it, do not report a result.
         - >-
-          NEVER run bare `python3 -m unittest`. An inherited PYTHONPATH resolves
+          NEVER run a bare unittest. An inherited PYTHONPATH resolves
           imports to a DIFFERENT checkout and yields a false green that is
           indistinguishable from a real one. If anything looks off, print where
-          the module actually loaded from — python3 -c "import wifi;
-          print(wifi.__file__)" — and confirm the path is under THIS worktree.
+          the module actually loaded from, without importing it —
+          python3 -I -S -c "import importlib.util as u, os, sys; sys.path[:0] = os.environ.get('PYTHONPATH','').split(os.pathsep); s = u.find_spec('wifi'); print(s.origin if s else 'not found')"
+          — and confirm the path is under THIS worktree. Do not use
+          `import wifi; print(wifi.__file__)`: importing runs the foreign
+          tree's sitecustomize and package __init__ before printing.
         - >-
           Possible pre-existing failure, NOT caused by this work: the guard-hook
           suite (tests.infra.test_guard_hooks.TestGuardHookSuites.test_block_destructive_bash_suite_passes)

@@ -1,8 +1,8 @@
 """PR-review-thread subcommand handlers for the workflow CLI.
 
 Handles check-fix-index, thread-fingerprints, check-thread-ids,
-aggregate-fix-results, check-paths, and parse-overview command handlers,
-plus their private helpers.
+aggregate-fix-results, check-paths, parse-overview, snapshot-dirty and
+check-unlisted command handlers, plus their private helpers.
 """
 
 from __future__ import annotations
@@ -211,4 +211,140 @@ def _cmd_parse_overview(args: argparse.Namespace) -> int:
         print(f"wrote {out}")
     else:
         print(rendered)
+    return 0
+
+
+def _cmd_snapshot_dirty(args: argparse.Namespace) -> int:
+    """Record the checkout's dirty paths and HEAD before any fixer runs.
+
+    check-unlisted compares against this, so a file another session already
+    had dirty is not blamed on the run -- unless its content changes. The
+    recorded HEAD lets check-unlisted also catch a fixer that stages and
+    commits an unlisted file before it runs, via ``committed_since``: ``git
+    status`` alone reports a committed path clean.
+
+    HEAD is captured *before* the status snapshot, not after. In the shared
+    checkout, a commit from another session can land between the two calls;
+    capturing HEAD first means that commit is always at or after the
+    recorded baseline, so ``committed_since`` (which walks commits strictly
+    after ``baseline_head``) is guaranteed to see it. Capturing HEAD second
+    would instead record the post-commit sha as the baseline itself, making
+    that same commit invisible to both the dirty-path comparison (the path
+    was never dirty in this snapshot) and ``committed_since`` (it is not
+    after its own baseline).
+    """
+    from core.fileutil import atomic_write_json
+    from workflow.worktree_gate import head_commit, snapshot_dirty
+
+    try:
+        head = head_commit(Path.cwd())
+        snapshot = snapshot_dirty(Path.cwd())
+    except RuntimeError as exc:
+        print(f"snapshot-dirty: {exc}", file=sys.stderr)
+        return 1
+    atomic_write_json(args.out, {"dirty": snapshot, "head": head})
+    print(f"snapshot-dirty: {len(snapshot)} dirty path(s) recorded")
+    return 0
+
+
+def _load_json_object(path: str, what: str) -> dict:
+    try:
+        doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{what} unreadable: {exc}") from exc
+    if not isinstance(doc, dict):
+        raise ValueError(f"{what} is not a JSON object")
+    return doc
+
+
+def _verify_baseline_provenance(baseline_path: str) -> dict:
+    """Re-hash *baseline_path*, compare against pr-context.json's record, and
+    return the exact bytes that were hashed, parsed as JSON.
+
+    dirty-baseline.json is written into the same fixer-writable workspace
+    directory that every later fix-threads agent (Bash, Write) can also
+    write to, so an unverified read would let a fixer rewrite the baseline
+    with post-edit hashes -- or drop its own unlisted entry -- to make this
+    gate pass on a false baseline. init records the file's sha256, taken
+    right after writing it and before any fixer ran, as
+    "dirty_baseline_sha256" in pr-context.json -- a sibling file no later
+    stage is ever instructed to modify. Re-hashing here and failing closed
+    on any mismatch (or a missing/malformed record) makes a rewritten
+    baseline rejected rather than trusted.
+
+    The caller must use the returned object rather than re-reading
+    baseline_path itself: a separate read would not be atomic with the
+    hash check above, so a fixer-writable file replaced between the two
+    reads could pass verification against its old content while the
+    caller ends up parsing different, unverified bytes.
+
+    Raises:
+        ValueError: pr-context.json is missing/unreadable, its
+            dirty_baseline_sha256 field is missing or not a string, the
+            current hash of *baseline_path* no longer matches it, or the
+            verified bytes are not a JSON object.
+    """
+    import hashlib
+
+    context_path = Path(baseline_path).parent / "pr-context.json"
+    if not context_path.is_file():
+        raise ValueError(f"pr-context.json not found beside baseline at {context_path}")
+    context = _load_json_object(str(context_path), "pr-context")
+    expected = context.get("dirty_baseline_sha256")
+    if not isinstance(expected, str) or not expected:
+        raise ValueError("pr-context.json has no 'dirty_baseline_sha256' string")
+    try:
+        baseline_bytes = Path(baseline_path).read_bytes()
+    except OSError as exc:
+        raise ValueError(f"baseline unreadable: {exc}") from exc
+    actual = hashlib.sha256(baseline_bytes).hexdigest()
+    if actual != expected:
+        raise ValueError(
+            "dirty-baseline.json does not match dirty_baseline_sha256 recorded in "
+            "pr-context.json -- baseline may have been rewritten after init"
+        )
+    try:
+        doc = json.loads(baseline_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"baseline is not valid JSON: {exc}") from exc
+    if not isinstance(doc, dict):
+        raise ValueError("baseline is not a JSON object")
+    return doc
+
+
+def _cmd_check_unlisted(args: argparse.Namespace) -> int:
+    """Fail if the run changed a file fix-results.json does not list.
+
+    commit-and-push stages exactly files_changed, so an unlisted edit would be
+    left behind silently -- and it would also never pass through check-paths,
+    which runs over the same list. Fails closed: an unreadable input, a
+    tampered baseline (see ``_verify_baseline_provenance``), or a failed
+    ``git status``/``git rev-parse``/``git diff`` is exit 1, never a pass.
+    """
+    from workflow.worktree_gate import committed_since, snapshot_dirty, unlisted_changes
+
+    try:
+        baseline_doc = _verify_baseline_provenance(args.baseline)
+        baseline = baseline_doc.get("dirty")
+        baseline_head = baseline_doc.get("head")
+        listed = _load_json_object(args.fix_results, "fix-results").get("files_changed")
+        if not isinstance(baseline, dict):
+            raise ValueError("baseline has no 'dirty' object")
+        # snapshot-dirty always records it; without it a committed unlisted
+        # file is invisible, so its absence fails closed rather than skipping.
+        if not isinstance(baseline_head, str) or not baseline_head:
+            raise ValueError("baseline has no 'head' commit")
+        if not isinstance(listed, list) or not all(isinstance(p, str) for p in listed):
+            raise ValueError("fix-results files_changed is not a list of strings")
+        current = snapshot_dirty(Path.cwd())
+        committed = committed_since(Path.cwd(), baseline_head)
+    except (ValueError, RuntimeError) as exc:
+        print(f"check-unlisted: {exc}", file=sys.stderr)
+        return 1
+    unlisted = unlisted_changes(baseline, current, listed, committed=committed)
+    for path in unlisted:
+        print(f"UNLISTED: {path}")
+    if unlisted:
+        print(f"{len(unlisted)} changed path(s) missing from files_changed", file=sys.stderr)
+        return 1
     return 0

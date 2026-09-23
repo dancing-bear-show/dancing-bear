@@ -207,7 +207,7 @@ stages:
       it under "incomplete" and treat the run as failed. Never let a silently
       absent findings file read as a pass.
 
-      Step 2 — write report.md, ordered errors first, then warnings, then
+      Step 2 — write run-report.md, ordered errors first, then warnings, then
       clean PDFs. For each finding give: PDF, field, type, stored vs visible,
       and the relative path to the image. Lead with the verdict line
       "PASS — N PDFs, M fields verified" or "FAIL — N findings across M PDFs".
@@ -228,11 +228,11 @@ stages:
       - name: render_report
         mode: generate
         description: >
-          report.md and report.json at {workspace}/outputs/, consolidating every
+          run-report.md and report.json at {workspace}/outputs/, consolidating every
           per-PDF finding with links to the backing images.
     required: true
     writes_to:
-      - outputs/report.md
+      - outputs/run-report.md
       - outputs/report.json
 
   # ===========================================================================
@@ -243,7 +243,7 @@ stages:
     depends_on: [consolidate]
     reads_from: [consolidate]
     description: >
-      Present {workspace}/outputs/report.md and stop for human review.
+      Present {workspace}/outputs/run-report.md and stop for human review.
 
       Show the verdict line, every error with its stored-vs-visible pair, and
       the path to each backing image so the reviewer can open it directly.

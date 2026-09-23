@@ -18,7 +18,7 @@ Post-run calibration for `workflows/code/decompose-sweep.yaml`. Reads run teleme
 
 ## Step 1: Collect Telemetry
 
-Run telemetry files land in the workflow's `workspace_dir`. The workflow engine resolves `{work_dir}` to `<cwd>/out/` (see `workflow/cli.py`), so sweep runs write to:
+Run telemetry files land in the workflow's `workspace_dir`. The workflow engine resolves `{work_dir}` to `<cwd>/out/` (see `src/workflow/cli.py`), so sweep runs write to:
 
 ```
 out/decompose-sweep/run-metrics.json

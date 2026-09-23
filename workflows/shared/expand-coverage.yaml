@@ -95,26 +95,29 @@ stages:
 
         1. Read the source file to understand what to test.
 
-        2. Read the domain conftest.py for available factories and fixtures:
-             tests/conftest.py                         — global fixtures
-             tests/<domain>/conftest.py                — domain-specific factories
-             tests/helpers/README.md                   — shared mock libraries
+        2. Read the shared test helpers for available factories and fakes. This
+           is a stdlib unittest suite: there are no conftest.py files and no
+           tests/helpers/ package.
+             tests/fixtures.py                 — cross-domain helpers (TempDirMixin, temp_yaml_file, ...)
+             tests/<domain>_tests/fixtures.py  — domain factories; some domains name it
+                                                 shared_fixtures.py or helpers.py, so ls first
+             tests/fakes/                      — offline Gmail, Outlook and DOCX fakes
 
         3. Spawn a tester agent for the file:
              Task(
                subagent_type="tester",
                prompt=(
                  "Write tests for {src_path} targeting {min_coverage}%+ coverage. "
-                 "Read tests/<domain>/conftest.py first for available factories. "
+                 "Read tests/fixtures.py and the fixtures module in tests/<domain>_tests/ first for available factories. "
                  "Follow project conventions: make_* factories (no manual dicts), "
                  "subTest() loops for multi-scenario cases (unittest has no @parametrize), "
                  "specific assertions (assertEqual/assertIn, not assertTrue), patch at the call site. "
-                 "After writing tests, run: python3 -m unittest discover -s {test_path} -t . -q and fix any failures."
+                 "After writing tests, run: PYTHONPATH=\"$PWD/src\" python3 -m unittest discover -s {test_path} -t . -q and fix any failures."
                )
              )
 
         4. After the tester agent returns, verify the tests pass:
-             python3 -m unittest discover -s {test_path} -t . -q
+             PYTHONPATH="$PWD/src" python3 -m unittest discover -s {test_path} -t . -q
 
            If the command exits non-zero: read the error, fix the specific failure,
            and re-run. Up to 2 fix cycles per file.
@@ -122,7 +125,7 @@ stages:
       Process files in order: 0%-coverage files first (no test file), then
       lowest-coverage files ascending. Spawn tester agents in parallel for
       files in different domains; serialize within the same domain to avoid
-      conftest conflicts.
+      conflicting edits to its shared fixtures module.
 
       Write a summary to {workspace}/coverage/tests-added.md:
 
@@ -161,7 +164,7 @@ stages:
         files are still below threshold, and report them in the output JSON.
 
       Step 2 — run the test suite for the target path:
-        python3 -m unittest discover -s {test_path} -t . -q
+        PYTHONPATH="$PWD/src" python3 -m unittest discover -s {test_path} -t . -q
 
         Must exit 0. If it fails: read the error, identify the root cause,
         and record it — do not attempt further fixes in this stage (that would
@@ -196,7 +199,7 @@ stages:
       criteria:
         - All files in {source_root} are at or above {min_coverage}%
         - No test gaps remain on changed files
-        - python3 -m unittest {test_path} exits 0
+        - PYTHONPATH="$PWD/src" python3 -m unittest {test_path} exits 0
       max_revisions: 2
     required: true
     writes_to:

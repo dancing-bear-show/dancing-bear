@@ -116,12 +116,13 @@ def _entry(finding_id: object, file_id: object = _ABSENT, thread_id: str | None 
     return entry
 
 
-def _index(*groups: Sequence[dict[str, Any]]) -> dict[str, Any]:
-    """Build a fix-index.json with one item per group of entries."""
+def _index(*groups: Sequence[dict[str, Any]], paths: Sequence[str] = ()) -> dict[str, Any]:
+    """Build a fix-index.json with one item per group of entries. Group i's
+    file is paths[i], or f{i}.py when no paths are given."""
     return {
         "total": len(groups),
         "items": [
-            {"index": str(i), "data": {"path": f"f{i}.py", "threads": list(entries)}}
+            {"index": str(i), "data": {"path": paths[i] if paths else f"f{i}.py", "threads": list(entries)}}
             for i, entries in enumerate(groups)
         ],
     }
@@ -607,16 +608,21 @@ def _result(finding_id: str, thread_id: str | None, **overrides: object) -> dict
 
 class _Aggregate(_JsonFiles):
     """An index with two threaded findings and two unlinked (null-thread) ones
-    whose ids sanitise to the same characters."""
+    whose ids sanitise to the same characters. The threaded pair is anchored
+    to src/b.py, the unlinked pair to src/a.py."""
 
     def setUp(self) -> None:
         super().setUp()
         self.fixes = self.root / "fixes"
         self.fixes.mkdir()
-        self.index = self.write("fix-index.json", _index(
+        self.index = self._write_index("src/b.py", "src/a.py")
+
+    def _write_index(self, *paths: str) -> str:
+        return self.write("fix-index.json", _index(
             [_entry(REAL_ID_A, thread_id=REAL_ID_A),
              _entry(REAL_ID_TRAILING_DASH, thread_id=REAL_ID_TRAILING_DASH)],
             _ids(UNLINKED_A, UNLINKED_B),
+            paths=paths,
         ))
 
     def _write_result(self, stem: str, doc: object) -> None:
@@ -626,11 +632,11 @@ class _Aggregate(_JsonFiles):
         self._write_result(_file_id(finding_id), doc)
 
     def _write_all_valid(self) -> None:
-        self._write_for(REAL_ID_A, _result(REAL_ID_A, REAL_ID_A))
+        self._write_for(REAL_ID_A, _result(REAL_ID_A, REAL_ID_A, files_changed=["src/b.py"]))
         self._write_for(REAL_ID_TRAILING_DASH, _result(REAL_ID_TRAILING_DASH, REAL_ID_TRAILING_DASH,
                                                       action="rejected", files_changed=[]))
         self._write_for(UNLINKED_A, _result(UNLINKED_A, None))
-        self._write_for(UNLINKED_B, _result(UNLINKED_B, None, files_changed=["src/a.py", "src/b.py"]))
+        self._write_for(UNLINKED_B, _result(UNLINKED_B, None, files_changed=["src/a.py"]))
 
     def _merged(self) -> dict[str, Any]:
         return aggregate_fix_results(self.index, self.fixes).to_json()
@@ -646,7 +652,184 @@ class TestAggregateFixResults(_Aggregate):
                          [REAL_ID_A, REAL_ID_TRAILING_DASH, UNLINKED_A, UNLINKED_B])
         self.assertEqual((doc["missing_results"], doc["key_mismatches"], doc["failed_tests"]), ([], [], []))
         self.assertEqual(doc["by_action"], {"fixed": 3, "rejected": 1, "moot": 0, "deferred": 0})
-        self.assertEqual(doc["files_changed"], ["src/a.py", "src/b.py"])
+        # REAL_ID_TRAILING_DASH is "rejected"; its tests_added must not be folded in
+        # even though the fixture leaves that field at its "fixed" default.
+        test_files = sorted(f"tests/test_{_file_id(i)}.py"
+                            for i in (REAL_ID_A, UNLINKED_A, UNLINKED_B))
+        self.assertEqual(doc["files_changed"], ["src/a.py", "src/b.py", *test_files])
+
+    def test_test_files_are_committed_with_their_fix(self) -> None:
+        """Dry run on PR #405: the fixer listed only the src file in
+        files_changed and its test as a test id, so commit-and-push -- which
+        stages exactly files_changed -- would have pushed the fix without
+        its tests. The test file must be in the list."""
+        self.index = self._write_index("src/b.py", "src/core/dryrun_sample.py")
+        self._write_for(UNLINKED_A, _result(
+            UNLINKED_A, None,
+            files_changed=["src/core/dryrun_sample.py"],
+            tests_added=["tests/core_tests/test_dryrun_sample.py::TestX::test_rejects_bool",
+                         "tests/core_tests/test_dryrun_sample.py::TestX::test_accepts_int"],
+        ))
+        self.assertEqual(self._merged()["files_changed"],
+                         ["src/core/dryrun_sample.py", "tests/core_tests/test_dryrun_sample.py"])
+
+    def test_rejected_results_tests_added_is_not_staged(self) -> None:
+        """A rejected/moot/deferred result did not touch its test file --
+        crediting tests_added from it would stage a file the fixer never
+        wrote. PR #406 review: the _write_all_valid fixture already had a
+        rejected result carrying a leftover tests_added value and it was
+        (before this fix) folded into files_changed anyway."""
+        self._write_for(UNLINKED_A, _result(
+            UNLINKED_A, None, action="rejected", files_changed=[],
+            tests_added=["tests/unrelated/test_untouched.py::T::test_y"],
+        ))
+        self.assertEqual(self._merged()["files_changed"], [])
+
+    def test_non_fixed_files_changed_is_not_authorized(self) -> None:
+        """PR #406 round 5: check-unlisted subtracts this list from the dirty
+        set, so a path listed by a moot/rejected result could never be
+        reported as an unlisted edit. Only fixed results may authorize a
+        commit; an edit a non-fixed result really made stays unlisted and
+        fails the gate."""
+        self._write_for(UNLINKED_A, _result(
+            UNLINKED_A, None, action="moot", files_changed=["src/sneaky.py"],
+            tests_added=["tests/unrelated/test_untouched.py::T::test_y"],
+        ))
+        self._write_for(UNLINKED_B, _result(UNLINKED_B, None, files_changed=["src/a.py"],
+                                            tests_added=[]))
+        self.assertEqual(self._merged()["files_changed"], ["src/a.py"])
+
+    def test_source_file_outside_the_fixers_scope_is_not_authorized(self) -> None:
+        """PR #406 round 7: a fixed result could list any safe path, pass
+        check-paths, and have check-unlisted subtract it -- so a compromised
+        fixer's edit to an unrelated source file was committed. Only the
+        group's own file and tests/ paths are authorized."""
+        self._write_for(UNLINKED_A, _result(UNLINKED_A, None, files_changed=["src/a.py", "src/other.py"],
+                                            tests_added=["tests/x/test_a.py::T::t"]))
+        doc = self._merged()
+        self.assertEqual(doc["files_changed"], ["src/a.py", "tests/x/test_a.py"])
+        self.assertEqual(doc["out_of_scope_paths"], [{"id": UNLINKED_A, "path": "src/other.py"}])
+
+    def test_unsafe_test_ids_never_reach_the_readable_lists(self) -> None:
+        """PR #406 round 13: results stay verbatim and verify-fixes read
+        every tests_added id from disk, so ../../.envrc::x was a file-read
+        instruction. Only validated ids are published for reading."""
+        self._write_for(UNLINKED_A, _result(UNLINKED_A, None, files_changed=["src/a.py"], tests_added=[
+            "tests/x/test_a.py::T::t", "../../.envrc::x", "/etc/passwd::t", ".claude/hooks/test_h.py::T::t"]))
+        doc = self._merged()
+        self.assertEqual(doc["tests_added"], ["tests/x/test_a.py::T::t"])
+        self.assertEqual(doc["tests_by_result"], {UNLINKED_A: ["tests/x/test_a.py::T::t"]})
+        self.assertEqual(sorted(r["test"] for r in doc["rejected_tests_added"]),
+                         ["../../.envrc::x", ".claude/hooks/test_h.py::T::t", "/etc/passwd::t"])
+
+    def test_non_fixed_results_publish_no_tests(self) -> None:
+        self._write_for(UNLINKED_A, _result(UNLINKED_A, None, action="rejected", files_changed=[],
+                                            tests_added=["tests/x/test_a.py::T::t"]))
+        doc = self._merged()
+        self.assertEqual((doc["tests_added"], doc["tests_by_result"]), ([], {}))
+
+    def test_unrelated_test_file_is_out_of_scope(self) -> None:
+        """PR #406 round 12: every path under tests/ was authorized, so a
+        fixer could edit tests/other.py, list it, and have it committed.
+        Only the test files its own tests_added ids name are in scope."""
+        self._write_for(UNLINKED_A, _result(UNLINKED_A, None,
+                                            files_changed=["src/a.py", "tests/x/test_a.py", "tests/other.py"],
+                                            tests_added=["tests/x/test_a.py::T::t"]))
+        doc = self._merged()
+        self.assertEqual(doc["files_changed"], ["src/a.py", "tests/x/test_a.py"])
+        self.assertEqual(doc["out_of_scope_paths"], [{"id": UNLINKED_A, "path": "tests/other.py"}])
+
+    def test_another_groups_file_is_out_of_scope(self) -> None:
+        """src/b.py belongs to the threaded group; the unlinked group's fixer
+        may not claim it."""
+        self._write_for(UNLINKED_A, _result(UNLINKED_A, None, files_changed=["src/b.py"], tests_added=[]))
+        doc = self._merged()
+        self.assertEqual(doc["files_changed"], [])
+        self.assertEqual(doc["out_of_scope_paths"], [{"id": UNLINKED_A, "path": "src/b.py"}])
+
+    def test_group_with_no_file_authorizes_only_tests(self) -> None:
+        self.index = self.write("fix-index.json", {
+            "total": 1, "items": [{"index": "0", "data": {"path": None, "threads": _ids(UNLINKED_A)}}]})
+        self._write_for(UNLINKED_A, _result(UNLINKED_A, None, files_changed=["src/a.py"],
+                                            tests_added=["tests/x/test_a.py::T::t"]))
+        doc = self._merged()
+        self.assertEqual(doc["files_changed"], ["tests/x/test_a.py"])
+        self.assertEqual(doc["out_of_scope_paths"], [{"id": UNLINKED_A, "path": "src/a.py"}])
+
+    def test_protected_test_path_is_never_authorized(self) -> None:
+        """A test id is the one route a file could take around files_changed.
+        A "test" outside tests/ is outside the fixer's scope: it is reported,
+        and left off files_changed so check-unlisted refuses the edit."""
+        self._write_for(UNLINKED_A, _result(UNLINKED_A, None, files_changed=["src/a.py"],
+                                            tests_added=[".claude/hooks/test_x.py::T::t"]))
+        doc = self._merged()
+        self.assertNotIn(".claude/hooks/test_x.py", doc["files_changed"])
+        self.assertIn({"id": UNLINKED_A, "path": ".claude/hooks/test_x.py"}, doc["out_of_scope_paths"])
+
+    def test_non_path_test_ids_are_not_guessed_into_paths(self) -> None:
+        self._write_for(UNLINKED_A, _result(
+            UNLINKED_A, None, files_changed=["src/a.py"],
+            tests_added=["tests.core_tests.test_x.TestX.test_y", "", "::orphan", 7],
+        ))
+        self.assertEqual(self._merged()["files_changed"], ["src/a.py"])
+
+    def test_nested_safe_test_path_is_folded_in(self) -> None:
+        """A multi-segment path built entirely from safe characters still
+        reaches files_changed -- the allowlist must not over-reject."""
+        self._write_for(UNLINKED_A, _result(
+            UNLINKED_A, None, files_changed=["src/a.py"],
+            tests_added=["tests/workflow_tests/sub-dir/test_x.py::T::test_y"],
+        ))
+        self.assertIn("tests/workflow_tests/sub-dir/test_x.py", self._merged()["files_changed"])
+
+    def test_shell_metacharacter_test_ids_are_rejected(self) -> None:
+        """A test id containing shell metacharacters must not reach
+        files_changed: commit-and-push interpolates files_changed into shell
+        command text (``git add <file1> <file2> ...``), not an argv array, so
+        an unrejected ``$(...)`` or backtick would execute on staging."""
+        self._write_for(UNLINKED_A, _result(
+            UNLINKED_A, None, files_changed=["src/a.py"],
+            tests_added=[
+                "tests/$(id).py::T::test",
+                "tests/`id`.py::T::test",
+                "tests/../../etc/passwd.py::T::test",
+                "tests/a b.py::T::test",
+                "tests/te;st.py::T::test",
+            ],
+        ))
+        self.assertEqual(self._merged()["files_changed"], ["src/a.py"])
+
+    def test_shell_metacharacter_files_changed_are_rejected(self) -> None:
+        """A reported files_changed entry gets the same safe-path contract as
+        a tests_added id: it too is fixer/LLM-authored text that reaches
+        commit-and-push's shell-interpolated ``check-paths <...>`` and
+        ``git add <...>`` before check-paths runs over the built list, so an
+        unrejected ``$(...)``, backtick, or embedded whitespace must not
+        survive aggregation."""
+        self._write_for(UNLINKED_A, _result(
+            UNLINKED_A, None,
+            files_changed=[
+                "src/a.py",
+                "src/$(id).py",
+                "src/`id`.py",
+                "src/../../etc/passwd",
+                "src/a b.py",
+                "src/te;st.py",
+            ],
+            tests_added=[],
+        ))
+        self.assertEqual(self._merged()["files_changed"], ["src/a.py"])
+
+    def test_safe_nested_files_changed_still_reaches_the_list(self) -> None:
+        """The contract must not over-reject: a plain multi-segment path
+        built from safe characters is still credited."""
+        self.index = self._write_index("src/b.py", "src/workflow/sub-dir/mod_1.py")
+        self._write_for(UNLINKED_A, _result(
+            UNLINKED_A, None,
+            files_changed=["src/workflow/sub-dir/mod_1.py"],
+            tests_added=[],
+        ))
+        self.assertEqual(self._merged()["files_changed"], ["src/workflow/sub-dir/mod_1.py"])
 
     def test_null_thread_findings_reconcile_on_id(self) -> None:
         """Reconciling on thread_id would look for null.json and lose both."""

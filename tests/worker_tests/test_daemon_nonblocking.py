@@ -60,11 +60,10 @@ def _make_runner(root: Path, **config_kwargs: Any):
 def _patch_queue_root(job_root: Path) -> ExitStack:
     """Patch every worker.job_runtime.q.* call site to forward root=job_root.
 
-    ``worker.queue_ops`` functions bind their ``root`` default at import
-    time, so reassigning ``q.QUEUE_ROOT`` after import does not affect a
-    no-args call — the same reason ``TestJobProcessor`` in
-    test_commands_gaps.py wraps each call site individually instead of
-    relying on the module-level reassignment alone.
+    ``worker.queue_ops`` resolves an omitted ``root`` at call time, so the
+    module-level reassignment in ``_make_runner`` already redirects no-args
+    calls; forwarding ``root=job_root`` explicitly keeps each call site's
+    target visible in the test rather than depending on that global.
     """
     stack = ExitStack()
     # process_one logs every outcome to the real worker perf log

@@ -59,6 +59,30 @@ stages:
       domain (mail, calendar, resume, workflow, core, …) — never a file name or
       an adjective. The title describes the PR's net effect, not its last commit.
 
+      Step 3b — decide: rewrite, or amend. The rewrite below exists because
+      fixes made during this run leave the original description stale. When
+      this run changed NO code, that premise is false, and a rewrite into the
+      four sections below only destroys what the author wrote -- including
+      sections the template has no slot for (costs, known gaps, trade-offs).
+      Observed on PR #408, where it would have dropped two fact-checked
+      sections.
+
+      This run changed no code when {workspace}/outputs/commit-result.json
+      exists with "committed": false, or {workspace}/outputs/fix-results.json
+      exists with an empty "files_changed". In that case: keep the title
+      (unless it is not conventional-commit form), keep the current body
+      verbatim, and only add or replace its "## Review threads addressed"
+      section as described in Step 4, placed before a trailing
+      "Generated with" attribution line if there is one. Then continue at
+      Step 5. Otherwise, rewrite as below.
+
+      Whichever path, RE-DERIVE every number and factual claim you carry over
+      from another stage's prose (triage "reason"/"evidence", a fixer's
+      reply_text) from a file or command you can check. Stage prose is
+      written by an agent and has overstated counts before: a triage entry's
+      "21 cases identical to real bash" reached PR #408's description when 16
+      had been compared. If you cannot check a claim, leave it out.
+
       Step 4 — compose the body. Write it to
       {workspace}/outputs/pr-description.md with these sections:
 

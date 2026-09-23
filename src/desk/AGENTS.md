@@ -4,22 +4,22 @@ These instructions guide LLM agents working in this repository.
 
 ## Project Structure & Module Organization
 - `desk/` — Core library and CLI entrypoints.
-- No `bin/` wrapper; invoke as `python3 -m desk`.
+- Invoke as `./bin/desk`.
 - `tests/` — Minimal CLI smoke/unit tests.
 - `_disasm/` — Reserved for references; do not modify.
 
 ## Build, Test, and Development Commands
 - Setup venv: `python3 -m venv .venv && source .venv/bin/activate`
 - Install package (editable): `make venv` or `pip install -e .[yaml]`
-- CLI help: `python3 -m desk --help` (no `bin/` wrapper ships for desk)
+- CLI help: `./bin/desk --help`
 - Scan:
-  - `python3 -m desk scan --paths ~/Downloads ~/Desktop --min-size 100MB --older-than 30d --duplicates`
+  - `./bin/desk scan --paths ~/Downloads ~/Desktop --min-size 100MB --older-than 30d --duplicates`
 - Rules
-  - Export: `python3 -m desk rules export --out rules.yaml`
+  - Export: `./bin/desk rules export --out rules.yaml`
 - Planning
-  - Plan: `python3 -m desk plan --config rules.yaml --out plan.yaml`
+  - Plan: `./bin/desk plan --config rules.yaml --out plan.yaml`
 - Apply
-  - `python3 -m desk apply --plan plan.yaml [--dry-run]`
+  - `./bin/desk apply --plan plan.yaml [--dry-run]`
 - Tests: `make test`
 
 ## Coding Style & Conventions
@@ -42,7 +42,7 @@ These instructions guide LLM agents working in this repository.
 ## LLM Activation
 - Always activate when this repository is opened; no opt‑in required.
 - Use concise preambles for tool calls and keep an up‑to‑date plan.
-- Invoke via `python3 -m desk` (no `bin/` wrapper exists).
+- Invoke via `./bin/desk`.
 - Default to venv context if present (`.venv`), but do not block if absent.
 - LLM helper commands:
   - `./bin/llm --app desk agentic --stdout`

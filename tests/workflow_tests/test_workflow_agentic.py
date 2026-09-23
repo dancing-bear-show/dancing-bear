@@ -29,7 +29,7 @@ from tests.cli_no_subcommand_contract import NoSubcommandContractMixin
 #: derived from the parser below; only the command names are listed.
 _GUARD_COMMANDS = (
     "check-params", "check-fix-index", "thread-fingerprints", "check-thread-ids",
-    "aggregate-fix-results", "parse-overview", "check-paths",
+    "aggregate-fix-results", "parse-overview", "check-paths", "snapshot-dirty", "check-unlisted",
 )
 
 

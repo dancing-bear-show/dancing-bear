@@ -41,6 +41,7 @@ import re
 import shlex
 import shutil
 import subprocess  # nosec B404 - runs trusted in-repo shell suites
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -169,7 +170,11 @@ class TestGuardHookSuites(unittest.TestCase):
             encoding="utf-8",
             errors="replace",
             cwd=str(repo_root()),
-            timeout=180,
+            # 600, not 180. block-destructive-bash.test.sh needs ~196s on an idle
+            # machine and more under parallel-agent load, so 180 timed out and read
+            # as a regression (it failed PR #408's first verify run). The timeout
+            # exists to stop a hung suite, not to benchmark a slow one.
+            timeout=600,
         )
         # The suite's own output is the useful failure message: it names every case
         # that failed and what it expected. Reproducing that in assert messages would
@@ -221,6 +226,36 @@ class TestGuardHookSuites(unittest.TestCase):
             {"analysis", "out", "workspace", "outputs"}, _contract_root_dirs()
         )
 
+    def test_guard_contract_cleans_up_after_a_setup_failure(self) -> None:
+        """A FATAL exit mid-setup must still remove what setup created.
+
+        A regular file where a symlink must go makes ensure_dirs abort after it
+        has already created earlier link parents (analysis/, context/, ...). The
+        EXIT trap then ran with ensure_dirs' IFS='|' still in scope, so its
+        space-joined lists never split and every created directory survived --
+        the success-path check in _run_suite never reaches this branch.
+        """
+        root = repo_root()
+        absent = {d for d in _contract_root_dirs() if not os.path.lexists(root / d)}
+        if "stages" not in absent:
+            self.skipTest("stages/ already exists at the repo root; cannot plant the blocker")
+        blocker_dir = root / "stages"
+        blocker_dir.mkdir()
+        (blocker_dir / "srclink").write_text("not a symlink\n", encoding="utf-8")
+        try:
+            proc = subprocess.run(  # nosec B603 B607 - trusted in-repo script, see _run_suite
+                ["bash", str(TESTS_DIR / "guard-contract.test.sh")],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                cwd=str(root), timeout=180,
+            )
+        finally:
+            (blocker_dir / "srclink").unlink()
+            blocker_dir.rmdir()
+        self.assertEqual(proc.returncode, 1, msg=proc.stdout + proc.stderr)
+        self.assertIn("already exists and is not a symlink", proc.stderr)
+        leftover = sorted(d for d in absent if os.path.lexists(root / d))
+        self.assertEqual(leftover, [], msg="setup failure left directories at the repo root")
+
     def _assert_ran_cases(self, name: str, stdout: str) -> None:
         """A suite that ran zero cases has not tested anything.
 
@@ -266,6 +301,79 @@ class TestGuardHookSuites(unittest.TestCase):
         # Guards the guard: an emptied SUITES would make the assertEqual above pass
         # against an emptied directory and run nothing at all.
         self.assertTrue(SUITES, msg="SUITES is empty -- no hook suite would run")
+
+
+class TestGuardContractCleanupHermetic(unittest.TestCase):
+    """guard-contract.test.sh cleanup, run from a throwaway checkout.
+
+    The suite links repo-root names at src/, so its cleanup is what keeps a real
+    checkout tidy. These run it from a copy of the hooks tree at a path WITH A
+    SPACE, in a temp dir, so they can plant blockers and foreign links without
+    touching the real repo root. Case verdicts differ in the stub checkout (it has
+    no real repo files); only what the suite leaves behind is asserted.
+    """
+
+    def setUp(self) -> None:
+        missing = _missing_tool()
+        self.assertIsNone(missing, msg=f"{missing} is required to run the hook suite")
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = Path(self._tmp.name).resolve() / "my repo"
+        (self.repo / "src" / "mail").mkdir(parents=True)
+        (self.repo / "src" / "mail" / "cli.py").write_text("", encoding="utf-8")
+        shutil.copytree(HOOKS_DIR, self.repo / ".claude" / "hooks")
+
+    def _run_suite(self) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(  # nosec B603 B607 - trusted in-repo script, see TestGuardHookSuites
+            ["bash", str(self.repo / ".claude" / "hooks" / "tests" / "guard-contract.test.sh")],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            cwd=str(self.repo), timeout=180,
+        )
+
+    def _left_behind(self) -> list[str]:
+        return sorted(p.name for p in self.repo.iterdir() if p.name not in {".claude", "src"})
+
+    def test_cleanup_survives_a_space_in_the_checkout_path(self) -> None:
+        """Space-joined bookkeeping split `/tmp/my repo/analysis` into pieces that
+        matched nothing, so every link and directory survived a normal run."""
+        self._run_suite()
+        self.assertEqual(self._left_behind(), [])
+
+    def test_setup_failure_under_a_spaced_path_leaves_nothing(self) -> None:
+        (self.repo / "stages").mkdir()
+        (self.repo / "stages" / "srclink").write_text("not a symlink\n", encoding="utf-8")
+        proc = self._run_suite()
+        self.assertEqual(proc.returncode, 1, msg=proc.stderr)
+        self.assertIn("already exists and is not a symlink", proc.stderr)
+        (self.repo / "stages" / "srclink").unlink()
+        (self.repo / "stages").rmdir()
+        self.assertEqual(self._left_behind(), [])
+
+    def test_a_foreign_symlink_is_neither_replaced_nor_deleted(self) -> None:
+        """A symlink the run did not create must survive: `ln -sfn` replaced it,
+        and recording it before creation let cleanup delete it."""
+        foreign = self.repo / "analysis" / "srclink"
+        foreign.parent.mkdir()
+        foreign.symlink_to("/nonexistent/someone-elses-target")
+        proc = self._run_suite()
+        self.assertEqual(proc.returncode, 1, msg=proc.stderr)
+        self.assertIn("Refusing to replace a link this run did not create", proc.stderr)
+        self.assertTrue(foreign.is_symlink(), msg="the foreign link was deleted")
+        self.assertEqual(os.readlink(foreign), "/nonexistent/someone-elses-target")
+        foreign.unlink()
+        foreign.parent.rmdir()
+        self.assertEqual(self._left_behind(), [])
+
+    def test_a_matching_leftover_link_is_reused_and_left_as_found(self) -> None:
+        """An identical link (a previous run's leftover) is reused, not recorded:
+        the run removes only what it created, so the snapshot is unchanged."""
+        leftover = self.repo / "analysis" / "srclink"
+        leftover.parent.mkdir()
+        leftover.symlink_to(self.repo / "src")
+        proc = self._run_suite()
+        self.assertNotIn("FATAL", proc.stderr)
+        self.assertTrue(leftover.is_symlink(), msg="a link this run did not create was deleted")
+        self.assertEqual(self._left_behind(), ["analysis"])
 
 
 class TestGuardHooksAreWired(unittest.TestCase):

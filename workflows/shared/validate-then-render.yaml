@@ -12,7 +12,11 @@
 #
 # Caller must set trigger.params:
 #   primary_artifact   — filename of the artifact to validate (e.g. "prompt-library.json")
-#   report_artifact    — filename of the rendered output (e.g. "report.md")
+#   report_artifact    — filename of the rendered output (e.g. "run-report.md").
+#                        Never report.md, summary.md or findings.md: the harness
+#                        refuses a subagent Write of those names, so render could
+#                        never write it. `workflow lint` checks the default and
+#                        compile checks a --params override.
 #   validation_criteria — pipe-separated list of criteria strings
 #                         (e.g. "counts match source|no fabricated numbers|all paths exist")
 fragment: true

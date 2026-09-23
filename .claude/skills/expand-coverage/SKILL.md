@@ -24,11 +24,11 @@ Find coverage gaps, write tests, and verify improvement.
 make cov
 
 # Coverage for a specific domain
-PYTHONPATH=. python3 -m coverage run -m unittest discover -s tests/<domain> -t . -q
-python3 -m coverage report -m --include="<domain>/*"
+PYTHONPATH="$PWD/src" python3 -m coverage run -m unittest discover -s tests/<domain>_tests -t . -q
+PYTHONPATH="$PWD/src" python3 -m coverage report -m --include="src/<domain>/*"
 
 # Lint-level complexity/smell signals (not coverage, but flags files needing tests)
-~/.qlty/bin/qlty check <domain>/
+~/.qlty/bin/qlty check src/<domain>/
 ```
 
 ## Step 2: Prioritize
@@ -43,16 +43,19 @@ Order by impact:
 For each file needing coverage:
 
 1. **Read the source** to understand what to test
-2. **Read domain conftest.py** for available factories and fixtures:
-   - `tests/conftest.py` — global fixtures, AWS popup prevention
-   - `tests/<domain>/conftest.py` — domain-specific factories
-   - `tests/helpers/` — mock libraries (github_mocks.py, atlassian_adf_mocks.py)
+2. **Read the shared test helpers** for available factories, fakes and mixins. This is a
+   stdlib unittest suite: there are no `conftest.py` files and no `tests/helpers/` package.
+   - `tests/fixtures.py` — cross-domain helpers (`TempDirMixin`, `temp_yaml_file`, `capture_stdout`, `write_csv`, …)
+   - `tests/<domain>_tests/fixtures.py` — domain factories. Some domains name it
+     `shared_fixtures.py` (qlty, telemetry, wifi) or `helpers.py` (worker); `ls` the directory first
+   - `tests/fakes/` — offline Gmail, Outlook and DOCX fakes
+   - `tests/*_contract.py` — shared CLI and agentic contract mixins; subclass them rather than re-asserting
 3. **Write tests** following project conventions
 
 ### Test Conventions (Mandatory)
 
-- Use `make_*` factories from conftest, never construct dicts manually
-- Use conftest constants (`TEST_DATE_CREATED`, `DEFAULT_STATUS`, etc.)
+- Use the `make_*` factories in those fixture files, never construct dicts manually
+- Reuse constants the domain's fixtures module already defines rather than new literals
 - Patch where the name is **used**, not where it's **defined**
 - Specific assertions: `assertEqual`, `assertIn`, `assertIsInstance`
 - `@dataclass` for test fixtures
@@ -67,18 +70,18 @@ For each file needing coverage:
 For large coverage expansion, spawn `tester` agents:
 
 ```python
-Task(subagent_type="tester", prompt="Write tests for <domain>/<module>.py targeting 80%+ coverage. Read tests/<domain>/conftest.py first for available factories.")
+Task(subagent_type="tester", prompt="Write tests for src/<domain>/<module>.py targeting 80%+ coverage. Read tests/fixtures.py and the fixtures module in tests/<domain>_tests/ first for available factories.")
 ```
 
 ## Step 4: Verify
 
 ```bash
 # Run new tests
-python3 -m unittest tests.<domain>.test_new -v
+PYTHONPATH="$PWD/src" python3 -m unittest tests.<domain>_tests.test_new -v
 
 # Check coverage improved
-PYTHONPATH=. python3 -m coverage run -m unittest discover -s tests/<domain> -t . -q
-python3 -m coverage report -m --include="<domain>/*"
+PYTHONPATH="$PWD/src" python3 -m coverage run -m unittest discover -s tests/<domain>_tests -t . -q
+PYTHONPATH="$PWD/src" python3 -m coverage report -m --include="src/<domain>/*"
 
 # Full suite (no regressions)
 make test

@@ -2,8 +2,8 @@
 
 Cross-domain helpers used across multiple test modules.
 Domain-specific fixtures live in their respective directories:
-- tests/mail/fixtures.py - Gmail client fakes
-- tests/calendars/fixtures.py - Outlook/Calendar fakes
+- tests/mail_tests/fixtures.py - Gmail client fakes
+- tests/calendars_tests/fixtures.py - Outlook/Calendar fakes
 """
 
 from __future__ import annotations

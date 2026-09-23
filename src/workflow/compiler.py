@@ -17,6 +17,8 @@ from pathlib import Path
 from core.cli_errors import CLIError, ExitCode
 from core.fileutil import safe_read_text
 from core.date_utils import iso_now
+from workflow.dispatch import RESERVED_PLACEHOLDERS
+from workflow.harness_outputs import describe, find_refused_outputs
 from workflow.models import (
     OutputMode,
     ResolvedStage,
@@ -120,9 +122,20 @@ def enforce_param_rules(trigger: TriggerSpec, overrides: Mapping[str, object]) -
     rewriting a regex quantifier; a built-in ``work_dir`` is shell-safe; and
     the effective values satisfy the workflow's ``param_rules``/``required``.
 
+    Also rejects a declared param named after a dispatch placeholder
+    (``RESERVED_PLACEHOLDERS``): ``resolve_params`` would substitute its value
+    into ``{fan_out_index}``/``{workspace}`` before dispatch fills them, so
+    every fan-out item would share one result file.
+
     Raises:
         WorkflowCompileError: naming each rejected param and the reason.
     """
+    reserved = sorted(RESERVED_PLACEHOLDERS.intersection(trigger.params or {}))
+    if reserved:
+        raise WorkflowCompileError(
+            "trigger params rejected: " + ", ".join(reserved)
+            + " collide with reserved dispatch placeholders; rename the param"
+        )
     undeclared = undeclared_overrides(trigger.params, overrides)
     if undeclared:
         raise WorkflowCompileError(
@@ -171,6 +184,16 @@ def compile_workflow(
     # Before ANY resolve_params call: once a value is substituted into stage
     # text it is already in the prompt, and no later check can take it back.
     enforce_param_rules(definition.trigger, trigger_params or {})
+    # The harness refuses a subagent Write of report.md/summary.md/findings.md,
+    # so a stage declaring one can never produce it. Checked HERE, not only in
+    # `workflow lint`: `workflow run` compiles without linting, and only the
+    # compiler sees the effective params -- a --params override can name the
+    # file through a param such as validate-then-render's {report_artifact}.
+    refused = find_refused_outputs(definition.stages, params)
+    if refused:
+        raise WorkflowCompileError(
+            "stage outputs rejected: " + "; ".join(describe(item) for item in refused)
+        )
     stage_map: dict[str, StageSpec] = {s.name: s for s in definition.stages}
 
     parallel_groups = _compute_parallel_groups(definition.stages)
@@ -367,14 +390,37 @@ def _validate_when(spec: StageSpec) -> None:
         )
 
 
+def _stage_params(spec: StageSpec, params: dict[str, str]) -> dict[str, str]:
+    """*params* minus the stage's fan-out key; rejects an empty key.
+
+    Raises:
+        WorkflowCompileError: if the stage's ``fan_out.key`` is empty -- with
+            no placeholder name every item would share one per-item result
+            path and no ``{key}`` could be filled.
+    """
+    if spec.fan_out is None:
+        return params
+    key = spec.fan_out.key
+    if not isinstance(key, str) or not key.strip():
+        raise WorkflowCompileError(f"Stage '{spec.name}': fan_out.key must be a non-empty name")
+    return {k: v for k, v in params.items() if k != key}
+
+
 def _resolve_stage(
     spec: StageSpec,
     index: int,
     project_root: Path,
     params: dict[str, str] | None = None,
 ) -> ResolvedStage:
-    """Resolve a single stage — load templates, build CLI commands."""
-    params = params or {}
+    """Resolve a single stage — load templates, build CLI commands.
+
+    In a fan-out stage ``{<fan_out.key>}`` belongs to the item: dispatch
+    fills it per item. A trigger param of the same name is therefore left
+    out of this stage's substitution. Otherwise ``resolve_params`` would
+    write the one trigger value into every item's prompt, while
+    ``writes_to`` still used the item.
+    """
+    params = _stage_params(spec, params or {})
     _validate_when(spec)
     template_content, guide_content, cli_commands = _collect_stage_outputs(
         spec, project_root, params
