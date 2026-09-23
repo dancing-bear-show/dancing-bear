@@ -198,7 +198,16 @@ stages:
       the diagnosis far more than knowing one is broken:
 
         1. Ollama binary:   command -v ollama
-        2. Ollama server:   curl -sS -m 5 -f -o /dev/null "{ollama_host}/api/tags"
+        2. Ollama server:   read the validated host into a shell variable
+                            FROM THE MANIFEST, then use the variable:
+                              HOST=$(python3 -c 'import json,sys,pathlib; print(json.loads(pathlib.Path(sys.argv[1]).read_text())["trigger_params"]["ollama_host"])' {workspace}/manifest.json)
+                              curl -sS -m 5 -f -o /dev/null "$HOST/api/tags"
+                            Do NOT write "{ollama_host}" into the command.
+                            Validation does not TRANSFORM the value — the
+                            engine still substitutes the raw text here, so a
+                            hostile value is back in shell source regardless
+                            of what the check above concluded. The variable
+                            holds data read from the file; the token does not.
                             (-f makes a non-2xx a non-zero exit; exit 0 = up)
         3. Model loaded:    ollama ps
                             (distinguishes "installed" from "resident in
@@ -242,12 +251,12 @@ stages:
                             leave a lock behind if the stage dies.
 
                             So: use a request that loads no model. GET
-                            /api/tags against "{ollama_host}" (validated
+                            /api/tags against "$HOST" (validated
                             above) answers from the server process without
                             touching weights, which is safe to issue at any
                             time regardless of lock state.
 
-                              curl -sS -m 5 -f "{ollama_host}/api/tags"
+                              curl -sS -m 5 -f "$HOST/api/tags"   (the variable from step 2, never the raw token)
 
                             BE HONEST ABOUT WHAT THIS PROVES. It shows the
                             server process is alive and serving its API. It

@@ -906,10 +906,21 @@ stages:
       SAME fingerprint definition as fix-dispatch Step 1b: sha256 over the
       thread's FIRST comment body with runs of whitespace collapsed to single
       spaces. For every thread you are about to reply to or resolve, its id
-      must appear in that map AND both the coordinates and the fingerprint
+      must appear in that map AND both the coordinates and the DISCRIMINATOR
       you hold for it must match what the fetch recorded.
 
-      THE FINGERPRINT HALF IS NOT OPTIONAL HERE. Step 1b explains in full why
+      COMPARE WHATEVER triage RECORDED, not the fingerprint specifically.
+      Each entry carries `discriminator: "database_id"|"fingerprint"` naming
+      which one it holds; compare that one. Requiring a fingerprint here
+      would halt every ordinary thread, since a GraphQL thread HAS a
+      database_id and triage is told to record the fingerprint only as a
+      fallback when it does not — the two rules would contradict and the
+      stronger discriminator would be treated as a missing field.
+
+      An entry carrying NEITHER is a corrupt record: halt on it rather than
+      falling through to coordinates, which cannot tell a swapped pair apart.
+
+      THE DISCRIMINATOR HALF IS NOT OPTIONAL HERE. Step 1b explains in full why
       coordinates cannot stand alone; the short version is that two threads
       can share one (path, line), so a swapped pair matches on coordinates
       both ways round. What this gate adds is position: it runs immediately
@@ -1014,7 +1025,16 @@ stages:
         - thread_id NULL -> post one top-level PR comment instead:
 
             GITHUB_TOKEN= gh api "repos/$OWNER/$REPO/issues/{pr_number}/comments" \
-              -f body="<reply text>"
+              -F body=@{workspace}/outputs/replies/<the reply file>
+
+          PASS THE BODY BY FILE, never interpolated into the command. Reply
+          text is generated from review content and fix output: it routinely
+          contains backticks, quotes and `$(...)`, and `-f body="<text>"`
+          puts every one of them into shell source — so posting a reply can
+          execute whatever a reviewer wrote. The threaded mutation below
+          already avoids this with `-F`; this path must not be the weaker
+          one. Write the reply to a file under {workspace}/outputs/replies/
+          and hand `gh` the path with `-F body=@<file>`.
 
           Open it by quoting the finding it answers (its path:line and the
           first line of the original comment), since a top-level comment
