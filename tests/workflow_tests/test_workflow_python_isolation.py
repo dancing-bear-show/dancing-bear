@@ -12,9 +12,11 @@ checkout's own ``src`` via a ``PYTHONPATH="$PWD/src"`` prefix, the house form
 for import probes.
 
 Scanning is textual on purpose: commands live in descriptions, criteria and
-quoted strings alike. A mention inside a Markdown code span (preceded by a
-backtick) is prose about the form, not an instruction to run it, and is
-skipped.
+quoted strings alike, including Markdown code spans — "run `python3 -c ...`"
+is an instruction. There is no prose exemption. Only an actual program counts
+(``-c`` followed by a quote or a line continuation), so a warning that names
+the bare form without a body, such as "never use a bare `python3 -c` here",
+is not a match.
 """
 
 from __future__ import annotations
@@ -29,7 +31,7 @@ WORKFLOWS_DIR = REPO_ROOT / "workflows"
 # interpreter, its flags, then -c followed by a (possibly escaped) quote or a
 # line continuation — i.e. an actual program, not a sentence mentioning -c.
 _INVOCATION = re.compile(
-    r"(?<![`\w])(?P<interp>(?:\.venv/bin/)?python3?)"
+    r"(?<![\w.-])(?P<interp>(?:\.venv/bin/)?python3?)"
     r"(?P<flags>(?:[ \t]+-[A-Za-z]+)*?)[ \t]+-c[ \t]*(?:\\?[\"']|\\\n)"
 )
 _PINNED_PREFIX = re.compile(r'PYTHONPATH="\$(?:PWD|\(pwd\))/src"[ \t]+$')
@@ -58,6 +60,9 @@ class TestScanner(unittest.TestCase):
             "python3 -c \\\n  'import os'",
             'python3 -B -c "import os"',
             'OTHER=1 python3 -c "import os"',
+            'Run `python3 -c "import json"` to check it.',
+            'never use a bare `python3 -c "import worker"` here',
+            '- `.venv/bin/python -c "import fitz"`',
         ):
             with self.subTest(text=text):
                 self.assertEqual(unisolated_invocations(text), [1])
@@ -70,7 +75,9 @@ class TestScanner(unittest.TestCase):
             'PYTHONPATH="$PWD/src" python3 -c "import worker"',
             'PYTHONPATH="$(pwd)/src" .venv/bin/python -c \\\n  "import fitz"',
             "Do NOT reach for an inline `python3 -c` here.",
-            'never use a bare `python3 -c "import worker"` here',
+            "never use a bare `python3 -c` import of `worker` here",
+            'Run `python3 -I -S -c "import json"` to check it.',
+            'run `PYTHONPATH="$PWD/src" python3 -c "import worker"`',
             "parse with awk or python3 -c (no grep -P).",
         ):
             with self.subTest(text=text):
