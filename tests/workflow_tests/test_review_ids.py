@@ -710,6 +710,24 @@ class TestAggregateFixResults(_Aggregate):
         self.assertEqual(doc["files_changed"], ["src/a.py", "tests/x/test_a.py"])
         self.assertEqual(doc["out_of_scope_paths"], [{"id": UNLINKED_A, "path": "src/other.py"}])
 
+    def test_unsafe_test_ids_never_reach_the_readable_lists(self) -> None:
+        """PR #406 round 13: results stay verbatim and verify-fixes read
+        every tests_added id from disk, so ../../.envrc::x was a file-read
+        instruction. Only validated ids are published for reading."""
+        self._write_for(UNLINKED_A, _result(UNLINKED_A, None, files_changed=["src/a.py"], tests_added=[
+            "tests/x/test_a.py::T::t", "../../.envrc::x", "/etc/passwd::t", ".claude/hooks/test_h.py::T::t"]))
+        doc = self._merged()
+        self.assertEqual(doc["tests_added"], ["tests/x/test_a.py::T::t"])
+        self.assertEqual(doc["tests_by_result"], {UNLINKED_A: ["tests/x/test_a.py::T::t"]})
+        self.assertEqual(sorted(r["test"] for r in doc["rejected_tests_added"]),
+                         ["../../.envrc::x", ".claude/hooks/test_h.py::T::t", "/etc/passwd::t"])
+
+    def test_non_fixed_results_publish_no_tests(self) -> None:
+        self._write_for(UNLINKED_A, _result(UNLINKED_A, None, action="rejected", files_changed=[],
+                                            tests_added=["tests/x/test_a.py::T::t"]))
+        doc = self._merged()
+        self.assertEqual((doc["tests_added"], doc["tests_by_result"]), ([], {}))
+
     def test_unrelated_test_file_is_out_of_scope(self) -> None:
         """PR #406 round 12: every path under tests/ was authorized, so a
         fixer could edit tests/other.py, list it, and have it committed.

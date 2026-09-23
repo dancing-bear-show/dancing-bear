@@ -390,14 +390,37 @@ def _validate_when(spec: StageSpec) -> None:
         )
 
 
+def _stage_params(spec: StageSpec, params: dict[str, str]) -> dict[str, str]:
+    """*params* minus the stage's fan-out key; rejects an empty key.
+
+    Raises:
+        WorkflowCompileError: if the stage's ``fan_out.key`` is empty -- with
+            no placeholder name every item would share one per-item result
+            path and no ``{key}`` could be filled.
+    """
+    if spec.fan_out is None:
+        return params
+    key = spec.fan_out.key
+    if not isinstance(key, str) or not key.strip():
+        raise WorkflowCompileError(f"Stage '{spec.name}': fan_out.key must be a non-empty name")
+    return {k: v for k, v in params.items() if k != key}
+
+
 def _resolve_stage(
     spec: StageSpec,
     index: int,
     project_root: Path,
     params: dict[str, str] | None = None,
 ) -> ResolvedStage:
-    """Resolve a single stage — load templates, build CLI commands."""
-    params = params or {}
+    """Resolve a single stage — load templates, build CLI commands.
+
+    In a fan-out stage ``{<fan_out.key>}`` belongs to the item: dispatch
+    fills it per item. A trigger param of the same name is therefore left
+    out of this stage's substitution. Otherwise ``resolve_params`` would
+    write the one trigger value into every item's prompt, while
+    ``writes_to`` still used the item.
+    """
+    params = _stage_params(spec, params or {})
     _validate_when(spec)
     template_content, guide_content, cli_commands = _collect_stage_outputs(
         spec, project_root, params

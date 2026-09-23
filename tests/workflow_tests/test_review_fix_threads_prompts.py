@@ -327,6 +327,19 @@ class TestQltyPathListMustBeNonEmpty(unittest.TestCase):
         self.assertIn("Skip the qlty loop", self.prompt)
 
 
+class TestCoverageAuditReadsOnlyValidatedTests(unittest.TestCase):
+    """PR #406 round 13: verify-fixes read every tests_added id from each
+    verbatim result, so a fixer-written ../../.envrc::x became a file read."""
+
+    def setUp(self) -> None:
+        self.prompt = _flat(_prompts()["verify-fixes"])
+
+    def test_tests_come_from_the_validated_map(self) -> None:
+        self.assertIn('Take the tests to read ONLY from fix-results.json\'s top-level "tests_by_result"', self.prompt)
+        self.assertIn('"rejected_tests_added"; never open those', self.prompt)
+        self.assertNotIn('For every result with action "fixed" that lists tests_added', self.prompt)
+
+
 def _qlty_paths_block(workspace: str) -> str:
     """verify-fixes' path-derivation lines exactly as the agent receives them."""
     defn = parse_workflow(str(_WORKFLOW))

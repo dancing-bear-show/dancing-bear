@@ -505,6 +505,14 @@ class TestFanOutReservedKeys(unittest.TestCase):
             build_agent_prompt(make_resolved_stage(spec=spec, index=5), "wf", "/ws")
         self.assertIn("workspace", str(ctx.exception))
 
+    def test_empty_key_is_rejected(self) -> None:
+        """PR #406 round 13: an empty key read as "no fan-out" to the
+        result-path suffix, so every item shared one completion file."""
+        for key in ("", "  "):
+            with self.subTest(key=key):
+                with self.assertRaisesRegex(ValueError, "fan_out.key must be a non-empty name"):
+                    build_agent_prompt(make_resolved_stage(spec=self._spec(key), index=5), "wf", "/ws")
+
     def test_ordinary_key_still_builds_a_prompt(self) -> None:
         """Happy path: a non-reserved key renders normally, unaffected."""
         spec = self._spec("service")

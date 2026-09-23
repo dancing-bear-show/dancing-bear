@@ -123,6 +123,10 @@ def _fan_out_key(stage: ResolvedStage) -> str | None:
     fan_out = stage.spec.fan_out
     if fan_out is None or fan_out.mode != "agent":
         return None
+    if not fan_out.key or not fan_out.key.strip():
+        # An empty key would read as "no fan-out" to the result-path suffix,
+        # so every item would write the same completion file.
+        raise ValueError(f"stage '{stage.spec.name}' fan_out.key must be a non-empty name")
     if fan_out.key in RESERVED_PLACEHOLDERS:
         raise ValueError(
             f"stage '{stage.spec.name}' fan_out.key {fan_out.key!r} collides with a "

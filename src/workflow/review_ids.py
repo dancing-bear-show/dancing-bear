@@ -441,7 +441,7 @@ class FixResults:
             "by_action": by_action,
             "files_changed": files_changed,
             "out_of_scope_paths": out_of_scope,
-            "tests_added": _union_of(self.results, "tests_added"),
+            **_validated_tests(self.results),
             "missing_results": list(self.missing_results),
             "failed_tests": [_failed_test(r) for r in self.results if _is_unproven_fix(r)],
             "key_mismatches": list(self.key_mismatches),
@@ -552,6 +552,36 @@ def _files_changed(results: tuple[dict[str, Any], ...],
             else:
                 out_of_scope.append({"id": result.get("id"), "path": path})
     return sorted(paths), sorted(out_of_scope, key=lambda r: (str(r["id"]), r["path"]))
+
+
+def _validated_tests(results: tuple[dict[str, Any], ...]) -> dict[str, Any]:
+    """The test ids downstream stages may open, split from the ones they may not.
+
+    ``results`` stays verbatim, so each result's own ``tests_added`` can
+    still name ``../../.envrc::x`` or ``/etc/passwd::t``. verify-fixes reads
+    every named test from disk, so it must read from here instead: only
+    ids from fixed results whose file part is a safe path under
+    ``tests/`` (see :func:`_test_file_of`). Every other id is listed in
+    ``rejected_tests_added`` so the run reports it rather than opening it.
+    """
+    by_result: dict[str, list[str]] = {}
+    rejected: list[dict[str, Any]] = []
+    for result in results:
+        if result.get("action") != "fixed":
+            continue
+        ok: list[str] = []
+        for test_id in _union_of((result,), "tests_added"):
+            path = _test_file_of(test_id)
+            if path and path.startswith("tests/"):
+                ok.append(test_id)
+            else:
+                rejected.append({"id": result.get("id"), "test": test_id})
+        by_result[str(result.get("id"))] = ok
+    return {
+        "tests_added": sorted({t for ids in by_result.values() for t in ids}),
+        "tests_by_result": by_result,
+        "rejected_tests_added": rejected,
+    }
 
 
 def _own_test_files(result: dict[str, Any]) -> set[str]:

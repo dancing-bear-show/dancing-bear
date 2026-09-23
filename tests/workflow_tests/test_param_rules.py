@@ -103,6 +103,60 @@ class TestReservedPlaceholderParams(unittest.TestCase):
         _compile(_workflow_yaml(params='    fan_out_idx: "0"\n    ollama_host: "http://h"\n    pr_number: "1"\n'))
 
 
+def _fan_out_yaml(key: str, params: str = '    domain: "trigger-value"\n') -> str:
+    """A source stage plus a fan-out stage keyed on *key*; the fan-out stage's
+    description names both {domain} and {other}."""
+    return (
+        "name: probe\n"
+        'version: "1"\n'
+        "description: probe\n"
+        "trigger:\n"
+        "  source: manual\n"
+        "  params:\n"
+        f"{params}"
+        '    other: "o"\n'
+        "stages:\n"
+        "  - name: src\n"
+        "    kind: gather\n"
+        '    description: "list items"\n'
+        "    agent: {role: researcher}\n"
+        "    writes_to: [items.json]\n"
+        "  - name: fan\n"
+        "    kind: execute\n"
+        "    depends_on: [src]\n"
+        '    description: "item={domain} other={other}"\n'
+        "    agent: {role: researcher}\n"
+        "    fan_out:\n"
+        "      source: src\n"
+        "      field: items\n"
+        f"      key: {key!r}\n"
+    )
+
+
+class TestFanOutKeyVersusTriggerParams(unittest.TestCase):
+    """PR #406 round 13: resolve_params substituted a trigger param that
+    shared the fan-out key's name, so every item saw the trigger value; and
+    an empty key was accepted, so every item shared one result path."""
+
+    def test_fan_out_key_is_left_for_the_item_not_the_trigger_param(self) -> None:
+        manifest = _compile(_fan_out_yaml("domain"))
+        description = manifest.resolved_stages["fan"].spec.description
+        self.assertIn("item={domain}", description)
+        self.assertIn("other=o", description)
+
+    def test_same_param_is_still_substituted_in_non_fan_out_stages(self) -> None:
+        yaml_text = _fan_out_yaml("domain").replace('description: "list items"',
+                                                    'description: "list {domain}"')
+        manifest = _compile(yaml_text)
+        self.assertIn("list trigger-value", manifest.resolved_stages["src"].spec.description)
+
+    def test_empty_fan_out_key_is_rejected(self) -> None:
+        for key in ("", "   "):
+            with self.subTest(key=key):
+                with self.assertRaisesRegex(WorkflowCompileError, "fan_out.key must be a non-empty name"):
+                    _compile(_fan_out_yaml(key))
+
+
 class TestCompileEnforcement(unittest.TestCase):
     """compile_workflow is the enforcement point: it raises before substituting."""
 
