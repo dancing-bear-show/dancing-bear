@@ -14,7 +14,7 @@
 #       \              |              /
 #              verify-fixes
 #                    |
-#            resolve-threads
+#            plan-thread-resolution -> resolve-threads (shared fragment)
 #                    |
 #          human-gate-fixes
 
@@ -102,7 +102,7 @@ stages:
 
       Step 2 — read post-comments results:
         Use the Read tool on {workspace}/outputs/post-results.json.
-        Extract comment_urls so resolve-threads can match findings to threads.
+        Extract comment_urls so plan-thread-resolution can match findings to threads.
 
       Step 3 — fetch current qlty issues:
         Bash tool: ~/.qlty/bin/qlty check --format json
@@ -555,7 +555,14 @@ stages:
   # ===========================================================================
 
   - name: verify-fixes
-    kind: validate
+    # kind: execute, NOT validate. A validate stage's description is dropped —
+    # the engine renders only validation.criteria plus a generic "return a
+    # JSON findings array" block — so the commands, the Step 0 merge gate, and
+    # the {all_green: ...} schema below never reached the agent. It wrote a
+    # findings ARRAY to verify-results.json, and the shared resolve gate, which
+    # reads all_green from that file, blocked every run. review-fix-threads'
+    # verify-fixes is kind: execute for the same reason.
+    kind: execute
     depends_on: [merge-fix-worktrees]
     reads_from: [fix-code, fix-tests, fix-qlty, merge-fix-worktrees]
     description: >
@@ -615,13 +622,10 @@ stages:
       model: sonnet
       tools: [Read, Bash, Write]
       access: read-write
-    validation:
-      strategy: unit
-      criteria:
-        - ruff exits 0 with no new violations
-        - test suite passes (or was explicitly skipped)
-        - qlty check introduces no new issues on changed files
-      max_revisions: 1
+    # No validation: block. On a kind: execute stage it is never rendered and
+    # triggers no correction pass (dispatch.py gates both on kind: validate),
+    # so it would only imply a check that does not run. The contract lives in
+    # the description above, which execute stages DO render.
     required: true
     writes_to:
       - outputs/fix/verify-results.json
@@ -630,36 +634,43 @@ stages:
   # Phase 2: Resolve posted PR threads for fixed findings
   # ===========================================================================
 
-  - name: resolve-threads
-    kind: publish
+  - name: plan-thread-resolution
+    kind: propose
     depends_on: [verify-fixes]
     reads_from: [verify-fixes, triage-findings, post-comments]
     description: >
-      Resolve GitHub PR review threads that correspond to fixed findings.
-      Only resolve threads whose finding_id appears in fix-code-results.json
-      or fix-tests-results.json with action != "skipped".
+      Decide which review threads this run has earned the right to close, and
+      write the plan. The mutations themselves are done by the shared
+      pr-thread-resolve fragment — this stage makes the judgement, not the
+      API calls.
 
-      Step 1 — build resolved finding set:
+      Step 0 — gate on verification before planning anything. Read
+      {workspace}/outputs/fix/verify-results.json and require all_green
+      exactly true. A missing file, a parse error, an unexpected shape, or an
+      absent all_green key all count as NOT green: write an empty plan with
+      "blocked_reason" set and exit non-zero.
+
+      Do not rely on the shared fragment's gate alone. A stage's status is
+      self-reported and the completion template pre-fills "success", so
+      verify-fixes reporting success is not evidence the tree is green. Check
+      here as well, so a red tree never even produces a mutating plan.
+
+      Step 1 — build the fixed finding set:
         Use the Read tool on {workspace}/outputs/fix/fix-code-results.json.
         Use the Read tool on {workspace}/outputs/fix/fix-tests-results.json.
-        Collect all finding_ids with a "fixed" disposition.
+        Collect all finding_ids with a "fixed" disposition and action !=
+        "skipped".
 
-      Step 2 — match findings to comment URLs:
-        Use the Read tool on {workspace}/outputs/fix-manifest.json.
-        For each fixed finding_id, extract comment_url from the manifest entry.
+      Step 2 — map each fixed finding to its thread.
+        Use the Read tool on {workspace}/outputs/fix-manifest.json and extract
+        each entry's comment_url.
 
-      Step 3 — resolve threads, one at a time.
-
-        Use the native gh CLI. Prefix every command with `GITHUB_TOKEN=`
-        (a stale token env var breaks auth).
-
-        Resolve owner/repo first, never hardcode:
+        Prefix gh with `GITHUB_TOKEN=` and resolve owner/repo, never hardcode:
           NWO=$(GITHUB_TOKEN= gh repo view --json nameWithOwner -q .nameWithOwner)
           OWNER=${NWO%%/*}; REPO=${NWO##*/}
 
         A comment_url does not carry the GraphQL thread id needed to resolve,
-        so map each fixed finding to its thread. Fetch the threads with their
-        comment database ids:
+        so fetch the threads with their comment database ids:
           GITHUB_TOKEN= gh api graphql -f query='
           query($owner:String!,$name:String!,$pr:Int!,$after:String){
             repository(owner:$owner,name:$name){
@@ -690,28 +701,66 @@ stages:
         is not that thread's opening comment, and matching only the first
         comment would fail to find it.
 
-        Resolve ONLY the matched threads, individually:
-          GITHUB_TOKEN= gh api graphql -f query='
-          mutation($threadId:ID!){
-            resolveReviewThread(input:{threadId:$threadId}){
-              thread{ id isResolved }
-            }
-          }' -F threadId="<thread_id>"
+      Step 3 — write {workspace}/outputs/resolve-plan.json in the schema the
+      pr-thread-resolve fragment consumes:
 
-        Never resolve every thread on the PR in one sweep. A thread whose
-        finding was skipped, or that a human opened about something else, must
-        stay open — resolving it asserts a concern was handled when it was not.
+        {
+          "run_id": "<read from {workspace}/manifest.json \"run_id\">",
+          "verify_file": "outputs/fix/verify-results.json",
+          "triaged_count": 12,
+          "planned_count": 12,
+          "threads": [
+            {"thread_id": "PRRT_...", "action": "reply-and-resolve",
+             "reply": "Fixed in <sha>: <one line on what changed>."},
+            {"thread_id": "PRRT_...", "action": "skip",
+             "reason": "skipped — finding no longer present"}
+          ]
+        }
 
-        Check thread.isResolved in the response rather than trusting the exit
-        code: a GraphQL error returns HTTP 200 with an errors array, so gh
-        exits 0 on a failed mutation.
+      "run_id" is the ORIGINAL run id from {workspace}/manifest.json — read it
+      from that file, do not use the current invocation's id. Resuming a
+      workflow mints a fresh `<name>-resumed-<hex>` id while manifest.json
+      keeps the original, so a retry using the live id writes a different
+      idempotency marker and posts duplicate replies. Fail rather than
+      guessing if the key is missing.
 
-      Write {workspace}/outputs/fix/thread-resolution.json:
+      "verify_file" must be the exact path this workflow's verify-fixes stage
+      writes — outputs/fix/verify-results.json. The fragment fails closed on
+      it, so a wrong path blocks every resolve rather than allowing one
+      through, but it must be right for the stage to do anything at all.
+
+      Every thread gets a reply, including the ones being resolved. A thread
+      closed with no explanation makes the reviewer re-derive what happened.
+
+      The `<sha>` and `<one line on what changed>` above are PLACEHOLDERS to
+      substitute, not text to post. Take the SHA from the actual pushed head
+      commit and the summary from that thread's own fix result. The shared
+      fragment posts the "reply" value verbatim, so a placeholder left in the
+      plan is published to the reviewer as-is and the thread is then resolved
+      on it.
+
+      Before writing the plan, reject any reply still containing "<" followed
+      by ">" and fail the stage rather than posting it.
+
+      Never plan a sweep over every thread on the PR. A thread whose finding
+      was skipped, or that a human opened about something else, must stay open
+      — resolving it asserts a concern was handled when it was not. Anything
+      not in the fixed set is action "skip" with the reason recorded.
+
+      That is about which threads get RESOLVED, not which appear in the plan.
+      Every finding in fix-manifest.json gets an entry, including skipped and
+      rejected ones — a finding omitted from the plan is never replied to, so
+      the reviewer sees an open thread with no answer and cannot distinguish
+      that from the work not being done. Record "triaged_count" and
+      "planned_count" and fail rather than writing a plan where they differ.
+
+      Also write {workspace}/outputs/fix/thread-resolution.json for the human
+      gate, recording the plan (not its outcome — the fragment reports that):
         {
           "resolved_finding_ids": ["0", "2"],
           "unresolved_finding_ids": ["1"],
           "unresolved_reason": {"1": "skipped — finding no longer present"},
-          "resolve_status": "ok|error"
+          "plan_status": "ok|error"
         }
     agent:
       role: code-writer
@@ -720,6 +769,7 @@ stages:
       access: read-write
     required: true
     writes_to:
+      - outputs/resolve-plan.json
       - outputs/fix/thread-resolution.json
 
   # ===========================================================================
@@ -729,7 +779,7 @@ stages:
   - name: human-gate-fixes
     kind: propose
     depends_on: [verify-fixes, resolve-threads]
-    reads_from: [verify-fixes, resolve-threads, triage-findings]
+    reads_from: [verify-fixes, resolve-threads, plan-thread-resolution, triage-findings]
     human_gate: true
     description: >
       Present a full fix-round summary and ask the operator whether to approve
@@ -750,8 +800,19 @@ stages:
           Read verify-results.json → ruff status, test status, qlty new issues, all_green.
 
         Thread resolution:
-          Read thread-resolution.json → resolved_finding_ids count,
-          unresolved_finding_ids with reasons.
+          Read resolution.json — the OUTCOME — for status, replied,
+          already_replied, forged_marker, resolved, skipped, failed, and
+          unresolved_after. Put any forged_marker entry at the TOP of the
+          summary: someone other than this workflow's account posted this
+          run's idempotency marker, which may be an attempt to suppress a
+          reply. This gate is the workflow's only human checkpoint, so a
+          signal left out here reaches no one.
+          Read thread-resolution.json only for what was planned.
+
+          Report the outcome, and name any gap between the two. A plan is an
+          intention; resolution.json is what GitHub actually accepted. Showing
+          the operator the plan alone reports successes that may not have
+          happened — the precise failure this workflow's gate exists to catch.
 
       Present the summary to the operator, then ask:
         "Fix round complete. Approve for merge? (yes / request another round)"
@@ -782,3 +843,11 @@ include:
     prefix: ""
     depends_on: [init]
     reads_from: []
+
+  # Reply-and-resolve, with idempotency against a partial previous run and a
+  # verified post-run re-fetch. Consumes outputs/resolve-plan.json.
+  # Injects: resolve-threads
+  - path: workflows/shared/pr-thread-resolve.yaml
+    prefix: ""
+    depends_on: [plan-thread-resolution]
+    reads_from: [plan-thread-resolution, verify-fixes]

@@ -61,21 +61,31 @@ Skill(skill="workflow", args="--workflow workflows/code/review-and-fix.yaml --pa
 
 1. **init** — create workspace directories (`outputs/`, `outputs/diffs/`, `outputs/findings/`, `validation/`)
 2. **fetch-pr-context** — PR metadata, per-file diffs, commit history, PR description
-3. **concern-sweep** — load domain guides, filter to concerns triggered by this diff
-4. **enumerate-targets** — cross-reference concerns with per-file diffs; produce manifest
-5. **validate-concerns** (parallel fan-out) — one agent per manifest entry; write per-finding JSON
-6. **cross-unit-check** (parallel with validate-concerns) — cross-file consistency check
-7. **consolidate** — merge, de-duplicate, and sort findings; write `consolidated.json` + summary
-8. **fact-check-findings** — verify line numbers, evidence quotes, and severity against guide files
-9. **human-gate** — present findings; user approves, edits, or discards
-10. **post-comments** — post approved findings as inline GitHub PR review comments
+3. **concern-sweep-dispatch** — pick the domain guides this diff triggers; write the sweep fan-out index
+4. **concern-sweep** (parallel fan-out, one agent per guide) — filter each guide to the concerns this diff triggers
+5. **review-consolidated** — single-pass review for `pr_size: small`; always skipped here, since this workflow sets `pr_size: large`
+6. **concern-sweep-merge** — merge the per-guide sweep results
+7. **enumerate-targets** — cross-reference concerns with per-file diffs; produce manifest
+8. **validate-concerns** (parallel fan-out) — one agent per manifest entry; write per-finding JSON
+9. **cross-unit-check** (parallel with validate-concerns) — cross-file consistency check
+10. **consolidate** — merge, de-duplicate, and sort findings; write `consolidated.json` + summary
+11. **fact-check-findings** — verify line numbers, evidence quotes, and severity against guide files
+12. **human-gate** — present findings; user approves, edits, or discards
+13. **post-comments** — post approved findings as inline GitHub PR review comments
 
 **Phase 2 — Fix**
 
-11. **triage-findings** — group findings into code/test/docs/qlty buckets; fetch SQ issues; write `fix-manifest.json`
-12. **fix-code** (worker_queue, parallel) — fix logic bugs and style issues in source files; run ruff after each
-13. **fix-tests** (worker_queue, parallel with fix-code) — add missing tests, strengthen weak assertions; run python3 -m unittest per fix
-14. **fix-qlty** (parallel with fix-code and fix-tests) — fix new-code SQ issues; verify gate after
-15. **verify-fixes** — run ruff, test suite, and SQ gate; confirm all green
-16. **resolve-threads** — resolve GitHub threads for findings that were fixed
-17. **human-gate-fixes** — present fix summary; user approves for merge or requests another round
+14. **triage-findings** — group findings into code/test/docs/qlty buckets; fetch SQ issues; write `fix-manifest.json`
+15. **fix-code** (isolated worktree, parallel) — fix logic bugs and style issues in source files; run ruff after each
+16. **fix-tests** (isolated worktree, parallel with fix-code) — add missing tests, strengthen weak assertions
+17. **fix-qlty** (isolated worktree, parallel with fix-code and fix-tests) — fix new-code qlty issues; verify gate after
+18. **merge-fix-worktrees** — merge the three isolated fix branches back; `verify-fixes` refuses to run on an incomplete merge
+19. **verify-fixes** (`kind: execute`) — run ruff, test suite, and qlty gate; write `verify-results.json` with `all_green`
+20. **plan-thread-resolution** — gate on `all_green`, map fixed findings to their threads; write `resolve-plan.json`
+21. **resolve-threads** (shared fragment) — reply into each thread, then resolve only the verified ones
+22. **human-gate-fixes** — present the resolution outcome (including any `forged_marker`); user approves for merge or requests another round
+
+Steps 20–21 were one stage until the reply-and-resolve logic was extracted to
+`workflows/shared/pr-thread-resolve.yaml`. The split matters: this workflow
+used to resolve threads without replying to them at all, closing a reviewer's
+concern with no explanation of what changed.

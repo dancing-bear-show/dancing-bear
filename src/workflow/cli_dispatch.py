@@ -1,7 +1,8 @@
 """Dispatch subcommands for the workflow CLI.
 
 Handles parse, run, lint, list, status, init-workspace, resume,
-and validate-fragment command handlers, plus their shared helpers.
+parse-overview, and validate-fragment command handlers, plus their shared
+helpers.
 """
 
 from __future__ import annotations
@@ -497,3 +498,107 @@ def _cmd_resume(args: argparse.Namespace) -> int:
 
     emit_rows(rows, fmt=args.format, headers=["stage", "status", "needs_run", "reason"])
     return 2 if has_pending else 0
+
+
+# ---------------------------------------------------------------------------
+# parse-overview
+# ---------------------------------------------------------------------------
+
+
+def _require_object_list(path: Path, data: dict, key: str) -> None:
+    """Raise unless ``data[key]`` exists and is a list of objects."""
+    if key not in data:
+        raise CLIError(
+            f"{path} has no '{key}' key: it was produced by a fetch that "
+            "does not preserve it. Re-run the pr-review-threads fragment "
+            "before parsing the overview.",
+            ExitCode.USAGE,
+        )
+    if not isinstance(data[key], list):
+        raise CLIError(
+            f"{path} has a malformed '{key}': expected a list, got "
+            f"{type(data[key]).__name__}.",
+            ExitCode.USAGE,
+        )
+    for index, element in enumerate(data[key]):
+        if not isinstance(element, dict):
+            raise CLIError(
+                f"{path} has a malformed '{key}[{index}]': expected an "
+                f"object, got {type(element).__name__}.",
+                ExitCode.USAGE,
+            )
+
+
+def _load_threads_json(path: Path) -> dict:
+    """Read and shape-check a threads.json before any parsing.
+
+    Every defect caught here would otherwise degrade to present:false /
+    status:ok — indistinguishable from a PR that genuinely has no Copilot
+    overview — so a broken input would read as a clean pass and triage would
+    silently skip every overview rule.
+    """
+    if not path.is_file():
+        raise CLIError(f"threads file not found: {path}", ExitCode.USAGE)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise CLIError(f"threads file is not valid JSON: {exc}", ExitCode.USAGE) from exc
+    if not isinstance(data, dict):
+        raise CLIError(
+            f"{path} is not a JSON object (got {type(data).__name__}).",
+            ExitCode.USAGE,
+        )
+    for key in ("review_bodies", "threads"):
+        _require_object_list(path, data, key)
+    return data
+
+
+def _cmd_check_paths(args: argparse.Namespace) -> int:
+    """Refuse paths an unattended fixer must never edit or push.
+
+    The deterministic backstop for commit-and-push: its agent runs this over
+    the files it is about to stage, so a fixer steered into ``.git/hooks`` or
+    ``.claude/settings.json`` is stopped by tested code rather than by prose.
+    Prints one line per refused path; exits 0 only when every path is safe.
+    """
+    from core.copilot_overview import classify_repo_path
+
+    refused = 0
+    for raw in args.paths:
+        _, reason = classify_repo_path(raw)
+        if reason is not None:
+            refused += 1
+            print(f"REFUSED {reason}: {raw}")
+    if refused:
+        print(f"{refused} of {len(args.paths)} path(s) refused", file=sys.stderr)
+        return int(ExitCode.ERROR)
+    return 0
+
+
+def _cmd_parse_overview(args: argparse.Namespace) -> int:
+    """Parse Copilot overview bodies out of a fetched threads.json.
+
+    The parser lives in core.copilot_overview so it is unit-testable; this
+    handler only does I/O. Workflow stages call it rather than reimplementing
+    the scan inline, which is how the documented rules and the executed ones
+    stay the same thing.
+    """
+    from core.copilot_overview import parse_overview
+
+    data = _load_threads_json(Path(args.threads_json))
+
+    result = parse_overview(
+        review_bodies=data["review_bodies"],
+        threads=data["threads"],
+        pr_number=args.pr_number or str(data.get("pr_number") or ""),
+    )
+
+    rendered = json.dumps(result, indent=2, sort_keys=True)
+    if args.out_path:
+        out = Path(args.out_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(rendered + "\n", encoding="utf-8")
+        print(f"wrote {out}")
+    else:
+        print(rendered)
+    return 0
