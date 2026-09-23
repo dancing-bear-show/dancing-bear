@@ -27,11 +27,12 @@ description: >
         |
     verify-landed  [human gate]  (G2 — READ-ONLY: verify the merge landed,
         |                              confirm the CLI sees the type, and
-        |                              propose exactly what will be enqueued)
+        |                              propose exactly what will run)
         |
-    drive-the-queue              (G3 — publish; the ONLY stage that mutates
-                                       the real queue, released only after
-                                       the gate above is approved)
+    drive-the-queue              (G3 — publish; the ONLY stage that executes
+                                       the new handler, in a PRIVATE throwaway
+                                       queue, released only after the gate
+                                       above is approved)
 
   FOUR THINGS THIS DEMO EXISTS TO TEACH, each of which is a defect that has
   actually shipped in this repo:
@@ -72,22 +73,36 @@ description: >
 
      THE FIX IS STRUCTURAL, NOT A FLAG: split the stage on the read/write
      seam. The read-only half carries the gate and its job is to PROPOSE —
-     it must state precisely what is about to happen (how many jobs, of what
-     type, what cannot be undone). The mutating half is a separate
-     `kind: publish` stage that `depends_on` the gated one, so the engine
-     cannot release it until a person approves. That is why this demo has
-     `verify-landed` (gather, gated) and `drive-the-queue` (publish,
-     ungated) rather than one stage carrying both keywords. A gate is only
-     as good as the work that has NOT yet happened when it fires.
+     it must state precisely what is about to happen. The acting half is a
+     separate `kind: publish` stage that `depends_on` the gated one, so the
+     engine cannot release it until a person approves. That is why this
+     demo has `verify-landed` (gather, gated) and `drive-the-queue`
+     (publish, ungated) rather than one stage carrying both keywords. A gate
+     is only as good as the work that has NOT yet happened when it fires.
+
+     WHY THIS DEMO STILL HAS A GATE, now that its queue is private. An
+     earlier revision drove the user's SHARED queue, and the gate existed to
+     approve mutating it. drive-the-queue no longer touches that queue at
+     all — it runs the worker against a throwaway HOME (see its
+     description), so the only lasting side effect is a temp directory it
+     deletes. That removes the gate's ORIGINAL reason, and it is honest to
+     say so rather than keep citing a hazard that is gone. The gate stays for
+     a different reason that still holds: drive-the-queue EXECUTES code an
+     agent wrote minutes earlier, on the user's machine, with the user's
+     permissions — a private queue isolates the queue state, not the
+     process. Approving after reading the handler diff is a real decision.
+     If you copy this demo for a job type whose handler you already trust,
+     the gate is optional; if your acting stage touches shared state, it is
+     not. Either way, the PLACEMENT lesson above is what to copy.
 
      On the `publish` half specifically: `publish` and `human_gate` answer
      different questions — `publish` tells the ENGINE an external side
      effect is permitted, while `human_gate` asks the PERSON. The workflow
      skill's convention authorizes external side effects only from publish
      stages, and the prompt generated for an execute stage tells the agent
-     there are none — so an execute stage that touches the real queue both
-     forbids and requires its own actions. `drive-the-queue` enqueues and
-     drains real jobs, which is why it is publish; `read-the-seam`,
+     there are none. drive-the-queue creates and deletes a directory outside
+     the workspace and executes freshly written code through the real
+     worker CLI, which is why it is publish; `read-the-seam`,
      `write-handler` and `verify-landed` stay gather/execute/gather because
      they only read source, or write inside their own worktree.
 
@@ -95,7 +110,8 @@ description: >
      through exceptions. `terminal-` means never retry; `deferred-` means
      re-queue without consuming an attempt; anything else retries with
      backoff until max_attempts. Misclassifying a permanent failure as a
-     plain one makes the daemon retry it forever.
+     plain one makes the worker retry it until max_attempts, burning every
+     attempt re-raising a failure that can never succeed.
 
   Run it through the /workflow SKILL, not the CLI:
 
@@ -334,15 +350,47 @@ stages:
       Create {handler_module}:
         - A `handle_demo_echo(job: dict[str, object]) -> tuple[bool, object]`
           matching the HandlerFn signature from seam.json.
-        - EXTRACT THE PAYLOAD FIRST. A HandlerFn receives the COMPLETE JOB
-          RECORD, not a payload: the signature is
-          `(job: dict[str, object]) -> tuple[bool, object]`, and every real
-          handler starts with `payload = dict(job.get("payload") or {})`
-          (see src/worker/handlers.py:179). There is no `payload` variable
-          in scope until you make one. Skipping this line leaves `payload`
-          undefined, so the handler raises NameError — which the daemon
-          classifies as a RETRYABLE failure, burning every attempt on the
-          very case this demo teaches as terminal.
+        - EXTRACT THE PAYLOAD FIRST — AND CHECK ITS TYPE BEFORE CONVERTING IT.
+          A HandlerFn receives the COMPLETE JOB RECORD, not a payload: the
+          signature is `(job: dict[str, object]) -> tuple[bool, object]`,
+          and there is no `payload` variable in scope until you make one
+          (skipping this leaves it undefined, and the handler raises
+          NameError). Do NOT copy the existing handlers' one-liner
+          `payload = dict(job.get("payload") or {})`
+          (src/worker/handlers.py:179): `enqueue --payload-json` accepts ANY
+          JSON value, and `dict()` raises on a scalar — `dict("bad")` is a
+          ValueError and `dict(123)` a TypeError — while a list of pairs such
+          as `[["message", "x"]]` converts silently into a dict, so neither
+          conversion nor try/except is a type check. Write instead:
+
+            raw = job.get("payload")
+            if raw is None:
+                raw = {}
+            if not isinstance(raw, dict):
+                return (False, "terminal-payload-not-object")
+            payload = raw
+
+          A non-object payload is malformed and will never become valid on
+          retry, so it gets the terminal prefix; left to raise, it would
+          escape the handler as an uncaught exception, which the worker
+          classifies as RETRYABLE, burning every attempt on the class of
+          input this demo teaches as terminal.
+
+          BE HONEST ABOUT WHAT THIS GUARD COVERS TODAY. It is defence in
+          depth, not a path the queue currently reaches: the worker runtime
+          performs its OWN `dict(job_data.get("payload") or {})` before
+          calling any handler (src/worker/job_runtime.py:278, where it builds
+          the JobRequest outside the SafeProcessor), so a scalar payload
+          raises there first, is swallowed by the batch thread's broad
+          except, and leaves the job stranded in processing/ while run-once
+          exits 0 — the handler never runs. That is an OPEN runtime defect,
+          predating this demo and tracked for its own fix, not something a
+          handler can fix, and this demo does NOT
+          enqueue a scalar payload for that reason — the only thing such a
+          case could observe is the runtime bug, and recording a stranded job
+          as the expected outcome would teach the wrong lesson. Keep the
+          guard anyway: the handler is also callable directly, and it must
+          not depend on its caller having validated for it.
         - Then read `message = payload.get("message")`. On success return
           (True, {"echoed": message, "length": len(message)}).
         - Demonstrate ALL THREE retry classes, since this is the part authors
@@ -356,7 +404,7 @@ stages:
               A payload is JSON from an untrusted enqueuer, so `{"message":
               123}` is as reachable as a missing key. Without the type check
               it reaches `len(message)`, raises TypeError out of the handler,
-              and the daemon classifies an uncaught exception as a RETRYABLE
+              and the worker classifies an uncaught exception as a RETRYABLE
               failure — so the one case this demo exists to teach as terminal
               is the one it would get wrong, and it would burn every attempt
               re-raising the identical error. Validate before you measure.
@@ -378,12 +426,11 @@ stages:
       branch. The orchestrator merges your work with `git merge`, which moves
       COMMITS, not uncommitted files. If you return with edits uncommitted,
       the merge succeeds against an empty branch, this stage reports success,
-      and everything you wrote is silently lost. So as your final action:
-      Both params were validated by read-the-seam before this stage was ever
-      scheduled, and STEP 0 above re-checks the remaining guards before the
-      Create step. That ordering is the point: a check placed down here would
-      run after the agent had already written to whatever path
-      `{handler_module}` names.
+      and everything you wrote is silently lost. (No guard belongs down here:
+      both params were validated by read-the-seam before this stage was ever
+      scheduled, and STEP 0 above re-checks the rest before the Create step —
+      a check placed at this point would run after the Write had already
+      happened.) So as your final action:
 
         git add {handler_module} src/worker/handlers.py
         git commit -m "feat(worker): add the demo handler"
@@ -401,7 +448,7 @@ stages:
       worktree filesystem view — at best a no-op, at worst a file the
       orchestrator's copy-back step never looks for and downstream stages
       never see.
-        {"files_created": [...], "files_modified": [...], "registry_key": "{job_type}", "commit_sha": "...", "retry_cases": ["terminal", "deferred", "plain"]}
+        {"files_created": [...], "files_modified": [...], "registry_key": "{job_type}", "commit_sha": "...", "retry_cases": ["terminal", "terminal-payload-not-object", "deferred", "plain"]}
     agent:
       role: code-writer
       model: sonnet
@@ -422,7 +469,7 @@ stages:
         checks: [is_json, has_key:commit_sha, has_key:registry_key]
 
   # ===========================================================================
-  # G2: Land it and drive it through the real CLI
+  # G2: Verify it landed and PROPOSE the run — read-only, and gated
   # ===========================================================================
   - name: verify-landed
     # gather, NOT publish: every action in this stage READS. It inspects git
@@ -436,11 +483,11 @@ stages:
     # A human_gate fires AFTER its stage completes
     # (src/workflow/orchestrator.py:228 tests human_gate against an
     # already-successful StageResult). Putting it on a stage that enqueues
-    # jobs would ask the user for permission AFTER the jobs were already in
-    # their queue — which is what an earlier revision of this file did.
+    # and runs jobs would ask the user for permission AFTER they had already
+    # run — which is what an earlier revision of this file did.
     #
     # Because this stage only reads, "after it completes" is a moment when
-    # NOTHING has been mutated yet. The mutation lives in drive-the-queue,
+    # NOTHING has run yet. The execution lives in drive-the-queue,
     # which depends_on this stage and therefore cannot be released until the
     # gate is approved. The gate protects the side effect by standing between
     # the proposal and the publish, not by sitting on top of the publish.
@@ -453,10 +500,9 @@ stages:
     reads_from: [write-handler, read-the-seam]
     description: >
       VERIFY that write-handler's commit landed and that the CLI now offers
-      the new type, then PROPOSE the queue operations the next stage will
-      perform. This stage must not enqueue, drain, or otherwise touch queue
-      state — it exists so a person can approve the mutation before it
-      happens.
+      the new type, then PROPOSE what the next stage will run. This stage
+      must not enqueue, drain, or otherwise touch any queue — it exists so a
+      person can approve running the new handler before it runs.
 
       Step 1 — verify it landed. Do NOT merge anything here — that is the
       whole point of this step. .claude/skills/workflow/SKILL.md rule 7
@@ -513,55 +559,54 @@ stages:
       stage.
 
       Step 3 — STATE THE PROPOSAL. This is what the human gate will show the
-      user, and it is the only thing standing between them and a real
-      mutation of their queue, so be specific and do not soften it. Record in
+      user, so be specific about what will and will NOT happen. Record in
       proposal.json, and say plainly in your stage report, that the NEXT
       stage (drive-the-queue) will:
 
-        - Enqueue up to FOUR real jobs of type "{job_type}" into the shared
-          worker queue at `~/Library/Application Support/dancing-bear/queue`.
-          That path is a hardcoded constant
-          (src/worker/_helpers.py's `get_worker_state_dir`) with no CLI flag
-          or env var to redirect it, so there is no isolated queue to use
-          instead and nothing to tear down afterwards.
-        - Drain them through `./bin/worker run-once`, which EXECUTES real
-          jobs — the queue head, not necessarily ours (see drive-the-queue's
-          contention guard).
-        - Leave records behind PERMANENTLY. `worker` has no delete-by-id:
-          `show` and `retry` are the only id-scoped commands and neither
-          deletes, while `purge` filters by age (`--older-than`) and folder
-          (`--folders`) only, so it cannot target these four jobs and would
-          delete every job type's history if run.
-        - On a QUIET queue, leave one deferred job (case c) PENDING
-          indefinitely, because the deferred- protocol restores attempts on
-          every requeue and nothing drains it to a terminal state. Under a
-          LOADED daemon that case is skipped entirely rather than left to
-          cycle forever.
+        - RUN THE NEW HANDLER'S CODE on this machine, as the user. That is
+          what the approval is for: the handler was written by an agent in
+          write-handler and has not run anywhere yet. Put what the reviewer
+          needs in front of them — the handler module path and the output of
+          `git show --stat <the validated commit_sha>` — and tell them to
+          read the diff (`git show <sha>`) before approving.
+        - Do it in a PRIVATE, THROWAWAY QUEUE. The worker's queue root is
+          `Path.home()` plus a fixed suffix (src/worker/_helpers.py's
+          `get_worker_state_dir`), so every worker call in that stage runs
+          under `env HOME=<a fresh mktemp -d directory>`, giving a queue no
+          other producer and no launchd daemon can see. The user's real
+          queue at `~/Library/Application Support/dancing-bear/queue` is NOT
+          read, NOT written, and none of its jobs can be claimed.
+        - Enqueue and drain FOUR jobs of type "{job_type}" in that private
+          queue, one per retry class, listed in planned_jobs below.
+        - Delete the private directory at the end. Nothing is left behind —
+          no records in the user's queue, and no pending job for the daemon
+          to pick up later.
 
-      Report the daemon's current state too, since it decides case (c):
-        launchctl list | grep -F com.dancing-bear.worker
-      Record `daemon_loaded` true/false. This is a read-only query.
+      Do NOT probe the launchd daemon. Its state no longer changes anything
+      this demo does: the daemon runs with the user's real HOME, so it never
+      sees the private queue.
 
       Write {workspace}/outputs/analysis/proposal.json:
         {
           "landed": {"commit_sha": "...", "is_ancestor_of_head": true|false, "files_tracked": true|false},
           "type_in_cli": true|false,
-          "daemon_loaded": true|false,
+          "handler_module": "...",
+          "commit_stat": "<git show --stat output>",
+          "queue": "private — worker runs under env HOME=<mktemp -d>; the user's real queue is untouched",
           "planned_jobs": [
             {"case": "success",  "payload": {"message": "hello"}},
             {"case": "terminal", "payload": {}},
             {"case": "plain",    "payload": {"message": "x", "fail": true}},
-            {"case": "deferred", "payload": {"message": "x", "defer": true}, "will_run": true|false, "skip_reason": "daemon active — a deferred job would cycle indefinitely" | null}
+            {"case": "deferred", "payload": {"message": "x", "defer": true}}
           ],
-          "irreversible": true,
-          "irreversible_reason": "no id-scoped delete and no queue-root override; see stage description",
+          "leaves_behind": "nothing — the private directory is deleted at the end",
           "safe_to_proceed": true|false
         }
 
       `safe_to_proceed` is true only if the commit is an ancestor of HEAD,
       the files are tracked, and the type appeared in the CLI. If it is
-      false, say so prominently — approving the gate would then enqueue jobs
-      for a handler that did not actually land.
+      false, say so prominently — approving the gate would then run a
+      handler that did not actually land.
     agent:
       role: researcher
       model: sonnet
@@ -573,8 +618,9 @@ stages:
         mode: generate
         description: >
           proposal.json recording the ancestry and tracked-file checks, the
-          CLI registration check, the daemon's state, and the exact queue
-          mutations drive-the-queue will perform once the gate is approved.
+          CLI registration check, the commit to review, and the exact jobs
+          drive-the-queue will run in its private queue once the gate is
+          approved.
     writes_to:
       - outputs/analysis/proposal.json
     validates_output:
@@ -582,24 +628,25 @@ stages:
         checks: [is_json, has_key:landed, has_key:planned_jobs, has_key:safe_to_proceed]
 
   # ===========================================================================
-  # G3: Drive the real queue — the only stage that mutates external state,
-  #     released only after verify-landed's human gate is approved
+  # G3: Drive a PRIVATE queue through the real CLI — the only stage that runs
+  #     the new handler, released only after verify-landed's gate is approved
   # ===========================================================================
   - name: drive-the-queue
-    # publish, not execute: this stage enqueues and drains REAL jobs in the
-    # user's queue, which is an external state change. The skill's convention
-    # authorizes those only from a publish stage, and the generated execute
-    # prompt tells the agent there are none — so declaring execute would both
-    # forbid and require the same queue operations. Copy this reasoning, not
-    # just the keyword, when adapting this demo.
+    # publish, not execute: this stage creates and deletes a directory
+    # outside the workspace and EXECUTES freshly written handler code through
+    # the real worker CLI. The skill's convention authorizes side effects
+    # outside the workspace only from a publish stage, and the generated
+    # execute prompt tells the agent there are none — so declaring execute
+    # would both forbid and require the same actions. Copy this reasoning,
+    # not just the keyword, when adapting this demo.
     kind: publish
     # NOTE THE ABSENCE OF `human_gate` HERE, WHICH IS DELIBERATE. Adding one
     # would not add protection: it would fire after this stage had already
-    # enqueued and drained everything. The protection comes from depends_on
-    # below — the engine cannot release this stage until verify-landed's gate
-    # is approved, and verify-landed mutates nothing. Gating the proposal is
-    # what makes the approval meaningful; gating the mutation would only
-    # announce it after the fact.
+    # run the handler. The protection comes from depends_on below — the
+    # engine cannot release this stage until verify-landed's gate is
+    # approved, and verify-landed runs nothing. Gating the proposal is what
+    # makes the approval meaningful; gating the action would only announce
+    # it after the fact.
     depends_on: [verify-landed]
     reads_from: [verify-landed, write-handler, read-the-seam]
     description: >
@@ -611,103 +658,101 @@ stages:
       Read `{workspace}/outputs/analysis/proposal.json` first. If
       `safe_to_proceed` is not true, STOP and fail this stage without
       enqueuing anything: the approval was for a proposal whose preconditions
-      held, and enqueuing jobs for a handler that did not land is not what was
-      approved. Honour `planned_jobs[].will_run` for the deferred case rather
-      than re-deciding it — the user approved that specific plan.
+      held, and running a handler that did not land is not what was
+      approved.
 
-      Exercise all FOUR retry classes through the queue: success,
-      terminal, deferred, and plain failure. For each, enqueue and capture
-      the returned job id, then drain with `./bin/worker run-once --max 1`.
+      STEP 1 — CREATE A PRIVATE QUEUE, AND USE IT FOR EVERY WORKER CALL.
 
-      `run-once --max 1` processes the QUEUE HEAD, not the job you just
-      enqueued — enqueue/run-once has no --id scoping, and list_pending sorts
-      globally by (priority, enqueued_at) with no type filter.
+      The worker has no id- or type-scoped drain: `run-once` claims the
+      QUEUE HEAD (`--max` and `--backoff` are its only flags), and
+      list_pending sorts globally by (priority, enqueued_at). Against the
+      user's shared queue, no check made from here can stop a drain from
+      claiming — and consuming an attempt of — someone else's job, because
+      anything checked before `run-once` can change before it claims. So
+      this stage does not narrow that race; it removes it, by never touching
+      the shared queue at all.
 
-      THE PRE-DRAIN COUNT CHECK IS A FILTER, NOT A GUARANTEE — and it cannot
-      be made one from here. This mirrors workflows/code/qwen-local-handler.yaml's
-      Check E, which hit the identical problem; follow that stage's resolution
-      rather than inventing another.
+      The seam that makes this possible: the worker's queue root is
+      `Path.home() / "Library/Application Support/dancing-bear" / "queue"`
+      (src/worker/_helpers.py's `get_worker_state_dir`, read once at import
+      by queue_ops.py's QUEUE_ROOT), and `Path.home()` follows the HOME
+      environment variable. A worker process started with HOME pointed at a
+      fresh empty directory therefore has a queue nobody else can see:
+      nothing else enqueues into a directory created a second ago, and the
+      launchd daemon runs with the user's real HOME, so it never polls it.
+      The worker's perf log follows HOME too, so that lands in the private
+      directory as well.
 
-      `./bin/worker list` followed by `./bin/worker run-once` is NOT atomic.
-      Another producer can enqueue in the gap between the two commands; the
-      launchd daemon can claim work in that same gap; and `run-once` has no
-      id or type selector, so it claims the QUEUE HEAD whatever that turns out
-      to be. "Pending count is 1" therefore narrows the odds — it is worth
-      doing, because it cheaply rules out the common contended case — but it
-      is NOT proof of ownership, and this stage must never report it as such.
+        PRIV=$(mktemp -d)
 
-      So treat the count check as necessary-but-not-sufficient, and VERIFY
-      AFTER THE FACT:
+      Record the path — each Bash call is a fresh shell, so re-set PRIV from
+      the recorded value in every later call rather than assuming it
+      persisted. Then prefix EVERY worker invocation — enqueue, run-once,
+      show, list — with `env HOME="$PRIV"`:
 
-        a. READ YOUR JOB BACK BY ID FIRST, before any run-once. If the daemon
-           already handled it, that is a valid drain — PREFER IT and skip
-           run-once entirely. The daemon takes the real queue lock, so this
-           path involves no racy claim at all. Record which path handled the
-           job (run-once vs daemon).
-        b. Otherwise run `./bin/worker list`. Drain with
-           `./bin/worker run-once --max 1` ONLY when your job is
-           unambiguously the only pending entry.
+        env HOME="$PRIV" ./bin/worker enqueue --help
 
-           THE COUNT IS ADVISORY AND CANNOT BE MADE OTHERWISE. A job can be
-           enqueued between the `list` and the `run-once`, and `run-once`
-           has no id or type selector (`--max` and `--backoff` are its only
-           flags), so nothing here makes the claim id-scoped. Step (d) below
-           corrects the REPORT after a mis-drain; it does not prevent one,
-           and someone else's job has already had an attempt consumed by
-           then.
+      A SINGLE CALL WITHOUT THE PREFIX SILENTLY HITS THE USER'S REAL QUEUE.
+      Nothing errors; the command simply succeeds against the shared
+      directory — an enqueue leaves a job there for the daemon, and a
+      run-once claims the user's queue head. There is no flag that catches
+      the omission, so check each command line for the prefix before
+      running it. Use `env HOME=...`, not a bare `HOME=... cmd` prefix: the
+      two are equivalent to the shell, but some command guards refuse the
+      bare VAR= form.
 
-           There is also no isolated-queue seam to fall back on: the queue
-           root is hardcoded to
-           ~/Library/Application Support/dancing-bear/queue
-           (worker/_helpers.py:42) with no flag or environment override, so
-           the demo cannot run against a private queue.
+      WHY THIS RUNS THE NEW HANDLER, not some other checkout's copy. Run
+      `./bin/worker` by its relative path from the checkout verify-landed
+      confirmed the commit is in — never by an absolute path into another
+      checkout, which would run that tree's source by design. `bin/worker`
+      is a symlink to bin/_router.py, which derives the repo root from its
+      own resolved path, strips any other checkout's `src/` from PYTHONPATH
+      (bin/_pathrepair.py), and forces its own `src/` to the front of
+      sys.path before importing `worker`. None of that consults HOME, so
+      changing HOME moves the queue and nothing else. Confirm it rather than
+      trusting it: the `enqueue --help` above must list "{job_type}" among
+      the --type choices. That is the router loading THIS tree's REGISTRY —
+      if the type is missing, the worker you are about to drive is not the
+      one the handler was merged into; stop and report.
 
-           Given that, SKIPPING IS THE DEFAULT on any doubt. Drain only when
-           the queue is quiet and yours is provably the single pending
-           entry; if the count is anything other than exactly 1, prefer (c).
-           This is a teaching demo — spending someone's job attempt to
-           illustrate a retry class is not a trade it is entitled to make.
-        c. If anything else is pending, do NOT drain. Wait briefly and
-           re-check whether the daemon took yours, or record this case as
-           "not-verified — queue contended, N other jobs pending" and move
-           on. A case skipped for a stated reason is a fine demo result.
-        d. AFTER any drain, read the job back with `./bin/worker show <id>`
-           and confirm it carries the id you enqueued, comparing
-           job_type/payload rather than accepting "something drained". If it
-           does not match, you drained someone else's job: record this case
-           as INVALID, say which id you actually saw, and do NOT present its
-           outcome as evidence of anything about the retry protocol. An
-           after-the-fact mismatch is recoverable as a reporting problem;
-           presenting a contaminated drain as proof is not.
+      STEP 2 — EXERCISE THE FOUR RETRY CLASSES. For each case, enqueue with
+      `env HOME="$PRIV" ./bin/worker enqueue ...`, capture the returned job
+      id, drain with `env HOME="$PRIV" ./bin/worker run-once --max 1`, and
+      read it back with `env HOME="$PRIV" ./bin/worker show <id>`.
 
-      Do not describe this as eliminating the race — it does not. What the
-      guard buys is that a contended drain is DETECTED and reported honestly
-      instead of being silently attributed to our own job. The residual risk
-      is real: on a busy queue this demo can still execute one of the user's
-      jobs and consume one of its attempts, which is not undoable. That is
-      the cost of driving a shared queue with a CLI that has no id-scoped
-      drain, and it is stated in verify-landed's proposal so the gate is
-      approved with it in view.
+      The private queue holds only this stage's own jobs, and every
+      non-terminal outcome (plain retry and deferral alike) re-queues with
+      not_before set `--backoff` seconds ahead (default 60), so after each
+      drain nothing earlier is eligible and the next `run-once` claims the
+      job just enqueued. As cheap defence in depth, confirm from `show` that
+      the drained job carries the id you enqueued. A mismatch here means one
+      of the assumptions above is wrong — most likely a missing HOME prefix —
+      so FAIL the stage and say which call you suspect, rather than
+      recording the outcome as evidence about the retry protocol.
 
-      RUN THE CASES IN THIS ORDER: a) success, b) terminal, d) plain failure,
-      then c) deferred LAST. Case (c) is the only one that ends with a job
-      still pending, so running it earlier makes the pending count permanently
-      greater than 1 and the filter above then blocks every later case — the
-      plain-failure case would never drain at all. Ordering deferred last
-      keeps the filter satisfiable for the cases that precede it. (The letters
-      keep their original meaning below; only the execution order changes.)
+      That reasoning depends on the DEFAULT backoff, so do not pass
+      `--backoff 0`: a job re-queued with no delay is immediately eligible
+      again, and since it was enqueued earlier it would be the head for the
+      next drain, not the job you just added. With the default, the cases can
+      run in any order; running them a, b, d, c keeps the two that end
+      pending together at the end.
 
         a) Success:
-             ./bin/worker enqueue --type "{job_type}" --payload-json '{"message": "hello"}'
+             env HOME="$PRIV" ./bin/worker enqueue --type "{job_type}" --payload-json '{"message": "hello"}'
            Expect: job in done/, result carries echoed + length.
         b) Terminal:
-             ./bin/worker enqueue --type "{job_type}" --payload-json '{}'
-           Expect: job in error/ after ONE attempt. This is the important
-           one — confirm attempts did not climb to max_attempts, which is
-           what proves the terminal- prefix was honoured rather than the
-           failure being treated as retryable.
+             env HOME="$PRIV" ./bin/worker enqueue --type "{job_type}" --payload-json '{}'
+           Expect: job in error/ after ONE drain. This is the important
+           one — it must land in error/ from that single run-once, not back
+           in pending/ with a future not_before, which is what proves the
+           terminal- prefix was honoured rather than the failure being
+           treated as retryable. Note the stored `attempts` field does NOT
+           move: a terminal outcome goes straight to queue_ops.finish(),
+           which never touches the counter (only retry() increments it), so
+           expect attempts_after == attempts_before, typically 0 -> 0. Do
+           not assert that attempts reached 1.
         c) Deferred:
-             ./bin/worker enqueue --type "{job_type}" --payload-json '{"message": "x", "defer": true}'
+             env HOME="$PRIV" ./bin/worker enqueue --type "{job_type}" --payload-json '{"message": "x", "defer": true}'
            Expect: job back in pending/ with attempts UNCHANGED from before
            this drain (not incremented, not reset to 0 — the same number it
            had going in). The unchanged count is the entire point of the
@@ -717,97 +762,61 @@ stages:
            Asserting only "it did not complete" would also pass for a plain
            retry, which increments attempts — record the before/after
            attempts count for this case to prove it did NOT change.
+
+           Observe it ONCE; do not try to drain it to a terminal state. The
+           deferred- branch restores the attempt count after every requeue,
+           so repeated run-once calls would defer it forever — an earlier
+           revision of this file told the agent to loop "until its attempts
+           exhaust", which cannot terminate. The private queue makes a
+           still-pending deferred job harmless: nothing polls it, and STEP 3
+           deletes it.
         d) Plain failure:
-             ./bin/worker enqueue --type "{job_type}" --payload-json '{"message": "x", "fail": true}'
+             env HOME="$PRIV" ./bin/worker enqueue --type "{job_type}" --payload-json '{"message": "x", "fail": true}'
            Expect: attempts incremented and the job re-queued to pending
            with a future not_before, not moved to error/ on the first try.
 
-      Step 4 — leave the four jobs where they are; do not attempt to remove
-      them. This demo writes real jobs into the real, shared queue at
-      `~/Library/Application Support/dancing-bear/queue` — `worker`'s queue
-      root is a hardcoded constant (`src/worker/_helpers.py`'s
-      `get_worker_state_dir`) with no CLI flag or env var to point it
-      elsewhere for this run, so there is no isolated queue to tear down
-      after. Deleting by id is equally not available: `worker show <id>` and
-      `worker retry <id>` are the only id-scoped commands, and neither
-      deletes; `worker purge` deletes by age (`--older-than`) and folder
-      (`--folders`) only, with no id or job-type filter, so running it here
-      would delete every job type's history, not just this demo's four jobs.
-      TWO OF THE FOUR ARE NOT INERT, and that is the part worth stating
-      plainly rather than filing under "accepted cost". Cases (c) and (d)
-      end in PENDING, not done/ or error/:
-        - (d) plain failure retries with backoff until max_attempts, then
-          lands in error/ — bounded, self-limiting, fine.
-        - (c) deferred is NOT bounded. The deferred- protocol restores
-          attempts on every requeue (that is its whole point), so if the
-          launchd daemon is running it will pick this job up every poll,
-          defer it, requeue it, and repeat — indefinitely, at the daemon's
-          interval, for as long as the machine is up. A demo must not leave
-          a perpetual background workload in a user's queue.
+      No case enqueues a non-object payload (such as `'"bad"'`). The handler
+      guards against one, but the worker runtime converts the payload itself
+      before any handler runs (src/worker/job_runtime.py:278, an open
+      defect), so such a job never reaches the handler and is stranded in
+      processing/ — see write-handler's description. Do not add that case here.
 
-      So before finishing, deal with case (c) explicitly. That decision was
-      ALREADY MADE AND APPROVED at the gate: verify-landed recorded
-      `daemon_loaded` and set `planned_jobs[].will_run` for the deferred case
-      accordingly, and the user approved that specific plan. Honour it rather
-      than re-deciding it here — re-running the `launchctl` probe and
-      reaching a different answer would execute something the gate did not
-      approve. The two branches the plan chooses between are:
-        - `will_run: false` (daemon loaded): do not run case (c) against the
-          live queue at all. Record it as "not-run — daemon active, deferred
-          job would cycle indefinitely" and note that its behaviour is
-          covered by the handler's unit tests instead. A skipped case with a
-          stated reason is an honest demo result.
-        - `will_run: true` (no daemon running): run it ONCE to observe the
-          deferral, then leave it pending and say so.
+      STEP 3 — DELETE THE PRIVATE QUEUE. After recording the final state of
+      every job, list the private queue once for the record:
 
-          Do NOT try to drain it to a terminal state. An earlier revision of
-          this file said to run `run-once` repeatedly "until its attempts
-          exhaust and it lands in error/", which cannot happen: the
-          `deferred-` branch in job_runtime.py:155-158 calls
-          `_undo_retry_attempt` after every requeue, restoring the attempt
-          count by design. The job would defer forever and the loop would
-          never terminate — the instruction was a dead end, and following it
-          literally is worse than leaving the job pending.
+        env HOME="$PRIV" ./bin/worker list
 
-          Since `worker` has no delete-by-id, the honest options are to leave
-          one pending job behind (recording it, so the reader can remove it)
-          or to skip the case. Prefer the skip above whenever the daemon is
-          loaded; this branch exists only for a quiet queue, where a single
-          pending job cycles nothing because nothing is polling.
+      then remove the whole directory:
 
-      Record in verified.json which path you took for (c), and account for
-      EACH remaining job by its actual folder. Do not report them
-      collectively as "inert records in done/ and error/" — that is false for
-      up to two of the four, and it is the report a reader would trust when
-      deciding whether the demo left anything behind:
+        rm -rf "$PRIV"
 
-        - (a) success  -> done/   TERMINAL, inert. Nothing re-runs it.
-        - (b) terminal -> error/  TERMINAL, inert. Nothing re-runs it.
-        - (d) plain failure -> PENDING until its retry budget is exhausted.
-          It is NOT inert while pending: a running daemon will claim it again
-          at each poll until attempts reach max_attempts, and only then does
-          it land in error/. Report it as pending with its attempts count and
-          say when it will stop.
-        - (c) deferred -> either not-run, or PENDING indefinitely on the
-          quiet-queue branch, since deferred- restores attempts on every
-          requeue and the job therefore never exhausts them.
+      Before running that, confirm the value you are about to delete is the
+      path `mktemp -d` returned in STEP 1 — never an empty or unset
+      variable, and never anything under the user's real home. Then confirm
+      the directory no longer exists.
 
-      List the pending ones separately from the terminal ones, with their
-      ids, so the reader can remove them. A demo that leaves live queue
-      entries must say so plainly; reporting them as harmless is worse than
-      leaving them, because nobody then looks.
+      What this means, and it is the claim verified.json must make: NOTHING
+      IS LEFT BEHIND. Cases (c) and (d) end pending, but in a queue that no
+      longer exists; the user's real queue was never read or written, so no
+      record of this demo is in it and nothing for the daemon to pick up. No
+      delete-by-id is needed, and none of the user's jobs was claimed.
+
+      If the stage fails partway, still run STEP 3 before reporting the
+      failure — an abandoned private directory is harmless to the queue but
+      is litter, and it is the one cleanup this stage owns.
 
       Write {workspace}/validation/verified.json:
         {
           "landed": {"commit_sha": "...", "is_ancestor_of_head": true|false, "files_tracked": true|false},
           "type_in_cli": true|false,
+          "queue": {"private_home": "<the mktemp -d path>", "type_seen_by_private_worker": true|false},
           "cases": [
-            {"case": "success",  "job_id": "...", "drained_by": "run-once|daemon", "id_confirmed": true|false, "final_state": "done",    "attempts_before": N, "attempts_after": N, "as_expected": true|false},
-            {"case": "terminal", "job_id": "...", "drained_by": "run-once|daemon", "id_confirmed": true|false, "final_state": "error",   "attempts_before": N, "attempts_after": N, "as_expected": true|false},
-            {"case": "deferred", "disposition": "not-run-daemon-active|observed-left-pending", "job_id": "..." | null, "drained_by": "run-once|daemon|null", "id_confirmed": true|false|null, "final_state": "not-run|pending", "attempts_before": N|null, "attempts_after": N|null, "as_expected": true|false},
-            {"case": "plain",    "job_id": "...", "drained_by": "run-once|daemon", "id_confirmed": true|false, "final_state": "pending", "attempts_before": N, "attempts_after": N, "as_expected": true|false}
+            {"case": "success",  "job_id": "...", "id_confirmed": true|false, "final_state": "done",    "attempts_before": N, "attempts_after": N, "as_expected": true|false},
+            {"case": "terminal", "job_id": "...", "id_confirmed": true|false, "final_state": "error",   "attempts_before": N, "attempts_after": N, "as_expected": true|false},
+            {"case": "plain",    "job_id": "...", "id_confirmed": true|false, "final_state": "pending", "attempts_before": N, "attempts_after": N, "as_expected": true|false},
+            {"case": "deferred", "job_id": "...", "id_confirmed": true|false, "final_state": "pending", "attempts_before": N, "attempts_after": N, "as_expected": true|false}
           ],
-          "cleanup": {"jobs_left_in_queue": ["<success_id>", "<terminal_id>", "<plain_id>", "<deferred_id if observed-left-pending>"], "deferred_job_disposition": "not-run-daemon-active|observed-left-pending", "reason": "no id-scoped delete or queue-root override exists; see stage description. Under a LOADED daemon the deferred case is not run at all, because a deferred job would cycle forever. On a quiet queue it is observed once and left pending, which cycles nothing because nothing is polling — record its id above so the reader can remove it."},
+          "cleanup": {"private_home_removed": true|false, "left_in_user_queue": []},
           "verified": true|false
         }
 
@@ -816,33 +825,26 @@ stages:
       read-only stage that ran before the gate, and re-running git or the CLI
       probe here could report a different answer than the one the user
       approved — verified.json must describe the run that was authorized.
+      `type_seen_by_private_worker` is this stage's own STEP 1 check, and is
+      a separate fact: that the worker driving the private queue loaded this
+      tree's REGISTRY.
 
       verified is true only if proposal.json's `landed` showed the commit is
-      an ancestor of HEAD, `type_in_cli` was true, and every case that RAN
-      behaved as expected — in particular, only if the terminal case stopped
-      after one attempt.
+      an ancestor of HEAD, `type_in_cli` and `type_seen_by_private_worker`
+      were true, every case's `id_confirmed` is true, every case behaved as
+      expected, and `private_home_removed` is true. In particular:
+        - terminal: final_state is error after a single drain, and
+          attempts_after equals attempts_before — it was finished, not
+          retried.
+        - deferred: attempts_after equals attempts_before. That equality is
+          the whole point of the deferred- protocol and is the only thing
+          that distinguishes it from an ordinary retry.
+        - plain: attempts_after is attempts_before + 1 and final_state is
+          pending.
 
-      A case whose `id_confirmed` is false is INVALID, not failed: it means
-      the drain hit a job that was not ours, so it says nothing about the
-      retry protocol either way. Record `as_expected: false` with a reason
-      naming the id actually seen, and set `verified` false — a run that
-      cannot tell whose job it drained has not demonstrated the protocol.
-
-      The deferred case is conditional, so its predicate is conditional too:
-        - disposition "observed-left-pending" (quiet queue): attempts_after
-          must equal attempts_before. That equality is the whole point of the
-          deferred- protocol and is the only thing that distinguishes it from
-          an ordinary retry.
-        - disposition "not-run-daemon-active": the case was deliberately
-          skipped, attempts_before and attempts_after are both null, and
-          verified is NOT failed for it. Record as_expected true with the
-          skip reason.
-
-      Do not require an equality between two nulls, and do not report a
-      skipped case as verified behaviour. A run that skips the deferred case
-      on a live queue and says so is a truthful, successful run; one that
-      claims to have proven the attempt-restoration without executing it is
-      not.
+      `left_in_user_queue` is always the empty list on a correct run, and
+      it is recorded anyway so that a reader deciding whether the demo left
+      anything behind has an explicit answer rather than an inference.
     agent:
       role: code-writer
       model: sonnet
@@ -854,8 +856,9 @@ stages:
         mode: generate
         description: >
           verified.json recording the ancestry check, the CLI registration
-          check, and one id-scoped drained job per retry class (success,
-          terminal, deferred, plain) with its attempt count before and after.
+          check, one job per retry class (success, terminal, deferred, plain)
+          drained in a private queue with its attempt count before and after,
+          and confirmation that the private queue was deleted.
     writes_to:
       - validation/verified.json
     validates_output:
