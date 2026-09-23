@@ -12,11 +12,12 @@ checkout's own ``src`` via a ``PYTHONPATH="$PWD/src"`` prefix, the house form
 for import probes.
 
 Scanning is textual on purpose: commands live in descriptions, criteria and
-quoted strings alike, including Markdown code spans — "run `python3 -c ...`"
-is an instruction. There is no prose exemption. Only an actual program counts
-(``-c`` followed by a quote or a line continuation), so a warning that names
-the bare form without a body, such as "never use a bare `python3 -c` here",
-is not a match.
+quoted strings alike, including Markdown code spans. Every mention of the
+unisolated form counts, with or without a program after ``-c``: "confirm it
+parses by running `python3 -c` with yaml.safe_load" is an instruction the
+agent turns into a bare command. There is no prose exemption, so a warning
+about the hazard must describe it ("an inline Python one-liner") rather than
+spell the bare form.
 """
 
 from __future__ import annotations
@@ -28,17 +29,19 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS_DIR = REPO_ROOT / "workflows"
 
-# interpreter, its flags, then -c followed by a (possibly escaped) quote or a
-# line continuation — i.e. an actual program, not a sentence mentioning -c.
+# An interpreter — a literal python/python3 (optionally .venv/bin/) or a shell
+# variable naming one ($PY, "${PYTHON}") — then its flags, then -c as a whole
+# token. Flags include the argument-taking -X/-W forms so `-X utf8` cannot hide
+# the -c behind it.
 _INVOCATION = re.compile(
-    r"(?<![\w.-])(?P<interp>(?:\.venv/bin/)?python3?)"
-    r"(?P<flags>(?:[ \t]+-[A-Za-z]+)*?)[ \t]+-c[ \t]*(?:\\?[\"']|\\\n)"
+    r"(?<![\w.-])(?P<interp>(?:\.venv/bin/)?python3?|\$\{?\w*(?:PY|py)\w*\}?\"?)"
+    r"(?P<flags>(?:[ \t]+-(?:[XW][ \t]*\S+|[A-Za-z]+))*?)[ \t]+-c(?![\w-])"
 )
 _PINNED_PREFIX = re.compile(r'PYTHONPATH="\$(?:PWD|\(pwd\))/src"[ \t]+$')
 
 
 def unisolated_invocations(text: str) -> list[int]:
-    """Return 1-based line numbers of ``python -c`` programs lacking isolation."""
+    """Return 1-based line numbers of ``python -c`` mentions lacking isolation."""
     hits = []
     for m in _INVOCATION.finditer(text):
         if re.search(r"-\w*I", m.group("flags")):
@@ -63,6 +66,13 @@ class TestScanner(unittest.TestCase):
             'Run `python3 -c "import json"` to check it.',
             'never use a bare `python3 -c "import worker"` here',
             '- `.venv/bin/python -c "import fitz"`',
+            "confirm it parses by running `python3 -c` with yaml.safe_load",
+            "Do NOT reach for an inline `python3 -c` here.",
+            "parse with awk or python3 -c (no grep -P).",
+            "into a `python -c`\n",
+            '$PY -c "import os"',
+            '"${PYTHON}" -c "import os"',
+            'python3 -X utf8 -c "import os"',
         ):
             with self.subTest(text=text):
                 self.assertEqual(unisolated_invocations(text), [1])
@@ -74,11 +84,14 @@ class TestScanner(unittest.TestCase):
             'python3 -IS -c "import json"',
             'PYTHONPATH="$PWD/src" python3 -c "import worker"',
             'PYTHONPATH="$(pwd)/src" .venv/bin/python -c \\\n  "import fitz"',
-            "Do NOT reach for an inline `python3 -c` here.",
-            "never use a bare `python3 -c` import of `worker` here",
+            "confirm it parses by running `python3 -I -c` with yaml.safe_load",
             'Run `python3 -I -S -c "import json"` to check it.',
             'run `PYTHONPATH="$PWD/src" python3 -c "import worker"`',
-            "parse with awk or python3 -c (no grep -P).",
+            'python3 -X utf8 -I -c "import os"',
+            '$PY -I -S -c "import os"',
+            "Do NOT reach for an inline Python one-liner here.",
+            "python3 -m unittest -c",
+            "python3 -command",
         ):
             with self.subTest(text=text):
                 self.assertEqual(unisolated_invocations(text), [])

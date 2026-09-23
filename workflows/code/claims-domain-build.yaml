@@ -389,7 +389,7 @@ stages:
                variable, no workspace file, no shell interpolation.  That
                closes the injection surface rather than trying to quote it --
                {workspace} itself is derived from a user-overridable
-               --workspace/work_dir, so interpolating it into a `python -c`
+               --workspace/work_dir, so interpolating it into an inline Python
                string would be shell source too.
 
                PYTHONPATH="$(pwd)/src" .venv/bin/python -c "

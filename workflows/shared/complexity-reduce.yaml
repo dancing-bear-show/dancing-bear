@@ -373,7 +373,8 @@ stages:
       re-export layer, a missed call site is a hard runtime failure with no
       safety net.
 
-      IMPORTANT: export PYTHONPATH="$(pwd)/src" before any python3 -c check.
+      IMPORTANT: every inline import check below carries a
+      PYTHONPATH="$PWD/src" prefix. Keep it on each one.
 
       Step 1 — enumerate what changed:
         Read {workspace}/outputs/reduce-summary.md.

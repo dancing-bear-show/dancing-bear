@@ -1046,7 +1046,7 @@ stages:
         and creates the file and its parent dir if needed. Pass --log-path to
         write elsewhere; the default is the path update-review-concerns reads.
 
-        The logic lives in a script rather than an inline `python3 -c` heredoc
+        The logic lives in a script rather than an inline Python heredoc
         because the heredoc form was indented to match this prose and therefore
         died on `IndentationError: unexpected indent` before writing anything.
         Do not inline it again.

@@ -1263,7 +1263,7 @@ stages:
             "{job_type}" must appear, AND the printed worker.__file__ must be
             under YOUR worktree.
 
-            NEVER use a bare `python3 -c` import of `worker` here. Measured
+            NEVER import `worker` inline without that prefix here. Measured
             from a worktree on 2026-09-22, the bare form resolves `worker` to
             the MAIN CHECKOUT's src — not because of anything inherited, but
             because that is where the active editable install points. The
@@ -2169,8 +2169,8 @@ stages:
       Then run the real gates, in this order, and record verbatim output:
 
         1. Prove imports resolve to THIS checkout before trusting any result.
-           A bare `python3 -c` import of `worker` from a worktree resolves to the
-           MAIN CHECKOUT's src — verified by probe on 2026-09-22, with no
+           An inline import of `worker` with no PYTHONPATH prefix, run from a
+           worktree, resolves to the MAIN CHECKOUT's src — verified by probe on 2026-09-22, with no
            inherited PYTHONPATH involved; the active editable install simply
            points there. An inherited PYTHONPATH is a second way to get the
            same false green. Both are defeated by prepending this tree:
@@ -2790,8 +2790,8 @@ stages:
            landed — stop and report that.
 
            Run this from THIS worktree, so the CLI imports the code this run
-           built. Confirm it first — a bare `python3 -c` import of `worker` from
-           a worktree resolves to the MAIN CHECKOUT (probe-verified
+           built. Confirm it first — an inline import of `worker` without the
+           prefix, run from a worktree, resolves to the MAIN CHECKOUT (probe-verified
            2026-09-22, no inherited PYTHONPATH needed), and an inherited
            PYTHONPATH can redirect it elsewhere again:
              PYTHONPATH="$PWD/src" python3 -c "import worker; print(worker.__file__)"

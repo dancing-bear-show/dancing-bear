@@ -427,7 +427,8 @@ stages:
           to one role is not a refresh, it is a rewrite, and it belongs in a
           separate deliberate pass.
 
-      Write the file, then confirm it parses by running `python3 -c` with
+      Write the file, then confirm it parses by running `python3 -I -c` (isolated from an
+      inherited PYTHONPATH; no -S, since yaml lives in site-packages) with
       yaml.safe_load over the path, passing the path as argv[1] rather than
       interpolating it into the Python source. Print only the proposal count —
       not the file contents, which are PII and would land in the unredacted run
@@ -727,7 +728,7 @@ stages:
       NOT APPLIED with the reason and continue. A bullet written under the wrong
       employer is a factual error in the source of truth.
 
-      After the edits, confirm the file still parses by running `python3 -c`
+      After the edits, confirm the file still parses by running `python3 -I -c`
       with yaml.safe_load, passing {profile_dir}/experience.yaml as argv[1].
       Pass the path as an argument — never interpolate {profile_dir} into the
       Python source itself. That value is a user-supplied param, so a quote

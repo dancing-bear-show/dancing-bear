@@ -1549,8 +1549,9 @@ stages:
       refactor: with no backward-compat re-export layer, a missed call site
       is a hard runtime failure with no safety net.
 
-      IMPORTANT: export PYTHONPATH="$(pwd)/src" before any python3 -c import
-      check, for the same reason noted in verify-tests.
+      IMPORTANT: every inline import check below carries a
+      PYTHONPATH="$PWD/src" prefix, for the same reason noted in verify-tests.
+      Keep it on each one.
 
       Step 1 — enumerate what changed:
         Read {workspace}/outputs/*-splits.md for every file created,
