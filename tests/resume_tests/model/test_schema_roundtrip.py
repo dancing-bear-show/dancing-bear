@@ -18,6 +18,7 @@ import logging
 import unittest
 from collections import OrderedDict
 from types import MappingProxyType
+from typing import TYPE_CHECKING
 
 from resume.schema import (
     ExperienceEntry,
@@ -36,8 +37,15 @@ from tests.resume_tests.fixtures import (
 
 WARN_LOGGER = "resume.schema"
 
+# Type the mixin as a TestCase for mypy only; at runtime it stays a plain
+# object so unittest never collects the mixin itself.
+if TYPE_CHECKING:
+    _MixinBase = unittest.TestCase
+else:
+    _MixinBase = object
 
-class RoundTripMixin(unittest.TestCase):
+
+class RoundTripMixin(_MixinBase):
     """Shared assertion for the exact round-trip contract.
 
     Intended to be mixed into unittest.TestCase subclasses.
