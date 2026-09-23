@@ -524,6 +524,17 @@ def _cmd_parse_overview(args: argparse.Namespace) -> int:
     except json.JSONDecodeError as exc:
         raise CLIError(f"threads file is not valid JSON: {exc}", ExitCode.USAGE) from exc
 
+    if "review_bodies" not in data:
+        # Distinguish "this PR has no overview" from "this file cannot answer
+        # the question". Without the key the parse would return present:false
+        # — identical to a clean PR — so a stale fetch would read as a pass.
+        raise CLIError(
+            f"{path} has no 'review_bodies' key: it was produced by a fetch "
+            "that does not preserve review bodies. Re-run the "
+            "pr-review-threads fragment before parsing the overview.",
+            ExitCode.USAGE,
+        )
+
     result = parse_overview(
         review_bodies=data.get("review_bodies") or [],
         threads=data.get("threads") or [],

@@ -7,6 +7,7 @@ earlier prose-only specification of it silently returned zero findings twice.
 
 from __future__ import annotations
 
+import argparse
 import unittest
 
 from core.copilot_overview import (
@@ -326,6 +327,47 @@ class TestAbsentOverview(unittest.TestCase):
     def test_no_reviews_at_all(self):
         out = parse_overview([], [])
         self.assertFalse(out["present"])
+
+
+class TestStaleFetchGuard(unittest.TestCase):
+    """A threads.json with no review_bodies key cannot answer the question.
+
+    Its parse would return present:false — identical to a PR that genuinely
+    has no Copilot overview — so the CLI refuses rather than reporting a
+    clean result from a file that was never asked to carry review bodies.
+    """
+
+    def _run(self, payload: dict) -> tuple[int, str]:
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from core.cli_errors import CLIError
+        from workflow.cli_dispatch import _cmd_parse_overview
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "threads.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            args = argparse.Namespace(
+                threads_json=str(path), pr_number="1",
+                out_path=str(Path(tmp) / "out.json"),
+            )
+            try:
+                return _cmd_parse_overview(args), ""
+            except CLIError as exc:
+                return int(exc.code), str(exc)
+
+    def test_missing_review_bodies_key_is_refused(self):
+        code, message = self._run({"pr_number": "1", "threads": []})
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("review_bodies", message)
+
+    def test_empty_review_bodies_list_is_accepted(self):
+        """A human-only PR is the common case, not a failure."""
+        code, _ = self._run({"pr_number": "1", "threads": [], "review_bodies": []})
+
+        self.assertEqual(code, 0)
 
 
 class TestThreadsNotCited(unittest.TestCase):
