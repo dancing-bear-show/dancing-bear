@@ -809,10 +809,23 @@ def _normalise_patch_target(target: str) -> str | None:
 
 
 def _is_denied_patch_target(target: str) -> bool:
+    """True when the patch may not write target.
+
+    Output gets the same policy as input: a target must sit under an
+    allowlisted source directory, and the sensitive-name denylist
+    (credentials.ini, .env*, *token*.json, keys, certificates) applies to
+    what the model writes just as it applies to what it reads. The
+    write-only DENIED_PATCH_PREFIXES then narrow it further (bin/ is
+    readable as context but never writable).
+    """
     norm = _normalise_patch_target(target)
     if norm is None:
         return True
     if ".git" in norm.split("/"):
+        return True
+    if not any(norm.startswith(allowed.casefold()) for allowed in ALLOWLIST_DIRS):
+        return True
+    if _is_denied_name(Path(norm)):
         return True
     return any(f"{norm}/".startswith(prefix) for prefix in DENIED_PATCH_PREFIXES)
 

@@ -897,9 +897,29 @@ class QwenPatchCapsTests(unittest.TestCase):
                 self.assertEqual(qwen.check_patch_caps(_single_file_diff(target)), "terminal-patch-too-broad")
 
     def test_similar_but_allowed_targets_pass(self) -> None:
-        for target in ("src/binder.py", "src/bin/x.py", "docs/configs.md", "binary.txt", "src/./x.py"):
+        for target in ("src/binder.py", "src/bin/x.py", "docs/configs.md", "src/binary.txt", "src/./x.py"):
             with self.subTest(target=target):
                 self.assertIsNone(qwen.check_patch_caps(_single_file_diff(target)))
+
+    def test_sensitive_names_are_denied_as_patch_targets(self) -> None:
+        """The input denylist applies to what the model writes, not just what it reads."""
+        for target in (
+            "src/credentials.ini",
+            "src/.env",
+            "tests/.env.local",
+            "src/my_token.json",
+            "docs/id_rsa",
+            "src/cert.pem",
+            "src/Credentials.INI",
+        ):
+            with self.subTest(target=target):
+                self.assertEqual(qwen.check_patch_caps(_single_file_diff(target)), "terminal-patch-too-broad")
+
+    def test_targets_outside_the_allowlisted_directories_are_denied(self) -> None:
+        """A patch may only write where the job may read: src/, tests/, workflows/, concerns/, docs/."""
+        for target in ("README.md", "binary.txt", "pyproject.toml", "out/generated.json", "_data/q.json", "srcevil/x.py"):
+            with self.subTest(target=target):
+                self.assertEqual(qwen.check_patch_caps(_single_file_diff(target)), "terminal-patch-too-broad")
 
     def test_quoted_header_path_is_unquoted_before_the_check(self) -> None:
         """git quotes a path holding special characters, a/ b/ prefix included."""
