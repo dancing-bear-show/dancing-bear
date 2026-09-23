@@ -4,7 +4,8 @@ The canonical definition of a conformant dancing-bear CLI. Every rule below is
 stated as a **testable assertion** with the shared contract that proves it, so
 conformance is machine-checkable rather than a matter of opinion.
 
-Rules were derived by **running all 18 apps**, not by reading them. Where apps
+Rules were derived by **running all 18 apps** that existed then, not by reading
+them; `./bin/github`, added afterwards, was built to them and conforms. Where apps
 legitimately differ, the rule names the exemption rather than pretending
 uniformity.
 
@@ -18,13 +19,13 @@ exemption below applies. **MAY** = permitted variation.
 **S1. MUST build on `CLIApp`** (`core.cli_framework`), not a hand-rolled argparse
 tree. Supplies subcommand dispatch, the common flag set, `normalize_argv`, and
 uniform exception→exit-code mapping.
-*Conformant (18):* all 18 apps now build on CLIApp.
+*Conformant (19):* all 19 apps now build on CLIApp.
 
 **S2. MUST declare app identity in `<app>/meta.py` as an `AppMeta`.**
 `AppMeta` derives every fallback string (agentic, domain-map, inventory,
 familiarize) from one `app_id` + `purpose`. Hand-written fallback literals
 duplicate that derivation and drift from it.
-*Conformant (18):* every app. Confirm on merged `main` with
+*Conformant (19):* every app. Confirm on merged `main` with
 `ls src/*/meta.py | wc -l` rather than trusting this line — it is a snapshot,
 not a gate, and it sat stale through three merges before anyone checked.
 
@@ -56,9 +57,9 @@ Applies to **every app** for A1–A7.
 Proven by three contracts:
 - `tests/agentic_cli_contract.py` → `AgenticCLIContractMixin` — **A1–A5**
 - `tests/cli_separator_contract.py` → `SeparatorContractMixin` — **A6**
-  (18 CLIApp apps; `telemetry` now adopts this contract)
+  (19 CLIApp apps; `telemetry` now adopts this contract)
 - `tests/cli_no_subcommand_contract.py` → `NoSubcommandContractMixin` — **A7**
-  (18 adopters; each declares its own expected exit code and stream)
+  (19 adopters; each declares its own expected exit code and stream)
 
 Every rule in this tier is now guarded by a contract.
 
@@ -69,7 +70,7 @@ This is the single most important rule in this document. See "The rc=0 trap".
 
 **A3. MUST parse under `--agentic-format json`** and expose exactly:
 `{prog, description, usage, options, subcommands, epilog}`.
-*Conformant (18):* all 18 apps now emit this key set via `core.agentic_schema`.
+*Conformant (19):* all 19 apps now emit this key set via `core.agentic_schema`.
 
 **A4. MUST declare subcommands or options** — a schema with neither is a parser
 that failed to introspect.
@@ -81,7 +82,7 @@ still naming `prog`. The flag exists to save tokens; it must actually do so.
 `app --flag`, via `CLIApp.normalize_argv`. Proven by
 `tests/cli_separator_contract.py` → `SeparatorContractMixin` (rc 0 both ways,
 byte-identical stdout).
-*Applies to all 18 CLIApp apps.* All apps route through `normalize_argv` in
+*Applies to all 19 CLIApp apps.* All apps route through `normalize_argv` in
 `run_with_assistant`, which strips the first bare `--` before parsing.
 Only the *first* bare `--` is stripped; a later or trailing `--` is preserved
 (POSIX end-of-options). Those two cases are covered at the unit level in

@@ -220,7 +220,7 @@ left a read-only role able to rewrite the lint configuration judging its own bra
 | Path | Strength | Why |
 |---|---|---|
 | `Write` / `Edit` | **strong** | `.tool_input.file_path` is one string, resolved against the payload's `cwd`; the path judged is the path written |
-| `Bash` | **weak** | Matches a command string, with all the limits in [Known gaps](#known-gaps-wont-fix) |
+| `Bash` | **parsed, still weaker** | A real shell parser finds every write target; anything decided at run time is refused. What a *program* writes once it runs stays out of reach |
 
 The `cwd` resolution is load-bearing, not a refinement. A relative `file_path` is
 relative to the agent's working directory, and treating every relative path as
@@ -231,36 +231,65 @@ writes, so any assumed base there is a guess, and a guess that allows is worse t
 the best-effort it already documents.
 
 The Bash branch exists because the Write-only version was trivially bypassable —
-`echo x > src/mail/cli.py` never reached the hook. It judges a token only where it is
-a **write target**: the operand of an output redirect (`>`, `>>`, `>|`, `>&`), or an
-operand of a listed mutating command (`sed`, `tee`, `cp`, `mv`, `rm`, `patch`, …).
-That is narrower than its siblings' bare operand scan on purpose: reading and running
-the repo is a researcher's entire job, and an indiscriminate scan blocked
-`cat src/mail/cli.py` and `grep -rn AppMeta src/`.
+`echo x > src/mail/cli.py` never reached the hook. It judges a path only where it is
+a **write target**: the operand of an output redirect, or the operand a listed
+mutating command writes. That is narrower than its siblings' bare operand scan on
+purpose: reading and running the repo is a researcher's entire job, and an
+indiscriminate scan blocked `cat src/mail/cli.py` and `grep -rn AppMeta src/`.
 
-`>&` is normalised **before** the generic `>`. Left to the generic arm,
-`echo x >&src/mail/cli.py` yields a token still carrying its leading `&`, which
-matches no guarded path — so the redirect went through. The fd-duplication spellings
-(`2>&1`) are digits rather than paths and stay allowed.
+**It parses the command; it does not scan the string.** The first version substituted
+characters in the raw command and word-split the result, and fourteen review rounds on
+PR #395 each found the same defect in a new spelling — `>&`, a separator glued to a
+target, `--target-directory=src`, `-tsrc`, the `s` inside `-tsrc` read as `-s`, the
+`0` of `truncate -s 0`. Each is one rule of the grammar, so the fix was the grammar.
+`_bash_write_targets.py` (run as `python3 -I -S`, stdlib only) models:
 
-**Mutating commands are classified by which operand they write**, not treated as
-"every operand is a target". That distinction is what keeps reads working:
+- **words** — single/double quotes, backslashes, `$'...'`, and `"a"b'c'` as one word;
+  brace (`{src,x}`) and tilde expansion are performed, since they are static
+- **redirections** — operator, fd and target by parse: `2>&1` duplicates a descriptor,
+  `>&file`, `&>`, `<>` and `>|` write, `<<` heredocs are data unless an unquoted
+  delimiter lets `$(...)` in the body run
+- **commands** — split on `;` `&&` `||` `|` `&` and newlines; `if`/`for`/`while`/`case`
+  bodies, `{ }` and `( )` groups, functions; `[[ a > b ]]` and `(( x > 3 ))` compare
+  rather than redirect
+- **substitutions** — `$(...)`, backticks, `<(...)`, `>(...)`, `bash -c '...'`,
+  `eval '...'` and `find -exec` bodies are parsed and judged, because they *run*
+  wherever they sit
+- **wrappers** — `env`, `nohup`, `nice`, `timeout`, `command`, `exec`, `sudo`, `xargs`
+  run the command that follows them, and that command is judged
+- **options, per command** — attached, separated, clustered, glued long options and
+  unique long-option prefixes (`--target=src`), and `--`, with a value table per
+  command so a value is never read as a path or a path as a value
 
-| Shape | Commands | Targets |
-|---|---|---|
-| last-arg writers | `cp`, `ln` | the final operand — **unless** `-t`/`--target-directory`, which moves the destination to the front |
-| all-arg writers | `rm`, `rmdir`, `truncate`, `touch`, `shred`, `unlink`, `chmod`, `chown`, `patch`, `tee`, `install` | every operand |
-| conditional writers | `sed` (any short-option cluster containing `i`, or `--in-place`), `dd` (only `of=`) | as flagged |
-| both ends | `mv` | source **and** destination — it removes the source |
+| Command | Written |
+|---|---|
+| `touch`, `tee`, `truncate`, `install -d` | every operand, **strictly** (a new root file counts) |
+| `cp`, `install`, `ln -s` | the destination: `-t DIR`, else the last operand |
+| `rm`, `rmdir`, `unlink`, `shred`, `chmod`, `chown`, `chgrp`, `mv` | every operand — `mv` removes its source |
+| `ln` (hard) | every operand: a hard link is a second name for the source's inode |
+| `sed` | operands after the script, only with `-i`/`--in-place` |
+| `dd` | `of=` only |
+| `patch` | refused unless `--dry-run` or `-o FILE`: it writes the files named *inside the diff* |
 
-Treating every operand as a target blocked `cp src/mail/cli.py /tmp/copy.py` (a normal
-way to produce an artifact) and `sed -n '1,5p' src/…` (prints, writes nothing). `mv` is
-deliberately not grouped with `cp`: `mv src /tmp/elsewhere` destroys the tree exactly
-as `rm -rf src` does.
+**Fail closed on what cannot be known.** The parser reports a value decided at run
+time — a variable, a command substitution, an arithmetic expansion — in a position
+that decides a write, and the hook blocks with that reason. So `> $P`,
+`> src${IFS}/x.py`, `$CMD src/x`, `eval "$CMD"`, `… | bash`, `xargs rm`, and an
+unparseable command are all refused rather than guessed at. A variable in a **read**
+position (`grep "$PAT" src/`, a loop variable passed to `wc`) is fine. An unknown word
+where a mutator takes options is not: `cp "$f" /tmp/ws/` is refused because `"$f"` may
+be `--target-directory=src`, and `sed -n "$R" src/x` because `"$R"` may be `-i`. If
+the analyser is missing or dies — no `OK` sentinel — the call is blocked too.
 
-A mutating tool nobody listed still passes, as does a path in a variable or one
-assembled at runtime. Those are asserted as ALLOW in the suite's `KNOWN GAPS` section
-so the boundary is written down rather than discovered.
+What stays out of reach is command *semantics*: which files a program writes once it
+runs. `python3 -c "open(...)"`, `make`, `git checkout -- src/x`, a script file, sed's
+`w` command, and any mutating tool not in the table above still pass. The suite's
+`KNOWN GAPS` section asserts them as ALLOW so the boundary is written down rather than
+discovered. The grammar modelled is bash's; the harness may run commands under zsh,
+whose extra syntax mostly fails to parse and is therefore refused.
+
+Cost: ~20 ms of interpreter startup plus parse, paid only by read-only roles — the
+main session and write-capable roles exit before the analyser runs.
 
 ### Protected files
 
@@ -597,7 +626,9 @@ For a global install, or for another project, apply this yourself:
 ```
 
 For a global install, copy to `~/.claude/hooks/` and use `$HOME/.claude/hooks/...`
-paths instead. `chmod +x` the scripts if you invoke them directly rather than
+paths instead. Copy `_bash_write_targets.py` alongside
+`block-readonly-role-writes.sh`: the hook runs the analyser from its own directory, and
+refuses every read-only-role Bash call if it is missing. `chmod +x` the scripts if you invoke them directly rather than
 through `bash`.
 
 The repo's existing `.claude/settings.json` already defines `SessionStart` and

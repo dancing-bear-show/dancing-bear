@@ -538,17 +538,38 @@ run ALLOW Plan "design/plan.md"
 for d in $_wsdirs; do rmdir "$REPO_ROOT/$d" 2>/dev/null; done
 
 echo
+echo "--- values decided at run time FAIL CLOSED: must BLOCK ---"
+# These two were listed under KNOWN GAPS below, asserted ALLOW, while the Bash branch
+# was a string scanner: it could not evaluate what the shell would do to the string.
+# The branch now parses the command, and a variable or parameter expansion in a write
+# position is reported as unknowable and refused rather than guessed at. Moved here,
+# flipped to BLOCK, exactly as the gap section's comment asked of a closed gap.
+run_bash BLOCK researcher "P=src/mail/cli.py; echo x > \$P"
+run_bash BLOCK researcher "echo x > src\${IFS}/mail/cli.py"
+# Same class, other spellings the parser now sees through.
+run_bash BLOCK researcher "echo x > \$(printf src/mail/cli.py)"
+run_bash BLOCK researcher "rm -rf {src,tests}"
+run_bash BLOCK researcher "rm -rf \$'\\x73rc'"
+run_bash BLOCK researcher "cat \$(rm -rf src)"
+run_bash BLOCK researcher "for f in a; do rm -rf src; done"
+run_bash BLOCK researcher "env rm -rf src"
+run_bash BLOCK researcher "bash -c 'rm -rf src'"
+run_bash BLOCK researcher "find src -name '*.pyc' | xargs rm"
+run_bash BLOCK researcher "patch -p1 < /tmp/fix.patch"
+# An unknown value in a READ position is still fine -- refusing every variable would
+# make the role useless.
+run_bash ALLOW researcher "for f in src/*.py; do wc -l \"\$f\"; done"
+run_bash ALLOW researcher "grep -rn \"\$PATTERN\" src/"
+
+echo
 echo "--- KNOWN GAPS: documented, not fixed (see the SCOPE note in the hook) ---"
-# These are ALLOWed by design. A string matcher cannot evaluate what the shell will do
-# to the string, and block-destructive-bash.sh's header records four adversarial rounds
-# and 68 findings establishing that widening the matcher does not converge.
+# These are ALLOWed by design. The Bash branch parses shell GRAMMAR; what a program
+# does once it runs is command SEMANTICS, which no tokenizer can see.
 #
 # They are asserted rather than omitted so the gap is visible and a future change that
 # closes one of them shows up as a failing expectation to update -- not as a silent
 # improvement nobody noticed, and not as a hole nobody wrote down.
-run_bash ALLOW researcher "P=src/mail/cli.py; echo x > \$P"
 run_bash ALLOW researcher "python3 -c \"open('src/mail/cli.py','w').write('x')\""
-run_bash ALLOW researcher "echo x > src\${IFS}/mail/cli.py"
 # A mutating tool that is not in the command-word list. The list can never be
 # complete -- that is the reason the SCOPE note calls the Bash branch weak, and the
 # reason the strong guarantee is claimed only for Write/Edit.

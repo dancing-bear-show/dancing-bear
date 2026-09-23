@@ -120,6 +120,7 @@ exclude_patterns = [
   "bin/calendar-assistant",
   "bin/charts",
   "bin/diagrams",
+  "bin/github",
   "bin/mail",
   "bin/mail-assistant",
   "bin/maker",

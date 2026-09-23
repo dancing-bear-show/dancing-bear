@@ -211,7 +211,7 @@ stages:
         make check-env          # imports must resolve to THIS checkout
         make test               # full suite, record pass/fail counts
 
-      Write {workspace}/baseline.md with the test counts and current coverage
+      Write {workspace}/outputs/baseline.md with the test counts and current coverage
       for src/resume/.
 
       CRITICAL: use `make test`, never bare `python3 -m unittest`. An inherited
@@ -233,7 +233,7 @@ stages:
       access: read-write
     required: true
     writes_to:
-      - "{workspace}/baseline.md"
+      - "outputs/baseline.md"
 
   # ==========================================================================
   # Stage 2: audit-sections — ground truth on which keys are real
@@ -260,7 +260,7 @@ stages:
         - src/resume/config/*.yaml       — real template files
         - src/resume/skills_filter.py, experience_filter.py
 
-      For EVERY section key found, record in {workspace}/sections.md:
+      For EVERY section key found, record in {workspace}/outputs/sections.md:
         - the key name
         - every file:line that reads or writes it
         - its observed item shape (field names, types, required vs optional)
@@ -290,7 +290,7 @@ stages:
       access: read-write
     required: true
     writes_to:
-      - "{workspace}/sections.md"
+      - "outputs/sections.md"
 
   # ==========================================================================
   # Stage 3: design-schema — shape review BEFORE any code
@@ -305,7 +305,7 @@ stages:
       field names after the renderers are migrated is expensive; changing them
       now is free.
 
-      Write {workspace}/schema-design.md containing:
+      Write {workspace}/outputs/schema-design.md containing:
 
         1. Every section as a proposed dataclass, with field names, types, and
            defaults. Flag each field required vs optional.
@@ -369,7 +369,7 @@ stages:
       access: read-write
     required: true
     writes_to:
-      - "{workspace}/schema-design.md"
+      - "outputs/schema-design.md"
 
   # ==========================================================================
   # Stage 4: impl-schema — dataclasses + JSON Schema emitter
@@ -379,7 +379,18 @@ stages:
     depends_on: [design-schema]
     reads_from: [design-schema, audit-sections]
     description: >
-      Implement the approved design from {workspace}/schema-design.md.
+      You run in your OWN git worktree and cannot reach the shared workspace.
+      The orchestrator copies each upstream output in before you start, at its
+      declared path under `<your-cwd>/inputs/`:
+        - `<your-cwd>/inputs/outputs/schema-design.md` — the approved design
+        - `<your-cwd>/inputs/outputs/sections.md` — the section-key audit
+      Read them there, by that absolute own-cwd path. NOT from {workspace},
+      and never by a bare relative path, which resolves against the
+      orchestrator's cwd outside your worktree. If either file is missing,
+      STOP and report it rather than designing from memory.
+
+      Implement the approved design from
+      `<your-cwd>/inputs/outputs/schema-design.md`.
 
       Replace src/resume/model.py with two new modules. model.py is DELETED,
       not left behind as a re-export facade — the no-facade rule is a hard
@@ -389,7 +400,8 @@ stages:
         src/resume/schema_emit.py  — the JSON Schema emitter
 
       schema.py contains:
-        - a dataclass per section key from sections.md (22 keys; 17 typed, and
+        - a dataclass per section key from
+          `<your-cwd>/inputs/outputs/sections.md` (22 keys; 17 typed, and
           `skills`/`teaching`/`contact` deliberately left untyped per the
           approved design — do not type them without saying so)
         - a FLAT ExperienceEntry (title, company, start, end, location,
@@ -451,9 +463,17 @@ stages:
   - name: test-schema
     kind: execute
     depends_on: [impl-schema]
-    reads_from: [impl-schema, design-schema]
+    # audit-sections is listed because the sad-path list below cites
+    # sections.md: an isolated stage receives only what reads_from names.
+    reads_from: [impl-schema, design-schema, audit-sections]
     description: >
       Write unit tests for the new schema under tests/resume_tests/model/.
+
+      You run in your OWN git worktree. Upstream outputs arrive under
+      `<your-cwd>/inputs/` at their declared paths — the design at
+      `<your-cwd>/inputs/outputs/schema-design.md`, the section audit at
+      `<your-cwd>/inputs/outputs/sections.md`. Read them there, NOT from
+      {workspace}.
 
       MANDATORY RATIO: at least {min_sad_path_ratio} of new test methods must
       be sad-path. A schema tested only on well-formed input has verified
@@ -505,7 +525,8 @@ stages:
         - empty list where items expected
         - a non-dict where an item dict was expected (coerced, with a warning)
         - a non-list where a section list was expected (ignored, with a warning)
-        - a key present under BOTH observed shapes from sections.md
+        - a key present under BOTH observed shapes from
+          `<your-cwd>/inputs/outputs/sections.md`
         - an untyped section (`skills`, `teaching`, `contact`) carrying an
           unexpected shape — it must pass through without loss
         - unicode and RTL text in name/company fields
@@ -553,8 +574,13 @@ stages:
       This is the largest stage in the workflow. Scope it honestly before
       starting.
 
-      MEASURED SCOPE (verify against {workspace}/sections.md; these numbers are
-      the audited ones):
+      You run in your OWN git worktree. The section audit arrives at
+      `<your-cwd>/inputs/outputs/sections.md` — read it there, NOT from
+      {workspace}, and never by a bare relative path. If it is missing, STOP
+      and report it: the counts below are only checkable against it.
+
+      MEASURED SCOPE (verify against `<your-cwd>/inputs/outputs/sections.md`;
+      these numbers are the audited ones):
         - 42 .py files under src/resume/
         - 13 of them read section keys off dicts, via ~62 call sites:
             cli/main.py, docx_base.py, docx_sections_exp.py,
@@ -655,11 +681,18 @@ stages:
   - name: test-e2e-data
     kind: execute
     depends_on: [migrate-callsites]
-    reads_from: [migrate-callsites, design-schema]
+    # audit-sections is listed because step 1 builds its fixture from
+    # sections.md: an isolated stage receives only what reads_from names.
+    reads_from: [migrate-callsites, design-schema, audit-sections]
     description: >
       Prove the schema survives a full real pipeline, not just unit tests.
       Unit tests pass on data shaped the way the author imagined; this stage
       uses data shaped the way it actually is.
+
+      You run in your OWN git worktree. The section audit arrives at
+      `<your-cwd>/inputs/outputs/sections.md` and the design at
+      `<your-cwd>/inputs/outputs/schema-design.md` — read them there, NOT from
+      {workspace}.
 
       Build an e2e test at tests/resume_tests/test_e2e_schema_roundtrip.py that
       walks the REAL pipeline:
@@ -667,9 +700,11 @@ stages:
         extract -> validate -> align -> filter -> render -> re-extract -> compare
 
       Concretely:
-        1. Start from a resume. If {sample_resume} is set, use it. Otherwise
+        1. Start from a resume. sample_resume = "{sample_resume}". If that
+           is non-empty, use the file it names. Otherwise
            build a synthetic-but-realistic fixture exercising EVERY one of the
-           22 sections from sections.md. Experience entries are FLAT — do not
+           22 sections in `<your-cwd>/inputs/outputs/sections.md`. Experience
+           entries are FLAT — do not
            construct a multi-role promotion; that shape does not exist. Two
            entries at the same company is the closest real data gets, and it is
            represented as two independent flat entries.
@@ -699,8 +734,67 @@ stages:
           raise, the section falls back to its default, a warning naming the
           offending key is emitted, and the rest of the document still renders
 
-      If {sample_resume} is set, it is PII: write derived artifacts only under
-      {workspace}, never into tests/. Any committed fixture must be synthetic.
+      If sample_resume is non-empty, that file is PII, and so is everything
+      derived from it (candidate JSON, alignment output, rendered DOCX,
+      extracted text).
+      None of it may land anywhere under a git checkout — and your cwd IS one:
+      `outputs/` and `inputs/` are not gitignored, and a worktree can outlive
+      this run by weeks. That rules out tests/ AND `<your-cwd>/outputs/`. Do
+      NOT write it to {workspace} either: an isolated stage never writes the
+      shared workspace.
+
+      Instead, as the one exception to writing only under your cwd, run the
+      ENTIRE sample-resume pipeline (steps 2-7 above) as ONE shell invocation
+      that creates the scratch directory, registers its own cleanup in the
+      SAME shell BEFORE anything is written into it, and verifies the
+      directory is actually outside every checkout before use:
+
+        E2E_TMP=$(mktemp -d "${TMPDIR:-/tmp}/e2e-schema.XXXXXX") || exit 1
+        trap 'rm -rf "$E2E_TMP"' EXIT
+        ROOTS_FILE="$E2E_TMP/.worktree-roots"
+        WT_LIST=$(git worktree list --porcelain) || exit 1
+        printf '%s\n' "$WT_LIST" | awk '/^worktree /{print substr($0,10)}' > "$ROOTS_FILE"
+        [ -s "$ROOTS_FILE" ] || { echo "no worktree roots enumerated, aborting" >&2; exit 1; }
+        E2E_REAL=$(cd "$E2E_TMP" && pwd -P)
+        while IFS= read -r ROOT; do
+          [ -d "$ROOT" ] || continue
+          ROOT_REAL=$(cd "$ROOT" && pwd -P)
+          case "$E2E_REAL" in
+            "$ROOT_REAL"|"$ROOT_REAL"/*)
+              echo "E2E_TMP resolved inside a checkout, aborting" >&2; exit 1 ;;
+          esac
+        done < "$ROOTS_FILE"
+
+      `mktemp -d` alone is not enough: it honors `TMPDIR`, and `TMPDIR` can be
+      set to point inside a checkout — any checkout, not just this worktree or
+      the main one. The loop above enumerates every `worktree <path>` line from
+      `git worktree list --porcelain` (which includes the main checkout),
+      canonicalizes each with `pwd -P`, skips a root whose directory no longer
+      exists (a prunable entry), and aborts if `$E2E_TMP` canonicalizes to one
+      of them or a path under one. `git worktree list` runs on its own line so
+      its exit status is checked directly, not masked by the `awk` pipe stage
+      after it — a piped `cmd | awk ... || exit 1` would NOT catch a `git`
+      failure, because `awk` exits 0 on empty input regardless of what `git`
+      did. An empty `$ROOTS_FILE` also aborts explicitly: a repo always has at
+      least one worktree, so zero enumerated roots means enumeration is
+      broken, not that no checkouts exist. The roots are read via `while read
+      < "$ROOTS_FILE"` rather than a plain `for ROOT in $ROOTS` word-split or a
+      piped `while read` — the former does not word-split on `$IFS` in zsh
+      (each root would need `SH_WORD_SPLIT`, unset by default, so the whole
+      multi-line list becomes one non-matching loop iteration and the check
+      silently passes), and the latter runs the loop body in a subshell, where
+      its `exit 1` would not stop the parent shell. Reading from a real file
+      avoids both. `trap ... EXIT` runs on normal completion,
+      an early `exit`, or an interrupted command, so a failure partway through
+      the pipeline still deletes `$E2E_TMP` — cleanup never depends on a
+      separate, rememberable step. Do NOT split this across multiple Bash
+      tool calls: the trap is only registered in the shell that sets it, so a
+      later call in a fresh shell would not delete anything.
+
+      Pass `$E2E_TMP` as every `--out`/`--out-dir` for the sample run. Record
+      in `<your-cwd>/outputs/e2e-summary.md` only non-identifying results —
+      per-section pass/fail and counts, never a name, email, phone number or
+      bullet text. Any committed fixture must be synthetic.
 
       Verify with `make test`.
 
@@ -765,7 +859,7 @@ stages:
 
       Then PROVE the code is present in the working tree — do not assume the
       merge did what its exit code implies. Check, and record each result in
-      {workspace}/merge-report.md:
+      {workspace}/outputs/merge-report.md:
 
         - src/resume/schema.py contains the new dataclasses (grep for the new
           section class names from schema-design.md) and
@@ -788,7 +882,7 @@ stages:
       access: read-write
     required: true
     writes_to:
-      - "{workspace}/merge-report.md"
+      - "outputs/merge-report.md"
 
   # ==========================================================================
   # Stage 8: verify-schema — suite, lint, coverage, ratio
@@ -810,7 +904,7 @@ stages:
       Run and record each:
 
         make check-env      # MUST pass — otherwise every result below is void
-        make test           # compare against {workspace}/baseline.md
+        make test           # compare against {workspace}/outputs/baseline.md
         make cov            # coverage for src/resume/
         make lint           # ruff via the qlty-pinned build
 
@@ -867,7 +961,7 @@ stages:
       clean branch it prints "No issues" regardless — treat a suspiciously empty
       result as a broken environment, not a pass.
 
-      Write {workspace}/verify-schema.md with every number. If any check fails,
+      Write {workspace}/outputs/verify-schema.md with every number. If any check fails,
       report the specific failure and STOP — do not proceed to PDF on a red
       schema.
     agent:
@@ -877,7 +971,7 @@ stages:
       access: read-write
     required: true
     writes_to:
-      - "{workspace}/verify-schema.md"
+      - "outputs/verify-schema.md"
 
   # ==========================================================================
   # Stage 9: impl-pdf — DOCX -> PDF behind an optional dependency
@@ -991,7 +1085,7 @@ stages:
       A green test suite proves the plumbing works. It does NOT prove the PDF
       looks right, and fidelity is the actual risk here.
 
-      Per {workspace}/baseline.md, this machine may have no converter. If none
+      Per {workspace}/outputs/baseline.md, this machine may have no converter. If none
       is installed, report that plainly, mark fidelity UNVERIFIED, and tell the
       human what to install. Do NOT claim the feature works.
 
@@ -1027,7 +1121,7 @@ stages:
       access: read-write
     required: true
     writes_to:
-      - "{workspace}/pdf-fidelity.md"
+      - "outputs/pdf-fidelity.md"
 
   # ==========================================================================
   # Stage 12: report — what changed, what is still open
@@ -1037,7 +1131,7 @@ stages:
     depends_on: [verify-pdf-fidelity]
     reads_from: [verify-schema, verify-pdf-fidelity, audit-sections, init, cr-validate-code]
     description: >
-      Write {workspace}/report.md summarizing the run. Measured numbers only —
+      Write {workspace}/outputs/report.md summarizing the run. Measured numbers only —
       pull them from verify-schema.md and pdf-fidelity.md rather than
       restating stage intentions.
 
@@ -1075,4 +1169,4 @@ stages:
       access: read-write
     required: true
     writes_to:
-      - "{workspace}/report.md"
+      - "outputs/report.md"

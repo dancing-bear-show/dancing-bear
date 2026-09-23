@@ -31,6 +31,11 @@ python:
   worker: {module: worker.cli, doc: "Background worker queue and daemon CLI."}
   workflow: {module: workflow.cli, doc: "Workflow engine CLI — plan, compile, run, and inspect YAML DAG workflows."}
   qlty-assistant: {module: qlty, doc: "qlty scan/triage wrapper (named -assistant so it never shadows the real qlty binary)."}
+  # `bin/github` runs the ``github_assistant`` package. The package cannot be
+  # named ``github`` because that would shadow PyPI's ``github`` package once
+  # either landed on sys.path; the wrapper name is `github` because there is no
+  # colliding binary on PATH to worry about.
+  github: {module: github_assistant, doc: "GitHub porcelain over core.github: review threads, PR view/edit/checks."}
 
   # Metals utilities
 

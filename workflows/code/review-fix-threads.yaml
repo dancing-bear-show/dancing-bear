@@ -79,7 +79,7 @@ metadata:
 trigger:
   source: manual
   params:
-    pr_number: ""                 # required; the caller derives it (gh pr view) before invoking
+    pr_number: ""                 # required; the caller derives it from the current branch before invoking
     test_cmd: "make test"         # full-suite command for verify-fixes
     include_resolved: "false"     # "true" re-triages already-resolved threads
     max_threads: "12"             # fan-out ceiling; overflow is deferred and reported, never dropped
@@ -89,7 +89,7 @@ trigger:
                                   # and lint-rewrite contention between agents.
   # Enforced by the engine in compile_workflow, BEFORE any {param} is
   # substituted, so no stage and no workspace path ever sees a rejected value.
-  # pr_number reaches workspace_dir, shell commands and double-quoted `gh api`
+  # pr_number reaches workspace_dir and shell commands, including double-quoted
   # URLs, where quoting does not stop `$(...)`; init's check-params call
   # repeats this rule as defence in depth, so keep the two patterns identical.
   # test_cmd is run verbatim as shell text by verify-fixes, so it is an
@@ -129,14 +129,14 @@ stages:
       engine already enforced trigger.param_rules on it at compile time,
       before substitution and before this workspace existed, so a run that
       reached this stage passed that check. The caller (the
-      /review-fix-threads skill) derives the number with
-      `gh pr view --json number -q .number` BEFORE invoking; this stage no
+      /review-fix-threads skill) derives the number from the current
+      branch BEFORE invoking; this stage no
       longer auto-detects it. Auto-detection here came too late: a blank
       value had already been substituted into workspace_dir and every later
       {pr_number} site.
 
       It reaches seven interpolation sites in this workflow, several inside
-      double-quoted `gh api` URLs, where a value carrying a quote or `$(...)`
+      shell commands, where a value carrying a quote or `$(...)`
       becomes shell source; double quotes do not stop command substitution,
       which this PR established by probe. So repeat the check here as
       defence in depth, with the SAME pattern as trigger.param_rules:
@@ -150,7 +150,7 @@ stages:
       recent PR".
 
       Step 3 — confirm the PR is open and record its head SHA:
-        GITHUB_TOKEN= gh pr view <PR> --json number,state,title,headRefOid,headRefName
+        ./bin/github pr view --pr <PR> --fields number,state,title,headRefOid,headRefName
 
       Write {workspace}/outputs/pr-context.json with number, state, title,
       head_sha, and head_branch.
@@ -186,7 +186,7 @@ stages:
       Step 1 — read the threads file, the overview, and the PR diff:
         Read {workspace}/outputs/threads.json
         Read {workspace}/outputs/review-overview.json
-        GITHUB_TOKEN= gh pr diff {pr_number}
+        ./bin/github pr diff --pr {pr_number}
 
       Step 2 — select the candidate set:
         - Threads with is_resolved true are excluded unless
@@ -1063,7 +1063,7 @@ stages:
       Step 5 — verify the push landed by comparing the local HEAD sha against
       the PR's head sha:
         git rev-parse HEAD
-        GITHUB_TOKEN= gh pr view {pr_number} --json headRefOid -q .headRefOid
+        ./bin/github pr view --pr {pr_number} --value headRefOid
       They must match. If they do not, write commit-result.json with
       "pushed": false and the mismatch, report failed, exit non-zero.
 
