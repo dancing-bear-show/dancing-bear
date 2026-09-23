@@ -66,6 +66,15 @@ promises:
       - {what: "root, as Write path",  tool: Write, input: "{REPO}",              expect: block}
       - {what: "root via /.",          tool: Write, input: "{REPO}/.",            expect: block}
       - {what: "root via //",          tool: Write, input: "{REPO}//",            expect: block}
+      # Round 10: `./` and `././` normalise away to the empty string, which matched
+      # no root check and no tree prefix, so `rm -rf ./` from the checkout deleted
+      # the tree. The bare `.` spelling was already blocked -- two spellings of one
+      # directory disagreed, which is worse than either answer alone.
+      - {what: "cwd as ./",       tool: Bash,  input: "rm -rf ./",   expect: block}
+      - {what: "cwd as ././",     tool: Bash,  input: "rm -rf ././", expect: block}
+      - {what: "cwd as .",        tool: Bash,  input: "rm -rf .",    expect: block}
+      - {what: "./ as Write path", tool: Write, input: "./",         expect: block}
+      - {what: ". as Write path",  tool: Write, input: ".",          expect: block}
 
   - group: "Path spelling never changes the answer"
     why: >
@@ -91,6 +100,25 @@ promises:
       - {what: "traversal rm -rf",     tool: Bash,  input: "rm -rf {REPO_PARENT}/other/../{REPO_NAME}/src", expect: block}
       # ...while a path genuinely outside the repo stays writable.
       - {what: "sibling repo",         tool: Write, input: "{REPO_PARENT}/some-other-repo/f.py", expect: allow}
+
+  - group: "A path is judged by where it LANDS, not where it is spelled"
+    why: >
+      Round 10, and a genuine puncture of the strong guarantee. Two individually legal
+      steps compose into a bypass: `ln -s <repo>/src/x /tmp/out` is allowed (it writes
+      to /tmp), then `Write /tmp/out` is allowed (the classifier sees /tmp), and the
+      kernel follows the link into tracked source. Resolved via the parent directory
+      so a not-yet-created artifact still works.
+    needs_links:
+      - {link: "{TMP}/src-link.py",   target: "{REPO}/src/mail/cli.py"}
+      - {link: "{TMP}/dir-link",      target: "{REPO}/src"}
+      - {link: "{TMP}/outside-link",  target: "/tmp"}
+    cases:
+      - {what: "symlink to a source file",  tool: Write, input: "{TMP}/src-link.py",       expect: block}
+      - {what: "write through a dir link",  tool: Write, input: "{TMP}/dir-link/cli.py",   expect: block}
+      - {what: "symlink via Bash redirect", tool: Bash,  input: "echo x > {TMP}/src-link.py", expect: block}
+      # A link pointing genuinely outside the repo must stay writable, or every
+      # tmpdir-on-a-symlink platform (macOS /tmp -> /private/tmp) breaks.
+      - {what: "link outside the repo",     tool: Write, input: "{TMP}/outside-link/x.json", expect: allow}
 
   - group: "Every read-only role is bound, not just researcher"
     why: >
@@ -154,6 +182,8 @@ promises:
       - {what: "sed no -i",          tool: Bash, input: "sed -E 's/a/b/' src/mail/cli.py", expect: allow}
       - {what: "cp source to tmp",   tool: Bash, input: "cp src/mail/cli.py /tmp/c.py",    expect: allow}
       - {what: "cp -t to tmp",       tool: Bash, input: "cp -t /tmp src/mail/cli.py",      expect: allow}
+      - {what: "install reads source", tool: Bash, input: "install src/mail/cli.py /tmp/c.py", expect: allow}
+      - {what: "install -t to tmp",   tool: Bash, input: "install -t /tmp src/mail/cli.py", expect: allow}
       - {what: "dd read",            tool: Bash, input: "dd if=src/mail/cli.py of=/tmp/o", expect: allow}
 
   - group: "Mutating commands are caught whatever the spelling"
@@ -167,6 +197,13 @@ promises:
       - {what: "sed --in-place",  tool: Bash, input: "sed --in-place 's/a/b/' src/x.py",    expect: block}
       - {what: "cp -t",           tool: Bash, input: "cp -t src /tmp/evil.py",              expect: block}
       - {what: "cp --target-dir", tool: Bash, input: "cp --target-directory=src /tmp/e.py", expect: block}
+      # Round 10: install was wrong in BOTH directions -- the destination hid in an
+      # option value (allowed a write), while an ordinary copy treated its source as
+      # a target (refused a read).
+      - {what: "install --target-dir", tool: Bash, input: "install --target-directory=src /tmp/e.py", expect: block}
+      - {what: "install -t",           tool: Bash, input: "install -t src /tmp/evil.py",   expect: block}
+      - {what: "install -d",           tool: Bash, input: "install -d src/newdir",         expect: block}
+      - {what: "install to source",    tool: Bash, input: "install /tmp/x.py src/mail/cli.py", expect: block}
       - {what: "tee",             tool: Bash, input: "tee src/mail/cli.py < /tmp/x",        expect: block}
       - {what: "touch",           tool: Bash, input: "touch src/newfile.py",                expect: block}
       - {what: "truncate",        tool: Bash, input: "truncate -s 0 src/mail/cli.py",       expect: block}

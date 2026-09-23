@@ -33,7 +33,13 @@ echo
 # Flatten the YAML to one tab-separated record per case, so the shell does not have
 # to parse YAML. python3 is already required by the repo; PyYAML ships with the venv
 # and the stdlib fallback keeps this runnable outside it.
-FLAT=$(python3 - "$CONTRACT" "$REPO_ROOT" <<'PY'
+# A scratch directory for the symlink cases. Resolved with `pwd -P` so a platform
+# whose tmpdir is itself a symlink (macOS /tmp -> /private/tmp) does not make every
+# link case look like it resolves somewhere unexpected.
+SCRATCH=$(cd -P "$(mktemp -d)" && pwd -P)
+cleanup_scratch() { [ -n "$SCRATCH" ] && rm -rf "$SCRATCH"; }
+
+FLAT=$(python3 - "$CONTRACT" "$REPO_ROOT" "$SCRATCH" <<'PY'
 import sys
 
 try:
@@ -42,7 +48,7 @@ except ImportError:  # pragma: no cover - venv always has it; CI installs it
     sys.stderr.write("PyYAML not available; cannot read the contract\n")
     sys.exit(3)
 
-path, repo = sys.argv[1], sys.argv[2]
+path, repo, tmp = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(path, encoding="utf-8") as fh:
     doc = yaml.safe_load(fh)
 
@@ -54,11 +60,19 @@ def expand(value):
     # as a prefix, so substituting {REPO} first would corrupt them.
     text = text.replace("{REPO_PARENT}", os.path.dirname(repo))
     text = text.replace("{REPO_NAME}", os.path.basename(repo))
+    text = text.replace("{TMP}", tmp)
     return text.replace("{REPO}", repo)
 
 for group in doc.get("promises", []):
     name = group.get("group", "(unnamed)")
     dirs = ",".join(group.get("needs_dirs", []) or [])
+    # Symlinks a group needs, as link>target pairs joined by "|".
+    links = "|".join(
+        f'{expand(item["link"])}>{expand(item["target"])}'
+        for item in (group.get("needs_links", []) or [])
+    )
+    if links:
+        dirs = f"{dirs}#LINKS#{links}" if dirs else f"#LINKS#{links}"
     # Every field is emitted with a placeholder for "empty", because a bare empty
     # field between tabs is collapsed by `read -r a b c` in some shells and shifts
     # every later column by one -- which silently moved `expect` out of range and
@@ -102,19 +116,39 @@ fi
 # case passed because `outputs/` did not exist, not because the guard was right.
 MADE_DIRS=""
 ensure_dirs() {
-  local csv="$1" d
-  [ -n "$csv" ] || return 0
-  local IFS=','
-  for d in $csv; do
-    [ -n "$d" ] || continue
-    if [ ! -d "$REPO_ROOT/$d" ]; then
-      mkdir -p "$REPO_ROOT/$d" && MADE_DIRS="$MADE_DIRS $d"
-    fi
-  done
+  local spec="$1" csv="$spec" linkspec="" d pair
+  # The flattener appends "#LINKS#a>b|c>d" when a group needs symlinks.
+  case "$spec" in
+    *"#LINKS#"*)
+      csv="${spec%%#LINKS#*}"
+      linkspec="${spec#*#LINKS#}"
+      ;;
+  esac
+
+  if [ -n "$csv" ]; then
+    local IFS=','
+    for d in $csv; do
+      [ -n "$d" ] || continue
+      if [ ! -d "$REPO_ROOT/$d" ]; then
+        mkdir -p "$REPO_ROOT/$d" && MADE_DIRS="$MADE_DIRS $d"
+      fi
+    done
+  fi
+
+  if [ -n "$linkspec" ]; then
+    local IFS='|'
+    for pair in $linkspec; do
+      [ -n "$pair" ] || continue
+      local link="${pair%%>*}" target="${pair#*>}"
+      mkdir -p "$(dirname "$link")" 2>/dev/null
+      ln -sfn "$target" "$link" 2>/dev/null
+    done
+  fi
 }
 cleanup_dirs() {
   local d
   for d in $MADE_DIRS; do rmdir "$REPO_ROOT/$d" 2>/dev/null; done
+  cleanup_scratch
 }
 trap cleanup_dirs EXIT
 

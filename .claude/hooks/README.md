@@ -479,8 +479,15 @@ or one at a time:
 bash .claude/hooks/tests/block-destructive-bash.test.sh
 bash .claude/hooks/tests/block-protected-paths.test.sh
 bash .claude/hooks/tests/block-readonly-role-writes.test.sh
+bash .claude/hooks/tests/guard-contract.test.sh
 bash .claude/hooks/tests/statusline.test.sh
 ```
+
+`guard-contract.test.sh` is derived from `guard-contract.yaml` — the boundary's
+promises written as a spec — rather than from past bugs like its siblings. Both are
+kept: reproducing PR #395's round-8 traversal bypass failed the contract while the
+301-case regression suite passed clean. A promise added to the YAML without an
+implementation fails, which is the point.
 
 Exit 0 = all pass, 1 = any failure. Each prints `ok`/`FAIL` per case and a final
 count plus `ALL PASS`. Pass a path as argument 1 to test an installed copy instead of

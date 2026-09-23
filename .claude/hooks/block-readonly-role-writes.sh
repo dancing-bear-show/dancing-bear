@@ -306,6 +306,20 @@ classify_path() {
   while [ "${p#./}" != "$p" ]; do
     p="${p#./}"
   done
+
+  # A path that NORMALISED AWAY TO NOTHING names the current directory, which for a
+  # relative path is the repo root. `./` and `././` both reduce to "" here, and an
+  # empty string then matched no root check and no SOURCE_TREES prefix, so it
+  # returned ok -- `rm -rf ./` from the checkout deleted the tree through this hook.
+  #
+  # `.` and `./` and `` are the same directory; the bare `.` spelling was already
+  # blocked because it survives normalisation as a token, which is what made this
+  # inconsistent rather than merely open: two spellings of one path disagreed.
+  if [ -z "$p" ] || [ "$p" = "." ]; then
+    printf 'guarded:the current directory, which for a relative path is the repo root'
+    return
+  fi
+
   rel="$p"
 
   case "$p" in
@@ -355,8 +369,61 @@ classify_path() {
           return
         fi
       else
-        # An absolute path outside this repo is not this repo's tracked source. The
-        # scratchpad and /tmp artifacts land here, which is the intended allow.
+        # Before allowing an outside path: does it RESOLVE back into the repo?
+        #
+        # The textual test above asks where a path is spelled, and a symlink makes
+        # that a different question from where it lands. Two individually legal steps
+        # composed into a bypass of the boundary this file calls strong:
+        #
+        #   ln -s <repo>/src/mail/cli.py /tmp/out     (allowed: writes to /tmp)
+        #   Write /tmp/out                            (allowed: /tmp is outside)
+        #
+        # ...and the kernel follows the link into tracked source. Review found it.
+        #
+        # Resolved with `cd -P` on the PARENT directory, not on the path itself: the
+        # target may not exist yet (a new artifact), while its parent almost always
+        # does. That keeps the check working for creates as well as overwrites, and
+        # `cd -P` resolves every symlinked component without a fork.
+        #
+        # RESIDUAL GAP, stated rather than implied: a link created between this check
+        # and the write, or a path whose parent does not exist yet, is not covered.
+        # The sibling guard documents symlinked operands as a won't-fix for the same
+        # reason -- a TOCTOU window cannot be closed from a PreToolUse hook. This
+        # closes the reachable-today case, not the class.
+        if [ -n "$REPO_ROOT" ]; then
+          local _parent _resolved
+          _parent=$(dirname "$p")
+          if [ -d "$_parent" ]; then
+            _resolved=$(cd -P "$_parent" 2>/dev/null && pwd -P) || _resolved=""
+            if [ -n "$_resolved" ]; then
+              local _real="$_resolved/$(basename "$p")"
+              if [ "$_real" = "$REPO_ROOT" ] || [ "${_real#"$REPO_ROOT"/}" != "$_real" ]; then
+                printf 'guarded:a path that resolves into the repo (%s)' "$_real"
+                return
+              fi
+            fi
+          fi
+          # The path itself may BE a symlink whose target is inside the repo, even
+          # when its parent is outside. `readlink` is a builtin-free one-shot read of
+          # the link value; a non-link yields nothing and costs nothing.
+          if [ -L "$p" ]; then
+            local _target
+            _target=$(readlink "$p" 2>/dev/null) || _target=""
+            case "$_target" in
+              /*) ;;
+              ?*) _target="$_parent/$_target" ;;
+            esac
+            if [ -n "$_target" ]; then
+              _target=$(cd -P "$(dirname "$_target")" 2>/dev/null && pwd -P)/$(basename "$_target")
+              if [ "$_target" = "$REPO_ROOT" ] || [ "${_target#"$REPO_ROOT"/}" != "$_target" ]; then
+                printf 'guarded:a symlink resolving into the repo (%s)' "$_target"
+                return
+              fi
+            fi
+          fi
+        fi
+        # A genuinely outside path. The scratchpad and /tmp artifacts land here,
+        # which is the intended allow.
         printf 'ok'
         return
       fi
@@ -543,11 +610,44 @@ if [ "$TOOL" = "Bash" ]; then
     word=${1##*/}          # /bin/sed -> sed
     word=${word#\\}        # \sed     -> sed
     case "$word" in
-      rm|rmdir|truncate|install|touch|shred|unlink|chmod|chown|patch|tee)
-        # install is here as well as below: with -d it creates directories from every
-        # operand, so treating only the last as a destination would miss the rest.
+      rm|rmdir|truncate|touch|shred|unlink|chmod|chown|patch|tee)
         shift
         targets="$targets $*"
+        ;;
+      install)
+        # Wrong in BOTH directions before this, which is why it needs its own arm:
+        #   install --target-directory=src /tmp/evil.py   -- the destination hides in
+        #     an option VALUE, and the `-*` filter skipped it, so the write was allowed
+        #   install src/mail/cli.py /tmp/copy.py          -- an ordinary copy READS the
+        #     source, and treating every operand as a target refused it
+        # With -d every operand is a directory being created; otherwise the shape
+        # matches cp -- last operand is the destination, the rest are sources.
+        shift
+        _idir=""
+        _dmode=0
+        _prev=""
+        for a in "$@"; do
+          case "$a" in
+            --target-directory=*) _idir="${a#--target-directory=}" ;;
+            -d|--directory) _dmode=1 ;;
+            -*) ;;
+            *) if [ "$_prev" = "-t" ] || [ "$_prev" = "--target-directory" ]; then _idir="$a"; fi ;;
+          esac
+          _prev="$a"
+        done
+        if [ -n "$_idir" ]; then
+          targets="$targets $_idir"
+        elif [ "$_dmode" -eq 1 ]; then
+          # -d creates each operand as a directory.
+          for a in "$@"; do
+            case "$a" in -*) ;; *) targets="$targets $a" ;; esac
+          done
+        else
+          set -- $(for a in "$@"; do case "$a" in -*) ;; *) printf '%s ' "$a" ;; esac; done)
+          [ "$#" -gt 0 ] || continue
+          for _ in $(seq 1 $(( $# - 1 ))); do shift; done
+          targets="$targets $1"
+        fi
         ;;
       cp|ln)
         # Normally the final operand is written. `cp a b c dir/` writes into dir/
