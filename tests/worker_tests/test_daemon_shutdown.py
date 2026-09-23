@@ -184,7 +184,7 @@ class TestStopSignals(_ShutdownTestBase):
         super().setUp()
         self.sentinel_calls: list[int] = []
 
-        def _sentinel(signum: int, frame: object) -> None:
+        def _sentinel(signum: int, _frame: object) -> None:
             self.sentinel_calls.append(signum)
 
         self.sentinel = _sentinel

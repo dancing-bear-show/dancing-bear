@@ -114,7 +114,7 @@ def _make_stop_handler(stop: threading.Event) -> Callable[[int, FrameType | None
     the main thread; the daemon loop does the actual shutdown work.
     """
 
-    def _handler(signum: int, frame: FrameType | None) -> None:
+    def _handler(signum: int, _frame: FrameType | None) -> None:
         stop.set()
 
     return _handler
