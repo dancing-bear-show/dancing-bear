@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""Enqueue and inspect qwen_patch jobs (local Ollama-backed code patches).
+
+Usage:
+  qwen patch --files a.py b.py --instruction "..." [--model TAG] [--explain]
+  qwen --apply JOB_ID
+
+`patch` enqueues a qwen_patch job via the same queue API `worker enqueue`
+uses. This script never applies a patch itself — `--apply` only PRINTS the
+`git apply` command for the stored patch file; running it is left to the
+caller.
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import json
+import os
+import sys
+import uuid
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+# Load bin/_pathrepair.py by explicit filesystem path, NOT by `import`.
+#
+# That module's job is to fix a broken import path, so it cannot itself depend
+# on the import path being correct: a plain `import` would either fail or —
+# far worse — silently load a FOREIGN checkout's copy and repair nothing.
+# Anchoring to __file__ also keeps this correct when bin/qwen is invoked
+# through a symlink or found on $PATH, since Path.resolve() follows symlinks.
+_spec = importlib.util.spec_from_file_location(
+    "_dancing_bear_pathrepair", _REPO_ROOT / "bin" / "_pathrepair.py"
+)
+if _spec is None or _spec.loader is None:  # pragma: no cover - defensive
+    raise SystemExit("bin/qwen: cannot load bin/_pathrepair.py")
+_pathrepair = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_pathrepair)
+
+# Must run BEFORE the .venv re-exec below so the corrected PYTHONPATH is
+# inherited across os.execv.
+_pathrepair.strip_foreign_src_paths(_REPO_ROOT)
+
+# Re-exec under the repo .venv interpreter when available, mirroring bin/llm.
+_VENV_PY = _REPO_ROOT / ".venv" / "bin" / "python3"
+_VENV_PY_REAL = os.path.realpath(str(_VENV_PY)) if _VENV_PY.exists() else ""
+if (
+    _VENV_PY.exists()
+    and sys.prefix == sys.base_prefix  # no venv active
+    and os.path.realpath(sys.executable) != _VENV_PY_REAL
+    and os.environ.get("_DANCING_BEAR_VENV_EXEC") != _VENV_PY_REAL
+):
+    os.environ["_DANCING_BEAR_VENV_EXEC"] = _VENV_PY_REAL
+    os.execv(str(_VENV_PY), [str(_VENV_PY)] + sys.argv)
+
+# After the re-exec, immediately before the first repo import: force our src/
+# to the FRONT of sys.path. A membership test is not enough — if our src/ is
+# on the path but sits behind another checkout's, that one wins.
+SRC_ROOT = Path(_pathrepair.force_own_src_first(_REPO_ROOT))
+
+JOB_TYPE = "qwen_patch"
+
+
+def build_payload(files: list[str], instruction: str, explain: bool) -> dict[str, object]:
+    """Build the qwen_patch job payload per contract.json's payload_schema."""
+    payload: dict[str, object] = {"files": files, "instruction": instruction}
+    if explain:
+        payload["explain"] = True
+    return payload
+
+
+def apply_command(job_id: str) -> str:
+    """Return the `git apply` command text for job_id's stored patch. Never runs it."""
+    from core.paths import output_dir
+
+    patch_path = output_dir("qwen") / "patches" / f"{job_id}.patch"
+    return f"git apply {patch_path}"
+
+
+def _cmd_patch(args: argparse.Namespace) -> int:
+    from core.date_utils import iso_now
+    from worker import queue_ops as q
+
+    payload = build_payload(list(args.files), str(args.instruction), bool(args.explain))
+    if args.model:
+        payload["model"] = args.model
+
+    job_id = uuid.uuid4().hex
+    job = q.Job(
+        id=job_id,
+        type=JOB_TYPE,
+        payload=payload,
+        priority=int(args.priority),
+        max_attempts=int(args.max_attempts),
+        enqueued_at=iso_now(),
+    )
+    path = q.enqueue(job, root=q.QUEUE_ROOT)
+    print(json.dumps({"enqueued": True, "id": job_id, "path": str(path)}))
+    return 0
+
+
+def _cmd_apply(job_id: str) -> int:
+    print(apply_command(job_id))
+    return 0
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="qwen", description=__doc__.splitlines()[0])
+    parser.add_argument("--apply", metavar="JOB_ID", help="print the git apply command for a stored patch")
+
+    sub = parser.add_subparsers(dest="command")
+    patch = sub.add_parser("patch", help="enqueue a qwen_patch job")
+    patch.add_argument("--files", nargs="+", required=True, help="repo-relative file paths")
+    patch.add_argument("--instruction", required=True, help="natural-language change request")
+    patch.add_argument("--model", default=None, help="override the default model tag")
+    patch.add_argument("--explain", action="store_true", help="run guards and report without calling the model")
+    patch.add_argument("--priority", type=int, default=5)
+    patch.add_argument("--max-attempts", dest="max_attempts", type=int, default=3)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    if args.apply:
+        return _cmd_apply(str(args.apply))
+    if args.command == "patch":
+        return _cmd_patch(args)
+
+    parser.print_help(sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

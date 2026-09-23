@@ -560,13 +560,22 @@ def _load_deferral_state(job_id: str) -> dict[str, object]:
         return {}
 
 
+def _as_int(value: object, default: int) -> int:
+    return int(value) if isinstance(value, (int, float, str)) else default
+
+
+def _as_float(value: object, default: float) -> float:
+    return float(value) if isinstance(value, (int, float, str)) else default
+
+
 def _record_deferral(job_id: str, reason: str) -> str | None:
     """Record one deferral under reason; returns "terminal-deferral-limit" if the bound is hit."""
     state = _load_deferral_state(job_id)
-    count = int(state.get("count", 0)) + 1
-    reasons = dict(state.get("reasons") or {})
-    reasons[reason] = int(reasons.get(reason, 0)) + 1
-    first_deferred_at = float(state.get("first_deferred_at") or time.time())
+    count = _as_int(state.get("count", 0), 0) + 1
+    raw_reasons = state.get("reasons")
+    reasons = dict(raw_reasons) if isinstance(raw_reasons, dict) else {}
+    reasons[reason] = _as_int(reasons.get(reason, 0), 0) + 1
+    first_deferred_at = _as_float(state.get("first_deferred_at"), time.time())
     new_state = {"count": count, "reasons": reasons, "first_deferred_at": first_deferred_at}
     path = _deferral_path(job_id)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -599,9 +608,33 @@ def _check_model_pin(host: str, model: str, recorded_digest: str | None) -> tupl
     return running_digest, running_digest == recorded_digest
 
 
-def _explain_report(
-    files: list[Path], instruction: str, model: str, options: dict[str, object]
-) -> dict[str, object]:
+@dataclass(frozen=True)
+class GenerationOptions:
+    """Resolved payload.model/system/temperature/max_tokens/explain, grouped
+
+    so they travel as one value through the guard/transport/result chain
+    instead of a wide parameter list or an untyped dict.
+    """
+
+    model: str
+    system: str | None
+    temperature: float
+    max_tokens: int
+    explain: bool
+
+
+@dataclass(frozen=True)
+class JobIdentity:
+    """job_id/model/attempt travel together from _run_guarded through to
+    telemetry and result-building; grouping them keeps call sites at or
+    under the 5-parameter guideline."""
+
+    job_id: str
+    model: str
+    attempt: int
+
+
+def _explain_report(files: list[Path], instruction: str, options: GenerationOptions) -> dict[str, object]:
     """Build the explain_mode report: guard results without calling the model."""
     total_bytes = 0
     per_file_bytes: dict[str, int] = {}
@@ -621,8 +654,13 @@ def _explain_report(
         "per_file_bytes": per_file_bytes,
         "total_prompt_chars": prompt_chars,
         "estimated_prompt_tokens": prompt_chars // 4,
-        "model": model,
-        "options": options,
+        "model": options.model,
+        "options": {
+            "system": options.system,
+            "temperature": options.temperature,
+            "max_tokens": options.max_tokens,
+            "explain": options.explain,
+        },
         "guard_results": {
             "confinement": "pass",
             "memory": "pass" if memory_verdict is None else memory_verdict,
@@ -661,32 +699,40 @@ def _build_prompt(instruction: str, file_contents: dict[str, str]) -> str:
     return "\n".join(parts)
 
 
-def _build_result(
-    *,
-    patch_path: Path,
-    patch_valid: bool,
-    files_touched: int,
-    lines_changed: int,
-    model: str,
-    model_digest: str | None,
-    digest_matches: bool | None,
-    prompt_tokens: int | None,
-    completion_tokens: int | None,
-    duration_ms: int,
-    deferral_reasons: dict[str, int] | None = None,
-) -> dict[str, object]:
+@dataclass(frozen=True)
+class GenerationResult:
+    """Every field of contract.json's result_schema, assembled by the caller
+
+    and handed to _build_result as one value instead of eleven keyword
+    arguments.
+    """
+
+    patch_path: Path
+    patch_valid: bool
+    files_touched: int
+    lines_changed: int
+    model: str
+    model_digest: str | None
+    digest_matches: bool | None
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    duration_ms: int
+    deferral_reasons: dict[str, int] | None = None
+
+
+def _build_result(r: GenerationResult) -> dict[str, object]:
     return {
-        "patch_path": str(patch_path),
-        "patch_valid": patch_valid,
-        "files_touched": files_touched,
-        "lines_changed": lines_changed,
-        "model": model,
-        "model_digest": model_digest,
-        "digest_matches_recorded": digest_matches,
-        "prompt_tokens": prompt_tokens,
-        "completion_tokens": completion_tokens,
-        "duration_ms": duration_ms,
-        "deferral_reasons": deferral_reasons,
+        "patch_path": str(r.patch_path),
+        "patch_valid": r.patch_valid,
+        "files_touched": r.files_touched,
+        "lines_changed": r.lines_changed,
+        "model": r.model,
+        "model_digest": r.model_digest,
+        "digest_matches_recorded": r.digest_matches,
+        "prompt_tokens": r.prompt_tokens,
+        "completion_tokens": r.completion_tokens,
+        "duration_ms": r.duration_ms,
+        "deferral_reasons": r.deferral_reasons,
     }
 
 
@@ -721,8 +767,7 @@ def _call_ollama_generate(host: str, body: dict[str, object], timeout: float) ->
 
 
 def _generate_and_validate_patch(
-    *, host: str, model: str, prompt: str, system: str | None, temperature: float,
-    max_tokens: int, timeout: float,
+    host: str, prompt: str, options: GenerationOptions, timeout: float
 ) -> tuple[str, dict[str, object]]:
     """Call the model, extract the diff, and validate it.
 
@@ -730,13 +775,17 @@ def _generate_and_validate_patch(
     QwenTransientError (a plain, retryable failure) on failure.
     """
     body: dict[str, object] = {
-        "model": model,
+        "model": options.model,
         "prompt": prompt,
         "stream": False,
-        "options": {"temperature": temperature, "num_predict": max_tokens, "num_ctx": THRESHOLDS.num_ctx},
+        "options": {
+            "temperature": options.temperature,
+            "num_predict": options.max_tokens,
+            "num_ctx": THRESHOLDS.num_ctx,
+        },
     }
-    if system:
-        body["system"] = system
+    if options.system:
+        body["system"] = options.system
     response = _call_ollama_generate(f"{host}/api/generate", body, timeout)
 
     response_text = str(response.get("response") or "")
@@ -763,14 +812,16 @@ def _write_patch_file(job_id: str, diff: str) -> Path:
     return patch_path
 
 
-def _resolve_payload_options(payload: dict[str, object]) -> dict[str, object]:
-    return {
-        "model": str(payload.get("model") or DEFAULT_MODEL_TAG),
-        "system": payload.get("system") if isinstance(payload.get("system"), str) else None,
-        "temperature": float(payload.get("temperature") if isinstance(payload.get("temperature"), (int, float)) else 0.2),
-        "max_tokens": int(payload.get("max_tokens") if isinstance(payload.get("max_tokens"), int) else 4096),
-        "explain": bool(payload.get("explain") or False),
-    }
+def _resolve_payload_options(payload: dict[str, object]) -> GenerationOptions:
+    raw_system = payload.get("system")
+    system = raw_system if isinstance(raw_system, str) else None
+    return GenerationOptions(
+        model=str(payload.get("model") or DEFAULT_MODEL_TAG),
+        system=system,
+        temperature=_as_float(payload.get("temperature"), 0.2),
+        max_tokens=_as_int(payload.get("max_tokens"), 4096),
+        explain=bool(payload.get("explain") or False),
+    )
 
 
 def _resolve_timeout(payload: dict[str, object]) -> float:
@@ -782,7 +833,7 @@ def _resolve_timeout(payload: dict[str, object]) -> float:
 
 
 def _run_with_lock(
-    host: str, model: str, prompt: str, options: dict[str, object], timeout: float
+    host: str, prompt: str, options: GenerationOptions, timeout: float
 ) -> tuple[str, dict[str, object]] | str:
     """Acquire the lock, run the model call, release in finally.
 
@@ -797,15 +848,7 @@ def _run_with_lock(
     if not _acquire_lock_with_wait(lock_path):
         return "deferred-qwen-busy"
     try:
-        return _generate_and_validate_patch(
-            host=host,
-            model=model,
-            prompt=prompt,
-            system=options["system"],
-            temperature=options["temperature"],
-            max_tokens=options["max_tokens"],
-            timeout=timeout,
-        )
+        return _generate_and_validate_patch(host, prompt, options, timeout)
     except QwenGuardError as exc:
         return str(exc)
     except QwenTransientError as exc:
@@ -814,45 +857,56 @@ def _run_with_lock(
         _release_lock(lock_path)
 
 
-def _emit_telemetry(job_id: str, model: str, outcome: str, attempt: int, patch_valid: bool | None,
-                     start_ns: int, end_ns: int, prompt_tokens: int | None, completion_tokens: int | None) -> None:
+@dataclass(frozen=True)
+class _TelemetryEvent:
+    """The fields _emit_telemetry needs, grouped to keep its signature short."""
+
+    identity: JobIdentity
+    outcome: str
+    patch_valid: bool | None
+    start_ns: int
+    end_ns: int
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+
+
+def _emit_telemetry(event: _TelemetryEvent) -> None:
     from worker.qwen_telemetry import export_job_span
 
     attrs: dict[str, object] = {
-        "qwen.job_id": job_id,
+        "qwen.job_id": event.identity.job_id,
         "qwen.job_type": JOB_TYPE,
-        "qwen.model": model,
-        "qwen.outcome": outcome,
-        "qwen.attempt": attempt,
-        "qwen.patch_valid": patch_valid,
+        "qwen.model": event.identity.model,
+        "qwen.outcome": event.outcome,
+        "qwen.attempt": event.identity.attempt,
+        "qwen.patch_valid": event.patch_valid,
     }
-    if prompt_tokens is not None:
-        attrs["qwen.prompt_tokens"] = prompt_tokens
-    if completion_tokens is not None:
-        attrs["qwen.completion_tokens"] = completion_tokens
-    attrs["qwen.generation_duration_ms"] = (end_ns - start_ns) // 1_000_000
-    export_job_span(attrs, start_ns, end_ns)
+    if event.prompt_tokens is not None:
+        attrs["qwen.prompt_tokens"] = event.prompt_tokens
+    if event.completion_tokens is not None:
+        attrs["qwen.completion_tokens"] = event.completion_tokens
+    attrs["qwen.generation_duration_ms"] = (event.end_ns - event.start_ns) // 1_000_000
+    export_job_span(attrs, event.start_ns, event.end_ns)
 
 
 def _handle_string_outcome(
-    job_id: str, model: str, attempt: int, outcome: str, start_ns: int, end_ns: int
+    identity: JobIdentity, outcome: str, start_ns: int, end_ns: int
 ) -> tuple[bool, object]:
     """Turn a deferred/terminal string outcome from _run_with_lock into a result tuple."""
     if outcome == "deferred-qwen-busy":
-        deferral_verdict = _record_deferral(job_id, "qwen-busy")
+        deferral_verdict = _record_deferral(identity.job_id, "qwen-busy")
         return (False, deferral_verdict or outcome)
-    _emit_telemetry(job_id, model, outcome, attempt, None, start_ns, end_ns, None, None)
+    _emit_telemetry(_TelemetryEvent(identity, outcome, None, start_ns, end_ns))
     return (False, outcome)
 
 
 def _finalize_success(
-    *, job_id: str, host: str, options: dict[str, object], attempt: int,
-    diff: str, response: dict[str, object], start_ns: int, end_ns: int,
+    identity: JobIdentity, host: str, diff: str, response: dict[str, object], start_ns: int, end_ns: int
 ) -> tuple[bool, object]:
     """Write the patch, compute stats/pinning, emit telemetry, and build the success result."""
-    patch_path = _write_patch_file(job_id, diff)
+    patch_path = _write_patch_file(identity.job_id, diff)
     paths_touched, lines_changed = diff_stats(diff)
-    running_digest, digest_matches = _check_model_pin(host, str(options["model"]), None)
+    running_digest, digest_matches = _check_model_pin(host, identity.model, None)
 
     prompt_tokens = response.get("prompt_eval_count")
     completion_tokens = response.get("eval_count")
@@ -860,56 +914,53 @@ def _finalize_success(
     completion_tokens = int(completion_tokens) if isinstance(completion_tokens, int) else None
     duration_ms = (end_ns - start_ns) // 1_000_000
 
-    _clear_deferral_state(job_id)
-    _emit_telemetry(
-        job_id, str(options["model"]), "success", attempt, True,
-        start_ns, end_ns, prompt_tokens, completion_tokens,
-    )
+    _clear_deferral_state(identity.job_id)
+    _emit_telemetry(_TelemetryEvent(identity, "success", True, start_ns, end_ns, prompt_tokens, completion_tokens))
 
     result = _build_result(
-        patch_path=patch_path,
-        patch_valid=True,
-        files_touched=len(paths_touched),
-        lines_changed=lines_changed,
-        model=str(options["model"]),
-        model_digest=running_digest,
-        digest_matches=digest_matches,
-        prompt_tokens=prompt_tokens,
-        completion_tokens=completion_tokens,
-        duration_ms=duration_ms,
+        GenerationResult(
+            patch_path=patch_path,
+            patch_valid=True,
+            files_touched=len(paths_touched),
+            lines_changed=lines_changed,
+            model=identity.model,
+            model_digest=running_digest,
+            digest_matches=digest_matches,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            duration_ms=duration_ms,
+        )
     )
     return (True, result)
 
 
 def _run_generation(
     job: dict[str, object], payload: dict[str, object], resolved_files: list[Path], instruction: str,
-    options: dict[str, object], host: str,
+    options: GenerationOptions, host: str,
 ) -> tuple[bool, object]:
     """Guarded model call through result building. Assumes explain/admission/memory already checked."""
-    job_id = str(job.get("id") or "")
-    attempt = int(job.get("attempts") or 0)
+    identity = JobIdentity(
+        job_id=str(job.get("id") or ""), model=options.model, attempt=_as_int(job.get("attempts"), 0)
+    )
 
     file_contents = _read_confined_files(resolved_files)
     prompt = _build_prompt(instruction, file_contents)
     timeout = _resolve_timeout(payload)
 
     start_ns = time.time_ns()
-    outcome = _run_with_lock(host, str(options["model"]), prompt, options, timeout)
+    outcome = _run_with_lock(host, prompt, options, timeout)
     end_ns = time.time_ns()
 
     if isinstance(outcome, str):
-        return _handle_string_outcome(job_id, str(options["model"]), attempt, outcome, start_ns, end_ns)
+        return _handle_string_outcome(identity, outcome, start_ns, end_ns)
 
     diff, response = outcome
     disk_verdict = _check_disk_guard()
     if disk_verdict is not None:
-        deferral_verdict = _record_deferral(job_id, "low-disk")
+        deferral_verdict = _record_deferral(identity.job_id, "low-disk")
         return (False, deferral_verdict or disk_verdict)
 
-    return _finalize_success(
-        job_id=job_id, host=host, options=options, attempt=attempt,
-        diff=diff, response=response, start_ns=start_ns, end_ns=end_ns,
-    )
+    return _finalize_success(identity, host, diff, response, start_ns, end_ns)
 
 
 def _run_guarded(job: dict[str, object], payload: dict[str, object]) -> tuple[bool, object]:
@@ -921,8 +972,8 @@ def _run_guarded(job: dict[str, object], payload: dict[str, object]) -> tuple[bo
     options = _resolve_payload_options(payload)
     host = os.environ.get("QWEN_OLLAMA_HOST", DEFAULT_OLLAMA_HOST)
 
-    if options["explain"]:
-        report = _explain_report(resolved_files, instruction, str(options["model"]), options)
+    if options.explain:
+        report = _explain_report(resolved_files, instruction, options)
         return (True, report)
 
     admission_verdict = _check_admission_cap()
@@ -947,7 +998,8 @@ def handle_qwen_patch(job: dict[str, object]) -> tuple[bool, object]:  # noqa - 
     traceback (which could carry file content raised during prompt assembly)
     reach job_runtime's unmasked error path.
     """
-    payload = dict(job.get("payload") or {})
+    raw_payload = job.get("payload")
+    payload = dict(raw_payload) if isinstance(raw_payload, dict) else {}
     try:
         return _run_guarded(job, payload)
     except QwenGuardError as exc:
