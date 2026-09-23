@@ -247,7 +247,9 @@ stages:
           "overflow_deferred": N,
           "threads": [
             {
+              "id": "PRRT_kwDO...",
               "thread_id": "PRRT_kwDO...",
+              "resolvable": true,
               "path": "src/foo.py",
               "line": 216,
               "is_outdated": false,
@@ -256,11 +258,32 @@ stages:
               "severity": "correctness|security|maintainability|style",
               "ask": "one sentence stating precisely what the reviewer wants",
               "reason": "why this directive — required for reject/moot/defer",
-              "evidence": "file:line facts, required for reject",
-              "resolvable": true
+              "evidence": "file:line facts, required for reject"
+            },
+            {
+              "id": "unlinked:src/workflow/linter.py:408",
+              "thread_id": null,
+              "resolvable": false,
+              "path": "src/workflow/linter.py",
+              "line": 408,
+              "is_outdated": false,
+              "author_kind": "bot",
+              "directive": "fix",
+              "severity": "Medium",
+              "ask": "one sentence stating precisely what the reviewer wants",
+              "reason": "",
+              "evidence": ""
             }
           ]
         }
+
+      Every entry carries "id" — the identity every downstream stage keys on.
+      For a real thread it equals thread_id; for an unlinked overview finding
+      it is the "unlinked:<path>:<line>" key from review-overview.json, with
+      thread_id null and resolvable false. Do not omit "id" on the assumption
+      that thread_id will do: an unlinked finding has none, and a stage that
+      falls back to thread_id drops exactly the findings this workflow was
+      changed to catch.
 
       Also write a compact {workspace}/outputs/triage-summary.md table.
     agent:
@@ -426,8 +449,8 @@ stages:
       tools: [Read, Edit, Write, Bash]
       access: read-write
     required: true
-    # No writes_to: per-item fan-out outputs land at outputs/fixes/<thread_id>.json,
-    # one per thread rather than a fixed set of paths. fix-aggregate is the stage
+    # No writes_to: per-item fan-out outputs land at outputs/fixes/<file_id>.json,
+    # one per item rather than a fixed set of paths. fix-aggregate is the stage
     # that declares a concrete artifact, and it reconciles missing files explicitly.
 
   - name: fix-aggregate
@@ -435,8 +458,8 @@ stages:
     executor: inline
     depends_on: [fix-threads]
     # fix-threads is deliberately absent from reads_from: it is a fan-out and
-    # declares no writes_to, because its outputs are one file per thread at
-    # outputs/fixes/<thread_id>.json rather than a fixed set of paths. The
+    # declares no writes_to, because its outputs are one file per item at
+    # outputs/fixes/<file_id>.json rather than a fixed set of paths. The
     # depends_on above still orders it after the fan-out completes; this stage
     # globs that directory and reconciles it against fix-index.json.
     reads_from: [fix-dispatch, triage-threads]
@@ -461,7 +484,7 @@ stages:
           "by_action": {"fixed": N, "rejected": N, "moot": N, "deferred": N},
           "files_changed": ["src/foo.py"],
           "tests_added": ["tests/..."],
-          "missing_results": ["PRRT_..."],
+          "missing_results": ["PRRT_...", "unlinked:src/foo.py:408"],
           "failed_tests": ["PRRT_... (test_result=fail)"],
           "results": [ <each per-thread result object, verbatim> ]
         }
@@ -764,8 +787,11 @@ stages:
 
       Step 2 — build the do-not-resolve set. A thread goes in it when any of
       these hold, regardless of what triage intended:
-        - its thread_id appears in fix-results.json "missing_results"
-          (the fixer crashed; nobody knows whether the code was changed)
+        - its "id" appears in fix-results.json "missing_results"
+          (the fixer crashed; nobody knows whether the code was changed).
+          Match on id, not thread_id — missing_results holds the same id
+          space fix-index.json used, so an unlinked finding whose fixer
+          crashed is listed there under its "unlinked:" key.
         - its result has action "fixed" with test_result "fail" or "not-run"
         - it has no entry in final-replies.json
         - resolvable is false (no thread_id — review bodies, PR-level
