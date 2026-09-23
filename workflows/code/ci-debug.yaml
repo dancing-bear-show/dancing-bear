@@ -51,22 +51,25 @@ stages:
         If both are empty, write a failed stage result and exit.
 
       Step 2 — fetch GitHub Actions failures:
+        `./bin/github` scrubs a stale GITHUB_TOKEN automatically — no
+        `GITHUB_TOKEN=` prefix or owner/repo preamble needed.
         If {run_url} is non-empty:
           Use the Bash tool to extract the run ID from the URL (last path segment)
           and run:
-            gh run view <RUN_ID> --log-failed
+            ./bin/github run log --run <RUN_ID>
         Else if {pr_number} is non-empty:
           Use the Bash tool to find the latest failed run for this PR:
-            gh pr checks {pr_number} --json name,state,detailsUrl
-          Then for each failed check, run:
-            gh run view <RUN_ID> --log-failed
+            ./bin/github pr checks --pr {pr_number}
+          Read `bucket` from each entry (pass|fail|pending|skipping|cancel).
+          For each failed check, extract its run ID from `link` and run:
+            ./bin/github run log --run <RUN_ID>
         Save all failure log output to {workspace}/outputs/gh-run-raw.txt.
 
       Step 3 — fetch qlty issues:
         Use the Bash tool to run:
           ~/.qlty/bin/qlty check {source_root} --format json
         If {pr_number} is non-empty, also run:
-          gh pr diff {pr_number} --name-only | xargs ~/.qlty/bin/qlty check --format json
+          ./bin/github pr diff --pr {pr_number} --name-only | xargs ~/.qlty/bin/qlty check --format json
         Save JSON output to {workspace}/outputs/qlty-raw.json.
 
       Step 4 — write combined summary:

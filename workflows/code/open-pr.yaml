@@ -351,17 +351,19 @@ stages:
         If still fails: abort with error message.
 
       Step 3 — Create PR:
-        gh pr create \
-          --title "{pr_title}" \
-          --body-file /tmp/pr-description.md \
-          --base main
-
-        Capture the PR URL from stdout.
+        Write the PR body to a temp file first, then create:
+          ./bin/github pr create \
+            --title "{pr_title}" \
+            --body-file /tmp/pr-description.md \
+            --base main
+        `./bin/github` scrubs a stale GITHUB_TOKEN automatically — no
+        `GITHUB_TOKEN=` prefix needed. The command returns JSON
+        {"number","url"} read back from GitHub.
 
       Step 4 — Write {workspace}/validation/pr.json:
         {
-          "pr_url": "<url from gh pr create output>",
-          "pr_number": <number extracted from url>,
+          "pr_url": "<url from ./bin/github pr create output>",
+          "pr_number": <number from the JSON response>,
           "branch": "<current branch name>",
           "base": "main"
         }
@@ -394,7 +396,7 @@ stages:
         and exit 0.
 
       Step 2 — Fetch PR body:
-        gh pr view {pr_number} --json body
+        ./bin/github pr view --pr {pr_number} --value body
 
       Step 3 — Fetch actual diff:
         git diff origin/main...HEAD --stat
@@ -421,7 +423,7 @@ stages:
         - [change]: visible in diff but not mentioned
 
       If ISSUES FOUND: print a warning so the human can decide whether to
-      update the PR description manually via `gh pr edit`.
+      update the PR description manually via `./bin/github pr edit`.
       Do not fail the workflow — the PR is already created; this is informational.
     agent:
       role: fact-checker

@@ -198,10 +198,12 @@ stages:
         grep for any text processing.
 
         Run:
-          gh pr list --state all \
-            --json headRefName,state,mergeCommit,number,title \
+          ./bin/github pr list --state all \
+            --fields headRefName,state,mergeCommit,number,title \
             --limit 500
-        Parse output with awk or python3 -c (no grep -P).
+        `./bin/github` scrubs a stale GITHUB_TOKEN automatically — no
+        `GITHUB_TOKEN=` prefix or owner/repo preamble needed. The result is
+        a JSON list; parse with awk or python3 -c (no grep -P).
         Build a map: branch_name -> {pr_number, pr_state, merge_commit_sha, title}.
         Branches with no PR entry map to {pr_number: null, ...}.
 
