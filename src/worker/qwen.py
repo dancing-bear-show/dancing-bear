@@ -1881,6 +1881,14 @@ def _run_with_lock(
     if not holder:
         return "deferred-qwen-busy"
     try:
+        # Re-check memory now that the lock is held. The pre-lock check is a
+        # snapshot: the lock wait can last up to wait_ceiling_sec, long enough
+        # for Ollama to unload a model that was warm (so this call would
+        # cold-load it under a margin-only admission) or for headroom to drop.
+        # Only Ollama's own load step remains outside this window.
+        memory_verdict = _check_memory_guard(host, options.model)
+        if memory_verdict is not None:
+            return memory_verdict
         return _generate_and_validate_patch(host, prompt, options, timeout)
     except QwenGuardError as exc:
         return str(exc)
@@ -2011,6 +2019,10 @@ def _handle_string_outcome(job_id: str, outcome: str) -> tuple[bool, object]:
     """Turn a deferred/terminal string outcome from _run_with_lock into a result tuple."""
     if outcome == "deferred-qwen-busy":
         return (False, _deferral_outcome(job_id, "qwen-busy", outcome))
+    if outcome == "deferred-low-memory":
+        # The post-lock memory re-check: count it like the pre-lock deferral,
+        # so the deferral bound still applies.
+        return (False, _deferral_outcome(job_id, "low-memory", outcome))
     return (False, outcome)
 
 

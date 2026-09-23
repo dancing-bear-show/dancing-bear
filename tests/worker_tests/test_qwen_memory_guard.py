@@ -9,6 +9,7 @@ serves /api/ps from self.ps_response, so the real _ollama_ps transport runs.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess  # nosec B404 - only CompletedProcess/TimeoutExpired values, nothing is executed
 import unittest
@@ -194,7 +195,8 @@ class QwenWarmModelTests(QwenHandlerCase):
 
         self.assertTrue(ok)
         self.assertEqual(len(self.generate_requests()), 1)
-        self.assertEqual(self.ps_requests(), ["http://localhost:11434/api/ps"])
+        # Asked before the lock and again after it (the post-lock re-check).
+        self.assertEqual(self.ps_requests(), ["http://localhost:11434/api/ps"] * 2)
 
     def test_cold_model_with_the_same_five_gib_defers(self) -> None:
         ok, out = self.run_with_memory(self.FIVE_GIB)
@@ -238,7 +240,8 @@ class QwenWarmModelTests(QwenHandlerCase):
         ok, _ = self.run_with_memory(self.FIVE_GIB, {"model": "llama3:8b"})
 
         self.assertTrue(ok)
-        self.assertEqual(self.ps_requests(), ["http://127.0.0.1:9999/api/ps"] * 2)
+        # Explain asks once; the real run asks before and after the lock.
+        self.assertEqual(self.ps_requests(), ["http://127.0.0.1:9999/api/ps"] * 3)
 
     def test_warm_model_below_the_margin_still_defers(self) -> None:
         self.ps_response = {"models": [{"name": MODEL, "model": MODEL}]}
@@ -289,6 +292,47 @@ class QwenWarmModelTests(QwenHandlerCase):
                 if not ok:
                     self.assertEqual(out, verdict)
                 self.deferral_file().unlink(missing_ok=True)
+
+
+
+class QwenPostLockMemoryRecheckTests(QwenHandlerCase):
+    """The pre-lock memory check is a snapshot; it is repeated once the lock is held.
+
+    The lock wait can outlast Ollama's keep-alive, so a model that was warm
+    when the job was admitted on the margin alone may be cold by the time the
+    call is made, and headroom can drop while waiting.
+    """
+
+    def run_with(self, *, available: list[int], loaded: list[bool]) -> tuple[bool, object]:
+        with (
+            mock.patch("worker.qwen._available_memory_bytes", side_effect=available) as memory,
+            mock.patch("worker.qwen._model_loaded", side_effect=loaded),
+        ):
+            result = self.run_handler()
+        self.memory_reads = memory.call_count
+        return result
+
+    def test_model_unloaded_during_the_lock_wait_defers_instead_of_cold_loading(self) -> None:
+        five = 5 * GIB
+        ok, out = self.run_with(available=[five, five], loaded=[True, False])
+
+        self.assertEqual((ok, out), (False, "deferred-low-memory"))
+        self.assertEqual(self.generate_requests(), [], "the model must not be called after it went cold")
+        self.assertFalse(self.lock_path.exists(), "the lock must be released on the post-lock deferral")
+        self.assertEqual(json.loads(self.deferral_file().read_text(encoding="utf-8"))["count"], 1)
+
+    def test_headroom_that_drops_during_the_wait_defers(self) -> None:
+        ok, out = self.run_with(available=[14 * GIB, 2 * GIB], loaded=[])
+
+        self.assertEqual((ok, out), (False, "deferred-low-memory"))
+        self.assertEqual(self.generate_requests(), [])
+
+    def test_stable_headroom_is_checked_twice_and_proceeds(self) -> None:
+        ok, _ = self.run_with(available=[14 * GIB, 14 * GIB], loaded=[])
+
+        self.assertTrue(ok)
+        self.assertEqual(len(self.generate_requests()), 1)
+        self.assertEqual(self.memory_reads, 2, "memory must be read before the lock and again after it")
 
 
 if __name__ == "__main__":
