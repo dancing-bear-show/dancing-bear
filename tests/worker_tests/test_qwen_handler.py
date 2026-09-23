@@ -1131,7 +1131,7 @@ class QwenSeamTests(unittest.TestCase):
             with self.subTest(error=type(error).__name__), mock.patch("subprocess.run", side_effect=error):
                 self.assertIsNone(qwen._pid_is_worker(123))
 
-    def test_free_disk_bytes_falls_back_to_parent_and_none_on_error(self) -> None:
+    def test_free_disk_bytes_is_none_on_error_and_int_for_a_real_file(self) -> None:
         missing = Path(os.sep) / "definitely" / "not" / "here"
         with mock.patch("shutil.disk_usage", side_effect=OSError("gone")):
             self.assertIsNone(qwen._free_disk_bytes(missing))

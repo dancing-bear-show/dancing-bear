@@ -31,7 +31,8 @@ Outcome strings (the handler's second return value on failure):
 * ``ollama-request-failed: <detail>`` - plain, retryable transport failure
 
 Every string derived from payload content or model output that reaches the
-result or telemetry is masked via ``core.secrets.mask_text`` first. The
+result (success, failure or explain report), a log line or telemetry is
+masked via ``core.secrets.mask_text`` first. The
 prompt itself is never persisted; the only place file contents reach disk is
 inside the generated patch artifact, which lives outside the checkout.
 """
@@ -422,13 +423,30 @@ def _parse_vm_stat(text: str) -> int | None:
     return total_pages * page_size if total_pages else None
 
 
+def _nearest_existing_ancestor(path: Path) -> Path:
+    """path itself, or its closest ancestor that exists; path if none does.
+
+    The patch directory is created on the first successful write, so on a
+    first run neither it nor its parent may exist yet. Measuring the nearest
+    existing ancestor reads the filesystem the directory will be created on,
+    without creating anything.
+    """
+    for candidate in (path, *path.parents):
+        if candidate.exists():
+            return candidate
+    return path
+
+
 def _free_disk_bytes(path: Path) -> int | None:
-    """Return free bytes on the filesystem holding path, or None if unstat-able."""
+    """Return free bytes on the filesystem that holds (or will hold) path.
+
+    None only when even the nearest existing ancestor cannot be measured;
+    the disk guard then fails open per contract.disk_guard.
+    """
     import shutil
 
     try:
-        target = path if path.exists() else path.parent
-        return shutil.disk_usage(str(target)).free
+        return shutil.disk_usage(str(_nearest_existing_ancestor(path))).free
     except OSError:
         return None
 
@@ -1191,7 +1209,7 @@ def _load_recorded_digest(model: str) -> str | None:
     except FileNotFoundError:
         return None
     except (OSError, ValueError):
-        _log.warning("qwen: unreadable model digest record at %s; treating %s as unpinned", path, model)
+        _log.warning("qwen: unreadable model digest record at %s; treating %s as unpinned", path, mask_text(model))
         return None
     value = raw.get(model) if isinstance(raw, dict) else None
     return value if isinstance(value, str) and value.strip() else None
@@ -1225,15 +1243,17 @@ def _check_model_pin(host: str, model: str) -> ModelPin:
     """
     recorded = _load_recorded_digest(model)
     running = _model_digest(host, model)
+    # model is the caller's payload string, so it is masked before any log line.
+    shown = mask_text(model)
     if recorded is None:
-        _log.warning("qwen: no install-time digest recorded for %s; model is unpinned", model)
+        _log.warning("qwen: no install-time digest recorded for %s; model is unpinned", shown)
         return ModelPin(running, None, "unpinned")
     if running is None:
-        _log.warning("qwen: could not read the running digest for %s; pin unverified", model)
+        _log.warning("qwen: could not read the running digest for %s; pin unverified", shown)
         return ModelPin(None, None, "unverified")
     matches = _normalise_digest(running) == _normalise_digest(recorded)
     if not matches:
-        _log.warning("qwen: model digest drift for %s: recorded %s, running %s", model, recorded, running)
+        _log.warning("qwen: model digest drift for %s: recorded %s, running %s", shown, recorded, running)
     return ModelPin(running, matches, "match" if matches else "mismatch")
 
 
@@ -1267,6 +1287,17 @@ def _verdict(result: str | None) -> str:
     return "pass" if result is None else result
 
 
+def _masked(value: object) -> object:
+    """value with every string in it masked, dict keys included, recursively."""
+    if isinstance(value, str):
+        return mask_text(value)
+    if isinstance(value, dict):
+        return {_masked(k): _masked(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_masked(item) for item in value]
+    return value
+
+
 def _explain_report(
     files: list[Path], instruction: str, options: GenerationOptions, root: Path
 ) -> dict[str, object]:
@@ -1275,6 +1306,10 @@ def _explain_report(
     The files are read through the same descriptor-bound path a real run
     uses, and the prompt is assembled for real, so the prompt_budget
     verdict is the one the job would hit rather than an estimate.
+
+    The report is persisted as the job's result and most of it echoes the
+    payload (file paths, model, system text), so every string in it - keys
+    included - is masked on the way out.
     """
     contents = _read_confined_bytes(files, root)
     per_file_bytes = {path: len(data) for path, data in contents.items()}
@@ -1282,7 +1317,7 @@ def _explain_report(
     # as it does in _check_prompt_budget.
     prompt_chars = len(instruction) + sum(per_file_bytes.values()) + len(options.system or "")
     prompt = _build_prompt(instruction, _decode_contents(contents))
-    return {
+    report: dict[str, object] = {
         "resolved_files": [str(f) for f in files],
         "per_file_bytes": per_file_bytes,
         "total_prompt_chars": prompt_chars,
@@ -1303,6 +1338,7 @@ def _explain_report(
             "prompt_budget": _verdict(_check_prompt_budget(prompt, options)),
         },
     }
+    return {mask_text(key): _masked(value) for key, value in report.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -1445,12 +1481,19 @@ class GenerationResult:
 
 
 def _build_result(r: GenerationResult) -> dict[str, object]:
+    """The persisted success result.
+
+    model is the only payload-derived string here, so it is masked like the
+    failure strings are. Every other field is computed by the handler: the
+    patch path from a validated job id, counts and durations, and the digest
+    Ollama reports.
+    """
     return {
         "patch_path": str(r.patch_path),
         "patch_valid": r.patch_valid,
         "files_touched": r.files_touched,
         "lines_changed": r.lines_changed,
-        "model": r.model,
+        "model": mask_text(r.model),
         "model_digest": r.model_digest,
         "digest_matches_recorded": r.digest_matches,
         "prompt_tokens": r.prompt_tokens,
