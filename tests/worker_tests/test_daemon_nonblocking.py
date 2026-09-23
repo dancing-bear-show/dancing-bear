@@ -32,16 +32,26 @@ from worker.queue_ops import (
     finish as _real_finish,
     list_pending as _real_list_pending,
     reap_stale_processing_jobs as _real_reap,
+    recover_staged_requeues as _real_recover,
+    requeue_processing as _real_requeue,
     retry as _real_retry,
     start_processing as _real_start,
 )
 
 
 def _make_runner(root: Path, **config_kwargs: Any):
+    import os
     from worker.job_runtime import DaemonRunner, JobProcessor, WorkerConfig
     from worker import queue_ops as q
+    from worker._helpers import WORKER_STATE_DIR_ENV
 
     q.QUEUE_ROOT = root
+    # Also redirect the env var so any helper that resolves the state dir
+    # at call time (rather than via the already-imported QUEUE_ROOT constant)
+    # lands in the temp tree.  Tests that call _make_runner are responsible
+    # for restoring the env; QueueRootIsolationMixin.setup_queue_root handles
+    # this for test classes that use it.
+    os.environ[WORKER_STATE_DIR_ENV] = str(root.parent)
     cfg = WorkerConfig(**config_kwargs)
     proc = JobProcessor(cfg, "daemon")
     return DaemonRunner(cfg, proc)
@@ -90,6 +100,20 @@ def _patch_queue_root(job_root: Path) -> ExitStack:
         patch(
             "worker.job_runtime.q.retry",
             side_effect=lambda job_path, **kw: _real_retry(job_path, root=job_root, **kw),
+        )
+    )
+    stack.enter_context(
+        patch(
+            "worker.job_runtime.q.requeue_processing",
+            side_effect=lambda job_id, reason, root=None: _real_requeue(
+                job_id, reason=reason, root=job_root
+            ),
+        )
+    )
+    stack.enter_context(
+        patch(
+            "worker.job_runtime.q.recover_staged_requeues",
+            side_effect=lambda root=None: _real_recover(root=job_root),
         )
     )
     return stack
