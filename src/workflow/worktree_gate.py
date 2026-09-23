@@ -122,6 +122,17 @@ def committed_since(repo: str | Path, baseline_head: str) -> set[str]:
     only the destination filename, letting the original path -- and whatever
     it protected -- skip both this check and check-paths.
 
+    ``-m`` is passed so a merge commit's diff against *each* parent is walked
+    too. Without it, ``git log --name-only`` emits no diff at all for a merge
+    commit, so a path introduced only by the merge itself -- present on
+    neither parent, e.g. a conflict resolution that also adds an unrelated
+    file -- is invisible to this scan even though ``git status`` shows it
+    clean once committed. Verified: a merge commit amended to add a file
+    absent from both parents is reported by neither the default
+    ``--name-only`` walk nor a two-tree ``baseline..HEAD`` diff, only by
+    ``-m``. ``-m`` reports the same path once per parent, which is
+    immaterial since the result is deduplicated into a set.
+
     Raises:
         RuntimeError: if the log over *baseline_head*..HEAD fails -- including
             when *baseline_head* no longer resolves (e.g. history was
@@ -129,7 +140,7 @@ def committed_since(repo: str | Path, baseline_head: str) -> set[str]:
             what changed and must fail closed rather than report no commits.
     """
     run = run_binary(
-        ("git", "log", "--name-only", "--no-renames", "-z", "--pretty=format:",
+        ("git", "log", "--name-only", "--no-renames", "-m", "-z", "--pretty=format:",
          f"{baseline_head}..HEAD"),
         cwd=Path(repo),
         timeout=_GIT_STATUS_TIMEOUT,

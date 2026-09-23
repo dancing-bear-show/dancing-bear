@@ -387,6 +387,47 @@ class TestHeadCommitAndCommittedSince(_Repo):
             {"src/protected.py", "src/renamed.py"},
         )
 
+    def test_committed_since_catches_a_file_added_only_by_a_merge_commit(self) -> None:
+        """A path introduced by the merge commit itself -- present on neither
+        parent, e.g. a conflict resolution amended to also add an unrelated
+        file -- must still be reported. Without ``-m``, ``git log
+        --name-only`` emits no diff at all for a merge commit, so this path
+        would otherwise be invisible even though ``git status`` reports it
+        clean once committed."""
+        baseline_head = head_commit(self.repo)
+        main_branch = subprocess.run(  # nosec B603 B607 - fixed argv, temp repo
+            ["git", "branch", "--show-current"], cwd=self.repo, check=True,
+            capture_output=True, text=True,
+        ).stdout.strip()
+        _git(self.repo, "checkout", "-q", "-b", "feature")
+        (self.repo / "f.txt").write_text("f\n")
+        _git(self.repo, "add", "f.txt")
+        _git(self.repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+             "-m", "feature adds f.txt")
+        _git(self.repo, "checkout", "-q", main_branch)
+        (self.repo / "m.txt").write_text("m\n")
+        _git(self.repo, "add", "m.txt")
+        _git(self.repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+             "-m", "master adds m.txt")
+        _git(self.repo, "-c", "user.email=t@t", "-c", "user.name=t", "merge", "-q",
+             "--no-edit", "feature")
+        (self.repo / "src/sneaky.py").write_text("x = 1\n")
+        _git(self.repo, "add", "src/sneaky.py")
+        _git(self.repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+             "--amend", "--no-edit")
+        # Sanity: prove the gap the fix closes -- the default (no -m) walk
+        # really does miss the merge-only file, so this test would fail to
+        # demonstrate anything if the repo fixture behaved differently.
+        without_m = run_binary(
+            ("git", "log", "--name-only", "--no-renames", "-z", "--pretty=format:",
+             f"{baseline_head}..HEAD"),
+            cwd=self.repo, timeout=_GIT_STATUS_TIMEOUT,
+        )
+        self.assertNotIn("src/sneaky.py", without_m.stdout.split("\0"))
+        self.assertEqual(committed_since(self.repo, baseline_head), {
+            "f.txt", "m.txt", "src/sneaky.py",
+        })
+
     def test_check_unlisted_catches_a_staged_and_committed_file(self) -> None:
         """End-to-end: a fixer stages and commits an unlisted file before
         check-unlisted runs. git status alone reports it clean; folding

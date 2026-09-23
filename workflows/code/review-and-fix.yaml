@@ -524,19 +524,41 @@ stages:
            whose worktree it describes, and an empty list there is not
            evidence the check was actually run. Verify independently against
            the fixer's actual worktree instead:
-             Bash tool: git worktree list --porcelain
+             Bash tool: git worktree list --porcelain -z > {workspace}/validation/worktree-list.txt
            Its "branch" field is the full ref (e.g. "refs/heads/<branch>"),
            not the short name recorded in the fixer's result file. Find the
            entry whose "branch" equals "refs/heads/<branch>" (not a bare
            <branch> comparison — that never matches and silently falls
            through to the untrusted fallback below) and take its "worktree"
-           path, quoting it as a shell variable so a path containing spaces
-           or shell metacharacters cannot split the command:
-             Bash tool: WORKTREE_PATH=<worktree_path>
-                        git -C "$WORKTREE_PATH" status --porcelain --untracked-files=all -- . ':!outputs' ':!stages' ':!inputs' ':!validation'
-           Any output means uncommitted work was left behind — fail,
-           recording it under "uncommitted" with the paths this command
-           printed (not the fixer's self-reported list).
+           path. Never type that path into a shell command line yourself, as
+           a bare argument or as an assignment
+           (`WORKTREE_PATH=<worktree_path>`) — either form still pastes
+           untrusted text into shell source, where spaces or shell
+           metacharacters in the path can split the command or inject
+           unintended ones. The same holds for the branch name: it comes
+           from the fixer's result file, which that agent wrote, so do not
+           type it into the command either. Both values reach the shell only
+           as command output — the branch read by `jq` from the fixer's
+           result file (a path this workflow names), the worktree path
+           printed by `awk`, which gets the ref through the environment
+           rather than its program text:
+             Bash tool: BRANCH="$(jq -r '.branch' {workspace}/outputs/fix/<fixer result file>)"
+             Bash tool: WORKTREE_PATH="$(REF="refs/heads/$BRANCH" awk -v RS='\0' '
+                          /^worktree /{w=substr($0,10)}
+                          $0=="branch " ENVIRON["REF"]{print w; exit}
+                        ' {workspace}/validation/worktree-list.txt)"
+             Bash tool: git -C "$WORKTREE_PATH" status --porcelain --untracked-files=all -- . ':!outputs' ':!stages' ':!inputs' ':!validation'
+                        echo "EXIT=$?"
+           Capture and check the exit code as well as the output: a non-zero
+           exit (worktree unreadable, removed between lookup and this
+           command, or any other `git status` failure) can print nothing on
+           stdout and must be treated as a failure exactly like non-empty
+           output — do not let a silent, non-zero exit read as clean. Any
+           stdout output, OR a non-zero exit code, means fail, recording it
+           under "uncommitted" with the paths this command printed (not the
+           fixer's self-reported list), or with detail
+           "git status exited non-zero: <code>" when the exit was non-zero
+           and stdout was empty.
            If no worktree entry matches "refs/heads/<branch>" (already
            removed), fall back to the fixer's "uncommitted_paths" field only as a
            last resort, and if it is ABSENT treat that the same as a

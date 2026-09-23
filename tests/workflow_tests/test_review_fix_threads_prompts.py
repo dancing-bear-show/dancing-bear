@@ -142,7 +142,10 @@ class TestQltyInstruction(unittest.TestCase):
 
     def test_verify_fixes_runs_qlty_twice_on_named_files(self) -> None:
         prompt = _flat(_prompts()["verify-fixes"])
-        self.assertIn("Run the qlty pass TWICE", prompt)
+        self.assertIn(
+            "Run the complete pass over every path TWICE and take the union",
+            prompt,
+        )
 
     def test_no_workflow_or_agent_repeats_the_stale_claim(self) -> None:
         roots = [*(_ROOT / "workflows").rglob("*.yaml"), *(_ROOT / ".claude/agents").glob("*.md")]
@@ -177,8 +180,56 @@ class TestQltyPathsAreValidated(unittest.TestCase):
 
     def test_qlty_loop_never_interpolates_a_path_into_shell_text(self) -> None:
         prompt = _flat(_prompts()["verify-fixes"])
-        self.assertIn('while IFS= read -r p; do ~/.qlty/bin/qlty check "$p"; done',
-                      prompt)
+        self.assertIn('while IFS= read -r p; do', prompt)
+        self.assertIn('~/.qlty/bin/qlty check "$p" || qlty_status=1', prompt)
+        self.assertIn('done < ', prompt)
+        self.assertIn('validation/qlty-paths.txt', prompt)
+
+
+class TestQltyLoopAccumulatesStatus(unittest.TestCase):
+    """Copilot review thread (unlinked, review-fix-threads.yaml:1254): without
+    `set -e`, a `while ...; done` loop's exit status is only its LAST
+    iteration's -- a finding in any file but the last was followed by a clean
+    check and the loop read as passing. The prose also asked for two full
+    passes but the snippet only ran one."""
+
+    def setUp(self) -> None:
+        self.prompt = _flat(_prompts()["verify-fixes"])
+
+    def test_status_is_captured_per_path_not_left_to_the_last_iteration(self) -> None:
+        # Fixed form: a running qlty_status variable is OR'd across every
+        # path, so an early failure survives a later clean file.
+        self.assertIn("qlty_status=0", self.prompt)
+        self.assertIn('qlty check "$p" || qlty_status=1', self.prompt)
+        self.assertIn(
+            "the exit status of a `while ...; done` loop is only the status "
+            "of its LAST iteration",
+            self.prompt,
+        )
+        # Broken form: a bare loop with no per-iteration status capture,
+        # where the loop's own exit code is all that gets checked.
+        self.assertNotIn(
+            'while IFS= read -r p; do ~/.qlty/bin/qlty check "$p"; done',
+            self.prompt,
+        )
+
+    def test_the_complete_pass_runs_twice_over_every_path(self) -> None:
+        # Fixed form: the whole loop (all paths) repeats a second time with a
+        # fresh status reset, and findings/statuses from both runs are
+        # unioned -- not one run over one path, or one run over all paths.
+        self.assertIn(
+            "Run the complete pass over every path TWICE and take the union",
+            self.prompt,
+        )
+        self.assertIn("Run that same loop a second time", self.prompt)
+        self.assertIn("a fresh `qlty_status=0` reset first", self.prompt)
+
+    def test_lint_fail_is_set_from_either_pass_or_a_nonzero_status(self) -> None:
+        self.assertIn(
+            'finding in either qlty pass, either `qlty_status` non-zero, or a '
+            'non-zero `make lint`, sets "lint": "fail"',
+            self.prompt,
+        )
 
 
 if __name__ == "__main__":

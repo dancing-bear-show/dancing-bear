@@ -1250,18 +1250,31 @@ stages:
       3a) — and load it argv-safely, one path per line, never interpolated
       into shell text:
         jq -r '.files_changed[]' {workspace}/outputs/fix-results.json > {workspace}/validation/qlty-paths.txt
-        while IFS= read -r p; do ~/.qlty/bin/qlty check "$p"; done < {workspace}/validation/qlty-paths.txt
-      Run the qlty pass TWICE and take the union of the findings: qlty caps
-      findings per run and the cap is nondeterministic, so one clean run
-      proves nothing. `make lint` is ruff only; qlty adds bandit and
-      radarlint, which CI enforces, so skipping it passes a branch CI fails.
-      qlty scans correctly from inside .claude/worktrees/ — the exclusion was
-      narrowed to `**/.claude/worktrees/**` on 2026-08-27 — so run it from
-      wherever this stage runs. Name the paths explicitly: with no path
-      argument `qlty check` defaults to the files it considers changed, and
-      prints "No issues" whether or not it scanned anything. There is no standalone `ruff` on PATH; a missing tool
-      is not a passing lint. Any finding in either qlty run, or a non-zero
-      `make lint`, sets "lint": "fail" and goes in lint_violations.
+      Run the complete pass over every path TWICE and take the union of the
+      findings: qlty caps findings per run and the cap is nondeterministic, so
+      one clean run proves nothing — and a single run over only some paths is
+      not "the complete pass" either. Accumulate a non-zero status across
+      every path in a run: the exit status of a `while ...; done` loop is only
+      the status of its LAST iteration, so without capturing each path's exit
+      code, a finding in any file except the last is followed by a clean
+      check on the last file and the loop as a whole reads as passing.
+      Capture and OR each path's status into a running variable instead:
+        qlty_status=0
+        while IFS= read -r p; do
+          ~/.qlty/bin/qlty check "$p" || qlty_status=1
+        done < {workspace}/validation/qlty-paths.txt
+      Run that same loop a second time (a fresh `qlty_status=0` reset first)
+      and take the union of findings and statuses from both runs — a finding
+      reported in either run counts. `make lint` is ruff only; qlty adds
+      bandit and radarlint, which CI enforces, so skipping it passes a branch
+      CI fails. qlty scans correctly from inside .claude/worktrees/ — the
+      exclusion was narrowed to `**/.claude/worktrees/**` on 2026-08-27 — so
+      run it from wherever this stage runs. Name the paths explicitly: with no
+      path argument `qlty check` defaults to the files it considers changed,
+      and prints "No issues" whether or not it scanned anything. There is no
+      standalone `ruff` on PATH; a missing tool is not a passing lint. Any
+      finding in either qlty pass, either `qlty_status` non-zero, or a
+      non-zero `make lint`, sets "lint": "fail" and goes in lint_violations.
 
       Step 3 — coverage on new behaviour. Verify against the tree, not the
       report. happy_path_covered and sad_path_covered are booleans written by
