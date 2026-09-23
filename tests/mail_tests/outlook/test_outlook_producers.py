@@ -13,10 +13,10 @@ from mail.outlook.processors_rules import (
 )
 from mail.outlook.processors_rules_write import (
     OutlookRulesSyncResult,
-    OutlookRulesPlanResult,
     OutlookRulesDeleteResult,
     OutlookRulesSweepResult,
 )
+from mail.outlook.processors_rules_plan import OutlookRulesPlanResult
 from mail.outlook.processors_calendar import (
     OutlookCategoriesListResult,
     OutlookCategoriesExportResult,

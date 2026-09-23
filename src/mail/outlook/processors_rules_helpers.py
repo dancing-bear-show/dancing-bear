@@ -463,3 +463,12 @@ def _export_rule_entry(r: dict, id_to_name: dict, folder_rev: dict) -> dict:
     if a:
         entry["action"] = a
     return entry
+
+
+def _has_explicit_destination(desired: list[dict[str, Any]]) -> bool:
+    """True when any spec names a ``moveToFolder`` outright.
+
+    Such a destination is honoured regardless of ``move_to_folders``, so its id
+    has to be resolvable even under ``--categories-only``.
+    """
+    return any((spec.get("action") or {}).get("moveToFolder") for spec in desired)

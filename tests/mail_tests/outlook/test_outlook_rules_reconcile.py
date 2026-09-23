@@ -13,7 +13,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
-from mail.outlook.processors_rules_write import OutlookRulesSyncProcessor, OutlookRulesPlanProcessor
+from mail.outlook.processors_rules_write import OutlookRulesSyncProcessor
+from mail.outlook.processors_rules_plan import OutlookRulesPlanProcessor
 from mail.outlook.processors_rules_helpers import (
     _criteria_key,
     _norm_criteria_field,

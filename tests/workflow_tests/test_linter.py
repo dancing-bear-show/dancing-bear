@@ -18,9 +18,9 @@ from workflow.linter import (
     LintWarning,
     _compute_dag_depth,
     _extract_var_refs,
-    _roles_that_cannot_write,
     lint_workflow,
 )
+from workflow.linter_access import _roles_that_cannot_write
 
 
 # ---------------------------------------------------------------------------

@@ -50,7 +50,7 @@ class _RunnerLike(Protocol):
 
 def _patched_scanner(runner: _RunnerLike):
     """Patch the CLI to use a Scanner backed by a fake runner."""
-    return patch.object(cli, "_build_scanner", lambda: Scanner(cast("QltyRunner", runner)))
+    return patch.object(cli, "_build_scanner", lambda: Scanner(cast(QltyRunner, runner)))
 
 
 class ScanCommandTests(unittest.TestCase):

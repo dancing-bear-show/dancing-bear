@@ -16,11 +16,13 @@ from mail.outlook.processors_rules import (
 )
 from mail.outlook.processors_rules_write import (
     OutlookRulesSyncResult,
-    OutlookRulesPlanResult,
     OutlookRulesSyncProcessor,
-    OutlookRulesPlanProcessor,
     OutlookRulesDeleteProcessor,
     OutlookRulesSweepProcessor,
+)
+from mail.outlook.processors_rules_plan import (
+    OutlookRulesPlanResult,
+    OutlookRulesPlanProcessor,
 )
 from mail.outlook.processors_calendar import (
     OutlookCategoriesSyncResult,
