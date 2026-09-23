@@ -28,14 +28,14 @@ You are a code implementation agent for dancing-bear, a personal-assistant CLI s
 - Use `@dataclass` for structured data, not dicts
 - Type hints on all function signatures; PEP 585/604 syntax (`list[str]`, `str | None`)
 - Lazy imports for optional deps (Google APIs, PyYAML, MSAL)
-- Use `./bin/<tool>` wrappers, never `python -m` directly
+- Use `./bin/<tool>` wrappers, never module execution (`-m`) directly
 - Never break backwards compatibility of `bin/*` entry points
 - `# nosec B110/B112` with intent comment on any bare except block
 
 ## After Making Changes
 
 - Run domain tests: `PYTHONPATH="$PWD/src" python3 -m unittest discover tests/<domain>_tests/ -v`
-  Never bare `python3 -m unittest` — in a worktree an inherited PYTHONPATH resolves
+  Never a bare unittest run — in a worktree an inherited PYTHONPATH resolves
   imports to the **main checkout**, so tests pass against unmodified code. That false
   green is indistinguishable from a real one.
 - Run full suite: `make test`

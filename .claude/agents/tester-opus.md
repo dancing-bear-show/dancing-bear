@@ -30,7 +30,7 @@ PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/<domain>_tests/ -t .
 make test
 ```
 
-Never bare `python3 -m unittest` — in a worktree an inherited PYTHONPATH resolves
+Never a bare unittest run — in a worktree an inherited PYTHONPATH resolves
 imports to the **main checkout**, so tests pass against unmodified code.
 
 ## Review Concerns (Self-Check Before Finishing)
