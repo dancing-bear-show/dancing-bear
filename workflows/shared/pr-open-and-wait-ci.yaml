@@ -49,10 +49,16 @@ stages:
         Read {pr_body_sources}. Summarize the work done into a PR body.
 
       Step 2 — create the PR:
-        gh pr create \
+        Write the PR body to {workspace}/outputs/pr-body.md (from Step 1),
+        then:
+        ./bin/github pr create \
+          --base main \
           --title "{pr_title}" \
-          --body "<summary from Step 1>" \
+          --body-file {workspace}/outputs/pr-body.md \
           --draft
+        ./bin/github handles GITHUB_TOKEN scrubbing; no GITHUB_TOKEN= prefix needed.
+        Text bodies are passed via --body-file, never as an inline string, to
+        avoid shell-quoting corruption of backticks and newlines.
 
       Step 3 — write {workspace}/validation/pr.json:
         { "pr_number": <number>, "pr_url": "<url>", "draft": true }
@@ -85,16 +91,18 @@ stages:
         Read {workspace}/validation/pr.json. Extract pr_number.
 
       Step 2 — mark PR ready (exits draft):
-        gh pr ready {pr_number}
+        ./bin/github pr ready --pr {pr_number}
+        ./bin/github handles GITHUB_TOKEN scrubbing internally.
 
       Step 3 — poll CI status:
-        gh pr checks {pr_number} --watch --interval 60
+        ./bin/github pr checks --pr {pr_number} --watch --interval 60
         This blocks until every check reaches a terminal state (no
         attempt cap — `--watch` itself has no timeout flag). If a hard
         ceiling is needed, wrap the call with an external timeout, e.g.
-          timeout 1200 gh pr checks {pr_number} --watch --interval 60
+          timeout 1200 ./bin/github pr checks --pr {pr_number} --watch --interval 60
 
         If any check fails: read the failure details with:
+          # raw gh: ./bin/github has no `run log` subcommand
           gh run view <RUN_ID> --log-failed
         Write failure notes to {workspace}/validation/ci-failures.txt
         (always write this file, even when all checks pass — use "no
@@ -116,7 +124,7 @@ stages:
     validation:
       strategy: unit
       criteria:
-        - All GitHub Actions checks pass (gh pr checks exits 0)
+        - All GitHub Actions checks pass (./bin/github pr checks exits 0)
       max_revisions: 1
     required: true
     writes_to:
@@ -137,14 +145,14 @@ stages:
 
       Step 1 — get changed Python files:
         Read {workspace}/validation/pr.json for pr_number.
-        gh pr diff {pr_number} --name-only | grep '\.py$'
+        ./bin/github pr diff --pr {pr_number} --name-only | grep '\.py$'
 
       Step 2 — run qlty:
         ~/.qlty/bin/qlty check <changed files...> --format json
         Write raw output to {workspace}/validation/qlty-results.json.
 
       Step 3 — summarize new issues vs pre-existing:
-        Only report issues on lines changed in this PR (use `gh pr diff` to
+        Only report issues on lines changed in this PR (use `./bin/github pr diff` to
         establish the changed line ranges). Pre-existing issues on unchanged
         lines are out of scope.
 

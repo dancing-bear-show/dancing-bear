@@ -478,13 +478,14 @@ stages:
       Do not add a dependency. This repo is dependency-light; anything optional
       must be imported lazily inside the function that needs it.
 
+      # raw gh named in a prohibition, not an invocation
       GIT PROHIBITION — applies to this stage without exception. You may run
       read-only git commands (status, diff, log, branch --show-current). You must
       NOT run: git push, git merge, git rebase, git reset --hard, git clean,
-      git checkout of a different branch, git commit, gh pr create, gh pr merge,
-      or any command that writes to a remote. This workflow ends at a human gate
-      on the current branch; publishing is the human's decision, not this
-      stage's. Stay on the branch you started on.
+      git checkout of a different branch, git commit, gh pr create / ./bin/github pr create,
+      gh pr merge / ./bin/github pr merge, or any command that writes to a remote.
+      This workflow ends at a human gate on the current branch; publishing is the
+      human's decision, not this stage's. Stay on the branch you started on.
 
       Write outputs/core-manifest.json:
         {{"files_written": ["..."], "symbols": ["<exact signatures implemented>"],
@@ -549,13 +550,14 @@ stages:
       Emit output via emit_rows / emit_one from core.cli_output. Never print a
       hand-formatted table or hand-serialized JSON.
 
+      # raw gh named in a prohibition, not an invocation
       GIT PROHIBITION — applies to this stage without exception. You may run
       read-only git commands (status, diff, log, branch --show-current). You must
       NOT run: git push, git merge, git rebase, git reset --hard, git clean,
-      git checkout of a different branch, git commit, gh pr create, gh pr merge,
-      or any command that writes to a remote. This workflow ends at a human gate
-      on the current branch; publishing is the human's decision, not this
-      stage's. Stay on the branch you started on.
+      git checkout of a different branch, git commit, gh pr create / ./bin/github pr create,
+      gh pr merge / ./bin/github pr merge, or any command that writes to a remote.
+      This workflow ends at a human gate on the current branch; publishing is the
+      human's decision, not this stage's. Stay on the branch you started on.
 
       Write outputs/cli-manifest.json:
         {{"files_written": ["..."], "subcommands_added": ["..."],
@@ -616,13 +618,14 @@ stages:
       Never write a test that requires network access or real credentials. Use
       fixtures and fakes.
 
+      # raw gh named in a prohibition, not an invocation
       GIT PROHIBITION — applies to this stage without exception. You may run
       read-only git commands (status, diff, log, branch --show-current). You must
       NOT run: git push, git merge, git rebase, git reset --hard, git clean,
-      git checkout of a different branch, git commit, gh pr create, gh pr merge,
-      or any command that writes to a remote. This workflow ends at a human gate
-      on the current branch; publishing is the human's decision, not this
-      stage's. Stay on the branch you started on.
+      git checkout of a different branch, git commit, gh pr create / ./bin/github pr create,
+      gh pr merge / ./bin/github pr merge, or any command that writes to a remote.
+      This workflow ends at a human gate on the current branch; publishing is the
+      human's decision, not this stage's. Stay on the branch you started on.
 
       Write outputs/tests-manifest.json:
         {{"files_written": ["..."], "test_names": ["..."],
@@ -728,13 +731,14 @@ stages:
       After fixing, re-verify each finding you addressed by re-running the check
       named in its "source" field.
 
+      # raw gh named in a prohibition, not an invocation
       GIT PROHIBITION — applies to this stage without exception. You may run
       read-only git commands (status, diff, log, branch --show-current). You must
       NOT run: git push, git merge, git rebase, git reset --hard, git clean,
-      git checkout of a different branch, git commit, gh pr create, gh pr merge,
-      or any command that writes to a remote. This workflow ends at a human gate
-      on the current branch; publishing is the human's decision, not this
-      stage's. Stay on the branch you started on.
+      git checkout of a different branch, git commit, gh pr create / ./bin/github pr create,
+      gh pr merge / ./bin/github pr merge, or any command that writes to a remote.
+      This workflow ends at a human gate on the current branch; publishing is the
+      human's decision, not this stage's. Stay on the branch you started on.
 
       Write outputs/fixes-applied.json:
         {{"fixed": [{{"id": "I-001", "what": "...", "reverified_with": "<command>"}}],
@@ -841,8 +845,9 @@ stages:
 
       Write outputs/build-summary.md with all of the above.
 
-      Do NOT run git push, gh pr create, or git merge in this stage under any
-      circumstances. This workflow ends at the branch.
+      # raw gh named in a prohibition, not an invocation
+      Do NOT run git push, gh pr create / ./bin/github pr create, or git merge in
+      this stage under any circumstances. This workflow ends at the branch.
     agent:
       role: doc-writer
       model: sonnet
