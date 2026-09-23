@@ -2,14 +2,15 @@
 
 ## Project Context
 
-This is a Python 3.11 monorepo containing personal assistant CLIs. It ships **19
+This is a Python 3.11 monorepo containing personal assistant CLIs. It ships **20
 packages** under `src/` — `apple_music`, `calendars`, `charts`, `core`, `desk`,
-`diagrams`, `mail`, `maker`, `phone`, `qlty`, `resume`, `schedule`, `sheets`,
-`slides`, `telemetry`, `whatsapp`, `wifi`, `worker`, `workflow` — of which **18
-are agentic-schema apps** (`core` is the shared library). The codebase follows a
+`diagrams`, `github_assistant`, `mail`, `maker`, `phone`, `qlty`, `resume`,
+`schedule`, `sheets`, `slides`, `telemetry`, `whatsapp`, `wifi`, `worker`,
+`workflow` — of which **19 are agentic-schema apps** (`core` is the shared
+library). The codebase follows a
 pipeline architecture with Consumer/Processor/Producer patterns.
 
-All 18 apps support `--agentic --agentic-format json` (added in #291). Agents are
+All 19 apps support `--agentic --agentic-format json` (added in #291). Agents are
 instructed to prefer capsules over `--help`, which makes a wrong command in a
 capsule a machine-readable instruction to run something broken — not a stale
 comment. `tests/core_tests/test_capsule_parser_drift.py` (#293) resolves every
