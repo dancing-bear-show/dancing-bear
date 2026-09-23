@@ -19,13 +19,16 @@ from core.github import (
     classify_author,
     fetch_review_threads,
     fetch_thread_comments,
+    forged_run_marker,
     has_run_marker,
+    mark_body,
     render_summary,
     reply_and_resolve,
     reply_to_thread,
     resolve_owner_repo,
     resolve_thread,
     run_marker,
+    viewer_login,
 )
 from core.github.threads import COMMENT_PAGE, THREAD_PAGE
 from tests.core_tests.github_fakes import FakeGh, GhCall, comment_node, ok, paged
@@ -357,9 +360,33 @@ class TestReplyAndResolve(unittest.TestCase):
         self.assertEqual(fake.calls, [])
 
     def test_run_marker_found_anywhere_in_the_chain(self):
-        chain = [{"body": "fix"}, {"body": "ok\n" + run_marker("run-1")}, {"body": "reviewer again"}]
-        self.assertTrue(has_run_marker(chain, "run-1"))
-        self.assertFalse(has_run_marker(chain, "run-2"))
+        chain = [{"author": "rev", "body": "fix"},
+                 {"author": "me[bot]", "body": "ok\n" + run_marker("run-1")},
+                 {"author": "rev", "body": "reviewer again"}]
+        self.assertTrue(has_run_marker(chain, "run-1", actor="me"))
+        self.assertFalse(has_run_marker(chain, "run-2", actor="me"))
+
+    def test_marker_by_anyone_else_is_forged_not_prior_work(self):
+        chain = [{"author": "mallory", "body": "pasted " + run_marker("run-1")}]
+        self.assertFalse(has_run_marker(chain, "run-1", actor="me"))
+        self.assertTrue(forged_run_marker(chain, "run-1", actor="me"))
+        self.assertFalse(forged_run_marker([{"author": "me", "body": run_marker("run-1")}],
+                                           "run-1", actor="me"))
+
+    def test_mark_body_strips_every_quoted_marker_then_appends_ours(self):
+        body = "> <!-- dancing-bear-run: A -->\n<!--\ndancing-bear-run: B\n-->\nfixed\n"
+        out = mark_body(body, "R")
+        self.assertEqual(out.count("dancing-bear-run"), 1)
+        self.assertTrue(out.endswith("\n\n" + run_marker("R")))
+        self.assertEqual(mark_body("x " + run_marker("A"), None), "x")
+
+    def test_viewer_login_fails_closed(self):
+        for payload in ({"data": {"viewer": {"login": ""}}}, {"data": {"viewer": None}}):
+            gh = GhCLI(run_func=FakeGh(lambda c, p=payload: ok(p)))
+            with self.subTest(payload=payload), self.assertRaises(GhError):
+                viewer_login(gh)
+        gh = GhCLI(run_func=FakeGh(lambda c: ok({"data": {"viewer": {"login": "me"}}})))
+        self.assertEqual(viewer_login(gh), "me")
 
 
 # ---------------------------------------------------------------------------

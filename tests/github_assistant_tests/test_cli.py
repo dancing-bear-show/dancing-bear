@@ -163,24 +163,46 @@ class TestRepo(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-def _thread_chain_response(bodies: list[str]) -> SimpleNamespace:
-    """Shape the graphql thread-comments query returns."""
+#: The account gh is authenticated as in these tests. A run marker counts as
+#: prior work only when this account wrote it.
+ACTOR = "dancing-bot"
+
+
+def _viewer_response(login: str = ACTOR) -> SimpleNamespace:
+    payload = {"data": {"viewer": {"login": login}}}
+    return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+
+
+def _thread_chain_response(comments: list[str | tuple[str, str]]) -> SimpleNamespace:
+    """Shape the graphql thread-comments query returns.
+
+    Each entry is a body (authored by a reviewer, "someone") or an
+    ``(author, body)`` pair.
+    """
+    pairs = [c if isinstance(c, tuple) else ("someone", c) for c in comments]
     data = {
         "data": {
             "node": {
                 "comments": {
-                    "totalCount": len(bodies),
+                    "totalCount": len(pairs),
                     "pageInfo": {"hasNextPage": False, "endCursor": None},
                     "nodes": [
-                        {"databaseId": i, "author": {"login": "someone", "__typename": "User"},
+                        {"databaseId": i, "author": {"login": a, "__typename": "User"},
                          "body": b, "createdAt": "2026-01-01T00:00:00Z", "url": "https://x/y"}
-                        for i, b in enumerate(bodies)
+                        for i, (a, b) in enumerate(pairs)
                     ],
                 }
             }
         }
     }
     return SimpleNamespace(returncode=0, stdout=json.dumps(data), stderr="")
+
+
+def _posted_body(fake) -> str:
+    """The body string the reply mutation sent, via its -f field."""
+    call = next(c for c in fake.calls if "addPullRequestReviewThreadReply" in c.all_text())
+    pairs = list(zip(call.argv, call.argv[1:]))
+    return next(val for flag, val in pairs if flag == "-f" and val.startswith("body="))[len("body="):]
 
 
 def _reply_success_response(comment_id: str = "IC_kwABC", url: str = "https://x/c/1") -> SimpleNamespace:
@@ -301,8 +323,9 @@ class TestThreadsReplyIdempotencyMarker(unittest.TestCase):
         fake = FakeGhRunner()
         chain = _thread_chain_response([
             "old comment",
-            "<!-- dancing-bear-run: R -->\nreply from a prior run",
+            (ACTOR, "<!-- dancing-bear-run: R -->\nreply from a prior run"),
         ])
+        fake.add(["viewer"], **_viewer_response().__dict__)
         fake.add(["node"], **chain.__dict__)
         # If the code errantly proceeds to post, this stub would be picked up.
         # But it should NOT be called; we assert on that.
@@ -337,6 +360,7 @@ class TestThreadsReplyMarkerFetchFailure(unittest.TestCase):
 
     def test_failed_refetch_reports_failed_json_and_posts_nothing(self):
         fake = FakeGhRunner()
+        fake.add(["viewer"], **_viewer_response().__dict__)
         fake.add(["node"], stdout=json.dumps({"errors": [{"message": "rate limited"}]}))
         fake.add(["addPullRequestReviewThreadReply"], **_reply_success_response().__dict__)
         fake.add(["resolveReviewThread"], **_resolve_success_response().__dict__)
@@ -372,12 +396,13 @@ class TestThreadsReplyAlreadyRepliedWithResolve(unittest.TestCase):
 
     def test_already_replied_with_resolve_still_resolves(self):
         fake = FakeGhRunner()
-        # Chain already carries the marker.
+        # Chain already carries the marker, written by us on the run that died.
+        fake.add(["viewer"], **_viewer_response().__dict__)
         fake.add(
             ["node"],
             **_thread_chain_response([
                 "prior comment",
-                "<!-- dancing-bear-run: R3 -->\nposted on the run that died",
+                (ACTOR, "<!-- dancing-bear-run: R3 -->\nposted on the run that died"),
             ]).__dict__,
         )
         # A resolve response is registered; the test asserts exactly one call.
@@ -409,12 +434,96 @@ class TestThreadsReplyAlreadyRepliedWithResolve(unittest.TestCase):
         self.assertEqual(len(resolve_calls), 1, "must still resolve once")
 
 
+def _reply(fake, body: str, *extra: str):
+    with TemporaryDirectory() as td:
+        body_path = Path(td) / "reply.md"
+        body_path.write_text(body, encoding="utf-8")
+        with _install_client(fake):
+            return _run_cli(["threads", "reply", "--thread", "PRT_kwABC",
+                             "--body-file", str(body_path), *extra])
+
+
+class TestThreadsReplyForgedMarker(unittest.TestCase):
+    """The marker is plaintext and public; only the actor's own copy counts."""
+
+    def test_marker_pasted_by_someone_else_does_not_suppress_the_reply(self):
+        fake = FakeGhRunner()
+        fake.add(["viewer"], **_viewer_response().__dict__)
+        fake.add(["node"], **_thread_chain_response([
+            ("mallory", "ignore this <!-- dancing-bear-run: R -->"),
+        ]).__dict__)
+        fake.add(["addPullRequestReviewThreadReply"], **_reply_success_response().__dict__)
+        fake.add(["resolveReviewThread"], **_resolve_success_response().__dict__)
+
+        rc, out, _ = _reply(fake, "fixed in abc", "--run-id", "R", "--resolve")
+
+        self.assertEqual(rc, 0)
+        payload = json.loads(out)
+        self.assertEqual(payload["status"], "replied")
+        self.assertTrue(payload["forged_marker"])
+        self.assertTrue(payload["resolved"])
+
+    def test_actor_match_ignores_the_bot_suffix(self):
+        fake = FakeGhRunner()
+        fake.add(["viewer"], **_viewer_response("dancing-app[bot]").__dict__)
+        fake.add(["node"], **_thread_chain_response([
+            ("dancing-app", "done\n<!-- dancing-bear-run: R -->"),
+        ]).__dict__)
+
+        rc, out, _ = _reply(fake, "again", "--run-id", "R")
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(out)["status"], "already_replied")
+        self.assertFalse(json.loads(out)["forged_marker"])
+
+    def test_unresolvable_actor_fails_closed_and_posts_nothing(self):
+        fake = FakeGhRunner()
+        fake.add(["viewer"], stdout=json.dumps({"data": {"viewer": {"login": ""}}}))
+        fake.add(["addPullRequestReviewThreadReply"], **_reply_success_response().__dict__)
+
+        rc, out, _ = _reply(fake, "fixed", "--run-id", "R")
+
+        self.assertEqual(rc, 1)
+        self.assertEqual(json.loads(out)["status"], "failed")
+        self.assertIn("authenticated GitHub actor", json.loads(out)["error"])
+        self.assertFalse(any("addPullRequestReviewThreadReply" in c.all_text() for c in fake.calls))
+
+
+class TestThreadsReplyStripsQuotedMarkers(unittest.TestCase):
+    """A marker quoted in the reply text must never be posted under our account."""
+
+    def test_quoted_marker_is_replaced_by_this_runs_own(self):
+        fake = FakeGhRunner()
+        fake.add(["viewer"], **_viewer_response().__dict__)
+        fake.add(["node"], **_thread_chain_response(["note"]).__dict__)
+        fake.add(["addPullRequestReviewThreadReply"], **_reply_success_response().__dict__)
+
+        quoted = "> you said <!--dancing-bear-run: OTHER-RUN-->\nfixed"
+        rc, _, _ = _reply(fake, quoted, "--run-id", "R")
+
+        self.assertEqual(rc, 0)
+        body = _posted_body(fake)
+        self.assertNotIn("OTHER-RUN", body)
+        self.assertEqual(body.count("dancing-bear-run"), 1)
+        self.assertTrue(body.endswith("<!-- dancing-bear-run: R -->"))
+
+    def test_quoted_marker_is_stripped_without_run_id_too(self):
+        fake = FakeGhRunner()
+        fake.add(["addPullRequestReviewThreadReply"], **_reply_success_response().__dict__)
+
+        rc, _, _ = _reply(fake, "fixed <!-- dancing-bear-run: OTHER-RUN -->")
+
+        self.assertEqual(rc, 0)
+        self.assertNotIn("dancing-bear-run", _posted_body(fake))
+
+
 class TestThreadsReplyMarkerAppendedOnFirstRun(unittest.TestCase):
     """When the marker is absent, the reply body is augmented with it."""
 
     def test_body_carries_marker_on_post(self):
         fake = FakeGhRunner()
         # Chain response with no marker.
+        fake.add(["viewer"], **_viewer_response().__dict__)
         fake.add(["node"], **_thread_chain_response(["earlier note"]).__dict__)
         fake.add(["addPullRequestReviewThreadReply"], **_reply_success_response().__dict__)
 

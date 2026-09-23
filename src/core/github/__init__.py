@@ -12,11 +12,15 @@ from core.gh_cli import GhCLI, GhError
 
 from .authors import classify_author, normalize_login
 from .mutations import (
+    forged_run_marker,
     has_run_marker,
+    mark_body,
     reply_and_resolve,
     reply_to_thread,
     resolve_thread,
     run_marker,
+    strip_run_markers,
+    viewer_login,
 )
 from .repo import resolve_owner_repo
 from .threads import (
@@ -34,7 +38,9 @@ __all__ = [
     "client",
     "fetch_review_threads",
     "fetch_thread_comments",
+    "forged_run_marker",
     "has_run_marker",
+    "mark_body",
     "normalize_login",
     "render_summary",
     "reply_and_resolve",
@@ -42,6 +48,8 @@ __all__ = [
     "resolve_owner_repo",
     "resolve_thread",
     "run_marker",
+    "strip_run_markers",
+    "viewer_login",
 ]
 
 

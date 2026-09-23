@@ -30,8 +30,11 @@ body from a file, calls into `core.github`, and prints JSON.
 - `GITHUB_TOKEN` is scrubbed by `core.github.client()`.
 - `threads reply` verifies the GraphQL payload (gh exits 0 on `errors`); a
   failed reply never triggers a resolve.
-- `threads reply --run-id RUN` re-fetches the whole chain and skips if any
-  comment already carries `<!-- dancing-bear-run: RUN -->`.
+- `threads reply --run-id RUN` re-fetches the whole chain and skips only if a
+  comment by the authenticated actor carries `<!-- dancing-bear-run: RUN -->`.
+  The marker is public plaintext, so a copy by anyone else is reported as
+  `forged_marker` and ignored. Markers already inside the body are stripped
+  before posting, so a quoted one is never posted under our account.
 - `pr edit` reads the PR back and exits 1 if GitHub does not hold what was sent.
 
 Package name is `github_assistant`, not `github`, so it never shadows PyPI's

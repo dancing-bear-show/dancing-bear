@@ -11,9 +11,12 @@ closure: the reviewer sees the concern dismissed with no explanation.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from core.gh_cli import GhCLI, GhError
+
+from .authors import normalize_login
 
 REPLY_MUTATION = """
 mutation($threadId: ID!, $body: String!) {
@@ -33,20 +36,72 @@ mutation($threadId: ID!) {
 
 RUN_MARKER = "<!-- dancing-bear-run: {run_id} -->"
 
+#: Any run marker, whatever its run id or spacing. Used to strip markers out of
+#: reply text before this run's own is appended.
+_ANY_RUN_MARKER = re.compile(r"<!--\s*dancing-bear-run:.*?-->", re.S)
+
+VIEWER_QUERY = "query { viewer { login } }"
+
 
 def run_marker(run_id: str) -> str:
     """The invisible line a reply carries so a retry can recognise it."""
     return RUN_MARKER.format(run_id=run_id)
 
 
-def has_run_marker(comments: list[dict[str, Any]], run_id: str) -> bool:
-    """True when any comment in the chain already carries this run's marker.
+def viewer_login(gh: GhCLI) -> str:
+    """Login of the account gh is authenticated as; raises when unknown.
+
+    Fails closed: an empty actor matches no comment, so every retry would
+    re-post its replies as duplicates.
+    """
+    data = gh.graphql_checked(VIEWER_QUERY)
+    login = ((data.get("viewer") or {}).get("login") or "").strip()
+    if not login:
+        raise GhError("could not resolve the authenticated GitHub actor")
+    return login
+
+
+def _marked(comments: list[dict[str, Any]], run_id: str) -> list[dict[str, Any]]:
+    marker = run_marker(run_id)
+    return [c for c in comments if marker in (c.get("body") or "")]
+
+
+def has_run_marker(comments: list[dict[str, Any]], run_id: str, *, actor: str) -> bool:
+    """True when a comment by ``actor`` in the chain carries this run's marker.
 
     Searches the whole chain: a reviewer may have commented after our reply, so
     "is the latest comment ours" misses exactly the retry this guards.
+
+    Both conditions are required. The marker alone is forgeable — it is
+    plaintext, and the run id is public once the first reply posts, so anyone
+    can paste it into a thread to suppress the reply this run owes there.
+    Authorship alone is not specific — the same account posts for other runs.
     """
-    marker = run_marker(run_id)
-    return any(marker in (c.get("body") or "") for c in comments)
+    me = normalize_login(actor)
+    return any(normalize_login(c.get("author")) == me for c in _marked(comments, run_id))
+
+
+def forged_run_marker(comments: list[dict[str, Any]], run_id: str, *, actor: str) -> bool:
+    """True when someone other than ``actor`` posted this run's marker."""
+    me = normalize_login(actor)
+    return any(normalize_login(c.get("author")) != me for c in _marked(comments, run_id))
+
+
+def strip_run_markers(body: str) -> str:
+    """Remove every run marker from ``body``.
+
+    Reply text is composed from reviewer-influenced material and may quote a
+    comment. A quoted marker posted by our own account would satisfy both
+    halves of ``has_run_marker`` and suppress the reply on whatever thread and
+    run it names.
+    """
+    return _ANY_RUN_MARKER.sub("", body)
+
+
+def mark_body(body: str, run_id: str | None) -> str:
+    """Strip any markers from ``body``, then append this run's (if any)."""
+    clean = strip_run_markers(body).rstrip()
+    return f"{clean}\n\n{run_marker(run_id)}" if run_id else clean
 
 
 def reply_to_thread(gh: GhCLI, thread_id: str, body: str) -> dict[str, str]:

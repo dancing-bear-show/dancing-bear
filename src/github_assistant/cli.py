@@ -37,12 +37,14 @@ from core.github import (
     client,
     fetch_review_threads,
     fetch_thread_comments,
+    forged_run_marker,
     has_run_marker,
+    mark_body,
     render_summary,
     reply_to_thread,
     resolve_owner_repo,
     resolve_thread,
-    run_marker,
+    viewer_login,
 )
 from core.github import pulls as _pulls
 from core.github import threads as _threads_mod
@@ -177,7 +179,7 @@ def _reply_result_exit(resolved_asked: bool, resolved: bool) -> int:
 
 
 def _handle_already_replied(
-    gh: GhCLI, thread_id: str, resolve_asked: bool,
+    gh: GhCLI, thread_id: str, resolve_asked: bool, forged: bool,
 ) -> int:
     """The marker check found the reply already landed on a prior run.
 
@@ -196,6 +198,7 @@ def _handle_already_replied(
         "comment_id": None,
         "url": None,
         "resolved": resolved,
+        "forged_marker": forged,
         "error": err,
     })
     return _reply_result_exit(resolve_asked, resolved)
@@ -214,27 +217,29 @@ def _handle_reply_failure(thread_id: str, exc: GhError) -> int:
         "comment_id": None,
         "url": None,
         "resolved": False,
+        "forged_marker": False,
         "error": str(exc),
     })
     return ExitCode.ERROR
 
 
-def _append_marker(body: str, marker: str) -> str:
-    """Marker on its own line, preserving whatever trailing whitespace body had."""
-    return f"{body}\n{marker}" if body.endswith("\n") else f"{body}\n\n{marker}"
-
-
 @threads_group.command("reply", help="Reply into a thread; optionally resolve after verifying")
 @app.argument("--thread", required=True, help="Review thread node id")
 @app.argument("--body-file", required=True, dest="body_file", help="Body path (- for stdin)")
-@app.argument("--run-id", dest="run_id", help="Append a run marker and skip if already present")
+@app.argument("--run-id", dest="run_id", help="Append a run marker; skip if our own reply carries it")
 @app.argument("--resolve", action="store_true", help="Resolve after a verified reply")
 def cmd_threads_reply(args) -> int:
     """Post ``--body-file`` into ``--thread``.
 
-    ``--run-id`` re-fetches the whole chain first: any comment already carrying
-    ``<!-- dancing-bear-run: RUN -->`` wins. Nothing is posted; if --resolve
-    was asked, we still resolve.
+    Any run marker already inside the body is stripped first, with or without
+    ``--run-id``: a quoted marker posted under our account would read as our
+    own prior reply and suppress one on whatever thread it names.
+
+    ``--run-id`` re-fetches the whole chain first. A comment carrying
+    ``<!-- dancing-bear-run: RUN -->`` counts as prior work only when the
+    authenticated actor wrote it — the marker is plaintext and public, so
+    anyone can paste it. Nothing is posted then; if --resolve was asked, we
+    still resolve. A marker from anyone else is reported as ``forged_marker``.
 
     ``--resolve`` runs *only* after the reply verifiably landed. gh exits 0 on
     a GraphQL ``errors`` payload, so a resolve gated on gh's exit status alone
@@ -242,20 +247,23 @@ def cmd_threads_reply(args) -> int:
     concern silently.
     """
     gh = _gh()
-    body = _read_body(args.body_file)
     thread_id = str(args.thread)
+    body = mark_body(_read_body(args.body_file), args.run_id)
+    forged = False
 
     if args.run_id:
         # Whole chain, not the latest comment: a reviewer may have replied
         # since our last run, and "is the latest ours?" misses exactly that.
-        # A failed re-fetch is a failed reply: posting blind could duplicate.
+        # A failed actor lookup or re-fetch is a failed reply: posting blind
+        # could duplicate, and an unknown actor would match nothing.
         try:
+            actor = viewer_login(gh)
             existing = fetch_thread_comments(gh, thread_id)
         except GhError as exc:
             return _handle_reply_failure(thread_id, exc)
-        if has_run_marker(existing, args.run_id):
-            return _handle_already_replied(gh, thread_id, bool(args.resolve))
-        body = _append_marker(body, run_marker(args.run_id))
+        forged = forged_run_marker(existing, args.run_id, actor=actor)
+        if has_run_marker(existing, args.run_id, actor=actor):
+            return _handle_already_replied(gh, thread_id, bool(args.resolve), forged)
 
     try:
         reply = reply_to_thread(gh, thread_id, body)
@@ -272,6 +280,7 @@ def cmd_threads_reply(args) -> int:
         "comment_id": reply["comment_id"],
         "url": reply.get("url") or "",
         "resolved": resolved,
+        "forged_marker": forged,
         "error": resolve_error,
     })
     return _reply_result_exit(bool(args.resolve), resolved)
