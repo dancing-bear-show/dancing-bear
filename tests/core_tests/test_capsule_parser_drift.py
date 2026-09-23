@@ -39,10 +39,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # listed here. The first prefix is also how the schema is fetched.
 #
 # Two subtleties, both learned from real misses:
-#   - The invocation is not always ``./bin/<app>``. desk and resume ship no
-#     wrapper (``python3 -m desk``, ``./bin/assistant resume``), and their
-#     capsules once advertised ``./bin/desk-assistant`` / ``./bin/resume-assistant``,
-#     neither of which exists.
+#   - The invocation is not always ``./bin/<app>``. resume ships no wrapper
+#     (``./bin/assistant resume``). The desk and resume capsules once advertised
+#     ``./bin/desk-assistant`` / ``./bin/resume-assistant``, neither of which
+#     exists. desk now has ``./bin/desk``.
 #   - One capsule may use several spellings of the same CLI. mail advertises
 #     both ``./bin/mail`` and the legacy ``./bin/mail-assistant``; listing only
 #     one silently skips every command under the other.
@@ -50,7 +50,7 @@ APPS = {
     "apple-music-assistant": [["./bin/apple-music-assistant"]],
     "calendar": [["./bin/calendar"], ["./bin/calendar-assistant"]],
     "charts": [["./bin/charts"]],
-    "desk": [["python3", "-m", "desk"]],
+    "desk": [["./bin/desk"]],
     "diagrams": [["./bin/diagrams"]],
     "github": [["./bin/github"]],
     "mail": [["./bin/mail"], ["./bin/mail-assistant"]],
@@ -144,8 +144,8 @@ def _run(args: list[str]) -> subprocess.CompletedProcess:
     # Two ways this subprocess can silently test the wrong code, both of which
     # surface as a passing test rather than an error:
     #
-    #   1. PYTHONPATH. Unpinned, `-m desk` imports whatever is installed (or an
-    #      inherited path from another checkout), so the capsule under test is
+    #   1. PYTHONPATH. Unpinned, an import resolves to whatever is installed (or
+    #      an inherited path from another checkout), so the capsule under test is
     #      rendered from code this run did not change.
     #   2. The interpreter. A literal `python3` is resolved from PATH, which in
     #      this repo points at the MAIN checkout's venv even when the suite runs
@@ -155,8 +155,8 @@ def _run(args: list[str]) -> subprocess.CompletedProcess:
     #      different version entirely. sys.executable is the interpreter running
     #      this test, which is the one whose behaviour we mean to check.
     #
-    # APPS keeps the literal "python3" because the capsule text says python3;
-    # only the spawned argv is rewritten.
+    # Callers pass a literal "python3" to mean "this suite's interpreter"; only
+    # the spawned argv is rewritten.
     argv = [sys.executable if a == "python3" else a for a in args]
     env = dict(os.environ)
     env["PYTHONPATH"] = str(REPO_ROOT / "src")

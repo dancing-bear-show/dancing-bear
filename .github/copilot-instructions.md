@@ -15,9 +15,9 @@ capsule a machine-readable instruction to run something broken — not a stale
 comment. `tests/core_tests/test_capsule_parser_drift.py` (#293) resolves every
 command a capsule advertises against that CLI's real parser schema.
 
-Do not assume the entry point is `./bin/<app>` — four differ: `apple-music` and
-`qlty` use `-assistant` wrappers, `resume` goes through `./bin/assistant resume`,
-and `desk` has no wrapper (`python3 -m desk`). `./bin/llm inventory --stdout` is
+Do not assume the entry point is `./bin/<app>` — three differ: `apple-music` and
+`qlty` use `-assistant` wrappers, and `resume` goes through
+`./bin/assistant resume`. `./bin/llm inventory --stdout` is
 the authoritative list.
 
 ## Verification Must Actually Verify

@@ -48,12 +48,14 @@ class TestDeskCapsuleContent(unittest.TestCase):
         result = build_agentic_capsule()
         self.assertIn("macOS", result)
 
-    def test_includes_python3_invocation(self):
+    def test_advertises_the_bin_wrapper(self):
         from desk.agentic import build_agentic_capsule
         result = build_agentic_capsule()
-        # desk ships no bin/ wrapper — `./bin/desk-assistant` never existed, so
-        # the capsule advertises the form that actually runs.
-        self.assertIn("python3 -m desk", result)
+        # `./bin/desk-assistant` never existed; `./bin/desk` is the router
+        # wrapper, which repairs a foreign PYTHONPATH like every other app's.
+        self.assertIn("./bin/desk ", result)
+        self.assertNotIn("python3 -m desk", result)
+        self.assertNotIn("desk-assistant", result)
 
 
 class TestDeskDomainMapContent(unittest.TestCase):

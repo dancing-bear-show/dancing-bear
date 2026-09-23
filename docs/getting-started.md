@@ -115,11 +115,8 @@ flowchart TD
     Q[What do I want to run?] --> K{Know the app name?}
     K -- no --> I[./bin/llm inventory --stdout]
     I --> K
-    K -- yes --> W{Has a bin wrapper?}
-    W -- yes --> B["./bin/&lt;app&gt; &lt;subcommand&gt;"]
-    W -- no --> M[python3 -m desk]
+    K -- yes --> B["the invocation inventory prints, e.g. ./bin/&lt;app&gt; &lt;subcommand&gt;"]
     B --> G["Unsure of flags? add --agentic --agentic-format yaml --agentic-compact"]
-    M --> G
 ```
 
 Three commands cover most of it:
@@ -130,9 +127,9 @@ Three commands cover most of it:
 ./bin/<app> --agentic --agentic-format yaml --agentic-compact
 ```
 
-`inventory` is authoritative because `./bin/<app>` is wrong for four apps:
-`apple-music` and `qlty` use `-assistant` wrappers, `resume` goes through
-`./bin/assistant resume`, and `desk` has no wrapper at all (`python3 -m desk`).
+`inventory` is authoritative because `./bin/<app>` is wrong for three apps:
+`apple-music` and `qlty` use `-assistant` wrappers, and `resume` goes through
+`./bin/assistant resume`.
 
 Check `./bin/workflow list` before building any multi-step process by hand.
 There is a good chance one already exists.

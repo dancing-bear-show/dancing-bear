@@ -20,7 +20,7 @@ telemetry).
 ./bin/llm domain-map --stdout
 ```
 
-All 18 apps support `--agentic`. `./bin/llm inventory --stdout` prints the exact invocation for each — `./bin/<app>` is wrong for four of them.
+All 19 apps support `--agentic`. `./bin/llm inventory --stdout` prints the exact invocation for each — `./bin/<app>` is wrong for three of them.
 
 ## Key Rules
 
@@ -41,7 +41,7 @@ resume/       extract/summarize/render resumes
 phone/        iOS layout tooling
 whatsapp/     local-only ChatStorage search
 wifi/         diagnostics
-desk/         macOS filesystem tidying (no bin/ wrapper; python3 -m desk)
+desk/         macOS filesystem tidying
 apple_music/  Apple Music API
 maker/        utility generators
 charts/       time-series chart rendering

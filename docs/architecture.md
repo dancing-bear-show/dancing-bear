@@ -172,7 +172,7 @@ The workflow engine still inserts one when compiling stages
 All 18 apps support `--agentic --agentic-format json`, which emits a
 machine-readable schema derived from the real parser. It cannot drift from the
 actual CLI. Run `./bin/llm inventory --stdout` for the authoritative invocation
-per app; `./bin/<app>` is wrong for four of them.
+per app; `./bin/<app>` is wrong for three of them.
 
 ```mermaid
 flowchart LR

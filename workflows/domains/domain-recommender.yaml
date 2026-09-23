@@ -189,9 +189,8 @@ stages:
         Set has_agentic_schema=true if exit code == 0.
         Every app supports --agentic, so a false here is a defect worth
         reporting, not an expected result. Note the invocation differs for
-        four of them: apple-music is ./bin/apple-music-assistant, qlty is
-        ./bin/qlty-assistant, resume is ./bin/assistant resume, and desk has
-        no wrapper at all (PYTHONPATH="$PWD/src" python3 -m desk). Run ./bin/llm inventory --stdout
+        three of them: apple-music is ./bin/apple-music-assistant, qlty is
+        ./bin/qlty-assistant, and resume is ./bin/assistant resume. Run ./bin/llm inventory --stdout
         for the authoritative list rather than assuming ./bin/<cli>.
         "core" has no CLI — always false.
 
@@ -320,7 +319,7 @@ stages:
 
       3. Extract CLI invocations from each command string using:
            Primary pattern: r'(?:^|[\s;&|(])\./bin/([\w][\w-]*)'
-           Desk (no wrapper): r'python3\s+(?:-[^\s]+\s+)*-m\s+desk'
+           Desk, module form (transcripts from before ./bin/desk existed): r'python3\s+(?:-[^\s]+\s+)*-m\s+desk'
          After capturing the CLI name, apply dispatcher normalisation:
            If the captured name is "assistant", discard "assistant" and take the
            NEXT shell token as a candidate app name. Accept it ONLY if it matches
