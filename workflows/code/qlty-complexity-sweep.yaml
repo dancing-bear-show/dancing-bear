@@ -796,7 +796,7 @@ stages:
            original score is a valid outcome; a silently broken one is not.
 
         d. Confirm the file still imports:
-             python3 -c "import <module_path>" 2>&1
+             PYTHONPATH="$PWD/src" python3 -c "import <module_path>" 2>&1
 
            Derive module_path from the path relative to src/: strip the src/
            prefix, replace / with ., strip .py — then SPECIAL-CASE
@@ -984,7 +984,7 @@ stages:
            Any hit is an unupdated call site. Fix it before moving on.
 
         g. Confirm each new module imports:
-             python3 -c "import <new_module_path>" 2>&1
+             PYTHONPATH="$PWD/src" python3 -c "import <new_module_path>" 2>&1
 
       Step 4 — test-file constraint (applies to BOTH strategies):
         You have Edit access to the whole tree, but the test suite is the
@@ -1549,8 +1549,9 @@ stages:
       refactor: with no backward-compat re-export layer, a missed call site
       is a hard runtime failure with no safety net.
 
-      IMPORTANT: export PYTHONPATH="$(pwd)/src" before any python3 -c import
-      check, for the same reason noted in verify-tests.
+      IMPORTANT: every inline import check below carries a
+      PYTHONPATH="$PWD/src" prefix, for the same reason noted in verify-tests.
+      Keep it on each one.
 
       Step 1 — enumerate what changed:
         Read {workspace}/outputs/*-splits.md for every file created,
@@ -1575,7 +1576,7 @@ stages:
 
       Step 2 — import every touched module:
         For each modified or created .py file:
-          python3 -c "import <module_path>" 2>&1
+          PYTHONPATH="$PWD/src" python3 -c "import <module_path>" 2>&1
 
       Step 3 — export parity against the PRE-SWEEP commit (never HEAD):
         Confirm no public symbol silently vanished. Do NOT rely on plan.md's
@@ -1674,7 +1675,7 @@ stages:
 
         b. For each MOVED symbol, verify it at its destination instead of at
            the original path:
-             python3 -c "from <new_module> import <Symbol>; print('ok')"
+             PYTHONPATH="$PWD/src" python3 -c "from <new_module> import <Symbol>; print('ok')"
 
            The union of symbols across the original path (whatever it still
            holds) and its new siblings must cover **/tmp/before.txt — the
@@ -2108,7 +2109,7 @@ stages:
           - NEVER fix a dangling reference by adding a re-export shim to the
             old module. That is the forbidden pattern this workflow exists to
             avoid; update the call site instead.
-          - Re-run: python3 -c "import <module_path>" 2>&1
+          - Re-run: PYTHONPATH="$PWD/src" python3 -c "import <module_path>" 2>&1
           - Confirm green before moving on.
 
       Step 3 — remove any detected facade:

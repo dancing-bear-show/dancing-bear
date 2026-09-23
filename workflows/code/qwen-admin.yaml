@@ -190,7 +190,7 @@ stages:
       The check lives in src/workflow/param_guard.py and is covered by
       tests/workflow_tests/test_param_guard.py, including both disproven
       payloads above — so a future edit to this YAML cannot silently gut the
-      protection. That is why it is a CLI call and not an inline `python3 -c`
+      protection. That is why it is a CLI call and not an inline Python
       program: the catalog test only parses and compiles this text, so
       validation logic embedded here is untested by construction. The other
       three probes in this workflow call the same command for their own
@@ -240,7 +240,7 @@ stages:
                             exited non-zero with empty stdout. Keep the
                             `|| exit 1`: without it a rejection leaves HOST
                             empty and curl would run against "/api/tags".
-                            Do NOT reach for an inline `python3 -c` here. A
+                            Do NOT reach for an inline Python one-liner here. A
                             bare interpreter imports sitecustomize from every
                             PYTHONPATH entry during startup, so a foreign
                             checkout's startup hook would execute — in a stage
