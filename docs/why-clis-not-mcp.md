@@ -48,7 +48,7 @@ little.
 ## The schema is derived, not written
 
 The usual objection to CLIs is that agents need structured tool definitions,
-and argv is only strings. This repo answers that directly. All 18 apps support
+and argv is only strings. This repo answers that directly. All 19 apps support
 
 ```bash
 ./bin/mail --agentic --agentic-format json
@@ -214,5 +214,5 @@ and shell-native.**
 - `src/core/agentic.py` — capsule helpers
 - `src/core/cli_errors.py` — `ExitCode` and the error hierarchy
 - `src/workflow/compiler.py` — the workflow engine shelling out to these CLIs
-- `./bin/llm inventory --stdout` — authoritative list of the 18 agentic apps
+- `./bin/llm inventory --stdout` — authoritative list of the 19 agentic apps
   and their exact invocations
