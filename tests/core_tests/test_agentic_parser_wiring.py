@@ -31,6 +31,7 @@ import io
 import pathlib
 import shlex
 import unittest
+from typing import TypeGuard
 
 from core.agentic import list_subcommands
 
@@ -253,16 +254,20 @@ class GuardsResolveTests(unittest.TestCase):
     surfaces.
     """
 
+    @staticmethod
+    def _is_guard_call(node: ast.AST) -> TypeGuard[ast.Call]:
+        return (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_cli_path_exists"
+        )
+
     def _literal_guards(self, source: str):
         guards = []
         for node in ast.walk(ast.parse(source)):
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id == "_cli_path_exists"
-                and node.args
-                and isinstance(node.args[0], ast.List)
-            ):
+            if not self._is_guard_call(node):
+                continue
+            if node.args and isinstance(node.args[0], ast.List):
                 try:
                     guards.append(ast.literal_eval(node.args[0]))
                 except ValueError:

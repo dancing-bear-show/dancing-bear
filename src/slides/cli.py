@@ -97,13 +97,13 @@ def _apply_layout_map(deck: "SlideDeck", cli_layout_map: dict[str, int] | None) 
         deck.metadata.layout_map = cli_layout_map
 
 
-def _list_pptx_layouts(pptx_path: str | Path) -> list[dict[str, str]]:
+def _list_pptx_layouts(pptx_path: str | Path) -> list[dict[str, object]]:
     """List slide layouts in a .pptx template.
 
     Opens the .pptx as a ZIP and regexes ppt/slideLayouts/*.xml (excluding
     _rels/) for a name="..." attribute. Falls back to "(no name)".
     """
-    layouts: list[dict[str, str]] = []
+    layouts: list[dict[str, object]] = []
     with ZipFile(pptx_path) as zf:
         layout_names = sorted(
             n
@@ -118,7 +118,7 @@ def _list_pptx_layouts(pptx_path: str | Path) -> list[dict[str, str]]:
     return layouts
 
 
-def _emit_templates(rows: list[dict[str, str]], fmt: str) -> int:
+def _emit_templates(rows: list[dict[str, object]], fmt: str) -> int:
     """Emit template layout rows as json, real yaml, or a table.
 
     core.cli_output.emit_rows supports only json/csv/table -- its fallback

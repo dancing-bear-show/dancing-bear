@@ -83,4 +83,5 @@ flowchart LR
 **Network / secrets**
 - `http.py` — `HttpClient`: requests-based HTTP with retry, timeouts, secret masking.
 - `secrets.py` — `mask_text`, `mask_headers`, `mask_url`.
-- `gh_cli.py` — `GhCLI`: thin `gh` CLI wrapper for JSON-friendly api/graphql/pr calls; errors raise `CLIError`.
+- `gh_cli.py` — `GhCLI`: thin `gh` CLI wrapper for JSON-friendly api/graphql/pr calls; errors raise `CLIError`. `graphql_checked` raises on a GraphQL `errors` array (gh exits 0 on those). `graphql_checked` and `api_post` send the request as JSON on stdin (`gh api --input -`), so no body reaches gh's argv and `@path` is never read as a file. `field_args` (strings via `-f`) remains only for `api()` and the legacy `graphql()`.
+- `github/` — the one GitHub access layer: paginated review-thread fetch (`threads`), bot/human classification (`authors`), verified reply/resolve (`mutations`), repo identity (`repo`), PR porcelain (`pulls`). `./bin/github`, `bin/pr-assistant`, and workflow stages all go through it — do not re-implement these calls with raw `gh`.

@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 from telemetry._menubar_config import (
@@ -501,14 +502,14 @@ class TestApplyConfigLine(unittest.TestCase):
     def _make_bool_keys(self) -> tuple[dict, dict]:
         """Return a minimal cfg + bool_keys for testing."""
         sections = {k: dict(v) for k, v in _DEFAULT_SECTIONS.items()}
-        cfg = {
+        cfg: dict[str, Any] = {
             "monthly_budget": _DEFAULT_MONTHLY_BUDGET,
             "icon_display": _DEFAULT_ICON_TEMPLATE,
             "poll_interval": _DEFAULT_POLL_INTERVAL,
             "cost_multiplier": _DEFAULT_COST_MULTIPLIER,
             "sections": sections,
         }
-        s = cfg["sections"]
+        s: dict[str, Any] = cfg["sections"]
         bool_keys = {
             "usage": (s["usage"], "enabled"),
             "models": (s["models"], "enabled"),

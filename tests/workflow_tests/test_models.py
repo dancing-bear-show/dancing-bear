@@ -11,15 +11,19 @@ import unittest
 from dataclasses import FrozenInstanceError
 
 from workflow.models import (
+    AgentAccess,
     AgentSpec,
     DomainRule,
     OutputMode,
     OutputSpec,
+    RuleCategory,
+    RuleSeverity,
     StageKind,
     StageSpec,
     StageStatus,
     TriggerSpec,
     ValidationSpec,
+    ValidationStrategy,
     WorkflowRun,
 )
 from tests.workflow_tests.helpers.factories import (
@@ -112,7 +116,7 @@ class TestFrozenDataclasses(unittest.TestCase):
     def test_validation_spec_frozen(self) -> None:
         with self.assertRaises(FrozenInstanceError):
             spec = make_validation_spec()
-            spec.strategy = "changed"  # type: ignore[misc]
+            spec.strategy = ValidationStrategy.adversarial  # type: ignore[misc]
 
     def test_stage_spec_frozen(self) -> None:
         with self.assertRaises(FrozenInstanceError):
@@ -163,7 +167,7 @@ class TestAgentSpec(unittest.TestCase):
             role="reviewer",
             model="sonnet",
             tools=("Read", "Grep"),
-            access="read-write",
+            access=AgentAccess.read_write,
         )
         self.assertEqual(spec.role, "reviewer")
         self.assertEqual(spec.model, "sonnet")
@@ -251,8 +255,8 @@ class TestDomainRule(unittest.TestCase):
         rule = DomainRule(
             id="DR-002",
             description="Critical rule",
-            severity="critical",
-            category="consistency",
+            severity=RuleSeverity.critical,
+            category=RuleCategory.consistency,
             source_cmd="./bin/mail-assistant filters list",
         )
         self.assertEqual(rule.severity, "critical")
@@ -267,7 +271,7 @@ class TestDomainRule(unittest.TestCase):
 
 class TestValidationSpec(unittest.TestCase):
     def test_defaults(self) -> None:
-        spec = ValidationSpec(strategy="fact_check")
+        spec = ValidationSpec(strategy=ValidationStrategy.fact_check)
         self.assertEqual(spec.criteria, ())
         self.assertEqual(spec.domain_rules, ())
         self.assertEqual(spec.max_revisions, 2)
@@ -275,7 +279,7 @@ class TestValidationSpec(unittest.TestCase):
     def test_with_domain_rules(self) -> None:
         rule = make_domain_rule(id="DR-003", severity="critical")
         spec = ValidationSpec(
-            strategy="adversarial",
+            strategy=ValidationStrategy.adversarial,
             criteria=("No hallucinated numbers",),
             domain_rules=(rule,),
             max_revisions=3,
@@ -328,6 +332,7 @@ class TestStageSpec(unittest.TestCase):
         validation = make_validation_spec(strategy="cross_unit")
         spec = make_stage_spec(validation=validation)
         self.assertIsNotNone(spec.validation)
+        assert spec.validation is not None  # nosec B101 - narrows Optional for mypy
         self.assertEqual(spec.validation.strategy, "cross_unit")
 
 

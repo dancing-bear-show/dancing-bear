@@ -96,14 +96,10 @@ class StatusCommand:
         out = writer or OutputWriter()
         nxt = status.get("next_scheduled_in_sec")
         nxt_txt = f"{nxt}s" if nxt is not None else "-"
-        counts: dict[str, object] = (
-            status.get("counts") if isinstance(status.get("counts"), dict) else {}
-        )
-        error_ids: list[str] = (
-            status.get("recent_error_ids")
-            if isinstance(status.get("recent_error_ids"), list)
-            else []
-        )
+        _counts = status.get("counts")
+        counts: dict[str, object] = _counts if isinstance(_counts, dict) else {}
+        _error_ids = status.get("recent_error_ids")
+        error_ids: list[str] = _error_ids if isinstance(_error_ids, list) else []
 
         lines = [
             f"Queue root: {status.get('root')}",

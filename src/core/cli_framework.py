@@ -428,7 +428,7 @@ class CLIApp:
         if cmd_func is None:
             if on_no_command is not None:
                 return on_no_command()
-            self._parser.print_help()
+            parser.print_help()
             return ExitCode.USAGE
 
         # Run the command with error handling

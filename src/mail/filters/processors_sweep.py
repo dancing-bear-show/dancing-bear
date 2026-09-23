@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from core.pipeline import Processor, ResultEnvelope
 
+from ..providers.base import BaseProvider
 from ..utils.filters import (
     build_gmail_query,
     expand_categories,
@@ -260,7 +261,7 @@ class FiltersRemoveTokenProcessor(Processor[FiltersRemoveTokenPayload, ResultEnv
 
 def _build_sweep_instruction(
     spec: dict,
-    client: object,
+    client: BaseProvider,
     config: SweepConfig,
 ) -> FiltersSweepInstruction:
     match = spec.get("match") or {}

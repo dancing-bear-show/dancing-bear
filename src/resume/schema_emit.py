@@ -69,7 +69,7 @@ def _field_schema(tp: Any) -> dict[str, Any]:
         item_tp = args[0] if args else str
         schema: dict[str, Any] = {"type": "array", "items": _field_schema(item_tp)}
     elif dataclasses.is_dataclass(tp):
-        schema = dataclass_schema(tp)
+        schema = dataclass_schema(tp if isinstance(tp, type) else type(tp))
     elif tp in _PY_TO_JSON:
         schema = {"type": _PY_TO_JSON[tp]}
     elif tp is dict or origin is dict:
@@ -84,7 +84,7 @@ def _field_schema(tp: Any) -> dict[str, Any]:
 
 def _emitted_fields(cls: type) -> list[dataclasses.Field]:
     """Document-shape fields, excluding round-trip bookkeeping."""
-    internal = getattr(cls, "_INTERNAL", frozenset())
+    internal: frozenset[str] = getattr(cls, "_INTERNAL", frozenset())
     return [f for f in dataclasses.fields(cls) if f.name not in internal]
 
 

@@ -81,6 +81,7 @@ _AGENTIC_APPS: dict[str, str] = {
     "charts": "./bin/charts",
     "desk": "python3 -m desk",
     "diagrams": "./bin/diagrams",
+    "github": "./bin/github",
     "mail": "./bin/mail",
     "maker": "./bin/maker",
     "phone": "./bin/phone",

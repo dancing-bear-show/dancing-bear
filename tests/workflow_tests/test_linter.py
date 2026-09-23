@@ -8,6 +8,7 @@ variable-reference warnings, and CLI command validation).
 from __future__ import annotations
 
 import tempfile
+from typing import cast
 import unittest
 from pathlib import Path
 
@@ -17,9 +18,9 @@ from workflow.linter import (
     LintWarning,
     _compute_dag_depth,
     _extract_var_refs,
-    _roles_that_cannot_write,
     lint_workflow,
 )
+from workflow.linter_access import _roles_that_cannot_write
 
 
 # ---------------------------------------------------------------------------
@@ -96,15 +97,17 @@ class TestLintResultAsDict(unittest.TestCase):
         r = LintResult(file="wf.yaml", valid=False)
         r.errors.append(LintError(stage="<global>", field="file", message="not found"))
         d = r.as_dict()
-        self.assertEqual(len(d["errors"]), 1)
-        self.assertEqual(d["errors"][0], {"stage": "<global>", "field": "file", "message": "not found"})
+        errors = cast(list[dict[str, str]], d["errors"])
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0], {"stage": "<global>", "field": "file", "message": "not found"})
 
     def test_warnings_serialised(self) -> None:
         r = LintResult(file="wf.yaml")
         r.warnings.append(LintWarning(stage="gather", field="description", message="undeclared {foo}"))
         d = r.as_dict()
-        self.assertEqual(len(d["warnings"]), 1)
-        self.assertEqual(d["warnings"][0]["stage"], "gather")
+        warnings = cast(list[dict[str, str]], d["warnings"])
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(warnings[0]["stage"], "gather")
 
     def test_lint_error_is_frozen(self) -> None:
         e = LintError(stage="s", field="f", message="m")

@@ -33,6 +33,7 @@ class TestBundlePath(unittest.TestCase):
         with patch.object(sys, "executable", str(fake_exe)):
             result = bundle_path()
             self.assertIsNotNone(result)
+            assert result is not None  # nosec B101 - narrows Optional for mypy
             self.assertEqual(result.suffix, ".app")
             self.assertEqual(result.name, "ClaudeStats.app")
 

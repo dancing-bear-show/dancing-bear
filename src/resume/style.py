@@ -20,7 +20,7 @@ DEFAULT_STOPWORDS = {
 def _iter_texts(corpus_dir: str | os.PathLike[str]) -> Iterable[str]:
     p = Path(corpus_dir)
     if not p.exists():
-        return []
+        return
     for ext in ("*.txt", "*.md", "*.docx"):
         for f in p.rglob(ext):
             try:

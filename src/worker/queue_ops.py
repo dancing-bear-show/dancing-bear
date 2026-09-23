@@ -120,7 +120,8 @@ def list_pending(root: Path = QUEUE_ROOT) -> list[tuple[Path, dict[str, object]]
     # Sort by priority, then enqueued_at
     def _key(item: tuple[Path, dict[str, object]]):
         d = item[1]
-        pri = int(d.get("priority", 5))
+        raw_pri = d.get("priority")
+        pri = int(raw_pri) if isinstance(raw_pri, (int, float, str)) else 5
         enq = str(d.get("enqueued_at") or "9999-12-31T23:59:59Z")
         return (pri, enq)
 
@@ -370,19 +371,16 @@ class ReapJobContext:
     job_id: str
 
 
-def _reap_move_to_pending(ctx: ReapJobContext, log: object) -> bool:
+def _reap_move_to_pending(ctx: ReapJobContext, log: logging.Logger) -> bool:
     """Rename a stale processing job to pending/ and update its metadata."""
-    import logging as _logging
-
-    _log: _logging.Logger = log  # type: ignore[assignment]
     new_path = _job_path(ctx.paths["pending"], ctx.job_id)
     try:
         _rename(ctx.p, new_path)
     except FileNotFoundError:
-        _log.debug("Stale job %s already gone before reap rename; skipping", ctx.job_id)
+        log.debug("Stale job %s already gone before reap rename; skipping", ctx.job_id)
         return False
     except Exception as exc:
-        _log.debug("Failed to reap stale job %s: %s", ctx.job_id, exc)
+        log.debug("Failed to reap stale job %s: %s", ctx.job_id, exc)
         return False
     try:
         ctx.data["status"] = "pending"
@@ -390,7 +388,7 @@ def _reap_move_to_pending(ctx: ReapJobContext, log: object) -> bool:
         ctx.data["last_error"] = f"reaped after {ctx.age}s (timeout {ctx.job_timeout}s)"
         atomic_write_json(new_path, ctx.data)
     except Exception as exc:
-        _log.debug("Failed to update metadata for reaped job %s: %s", ctx.job_id, exc)
+        log.debug("Failed to update metadata for reaped job %s: %s", ctx.job_id, exc)
         # job is in pending/ regardless; count it as reaped
     return True
 
@@ -404,7 +402,7 @@ def _reap_effective_timeout(data: dict, job_timeout: int) -> int:
         return job_timeout
 
 
-def _reap_one_job(p: Path, job_timeout: int, paths: dict, now: datetime, log: object) -> str | None:
+def _reap_one_job(p: Path, job_timeout: int, paths: dict, now: datetime, log: logging.Logger) -> str | None:
     """Reap one processing job if stale. Returns its job_id if reaped, else None."""
     data = safe_load_json(p, default={})
     started = _reap_resolve_start_time(data, p)

@@ -13,6 +13,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 from slides.cli import _parse_layout_map_flag
@@ -65,7 +66,7 @@ class TestParseLayoutMap(unittest.TestCase):
     def test_non_dict_raises(self) -> None:
         """Non-mapping input raises ValueError."""
         with self.assertRaises(ValueError) as ctx:
-            _parse_layout_map(["section", 0])
+            _parse_layout_map(cast(dict[str, object], ["section", 0]))
         self.assertIn("must be a mapping", str(ctx.exception))
 
     def test_reserved_key_raises(self) -> None:
@@ -269,7 +270,7 @@ class TestPrepareWithLayoutMap(unittest.TestCase):
         mock_slides.__len__ = lambda _s: len(mock_sld_ids)
         mock_slides.__getitem__ = lambda _s, idx: slides_list[idx]
 
-        mock_sld_ids = []
+        mock_sld_ids: list[MagicMock] = []
         entry = MagicMock()
         entry.get.return_value = "rId0"
         entry.rId = "rId0"

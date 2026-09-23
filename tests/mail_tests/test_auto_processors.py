@@ -6,6 +6,7 @@ import time
 import unittest
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch, MagicMock
 
 from mail.auto.processors import (
@@ -522,8 +523,9 @@ class TestAutoProposeProcessor(unittest.TestCase):
     def _make_propose_payload(self, tmpdir: str, client) -> "AutoProposePayload":
         """Build an AutoProposePayload with a stub context and temp output path."""
         from tests.mail_tests.fixtures import FakeMailContext
+        from mail.context import MailContext
 
-        ctx = FakeMailContext(gmail_client=client)
+        ctx = cast(MailContext, FakeMailContext(gmail_client=client))
         return AutoProposePayload(
             context=ctx,
             out_path=Path(tmpdir) / "proposal.json",

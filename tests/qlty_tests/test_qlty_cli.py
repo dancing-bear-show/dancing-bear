@@ -6,7 +6,7 @@ import io
 import json
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
-from typing import Protocol
+from typing import Protocol, cast
 from unittest.mock import patch
 
 from tests.cli_separator_contract import SeparatorContractMixin
@@ -14,7 +14,7 @@ from tests.cli_no_subcommand_contract import NoSubcommandContractMixin
 
 from qlty import cli
 from qlty.models import Source
-from qlty.runner import InvocationResult, QltyInvocationError
+from qlty.runner import InvocationResult, QltyInvocationError, QltyRunner
 from qlty.scanner import Scanner
 from tests.qlty_tests.shared_fixtures import FakeRunner, make_finding, result_of
 
@@ -50,7 +50,7 @@ class _RunnerLike(Protocol):
 
 def _patched_scanner(runner: _RunnerLike):
     """Patch the CLI to use a Scanner backed by a fake runner."""
-    return patch.object(cli, "_build_scanner", lambda: Scanner(runner))
+    return patch.object(cli, "_build_scanner", lambda: Scanner(cast(QltyRunner, runner)))
 
 
 class ScanCommandTests(unittest.TestCase):

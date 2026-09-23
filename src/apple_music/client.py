@@ -56,13 +56,13 @@ class AppleMusicClient:
 
         path = self._make_path(path)
         try:
-            body = HttpRequestBody(json=json_body) if json_body is not None else None
-            resp = self._http.request(method, path, params=params, headers=self._auth_headers(), body=body)
+            req_body = HttpRequestBody(json=json_body) if json_body is not None else None
+            resp = self._http.request(method, path, params=params, headers=self._auth_headers(), body=req_body)
         except _requests.exceptions.HTTPError as exc:
             r = exc.response
             status = r.status_code if r is not None else "?"
-            body = r.text if r is not None else ""
-            raise AppleMusicCLIError(f"{status} from Apple Music: {body}") from exc
+            err_body = r.text if r is not None else ""
+            raise AppleMusicCLIError(f"{status} from Apple Music: {err_body}") from exc
         # Apple returns 204 No Content (empty body) for successful writes such as
         # adding tracks to a playlist; that is a success, not a decoding failure.
         if resp.status_code == 204 or not (resp.content or b"").strip():
@@ -77,7 +77,7 @@ class AppleMusicClient:
     ) -> Iterable[dict]:
         remaining = limit
         next_path: str | None = path
-        next_params = params or {}
+        next_params: dict[str, object] | None = params or {}
         while next_path:
             data = self._get(next_path, params=next_params)
             for item in data.get("data", []):
@@ -105,12 +105,13 @@ class AppleMusicClient:
         return self._get(f"catalog/{storefront}/search", params=params).get("results", {}).get("songs", {}).get("data", [])
 
     def create_playlist(self, name: str, tracks: list[dict], description: str | None = None) -> dict:
+        attrs: dict[str, str] = {"name": name}
+        if description:
+            attrs["description"] = description
         body = {
-            "attributes": {"name": name},
+            "attributes": attrs,
             "relationships": {"tracks": {"data": tracks}},
         }
-        if description:
-            body["attributes"]["description"] = description
         return self._post("me/library/playlists", json_body=body)
 
     def delete_playlist(self, playlist_id: str) -> dict:

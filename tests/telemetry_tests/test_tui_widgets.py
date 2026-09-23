@@ -7,6 +7,7 @@ mounting a full Textual event loop.
 from __future__ import annotations
 
 import unittest
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 from telemetry.tui._widgets import (
@@ -113,12 +114,17 @@ class TestTipsPanelUpdateEmpty(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestFooterInfoUpdateInfo(unittest.TestCase):
-    def _call(self, **overrides) -> str:
-        defaults = dict(session_id="abcdef123456", event_count=42, refresh=5.0, estimated=False)
+    def _call(self, **overrides: object) -> str:
+        defaults: dict[str, object] = dict(session_id="abcdef123456", event_count=42, refresh=5.0, estimated=False)
         defaults.update(overrides)
         panel = FooterInfo()
         with patch("telemetry.tui._widgets.FooterInfo.update") as mock_update:
-            panel.update_info(**defaults)
+            panel.update_info(
+                session_id=str(defaults["session_id"]),
+                event_count=cast(int, defaults["event_count"]),
+                refresh=cast(float, defaults["refresh"]),
+                estimated=cast(bool, defaults["estimated"]),
+            )
             mock_update.assert_called_once()
             return mock_update.call_args[0][0]
 

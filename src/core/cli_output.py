@@ -263,6 +263,8 @@ class OutputWriter:
         elif isinstance(data, (list, tuple)):
             self._print_sequence(data)
         elif is_dataclass(data):
+            if isinstance(data, type):
+                raise TypeError("asdict() should be called on dataclass instances")
             self.print_dict(asdict(data))
         else:
             self.print(str(data))
@@ -286,6 +288,8 @@ class OutputWriter:
         if isinstance(data, dict):
             return [data]
         if is_dataclass(data):
+            if isinstance(data, type):
+                raise TypeError("asdict() should be called on dataclass instances")
             return [asdict(data)]
         return [data]
 

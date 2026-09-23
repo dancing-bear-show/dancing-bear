@@ -6,6 +6,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from typing import cast
 
 from telemetry.otel.menubar_parsers import (
     _accumulate_compaction_events,
@@ -115,32 +116,32 @@ class TestIsEventSuccess(unittest.TestCase):
 
 class TestParseAttrs(unittest.TestCase):
     def test_string_value(self) -> None:
-        attrs = [{"key": "model", "value": {"stringValue": "claude-sonnet"}}]
+        attrs: list[dict[str, object]] = [{"key": "model", "value": {"stringValue": "claude-sonnet"}}]
         result = _parse_attrs(attrs)
         self.assertEqual(result["model"], "claude-sonnet")
 
     def test_int_value(self) -> None:
-        attrs = [{"key": "count", "value": {"intValue": 42}}]
+        attrs: list[dict[str, object]] = [{"key": "count", "value": {"intValue": 42}}]
         result = _parse_attrs(attrs)
         self.assertEqual(result["count"], 42)
 
     def test_double_value(self) -> None:
-        attrs = [{"key": "cost", "value": {"doubleValue": 1.23}}]
+        attrs: list[dict[str, object]] = [{"key": "cost", "value": {"doubleValue": 1.23}}]
         result = _parse_attrs(attrs)
-        self.assertAlmostEqual(result["cost"], 1.23)
+        self.assertAlmostEqual(cast(float, result["cost"]), 1.23)
 
     def test_bool_value(self) -> None:
-        attrs = [{"key": "success", "value": {"boolValue": True}}]
+        attrs: list[dict[str, object]] = [{"key": "success", "value": {"boolValue": True}}]
         result = _parse_attrs(attrs)
         self.assertTrue(result["success"])
 
     def test_empty_value_dict_gives_none(self) -> None:
-        attrs = [{"key": "unknown", "value": {}}]
+        attrs: list[dict[str, object]] = [{"key": "unknown", "value": {}}]
         result = _parse_attrs(attrs)
         self.assertIsNone(result["unknown"])
 
     def test_non_dict_value_gives_none(self) -> None:
-        attrs = [{"key": "bad", "value": "not-a-dict"}]
+        attrs: list[dict[str, object]] = [{"key": "bad", "value": "not-a-dict"}]
         result = _parse_attrs(attrs)
         self.assertIsNone(result["bad"])
 
@@ -148,13 +149,13 @@ class TestParseAttrs(unittest.TestCase):
         self.assertEqual(_parse_attrs([]), {})
 
     def test_multiple_attrs(self) -> None:
-        attrs = [
+        attrs: list[dict[str, object]] = [
             {"key": "model", "value": {"stringValue": "sonnet"}},
             {"key": "cost", "value": {"doubleValue": 0.5}},
         ]
         result = _parse_attrs(attrs)
         self.assertEqual(result["model"], "sonnet")
-        self.assertAlmostEqual(result["cost"], 0.5)
+        self.assertAlmostEqual(cast(float, result["cost"]), 0.5)
 
 
 class TestIterLogRecords(unittest.TestCase):
@@ -162,7 +163,7 @@ class TestIterLogRecords(unittest.TestCase):
         self.assertEqual(list(_iter_log_records([])), [])
 
     def test_yields_log_records(self) -> None:
-        raw = [{
+        raw: list[dict[str, object]] = [{
             "resourceLogs": [{
                 "scopeLogs": [{
                     "logRecords": [{"body": "event1"}, {"body": "event2"}]
@@ -173,7 +174,7 @@ class TestIterLogRecords(unittest.TestCase):
         self.assertEqual(len(records), 2)
 
     def test_multiple_resource_logs(self) -> None:
-        raw = [
+        raw: list[dict[str, object]] = [
             {"resourceLogs": [{"scopeLogs": [{"logRecords": [{"body": "a"}]}]}]},
             {"resourceLogs": [{"scopeLogs": [{"logRecords": [{"body": "b"}]}]}]},
         ]
@@ -181,14 +182,14 @@ class TestIterLogRecords(unittest.TestCase):
         self.assertEqual(len(records), 2)
 
     def test_missing_keys_yield_nothing(self) -> None:
-        raw = [{"resourceLogs": [{"scopeLogs": [{}]}]}]
+        raw: list[dict[str, object]] = [{"resourceLogs": [{"scopeLogs": [{}]}]}]
         records = list(_iter_log_records(raw))
         self.assertEqual(records, [])
 
 
 class TestIterMetricDatapoints(unittest.TestCase):
     def test_yields_name_and_dp(self) -> None:
-        raw = {
+        raw: dict[str, object] = {
             "resourceMetrics": [{
                 "scopeMetrics": [{
                     "metrics": [{
@@ -205,7 +206,7 @@ class TestIterMetricDatapoints(unittest.TestCase):
         self.assertEqual(dp["asDouble"], 1.5)
 
     def test_sum_data_points_used(self) -> None:
-        raw = {
+        raw: dict[str, object] = {
             "resourceMetrics": [{
                 "scopeMetrics": [{
                     "metrics": [{
@@ -230,7 +231,7 @@ class TestAccumulateDatapoint(unittest.TestCase):
 
     def test_recent_datapoint_appended(self) -> None:
         cutoff = time.time() - 3600  # 1 hour ago
-        dp = {"timeUnixNano": self._future_ts_nano(), "asDouble": 2.5}
+        dp: dict[str, object] = {"timeUnixNano": self._future_ts_nano(), "asDouble": 2.5}
         out: list = []
         _accumulate_datapoint(dp, "my.metric", cutoff, out)
         self.assertEqual(len(out), 1)
@@ -240,14 +241,14 @@ class TestAccumulateDatapoint(unittest.TestCase):
 
     def test_old_datapoint_skipped(self) -> None:
         cutoff = time.time() + 3600  # 1 hour in the future
-        dp = {"timeUnixNano": int(time.time() * 1e9), "asDouble": 2.5}
+        dp: dict[str, object] = {"timeUnixNano": int(time.time() * 1e9), "asDouble": 2.5}
         out: list = []
         _accumulate_datapoint(dp, "my.metric", cutoff, out)
         self.assertEqual(len(out), 0)
 
     def test_asint_used_when_asdouble_missing(self) -> None:
         cutoff = time.time() - 3600
-        dp = {"timeUnixNano": self._future_ts_nano(), "asInt": 10}
+        dp: dict[str, object] = {"timeUnixNano": self._future_ts_nano(), "asInt": 10}
         out: list = []
         _accumulate_datapoint(dp, "my.metric", cutoff, out)
         self.assertEqual(len(out), 1)
@@ -256,7 +257,7 @@ class TestAccumulateDatapoint(unittest.TestCase):
 
     def test_attrs_parsed(self) -> None:
         cutoff = time.time() - 3600
-        dp = {
+        dp: dict[str, object] = {
             "timeUnixNano": self._future_ts_nano(),
             "asDouble": 1.0,
             "attributes": [{"key": "model", "value": {"stringValue": "sonnet"}}],
@@ -307,21 +308,21 @@ class TestAccumulateCostMetric(unittest.TestCase):
     def test_cost_accumulated(self) -> None:
         cost_holder = [0.0]
         model_cost: dict[str, float] = collections.defaultdict(float)
-        attrs = {"model": "sonnet"}
+        attrs: dict[str, object] = {"model": "sonnet"}
         _accumulate_cost_metric(2.5, attrs, cost_holder, model_cost)
         self.assertAlmostEqual(cost_holder[0], 2.5)
 
     def test_model_cost_accumulated(self) -> None:
         cost_holder = [0.0]
         model_cost: dict[str, float] = collections.defaultdict(float)
-        attrs = {"model": "sonnet"}
+        attrs: dict[str, object] = {"model": "sonnet"}
         _accumulate_cost_metric(2.5, attrs, cost_holder, model_cost)
         self.assertAlmostEqual(model_cost["sonnet"], 2.5)
 
     def test_additive_across_calls(self) -> None:
         cost_holder = [0.0]
         model_cost: dict[str, float] = collections.defaultdict(float)
-        attrs = {"model": "sonnet"}
+        attrs: dict[str, object] = {"model": "sonnet"}
         _accumulate_cost_metric(1.0, attrs, cost_holder, model_cost)
         _accumulate_cost_metric(1.5, attrs, cost_holder, model_cost)
         self.assertAlmostEqual(cost_holder[0], 2.5)
@@ -346,25 +347,25 @@ class TestAccumulateLocMetrics(unittest.TestCase):
 
     def test_lines_added(self) -> None:
         counters = self._make_counters()
-        metrics = [("claude_code.lines_of_code.count", 10.0, {"type": "added"})]
+        metrics: list[tuple[str, float, dict[str, object]]] = [("claude_code.lines_of_code.count", 10.0, {"type": "added"})]
         _accumulate_loc_metrics(metrics, counters)
         self.assertEqual(counters["lines_added"], 10)
 
     def test_lines_removed(self) -> None:
         counters = self._make_counters()
-        metrics = [("claude_code.lines_of_code.count", 5.0, {"type": "removed"})]
+        metrics: list[tuple[str, float, dict[str, object]]] = [("claude_code.lines_of_code.count", 5.0, {"type": "removed"})]
         _accumulate_loc_metrics(metrics, counters)
         self.assertEqual(counters["lines_removed"], 5)
 
     def test_commit_count(self) -> None:
         counters = self._make_counters()
-        metrics = [("claude_code.commit.count", 3.0, {})]
+        metrics: list[tuple[str, float, dict[str, object]]] = [("claude_code.commit.count", 3.0, {})]
         _accumulate_loc_metrics(metrics, counters)
         self.assertEqual(counters["commits_today"], 3)
 
     def test_language_counts(self) -> None:
         counters = self._make_counters()
-        metrics = [
+        metrics: list[tuple[str, float, dict[str, object]]] = [
             ("claude_code.code_edit_tool.decision", 5.0, {"language": "python"}),
             ("claude_code.code_edit_tool.decision", 3.0, {"language": "python"}),
         ]
@@ -373,7 +374,7 @@ class TestAccumulateLocMetrics(unittest.TestCase):
 
     def test_unrelated_metric_ignored(self) -> None:
         counters = self._make_counters()
-        metrics = [("unrelated.metric", 99.0, {})]
+        metrics: list[tuple[str, float, dict[str, object]]] = [("unrelated.metric", 99.0, {})]
         _accumulate_loc_metrics(metrics, counters)
         self.assertEqual(counters["lines_added"], 0)
 
@@ -384,31 +385,31 @@ class TestAccumulateCompactionEvents(unittest.TestCase):
 
     def test_compaction_event_counted(self) -> None:
         counters = self._make_counters()
-        events = [("claude_code.compaction", 0.0, {"pre_tokens": 1000, "post_tokens": 200})]
+        events: list[tuple[str, float, dict[str, object]]] = [("claude_code.compaction", 0.0, {"pre_tokens": 1000, "post_tokens": 200})]
         _accumulate_compaction_events(events, counters)
         self.assertEqual(counters["compaction_count"], 1)
 
     def test_tokens_saved_computed(self) -> None:
         counters = self._make_counters()
-        events = [("claude_code.compaction", 0.0, {"pre_tokens": 1000, "post_tokens": 200})]
+        events: list[tuple[str, float, dict[str, object]]] = [("claude_code.compaction", 0.0, {"pre_tokens": 1000, "post_tokens": 200})]
         _accumulate_compaction_events(events, counters)
         self.assertEqual(counters["tokens_saved"], 800)
 
     def test_negative_savings_clamped_to_zero(self) -> None:
         counters = self._make_counters()
-        events = [("claude_code.compaction", 0.0, {"pre_tokens": 100, "post_tokens": 500})]
+        events: list[tuple[str, float, dict[str, object]]] = [("claude_code.compaction", 0.0, {"pre_tokens": 100, "post_tokens": 500})]
         _accumulate_compaction_events(events, counters)
         self.assertEqual(counters["tokens_saved"], 0)
 
     def test_other_event_types_ignored(self) -> None:
         counters = self._make_counters()
-        events = [("other_event", 0.0, {})]
+        events: list[tuple[str, float, dict[str, object]]] = [("other_event", 0.0, {})]
         _accumulate_compaction_events(events, counters)
         self.assertEqual(counters["compaction_count"], 0)
 
     def test_additive_across_events(self) -> None:
         counters = self._make_counters()
-        events = [
+        events: list[tuple[str, float, dict[str, object]]] = [
             ("claude_code.compaction", 0.0, {"pre_tokens": 500, "post_tokens": 100}),
             ("claude_code.compaction", 0.0, {"pre_tokens": 300, "post_tokens": 50}),
         ]

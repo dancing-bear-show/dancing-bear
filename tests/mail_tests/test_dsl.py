@@ -127,7 +127,7 @@ class DslNormalizeTests(unittest.TestCase):
         Regression: normalization builds its action dict from an allowlist, and
         `noMoveToFolder` was not on it. That mattered because normalization runs
         a *second* time over an already-derived config —
-        `OutlookRulesPlanProcessor` (processors_rules_write.py) and the sweep
+        `OutlookRulesPlanProcessor` (processors_rules_plan.py) and the sweep
         path both re-normalize what the derive step wrote. The marker was
         therefore dropped before the plan/sweep stage could read it, which sent
         the rule down the `move_to_folders and add` fallback and derived a

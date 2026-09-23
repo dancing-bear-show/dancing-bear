@@ -62,7 +62,7 @@ class _RenderHelpers:
         return [
             p.text.strip()
             for p in Document(path).paragraphs
-            if p.style.name.startswith("Heading") and p.text.strip()
+            if p.style is not None and p.style.name.startswith("Heading") and p.text.strip()
         ]
 
     def _render_via_writer(self, data: dict, template: dict) -> list[str]:

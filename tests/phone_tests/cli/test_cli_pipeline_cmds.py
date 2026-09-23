@@ -53,128 +53,158 @@ class PipelineDelegationCase:
     check_request: Callable[[unittest.TestCase, Any], None]
 
 
+def _check_export(t: unittest.TestCase, r: Any) -> None:
+    t.assertEqual(r.backup, "/path/to/backup")
+    t.assertEqual(r.out_path, Path("out/export.yaml"))
+
+
+def _check_export_device(t: unittest.TestCase, r: Any) -> None:
+    t.assertEqual(r.out_path, Path("out/device.yaml"))
+    t.assertEqual(r.udid, "test-udid")
+
+
+def _check_iconmap(t: unittest.TestCase, r: Any) -> None:
+    t.assertEqual(r.out_path, Path("out/icons.json"))
+    t.assertEqual(r.udid, "test-udid")
+
+
+def _check_plan(t: unittest.TestCase, r: Any) -> None:
+    t.assertEqual(r.layout, "export.yaml")
+    t.assertEqual(r.out_path, Path("plan.yaml"))
+
+
+def _check_plan_with_backup(t: unittest.TestCase, r: Any) -> None:
+    t.assertEqual(r.backup, "/backup/path")
+    t.assertIsNone(r.layout)
+
+
+def _check_checklist(t: unittest.TestCase, r: Any) -> None:
+    t.assertEqual(r.plan_path, Path("plan.yaml"))
+    t.assertEqual(r.layout, "export.yaml")
+    t.assertEqual(r.out_path, Path("checklist.txt"))
+
+
+def _check_unused(t: unittest.TestCase, r: Any) -> None:
+    t.assertEqual(r.layout, "export.yaml")
+    t.assertEqual(r.keep_path, "/path/to/keep.txt")
+    t.assertEqual(r.limit, 30)
+    t.assertEqual(r.format, "csv")
+
+
+def _check_prune(t: unittest.TestCase, r: Any) -> None:
+    t.assertEqual(r.layout, "export.yaml")
+    t.assertEqual(r.mode, "delete")
+    t.assertEqual(r.out_path, Path("prune.txt"))
+
+
+def _check_analyze(t: unittest.TestCase, r: Any) -> None:
+    t.assertEqual(r.layout, "export.yaml")
+    t.assertEqual(r.plan_path, "plan.yaml")
+    t.assertEqual(r.format, "json")
+
+
+def _check_manifest_from_export(t: unittest.TestCase, r: Any) -> None:
+    t.assertEqual(r.export_path, Path("export.yaml"))
+    t.assertEqual(r.out_path, Path("manifest.yaml"))
+
+
+def _check_manifest_from_device(t: unittest.TestCase, r: Any) -> None:
+    t.assertEqual(r.out_path, Path("manifest.yaml"))
+    t.assertEqual(r.udid, "test-udid")
+
+
+def _check_manifest_install(t: unittest.TestCase, r: Any) -> None:
+    t.assertEqual(r.manifest_path, Path("manifest.yaml"))
+
+
+def _check_identity_verify(t: unittest.TestCase, r: Any) -> None:
+    t.assertEqual(r.p12_path, "/path/to/cert.p12")
+
+
 CASES: list[PipelineDelegationCase] = [
     PipelineDelegationCase(
         name="export",
         patch_target="phone.cli.cmd_layout.run_pipeline",
         command=cmd_export,
         args=make_export_args(backup="/path/to/backup", out="out/export.yaml"),
-        check_request=lambda t, r: (
-            t.assertEqual(r.backup, "/path/to/backup"),
-            t.assertEqual(r.out_path, Path("out/export.yaml")),
-        ),
+        check_request=_check_export,
     ),
     PipelineDelegationCase(
         name="export_device",
         patch_target="phone.cli.cmd_layout.run_pipeline",
         command=cmd_export_device,
         args=make_export_device_args(out="out/device.yaml", udid="test-udid"),
-        check_request=lambda t, r: (
-            t.assertEqual(r.out_path, Path("out/device.yaml")),
-            t.assertEqual(r.udid, "test-udid"),
-        ),
+        check_request=_check_export_device,
     ),
     PipelineDelegationCase(
         name="iconmap",
         patch_target="phone.cli.cmd_layout.run_pipeline",
         command=cmd_iconmap,
         args=make_iconmap_args(out="out/icons.json", udid="test-udid"),
-        check_request=lambda t, r: (
-            t.assertEqual(r.out_path, Path("out/icons.json")),
-            t.assertEqual(r.udid, "test-udid"),
-        ),
+        check_request=_check_iconmap,
     ),
     PipelineDelegationCase(
         name="plan",
         patch_target="phone.cli.cmd_layout.run_pipeline",
         command=cmd_plan,
         args=make_plan_args(layout="export.yaml", out="plan.yaml"),
-        check_request=lambda t, r: (
-            t.assertEqual(r.layout, "export.yaml"),
-            t.assertEqual(r.out_path, Path("plan.yaml")),
-        ),
+        check_request=_check_plan,
     ),
     PipelineDelegationCase(
         name="plan_with_backup_instead_of_layout",
         patch_target="phone.cli.cmd_layout.run_pipeline",
         command=cmd_plan,
         args=make_plan_args(backup="/backup/path", layout=None, out="plan.yaml"),
-        check_request=lambda t, r: (
-            t.assertEqual(r.backup, "/backup/path"),
-            t.assertIsNone(r.layout),
-        ),
+        check_request=_check_plan_with_backup,
     ),
     PipelineDelegationCase(
         name="checklist",
         patch_target="phone.cli.cmd_layout.run_pipeline",
         command=cmd_checklist,
         args=make_checklist_args(plan="plan.yaml", layout="export.yaml", out="checklist.txt"),
-        check_request=lambda t, r: (
-            t.assertEqual(r.plan_path, Path("plan.yaml")),
-            t.assertEqual(r.layout, "export.yaml"),
-            t.assertEqual(r.out_path, Path("checklist.txt")),
-        ),
+        check_request=_check_checklist,
     ),
     PipelineDelegationCase(
         name="unused",
         patch_target="phone.cli.cmd_layout.run_pipeline",
         command=cmd_unused,
         args=make_unused_args(layout="export.yaml", keep="/path/to/keep.txt", limit=30, format="csv"),
-        check_request=lambda t, r: (
-            t.assertEqual(r.layout, "export.yaml"),
-            t.assertEqual(r.keep_path, "/path/to/keep.txt"),
-            t.assertEqual(r.limit, 30),
-            t.assertEqual(r.format, "csv"),
-        ),
+        check_request=_check_unused,
     ),
     PipelineDelegationCase(
         name="prune",
         patch_target="phone.cli.cmd_layout.run_pipeline",
         command=cmd_prune,
         args=make_prune_args(layout="export.yaml", mode="delete", out="prune.txt"),
-        check_request=lambda t, r: (
-            t.assertEqual(r.layout, "export.yaml"),
-            t.assertEqual(r.mode, "delete"),
-            t.assertEqual(r.out_path, Path("prune.txt")),
-        ),
+        check_request=_check_prune,
     ),
     PipelineDelegationCase(
         name="analyze",
         patch_target="phone.cli.cmd_layout.run_pipeline",
         command=cmd_analyze,
         args=make_analyze_args(layout="export.yaml", plan="plan.yaml", format="json"),
-        check_request=lambda t, r: (
-            t.assertEqual(r.layout, "export.yaml"),
-            t.assertEqual(r.plan_path, "plan.yaml"),
-            t.assertEqual(r.format, "json"),
-        ),
+        check_request=_check_analyze,
     ),
     PipelineDelegationCase(
         name="manifest_from_export",
         patch_target="phone.cli.cmd_profile.run_pipeline",
         command=cmd_manifest_from_export,
         args=make_manifest_from_export_args(export="export.yaml", out="manifest.yaml"),
-        check_request=lambda t, r: (
-            t.assertEqual(r.export_path, Path("export.yaml")),
-            t.assertEqual(r.out_path, Path("manifest.yaml")),
-        ),
+        check_request=_check_manifest_from_export,
     ),
     PipelineDelegationCase(
         name="manifest_from_device",
         patch_target="phone.cli.cmd_profile.run_pipeline",
         command=cmd_manifest_from_device,
         args=make_manifest_from_device_args(out="manifest.yaml", udid="test-udid"),
-        check_request=lambda t, r: (
-            t.assertEqual(r.out_path, Path("manifest.yaml")),
-            t.assertEqual(r.udid, "test-udid"),
-        ),
+        check_request=_check_manifest_from_device,
     ),
     PipelineDelegationCase(
         name="manifest_install",
         patch_target="phone.cli.cmd_profile.run_pipeline",
         command=cmd_manifest_install,
         args=make_manifest_install_args(manifest="manifest.yaml"),
-        check_request=lambda t, r: t.assertEqual(r.manifest_path, Path("manifest.yaml")),
+        check_request=_check_manifest_install,
     ),
     PipelineDelegationCase(
         name="identity_verify",
@@ -182,7 +212,7 @@ CASES: list[PipelineDelegationCase] = [
         command=cmd_identity_verify,
         args=make_identity_verify_args(p12="/path/to/cert.p12", udid="test-udid"),
         # device_label is set from udid via os.environ, not directly on request
-        check_request=lambda t, r: t.assertEqual(r.p12_path, "/path/to/cert.p12"),
+        check_request=_check_identity_verify,
     ),
 ]
 

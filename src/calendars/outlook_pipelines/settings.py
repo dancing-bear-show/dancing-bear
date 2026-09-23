@@ -135,7 +135,7 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
                 break
         if apply_set is None and not defaults:
             return None
-        cfg = {}
+        cfg: dict[str, Any] = {}
         cfg.update(defaults or {})
         if apply_set:
             cfg.update(apply_set)

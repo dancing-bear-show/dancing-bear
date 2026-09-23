@@ -312,7 +312,7 @@ class SidebarResumeWriter(ResumeWriterBase):
         self._render_page_header()
 
         # Create two-column table for body
-        table = self.doc.add_table(rows=1, cols=2)
+        table = self._doc.add_table(rows=1, cols=2)
         table.alignment = WD_TABLE_ALIGNMENT.CENTER
         table.autofit = False
 
@@ -356,7 +356,7 @@ class SidebarResumeWriter(ResumeWriterBase):
 
     def _render_page_header(self) -> None:
         """Add name, headline, and contact as centered header (repeats on each page)."""
-        section = self.doc.sections[0]
+        section = self._doc.sections[0]
         header = section.header
 
         name = self._get_contact_field("name")

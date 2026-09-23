@@ -207,6 +207,8 @@ def parse_time_range(s: str) -> tuple[str | None, str | None]:
         return None, None
 
     # Determine am/pm for left and right sides
+    left_suf: str | None
+    right_suf: str | None
     if has_am and has_pm:
         left_suf, right_suf = 'am', 'pm'
     elif has_am:

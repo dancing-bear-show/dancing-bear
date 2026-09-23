@@ -75,7 +75,7 @@ def _apply_inbox_markers(a: dict[str, Any], act: dict[str, Any]) -> None:
 
     - derived config: ``_strip_keep_in_inbox`` already rewrote keepInInbox to
       noMoveToFolder, and the plan/sync/sweep processors re-normalize what derive
-      wrote (processors_rules_write.py:69, :201, :284). Normalization builds its
+      wrote (processors_rules_plan.py, processors_rules_write.py). Normalization builds its
       action from an allowlist, so a key absent here is silently dropped.
     - raw config: ``rules.plan``/``rules.sync``/``rules.sweep`` accept the
       documented unified config directly, with no derive step in between. Only

@@ -1,6 +1,7 @@
 """Processors for Outlook rules pipelines.
 
-Read-only processors live here. Write/mutation processors are in processors_rules_write.py.
+Read-only processors live here. Write/mutation processors are in processors_rules_write.py,
+and the plan (dry-run preview) processor is in processors_rules_plan.py.
 Helper/builder functions are in processors_rules_helpers.py.
 """
 from __future__ import annotations
@@ -26,16 +27,6 @@ from .processors_rules_helpers import (  # noqa: F401
     _build_search_query,
     _resolve_destination_folder,
     _export_rule_entry,
-)
-from .processors_rules_write import (  # noqa: F401
-    OutlookRulesSyncResult,
-    OutlookRulesPlanResult,
-    OutlookRulesDeleteResult,
-    OutlookRulesSweepResult,
-    OutlookRulesSyncProcessor,
-    OutlookRulesPlanProcessor,
-    OutlookRulesDeleteProcessor,
-    OutlookRulesSweepProcessor,
 )
 
 

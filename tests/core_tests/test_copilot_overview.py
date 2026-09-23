@@ -16,11 +16,11 @@ from core.copilot_overview import (
     PROTECTED_PATH,
     classify_repo_path,
     is_copilot_overview,
-    normalize_login,
     parse_overview,
     safe_repo_path,
     strip_zwsp,
 )
+from core.github.authors import normalize_login
 
 ZWSP = "​"
 _ICONS = "https://github.githubassets.com/static/images/icons/copilot-code-review"
@@ -378,7 +378,7 @@ class TestStaleFetchGuard(unittest.TestCase):
         from pathlib import Path
 
         from core.cli_errors import CLIError
-        from workflow.cli_dispatch import _cmd_parse_overview
+        from workflow.cli_dispatch_review import _cmd_parse_overview
 
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "threads.json"
@@ -789,7 +789,7 @@ class TestCheckPathsCli(unittest.TestCase):
         import contextlib
         import io
 
-        from workflow.cli_dispatch import _cmd_check_paths
+        from workflow.cli_dispatch_review import _cmd_check_paths
 
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -893,7 +893,7 @@ class TestParseOverviewCli(unittest.TestCase):
         from pathlib import Path
 
         from core.cli_errors import CLIError
-        from workflow.cli_dispatch import _cmd_parse_overview
+        from workflow.cli_dispatch_review import _cmd_parse_overview
 
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "threads.json"
@@ -933,7 +933,7 @@ class TestParseOverviewCli(unittest.TestCase):
 
     def test_missing_file_is_refused(self):
         from core.cli_errors import CLIError
-        from workflow.cli_dispatch import _cmd_parse_overview
+        from workflow.cli_dispatch_review import _cmd_parse_overview
 
         args = argparse.Namespace(threads_json="/nonexistent/threads.json",
                                   pr_number="1", out_path="")

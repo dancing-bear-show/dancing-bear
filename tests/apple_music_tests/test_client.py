@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+import unittest.mock
 
 from apple_music.client import AppleMusicClient, AppleMusicCLIError
 from tests.apple_music_tests.fixtures import FakeResponse, FakeSession

@@ -178,6 +178,8 @@ class StandardLayoutBulletMechanismTests(unittest.TestCase):
     """One bullet mechanism, asserted across every section at once."""
 
     maxDiff = None
+    paragraphs: list[_Paragraph]
+    bulleted: list[_Paragraph]
 
     @classmethod
     def setUpClass(cls) -> None:

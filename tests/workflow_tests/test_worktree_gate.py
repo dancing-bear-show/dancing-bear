@@ -19,7 +19,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from core.process import run_binary
-from workflow.cli_dispatch import _cmd_check_unlisted, _cmd_snapshot_dirty
+from workflow.cli_dispatch_review import _cmd_check_unlisted, _cmd_snapshot_dirty
 from workflow.worktree_gate import (
     _GIT_STATUS_TIMEOUT,
     committed_since,

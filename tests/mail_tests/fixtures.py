@@ -5,9 +5,10 @@ Gmail client fakes and CLI arg helpers.
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from unittest.mock import MagicMock
 
 # Re-export FakeGmailClient from centralized fakes module
@@ -141,7 +142,7 @@ class FakeForwardingClient:
         email: Optional[str] = None,
         disposition: Optional[str] = None,
     ) -> Dict[str, Any]:
-        settings = {"enabled": enabled}
+        settings: Dict[str, Any] = {"enabled": enabled}
         if email:
             settings["emailAddress"] = email
         if disposition:
@@ -183,7 +184,7 @@ def make_user_label(
     label_id: Optional[str] = None,
     messages: int = 0,
     **kwargs,
-) -> Dict[str, any]:
+) -> Dict[str, Any]:
     """Create a user label dict for testing.
 
     Args:
@@ -205,7 +206,7 @@ def make_user_label(
     }
 
 
-def make_system_label(name: str, messages: int = 0) -> Dict[str, any]:
+def make_system_label(name: str, messages: int = 0) -> Dict[str, Any]:
     """Create a system label dict for testing.
 
     Args:
@@ -222,7 +223,7 @@ def make_label_with_visibility(
     name: str,
     label_id: Optional[str] = None,
     **kwargs,
-) -> Dict[str, any]:
+) -> Dict[str, Any]:
     """Create a user label with default visibility settings.
 
     Args:
@@ -244,7 +245,7 @@ def make_message(
     msg_id: str,
     label_ids: Optional[List[str]] = None,
     **kwargs,
-) -> Dict[str, any]:
+) -> Dict[str, Any]:
     """Create a message dict for testing.
 
     Args:
@@ -376,7 +377,7 @@ def noop_handler(*_args, **_kwargs):
     pass
 
 
-def make_noop_handlers(*names: str) -> Dict[str, callable]:
+def make_noop_handlers(*names: str) -> Dict[str, Callable]:
     """Create a dict of noop handlers for CLI registration.
 
     Args:
@@ -408,8 +409,9 @@ class CLIRegisterTestCase:
                 self.assertEqual(args.filters_cmd, "sync")
     """
 
-    parser = None  # Set in setUp
+    parser: argparse.ArgumentParser | None = None  # Set in setUp
 
     def parse(self, *argv: str):
         """Parse command-line arguments. Shorthand for self.parser.parse_args()."""
+        assert self.parser is not None  # nosec B101 - narrows Optional for mypy
         return self.parser.parse_args(list(argv))
