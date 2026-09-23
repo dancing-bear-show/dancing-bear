@@ -146,15 +146,16 @@ stages:
       MODE A — single PR (when pr_number param is non-empty, e.g. "112"):
         Skip the merged-PR list entirely.
         Fetch all three comment surfaces for that one PR:
-          # 1. GraphQL review threads + REST inline comments + REST issue comments
-          #    (all paginated; truncated:true signals a count mismatch).
-          #    The old raw GraphQL approach capped threads at 100 with no
-          #    pagination check — that defect is now closed in code.
-          ./bin/github threads fetch --pr <PR> --out {workspace}/outputs/threads-raw-<PR>.json
-          # 2. REST inline (diff-line) comments
+          # 1. GraphQL review threads (full comment chains), plus REST review
+          #    bodies and REST PR-level (conversation) comments, which it
+          #    tags source=issue-comment with path=null. All paginated;
+          #    truncated:true signals a count mismatch. The old raw GraphQL
+          #    approach capped threads at 100 with no pagination check —
+          #    that defect is now closed in code.
+          ./bin/github threads fetch --pr <PR> --out {workspace}/outputs/threads-<PR>.json
+          # 2. REST inline (diff-line) comments — Copilot inline feedback
+          #    lives here; threads fetch does not return this endpoint.
           ./bin/github pr comments --pr <PR> --kind review
-          # 3. REST PR-level (conversation) comments
-          ./bin/github pr comments --pr <PR> --kind issue
         Write merged-prs.json as a single-element list with the PR's metadata:
           ./bin/github pr view --pr <PR> --fields number,title,mergedAt
         Set min_occurrences threshold to 1 for this mode — a single PR is the
