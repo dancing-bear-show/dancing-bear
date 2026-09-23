@@ -20,7 +20,7 @@ Delegates to `workflows/code/open-pr.yaml` via the `/workflow` skill.
 
 Derive the params from context before invoking:
 - `pr_title`: use the conventional-commit format — read recent commits with `git log origin/main..HEAD --oneline` to determine type and scope
-- `test_cmd`: check the project's test runner — use `PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/<domain>/ -t . -q` scoped to the changed domain
+- `test_cmd`: check the project's test runner — use `PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/<domain>_tests/ -t . -q` scoped to the changed domain
 - `source_root`: the source directory being changed, e.g. `mail/`
 - `test_path`: the corresponding test directory, e.g. `tests/mail_tests/`
 - `min_coverage`: default `80` unless the project specifies otherwise

@@ -24,8 +24,8 @@ Find coverage gaps, write tests, and verify improvement.
 make cov
 
 # Coverage for a specific domain
-PYTHONPATH="$PWD/src" python3 -m coverage run -m unittest discover -s tests/<domain> -t . -q
-PYTHONPATH="$PWD/src" python3 -m coverage report -m --include="<domain>/*"
+PYTHONPATH="$PWD/src" python3 -m coverage run -m unittest discover -s tests/<domain>_tests -t . -q
+PYTHONPATH="$PWD/src" python3 -m coverage report -m --include="src/<domain>/*"
 
 # Lint-level complexity/smell signals (not coverage, but flags files needing tests)
 ~/.qlty/bin/qlty check <domain>/
@@ -74,11 +74,11 @@ Task(subagent_type="tester", prompt="Write tests for <domain>/<module>.py target
 
 ```bash
 # Run new tests
-PYTHONPATH="$PWD/src" python3 -m unittest tests.<domain>.test_new -v
+PYTHONPATH="$PWD/src" python3 -m unittest tests.<domain>_tests.test_new -v
 
 # Check coverage improved
-PYTHONPATH="$PWD/src" python3 -m coverage run -m unittest discover -s tests/<domain> -t . -q
-PYTHONPATH="$PWD/src" python3 -m coverage report -m --include="<domain>/*"
+PYTHONPATH="$PWD/src" python3 -m coverage run -m unittest discover -s tests/<domain>_tests -t . -q
+PYTHONPATH="$PWD/src" python3 -m coverage report -m --include="src/<domain>/*"
 
 # Full suite (no regressions)
 make test
