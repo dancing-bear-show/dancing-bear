@@ -438,10 +438,53 @@ class TestLazyGmailClient(unittest.TestCase):
             self.assertIs(result, mock_client)
 
     def test_lazy_import_not_at_module_load(self):
-        # Verify the import happens inside the function, not at module load
-        # This is tested implicitly - if it failed at load time, this test wouldn't run
-        from mail.accounts.helpers import _lazy_gmail_client
-        self.assertTrue(callable(_lazy_gmail_client))
+        # mail.gmail_api pulls in heavy/optional dependencies, so
+        # mail.accounts.helpers must not import it until _lazy_gmail_client()
+        # is actually called. Assert this mechanically: pop both modules,
+        # re-import the module under test, and confirm mail.gmail_api is
+        # absent from sys.modules until the function runs.
+        import sys
+
+        names = ("mail.accounts.helpers", "mail.gmail_api")
+        removed = {}
+        # Re-importing rebinds the attribute on the PARENT package too, so
+        # restoring sys.modules alone leaves mail.accounts.helpers pointing at
+        # the re-imported object while sys.modules holds the original. A later
+        # test that patches through one path and reads through the other then
+        # sees a stale module, making the suite order-dependent.
+        parent_attrs = {}
+        for name in names:
+            if name in sys.modules:
+                removed[name] = sys.modules.pop(name)
+            parent_name, _, attr = name.rpartition(".")
+            parent = sys.modules.get(parent_name)
+            if parent is not None and hasattr(parent, attr):
+                parent_attrs[name] = (parent, attr, getattr(parent, attr))
+
+        def restore():
+            for name in names:
+                sys.modules.pop(name, None)
+            sys.modules.update(removed)
+            for parent, attr, value in parent_attrs.values():
+                setattr(parent, attr, value)
+
+        self.addCleanup(restore)
+
+        import mail.accounts.helpers as helpers_module
+
+        self.assertNotIn(
+            "mail.gmail_api",
+            sys.modules,
+            "importing mail.accounts.helpers must not import mail.gmail_api",
+        )
+
+        helpers_module._lazy_gmail_client()
+
+        self.assertIn(
+            "mail.gmail_api",
+            sys.modules,
+            "calling _lazy_gmail_client() must trigger the deferred import",
+        )
 
 
 if __name__ == "__main__":

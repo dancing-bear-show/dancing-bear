@@ -290,8 +290,25 @@ class TestBindEntrypoints(unittest.TestCase):
         self.assertIsNot(self.build_parser(), self.build_parser())
 
     def test_main_is_callable_with_no_arguments(self):
-        """bin/llm and the __main__ guard both rely on the argv default."""
-        self.assertTrue(callable(self.main))
+        """bin/llm and the __main__ guard both rely on the argv default.
+
+        Calling main() with no args must parse argparse's default of
+        ``sys.argv[1:]``, not silently no-op. The bound parser requires a
+        subcommand (add_subparsers(..., required=True)), so a bare
+        sys.argv with none supplied is a usage error: argparse exits 2 and
+        writes the bound prog name to stderr before main()'s own return-0
+        no-subcommand branch is ever reached.
+        """
+        import sys
+        from unittest.mock import patch
+
+        with patch.object(sys, 'argv', ['llm-demo']):
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                with self.assertRaises(SystemExit) as ctx:
+                    self.main()
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertIn('llm-demo', err.getvalue())
+        self.assertIn('required: cmd', err.getvalue())
 
     def test_main_reports_the_bound_prog_on_a_usage_error(self):
         """The bound config -- not a shared default -- drives argparse output."""

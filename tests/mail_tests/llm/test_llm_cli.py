@@ -32,13 +32,15 @@ class TestMailLLMCLIShim(unittest.TestCase):
 
     def test_main_is_callable(self):
         import mail.llm_cli as mod
+        from core.llm_handlers import main as impl_main
 
-        self.assertTrue(callable(mod.main))
+        self.assertIs(mod.main, impl_main)
 
     def test_build_parser_is_callable(self):
         import mail.llm_cli as mod
+        from core.llm_cli import build_parser as impl_build_parser
 
-        self.assertTrue(callable(mod.build_parser))
+        self.assertIs(mod.build_parser, impl_build_parser)
 
     def test_help_raises_system_exit_zero(self):
         import mail.llm_cli as mod

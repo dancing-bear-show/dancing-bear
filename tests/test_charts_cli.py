@@ -204,8 +204,30 @@ class TestHandleRender(unittest.TestCase):
         self.assertNotEqual(cm.exception.code, 0)
 
     def test_valid_json_calls_render_chart_and_exits_0(self):
-        """Covered by TestHandleRenderViaMain.test_render_subcommand_happy_path_exits_0."""
-        pass
+        """_handle_render: valid JSON input calls render_chart and returns 0."""
+        from charts.cli import _handle_render
+
+        spec_dict = _make_valid_spec_dict()
+        path = _write_temp_json(json.dumps(spec_dict))
+        fake_out = Path("out/chart.png")
+
+        try:
+            mock_render = MagicMock(return_value=fake_out)
+            args = self._make_args(input_path=path, output_path="out/chart.png")
+            stdout = StringIO()
+            with patch("charts.cli._require_matplotlib"):
+                # render_chart is imported inside _handle_render via
+                # `from charts.renderer import render_chart`, so patch
+                # the name on the source module (where it is used at call time).
+                with patch("charts.renderer.render_chart", mock_render):
+                    with patch("sys.stdout", stdout):
+                        rc = _handle_render(args)
+            self.assertEqual(rc, 0)
+            mock_render.assert_called_once()
+            called_spec = mock_render.call_args.args[0]
+            self.assertEqual(called_spec.title, spec_dict["title"])
+        finally:
+            Path(path).unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------

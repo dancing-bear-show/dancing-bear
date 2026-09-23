@@ -260,65 +260,68 @@ class TestConcreteProviderInterface(unittest.TestCase):
         )
 
     def test_authenticate_callable(self):
-        self.provider.authenticate()  # should not raise
+        result = self.provider.authenticate()
+        self.assertIsNone(result)
 
     def test_get_profile_returns_dict(self):
         result = self.provider.get_profile()
-        self.assertIsInstance(result, dict)
+        self.assertEqual(result, {"email": "test@example.com"})
 
     def test_list_labels_returns_list(self):
         result = self.provider.list_labels()
-        self.assertIsInstance(result, list)
+        self.assertEqual(result, [])
 
     def test_list_labels_use_cache_param(self):
         result = self.provider.list_labels(use_cache=True, ttl=600)
-        self.assertIsInstance(result, list)
+        self.assertEqual(result, [])
 
     def test_get_label_id_map_returns_dict(self):
         result = self.provider.get_label_id_map()
-        self.assertIsInstance(result, dict)
+        self.assertEqual(result, {})
 
     def test_create_label_returns_dict(self):
         result = self.provider.create_label(name="Test")
-        self.assertIsInstance(result, dict)
+        self.assertEqual(result, {})
 
     def test_update_label_returns_dict(self):
         result = self.provider.update_label("label-id", {"name": "Updated"})
-        self.assertIsInstance(result, dict)
+        self.assertEqual(result, {})
 
     def test_ensure_label_returns_str(self):
         result = self.provider.ensure_label("MyLabel")
-        self.assertIsInstance(result, str)
+        self.assertEqual(result, "label-id")
 
     def test_delete_label_callable(self):
-        self.provider.delete_label("label-id")  # should not raise
+        result = self.provider.delete_label("label-id")
+        self.assertIsNone(result)
 
     def test_list_filters_returns_list(self):
         result = self.provider.list_filters()
-        self.assertIsInstance(result, list)
+        self.assertEqual(result, [])
 
     def test_list_filters_use_cache_param(self):
         result = self.provider.list_filters(use_cache=True, ttl=120)
-        self.assertIsInstance(result, list)
+        self.assertEqual(result, [])
 
     def test_create_filter_returns_dict(self):
         result = self.provider.create_filter({"from": "a@b.com"}, {"addLabelIds": ["INBOX"]})
-        self.assertIsInstance(result, dict)
+        self.assertEqual(result, {})
 
     def test_delete_filter_callable(self):
-        self.provider.delete_filter("filter-id")  # should not raise
+        result = self.provider.delete_filter("filter-id")
+        self.assertIsNone(result)
 
     def test_list_forwarding_addresses_info_returns_list(self):
         result = self.provider.list_forwarding_addresses_info()
-        self.assertIsInstance(result, list)
+        self.assertEqual(result, [])
 
     def test_get_verified_forwarding_addresses_returns_list(self):
         result = self.provider.get_verified_forwarding_addresses()
-        self.assertIsInstance(result, list)
+        self.assertEqual(result, [])
 
     def test_list_message_ids_returns_list(self):
         result = self.provider.list_message_ids()
-        self.assertIsInstance(result, list)
+        self.assertEqual(result, [])
 
     def test_list_message_ids_all_params(self):
         result = self.provider.list_message_ids(
@@ -327,22 +330,23 @@ class TestConcreteProviderInterface(unittest.TestCase):
             max_pages=2,
             page_size=100,
         )
-        self.assertIsInstance(result, list)
+        self.assertEqual(result, [])
 
     def test_batch_modify_messages_callable(self):
-        self.provider.batch_modify_messages(
+        result = self.provider.batch_modify_messages(
             ids=["id1", "id2"],
             add_label_ids=["STARRED"],
             remove_label_ids=["INBOX"],
-        )  # should not raise
+        )
+        self.assertIsNone(result)
 
     def test_list_signatures_returns_list(self):
         result = self.provider.list_signatures()
-        self.assertIsInstance(result, list)
+        self.assertEqual(result, [])
 
     def test_update_signature_returns_dict(self):
         result = self.provider.update_signature("me@example.com", "<b>Hi</b>")
-        self.assertIsInstance(result, dict)
+        self.assertEqual(result, {})
 
 
 # ---------------------------------------------------------------------------
