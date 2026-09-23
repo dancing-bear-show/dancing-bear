@@ -4,7 +4,8 @@ The canonical definition of a conformant dancing-bear CLI. Every rule below is
 stated as a **testable assertion** with the shared contract that proves it, so
 conformance is machine-checkable rather than a matter of opinion.
 
-Rules were derived by **running all 19 apps**, not by reading them. Where apps
+Rules were derived by **running all 18 apps** that existed then, not by reading
+them; `./bin/github`, added afterwards, was built to them and conforms. Where apps
 legitimately differ, the rule names the exemption rather than pretending
 uniformity.
 
