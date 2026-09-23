@@ -133,12 +133,28 @@ def committed_since(repo: str | Path, baseline_head: str) -> set[str]:
     ``-m``. ``-m`` reports the same path once per parent, which is
     immaterial since the result is deduplicated into a set.
 
+    *baseline_head* must be an ancestor of HEAD. ``baseline..HEAD`` succeeds
+    whenever both commits exist, so after a reset or branch switch that
+    leaves the baseline off HEAD's history the range can be empty and the
+    gate would pass having lost track of what the checkout is.
+
     Raises:
-        RuntimeError: if the log over *baseline_head*..HEAD fails -- including
-            when *baseline_head* no longer resolves (e.g. history was
-            rewritten), since that is itself evidence the gate cannot trust
-            what changed and must fail closed rather than report no commits.
+        RuntimeError: if *baseline_head* is not an ancestor of HEAD, or the
+            log over *baseline_head*..HEAD fails -- including when
+            *baseline_head* no longer resolves (e.g. history was rewritten),
+            since either is evidence the gate cannot trust what changed and
+            must fail closed rather than report no commits.
     """
+    ancestry = run_binary(
+        ("git", "merge-base", "--is-ancestor", baseline_head, "HEAD"),
+        cwd=Path(repo),
+        timeout=_GIT_STATUS_TIMEOUT,
+    )
+    if ancestry.returncode != 0:
+        raise RuntimeError(
+            f"baseline {baseline_head} is not an ancestor of HEAD "
+            f"(git merge-base exit {ancestry.returncode}): {ancestry.stderr.strip()}"
+        )
     run = run_binary(
         ("git", "log", "--name-only", "--no-renames", "-m", "-z", "--pretty=format:",
          f"{baseline_head}..HEAD"),

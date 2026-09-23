@@ -344,6 +344,18 @@ class TestHeadCommitAndCommittedSince(_Repo):
         with self.assertRaises(RuntimeError):
             committed_since(self.repo, "0" * 40)
 
+    def test_committed_since_baseline_off_heads_history_fails_closed(self) -> None:
+        """PR #406 round 8: after a reset that leaves the baseline off HEAD's
+        history, baseline..HEAD is a valid, EMPTY range. It must raise, not
+        report no commits."""
+        (self.repo / "src/later.py").write_text("later = 1\n")
+        _git(self.repo, "add", "src/later.py")
+        _git(self.repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "later")
+        baseline_head = head_commit(self.repo)
+        _git(self.repo, "reset", "-q", "--hard", "HEAD~1")
+        with self.assertRaisesRegex(RuntimeError, "not an ancestor of HEAD"):
+            committed_since(self.repo, baseline_head)
+
     def test_committed_since_catches_commit_then_revert(self) -> None:
         """A two-tree diff of baseline..HEAD nets a commit-then-revert of an
         unlisted file to no diff, since the file is identical at both ends --
