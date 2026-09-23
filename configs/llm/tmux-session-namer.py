@@ -9,6 +9,7 @@ Wire up: add to ~/.claude/settings.json (see .claude/skills/install-tmux-namer/S
 import json
 import sys
 import os
+import stat
 import subprocess
 import re
 import shutil
@@ -18,8 +19,14 @@ try:
 except Exception:
     sys.exit(0)
 
+# Valid JSON of the wrong shape still has to be survivable: `[]` and `"x"` parse
+# fine and then have no .get, which raised AttributeError on line 21 — a
+# traceback in front of the user on a prompt, since this runs on every one.
+if not isinstance(d, dict):
+    sys.exit(0)
+
 session_id = str(d.get("session_id", "default"))
-prompt = d.get("prompt", "").strip()
+prompt = str(d.get("prompt") or "").strip()
 
 # Use truthy check — TMUX="" is not a valid tmux session
 if not prompt or not os.getenv("TMUX"):
@@ -39,7 +46,9 @@ def _detect_pr_number() -> str:
         # because stderr is captured the failure is silent — PR detection just
         # returns "" and the pr-<N>- prefix disappears with no indication why.
         # Matches the `GITHUB_TOKEN= gh ...` contract used across this repo.
-        env = {**os.environ, "GITHUB_TOKEN": ""}
+        # Both variables: gh honours GH_TOKEN as well as GITHUB_TOKEN, so
+        # clearing only one leaves a stale token able to break PR detection.
+        env = {**os.environ, "GITHUB_TOKEN": "", "GH_TOKEN": ""}
         result = subprocess.run(  # nosec B603 B607 - fixed args from shutil.which-validated path
             ["gh", "pr", "view", "--json", "number", "-q", ".number"],
             capture_output=True, text=True, timeout=5, env=env,
@@ -53,38 +62,189 @@ def _detect_pr_number() -> str:
 
 
 # Store history under user-private directory, using a sanitised session ID
-cache_dir = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "claude")
+# XDG: an EMPTY value means unset, per the spec. `os.environ.get(k, default)`
+# returns the empty string when the var is set-but-empty, and
+# os.path.join("", "claude") is the RELATIVE path "claude" — so prompt text
+# would land in whatever the working directory happens to be, typically a
+# project checkout. Require an absolute value or fall back.
+_xdg = os.environ.get("XDG_CACHE_HOME") or ""
+if not os.path.isabs(_xdg):
+    _xdg = os.path.expanduser("~/.cache")
+cache_dir = os.path.join(_xdg, "claude")
 os.makedirs(cache_dir, exist_ok=True)
-os.chmod(cache_dir, 0o700)  # Fix permissions even if dir already existed
+# Tighten a too-permissive directory, but never LOOSEN one. The previous
+# unconditional chmod(0o700) re-opened a directory a user had deliberately
+# locked down (e.g. 0o500 to pause capture) and carried on recording — and the
+# skill claimed the opposite. Only add the owner bits we need, and only when
+# they are missing.
+try:
+    _mode = stat.S_IMODE(os.stat(cache_dir).st_mode)
+    if _mode & 0o077:  # group/other access: strip it
+        os.chmod(cache_dir, _mode & 0o700)
+        _mode &= 0o700
+    if _mode & 0o300 != 0o300:  # not writable+executable by us: leave it alone
+        sys.exit(0)  # a locked cache dir means no capture, as documented
+except OSError:
+    sys.exit(0)
 safe_id = re.sub(r"[^A-Za-z0-9._-]", "-", session_id)[:32]
 history_file = os.path.join(cache_dir, f"prompts-{safe_id}.txt")
 
-# Append prompt atomically with 0600 permissions from the start
+# The append is individually atomic (O_APPEND), but the read-then-rewrite
+# trim below is not: process A appends and reads a 201-line snapshot, B
+# appends its own line, then A rewrites the file from its now-stale
+# snapshot — B's line is gone. That is also the exact text later sent to
+# `claude -p`, so a rename can be generated from prompt fragments the file
+# no longer holds. The installer registers this hook with `async: true`,
+# so overlap is routine, not an edge case.
+#
+# Serialize the whole append/read/trim sequence under one lock, using the
+# same flock idiom as the counter block below so the file has one locking
+# discipline rather than two. The lock is released before `claude -p` is
+# ever invoked (that call has its own 15s timeout; holding a lock across it
+# would serialize every other prompt in the session behind a single model
+# call, which is a worse regression than the race it would close).
 try:
-    fd = os.open(history_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-    with os.fdopen(fd, "a") as f:
-        f.write(prompt[:120].replace("\n", " ") + "\n")
+    fd = os.open(history_file, os.O_RDWR | os.O_CREAT, 0o600)
+    # The mode argument above applies ONLY when os.open creates the file. An
+    # existing prompts-*.txt keeps whatever mode it already had, so a file left
+    # at 0644 by an earlier version (or by a different umask) would go on
+    # receiving prompt text while readable by every other user on the machine —
+    # and the skill's consent text tells the user it is 0600 and private.
+    # fchmod acts on the descriptor we already hold, so there is no window
+    # between the check and the tightening.
+    os.fchmod(fd, 0o600)
 except Exception:
     sys.exit(0)
 
 try:
-    with open(history_file) as f:
-        lines = f.readlines()
-except Exception:
-    sys.exit(0)
-
-# Trim file to last 200 lines so it never grows unbounded
-if len(lines) > 200:
     try:
-        with open(history_file, "w") as f:
-            f.writelines(lines[-200:])
-        lines = lines[-200:]
-    except Exception:  # nosec B110 - best-effort trim; skip silently on any IO error
+        import fcntl
+
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        locked = True
+    except (ImportError, OSError):  # nosec B112 - no flock (e.g. some network FS): fall back below
+        locked = False
+
+    try:
+        # Append and read-back happen under the lock (or, unlocked, via
+        # atomic O_APPEND semantics) in both branches below.
+        os.lseek(fd, 0, os.SEEK_END)
+        os.write(fd, (prompt[:120].replace("\n", " ") + "\n").encode("utf-8"))
+        os.fsync(fd)
+        os.lseek(fd, 0, os.SEEK_SET)
+        with os.fdopen(os.dup(fd), "r") as f:
+            lines = f.readlines()
+
+        if locked:
+            # Trim as part of the same critical section: safe because no
+            # other process can append or rewrite between our read above
+            # and the truncate/write below.
+            if len(lines) > 200:
+                lines = lines[-200:]
+                os.lseek(fd, 0, os.SEEK_SET)
+                os.truncate(fd, 0)
+                os.write(fd, "".join(lines).encode("utf-8"))
+                os.fsync(fd)
+        # else: no lock available. Capture is the hook's primary job, and
+        # O_APPEND is atomic even without a lock, so we keep writing rather
+        # than dropping the prompt. We skip the trim here rather than risk
+        # a concurrent read-modify-write we cannot serialize against — an
+        # untrimmed file is bounded in practice because trimming isn't
+        # gated by cadence, so it resumes on the next invocation that does
+        # get the lock. It only grows unboundedly on a filesystem that
+        # never supports flock at all.
+    except Exception:
+        sys.exit(0)
+finally:
+    try:
+        os.close(fd)
+    except OSError:  # nosec B110 - fd already closed or invalid; nothing left to release
         pass
 
-count = len(lines)
+# Cadence must come from a MONOTONIC count, not from len(lines).
+#
+# The trim above pins len(lines) at exactly 200 once the file saturates, and
+# 200 % 20 == 0 — so deriving the cadence from the line count made the rename
+# fire on EVERY prompt from prompt 200 onwards instead of every 20th. That is
+# 20x the `claude -p` spend, and it sends the last 20 prompt fragments off the
+# machine on every single prompt rather than one in twenty.
+#
+# A separate counter file keeps counting past the trim. It is stored alongside
+# the history with the same 0600 permissions.
+#
+# The increment must be LOCKED and its success must GATE the rename:
+#
+#  - The installer registers this hook with `async: true`, so two
+#    UserPromptSubmit processes can overlap. An unlocked read/increment/write
+#    lets both read the same value, both write it back, and both fire — a
+#    duplicate model call plus a lost count.
+#  - If the write fails, a later run re-seeds from the trimmed history. With the
+#    history pinned at 200 that seeds 199, `+1` gives 200, and `200 % 20 == 0`
+#    fires on EVERY prompt — reintroducing the exact bug this counter exists to
+#    prevent. So a count that was not durably stored must not open the gate.
+counter_file = os.path.join(cache_dir, f"count-{safe_id}.txt")
+count = None
+try:
+    # O_CREAT without O_TRUNC: open (or create) then lock before reading, so a
+    # concurrent process waits rather than racing us between read and write.
+    fd = os.open(counter_file, os.O_RDWR | os.O_CREAT, 0o600)
+    # Same reason as the history file: the mode above only applies on creation,
+    # so tighten an existing counter explicitly. It holds no prompt text, but a
+    # world-readable counter still discloses how much someone has been typing.
+    os.fchmod(fd, 0o600)
+    try:
+        # If we cannot obtain the lock, we cannot honestly claim the cadence is
+        # serialized: the installer registers this hook with `async: true`, so
+        # two overlapping prompts could both read/increment/write the same
+        # value and both fire `claude -p`. Treat lock failure exactly like
+        # counter-write failure — skip the rename for this prompt — rather
+        # than proceeding unlocked. The counter itself still gets written
+        # below (unlocked in that case) so the cadence is not lost permanently.
+        locked = False
+        try:
+            import fcntl
 
-if count % 20 == 0:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            locked = True
+        except (ImportError, OSError):  # nosec B112 - no flock (e.g. some network FS): skip rename, not the write
+            locked = False
+
+        raw = os.read(fd, 64).decode("utf-8", "replace").strip()
+        # A value this hook could not have written is corruption, not data:
+        # - negative: this hook only ever writes stored + 1 starting from a
+        #   non-negative seed, so a leading "-" cannot be ours.
+        # - truncated: os.read(fd, 64) caps the read at 64 bytes, so a longer
+        #   digit string was cut mid-number rather than fully read; treating
+        #   it as valid would count up from a wrong, truncated base.
+        # Either case reseeds from the history length exactly like a
+        # non-numeric value does.
+        try:
+            stored = int(raw)
+            if stored < 0 or len(raw) >= 64:
+                raise ValueError("counter value could not have been written by this hook")
+        except ValueError:
+            # Empty (just created) or corrupt: seed from the history length. `lines`
+            # already includes the prompt appended above, so subtract it, or this
+            # prompt is counted twice.
+            stored = max(len(lines) - 1, 0)
+
+        nxt = stored + 1
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.truncate(fd, 0)
+        os.write(fd, str(nxt).encode("utf-8"))
+        os.fsync(fd)
+        # Only claim a usable count when the write was both durable AND
+        # serialized by the lock. An unlocked write still updates the counter
+        # (so the cadence is not lost) but must not open the rename gate.
+        count = nxt if locked else None
+    finally:
+        os.close(fd)
+except OSError:
+    # Counter unavailable. Skip the rename rather than guessing a count: a
+    # guessed one fires every prompt at the saturated history length.
+    count = None
+
+if count is not None and count % 20 == 0:
     recent = "".join(lines[-20:])
     pr_number = _detect_pr_number()
     pr_hint = (
