@@ -105,6 +105,14 @@ history_file = os.path.join(cache_dir, f"prompts-{safe_id}.txt")
 # call, which is a worse regression than the race it would close).
 try:
     fd = os.open(history_file, os.O_RDWR | os.O_CREAT, 0o600)
+    # The mode argument above applies ONLY when os.open creates the file. An
+    # existing prompts-*.txt keeps whatever mode it already had, so a file left
+    # at 0644 by an earlier version (or by a different umask) would go on
+    # receiving prompt text while readable by every other user on the machine —
+    # and the skill's consent text tells the user it is 0600 and private.
+    # fchmod acts on the descriptor we already hold, so there is no window
+    # between the check and the tightening.
+    os.fchmod(fd, 0o600)
 except Exception:
     sys.exit(0)
 
@@ -180,6 +188,10 @@ try:
     # O_CREAT without O_TRUNC: open (or create) then lock before reading, so a
     # concurrent process waits rather than racing us between read and write.
     fd = os.open(counter_file, os.O_RDWR | os.O_CREAT, 0o600)
+    # Same reason as the history file: the mode above only applies on creation,
+    # so tighten an existing counter explicitly. It holds no prompt text, but a
+    # world-readable counter still discloses how much someone has been typing.
+    os.fchmod(fd, 0o600)
     try:
         # If we cannot obtain the lock, we cannot honestly claim the cadence is
         # serialized: the installer registers this hook with `async: true`, so

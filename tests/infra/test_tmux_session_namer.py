@@ -538,6 +538,58 @@ class TestHookCadence(unittest.TestCase):
             self.assertEqual(len(history.read_text(encoding="utf-8").splitlines()), self.HISTORY_CAP)
             self.assertEqual(history.stat().st_mode & 0o777, 0o600)
 
+    def test_tightens_a_pre_existing_loose_history_file(self) -> None:
+        """An existing history file must be tightened before anything is written.
+
+        `os.open`'s mode argument applies only when it CREATES the file, so a
+        `prompts-*.txt` left at 0644 by an earlier version kept receiving prompt
+        text while readable by every other user — while the skill's consent text
+        told the user it was 0600 and private. That makes the consent inaccurate
+        about the single property that makes the capture acceptable.
+        """
+        for planted in (0o644, 0o666, 0o640):
+            with self.subTest(mode=oct(planted)), tempfile.TemporaryDirectory() as tmp:
+                env, _ = self._make_env(tmp)
+                cache = Path(env["XDG_CACHE_HOME"]) / "claude"
+                cache.mkdir(parents=True)
+                os.chmod(cache, 0o700)
+
+                history = cache / "prompts-test-session.txt"
+                history.write_text("an older line\n", encoding="utf-8")
+                os.chmod(history, planted)
+
+                self._run_hook(env, "SECRET-probe-value")
+
+                mode = history.stat().st_mode & 0o777
+                self.assertEqual(
+                    mode,
+                    0o600,
+                    f"history left at {oct(mode)} after planting {oct(planted)}; "
+                    "prompt text is readable by other users",
+                )
+                self.assertIn(
+                    "SECRET-probe-value",
+                    history.read_text(encoding="utf-8"),
+                    "the hook did not actually record, so the mode assertion is vacuous",
+                )
+
+    def test_tightens_a_pre_existing_loose_counter_file(self) -> None:
+        """The counter holds no prompt text but still leaks typing volume."""
+        with tempfile.TemporaryDirectory() as tmp:
+            env, _ = self._make_env(tmp)
+            cache = Path(env["XDG_CACHE_HOME"]) / "claude"
+            cache.mkdir(parents=True)
+            os.chmod(cache, 0o700)
+
+            counter = cache / "count-test-session.txt"
+            counter.write_text("5", encoding="utf-8")
+            os.chmod(counter, 0o644)
+
+            self._run_hook(env, "a prompt")
+
+            mode = counter.stat().st_mode & 0o777
+            self.assertEqual(mode, 0o600, f"counter left at {oct(mode)}")
+
     def test_records_only_a_prefix_of_each_prompt(self) -> None:
         """The consent text promises the first 120 characters; hold it to that."""
         with tempfile.TemporaryDirectory() as tmp:

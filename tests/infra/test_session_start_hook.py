@@ -21,6 +21,7 @@ import ast
 import json
 import os
 import subprocess  # nosec B404 - runs extracted hook snippet, reviewed below
+import sys
 import tempfile
 import time
 import unittest
@@ -369,22 +370,62 @@ class TestSessionStartHookStaleMarker(unittest.TestCase):
                 "second run must overwrite the marker with a fresh session_id",
             )
 
-    def test_corrupted_marker_does_not_raise(self) -> None:
-        """A corrupted marker file is silently ignored; hook still exits 0."""
+    def test_corrupted_marker_still_warns(self) -> None:
+        """A corrupted marker must WARN, not be treated as absent.
+
+        This test previously asserted the opposite, pinning a real defect: the
+        marker read was wrapped in `except Exception: pass`, leaving `stale`
+        unset, so a damaged file produced the reassuring "no action needed"
+        message.
+
+        That is backwards. A marker that exists but cannot be parsed is stronger
+        evidence of a collision than a clean one — it suggests two sessions wrote
+        it concurrently, or one died mid-write. Losing the signal exactly when the
+        file is damaged is the worst possible time to lose it.
+        """
+        for corrupt in ("NOT VALID JSON", "", "   ", "[]", '{"no_expected_keys": 1}'):
+            with self.subTest(content=corrupt), tempfile.TemporaryDirectory() as td:
+                _main, wt = self._make_worktree(td)
+                marker_dir = Path(wt) / ".claude"
+                marker_dir.mkdir(parents=True, exist_ok=True)
+                marker = marker_dir / ".session-owner"
+                marker.write_text(corrupt, encoding="utf-8")
+
+                proc = _run_snippet(cwd=wt, home=td)
+
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertNotIn("Traceback", proc.stderr)
+                payload = json.loads(proc.stdout)
+                self.assertIn(
+                    "WARNING",
+                    payload["systemMessage"],
+                    f"a corrupted marker ({corrupt!r}) was treated as absent, so a "
+                    "genuine session collision would produce no signal",
+                )
+
+    def test_a_marker_that_is_a_directory_does_not_break_the_hook(self) -> None:
+        """An unreadable marker path must not abort session start.
+
+        `os.path.exists` is true for a directory, and opening one raises
+        IsADirectoryError rather than a JSON error — a distinct failure mode from
+        corrupt content.
+        """
         with tempfile.TemporaryDirectory() as td:
             _main, wt = self._make_worktree(td)
             marker_dir = Path(wt) / ".claude"
             marker_dir.mkdir(parents=True, exist_ok=True)
-            marker = marker_dir / ".session-owner"
-            marker.write_text("NOT VALID JSON", encoding="utf-8")
+            (marker_dir / ".session-owner").mkdir()
 
             proc = _run_snippet(cwd=wt, home=td)
 
-            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(
+                proc.returncode,
+                0,
+                f"a directory at the marker path broke session start: {proc.stderr}",
+            )
+            self.assertNotIn("Traceback", proc.stderr)
             payload = json.loads(proc.stdout)
             self.assertIn("systemMessage", payload)
-            # Corrupted marker treated as absent — no stale warning
-            self.assertNotIn("WARNING", payload["systemMessage"])
 
 
 class TestSessionStartHookIdempotency(unittest.TestCase):
@@ -551,20 +592,22 @@ def _top_level_import_names(source: str) -> list[str]:
 class TestSessionStartHookStdlibOnly(unittest.TestCase):
     """The hook uses only stdlib modules available under -I -S."""
 
-    STDLIB_MODULES = {
-        "subprocess", "json", "os", "time", "uuid",
-        "sys", "re", "pathlib", "collections", "functools",
-        "itertools", "math", "datetime", "io", "typing",
-    }
-
     def test_imports_are_stdlib_only(self) -> None:
-        """All imports in the snippet are standard-library modules."""
+        """All imports in the snippet are standard-library modules.
+
+        Asks Python which modules are stdlib rather than comparing against a
+        hand-maintained allowlist. The allowlist version failed the moment the
+        snippet legitimately started importing `tempfile` — a stdlib module the
+        list simply did not happen to mention — so it was testing the list's
+        completeness, not the snippet.
+        """
         names = _top_level_import_names(SNIPPET)
         self.assertTrue(names, "no imports found in snippet — extraction may be broken")
+        stdlib = sys.stdlib_module_names
         for name in names:
             self.assertIn(
                 name,
-                self.STDLIB_MODULES,
+                stdlib,
                 f"snippet imports {name!r} which is not stdlib — "
                 "the hook runs under -I -S and cannot import third-party packages",
             )
@@ -576,8 +619,8 @@ class TestSessionStartHookStdlibOnly(unittest.TestCase):
         rather than trivially passing — the same failure mode that let the
         old ``[\\w,\\s]+`` regex over-capture past a newline and silently miss
         a real check. Appends ``import requests`` to a COPY of the real
-        snippet body (never mutates ``SNIPPET`` itself) and asserts the
-        allowlist check would now reject it.
+        snippet body (never mutates ``SNIPPET`` itself) and asserts the stdlib
+        check would now reject it.
         """
         poisoned = SNIPPET + "\nimport requests\n"
         names = _top_level_import_names(poisoned)
@@ -589,8 +632,8 @@ class TestSessionStartHookStdlibOnly(unittest.TestCase):
         )
         self.assertNotIn(
             "requests",
-            self.STDLIB_MODULES,
-            "sanity check: 'requests' must not already be in the allowlist",
+            sys.stdlib_module_names,
+            "sanity check: 'requests' must not be reported as stdlib",
         )
 
 
