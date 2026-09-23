@@ -253,12 +253,28 @@ class JobProcessor:
 
         ctx = JobContext.from_item(job_path, job_data)
 
+        # A non-object payload can never be handled — terminal failure, no retry.
+        raw_payload = job_data.get("payload")
+        if raw_payload is not None and not isinstance(raw_payload, dict):
+            q.finish(
+                proc_path,
+                success=False,
+                error_msg=f"invalid payload: expected object, got {type(raw_payload).__name__}",
+            )
+            log_perf_jsonl(
+                "worker",
+                int((time.time() - st) * 1000),
+                args=[self.command, "invalid_payload", ctx.job_type],
+                exit_code=2,
+            )
+            return 1
+        base_payload: dict[str, object] = dict(raw_payload or {})
+
         # Resolve effective per-job timeout
         job_timeout_sec = _effective_job_timeout(job_data, self.config.job_timeout)
         if job_timeout_sec > 0:
-            raw_payload = job_data.get("payload")
-            base_payload = dict(raw_payload) if isinstance(raw_payload, dict) else {}
-            job_data = {**job_data, "payload": {**base_payload, "timeout": job_timeout_sec}}
+            base_payload["timeout"] = job_timeout_sec
+            job_data = {**job_data, "payload": base_payload}
 
         # Check for handler — unknown type is a terminal failure, no retry.
         handler = HANDLERS.get(ctx.job_type)
@@ -275,7 +291,7 @@ class JobProcessor:
             return 1
 
         # Execute handler via JobSafeProcessor; always call finish/retry even on exception.
-        request = JobRequest(job_id=str(job_data.get("id") or ""), payload=dict(job_data.get("payload") or {}))
+        request = JobRequest(job_id=str(job_data.get("id") or ""), payload=dict(base_payload))
         processor = JobSafeProcessor(ctx.job_type, job_data)
         envelope: ResultEnvelope[JobResult] = processor.process(RequestConsumer(request).consume())
 

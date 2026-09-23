@@ -360,6 +360,50 @@ class TestJobProcessor(unittest.TestCase, QueueRootIsolationMixin):
 
         self.assertEqual(captured["payload"].get("timeout"), 30)
 
+    def _process_with_payload(self, job_id, payload, **config):
+        from worker.queue_ops import Job, enqueue, _ensure_dirs
+        from worker.job_runtime import JobProcessor
+        from worker import queue_ops as q
+        q.QUEUE_ROOT = self.root
+        _ensure_dirs(self.root)
+        pending = enqueue(Job(id=job_id, type="guarded", payload=payload), root=self.root)
+        job_data = json.loads(pending.read_text())
+        handler = MagicMock(return_value=(True, "ok"))
+
+        processor = JobProcessor(self._make_config(**config), "daemon")
+        with patch("worker.job_runtime.HANDLERS", {"guarded": handler}), \
+             patch("worker.job_runtime.log_perf_jsonl"), \
+             patch("worker.job_runtime.q.start_processing", side_effect=self._patched_start), \
+             patch("worker.job_runtime.q.finish", side_effect=self._patched_finish), \
+             patch("worker.job_runtime.q.retry", side_effect=self._patched_retry):
+            result = processor.process_one(pending, job_data)
+        return result, handler
+
+    def test_process_one_non_object_payload_is_terminal_error(self):
+        # dict() on these raised outside the error envelope, stranding the job in processing/.
+        # A list of pairs converts to a dict without raising, so it must be rejected by type.
+        cases = {"str": "bad", "int": 123, "pairs": [["message", "x"]]}
+        for name, payload in cases.items():
+            for timeout in (0, 30):
+                job_id = f"bad_{name}_{timeout}"
+                with self.subTest(payload=payload, job_timeout=timeout):
+                    result, handler = self._process_with_payload(job_id, payload, job_timeout=timeout)
+                    self.assertEqual(result, 1)
+                    handler.assert_not_called()
+                    err = self.root / "error" / f"{job_id}.json"
+                    self.assertTrue(err.exists())
+                    self.assertIn("invalid payload", err.read_text())
+                    self.assertFalse((self.root / "processing" / f"{job_id}.json").exists())
+                    self.assertFalse((self.root / "pending" / f"{job_id}.json").exists())
+
+    def test_process_one_object_or_missing_payload_reaches_handler(self):
+        for job_id, payload in (("good_obj", {"x": 1}), ("good_none", None)):
+            with self.subTest(payload=payload):
+                result, handler = self._process_with_payload(job_id, payload)
+                self.assertEqual(result, 1)
+                handler.assert_called_once()
+                self.assertTrue((self.root / "done" / f"{job_id}.json").exists())
+
 
 # ---------------------------------------------------------------------------
 # DaemonRunner
@@ -563,6 +607,17 @@ class TestEnqueueCommand(unittest.TestCase, QueueRootIsolationMixin):
         args = _make_args(payload_json="not-valid-json")
         rc = EnqueueCommand.run(args)
         self.assertEqual(rc, 2)
+
+    def test_enqueue_command_non_object_json_returns_2(self):
+        from worker.commands import EnqueueCommand
+        from worker import queue_ops as q
+        q.QUEUE_ROOT = self.root
+        for raw in ('"bad"', "123", '[["message", "x"]]', "null"):
+            with self.subTest(payload_json=raw), patch("worker.commands.emit_one") as emit:
+                rc = EnqueueCommand.run(_make_args(payload_json=raw))
+                self.assertEqual(rc, 2)
+                emit.assert_not_called()
+        self.assertEqual(list(self.root.rglob("*.json")), [])
 
     def test_enqueue_command_uses_provided_job_id(self):
         from worker.commands import EnqueueCommand
