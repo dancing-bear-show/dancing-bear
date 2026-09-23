@@ -434,6 +434,71 @@ run_local_noenv ALLOW "/tmp/out.json"
 rm -rf "$_global_dir"
 
 echo
+echo "--- relative Write paths resolve against the payload cwd ---"
+# The one guarantee this file calls STRONG was broken whenever the agent's cwd was
+# not the repo root: `mail/cli.py` from <repo>/src has no `src/` prefix, so it was
+# allowed. The payload carries `cwd` and the hook was ignoring it.
+run_cwd() { # run_cwd <BLOCK|ALLOW> <cwd> <file_path>
+  local expect="$1" cwd="$2" path="$3" rc
+  jq -n --arg c "$cwd" --arg p "$path" \
+    '{agent_type:"researcher",cwd:$c,tool_name:"Write",tool_input:{file_path:$p,content:"x"}}' \
+    | bash "$HOOK" >/dev/null 2>&1
+  rc=$?
+  _record "$expect" "$(_classify "$rc")" "cwd=${cwd##*/} -> $path"
+}
+run_cwd BLOCK "$REPO_ROOT/src"          "mail/cli.py"
+run_cwd BLOCK "$REPO_ROOT/src/mail"     "cli.py"
+run_cwd BLOCK "$REPO_ROOT/tests"        "workflow_tests/test_linter.py"
+run_cwd BLOCK "$REPO_ROOT"              "src/mail/cli.py"
+run_cwd BLOCK "$REPO_ROOT/.claude"      "hooks/whatever.sh"
+# Artifacts stay writable from any cwd, and an absent cwd falls back to
+# repo-root-relative rather than failing open.
+run_cwd ALLOW "$REPO_ROOT/src"          "/tmp/out.json"
+run_cwd ALLOW "$REPO_ROOT"              "out/report.json"
+run_cwd ALLOW "/tmp/ws"                 "analysis/findings.json"
+run_cwd BLOCK ""                        "src/mail/cli.py"
+
+echo
+echo "--- newline and & are command separators ---"
+# `read -ra` consumes only the first physical line, so everything after a newline
+# was never inspected: the second command ran unguarded. `&` starts a new command
+# for the same reason `&&` does.
+run_bash BLOCK researcher "$(printf 'cat README.md\nsed -i %s %s src/mail/cli.py' "''" "'s/a/b/'")"
+run_bash BLOCK researcher "$(printf 'cat README.md\nrm -rf src')"
+run_bash BLOCK researcher "cat README.md & sed -i '' 's/a/b/' src/mail/cli.py"
+run_bash BLOCK researcher "$(printf 'echo one\necho two\ntouch src/newfile.py')"
+# Ordinary multi-command work must still pass.
+run_bash ALLOW researcher "$(printf 'make test\nmake lint')"
+run_bash ALLOW researcher "$(printf 'cat README.md\ngrep -rn AppMeta src/')"
+run_bash ALLOW researcher "./bin/workflow list & make test"
+
+echo
+echo "--- cp -t / --target-directory puts the destination FIRST ---"
+# The last-operand rule looked only at /tmp/evil.py and allowed a write under src/.
+run_bash BLOCK researcher "cp -t src /tmp/evil.py"
+run_bash BLOCK researcher "cp --target-directory=src /tmp/evil.py"
+run_bash BLOCK researcher "cp -t tests /tmp/a.py /tmp/b.py"
+# ...and the same flags pointing at an artifact directory stay allowed.
+run_bash ALLOW researcher "cp -t /tmp src/mail/cli.py"
+run_bash ALLOW researcher "cp --target-directory=/tmp src/mail/cli.py"
+
+echo
+echo "--- sed in-place detected by option SHAPE, not a list of spellings ---"
+# Enumerating `-i`, `-i.`, `--in-place` missed `-iE` and `-Ei`, both of which edit in
+# place. Enumerating option spellings drifts exactly like enumerating tracked files.
+run_bash BLOCK researcher "sed -iE 's/a/b/' src/mail/cli.py"
+run_bash BLOCK researcher "sed -Ei 's/a/b/' src/mail/cli.py"
+run_bash BLOCK researcher "sed -i.bak 's/a/b/' src/mail/cli.py"
+run_bash BLOCK researcher "sed -i '' 's/a/b/' src/mail/cli.py"
+run_bash BLOCK researcher "sed --in-place 's/a/b/' src/mail/cli.py"
+run_bash BLOCK researcher "sed -n -i 's/a/b/' src/mail/cli.py"
+# sed WITHOUT -i reads and prints -- the shape match must not swallow these.
+run_bash ALLOW researcher "sed -n '1,5p' src/mail/cli.py"
+run_bash ALLOW researcher "sed -e 's/a/b/' src/mail/cli.py"
+run_bash ALLOW researcher "sed -E 's/a/b/' src/mail/cli.py"
+run_bash ALLOW researcher "sed --expression='s/a/b/' src/mail/cli.py"
+
+echo
 echo "--- KNOWN GAPS: documented, not fixed (see the SCOPE note in the hook) ---"
 # These are ALLOWed by design. A string matcher cannot evaluate what the shell will do
 # to the string, and block-destructive-bash.sh's header records four adversarial rounds

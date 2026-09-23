@@ -257,7 +257,30 @@ classify_path() {
   # that fails open when its own helper dies is the exact shape this file exists to
   # avoid; caught by the suite, not by reading.
   local p="$1"
+  local base="${2:-}"
   local rel="$p"
+
+  # A RELATIVE path is relative to the caller's cwd, not to the repo root.
+  #
+  # Treating every relative path as repo-root-relative broke the one guarantee this
+  # file calls strong: an agent whose cwd is <repo>/src writes `mail/cli.py`, which
+  # has no `src/` prefix, so classify_path returned ok and the write went through.
+  # Same for `cli.py` from <repo>/src/mail. The PreToolUse payload carries `cwd` --
+  # it was in the very probe that established `agent_type` exists -- and this never
+  # used it.
+  #
+  # Passed in by the caller rather than read here, because the two branches differ:
+  # Write/Edit gets the payload cwd (exact, and the strong guarantee depends on it),
+  # while the Bash branch passes nothing. A shell command can `cd` before it writes,
+  # so any cwd the hook resolves against there would be a guess -- and a guess that
+  # ALLOWS is worse than the documented best-effort the Bash branch already is.
+  if [ -n "$base" ]; then
+    case "$p" in
+      /*) ;;                      # already absolute
+      *)  p="$base/$p" ;;
+    esac
+    rel="$p"
+  fi
 
   # Collapse `/./` segments before anything else looks at the path. `a/./b` and `a/b`
   # name the same file, and every guarded-prefix test below is textual, so a single
@@ -443,9 +466,18 @@ if [ "$TOOL" = "Bash" ]; then
   #    Split on separators so each segment is judged against its own leading command
   #    word -- `cat a.py && sed -i '' b.py` must not let the harmless first half
   #    vouch for the second.
+  #    NEWLINES and a bare `&` are separators too, and omitting them was a hole rather
+  #    than a nicety: `read -ra` consumes only the first physical line, so everything
+  #    after a newline was never inspected at all -- `cat README.md\nsed -i '' …
+  #    src/mail/cli.py` was allowed outright. `&` backgrounds the first command and
+  #    starts a second, so it splits for the same reason `&&` does. Order matters:
+  #    `&&` must be replaced before the bare `&`, or it becomes two empty separators.
   segs=${CMD//&&/;}
   segs=${segs//||/;}
   segs=${segs//|/;}
+  segs=${segs//&/;}
+  segs=${segs//$'\n'/;}
+  segs=${segs//$'\r'/;}
   IFS=';' read -ra _segments <<< "$segs"
   for seg in "${_segments[@]}"; do
     # shellcheck disable=SC2086
@@ -461,13 +493,31 @@ if [ "$TOOL" = "Bash" ]; then
         targets="$targets $*"
         ;;
       cp|ln)
-        # Only the final operand is written. `cp a b c dir/` writes into dir/ alone,
-        # and the earlier operands are sources being READ -- blocking those is what
-        # made `cp src/mail/cli.py /tmp/copy.py` fail.
+        # Normally the final operand is written. `cp a b c dir/` writes into dir/
+        # alone, and the earlier operands are sources being READ -- blocking those is
+        # what made `cp src/mail/cli.py /tmp/copy.py` fail.
+        #
+        # EXCEPT with -t/--target-directory, which moves the destination to the front
+        # and makes every positional operand a source. `cp -t src /tmp/evil.py` writes
+        # under src/ while the last-operand rule looked only at /tmp/evil.py and
+        # allowed it. Review found that; the suite pins both spellings.
         shift
-        [ "$#" -gt 0 ] || continue
-        for _ in $(seq 1 $(( $# - 1 ))); do shift; done
-        targets="$targets $1"
+        _tdir=""
+        _prev=""
+        for a in "$@"; do
+          case "$a" in
+            --target-directory=*) _tdir="${a#--target-directory=}" ;;
+            *) [ "$_prev" = "-t" ] || [ "$_prev" = "--target-directory" ] && _tdir="$a" ;;
+          esac
+          _prev="$a"
+        done
+        if [ -n "$_tdir" ]; then
+          targets="$targets $_tdir"
+        else
+          [ "$#" -gt 0 ] || continue
+          for _ in $(seq 1 $(( $# - 1 ))); do shift; done
+          targets="$targets $1"
+        fi
         ;;
       mv)
         # mv is NOT like cp: it REMOVES the source. `mv src /tmp/elsewhere` destroys
@@ -477,12 +527,29 @@ if [ "$TOOL" = "Bash" ]; then
         ;;
       sed)
         # Rewrites in place only with -i. Without it, sed reads and prints.
-        case " $* " in
-          *" -i "*|*" -i."*|*" --in-place"*|*" -i'"*|*' -i"'*)
-            shift
-            targets="$targets $*"
-            ;;
-        esac
+        #
+        # Detected by SHAPE, not by listing spellings. The previous version enumerated
+        # `-i`, `-i.`, `--in-place` and two quoted forms, and missed `-iE` and `-Ei` --
+        # both of which edit in place on GNU and BSD sed. Enumerating option spellings
+        # drifts exactly like enumerating tracked files did, so: any short-option
+        # cluster containing `i`, or the long form, counts.
+        _inplace=0
+        for a in "$@"; do
+          case "$a" in
+            --in-place*) _inplace=1 ;;
+            --*) ;;                       # some other long option
+            -*)
+              # A short-option cluster: -i, -iE, -Ei, -i.bak, -n -i, …
+              case "${a#-}" in
+                *i*) _inplace=1 ;;
+              esac
+              ;;
+          esac
+        done
+        if [ "$_inplace" -eq 1 ]; then
+          shift
+          targets="$targets $*"
+        fi
         ;;
       dd)
         # Writes only to of=; if= is the input.
@@ -553,7 +620,13 @@ fi
 
 # Judge the path with the same function the Bash branch uses, so the two tools cannot
 # drift into disagreeing about what counts as source.
-VERDICT=$(classify_path "$FILE")
+# The payload's cwd, so a relative file_path is judged where it actually lands.
+# Absent or non-string means "no base" and classify_path falls back to treating the
+# path as repo-root-relative, which is the old behaviour rather than a fail-open --
+# an absolute path is unaffected and a relative one still meets every other rule.
+CWD=$(jq -r 'if (.cwd | type) == "string" then .cwd else "" end' <<< "$PAYLOAD" 2>/dev/null || echo "")
+
+VERDICT=$(classify_path "$FILE" "$CWD")
 # Same fail-closed check as the Bash branch: an empty verdict is a dead helper, not
 # an approval.
 if [ -z "$VERDICT" ]; then

@@ -206,8 +206,16 @@ left a read-only role able to rewrite the lint configuration judging its own bra
 
 | Path | Strength | Why |
 |---|---|---|
-| `Write` / `Edit` | **strong** | `.tool_input.file_path` is one string; the path judged is the path written |
+| `Write` / `Edit` | **strong** | `.tool_input.file_path` is one string, resolved against the payload's `cwd`; the path judged is the path written |
 | `Bash` | **weak** | Matches a command string, with all the limits in [Known gaps](#known-gaps-wont-fix) |
+
+The `cwd` resolution is load-bearing, not a refinement. A relative `file_path` is
+relative to the agent's working directory, and treating every relative path as
+repo-root-relative broke the strong guarantee outright — an agent with cwd
+`<repo>/src` wrote `mail/cli.py`, which carries no `src/` prefix. The Bash branch
+deliberately does **not** resolve against `cwd`: a shell command can `cd` before it
+writes, so any assumed base there is a guess, and a guess that allows is worse than
+the best-effort it already documents.
 
 The Bash branch exists because the Write-only version was trivially bypassable —
 `echo x > src/mail/cli.py` never reached the hook. It judges a token only where it is
@@ -227,9 +235,9 @@ matches no guarded path — so the redirect went through. The fd-duplication spe
 
 | Shape | Commands | Targets |
 |---|---|---|
-| last-arg writers | `cp`, `ln` | the final operand only |
+| last-arg writers | `cp`, `ln` | the final operand — **unless** `-t`/`--target-directory`, which moves the destination to the front |
 | all-arg writers | `rm`, `rmdir`, `truncate`, `touch`, `shred`, `unlink`, `chmod`, `chown`, `patch`, `tee`, `install` | every operand |
-| conditional writers | `sed` (only with `-i`), `dd` (only `of=`) | as flagged |
+| conditional writers | `sed` (any short-option cluster containing `i`, or `--in-place`), `dd` (only `of=`) | as flagged |
 | both ends | `mv` | source **and** destination — it removes the source |
 
 Treating every operand as a target blocked `cp src/mail/cli.py /tmp/copy.py` (a normal
