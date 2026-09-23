@@ -16,35 +16,75 @@ Options:
   --dry-run                         Preview without making changes
 """
 import argparse
-import json
+import importlib.util
 import os
 import re
-import subprocess
+import subprocess  # nosec B404 - qlty and git shell-outs use fixed argv; no shell
 import sys
 from pathlib import Path
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+# Load bin/_pathrepair.py by explicit filesystem path, NOT by `import`.
+#
+# That module's job is to fix a broken import path, so it cannot itself depend
+# on the import path being correct: a plain `import` would either fail or —
+# far worse — silently load a FOREIGN checkout's copy and repair nothing.
+# Anchoring to __file__ also keeps this correct when pr-assistant is invoked
+# through a symlink or found on $PATH, since Path.resolve() follows symlinks.
+_spec = importlib.util.spec_from_file_location(
+    "_dancing_bear_pathrepair", _REPO_ROOT / "bin" / "_pathrepair.py"
+)
+if _spec is None or _spec.loader is None:  # pragma: no cover - defensive
+    raise SystemExit("bin/pr-assistant: cannot load bin/_pathrepair.py")
+_pathrepair = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_pathrepair)
+
+# Must run BEFORE the .venv re-exec below so the corrected PYTHONPATH is
+# inherited across os.execv.
+_pathrepair.strip_foreign_src_paths(_REPO_ROOT)
+
+_VENV_PY = _REPO_ROOT / ".venv" / "bin" / "python3"
+_VENV_PY_REAL = os.path.realpath(str(_VENV_PY)) if _VENV_PY.exists() else ""
+if (
+    _VENV_PY.exists()
+    and sys.prefix == sys.base_prefix  # no venv active
+    and os.path.realpath(sys.executable) != _VENV_PY_REAL
+    and os.environ.get("_DANCING_BEAR_VENV_EXEC") != _VENV_PY_REAL
+):
+    os.environ["_DANCING_BEAR_VENV_EXEC"] = _VENV_PY_REAL
+    os.execv(str(_VENV_PY), [str(_VENV_PY)] + sys.argv)
+
+# After the re-exec, immediately before the first repo import: force our src/ to
+# the FRONT of sys.path. A membership test is not enough — if our src/ is on the
+# path but sits behind another checkout's, that one wins and the guard is a no-op.
+SRC_ROOT = Path(_pathrepair.force_own_src_first(_REPO_ROOT))
+
+from core.github import (  # noqa: E402
+    GhError,
+    client,
+    fetch_review_threads,
+    normalize_login,
+    resolve_owner_repo,
+    resolve_thread,
+)
+from core.github.pulls import (  # noqa: E402
+    pr_checks,
+    pr_comment,
+    pr_create,
+    pr_edit,
+    pr_files,
+    pr_view,
+)
+
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Local helpers (git remains a subprocess; qlty stays local)
 # ---------------------------------------------------------------------------
-
-def _gh(*args, env=None):
-    """Run a gh command, return (stdout, stderr, returncode)."""
-    base_env = {**os.environ, "GITHUB_TOKEN": ""}
-    if env:
-        base_env.update(env)
-    result = subprocess.run(
-        ["gh", *args],
-        capture_output=True,
-        text=True,
-        env=base_env,
-    )
-    return result.stdout, result.stderr, result.returncode
-
 
 def _git(*args):
     """Run a git command, return stdout stripped."""
-    result = subprocess.run(
+    result = subprocess.run(  # nosec B603 B607 - fixed argv, no shell, repo-internal use
         ["git", *args],
         capture_output=True,
         text=True,
@@ -52,67 +92,34 @@ def _git(*args):
     return result.stdout.strip()
 
 
-def _graphql(query, owner, repo):
-    """Execute a GitHub GraphQL query, return parsed JSON or None."""
-    stdout, stderr, rc = _gh("api", "graphql", "-f", f"query={query}")
-    if rc != 0:
-        print(f"GraphQL error: {stderr.strip()}", file=sys.stderr)
-        return None
-    try:
-        return json.loads(stdout)
-    except json.JSONDecodeError as exc:
-        print(f"GraphQL JSON parse error: {exc}", file=sys.stderr)
-        return None
-
-
-def parse_owner_repo():
-    """Return (owner, repo) from git remote origin URL."""
-    url = _git("remote", "get-url", "origin")
-    # https://github.com/owner/repo.git  or  git@github.com:owner/repo.git
-    m = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$", url)
-    if not m:
-        print(f"Cannot parse owner/repo from remote URL: {url}", file=sys.stderr)
-        sys.exit(1)
-    return m.group(1), m.group(2)
-
-
 # ---------------------------------------------------------------------------
 # PR creation / lookup
 # ---------------------------------------------------------------------------
 
-def find_pr():
-    """Return dict with number, url, headRefName or None."""
-    stdout, _, rc = _gh("pr", "view", "--json", "number,url,headRefName,baseRefName")
-    if rc != 0:
+def find_pr(gh):
+    """Return dict with number, url, headRefName, baseRefName, or None."""
+    try:
+        return pr_view(
+            gh, None, ["number", "url", "headRefName", "baseRefName"]
+        )
+    except GhError:
+        return None
+
+
+def create_pr(gh, base, title, body, dry_run):
+    """Create a PR, return dict with number and url, or None on dry-run/failure."""
+    if not title:
+        title = _git("rev-parse", "--abbrev-ref", "HEAD")
+    body = body or ""
+    if dry_run:
+        print(f"[DRY RUN] gh pr create --base {base} --title {title}")
         return None
     try:
-        return json.loads(stdout)
-    except json.JSONDecodeError:
+        pr_create(gh, base=base, title=title, body=body)
+    except GhError as exc:
+        print(f"Failed to create PR: {exc}", file=sys.stderr)
         return None
-
-
-def create_pr(base, title, body, dry_run):
-    """Create a PR, return dict with number and url or None."""
-    args = ["pr", "create", "--base", base]
-    if title:
-        args += ["--title", title]
-    else:
-        # Use branch name as default title
-        branch = _git("rev-parse", "--abbrev-ref", "HEAD")
-        args += ["--title", branch]
-    if body:
-        args += ["--body", body]
-    else:
-        args += ["--body", ""]
-    if dry_run:
-        print(f"[DRY RUN] gh {' '.join(args[1:])}")
-        return None
-    stdout, stderr, rc = _gh(*args)
-    if rc != 0:
-        print(f"Failed to create PR: {stderr.strip()}", file=sys.stderr)
-        return None
-    # Re-fetch PR info
-    return find_pr()
+    return find_pr(gh)
 
 
 # ---------------------------------------------------------------------------
@@ -121,79 +128,40 @@ def create_pr(base, title, body, dry_run):
 
 COPILOT_BOT = "copilot-pull-request-reviewer"
 
-REVIEW_THREADS_QUERY = """
-{{
-  repository(owner: "{owner}", name: "{repo}") {{
-    pullRequest(number: {number}) {{
-      reviewThreads(first: 50) {{
-        nodes {{
-          id
-          isResolved
-          comments(first: 1) {{
-            nodes {{
-              author {{ login }}
-              path
-              line
-              body
-            }}
-          }}
-        }}
-      }}
-    }}
-  }}
-}}
-"""
 
-RESOLVE_MUTATION = """
-mutation {{
-  resolveReviewThread(input: {{threadId: "{thread_id}"}}) {{
-    thread {{ id isResolved }}
-  }}
-}}
-"""
+def fetch_copilot_threads(gh, owner, repo, pr_number):
+    """Return list of unresolved Copilot review threads.
 
-
-def fetch_copilot_threads(owner, repo, pr_number):
-    """Return list of unresolved Copilot thread dicts."""
-    query = REVIEW_THREADS_QUERY.format(owner=owner, repo=repo, number=pr_number)
-    data = _graphql(query, owner, repo)
-    if not data:
-        return []
-    try:
-        nodes = data["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
-    except (KeyError, TypeError):
-        return []
-    threads = []
-    for node in nodes:
-        if node.get("isResolved"):
+    A thread qualifies when its ``source`` is ``graphql-thread`` (REST review
+    bodies and issue comments carry no thread_id and cannot be resolved),
+    ``is_resolved`` is false, and its opening author normalises to the Copilot
+    login. Now paginated through the full ``reviewThreads`` connection, so
+    threads beyond the first 50 are included; the previous first(50) query
+    silently dropped them.
+    """
+    doc, _raw = fetch_review_threads(gh, owner, repo, pr_number)
+    if doc.get("truncated"):
+        # A count GitHub reported did not match what came back. Resolving from
+        # a partial list and then posting "N unresolved" would present an
+        # incomplete run as complete, so stop instead.
+        raise GhError("review-thread fetch incomplete (reported counts did not match); rerun")
+    out = []
+    for entry in doc.get("threads") or []:
+        if entry.get("source") != "graphql-thread":
             continue
-        comments = node.get("comments", {}).get("nodes", [])
-        if not comments:
+        if entry.get("is_resolved"):
             continue
-        comment = comments[0]
-        author = (comment.get("author") or {}).get("login", "")
-        if author != COPILOT_BOT:
+        opening = (entry.get("comments") or [{}])[0]
+        opener = opening.get("author", "")
+        if normalize_login(opener) != COPILOT_BOT:
             continue
-        threads.append({
-            "id": node["id"],
-            "path": comment.get("path") or "",
-            "line": comment.get("line") or "",
-            "body": comment.get("body") or "",
+        out.append({
+            "id": entry.get("thread_id"),
+            "path": entry.get("path") or "",
+            "line": entry.get("line") if entry.get("line") is not None else "",
+            "body": entry.get("opening_body") or "",
         })
-    return threads
-
-
-def resolve_thread(thread_id, dry_run):
-    """Resolve a single review thread."""
-    mutation = RESOLVE_MUTATION.format(thread_id=thread_id)
-    if dry_run:
-        print(f"[DRY RUN] resolveReviewThread({thread_id})")
-        return True
-    stdout, stderr, rc = _gh("api", "graphql", "-f", f"query={mutation}")
-    if rc != 0:
-        print(f"  Failed to resolve {thread_id}: {stderr.strip()}", file=sys.stderr)
-        return False
-    return True
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -213,12 +181,12 @@ SEV_MAP = {
 }
 
 
-def get_pr_files():
+def get_pr_files(gh):
     """Return list of files changed in the PR."""
-    stdout, _, rc = _gh("pr", "diff", "--name-only")
-    if rc != 0:
+    try:
+        return pr_files(gh, None)
+    except GhError:
         return []
-    return [f for f in stdout.splitlines() if f.strip()]
 
 
 def run_qlty(files):
@@ -227,7 +195,7 @@ def run_qlty(files):
         return None
     if not files:
         return {"high": [], "medium": [], "low": []}
-    result = subprocess.run(
+    result = subprocess.run(  # nosec B603 - QLTY_BIN is a fixed local path, files are repo-relative
         [str(QLTY_BIN), "check", *files],
         capture_output=True,
         text=True,
@@ -252,55 +220,62 @@ def run_qlty(files):
 # CI checks
 # ---------------------------------------------------------------------------
 
-def get_ci_checks(pr_number):
-    """Return list of dicts {name, status, conclusion} from gh pr checks."""
-    stdout, _, rc = _gh("pr", "checks", str(pr_number), "--json", "name,status,conclusion,state")
-    if rc == 0 and stdout.strip():
-        try:
-            checks = json.loads(stdout)
-            return checks
-        except json.JSONDecodeError:
-            pass
-    # Fallback: parse text output of gh pr checks
-    stdout2, _, rc2 = _gh("pr", "checks", str(pr_number))
-    if rc2 != 0:
+def get_ci_checks(gh, pr_number):
+    """Return list of check dicts as ``gh pr checks --json`` provides them."""
+    try:
+        return pr_checks(gh, pr_number)
+    except GhError:
         return []
-    checks = []
-    for line in stdout2.splitlines():
-        parts = line.split()
-        if len(parts) >= 2:
-            checks.append({"name": parts[0], "status": parts[1], "conclusion": ""})
-    return checks
 
 
-_CONCLUSION_MAP = {
-    "success": "passed",
-    "failure": "failed",
-    "timed_out": "failed",
-    "startup_failure": "failed",
-    "cancelled": "cancelled",
-    "skipped": "skipped",
-    "neutral": "skipped",
+# ``bucket`` is the new field ``gh pr checks --json`` reports; ``state`` is the
+# workflow-run state that predated it. Both are kept because a check row may
+# arrive with either one — status checks (external CI reporting through the
+# statuses API) still populate ``state`` but not ``bucket``.
+_BUCKET_MAP = {
+    "pass": "passed",
+    "fail": "failed",
+    "pending": "pending",
+    "skipping": "skipped",
+    "cancel": "cancelled",
 }
 
-_STATUS_MAP = {
-    "in_progress": "in_progress",
-    "queued": "pending",
-    "waiting": "pending",
-    "requested": "pending",
-    "pending": "pending",
+_STATE_MAP = {
+    "SUCCESS": "passed",
+    "FAILURE": "failed",
+    "TIMED_OUT": "failed",
+    "STARTUP_FAILURE": "failed",
+    "CANCELLED": "cancelled",
+    "SKIPPED": "skipped",
+    "NEUTRAL": "skipped",
+    "IN_PROGRESS": "in_progress",
+    "QUEUED": "pending",
+    "PENDING": "pending",
+    "WAITING": "pending",
+    "REQUESTED": "pending",
+    "COMPLETED": "passed",
 }
 
 
 def format_check_status(check):
-    """Return display string for a check."""
-    conclusion = check.get("conclusion") or ""
-    status = check.get("status") or check.get("state") or ""
-    if conclusion in _CONCLUSION_MAP:
-        return _CONCLUSION_MAP[conclusion]
-    if status == "completed":
-        return conclusion or "completed"
-    return _STATUS_MAP.get(status, conclusion or status or "unknown")
+    """Return display string for a check.
+
+    ``gh pr checks --json`` now emits ``bucket`` (``pass``/``fail``/
+    ``pending``/``skipping``/``cancel``) alongside ``state``. ``bucket`` is
+    checked first because it is gh's normalised verdict; state is the fallback
+    for rows that never carried a bucket (status checks). ``conclusion`` is a
+    third fallback for callers that still pass the older shape.
+    """
+    bucket = (check.get("bucket") or "").lower()
+    if bucket in _BUCKET_MAP:
+        return _BUCKET_MAP[bucket]
+    state = (check.get("state") or "").upper()
+    if state in _STATE_MAP:
+        return _STATE_MAP[state]
+    conclusion = (check.get("conclusion") or "").upper()
+    if conclusion in _STATE_MAP:
+        return _STATE_MAP[conclusion]
+    return (check.get("state") or check.get("conclusion") or "unknown").lower() or "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -363,9 +338,9 @@ def build_parser():
     return p
 
 
-def _ensure_pr(args):
-    """Find or create PR; return PR dict or (None, exit_code)."""
-    pr = find_pr()
+def _ensure_pr(gh, args):
+    """Find or create PR; return (PR dict or None, exit code or None)."""
+    pr = find_pr(gh)
     if pr is not None:
         return pr, None
     if not args.create:
@@ -373,7 +348,7 @@ def _ensure_pr(args):
         return None, 1
     branch = _git("rev-parse", "--abbrev-ref", "HEAD")
     print(f"No PR found for branch '{branch}', creating...")
-    pr = create_pr(args.base, args.title, args.body, args.dry_run)
+    pr = create_pr(gh, args.base, args.title, args.body, args.dry_run)
     if pr is None and not args.dry_run:
         print("Failed to create PR.", file=sys.stderr)
         return None, 1
@@ -383,11 +358,11 @@ def _ensure_pr(args):
     return pr, None
 
 
-def _collect_qlty(args):
+def _collect_qlty(gh, args):
     """Run qlty checks on PR files if enabled; return issues dict or None."""
     if not args.check_qlty:
         return None
-    files = get_pr_files()
+    files = get_pr_files(gh)
     if files:
         return run_qlty(files)
     return {"high": [], "medium": [], "low": []}
@@ -415,8 +390,13 @@ def _display_summary(threads, qlty_issues, checks):
     print()
 
 
-def _resolve_copilot_threads(threads, args):
-    """Resolve unresolved Copilot threads if enabled."""
+def _resolve_copilot_threads(gh, threads, args):
+    """Resolve unresolved Copilot threads if enabled.
+
+    ``resolve_thread`` raises ``GhError`` when the response payload does not
+    confirm the thread as resolved. Each failure is reported per thread and the
+    caller-visible "some failed" summary is preserved.
+    """
     if not (args.resolve_copilot and threads):
         return
     print(f"Resolving {len(threads)} Copilot conversation(s)...", end=" ", flush=True)
@@ -424,12 +404,18 @@ def _resolve_copilot_threads(threads, args):
         print()
         for t in threads:
             print(f"[DRY RUN] Would resolve thread {t['id']}")
-    else:
-        ok = all(resolve_thread(t["id"], dry_run=False) for t in threads)
-        print("done" if ok else "some failed")
+        return
+    any_failed = False
+    for t in threads:
+        try:
+            resolve_thread(gh, t["id"])
+        except GhError as exc:
+            any_failed = True
+            print(f"\n  Failed to resolve {t['id']}: {exc}", file=sys.stderr)
+    print("some failed" if any_failed else "done")
 
 
-def _post_summary_comment(pr_number, threads, qlty_issues, checks, args):
+def _post_summary_comment(gh, pr_number, threads, qlty_issues, checks, args):
     """Post or preview a summary comment on the PR."""
     if not args.update_summary:
         return
@@ -438,12 +424,16 @@ def _post_summary_comment(pr_number, threads, qlty_issues, checks, args):
     if args.dry_run:
         print()
         print(f"[DRY RUN] Would post comment:\n{comment}")
-    else:
-        _, stderr, rc = _gh("pr", "comment", str(pr_number), "--body", comment)
-        print("done" if rc == 0 else f"failed: {stderr.strip()}")
+        return
+    try:
+        pr_comment(gh, pr_number, comment)
+    except GhError as exc:
+        print(f"failed: {exc}")
+        return
+    print("done")
 
 
-def _update_pr_metadata(pr_number, args):
+def _update_pr_metadata(gh, pr_number, args):
     """Update PR title/body if provided."""
     if not (args.title or args.body):
         return
@@ -453,22 +443,29 @@ def _update_pr_metadata(pr_number, args):
         if args.body:
             print(f"[DRY RUN] Would set PR body: {args.body[:80]}...")
         return
-    edit_args = ["pr", "edit", str(pr_number)]
-    if args.title:
-        edit_args += ["--title", args.title]
-    if args.body:
-        edit_args += ["--body", args.body]
-    _, stderr, rc = _gh(*edit_args)
-    if rc != 0:
-        print(f"PR edit failed: {stderr.strip()}", file=sys.stderr)
+    try:
+        pr_edit(gh, pr_number, title=args.title, body=args.body)
+    except GhError as exc:
+        print(f"PR edit failed: {exc}", file=sys.stderr)
 
 
 def main():
     parser = build_parser()
     args = parser.parse_args()
-    owner, repo = parse_owner_repo()
+    try:
+        return _run(args)
+    except GhError as exc:
+        # One exit path for every GitHub failure (auth, timeout, GraphQL
+        # errors, an incomplete fetch) instead of a traceback.
+        print(f"pr-assistant: {exc}", file=sys.stderr)
+        return 1
 
-    pr, exit_code = _ensure_pr(args)
+
+def _run(args):
+    gh = client()
+    owner, repo = resolve_owner_repo(gh)
+
+    pr, exit_code = _ensure_pr(gh, args)
     if pr is None:
         return exit_code
 
@@ -477,14 +474,14 @@ def main():
     print(pr["url"])
     print()
 
-    threads = fetch_copilot_threads(owner, repo, pr_number)
-    qlty_issues = _collect_qlty(args)
-    checks = get_ci_checks(pr_number) if args.check_ci else []
+    threads = fetch_copilot_threads(gh, owner, repo, pr_number)
+    qlty_issues = _collect_qlty(gh, args)
+    checks = get_ci_checks(gh, pr_number) if args.check_ci else []
 
     _display_summary(threads, qlty_issues, checks)
-    _resolve_copilot_threads(threads, args)
-    _post_summary_comment(pr_number, threads, qlty_issues, checks, args)
-    _update_pr_metadata(pr_number, args)
+    _resolve_copilot_threads(gh, threads, args)
+    _post_summary_comment(gh, pr_number, threads, qlty_issues, checks, args)
+    _update_pr_metadata(gh, pr_number, args)
 
     print(f"\n{pr['url']}")
     return 0

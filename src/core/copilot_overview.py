@@ -27,6 +27,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from core.github.authors import normalize_login
+
 OVERVIEW_MARKER = "<!-- ccr-overview-v2 -->"
 COPILOT_LOGIN = "copilot-pull-request-reviewer"
 ZERO_WIDTH_SPACE = "​"
@@ -52,17 +54,6 @@ _VERDICT = re.compile(r"^###\s*(.+?)\s*$", re.MULTILINE)
 def strip_zwsp(text: str) -> str:
     """Remove the zero-width spaces GitHub injects into rendered paths."""
     return text.replace(ZERO_WIDTH_SPACE, "")
-
-
-def normalize_login(login: str | None) -> str:
-    """Strip a trailing ``[bot]`` so both API spellings compare equal.
-
-    GraphQL returns ``copilot-pull-request-reviewer`` and REST returns
-    ``copilot-pull-request-reviewer[bot]`` for the same account.
-    """
-    if not login:
-        return ""
-    return login[:-5] if login.endswith("[bot]") else login
 
 
 def is_copilot_overview(body: dict[str, Any]) -> bool:

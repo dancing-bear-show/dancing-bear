@@ -77,7 +77,7 @@ Activation Policy (Recommended)
 
 LLM Imperatives
 - Activate env when running Python commands only if needed; prefer `direnv` or direct `.venv/bin/python` when relevant.
-- `./bin/assistant` apps: apple-music, calendar, mail, maker, music, phone, resume, schedule, slides, whatsapp, wifi. Short wrappers also available: `./bin/mail`, `./bin/calendar`, `./bin/schedule`, `./bin/phone`, `./bin/wifi`, `./bin/whatsapp`, `./bin/maker`, `./bin/qlty-assistant`. The `-assistant` suffixed forms are legacy aliases (except `./bin/qlty-assistant`, whose suffix is required so it does not shadow the real `qlty` binary). `desk` has no bin/ wrapper — use `python3 -m desk`.
+- `./bin/assistant` apps: apple-music, calendar, github, mail, maker, music, phone, resume, schedule, slides, whatsapp, wifi. Short wrappers also available: `./bin/mail`, `./bin/calendar`, `./bin/schedule`, `./bin/phone`, `./bin/wifi`, `./bin/whatsapp`, `./bin/maker`, `./bin/github`, `./bin/qlty-assistant`. The `-assistant` suffixed forms are legacy aliases (except `./bin/qlty-assistant`, whose suffix is required so it does not shadow the real `qlty` binary). `desk` has no bin/ wrapper — use `python3 -m desk`.
 - Persist credentials to INI with profiles (single source of truth)
 - Default to dry-run style flows for destructive operations; provide plan/apply
 
@@ -93,7 +93,7 @@ Familiarization Policy (Fast + Lean)
 - Ignore heavy/non-core paths during scanning: `.venv/`, `.cache/`, `.git/`, `src/maker/`, `_disasm/`, `_out/` (legacy), `backups/`, `personal_assistants.egg-info/`
 - Reading order for new contexts:
   1) `.llm/CONTEXT.md`, `README.md`  (domain map: `./bin/llm domain-map --stdout`)
-  2) Entry points: `bin/assistant`, `bin/mail`, `bin/calendar`, `bin/schedule`, `bin/phone`, `bin/wifi`, `bin/whatsapp`, `bin/qlty-assistant`
+  2) Entry points: `bin/assistant`, `bin/mail`, `bin/calendar`, `bin/schedule`, `bin/phone`, `bin/wifi`, `bin/whatsapp`, `bin/github`, `bin/qlty-assistant`
   3) Shared helpers: `src/core/`
   4) Mail config/DSL: `src/mail/dsl.py`, `src/mail/config_resolver.py`, `src/mail/utils/filters.py`
   5) Providers/APIs: `src/mail/providers/*.py`, `src/mail/gmail_api.py`, `src/core/outlook/`

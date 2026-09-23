@@ -45,10 +45,10 @@ stages:
       Reply to and resolve the review threads on PR {pr_number} that the caller
       has marked safe to close.
 
-      Prefix every gh command with `GITHUB_TOKEN=` (a stale token env var
-      silently breaks auth). Resolve owner/repo first, never hardcode:
-        NWO=$(GITHUB_TOKEN= gh repo view --json nameWithOwner -q .nameWithOwner)
-        OWNER=${NWO%%/*}; REPO=${NWO##*/}
+      Use the github CLI for all GitHub access — it handles GITHUB_TOKEN
+      scrubbing internally. No GITHUB_TOKEN= prefix is needed; do not
+      re-implement this with raw gh. Owner/repo is the default context;
+      no owner/repo preamble is required.
 
       Step 0a — abort gate. The caller names its verification artifact in
       resolve-plan.json as "verify_file" (see Step 0b). Read that path,
@@ -173,100 +173,84 @@ stages:
       orchestrator mints its own RUN_ID for each invocation and would fill
       one with exactly the wrong value.) That marker is how a retry
       recognises its own prior work, and it is invisible in rendered Markdown.
-
-      Resolve the authenticated actor once, before the loop:
-        ACTOR=$(GITHUB_TOKEN= gh api user -q .login)
-      If that fails or prints nothing (a GitHub App token can refuse
-      /user), stop: write resolution.json with status "blocked" and reason
-      "could not resolve authenticated actor", post nothing, exit non-zero.
-      An empty ACTOR matches no comment, so every retry would re-post its
-      replies as duplicates — fail closed instead.
-
-      Re-fetch each planned thread's comments before posting — the WHOLE
-      paginated chain, not just the latest — and skip the reply only when a
-      comment BOTH carries this run's marker AND was authored by $ACTOR
-      (compare logins with any trailing "[bot]" stripped). Record those as
-      "already_replied".
-
-      Both conditions are required, and each closes a different hole:
+      The reply command (Step 2 below) enforces this in code. Before posting
+      it resolves the authenticated actor and re-fetches the WHOLE paginated
+      chain, then skips the reply only when a comment BOTH carries this run's
+      marker AND was authored by that actor ("[bot]" suffix ignored), reporting
+      "already_replied". Both conditions are required, and each closes a
+      different hole:
 
         - The marker alone is forgeable. It is plaintext in an HTML comment,
           and this run's run_id becomes visible on the PR the moment its first
-          reply posts. A reviewer who pastes that marker into another thread
-          would otherwise make this stage treat it as already answered and
-          skip a reply it owes. A comment carrying the marker but written by
-          anyone other than $ACTOR is NOT prior work: ignore it for this
-          check and record the thread id under "forged_marker" so the report
-          surfaces it.
+          reply posts. A reviewer who pastes it into another thread would
+          otherwise make this stage skip a reply it owes. A marker written by
+          anyone else is NOT prior work: the command ignores it and reports the
+          thread with "forged_marker": true — carry those into resolution.json
+          under "forged_marker" so the report surfaces them.
         - Authorship alone is not specific. The same token may post for other
           workflows, so "a comment by this actor" can suppress a reply this
           run genuinely owes. The marker ties it to THIS run.
 
-      Search the whole chain, not the last comment. If a reviewer commented
-      after the first run's reply, that reply is no longer latest, and a
-      latest-only check posts a duplicate — the exact case this step exists
-      for.
+      If the actor cannot be resolved (a GitHub App token can refuse the
+      viewer query) the command fails closed with status "failed" rather than
+      matching nothing — an empty actor would make every retry re-post. Treat
+      that as "blocked" for the whole run: post nothing further.
 
-      Do NOT test this by comparing the reply text. A re-run composes its
-      reply fresh, so a semantically identical reply is textually different
-      and a text-equality check never fires — which is precisely the
-      duplicate-reply case this step exists to prevent. Marker plus author is
-      reproducible; string equality is not.
+      It searches the whole chain, not the last comment: if a reviewer
+      commented after the first run's reply, that reply is no longer latest,
+      and a latest-only check posts a duplicate. It never compares reply text
+      — a re-run composes its reply fresh, so a text-equality check never
+      fires. Do not re-implement this check with raw gh.
 
       Step 2 — post the reply INTO the thread, not as a new top-level PR
       comment. A detached comment does not appear where the reviewer raised
-      the concern:
+      the concern. Bind every value BEFORE use — nothing below is a
+      placeholder to fill in by hand. Once per run:
 
-        GITHUB_TOKEN= gh api graphql -f query='
-        mutation($threadId:ID!,$body:String!){
-          addPullRequestReviewThreadReply(
-            input:{pullRequestReviewThreadId:$threadId, body:$body}
-          ){ comment{ id url } }
-        }' -F threadId="$THREAD_ID" -f body="$BODY"
+        PLAN="{workspace}/outputs/resolve-plan.json"
+        PLAN_RUN_ID=$(python3 -I -S -c 'import json,sys;print(json.load(open(sys.argv[1]))["run_id"])' "$PLAN")
 
-      Load the reply into a shell variable read from the plan FILE — never
-      substitute the text into the command source. Text pasted inside a
-      double-quoted shell word is still evaluated by the shell: embedded
-      backticks or $(...) execute, and an embedded quote re-splits the
-      argument. Review-derived text contains exactly those characters, and
-      this stage runs unattended with a token. Build it with a JSON tool, and
-      build it WITH the run marker — this is the one place every reply's
-      body is assembled, so it is where the marker gets attached:
-        BODY=$(python3 -I -S -c 'import json,re,sys; p=json.load(open(sys.argv[1])); r=re.sub(r"<!--\s*dancing-bear-run:.*?-->", "", p["threads"][int(sys.argv[2])]["reply"], flags=re.S).rstrip(); print(r + "\n\n<!-- dancing-bear-run: " + p["run_id"] + " -->")' "$PLAN" "$i")
+      PLAN_RUN_ID is the plan's own "run_id" (manifest.json's original id,
+      already checked in Step 0), read from the file. Never type it and
+      never use a curly-brace template variable for it: the orchestrator
+      fills those with its own per-invocation id, and a hand-copied or
+      shared value makes every run's marker match every other run's.
 
-      Two things that one expression does, both required:
-        - Appends this run's marker. Step 1's already-replied check looks for
-          it; a reply posted without it is invisible to that check, and every
-          retry re-posts it.
-        - Strips any marker already inside the reply text first. Replies are
-          composed from reviewer-influenced material and may quote a
-          comment; a quoted marker would otherwise be posted by this
-          workflow's own account — satisfying both halves of Step 1's
-          marker-plus-author test and suppressing a reply on whatever thread
-          that marker names.
+      Then for each plan entry whose action posts a reply, with i set to
+      that entry's index in the plan's "threads" list and THREAD_ID to its
+      "thread_id":
 
-      PASS THE BODY WITH `-f`, NOT `-F`. This is not a style preference:
-      `gh api -F key=value` is a TYPED field and treats a value beginning with
-      `@` as a path to read. Verified directly — `-F body="@/path/secret"`
-      sends that file's contents as the GraphQL variable, while
-      `-f body="@/path/secret"` sends the literal string. A reviewer whose
-      comment starts `@/etc/passwd` would otherwise have its contents posted
-      to a public PR by this unattended stage.
+        REPLY_FILE=$(mktemp)
+        python3 -I -S -c 'import json,sys;open(sys.argv[2],"w").write(json.load(open(sys.argv[1]))["threads"][int(sys.argv[3])]["reply"])' "$PLAN" "$REPLY_FILE" "$i"
+        ./bin/github threads reply --thread "$THREAD_ID" --body-file "$REPLY_FILE" --run-id "$PLAN_RUN_ID"
+        rm -f "$REPLY_FILE"
 
-      `-F` stays correct for threadId, owner, name and pr: those are ids and
-      numbers this workflow controls, never reviewer-authored text. Use `-f`
-      for any field carrying text that came from a comment, a fixer, or a
-      plan.
+      Add --resolve to the threads reply line ONLY for action
+      "reply-and-resolve". The reply text goes from the plan file into
+      REPLY_FILE through a JSON tool and never through the command source:
+      text pasted inside a double-quoted shell word is still evaluated
+      (backticks and $(...) execute, a quote re-splits the argument),
+      review-derived text contains exactly those characters, and this stage
+      runs unattended with a token.
 
-      VERIFY THE REPLY LANDED before treating it as posted. `gh` exits 0 on an
-      HTTP 200 that carries a GraphQL `errors` array, so exit status proves
-      nothing. Require `data.addPullRequestReviewThreadReply.comment.id` to be
-      non-null AND `errors` to be absent. If either check fails, record the
-      thread in "failed" and DO NOT resolve it.
+      The command owns the marker: it strips any dancing-bear-run marker
+      already inside the reply text, then appends this run's. Stripping
+      matters because replies are composed from reviewer-influenced material
+      and may quote a comment; a quoted marker would otherwise be posted by
+      this workflow's own account, satisfying both halves of the check above
+      and suppressing the reply on whatever thread that marker names. It
+      reads the body only from --body-file and sends it to GitHub as JSON on
+      stdin, so the body never reaches a shell or gh's argv, and an
+      `@path`-looking body is sent as literal text.
 
-      This is the check the whole fragment rests on. Without it a failed reply
-      reads as success and Step 3 resolves a thread that has no reply on it —
-      precisely the silent closure this fragment exists to prevent.
+      The command verifies that comment.id is non-null AND that no GraphQL
+      errors array is present (gh exits 0 on both success and GraphQL errors,
+      so exit status proves nothing). If verification fails, the thread is
+      recorded as "failed" and is never resolved.
+
+      The stdout JSON maps directly to resolution.json fields:
+        {"thread_id","status": "replied|already_replied|failed",
+         "comment_id","url","resolved": bool,"error"}
 
       Step 3 — resolve, but only for action "reply-and-resolve" AND only when
       that thread's reply posted successfully.
@@ -274,19 +258,10 @@ stages:
       Order matters: reply first, resolve second. A resolve that lands without
       its reply leaves a silently closed thread, which is the outcome this
       fragment exists to prevent. If a reply fails, skip the resolve for that
-      thread and record it.
-
-        GITHUB_TOKEN= gh api graphql -f query='
-        mutation($threadId:ID!){
-          resolveReviewThread(input:{threadId:$threadId}){
-            thread{ id isResolved }
-          }
-        }' -F threadId="<thread_id>"
-
-      Verify the response: check thread.isResolved is true rather than trusting
-      exit code 0. A GraphQL error returns HTTP 200 with an errors array, so
-      `gh` exits 0 on a failed mutation. An unverified resolve recorded as a
-      success is indistinguishable from a real one.
+      thread and record it. Pass --resolve to `./bin/github threads reply` and
+      the command handles reply-before-resolve ordering and verifies
+      isResolved — an unverified resolve recorded as a success would be
+      indistinguishable from a real one.
 
       Step 4 — write {workspace}/outputs/resolution.json.
 
@@ -311,24 +286,16 @@ stages:
           "unresolved_after": 3
         }
 
-      Step 5 — re-fetch to confirm the PR's actual state, paging the query:
+      Step 5 — re-fetch to confirm the PR's actual state:
 
-        GITHUB_TOKEN= gh api graphql -f query='
-        query($owner:String!,$name:String!,$pr:Int!,$after:String){
-          repository(owner:$owner,name:$name){
-            pullRequest(number:$pr){
-              reviewThreads(first:100, after:$after){
-                pageInfo{ hasNextPage endCursor }
-                nodes{ id isResolved }
-              }
-            }
-          }
-        }' -F owner="$OWNER" -F name="$REPO" -F pr={pr_number}
+        ./bin/github threads state --pr {pr_number}
 
-      A truncated re-fetch reports fewer unresolved threads than exist and
-      makes a partial run look complete. If you cannot complete the pagination,
-      set "unresolved_after": null and record the reason rather than writing a
-      number you did not verify.
+      Returns {"total","unresolved","unresolved_ids":[...],"truncated":false}
+      from a paginated re-fetch. When GitHub's reported counts do not match
+      what came back, it prints "truncated": true with null counts and exits
+      1 rather than a partial number. On that, or any non-zero exit, set
+      "unresolved_after": null and record the reason — never a number you
+      did not verify.
 
       Report the observed state, not the intended one.
     agent:

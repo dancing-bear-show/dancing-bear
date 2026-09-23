@@ -8,11 +8,13 @@ Tests cover:
 - search_prs() method
 - api_with_headers() method with header parsing
 - graphql() method with temp file handling
+- graphql_checked() method with stdin JSON transport
 - pr_view() method
 - pr_list() method
 """
 from __future__ import annotations
 
+import json
 import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 import unittest
 from types import SimpleNamespace
@@ -315,6 +317,57 @@ class TestGhCLIApiWithHeaders(unittest.TestCase):
 
         # Status should default to 0 on parse error
         self.assertEqual(status, 0)
+
+
+class TestGhCLIGraphqlChecked(unittest.TestCase):
+    """Test graphql_checked()'s stdin JSON transport.
+
+    Unlike the legacy graphql() method (still tempfile/-F based, tested
+    below), graphql_checked() sends the whole request body -- query and
+    variables together -- as JSON on stdin via ``gh api graphql --input -``.
+    No query or variable, including a reply body, ever appears in gh's argv.
+    """
+
+    def test_query_and_variables_travel_together_on_stdin_not_argv(self):
+        mock_run = MagicMock(return_value=_proc(
+            returncode=0,
+            stdout='{"data": {"viewer": {"login": "testuser"}}}',
+        ))
+        cli = GhCLI(run_func=mock_run)
+
+        data = cli.graphql_checked(
+            "query($id: ID!) { node(id: $id) { id } }",
+            {"id": "T1", "body": "@/etc/passwd $(x)"},
+        )
+
+        self.assertEqual(data, {"viewer": {"login": "testuser"}})
+        call_args = mock_run.call_args
+        argv = call_args[0][0]
+        self.assertEqual(argv, ["gh", "api", "graphql", "--input", "-"])
+        # Nothing query- or variable-derived appears in argv at all.
+        self.assertFalse(any("node(id" in a or "@/etc/passwd" in a or "$(x)" in a for a in argv))
+        sent = json.loads(call_args[1]["input"])
+        self.assertEqual(sent["query"], "query($id: ID!) { node(id: $id) { id } }")
+        self.assertEqual(sent["variables"], {"id": "T1", "body": "@/etc/passwd $(x)"})
+
+    def test_none_valued_variables_are_omitted(self):
+        mock_run = MagicMock(return_value=_proc(returncode=0, stdout='{"data": {}}'))
+        cli = GhCLI(run_func=mock_run)
+
+        cli.graphql_checked("query { x }", {"owner": "test-org", "nullvar": None})
+
+        sent = json.loads(mock_run.call_args[1]["input"])
+        self.assertEqual(sent["variables"], {"owner": "test-org"})
+        self.assertNotIn("nullvar", sent["variables"])
+
+    def test_no_variables_omits_the_key_entirely(self):
+        mock_run = MagicMock(return_value=_proc(returncode=0, stdout='{"data": {}}'))
+        cli = GhCLI(run_func=mock_run)
+
+        cli.graphql_checked("query { x }")
+
+        sent = json.loads(mock_run.call_args[1]["input"])
+        self.assertNotIn("variables", sent)
 
 
 class TestGhCLIGraphql(unittest.TestCase):

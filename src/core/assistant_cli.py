@@ -23,6 +23,10 @@ APP_MODULES: dict[str, str] = {
     "apple-music": "apple_music.__main__",
     "wifi": "wifi.__main__",
     "slides": "slides.__main__",
+    # ``github`` is served via the ``github_assistant`` package -- the module
+    # name cannot be ``github`` without shadowing PyPI's ``github`` package on
+    # any sys.path.
+    "github": "github_assistant.__main__",
 }
 
 

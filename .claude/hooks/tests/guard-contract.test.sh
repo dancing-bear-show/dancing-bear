@@ -119,6 +119,13 @@ MADE_DIRS=""
 # (analysis, context, stages, ...) at src/, so leaving them behind would litter the
 # working tree with links into source that a later `git status` reports as untracked.
 MADE_LINKS=""
+# ...and so is every directory `mkdir -p` creates to hold one. The link is removed on
+# exit, but its parent (`analysis/` for `analysis/srclink`) was never recorded, so each
+# run left eight empty directories (analysis/, out/, stages/, ...) at the repo root.
+# `git status` cannot see an empty directory; mid-run each held a `srclink` that a
+# concurrent changed-files scan picked up and handed to qlty, which then failed on a
+# path that no longer existed.
+MADE_LINK_PARENTS=""
 ensure_dirs() {
   local spec="$1" csv="$spec" linkspec="" d pair
   # The flattener appends "#LINKS#a>b|c>d" when a group needs symlinks.
@@ -162,10 +169,20 @@ ensure_dirs() {
         echo "Refusing to run link rows against it." >&2
         exit 1
       fi
+      # Record only ancestors that do not exist yet, so a real workspace is left
+      # alone. Walked deepest first, and PREPENDED to the running list, so cleanup
+      # removes a later link's directories before an earlier link's shared ancestor.
+      local parent missing=""
+      parent=$(dirname "$link")
+      while [ ! -e "$parent" ] && [ ! -L "$parent" ]; do
+        missing="$missing $parent"
+        parent=$(dirname "$parent")
+      done
       if ! mkdir -p "$(dirname "$link")"; then
         echo "FATAL: could not create the parent directory for link '$link'." >&2
         exit 1
       fi
+      MADE_LINK_PARENTS="$missing $MADE_LINK_PARENTS"
       if ! ln -sfn "$target" "$link"; then
         echo "FATAL: could not create the symlink '$link' -> '$target'." >&2
         echo "Aborting rather than running link rows against a missing link." >&2
@@ -179,6 +196,9 @@ cleanup_dirs() {
   local d l
   # Links first: one may sit inside a directory we also have to remove.
   for l in $MADE_LINKS; do [ -L "$l" ] && rm -f "$l"; done
+  # rmdir, not rm -rf: it removes only an EMPTY directory, so anything a case wrote
+  # into one survives to be noticed rather than being deleted with it.
+  for d in $MADE_LINK_PARENTS; do rmdir "$d" 2>/dev/null; done
   for d in $MADE_DIRS; do rmdir "$REPO_ROOT/$d" 2>/dev/null; done
   cleanup_scratch
 }

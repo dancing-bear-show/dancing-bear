@@ -20,7 +20,7 @@ Use Existing Commands First
 ./bin/mail --agentic --agentic-format json
 ./bin/mail --agentic --agentic-format json --agentic-compact
 ./bin/mail --agentic --agentic-format json --agentic-domain labels
-# Works for all 18 apps. `./bin/llm inventory --stdout` prints the exact
+# Works for all 19 apps. `./bin/llm inventory --stdout` prints the exact
 # invocation for each, since ./bin/<app> is wrong for four:
 #   apple-music -> ./bin/apple-music-assistant
 #   qlty        -> ./bin/qlty-assistant
