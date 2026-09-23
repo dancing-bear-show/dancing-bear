@@ -15,6 +15,7 @@ from telemetry.otel.analytics.cost import (
     _build_session_timestamps,
     _calculate_totals,
     get_all_costs,
+    get_cache_read_multiplier,
     get_daily_costs,
     get_model_performance,
     get_model_pricing,
@@ -284,6 +285,17 @@ class TestGetModelPricing(unittest.TestCase):
 
     def test_other_opus_1m_unaffected_by_opus_5_5_rule(self):
         self.assertEqual(get_model_pricing("claude-opus-5[1m]"), MODEL_PRICING["claude-opus-4-7-1m"])
+
+    def test_fable_and_mythos_5_1_resolve_to_own_keys(self):
+        self.assertEqual(get_model_pricing("claude-fable-5-1"), (10.0, 50.0))
+        self.assertEqual(get_cache_read_multiplier("anthropic.claude-fable-5-1-beta"), 0.025)
+        self.assertEqual(get_cache_read_multiplier("claude-mythos-5-1"), 0.025)
+        self.assertEqual(get_cache_read_multiplier("claude-fable-5"), 0.1)
+
+    def test_cache_read_multiplier_defaults_to_standard(self):
+        for model in ("claude-sonnet-4-6", "claude-opus-5[1m]", "completely-unrecognized-model-xyz"):
+            with self.subTest(model=model):
+                self.assertEqual(get_cache_read_multiplier(model), 0.1)
 
     def test_sonnet_5_beats_sonnet_1m(self):
         # "sonnet-5" check comes before "sonnet"+"1m" — this is NOT a 1m variant
@@ -560,6 +572,23 @@ class TestBuildSessionCosts(unittest.TestCase):
         costs = _build_session_costs(data)
         expected = 3.0 * 0.1  # $0.30
         self.assertAlmostEqual(costs[0].cost, expected, places=6)
+
+    def test_cache_read_costs_use_per_model_multiplier(self):
+        # 1M cache-read tokens: input rate x that model's cache-read multiplier
+        cases = [
+            ("claude-opus-5-5", 4.0 * 0.05),       # $0.20
+            ("claude-opus-5-5[1m]", 4.0 * 0.05),
+            ("claude-fable-5-1", 10.0 * 0.025),     # $0.25
+            ("claude-mythos-5-1", 10.0 * 0.025),
+            ("claude-fable-5", 10.0 * 0.1),         # Fable 5 keeps the standard 0.1x
+            ("claude-opus-5", 5.0 * 0.1),
+        ]
+        for model, expected in cases:
+            with self.subTest(model=model):
+                data = self._make_session_model_data(
+                    "s1", model, input_tokens=0, cache_read_tokens=1_000_000,
+                )
+                self.assertAlmostEqual(_build_session_costs(data)[0].cost, expected, places=6)
 
     def test_efficiency_ratio(self):
         data = self._make_session_model_data(

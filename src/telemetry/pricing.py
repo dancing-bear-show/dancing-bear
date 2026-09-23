@@ -29,7 +29,9 @@ _MODEL_PRICING: dict[str, tuple[float, float]] = {
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-sonnet-4-5": (3.0, 15.0),
     "claude-haiku-4-5": (1.0, 5.0),
+    "claude-fable-5-1": (10.0, 50.0),
     "claude-fable-5": (10.0, 50.0),
+    "claude-mythos-5-1": (10.0, 50.0),
     "claude-mythos-5": (10.0, 50.0),
     "claude-opus-4-7-1m": (5.0, 25.0),
     "claude-opus-4-6-1m": (5.0, 25.0),
@@ -38,6 +40,15 @@ _MODEL_PRICING: dict[str, tuple[float, float]] = {
     "claude-opus": (5.0, 25.0),
     "claude-sonnet": (3.0, 15.0),
     "claude-haiku": (1.0, 5.0),
+}
+
+# Cache reads cost this fraction of the input rate. Most models use 0.1x;
+# keys are _MODEL_PRICING keys, so fallback-matched variants inherit them.
+_DEFAULT_CACHE_READ_MULTIPLIER = 0.1
+_CACHE_READ_MULTIPLIERS: dict[str, float] = {
+    "claude-opus-5-5": 0.05,
+    "claude-fable-5-1": 0.025,
+    "claude-mythos-5-1": 0.025,
 }
 
 
@@ -94,6 +105,8 @@ _PRICING_FALLBACK_RULES: list[tuple[Callable[[str], bool], str]] = [
     (lambda m: "sonnet-5" in m, "claude-sonnet-5"),
     (lambda m: "opus" in m and "1m" in m, "claude-opus-4-7-1m"),
     (lambda m: "sonnet" in m and "1m" in m, "claude-sonnet-4-8-1m"),
+    (lambda m: "mythos-5-1" in m, "claude-mythos-5-1"),
+    (lambda m: "fable-5-1" in m, "claude-fable-5-1"),
     (lambda m: "mythos" in m, "claude-mythos-5"),
     (lambda m: "fable" in m, "claude-fable-5"),
     (lambda m: "opus" in m, "claude-opus"),
@@ -102,15 +115,25 @@ _PRICING_FALLBACK_RULES: list[tuple[Callable[[str], bool], str]] = [
 ]
 
 
-def _get_model_pricing(model: str) -> tuple[float, float]:
-    """Return (input_per_million, output_per_million) for a model ID."""
+def _resolve_pricing_key(model: str) -> str:
+    """Map a model ID to its _MODEL_PRICING key, with fallback matching."""
     if model in _MODEL_PRICING:
-        return _MODEL_PRICING[model]
+        return model
     lower = model.lower()
     for predicate, key in _PRICING_FALLBACK_RULES:
         if predicate(lower):
-            return _MODEL_PRICING[key]
-    return _MODEL_PRICING["claude-haiku"]  # default
+            return key
+    return "claude-haiku"  # default
+
+
+def _get_model_pricing(model: str) -> tuple[float, float]:
+    """Return (input_per_million, output_per_million) for a model ID."""
+    return _MODEL_PRICING[_resolve_pricing_key(model)]
+
+
+def _cache_read_multiplier(model: str) -> float:
+    """Return the fraction of the input rate charged for a model's cache reads."""
+    return _CACHE_READ_MULTIPLIERS.get(_resolve_pricing_key(model), _DEFAULT_CACHE_READ_MULTIPLIER)
 
 
 def compute_cost(
@@ -131,7 +154,7 @@ def compute_cost(
     raw = (
         metrics.input_tokens * in_rate
         + metrics.output_tokens * out_rate
-        + metrics.cache_read_tokens * (in_rate / 10)
+        + metrics.cache_read_tokens * (in_rate * _cache_read_multiplier(model))
         + metrics.cache_creation_tokens * (in_rate * 1.25)
     ) / 1_000_000
     return raw * _cost_multiplier()
