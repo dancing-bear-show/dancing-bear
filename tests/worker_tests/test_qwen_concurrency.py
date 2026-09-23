@@ -24,7 +24,7 @@ import os
 import time
 import unittest
 import urllib.error
-from unittest import mock
+import unittest.mock as mock
 
 from worker import qwen
 from tests.worker_tests.qwen_fixtures import QwenHandlerCase

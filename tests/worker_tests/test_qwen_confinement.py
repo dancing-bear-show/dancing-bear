@@ -19,7 +19,7 @@ import stat
 import unittest
 from collections.abc import Iterator
 from pathlib import Path
-from unittest import mock
+import unittest.mock as mock
 
 from tests.fixtures import TempDirMixin
 from worker import qwen

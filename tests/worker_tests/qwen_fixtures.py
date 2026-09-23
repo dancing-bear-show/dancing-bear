@@ -30,7 +30,7 @@ import urllib.request
 from email.message import Message
 from pathlib import Path
 from typing import Any, TypeVar, cast
-from unittest import mock
+import unittest.mock as mock
 
 from tests.fixtures import TempDirMixin
 from worker import qwen, qwen_telemetry

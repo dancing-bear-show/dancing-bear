@@ -25,7 +25,7 @@ from collections.abc import Iterator
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import ModuleType
-from unittest import mock
+import unittest.mock as mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SCRIPT = REPO_ROOT / "bin" / "qwen"
@@ -107,7 +107,7 @@ class QwenWrapperBuildPayloadTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 bq.main(["patch", "--files", "src/worker/qwen.py", "--instruction-file", str(instr_path)])
 
-        (called_job,), _kwargs = mock_enqueue.call_args
+        (called_job,) = mock_enqueue.call_args.args
         self.assertEqual(called_job.payload["instruction"], "do the thing")
 
 

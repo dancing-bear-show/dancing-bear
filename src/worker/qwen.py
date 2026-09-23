@@ -645,7 +645,10 @@ def _reclaim_lock(lock_path: Path) -> bool:
     try:
         lock_path.unlink()
     except FileNotFoundError:
-        pass
+        # Another job reclaimed or released it first: the lock is already
+        # gone, which is the state we wanted. The acquire below still races
+        # fairly via the atomic link, so no further action is needed.
+        _log.debug("qwen lock %s already removed before reclaim", lock_path)
     return _try_acquire_lock(lock_path)
 
 

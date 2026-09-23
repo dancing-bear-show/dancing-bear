@@ -22,7 +22,7 @@ import time
 import unittest
 import urllib.error
 from pathlib import Path
-from unittest import mock
+import unittest.mock as mock
 
 from telemetry.otel.models import OTLPSpansRecord
 from worker import queue_ops as q
