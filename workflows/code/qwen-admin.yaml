@@ -998,7 +998,7 @@ stages:
       Write outputs/analysis/triage.json:
         {
           "findings": [{"rank": N, "severity": "blocking|degraded|hygiene", "finding": "...", "source": "health.json|models.json|queue.json|spend.json", "evidence": "..."}],
-          "proposed_actions": [{"id": "a1", "action": "...", "command": "...", "params": {"job_id": "... (item c only)", "limit": N, "match_cluster": "...", "folders": "done|error"}, "addresses_finding": N, "allowlist_item": "a|b|c (d is withdrawn — lock removal goes in manual_steps, never here)", "destructive": true|false, "reversible": true|false, "if_diagnosis_wrong": "..."}],
+          "proposed_actions": [{"id": "a1", "action": "...", "command": "...", "params": {"job_id": "... (item c only)", "limit": "5 — a STRING of digits, not a number", "match_cluster": "...", "folders": "done|error|done,error"}, "addresses_finding": N, "allowlist_item": "a|b|c (d is withdrawn — lock removal goes in manual_steps, never here)", "destructive": true|false, "reversible": true|false, "if_diagnosis_wrong": "..."}],
           "manual_steps": [{"step": "...", "why_not_automated": "..."}],
           "nothing_to_do": true|false
         }
@@ -1089,8 +1089,10 @@ stages:
           Re-derive each command yourself from its `allowlist_item`, taking
           only the parameters from the proposal and never its command string:
 
-            a) requeue -> ./bin/worker requeue-errors --limit <N>
-                          --match '"type": "{job_type}"' --match <cluster>
+            a) requeue -> ./bin/worker requeue-errors --limit "$N"
+                          --match '"type": "{job_type}"' --match "$CLUSTER"
+               with N and CLUSTER bound from the validated params file as
+               shown below — never typed in from the proposal.
             b) purge    -> ./bin/worker purge --older-than <retention>
                            [--folders <done|error>]
             c) delete ONE orphaned patch artifact, at a path YOU re-derive
@@ -1134,12 +1136,43 @@ stages:
           A `purge_older_than` of `7d; rm -rf ~` matches neither and must
           stop the run. Substitute `<retention>` from the validated value.
 
-          Take `<N>`, `<cluster>` and the folder list as VALUES, and check
-          each before use: N a positive integer, the folder one of done or
-          error, the cluster a plain substring. Reject any value containing a
-          shell metacharacter, a newline, or a leading `-` rather than
-          escaping it — a value that needs escaping is a value that should
-          stop the run.
+          Take N, the cluster and the folder list as VALUES and bind them
+          through the tested helper, never by typing them into the command.
+          Write the approved action's `params` object verbatim to
+          {workspace}/validation/action-params.json (one action at a time,
+          overwriting), then:
+
+            N=$(./bin/workflow check-params {workspace}/validation/action-params.json \
+                  --top-level --check 'limit=[1-9][0-9]{0,3}' --print limit) || exit 1
+            CLUSTER=$(./bin/workflow check-params {workspace}/validation/action-params.json \
+                  --top-level --check 'match_cluster=[A-Za-z0-9][A-Za-z0-9 ._:,()=-]{2,119}' \
+                  --print match_cluster) || exit 1
+
+          and for a purge, the folder the same way with
+          `--check 'folders=(done|error|done,error)' --print folders`.
+
+          EVERY params VALUE MUST BE A JSON STRING. check-params rejects a
+          non-string with "not a string (got int)", so `"limit": 5` fails the
+          guard while `"limit": "5"` passes — measured. triage's schema asks
+          for strings for this reason; if a proposal arrives with a number,
+          that is a malformed proposal to record, not a value to coerce.
+
+          ALWAYS DOUBLE-QUOTE THE VARIABLE — "$CLUSTER", never $CLUSTER. An
+          error-derived cluster routinely contains spaces (`connection
+          refused`), and an unquoted expansion word-splits it into several
+          argv entries: `--match connection refused` passes `refused` as a
+          stray positional, so the filter either errors or silently matches
+          the wrong thing. An earlier revision left `--match <cluster>`
+          unquoted in the template above for exactly this reason. The
+          variable holds data read from a file, so quoting it is safe; typing
+          the proposal's text into the command would not be.
+
+          The cluster pattern admits spaces and ordinary punctuation but no
+          quote, backtick, `$`, `;`, `|`, `&`, `<`, `>`, backslash or
+          newline, and cannot begin with `-` (which argparse would read as a
+          flag). A cluster that needs anything outside it is a cluster to
+          report, not to requeue — the same rule as before, now enforced by
+          the tested command instead of stated in prose.
 
           FOR c AND d THE PATH IS NOT THE PROPOSAL'S TO GIVE. Both are file
           deletions, so accepting a triage-supplied path is accepting an

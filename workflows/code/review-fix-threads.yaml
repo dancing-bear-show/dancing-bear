@@ -234,14 +234,28 @@ stages:
       `discriminator: "database_id"`. Only when it is absent, fall back to
       `body_fingerprint` and set `discriminator: "fingerprint"`.
 
-      For the fingerprint, use fix-dispatch Step 1b's EXACT algorithm — do
-      not improvise a normalisation, since three agents compute this value
-      independently and they must agree byte-for-byte. Compute it from the
-      thread's
-      FIRST comment body in threads.json — sha256 over the body with runs of
-      whitespace collapsed to single spaces — and copy it verbatim into the
-      entry. Do NOT derive it from `ask`, which is your paraphrase and would
-      fingerprint your own text rather than the reviewer's.
+      For the fingerprint, use EXACTLY this code — the same code fix-dispatch
+      Step 1b and resolve-threads Step 1a0 use. Three agents compute this
+      value independently and they must agree byte-for-byte, so it is
+      reproduced verbatim here rather than described:
+
+        fingerprint = sha256(
+            "\n".join(
+                " ".join(line.split())
+                for line in body.replace("\r\n", "\n").split("\n")
+            ).strip().encode("utf-8")
+        ).hexdigest()
+
+      where `body` is the thread's FIRST comment body in threads.json. Note
+      it KEEPS line structure: whitespace is collapsed within each line, and
+      lines are rejoined with "\n". An earlier revision of this paragraph
+      paraphrased it as "runs of whitespace collapsed to single spaces",
+      which collapses newlines too — a different hash, so every valid entry
+      would have failed the coherence gate. Do not paraphrase it again.
+
+      Copy the result verbatim into the entry. Do NOT derive it from `ask`,
+      which is your paraphrase and would fingerprint your own text rather
+      than the reviewer's.
 
       This is what the next stage's id-integrity gate compares against, and
       it is the ONLY field that can distinguish two threads anchored to the
@@ -496,7 +510,8 @@ stages:
                 "path": "src/resume/docx_sidebar_sections.py",
                 "threads": [
                   {
-                    "thread_id": "PRRT_kwDO...",
+                    "finding_key": "PRRT_kwDO... (or body-<n> for a null-id finding)",
+                    "thread_id": "PRRT_kwDO... | null",
                     "line": 216,
                     "is_outdated": false,
                     "ask": "...",
@@ -511,6 +526,35 @@ stages:
       Index width = len(str(max(total-1, 0))) digits, zero-padded.
 
       Build the index with an inline python3 script so it is written atomically.
+
+      FAIL BEFORE FAN-OUT IF ANY finding_key REPEATS. Each fixer writes
+      outputs/fixes/<finding_key>.json, so two entries sharing a key write
+      the same file and the second silently replaces the first — the exact
+      data loss finding_key exists to prevent, reintroduced one level up.
+      triage is only INSTRUCTED to make keys unique; this is where that is
+      enforced. In the same script that builds the index, assert:
+
+        keys = [t.get("finding_key") for item in items for t in item["data"]["threads"]]
+        missing = [k for k in keys if not k]
+        present = [k for k in keys if k]
+        dupes = sorted({k for k in present if present.count(k) > 1})
+        unsafe = sorted(k for k in present
+                        if "/" in k or "\\" in k or ".." in k or k.startswith("."))
+        if missing or dupes or unsafe:
+            sys.exit("finding_key invalid: missing=%d dupes=%r unsafe=%r"
+                     % (len(missing), dupes, unsafe))
+
+      and write nothing if it fails. `unsafe` exists because the key becomes
+      a filename: a key like `../x` would write outside outputs/fixes/.
+      `present` is separate from `keys` so that several MISSING keys are
+      reported as missing rather than as a duplicate of None. The message
+      uses %-formatting, not an f-string, deliberately: the engine treats a
+      brace-wrapped identifier in a description as a trigger-param
+      placeholder, so f-string braces would be substituted into the Python
+      if a param of that name were ever added (lint flags them for exactly
+      this reason). Exiting non-zero here
+      halts the run before any agent is spawned, which is the only point at
+      which a collision is still free to fix.
     agent:
       role: researcher
       model: sonnet
@@ -565,7 +609,11 @@ stages:
       thread_id when there is one, and otherwise a stable derivation such as
       `body-<index>` or the comment's database_id); use it verbatim as the
       filename and keep the real `thread_id` — null included — inside the
-      file's data, since that is what the posting stage addresses by. A thread you decline to fix still gets a result file with
+      file's data, since that is what the posting stage addresses by. Each
+      thread entry in fix-index.json carries its `finding_key`; fix-dispatch
+      has already checked they are unique and filename-safe.
+
+      A thread you decline to fix still gets a result file with
       action "rejected" or "moot" and its evidence — a missing file is
       indistinguishable from a crashed agent, and the aggregator treats it as
       one.
@@ -578,8 +626,9 @@ stages:
       tools: [Read, Edit, Write, Bash]
       access: read-write
     required: true
-    # No writes_to: per-item fan-out outputs land at outputs/fixes/<thread_id>.json,
-    # one per thread rather than a fixed set of paths. fix-aggregate is the stage
+    # No writes_to: per-item fan-out outputs land at outputs/fixes/<finding_key>.json,
+    # one per finding rather than a fixed set of paths. (Not <thread_id>.json:
+    # null-id findings would all collide on null.json.) fix-aggregate is the stage
     # that declares a concrete artifact, and it reconciles missing files explicitly.
 
   - name: fix-aggregate
@@ -587,8 +636,8 @@ stages:
     executor: inline
     depends_on: [fix-threads]
     # fix-threads is deliberately absent from reads_from: it is a fan-out and
-    # declares no writes_to, because its outputs are one file per thread at
-    # outputs/fixes/<thread_id>.json rather than a fixed set of paths. The
+    # declares no writes_to, because its outputs are one file per finding at
+    # outputs/fixes/<finding_key>.json rather than a fixed set of paths. The
     # depends_on above still orders it after the fan-out completes; this stage
     # globs that directory and reconciles it against fix-index.json.
     reads_from: [fix-dispatch, triage-threads]
@@ -598,9 +647,20 @@ stages:
       Step 1 — read every {workspace}/outputs/fixes/*.json.
 
       Step 2 — read {workspace}/outputs/fix-index.json and compute which
-      expected thread_ids have no result file. Record them in missing_results.
-      Do not silently drop them: a thread whose agent crashed must never be
-      reported as handled, and must never be resolved downstream.
+      expected FINDING KEYS have no result file, matching each expected
+      `finding_key` against the filename `<finding_key>.json`. Record the
+      missing ones in missing_results as objects carrying both fields:
+      {"finding_key": "...", "thread_id": "..." | null}.
+
+      Reconcile on finding_key, never on thread_id. Result files are named by
+      finding_key, so a null-id finding's result lives at `body-<n>.json`;
+      reconciling on thread_id would look for `null.json`, find nothing, and
+      report every null-id finding MISSING — which downstream means it is
+      never replied to, even though its fixer succeeded.
+
+      Do not silently drop genuinely missing ones: a finding whose agent
+      crashed must never be reported as handled, and must never be resolved
+      downstream.
 
       Step 3 — write {workspace}/outputs/fix-results.json:
         {
@@ -609,8 +669,8 @@ stages:
           "by_action": {"fixed": N, "rejected": N, "moot": N, "deferred": N},
           "files_changed": ["src/foo.py"],
           "tests_added": ["tests/..."],
-          "missing_results": ["PRRT_..."],
-          "failed_tests": ["PRRT_... (test_result=fail)"],
+          "missing_results": [{"finding_key": "...", "thread_id": "PRRT_..." | null}],
+          "failed_tests": [{"finding_key": "...", "thread_id": "PRRT_..." | null, "test_result": "fail|not-run"}],
           "results": [ <each per-thread result object, verbatim> ]
         }
 
@@ -928,10 +988,18 @@ stages:
       {workspace}/outputs/threads.json and build an
       id -> (path, line, discriminator) map keyed BY THREAD ID, where the
       discriminator is `comments[0].database_id` when present and otherwise
-      the fingerprint, using the
-      SAME fingerprint definition as fix-dispatch Step 1b: sha256 over the
-      thread's FIRST comment body with runs of whitespace collapsed to single
-      spaces. For every thread you are about to reply to or resolve, its id
+      the fingerprint — computed with the exact code in fix-dispatch Step 1b,
+      reproduced verbatim so this stage cannot drift from it:
+
+        fingerprint = sha256(
+            "\n".join(
+                " ".join(line.split())
+                for line in body.replace("\r\n", "\n").split("\n")
+            ).strip().encode("utf-8")
+        ).hexdigest()
+
+      It keeps line structure; do not collapse newlines. For every thread you
+      are about to reply to or resolve, its id
       must appear in that map AND both the coordinates and the DISCRIMINATOR
       you hold for it must match what the fetch recorded.
 
@@ -997,33 +1065,46 @@ stages:
       posting anyway on a best guess is precisely the irreversible mistake
       this stage's fail-closed design exists to prevent.
 
-      Step 1a — build the do-not-resolve set. A thread goes in it when any of
-      these hold, regardless of what triage intended:
-        - its thread_id appears in fix-results.json "missing_results"
-          (the fixer crashed; nobody knows whether the code was changed)
-        - its result has action "fixed" with test_result "fail" or "not-run"
-        - it has no entry in final-replies.json
-        - resolvable is false (no thread_id — review bodies and PR-level
-          comments cannot be resolved)
-      Threads in this set are reported in "skipped" with the reason. They are
-      never replied to as fixed and never resolved. An unresolved thread costs
-      a human thirty seconds; a thread resolved on an unverified fix costs them
-      the bug.
+      Step 1a — build TWO sets, keyed by finding_key. They are different
+      questions and must not be merged: "may we say anything?" and "may we
+      close it?". An earlier revision used one do-not-resolve set for both and
+      then said its members are "never replied to" — which, since resolvable
+      false put every null-id finding in it, silently dropped the reply that
+      the null-id posting branch in Step 3 exists to deliver.
+
+        NO-REPLY set — we do not know what happened, so say nothing:
+          - its finding_key appears in fix-results.json "missing_results"
+            (the fixer crashed; nobody knows whether the code was changed).
+            Match on finding_key, never thread_id: a null-id finding's
+            thread_id is null and would match every other null-id entry.
+          - it has no entry in final-replies.json
+
+        NO-RESOLVE set — a superset of NO-REPLY, plus:
+          - its result has action "fixed" with test_result "fail" or
+            "not-run" (it gets a factual status reply, below, but stays open)
+          - resolvable is false (no thread_id — review bodies and PR-level
+            comments cannot be resolved; they still get their reply, posted
+            as a top-level comment by Step 3's null-id branch)
+
+      Report every member of either set in "skipped" with its reason and
+      which set it is in. An unresolved thread costs a human thirty seconds; a
+      thread resolved on an unverified fix costs them the bug; a verified
+      fix whose reply was silently dropped costs them the answer.
 
       Step 2 — resolve owner/repo (never hardcode):
         NWO=$(GITHUB_TOKEN= gh repo view --json nameWithOwner -q .nameWithOwner)
         OWNER=${NWO%%/*}; REPO=${NWO##*/}
 
-      Step 3 — post replies. The do-not-resolve set from Step 1a applies here
-      too, not only to resolution: a thread whose fix was never verified must
-      not receive a reply claiming what was fixed.
+      Step 3 — post replies. Post to every finding NOT in the NO-REPLY set.
+      A finding in NO-RESOLVE but not NO-REPLY still gets a reply:
 
-      For each thread in the do-not-resolve set, post nothing at all if the
-      fixer crashed (missing_results — you do not know what, if anything, was
-      changed). For a fix whose test_result was "fail" or "not-run", replace
-      the fixer's reply_text with a factual status instead of its claim:
-      what was changed, and that it is not yet verified. Then leave the thread
-      open. A reply asserting a verified fix on an unverified change is the
+        - resolvable false -> its normal reply, via the null-id branch below.
+        - test_result "fail" or "not-run" -> replace the fixer's reply_text
+          with a factual status instead of its claim: what was changed, and
+          that it is not yet verified. A thread whose fix was never verified
+          must not receive a reply claiming what was fixed.
+
+      Then leave every NO-RESOLVE member open. A reply asserting a verified fix on an unverified change is the
       single most damaging thing this workflow can emit — it tells a reviewer
       to stop looking.
 
@@ -1035,7 +1116,8 @@ stages:
       Re-read the thread's current comments (threads.json has them as of
       fetch-threads; re-fetch if this is a retry). Skip the reply for any
       thread whose latest comment already matches the reply you are about to
-      post, and go straight to resolving it. Record those in resolution.json
+      post, and go straight to resolving it — unless it is in the NO-RESOLVE
+      set, in which case leave it open as Step 1a requires. Record those in resolution.json
       as "already_replied" so the report distinguishes them from fresh posts.
 
       SPLIT BY thread_id FIRST — a null id cannot use the mutation below.
@@ -1070,7 +1152,7 @@ stages:
           thread to resolve, and reporting one as resolved would be a lie
           about state that cannot be checked afterwards.
 
-      For every remaining NON-NULL thread, post its reply into that specific
+      For every NON-NULL finding not in the NO-REPLY set, post its reply into that specific
       thread. Reply into the thread, not as a new top-level PR comment — a
       detached comment does not show up where the reviewer raised the
       concern:
