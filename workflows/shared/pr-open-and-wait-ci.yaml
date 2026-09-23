@@ -101,9 +101,10 @@ stages:
         ceiling is needed, wrap the call with an external timeout, e.g.
           timeout 1200 ./bin/github pr checks --pr {pr_number} --watch --interval 60
 
-        If any check fails: read the failure details with:
-          # raw gh: ./bin/github has no `run log` subcommand
-          gh run view <RUN_ID> --log-failed
+        If any check fails: take the run id from that check's `link`
+        (`.../actions/runs/<RUN_ID>/job/...`) and read only the failed
+        steps' log with:
+          ./bin/github run log --run <RUN_ID>
         Write failure notes to {workspace}/validation/ci-failures.txt
         (always write this file, even when all checks pass — use "no
         failures" as the content in that case, since it is declared in
