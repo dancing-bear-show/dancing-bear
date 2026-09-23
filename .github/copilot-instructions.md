@@ -2,22 +2,23 @@
 
 ## Project Context
 
-This is a Python 3.11 monorepo containing personal assistant CLIs. It ships **19
+This is a Python 3.11 monorepo containing personal assistant CLIs. It ships **20
 packages** under `src/` — `apple_music`, `calendars`, `charts`, `core`, `desk`,
-`diagrams`, `mail`, `maker`, `phone`, `qlty`, `resume`, `schedule`, `sheets`,
-`slides`, `telemetry`, `whatsapp`, `wifi`, `worker`, `workflow` — of which **18
-are agentic-schema apps** (`core` is the shared library). The codebase follows a
+`diagrams`, `github_assistant`, `mail`, `maker`, `phone`, `qlty`, `resume`,
+`schedule`, `sheets`, `slides`, `telemetry`, `whatsapp`, `wifi`, `worker`,
+`workflow` — of which **19 are agentic-schema apps** (`core` is the shared
+library). The codebase follows a
 pipeline architecture with Consumer/Processor/Producer patterns.
 
-All 18 apps support `--agentic --agentic-format json` (added in #291). Agents are
+All 19 apps support `--agentic --agentic-format json` (added in #291). Agents are
 instructed to prefer capsules over `--help`, which makes a wrong command in a
 capsule a machine-readable instruction to run something broken — not a stale
 comment. `tests/core_tests/test_capsule_parser_drift.py` (#293) resolves every
 command a capsule advertises against that CLI's real parser schema.
 
-Do not assume the entry point is `./bin/<app>` — four differ: `apple-music` and
-`qlty` use `-assistant` wrappers, `resume` goes through `./bin/assistant resume`,
-and `desk` has no wrapper (`python3 -m desk`). `./bin/llm inventory --stdout` is
+Do not assume the entry point is `./bin/<app>` — three differ: `apple-music` and
+`qlty` use `-assistant` wrappers, and `resume` goes through
+`./bin/assistant resume`. `./bin/llm inventory --stdout` is
 the authoritative list.
 
 ## Verification Must Actually Verify

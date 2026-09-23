@@ -67,7 +67,7 @@ Load only the wrapper(s) relevant to the current task.
 - `./bin/workflow` — YAML DAG workflow engine (`parse`, `compile`, `run`, `lint`, `list`, `status`)
 
 These three are standalone argparse CLIs rather than `llm --app` routes, but they
-**do** support `--agentic` — as do all 18 apps. Discover them the same way as any
+**do** support `--agentic` — as do all 19 apps. Discover them the same way as any
 other surface; `llm familiar --verbose` surfaces them too.
 
 ## After Familiarize

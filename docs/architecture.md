@@ -169,10 +169,10 @@ built on. Dispatch is **positional subcommands**, never flag-prefixed:
 The workflow engine still inserts one when compiling stages
 (`src/workflow/compiler.py`); `llm` and `docs` are exempt via `_NO_SEPARATOR_CLIS`.
 
-All 18 apps support `--agentic --agentic-format json`, which emits a
+All 19 apps support `--agentic --agentic-format json`, which emits a
 machine-readable schema derived from the real parser. It cannot drift from the
 actual CLI. Run `./bin/llm inventory --stdout` for the authoritative invocation
-per app; `./bin/<app>` is wrong for four of them.
+per app; `./bin/<app>` is wrong for three of them.
 
 ```mermaid
 flowchart LR
@@ -296,7 +296,7 @@ naming the intentional failure mode. qlty and bandit enforce this.
 ### No-subcommand exit codes (rule A7)
 
 A bare invocation is not an error, so it is not covered by the table above.
-16 of the 18 apps print full help to **stdout** and exit **0**, which is
+17 of the 19 apps print full help to **stdout** and exit **0**, which is
 `run_with_assistant`'s default.
 
 Two differ deliberately, and both say so in the source: `worker` (1) and

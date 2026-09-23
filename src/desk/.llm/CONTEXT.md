@@ -10,15 +10,15 @@ Principles
 - Preserve stable CLI flags and subcommands.
 
 Paths
-- CLI entry: `python3 -m desk` (no `bin/` wrapper)
+- CLI entry: `./bin/desk`
 - Entrypoint: `desk/cli.py` and module `desk/__main__.py`
 - Helpers: `desk/utils.py`
 
 Common Commands
-- `python3 -m desk scan --paths ~/Downloads ~/Desktop --min-size 100MB --older-than 30d --duplicates --out out/scan.yaml`
-- `python3 -m desk rules export --out rules.yaml`
-- `python3 -m desk plan --config rules.yaml --out plan.yaml`
-- `python3 -m desk apply --plan plan.yaml --dry-run`
+- `./bin/desk scan --paths ~/Downloads ~/Desktop --min-size 100MB --older-than 30d --duplicates --out out/scan.yaml`
+- `./bin/desk rules export --out rules.yaml`
+- `./bin/desk plan --config rules.yaml --out plan.yaml`
+- `./bin/desk apply --plan plan.yaml --dry-run`
 
 Testing
 - Use `unittest`. Run `make test`.

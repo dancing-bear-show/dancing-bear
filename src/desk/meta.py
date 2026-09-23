@@ -6,6 +6,5 @@ META = AppMeta(
     app_id="desk",
     purpose="Scan, plan, and tidy macOS folders",
     display_name="Desk",
-    bin_name="python3 -m desk",
-    example_cmd="python3 -m desk scan --json",
+    example_cmd="./bin/desk scan --paths ~/Downloads --duplicates",
 )

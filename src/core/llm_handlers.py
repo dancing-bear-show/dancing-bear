@@ -71,15 +71,15 @@ _APP_MODULES = {
 # `llm --app <name>` routing table — the apps below are not reachable that way
 # but still emit a schema.
 #
-# Value is the invocation, because `./bin/<app>` is wrong for four of them:
+# Value is the invocation, because `./bin/<app>` is wrong for three of them:
 # apple-music and qlty use -assistant wrappers (bin/qlty would shadow the real
-# qlty binary), resume ships no wrapper and goes through bin/assistant, and desk
-# has no wrapper at all. Verified by running each one.
+# qlty binary), and resume ships no wrapper and goes through bin/assistant.
+# Verified by running each one.
 _AGENTIC_APPS: dict[str, str] = {
     "apple-music": "./bin/apple-music-assistant",
     "calendar": "./bin/calendar",
     "charts": "./bin/charts",
-    "desk": "python3 -m desk",
+    "desk": "./bin/desk",
     "diagrams": "./bin/diagrams",
     "github": "./bin/github",
     "mail": "./bin/mail",
@@ -224,7 +224,7 @@ def _default_inventory() -> str:
         f"## Agentic-schema apps ({len(data['agentic_apps'])})",
         "",
         "Append `--agentic --agentic-format yaml --agentic-compact` to any invocation below.",
-        "Most are `./bin/<app>`; the four exceptions are spelled out.",
+        "Most are `./bin/<app>`; the three exceptions are spelled out.",
         "",
         *(f"- `{cmd}`" for cmd in data["agentic_apps"]),
         "",

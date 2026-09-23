@@ -14,6 +14,7 @@ python:
   schedule: {module: schedule, doc: "Thin wrapper to run the Schedule Assistant CLI."}
   whatsapp: {module: whatsapp, doc: "Thin wrapper to run the WhatsApp CLI."}
   wifi: {module: wifi, doc: "Thin wrapper to run the Wi-Fi CLI."}
+  desk: {module: desk, doc: "Thin wrapper to run the Desk CLI (macOS filesystem tidying)."}
   slides: {module: slides, doc: "Thin wrapper to run the Slides CLI."}
   sheets: {module: sheets, doc: "Thin wrapper to run the Sheets CLI."}
   maker: {module: maker, doc: "Thin wrapper to run the Maker CLI."}

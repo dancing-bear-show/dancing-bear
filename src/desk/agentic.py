@@ -35,22 +35,22 @@ def _cli_path_exists(path: list[str]) -> bool:
 def _flow_map() -> str:
     lines: list[str] = []
     if _cli_path_exists(["scan"]):
-        lines.append("- Scan clutter: python3 -m desk scan --paths ~/Downloads ~/Desktop --duplicates --out desk.scan.yaml")
+        lines.append("- Scan clutter: ./bin/desk scan --paths ~/Downloads ~/Desktop --duplicates --out desk.scan.yaml")
     if _cli_path_exists(["plan"]):
-        lines.append("- Plan cleanup: python3 -m desk plan --config rules.yaml --out desk.plan.yaml")
+        lines.append("- Plan cleanup: ./bin/desk plan --config rules.yaml --out desk.plan.yaml")
     if _cli_path_exists(["apply"]):
-        lines.append("- Apply plan (dry-run first): python3 -m desk apply --plan desk.plan.yaml --dry-run")
+        lines.append("- Apply plan (dry-run first): ./bin/desk apply --plan desk.plan.yaml --dry-run")
     if _cli_path_exists(["rules", "export"]):
-        lines.append("- Starter rules: python3 -m desk rules export --out rules.yaml")
+        lines.append("- Starter rules: ./bin/desk rules export --out rules.yaml")
     return "\n".join(lines)
 
 
 def build_agentic_capsule() -> str:
     commands = [
-        "scan: python3 -m desk scan --paths ~/Downloads ~/Desktop --duplicates --out desk.scan.yaml",
-        "plan: python3 -m desk plan --config rules.yaml --out desk.plan.yaml",
-        "apply: python3 -m desk apply --plan desk.plan.yaml --dry-run",
-        "rules export: python3 -m desk rules export --out rules.yaml",
+        "scan: ./bin/desk scan --paths ~/Downloads ~/Desktop --duplicates --out desk.scan.yaml",
+        "plan: ./bin/desk plan --config rules.yaml --out desk.plan.yaml",
+        "apply: ./bin/desk apply --plan desk.plan.yaml --dry-run",
+        "rules export: ./bin/desk rules export --out rules.yaml",
     ]
     return _build_capsule(
         "desk",
