@@ -50,6 +50,8 @@ def build_agentic_capsule() -> str:
             "  and refuses to resolve when the reply did not verify.",
             "- `pr edit` reads the PR back and exits 1 when GitHub does not hold what was sent.",
             "- `pr checks` exits 0 while still pending/failing: read `bucket` in the JSON.",
+            "- `threads fetch` exits 1 when a reported count does not match what came back;",
+            "  it still writes the file (`truncated: true`) for inspection. Do not act on it.",
             "- `client()` scrubs `GITHUB_TOKEN` from the child env so a stale token cannot",
             "  silently override gh's keyring credentials.",
         ]

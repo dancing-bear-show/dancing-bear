@@ -56,8 +56,12 @@ stages:
       surfaces (GraphQL review threads paginated at BOTH levels, REST review
       bodies with --paginate, and REST issue comments with --paginate) and
       writes the threads.json contract documented below. Pagination at both
-      levels is handled in code; the `truncated` field in threads.json is set
-      true when a reported count did not match the fetched count.
+      levels is handled in code. When a count GitHub reported does not match
+      what came back, the command still writes threads.json (with
+      `truncated: true`, for inspection) but EXITS NON-ZERO. Treat that exit
+      as a failed stage: report it failed and stop. Every downstream stage —
+      overview parsing, triage, resolution — reads this file, and a missing
+      page silently drops threads from all of them.
 
       The schema and author-classification rules below document what the
       command guarantees and what downstream stages depend on — they are not

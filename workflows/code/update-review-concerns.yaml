@@ -148,8 +148,9 @@ stages:
         Fetch all three comment surfaces for that one PR:
           # 1. GraphQL review threads (full comment chains), plus REST review
           #    bodies and REST PR-level (conversation) comments, which it
-          #    tags source=issue-comment with path=null. All paginated;
-          #    truncated:true signals a count mismatch. The old raw GraphQL
+          #    tags source=issue-comment with path=null. All paginated; a
+          #    count mismatch writes truncated:true AND exits non-zero —
+          #    treat that PR as skipped, never mine a partial set. The old raw GraphQL
           #    approach capped threads at 100 with no pagination check —
           #    that defect is now closed in code.
           ./bin/github threads fetch --pr <PR> --out {workspace}/outputs/threads-<PR>.json

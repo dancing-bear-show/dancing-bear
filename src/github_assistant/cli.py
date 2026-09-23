@@ -151,6 +151,14 @@ def cmd_threads_fetch(args) -> int:
         _write_or_print(args.out, text + "\n")
     else:
         print(text)
+    if doc.get("truncated"):
+        # The document is still written so the partial result can be
+        # inspected, but a count mismatch must not read as success: callers
+        # resolve and triage from this file, and a missing page would
+        # silently drop threads from both.
+        print("threads fetch: incomplete — a count GitHub reported did not match what was "
+              "fetched (truncated: true); not safe to act on", file=sys.stderr)
+        return ExitCode.ERROR
     return ExitCode.SUCCESS
 
 

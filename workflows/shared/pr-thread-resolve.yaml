@@ -204,25 +204,34 @@ stages:
 
       Step 2 — post the reply INTO the thread, not as a new top-level PR
       comment. A detached comment does not appear where the reviewer raised
-      the concern. Write the reply text to a temp file, read it from the plan
-      with a JSON tool into that file, then run:
+      the concern. Bind every value BEFORE use — nothing below is a
+      placeholder to fill in by hand. Once per run:
 
-        ./bin/github threads reply \
-          --thread <thread_id> \
-          --body-file <reply-file> \
-          --run-id PLAN_RUN_ID \
-          [--resolve]   # only for action "reply-and-resolve"
+        PLAN="{workspace}/outputs/resolve-plan.json"
+        PLAN_RUN_ID=$(python3 -I -S -c 'import json,sys;print(json.load(open(sys.argv[1]))["run_id"])' "$PLAN")
 
-      Write the reply text to that file with a JSON tool — never substitute
-      it into the command source. Text pasted inside a double-quoted shell
-      word is still evaluated by the shell (backticks and $(...) execute, a
-      quote re-splits the argument), review-derived text contains exactly
-      those characters, and this stage runs unattended with a token:
+      PLAN_RUN_ID is the plan's own "run_id" (manifest.json's original id,
+      already checked in Step 0), read from the file. Never type it and
+      never use a curly-brace template variable for it: the orchestrator
+      fills those with its own per-invocation id, and a hand-copied or
+      shared value makes every run's marker match every other run's.
+
+      Then for each plan entry whose action posts a reply, with i set to
+      that entry's index in the plan's "threads" list and THREAD_ID to its
+      "thread_id":
+
+        REPLY_FILE=$(mktemp)
         python3 -I -S -c 'import json,sys;open(sys.argv[2],"w").write(json.load(open(sys.argv[1]))["threads"][int(sys.argv[3])]["reply"])' "$PLAN" "$REPLY_FILE" "$i"
+        ./bin/github threads reply --thread "$THREAD_ID" --body-file "$REPLY_FILE" --run-id "$PLAN_RUN_ID"
+        rm -f "$REPLY_FILE"
 
-      Pass PLAN_RUN_ID as the literal "run_id" value read from
-      resolve-plan.json — not a curly-brace template variable, which the
-      orchestrator would fill with its own per-invocation id.
+      Add --resolve to the threads reply line ONLY for action
+      "reply-and-resolve". The reply text goes from the plan file into
+      REPLY_FILE through a JSON tool and never through the command source:
+      text pasted inside a double-quoted shell word is still evaluated
+      (backticks and $(...) execute, a quote re-splits the argument),
+      review-derived text contains exactly those characters, and this stage
+      runs unattended with a token.
 
       The command owns the marker: it strips any dancing-bear-run marker
       already inside the reply text, then appends this run's. Stripping
@@ -230,8 +239,9 @@ stages:
       and may quote a comment; a quoted marker would otherwise be posted by
       this workflow's own account, satisfying both halves of the check above
       and suppressing the reply on whatever thread that marker names. It
-      passes the body as a literal string field and reads bodies only from
-      --body-file, so the `-f` vs `-F` @-file hazard is closed in code too.
+      reads the body only from --body-file and sends it to GitHub as JSON on
+      stdin, so the body never reaches a shell or gh's argv, and an
+      `@path`-looking body is sent as literal text.
 
       The command verifies that comment.id is non-null AND that no GraphQL
       errors array is present (gh exits 0 on both success and GraphQL errors,

@@ -445,6 +445,47 @@ def _reply(fake, body: str, *extra: str):
                              "--body-file", str(body_path), *extra])
 
 
+def _threads_page(total: int, node_ids: list[str]) -> str:
+    nodes = [{"id": i, "isResolved": False, "isOutdated": False, "path": "a.py", "line": 1,
+              "comments": {"totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": None},
+                           "nodes": [{"databaseId": n, "author": {"login": "rev", "__typename": "User"},
+                                      "body": "b", "createdAt": "2026-01-01T00:00:00Z", "url": "u"}]}}
+             for n, i in enumerate(node_ids, start=1)]
+    return json.dumps({"data": {"repository": {"pullRequest": {"reviewThreads": {
+        "totalCount": total, "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes}}}}})
+
+
+class TestThreadsFetchFailsClosed(unittest.TestCase):
+    """A truncated fetch must not exit 0: every consumer acts on this file."""
+
+    def _fetch(self, total: int, ids: list[str]):
+        fake = FakeGhRunner()
+        fake.add(["reviewThreads"], stdout=_threads_page(total, ids))
+        fake.add(["--paginate"], stdout="[[]]")
+        with TemporaryDirectory() as td:
+            out_path = Path(td) / "threads.json"
+            with _install_client(fake):
+                rc, _out, err = _run_cli([
+                    "threads", "fetch", "--repo", "acme/widgets", "--pr", "7", "--out", str(out_path),
+                ])
+            doc = json.loads(out_path.read_text(encoding="utf-8"))
+        return rc, err, doc
+
+    def test_complete_fetch_exits_zero(self):
+        rc, err, doc = self._fetch(2, ["T1", "T2"])
+        self.assertEqual(rc, 0)
+        self.assertFalse(doc["truncated"])
+        self.assertEqual(err, "")
+
+    def test_truncated_fetch_exits_nonzero_but_still_writes_the_file(self):
+        rc, err, doc = self._fetch(3, ["T1", "T2"])  # GitHub reports 3, 2 came back
+        self.assertEqual(rc, 1)
+        self.assertIn("incomplete", err)
+        # Written anyway, so the partial result can be inspected.
+        self.assertTrue(doc["truncated"])
+        self.assertEqual([t["thread_id"] for t in doc["threads"]], ["T1", "T2"])
+
+
 class TestThreadsReplyForgedMarker(unittest.TestCase):
     """The marker is plaintext and public; only the actor's own copy counts."""
 

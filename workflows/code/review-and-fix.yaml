@@ -671,11 +671,16 @@ stages:
 
         A comment_url does not carry the GraphQL thread id needed to resolve,
         so fetch the threads with their comment database ids. `./bin/github
-        threads fetch` paginates BOTH thread and comment levels, verifies the
-        count, and sets `truncated:true` on any mismatch — the old raw GraphQL
-        approach capped at 100 threads with no pagination check:
+        threads fetch` paginates BOTH thread and comment levels and verifies
+        the count — the old raw GraphQL approach capped at 100 threads with no
+        pagination check:
           ./bin/github threads fetch --pr {pr_number} \
             --out {workspace}/outputs/fix/threads-for-resolve.json
+
+        If it exits non-zero, STOP: do not build resolve-plan.json from the
+        file. A count mismatch still writes it (with `truncated: true`) for
+        inspection, but a plan built from a partial fetch silently omits
+        fixed threads, which then never get a reply or a resolve.
 
         The trailing numeric id in a comment_url is the comment databaseId.
         Match it against the databaseIds of ALL comments in each thread, not
