@@ -105,11 +105,13 @@ class _SnippetHarness(unittest.TestCase):
         body.write_text(self.snippet + tail + "\n", encoding="utf-8")
         return body
 
-    def _run(self, shell: str, tmpdir: Path, cwd: Path) -> tuple[int, str]:
+    def _run(self, shell: str, tmpdir: Path, cwd: Path, path_prefix: str = "") -> tuple[int, str]:
         body = self._body(f"echo {_PROCEED}")
+        env = {**os.environ, "TMPDIR": str(tmpdir)}
+        if path_prefix:
+            env["PATH"] = f"{path_prefix}{os.pathsep}{env.get('PATH', '')}"
         proc = subprocess.run(  # nosec B603 - shell from a fixed allowlist, trusted body
-            [shell, str(body)], cwd=cwd, env={**os.environ, "TMPDIR": str(tmpdir)},
-            capture_output=True, text=True, timeout=60,
+            [shell, str(body)], cwd=cwd, env=env, capture_output=True, text=True, timeout=60,
         )
         return proc.returncode, proc.stdout + proc.stderr
 
@@ -160,35 +162,62 @@ class _SnippetHarness(unittest.TestCase):
     def test_not_a_git_repo_fails_closed(self) -> None:
         self._assert_aborts(self.outside, self.outside)
 
+    def test_a_partial_root_list_fails_closed(self) -> None:
+        """An `awk` that writes some roots and then fails leaves a SHORT list; the
+        worktrees it never wrote go unchecked. The write's own status must abort.
+        Simulated with an `awk` on PATH that emits one bogus root and exits 1."""
+        fakebin = self.tmp / "fakebin"
+        fakebin.mkdir(exist_ok=True)
+        fake_awk = fakebin / "awk"
+        fake_awk.write_text("#!/bin/sh\necho /nonexistent-root\nexit 1\n", encoding="utf-8")
+        fake_awk.chmod(0o755)
+        for shell in self.shells:
+            with self.subTest(sh=shell):
+                rc, out = self._run(shell, self.other / "tmp", self.linked, path_prefix=str(fakebin))
+                self.assertNotIn(_PROCEED, out, msg=f"a partial root list let the run proceed:\n{out}")
+                self.assertNotEqual(rc, 0)
+                self.assertEqual(self._leaks(self.other / "tmp"), [])
+
     # -- cleanup under interruption ------------------------------------------
-    def test_sigterm_mid_run_removes_the_scratch_dir(self) -> None:
+    def test_a_signal_mid_run_removes_the_scratch_dir(self) -> None:
+        """INT, TERM and HUP each end the run with the scratch dir removed. TERM is
+        the one that mattered: zsh skips an EXIT trap on it, and a tool timeout
+        sends it. SIGKILL cannot be trapped by anything, so it is not asserted."""
         # `sleep & wait`, not a foreground `sleep`: a shell defers a trapped
         # signal until its foreground command ends, so a signal racing the fork
         # would stall the test for the full sleep. `wait` returns at once.
         body = self._body("sleep 30 & echo READY; wait $!")
         for shell in self.shells:
-            with self.subTest(sh=shell):
-                proc = subprocess.Popen(  # nosec B603 - allowlisted shell, trusted body
-                    [shell, str(body)], cwd=self.linked, stdout=subprocess.PIPE, text=True,
-                    env={**os.environ, "TMPDIR": str(self.outside)}, start_new_session=True,
-                )
-                stdout = proc.stdout
-                if stdout is None:
-                    self.fail("Popen gave no stdout pipe")
-                try:
-                    self.assertEqual(stdout.readline().strip(), "READY")
-                    self.assertEqual(len(self._leaks(self.outside)), 1)  # it exists mid-run
-                    os.killpg(proc.pid, signal.SIGTERM)
-                    proc.wait(timeout=10)
-                finally:
-                    if proc.poll() is None:
-                        os.killpg(proc.pid, signal.SIGKILL)
-                    stdout.close()
-                deadline = time.monotonic() + 5
-                while self._leaks(self.outside) and time.monotonic() < deadline:
-                    time.sleep(0.05)
-                self.assertEqual(self._leaks(self.outside), [],
-                                 msg=f"{shell}: SIGTERM left the PII scratch dir behind")
+            for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+                self._signal_once(shell, body, sig)
+
+    def _signal_once(self, shell: str, body: Path, sig: signal.Signals) -> None:
+        # Its own TMPDIR: a leak here must fail THIS case, not every later case
+        # that checks the shared `outside` directory for leftovers.
+        where = self.tmp / f"sig-{shell}-{sig.name}"
+        where.mkdir(exist_ok=True)
+        with self.subTest(sh=shell, sig=sig.name):
+            proc = subprocess.Popen(  # nosec B603 - allowlisted shell, trusted body
+                [shell, str(body)], cwd=self.linked, stdout=subprocess.PIPE, text=True,
+                env={**os.environ, "TMPDIR": str(where)}, start_new_session=True,
+            )
+            stdout = proc.stdout
+            if stdout is None:
+                self.fail("Popen gave no stdout pipe")
+            try:
+                self.assertEqual(stdout.readline().strip(), "READY")
+                self.assertEqual(len(self._leaks(where)), 1)  # it exists mid-run
+                os.killpg(proc.pid, sig)
+                proc.wait(timeout=10)
+            finally:
+                if proc.poll() is None:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                stdout.close()
+            deadline = time.monotonic() + 5
+            while self._leaks(where) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertEqual(self._leaks(where), [],
+                             msg=f"{shell}: {sig.name} left the PII scratch dir behind")
 
 
 class TestGuardUnderBash(_SnippetHarness):
