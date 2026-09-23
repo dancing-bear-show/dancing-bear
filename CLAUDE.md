@@ -243,7 +243,7 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
   platform CI enforces on. It is per-package, so a regression in a small package
   is visible instead of lost in the total. **Read the total from the file rather
   than from prose** — it drops with every type-fixing PR, and a number quoted
-  here goes stale fast (it has already run 680 → 566 → 371 → **347**):
+  here goes stale fast (it ran 680 → 566 → 371 → 347 → **0**, reached in #411):
 
   ```bash
   python3 -I -S -c "import json;d=json.load(open('typecheck-baseline.json'));print(d['total'])"
@@ -253,17 +253,18 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
   `src/` alone, while the baseline's total spans `src` + `tests` + `bin` —
   and `tests` is the largest single contributor. A smaller src-only number is
   scope, not an improvement.
-- **The count is platform-dependent, and that is expected.** macOS reports a few
-  more errors than Linux, concentrated in `mail` and `tests`; the other packages
-  are identical.
+- **The count is platform-dependent, and that is expected.** Both platforms are
+  at 0 today, but macOS has historically reported a few more errors than Linux,
+  concentrated in `mail` and `tests`, and can again.
   `rumps` is pinned `sys_platform == 'darwin'`, so mypy analyses the menubar
   tests on macOS and not on Linux. Run `make typecheck-ratchet` on macOS and it
   reports the difference and exits 0 rather than failing on something you did
   not cause — CI is the enforcing run. Regenerate the baseline on Linux.
-- **When the gate fails on code you did not write:** files that already had
-  errors are grandfathered in the baseline's `legacy_files` and are reported but
-  never blocking. If you are blocked, the error is in a file that was clean —
-  it is new. Fix it rather than suppressing it.
+- **When the gate fails on code you did not write:** `legacy_files` (files
+  grandfathered as reported-but-not-blocking) is now **empty**, so every file
+  blocks. If you are blocked, the error is new — most likely in code you
+  touched, or exposed by a signature you changed. Fix it rather than
+  suppressing it.
 - **Never add `# type: ignore`** to get past the gate. That trades a real
   signal for suppression noise.
 - Fixed some errors? Lower the ceiling: `make typecheck-baseline`, then commit
