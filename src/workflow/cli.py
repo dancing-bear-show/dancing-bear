@@ -31,7 +31,11 @@ from workflow.meta import META
 
 from workflow.cli_compile import _cmd_compile
 from workflow.cli_dispatch import (
+    _cmd_aggregate_fix_results,
+    _cmd_check_fix_index,
+    _cmd_check_params,
     _cmd_check_paths,
+    _cmd_check_thread_ids,
     _cmd_init_workspace,
     _cmd_lint,
     _cmd_list,
@@ -40,6 +44,7 @@ from workflow.cli_dispatch import (
     _cmd_resume,
     _cmd_run,
     _cmd_status,
+    _cmd_thread_fingerprints,
     _cmd_validate_fragment,
 )
 
@@ -225,12 +230,79 @@ def cmd_validate_fragment(args: argparse.Namespace) -> int:
     return _cmd_validate_fragment(args)
 
 
+@app.command(
+    "check-params",
+    help="Validate params read from a workspace JSON file (exit 0 pass, 1 fail)",
+)
+@app.argument("file", help="Path to manifest.json (or another engine/stage JSON file)")
+@app.argument(
+    "--check", action="append", default=[], required=True, metavar="name=regex",
+    help="Param name and full-match regex it must satisfy (repeatable)",
+)
+@app.argument(
+    "--top-level", action="store_true",
+    help="Read params from the document root instead of its 'trigger_params' key",
+)
+@app.argument(
+    "--print", dest="print_param", default=None, metavar="name",
+    help="Also write this param's value to stdout, only if every --check passed "
+         "(the name must be one of them)",
+)
+def cmd_check_params(args: argparse.Namespace) -> int:
+    return _cmd_check_params(args)
+
+
+@app.command(
+    "check-fix-index",
+    help="Fail unless every fix-index.json id is unique and every file_id unique and filename-safe",
+)
+@app.argument("file", help="Path to fix-index.json")
+def cmd_check_fix_index(args: argparse.Namespace) -> int:
+    return _cmd_check_fix_index(args)
+
+
+@app.command(
+    "thread-fingerprints",
+    help="Print each threads.json entry's database_id and body fingerprint as JSON",
+)
+@app.argument("file", help="Path to threads.json")
+def cmd_thread_fingerprints(args: argparse.Namespace) -> int:
+    return _cmd_thread_fingerprints(args)
+
+
+@app.command(
+    "check-thread-ids",
+    help="Id-coherence gate: triage.json thread ids vs threads.json (exit 0 pass, 1 halt)",
+)
+@app.argument("threads", help="Path to threads.json (the fetch)")
+@app.argument("triage", help="Path to triage.json")
+@app.argument(
+    "--repair", action="store_true",
+    help="Rewrite triage.json with the fetch's coordinates when only coordinates differ",
+)
+def cmd_check_thread_ids(args: argparse.Namespace) -> int:
+    return _cmd_check_thread_ids(args)
+
+
+@app.command(
+    "aggregate-fix-results",
+    help="Merge fixes/<file_id>.json into fix-results.json, verifying each result's identity",
+)
+@app.argument("index", help="Path to fix-index.json")
+@app.argument("fixes_dir", help="Directory holding <file_id>.json result files")
+@app.argument("out", help="Path to write fix-results.json")
+def cmd_aggregate_fix_results(args: argparse.Namespace) -> int:
+    return _cmd_aggregate_fix_results(args)
+
+
 def _no_command_usage() -> int:
     """Preserve the legacy no-subcommand behavior (one-line usage to
     stderr, ExitCode.USAGE) rather than CLIApp's default (full --help),
     since this is a public CLI surface."""
     print(
-        "Usage: workflow {parse,compile,run,lint,list,status,init-workspace,resume,validate-fragment} [options]",
+        "Usage: workflow {parse,compile,run,lint,list,status,init-workspace,resume,"
+        "validate-fragment,parse-overview,check-paths,check-params,check-fix-index,"
+        "thread-fingerprints,check-thread-ids,aggregate-fix-results} [options]",
         file=sys.stderr,
     )
     return ExitCode.USAGE

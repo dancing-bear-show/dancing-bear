@@ -22,7 +22,7 @@ Parse a workflow YAML definition, compile it into a parallel execution plan, wal
 /workflow workflows/test/coverage-report.yaml
 /workflow workflows/test/coverage-report.yaml --execute
 /workflow workflows/test/coverage-report.yaml --workspace out/my-run
-/workflow workflows/test/coverage-report.yaml --params min_coverage=80
+/workflow workflows/test/coverage-improve.yaml --params min_coverage=80
 ```
 
 ## Input Parsing
@@ -42,11 +42,19 @@ Extract these arguments from the user's request or skill args:
 
 ### Step 0: Parse and Compile
 
-Parse `--params` arguments into a dict. Then compile the workflow:
+Parse `--params` arguments into a dict. Then compile the workflow, passing
+every parsed param — one `--params` flag per pair (`--params a=1 b=2` is a
+usage error):
 
 ```bash
-./bin/workflow compile <WORKFLOW_PATH> --format json
+./bin/workflow compile <WORKFLOW_PATH> --format json \
+  [--params key=value] [--params key=value]...
 ```
+
+Compile enforces the workflow's `trigger.param_rules`/`required` before any
+substitution. If compile or init-workspace exits non-zero, stop and report;
+never substitute params into prompts yourself, since the engine's rule check
+is the boundary.
 
 Always invoke through the `./bin/workflow` wrapper.
 Never use `.venv/bin/python bin/workflow`.
@@ -87,11 +95,12 @@ If compile fails, report the error and stop.
 
 ```bash
 ./bin/workflow init-workspace <WORKFLOW_PATH> \
-  [--workspace <WORKSPACE>] [--params key=value ...]
+  [--base-dir <WORKSPACE>] [--params key=value]...
 ```
 
 This prints the workspace path. Store it. If `--workspace` was provided, pass
-it. The workspace will contain `manifest.json`, `stages/`, `outputs/`,
+it as `--base-dir` (init-workspace has no `--workspace` flag; the path must be
+shell-safe or it is refused). The workspace will contain `manifest.json`, `stages/`, `outputs/`,
 `validation/`, and `dispatch/` subdirectories.
 
 Generate a `RUN_ID` in the format `{workflow_name}-{YYYYMMDD}-{8_hex_chars}`.

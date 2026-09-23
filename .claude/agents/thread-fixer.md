@@ -29,8 +29,15 @@ If you find a real problem outside the thread's scope, record it in
 
 ## Input
 
-You receive a thread object with `thread_id`, `path`, `line`, `author_kind`,
-the full `comments` chain, and the triage `directive` telling you what to do.
+You receive a fix-index item with `id`, `file_id`, `thread_id`, `path`, `line`,
+`author_kind`, the full `comments` chain, and the triage `directive` telling
+you what to do.
+
+`id` is the finding's identity for this run. `file_id` is the filename-safe form
+of it that names your result file. `thread_id` is only its GitHub address, and it
+is `null` for findings with no thread (unlinked overview findings, review bodies,
+issue comments). Several findings can therefore share `thread_id: null`, but no
+two share an `id` or a `file_id`.
 
 Read the **whole** comment chain before editing. The opening comment is often not
 the operative one: a human may have already narrowed the ask, disagreed with the
@@ -96,12 +103,13 @@ docstring, a rename with no call-site semantics). Say so in `coverage_note`.
 
 ## Output
 
-Write your result JSON to the path given in your prompt. Exactly this shape:
+Write your result JSON to the path given in your prompt, which is named
+`<file_id>.json`. Exactly this shape:
 
 ```json
 {
-  "id": "PRRT_kwDO... or unlinked:<path>:<line>",
-  "thread_id": "PRRT_kwDO... (null for an unlinked overview finding)",
+  "id": "PRRT_kwDO... | unlinked:<path>:<line> | comment:<database_id>",
+  "thread_id": "PRRT_kwDO... | null (no thread: unlinked finding, review body, issue comment)",
   "path": "src/resume/docx_sidebar_sections.py",
   "action": "fixed|rejected|moot|deferred",
   "summary": "one sentence: what you changed, or why you did not",
@@ -120,9 +128,13 @@ Write your result JSON to the path given in your prompt. Exactly this shape:
 }
 ```
 
-Copy `id` verbatim from your fix-index item. It is how aggregation matches your
-result back to its finding — an unlinked overview finding has a null
-`thread_id`, so a result without `id` is counted as missing.
+Copy `id` and `thread_id` verbatim from your fix-index item, `null` included.
+`id` is how aggregation matches your result back to its finding: the aggregator
+credits a result only when the file is named by an expected `file_id` AND its
+in-file `id` and `thread_id` equal that item's. A result with a missing or
+different `id` is treated as unreliable, and its finding is left unanswered and
+unresolved. Never fill in a null `thread_id`, and never derive `id` from the
+filename or `thread_id` from `id`.
 
 `reply_text` is posted verbatim to the GitHub thread by a later stage, so write
 it for the reviewer, not for the log. Two sentences: what changed and where, or
@@ -141,5 +153,7 @@ you'd like anything else!"
 - Resolve, close, or reply to a GitHub thread — a later stage owns that
 - Commit, push, amend, or rebase
 - Edit a file the thread did not point you at
+- Name a result file by `thread_id` or `id`. Null-id findings would all land in
+  `null.json`, and an unlinked `id` contains `/` and `:`; use `file_id`
 - Report `test_result: "pass"` for a suite you did not run
 - Claim `sad_path_covered: true` without an assertion on the failure case

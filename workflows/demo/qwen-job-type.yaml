@@ -1,0 +1,929 @@
+name: qwen-job-type
+version: "1.0"
+description: >
+  Minimal worked example of adding a HANDLER-BACKED job type to the worker
+  queue — the pattern workflows/code/qwen-local-handler.yaml uses at full
+  scale. Copy this file as the starting point for a new job type.
+
+  The two existing demos cover a different thing: worker-queue-stage.yaml and
+  worker-queue-fanout.yaml show how a workflow STAGE is dispatched to the
+  queue (executor: worker_queue), which runs shell commands through the
+  existing workflow_stage handler. Neither shows how to register a NEW entry
+  in worker/handlers.py's REGISTRY so `./bin/worker enqueue --type <yours>`
+  becomes a thing at all. That is what this demo is for.
+
+  What you get by registering a handler, rather than rebuilding any of it:
+  priority ordering, not_before scheduling, attempts/backoff, the
+  deferred-/terminal- outcome protocol, max_inflight clamping, stale-job
+  reaping, and the whole `worker list/status/show/retry/purge` CLI. The
+  `--type` choices in `worker enqueue --help` derive from HANDLERS.keys(), so
+  a registered handler appears in the CLI automatically.
+
+  Stage dependency graph:
+
+    read-the-seam                (G0 — record the real handler contract)
+        |
+    write-handler                (G1 — isolated; implement + COMMIT)
+        |
+    verify-landed  [human gate]  (G2 — READ-ONLY: verify the merge landed,
+        |                              confirm the CLI sees the type, and
+        |                              propose exactly what will run)
+        |
+    drive-the-queue              (G3 — publish; the ONLY stage that executes
+                                       the new handler, in a PRIVATE throwaway
+                                       queue, released only after the gate
+                                       above is approved)
+
+  FOUR THINGS THIS DEMO EXISTS TO TEACH, each of which is a defect that has
+  actually shipped in this repo:
+
+  1. An `isolation: worktree` stage MUST instruct its agent to commit.
+     `git merge` moves commits, not uncommitted files — an agent that edits
+     and returns without committing leaves nothing to merge, the merge
+     succeeds against an empty branch, and the stage reports success while
+     the code is silently lost. See write-handler's description.
+
+  2. A stage whose contract lives in `description` must NOT be
+     `kind: validate`. dispatch.py's `_validate()` builds its prompt from
+     `validation.criteria` alone and never reads the description, so a
+     validate stage carrying a real contract ships one no agent ever sees —
+     and `./bin/workflow lint` stays green. No stage here is
+     `kind: validate` for that reason.
+
+  3. A `human_gate` fires AFTER its stage completes, so it CANNOT protect a
+     side effect that happens INSIDE that stage. This is the subtlest thing
+     this demo teaches, because the broken shape looks correct and reads as
+     a safeguard.
+
+     The engine's own check is `stage.spec.human_gate and
+     group_results[name].status == StageStatus.success`
+     (src/workflow/orchestrator.py:228): it inspects the RESULT of a stage
+     that has already run, then sets status `awaiting_human`.
+     .claude/skills/workflow/SKILL.md Step 3 says the same in prose — "when
+     a stage has `human_gate: true` and completed successfully". Compiling
+     confirms it: `_compute_parallel_groups` isolates a gated stage into its
+     own group so the run can PAUSE AFTER it, not before it.
+
+     So an earlier revision of this file put `human_gate: true` on a single
+     `land-and-verify` stage that both checked the merge and enqueued four
+     real jobs. By the time the user was asked anything, all four jobs were
+     already in their queue and drained. The prompt was a notification
+     wearing a safeguard's clothes — worse than no gate, because a reader
+     copying the shape would believe the mutation was guarded.
+
+     THE FIX IS STRUCTURAL, NOT A FLAG: split the stage on the read/write
+     seam. The read-only half carries the gate and its job is to PROPOSE —
+     it must state precisely what is about to happen. The acting half is a
+     separate `kind: publish` stage that `depends_on` the gated one, so the
+     engine cannot release it until a person approves. That is why this
+     demo has `verify-landed` (gather, gated) and `drive-the-queue`
+     (publish, ungated) rather than one stage carrying both keywords. A gate
+     is only as good as the work that has NOT yet happened when it fires.
+
+     WHY THIS DEMO STILL HAS A GATE, now that its queue is private. An
+     earlier revision drove the user's SHARED queue, and the gate existed to
+     approve mutating it. drive-the-queue no longer touches that queue at
+     all — it runs the worker against a throwaway state directory named by
+     DANCING_BEAR_WORKER_STATE_DIR (see its description), so the only
+     lasting side effect is a temp directory it deletes. That removes the
+     gate's ORIGINAL reason, and it is honest to say so rather than keep
+     citing a hazard that is gone. The gate stays for
+     a different reason that still holds: drive-the-queue EXECUTES code an
+     agent wrote minutes earlier, on the user's machine, with the user's
+     permissions — a private queue isolates the queue state, not the
+     process. Approving after reading the handler diff is a real decision.
+     If you copy this demo for a job type whose handler you already trust,
+     the gate is optional; if your acting stage touches shared state, it is
+     not. Either way, the PLACEMENT lesson above is what to copy.
+
+     On the `publish` half specifically: `publish` and `human_gate` answer
+     different questions — `publish` tells the ENGINE an external side
+     effect is permitted, while `human_gate` asks the PERSON. The workflow
+     skill's convention authorizes external side effects only from publish
+     stages, and the prompt generated for an execute stage tells the agent
+     there are none. drive-the-queue creates and deletes a directory outside
+     the workspace and executes freshly written code through the real
+     worker CLI, which is why it is publish; `read-the-seam`,
+     `write-handler` and `verify-landed` stay gather/execute/gather because
+     they only read source, or write inside their own worktree.
+
+  4. A handler speaks the retry protocol through its RETURN STRING, not
+     through exceptions. `terminal-` means never retry; `deferred-` means
+     re-queue without consuming an attempt; anything else retries with
+     backoff until max_attempts. Misclassifying a permanent failure as a
+     plain one makes the worker retry it until max_attempts, burning every
+     attempt re-raising a failure that can never succeed.
+
+  Run it through the /workflow SKILL, not the CLI:
+
+    /workflow --workflow workflows/demo/qwen-job-type.yaml --execute
+
+  `./bin/workflow run --execute` is NOT the execution path for a workflow
+  whose stages need agents. It writes the dispatch files, returns a run in
+  status=pending, and exits — it never spawns the agents, so nothing creates
+  the handler and nothing drives the queue. Every stage here is agent-backed,
+  so the CLI form stops before any of the work happens while reporting a
+  successful invocation. That failure mode is quiet, which is why this demo
+  names the skill instead. Use the CLI for `parse`, `compile`, `lint` and
+  `list`, which are genuinely CLI operations.
+
+metadata:
+  author: dancing-bear
+  created: "2026-09-22"
+
+trigger:
+  source: manual
+  params:
+    job_type: "demo_echo"
+    handler_module: "src/worker/demo_echo.py"
+  # Enforced by the engine in compile_workflow BEFORE any param is substituted
+  # into stage text, so compile/run/init-workspace exit 1 on a violation and
+  # no stage ever sees a rejected value. read-the-seam's check-params call
+  # repeats these checks as defence in depth; keep the two patterns identical.
+  # handler_module is a FILE PATH (write-handler creates it and `git add`s
+  # it), pinned to a new module directly under src/worker/. The regex still
+  # admits existing files such as handlers.py; the must-not-exist check in
+  # read-the-seam and write-handler is what stops an overwrite.
+  param_rules:
+    job_type: '[a-z][a-z0-9_]{2,40}'
+    handler_module: 'src/worker/[a-z][a-z0-9_]{2,40}\.py'
+  # A blank path or registry key has no meaning and would skip the rule.
+  required: [job_type, handler_module]
+
+workspace_dir: "{work_dir}/qwen-job-type-demo"
+
+stages:
+  # ===========================================================================
+  # G0: Read the seam — record the real contract instead of assuming it
+  # ===========================================================================
+  - name: read-the-seam
+    kind: gather
+    depends_on: []
+    reads_from: []
+    description: >
+      Record the handler contract from source, so the next stage implements
+      against what the code does rather than what this file says about it.
+
+      File access rules: use the Read tool (not cat/head/tail) and Glob (not
+      find/ls). Bash is for CLI probes only.
+
+      STEP 0 — VALIDATE THE CALLER-OVERRIDABLE PARAMS FOR THE WHOLE RUN.
+      Both `{handler_module}` and `{job_type}` come from --params, and
+      write-handler creates a file at the path `{handler_module}` names. This
+      check lives HERE, in the first stage, and not in write-handler, for a
+      reason that is structural rather than stylistic — do not "simplify" it
+      back down there:
+
+        write-handler is `isolation: worktree`. Per
+        .claude/skills/workflow/SKILL.md rule 7a the isolation boundary
+        applies in BOTH directions: an isolated agent cannot read
+        {workspace}. What the orchestrator copies into `<its-cwd>/inputs/` is
+        every declared output of every upstream stage plus each upstream
+        stage's result JSON — and manifest.json is neither. It sits at the
+        workspace root and is no stage's declared output, so a
+        {workspace}/manifest.json read from inside write-handler cannot
+        resolve, and the params would reach the Create step unvalidated.
+
+      Read both from the file the ENGINE wrote, so neither ever becomes shell
+      source (a heredoc does not help: probe-disproven, since a newline plus
+      the delimiter closes it and runs the remainder while the regex then
+      passes on the remnant). This stage is NOT isolated, so
+      {workspace}/manifest.json is readable here:
+
+        ./bin/workflow check-params "{workspace}"/manifest.json \
+          --check 'handler_module=src/worker/[a-z][a-z0-9_]{2,40}\.py' \
+          --check 'job_type=[a-z][a-z0-9_]{2,40}'
+
+      DEFENCE IN DEPTH. The engine already enforces these same patterns via
+      trigger.param_rules at compile time, before any substitution, so on a
+      normal run this call cannot fail. Keep it anyway: it is the guard that
+      still holds if those rules are loosened.
+
+      One call covers both params and exits non-zero if either fails. The
+      check lives in src/workflow/param_guard.py and is covered by
+      tests/workflow_tests/test_param_guard.py, including the heredoc-escape
+      payload above — so a future edit here cannot silently gut it.
+
+      Branch on the EXIT STATUS, not on echoed text. If it fails, ABORT the
+      whole run here — write seam.json with {"aborted": true, "reason":
+      "handler_module or job_type failed validation"} and report the stage
+      FAILED, so write-handler is never scheduled and nothing is ever written
+      to the rejected path. Do not sanitize or auto-correct a rejected value:
+      an override naming production code is a caller error to report.
+
+      Then apply the check the regex cannot make: THE MODULE MUST NOT ALREADY
+      EXIST. The pattern above still matches real production files —
+      `src/worker/handlers.py`, `queue_ops.py`, `job_runtime.py`. This
+      workflow creates a NEW module, so an existing path is always wrong, and
+      overwriting shared worker code would be merged into the branch by the
+      orchestrator. Record the result as `handler_module_exists` in seam.json
+      and ABORT on true, exactly as above.
+
+      Read and record:
+        1. src/worker/handlers.py — the HandlerFn type alias, the exact
+           (bool, object) return contract, and how REGISTRY is populated at
+           the bottom of the file. Note the `# nosec` convention on any
+           subprocess call site.
+        2. src/worker/job_runtime.py — `_handle_outcome`. Record verbatim how
+           a returned string starting "deferred-" and "terminal-" is treated
+           differently from any other failure string, and where attempts and
+           max_attempts are read.
+        3. src/worker/cli.py — the `enqueue` command, showing that --type's
+           choices come from HANDLERS.keys().
+        4. src/worker/queue_ops.py — the Job dataclass fields.
+
+      Then probe the CLI as it exists today:
+        ./bin/worker enqueue --help
+      and record the current --type choices. "{job_type}" must NOT be among
+      them yet; if it already is, say so and set
+      `job_type_already_registered` true.
+
+      That flag is a STOP signal, not a note — and this stage acts on it.
+      Because `{job_type}` is caller-overridable, an existing key such as
+      `run_cli` would make write-handler's REGISTRY line REPLACE a built-in
+      handler for every job of that type, which the orchestrator would then
+      merge. So on true, ABORT here the same way as STEP 0: write seam.json
+      with {"aborted": true, ...} and report the stage FAILED. Record the
+      flag accurately either way — write-handler re-checks it from its copied
+      input as a second line of defence, and a false negative here disables
+      both guards.
+
+      Write {workspace}/outputs/analysis/seam.json:
+        {
+          "handler_signature": "...",
+          "return_contract": "...",
+          "registry_pattern": "...",
+          "retry_protocol": {"terminal_prefix": "...", "deferred_prefix": "...", "plain_failure": "..."},
+          "job_fields": ["..."],
+          "current_types": ["..."],
+          "job_type_already_registered": true|false,
+          "params_validated": true,
+          "handler_module_exists": true|false
+        }
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Glob, Grep, Bash, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: seam
+        mode: generate
+        description: >
+          seam.json recording the handler signature, return contract, registry
+          pattern and retry prefixes read from source.
+    # A writes_to entry not already rooted under outputs/ validation/ stages/
+    # or dispatch/ is resolved to {workspace}/outputs/<entry> by
+    # src/workflow/dispatch.py's _write_paths (_WORKSPACE_SUBDIRS). Declare
+    # the entry with the outputs/ prefix already on it, matching the
+    # description above, so the declared path and the resolved path are the
+    # same string — copy this pattern rather than a bare relative path.
+    writes_to:
+      - outputs/analysis/seam.json
+    validates_output:
+      - path: outputs/analysis/seam.json
+        checks: [is_json, has_key:handler_signature, has_key:retry_protocol]
+
+  # ===========================================================================
+  # G1: Write the handler — isolated worktree, and it MUST commit
+  # ===========================================================================
+  - name: write-handler
+    kind: execute
+    depends_on: [read-the-seam]
+    reads_from: [read-the-seam]
+    description: >
+      STEP 0 — RE-CHECK THE GUARDS BEFORE YOU WRITE ANYTHING. This stage
+      creates a file at the path `{handler_module}` names, so every check
+      must run before the Create step; a check placed later — next to the
+      `git add` line, say — runs after the Write has already happened, which
+      protects the wrong thing.
+
+      WHERE THE PARAM VALIDATION LIVES, AND WHY IT IS NOT HERE. Both
+      `{handler_module}` and `{job_type}` are caller-overridable via --params
+      and are validated by read-the-seam's STEP 0, against
+      {workspace}/manifest.json — the file the ENGINE wrote, so neither value
+      ever becomes shell source. That check CANNOT be moved into this stage,
+      and moving it here would silently disable it:
+
+        this stage is `isolation: worktree`, and per
+        .claude/skills/workflow/SKILL.md rule 7a the isolation boundary
+        applies in BOTH directions — an isolated agent cannot read
+        {workspace}. The orchestrator copies in every declared output of
+        every upstream stage plus each upstream stage's result JSON, and
+        manifest.json is neither: it sits at the workspace root and is no
+        stage's declared output. So a {workspace}/manifest.json read from
+        here cannot resolve, and a validation written here would not run at
+        all. read-the-seam is not isolated, runs first, and aborts the run on
+        a bad param — so a rejected value never reaches this stage.
+
+      What you must still do here, from your COPIED INPUTS only — read
+      `<your-cwd>/inputs/outputs/analysis/seam.json`:
+
+        1. CONFIRM THE PARAMS WERE VALIDATED. seam.json records
+           `params_validated`. If it is absent or not true, read-the-seam did
+           not complete its guard; ABORT rather than assuming the path is
+           safe.
+
+        2. THE MODULE MUST NOT ALREADY EXIST. read-the-seam records
+           `handler_module_exists`, but re-check it directly with the Read or
+           Glob tool against `{handler_module}` — an upstream stage's view is
+           a snapshot, and this is the last moment before the Write. The
+           validated pattern still matches real production files —
+           `src/worker/handlers.py`, `queue_ops.py`, `job_runtime.py`. This
+           stage creates a NEW module, so an existing path is always wrong,
+           and overwriting shared worker code here would be merged into the
+           branch by the orchestrator. If the file exists, ABORT; do not
+           overwrite and do not pick a different name.
+
+        3. THE JOB TYPE MUST NOT ALREADY BE REGISTERED. seam.json records
+           `job_type_already_registered`. If it is true, the key names an
+           existing handler — `run_cli` and `run_shell` both match the
+           validated pattern — and writing the REGISTRY line would REPLACE a
+           built-in handler for every job of that type. ABORT.
+
+      On any of these, write handler.json with {"aborted": true, "reason":
+      "..."} and report the stage FAILED. Do not sanitize a rejected value:
+      an override that names production code is a caller error to report.
+
+      Implement a minimal "{job_type}" handler against the contract recorded
+      in read-the-seam's output.
+
+      THIS STAGE IS ISOLATED (`isolation: worktree`): you run in your own
+      worktree, not in the shared {workspace}. Per .claude/skills/workflow/SKILL.md
+      rule 7a, the orchestrator copies every upstream output into
+      `<your-cwd>/inputs/`, preserving its relative path — it does NOT put
+      anything under {workspace}, which you cannot reach from here. So
+      read-the-seam's `outputs/analysis/seam.json` arrives at
+      `<your-cwd>/inputs/outputs/analysis/seam.json`, NOT at
+      `{workspace}/outputs/analysis/seam.json` and NOT at a bare
+      `outputs/analysis/seam.json` relative to some other directory. Read it
+      from `<your-cwd>/inputs/outputs/analysis/seam.json`. This is the general
+      rule for every isolated stage, not a one-off: an isolated agent's inputs
+      always land under `inputs/<the upstream stage's own writes_to path>`
+      relative to its own cwd, because rule 7a copies inputs in rather than
+      giving the agent access to the shared tree.
+
+      Deliberately trivial behaviour, so the demo teaches the WIRING rather
+      than the payload: the handler echoes back the payload's "message" key.
+
+      Create {handler_module}:
+        - A `handle_demo_echo(job: dict[str, object]) -> tuple[bool, object]`
+          matching the HandlerFn signature from seam.json.
+        - EXTRACT THE PAYLOAD FIRST — AND CHECK ITS TYPE BEFORE CONVERTING IT.
+          A HandlerFn receives the COMPLETE JOB RECORD, not a payload: the
+          signature is `(job: dict[str, object]) -> tuple[bool, object]`,
+          and there is no `payload` variable in scope until you make one
+          (skipping this leaves it undefined, and the handler raises
+          NameError). Do NOT copy the existing handlers' one-liner
+          `payload = dict(job.get("payload") or {})`
+          (src/worker/handlers.py:179): a job record is JSON that anything
+          can write, and `dict()` raises on a scalar — `dict("bad")` is a
+          ValueError and `dict(123)` a TypeError — while a list of pairs such
+          as `[["message", "x"]]` converts silently into a dict, so neither
+          conversion nor try/except is a type check. Write instead:
+
+            raw = job.get("payload")
+            if raw is None:
+                raw = {}
+            if not isinstance(raw, dict):
+                return (False, "terminal-payload-not-object")
+            payload = raw
+
+          A non-object payload is malformed and will never become valid on
+          retry, so it gets the terminal prefix; left to raise, it would
+          escape the handler as an uncaught exception, which the worker
+          classifies as RETRYABLE, burning every attempt on the class of
+          input this demo teaches as terminal.
+
+          BE HONEST ABOUT WHAT THIS GUARD COVERS TODAY. It is the THIRD layer,
+          and the queue never reaches it. `worker enqueue` refuses a
+          non-object `--payload-json` with exit 2 (src/worker/commands.py),
+          and the worker runtime rejects a non-object payload that got into
+          a job file some other way BEFORE looking up any handler
+          (JobProcessor.process_one in src/worker/job_runtime.py): the job
+          goes straight to error/ with "invalid payload: expected object,
+          got <type>", terminal, attempts untouched. drive-the-queue's case
+          (e) observes both layers. Keep the handler guard anyway: the
+          handler is also callable directly, and it must not depend on its
+          caller having validated for it.
+        - Then read `message = payload.get("message")`. On success return
+          (True, {"echoed": message, "length": len(message)}).
+        - Demonstrate ALL THREE retry classes, since this is the part authors
+          get wrong:
+            * missing, empty, or NOT A STRING -> return
+              (False, "terminal-no-message")
+              — a malformed payload will never become valid on retry, so
+              retrying it burns attempts for nothing.
+
+              Check the TYPE, not just presence: `isinstance(message, str)`.
+              A payload is JSON from an untrusted enqueuer, so `{"message":
+              123}` is as reachable as a missing key. Without the type check
+              it reaches `len(message)`, raises TypeError out of the handler,
+              and the worker classifies an uncaught exception as a RETRYABLE
+              failure — so the one case this demo exists to teach as terminal
+              is the one it would get wrong, and it would burn every attempt
+              re-raising the identical error. Validate before you measure.
+            * payload sets "defer": true -> return (False, "deferred-demo")
+              — re-queued without consuming an attempt.
+            * payload sets "fail": true -> return (False, "transient failure")
+              — a plain string, which retries with backoff.
+          Use the EXACT prefixes from seam.json's retry_protocol; a misspelled
+          prefix silently degrades to a plain retry.
+        - Full type annotations. A new file is not grandfathered by the mypy
+          baseline, so it must be clean.
+
+      Then register it in src/worker/handlers.py, following the existing
+      pattern at the bottom of that file — an import plus a REGISTRY entry
+      keyed "{job_type}". Touch nothing else in that file.
+
+      COMMIT BEFORE FINISHING — this is the single most important instruction
+      in this demo. You run in your own git worktree on a `worktree-agent-*`
+      branch. The orchestrator merges your work with `git merge`, which moves
+      COMMITS, not uncommitted files. If you return with edits uncommitted,
+      the merge succeeds against an empty branch, this stage reports success,
+      and everything you wrote is silently lost. (No guard belongs down here:
+      both params were validated by read-the-seam before this stage was ever
+      scheduled, and STEP 0 above re-checks the rest before the Create step —
+      a check placed at this point would run after the Write had already
+      happened.) So as your final action:
+
+        git add {handler_module} src/worker/handlers.py
+        git commit -m "feat(worker): add the demo handler"
+      Stage the files by name — never `git add -A`, which would sweep up
+      other agents' work in a shared tree. Confirm with `git log --oneline -1`
+      and record the SHA below.
+
+      Write handler.json to `<your-cwd>/outputs/handler.json` — NOT to
+      `{workspace}/outputs/handler.json`, which is unreachable from here for
+      the same reason your inputs are not there. Per rule 7b, the
+      orchestrator copies this stage's declared `writes_to` files from your
+      cwd into `{workspace}` as part of completing this stage, before any
+      dependent stage is released. Writing to a literal `{workspace}` path
+      instead would write into the shared tree from inside your isolated
+      worktree filesystem view — at best a no-op, at worst a file the
+      orchestrator's copy-back step never looks for and downstream stages
+      never see.
+        {"files_created": [...], "files_modified": [...], "registry_key": "{job_type}", "commit_sha": "...", "retry_cases": ["terminal", "terminal-payload-not-object", "deferred", "plain"]}
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash, Glob, Grep]
+      access: read-write
+      isolation: worktree
+    required: true
+    outputs:
+      - name: handler
+        mode: generate
+        description: >
+          The handler module and its REGISTRY entry, committed to the agent's
+          worktree branch; handler.json records the files and the commit SHA.
+    writes_to:
+      - outputs/handler.json
+    validates_output:
+      - path: outputs/handler.json
+        checks: [is_json, has_key:commit_sha, has_key:registry_key]
+
+  # ===========================================================================
+  # G2: Verify it landed and PROPOSE the run — read-only, and gated
+  # ===========================================================================
+  - name: verify-landed
+    # gather, NOT publish: every action in this stage READS. It inspects git
+    # history and the working tree, and probes `worker enqueue --help`, which
+    # prints usage and touches no queue state. Nothing here changes anything
+    # outside the workspace, so it needs no publish authorization.
+    kind: gather
+    # THE GATE LIVES HERE, ON THE READ-ONLY HALF, AND THAT PLACEMENT IS THE
+    # ENTIRE POINT — see teaching point 3 in the header.
+    #
+    # A human_gate fires AFTER its stage completes
+    # (src/workflow/orchestrator.py:228 tests human_gate against an
+    # already-successful StageResult). Putting it on a stage that enqueues
+    # and runs jobs would ask the user for permission AFTER they had already
+    # run — which is what an earlier revision of this file did.
+    #
+    # Because this stage only reads, "after it completes" is a moment when
+    # NOTHING has run yet. The execution lives in drive-the-queue,
+    # which depends_on this stage and therefore cannot be released until the
+    # gate is approved. The gate protects the side effect by standing between
+    # the proposal and the publish, not by sitting on top of the publish.
+    #
+    # This is the general rule for gating any irreversible action: gate a
+    # read-only proposal stage, and make the mutation a separate downstream
+    # stage. Copy the SHAPE, not just the keyword.
+    human_gate: true
+    depends_on: [write-handler]
+    reads_from: [write-handler, read-the-seam]
+    description: >
+      VERIFY that write-handler's commit landed and that the CLI now offers
+      the new type, then PROPOSE what the next stage will run. This stage
+      must not enqueue, drain, or otherwise touch any queue — it exists so a
+      person can approve running the new handler before it runs.
+
+      Step 1 — verify it landed. Do NOT merge anything here — that is the
+      whole point of this step. .claude/skills/workflow/SKILL.md rule 7
+      assigns copy-back and the branch merge to the ORCHESTRATOR, as part of
+      write-handler's own completion, before this stage is ever released. By
+      the time verify-landed runs, worktree-agent-<id> is already merged,
+      so `git log <this-branch>..worktree-agent-<id>` is EMPTY on a correct
+      run — that is what a successful merge looks like, not the silent-loss
+      case. An earlier draft of this stage ran `git merge` itself and treated
+      that empty range as the failure to detect, which would fail a run
+      exactly when everything went right. (The same defect was found and
+      fixed in workflows/code/qwen-local-handler.yaml's merge-impl stage;
+      this step mirrors that stage's reasoning.)
+
+      Read outputs/handler.json for commit_sha. If it is null or absent, the
+      agent never committed and its work is gone: FAIL this stage and say so
+      plainly.
+
+      VALIDATE IT BEFORE IT REACHES A COMMAND LINE. handler.json is written
+      by an agent, so commit_sha is not trustworthy input merely because a
+      stage of ours produced it — a confused or compromised agent can put
+      anything in that field, and it goes straight into a git invocation
+      below. Require a full 40-character hex SHA and nothing else:
+
+        ./bin/workflow check-params "{workspace}"/outputs/handler.json --top-level \
+          --check 'commit_sha=[0-9a-f]{40}'
+
+      `--top-level` reads the field from the document root, because
+      handler.json is a stage output rather than the engine's manifest. A null
+      or absent commit_sha fails the check, so the "agent never committed"
+      case is caught by the same call. The check lives in
+      src/workflow/param_guard.py, covered by
+      tests/workflow_tests/test_param_guard.py.
+
+      Branch on the EXIT STATUS. A short SHA, a ref name, or anything with a
+      space or shell metacharacter FAILS this stage — do not resolve it, do
+      not truncate it, do not retry with a rev-parse. Only the interpolated
+      PATH below is engine-controlled; the value itself must be proven inert
+      before it appears anywhere.
+
+      Then confirm the commit actually landed:
+        git merge-base --is-ancestor <the validated commit_sha> HEAD
+      A non-zero exit means the orchestrator did not merge that branch —
+      report it as unmerged; do not merge it yourself. Then confirm
+      {handler_module} and src/worker/handlers.py exist in the working tree
+      and are tracked by git (`git ls-files --error-unmatch <path>`) — a file
+      present but untracked did not come from a merge.
+
+      Step 2 — confirm the CLI sees it:
+        ./bin/worker enqueue --help
+      "{job_type}" must now appear in --type's choices. If not, the REGISTRY
+      entry did not land — stop and report. `enqueue --help` prints usage and
+      exits; it enqueues nothing, which is why it belongs in this read-only
+      stage.
+
+      Step 3 — STATE THE PROPOSAL. This is what the human gate will show the
+      user, so be specific about what will and will NOT happen. Record in
+      proposal.json, and say plainly in your stage report, that the NEXT
+      stage (drive-the-queue) will:
+
+        - RUN THE NEW HANDLER'S CODE on this machine, as the user. That is
+          what the approval is for: the handler was written by an agent in
+          write-handler and has not run anywhere yet. Put what the reviewer
+          needs in front of them — the handler module path and the output of
+          `git show --stat <the validated commit_sha>` — and tell them to
+          read the diff (`git show <sha>`) before approving.
+        - Do it in a PRIVATE, THROWAWAY QUEUE. The worker's queue root comes
+          from src/worker/_helpers.py's `get_worker_state_dir`, which uses
+          DANCING_BEAR_WORKER_STATE_DIR when it is set, so every worker call
+          in that stage runs under
+          `env DANCING_BEAR_WORKER_STATE_DIR=<a fresh mktemp -d directory>`,
+          giving a queue no other producer and no launchd daemon can see. The user's real
+          queue at `~/Library/Application Support/dancing-bear/queue` is NOT
+          read, NOT written, and none of its jobs can be claimed.
+        - Enqueue and drain FIVE jobs of type "{job_type}" in that private
+          queue — one per retry class, plus one whose payload is rewritten to
+          a non-object in the private pending/ folder — and attempt one
+          enqueue that the CLI must refuse. All are listed in planned_jobs
+          below.
+        - Delete the private directory at the end. Nothing is left behind —
+          no records in the user's queue, and no pending job for the daemon
+          to pick up later.
+
+      Do NOT probe the launchd daemon. Its state no longer changes anything
+      this demo does: the daemon starts without
+      DANCING_BEAR_WORKER_STATE_DIR, so it never sees the private queue.
+
+      Write {workspace}/outputs/analysis/proposal.json:
+        {
+          "landed": {"commit_sha": "...", "is_ancestor_of_head": true|false, "files_tracked": true|false},
+          "type_in_cli": true|false,
+          "handler_module": "...",
+          "commit_stat": "<git show --stat output>",
+          "queue": "private — worker runs under env DANCING_BEAR_WORKER_STATE_DIR=<mktemp -d>; the user's real queue is untouched",
+          "planned_jobs": [
+            {"case": "success",  "payload": {"message": "hello"}},
+            {"case": "terminal", "payload": {}},
+            {"case": "plain",    "payload": {"message": "x", "fail": true}},
+            {"case": "deferred", "payload": {"message": "x", "defer": true}},
+            {"case": "non_object_enqueue", "payload": "bad", "expect": "enqueue refused, exit 2, nothing queued"},
+            {"case": "non_object_runtime", "payload": "bad", "expect": "error/ with invalid payload, handler never runs"}
+          ],
+          "leaves_behind": "nothing — the private directory is deleted at the end",
+          "safe_to_proceed": true|false
+        }
+
+      `safe_to_proceed` is true only if the commit is an ancestor of HEAD,
+      the files are tracked, and the type appeared in the CLI. If it is
+      false, say so prominently — approving the gate would then run a
+      handler that did not actually land.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Glob, Grep, Bash, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: proposal
+        mode: generate
+        description: >
+          proposal.json recording the ancestry and tracked-file checks, the
+          CLI registration check, the commit to review, and the exact jobs
+          drive-the-queue will run in its private queue once the gate is
+          approved.
+    writes_to:
+      - outputs/analysis/proposal.json
+    validates_output:
+      - path: outputs/analysis/proposal.json
+        checks: [is_json, has_key:landed, has_key:planned_jobs, has_key:safe_to_proceed]
+
+  # ===========================================================================
+  # G3: Drive a PRIVATE queue through the real CLI — the only stage that runs
+  #     the new handler, released only after verify-landed's gate is approved
+  # ===========================================================================
+  - name: drive-the-queue
+    # publish, not execute: this stage creates and deletes a directory
+    # outside the workspace and EXECUTES freshly written handler code through
+    # the real worker CLI. The skill's convention authorizes side effects
+    # outside the workspace only from a publish stage, and the generated
+    # execute prompt tells the agent there are none — so declaring execute
+    # would both forbid and require the same actions. Copy this reasoning,
+    # not just the keyword, when adapting this demo.
+    kind: publish
+    # NOTE THE ABSENCE OF `human_gate` HERE, WHICH IS DELIBERATE. Adding one
+    # would not add protection: it would fire after this stage had already
+    # run the handler. The protection comes from depends_on below — the
+    # engine cannot release this stage until verify-landed's gate is
+    # approved, and verify-landed runs nothing. Gating the proposal is what
+    # makes the approval meaningful; gating the action would only announce
+    # it after the fact.
+    depends_on: [verify-landed]
+    reads_from: [verify-landed, write-handler, read-the-seam]
+    description: >
+      The human gate on verify-landed has been approved, so its proposal
+      stands: drive the registration through the real CLI — not by importing
+      the handler directly in Python, which would skip the wiring this demo
+      is about.
+
+      Read `{workspace}/outputs/analysis/proposal.json` first. If
+      `safe_to_proceed` is not true, STOP and fail this stage without
+      enqueuing anything: the approval was for a proposal whose preconditions
+      held, and running a handler that did not land is not what was
+      approved.
+
+      STEP 1 — CREATE A PRIVATE QUEUE, AND USE IT FOR EVERY WORKER CALL.
+
+      The worker has no id- or type-scoped drain: `run-once` claims the
+      QUEUE HEAD (`--max` and `--backoff` are its only flags), and
+      list_pending sorts globally by (priority, enqueued_at). Against the
+      user's shared queue, no check made from here can stop a drain from
+      claiming — and consuming an attempt of — someone else's job, because
+      anything checked before `run-once` can change before it claims. So
+      this stage does not narrow that race; it removes it, by never touching
+      the shared queue at all.
+
+      The seam that makes this possible: src/worker/_helpers.py's
+      `get_worker_state_dir` returns `$DANCING_BEAR_WORKER_STATE_DIR/queue`
+      when that variable is set, and only otherwise the default under
+      `~/Library/Application Support/dancing-bear` (queue_ops.py reads it
+      once at import into QUEUE_ROOT, so the variable must be set when the
+      process starts). A worker process started with it pointed at a fresh
+      empty directory therefore has a queue nobody else can see: nothing
+      else enqueues into a directory created a second ago, and the launchd
+      daemon starts without the variable, so it never polls it. The worker's
+      logs go through the same function, so they land in the private
+      directory as well.
+
+      WHY A DEDICATED VARIABLE AND NOT HOME. An earlier revision pointed
+      HOME at the temp directory, which also moved the queue — and also
+      moved everything else that reads HOME: git's global config (so any
+      git call made in that environment lost the user's identity and
+      settings), tool caches, and credential lookups. The state-dir variable
+      is an explicit seam that relocates the worker's queue and logs and
+      nothing else.
+
+        PRIV=$(mktemp -d)
+
+      Record the path — each Bash call is a fresh shell, so re-set PRIV from
+      the recorded value in every later call rather than assuming it
+      persisted. Then prefix EVERY worker invocation — enqueue, run-once,
+      show, list — with `env DANCING_BEAR_WORKER_STATE_DIR="$PRIV"`:
+
+        env DANCING_BEAR_WORKER_STATE_DIR="$PRIV" ./bin/worker enqueue --help
+
+      A SINGLE CALL WITHOUT THE PREFIX SILENTLY HITS THE USER'S REAL QUEUE.
+      Nothing errors; the command simply succeeds against the shared
+      directory — an enqueue leaves a job there for the daemon, and a
+      run-once claims the user's queue head. There is no flag that catches
+      the omission, so check each command line for the prefix before
+      running it. Use `env DANCING_BEAR_WORKER_STATE_DIR=...`, not a bare
+      `VAR=... cmd` prefix: the two are equivalent to the shell, but some
+      command guards refuse the bare VAR= form.
+
+      WHY THIS RUNS THE NEW HANDLER, not some other checkout's copy. Run
+      `./bin/worker` by its relative path from the checkout verify-landed
+      confirmed the commit is in — never by an absolute path into another
+      checkout, which would run that tree's source by design. `bin/worker`
+      is a symlink to bin/_router.py, which derives the repo root from its
+      own resolved path, strips any other checkout's `src/` from PYTHONPATH
+      (bin/_pathrepair.py), and forces its own `src/` to the front of
+      sys.path before importing `worker`. None of that consults
+      DANCING_BEAR_WORKER_STATE_DIR, so setting it moves the queue and
+      nothing else. Confirm it rather than
+      trusting it: the `enqueue --help` above must list "{job_type}" among
+      the --type choices. That is the router loading THIS tree's REGISTRY —
+      if the type is missing, the worker you are about to drive is not the
+      one the handler was merged into; stop and report.
+
+      STEP 2 — EXERCISE THE FOUR RETRY CLASSES, THEN THE NON-OBJECT
+      PAYLOAD. For each case, enqueue with
+      `env DANCING_BEAR_WORKER_STATE_DIR="$PRIV" ./bin/worker enqueue ...`,
+      capture the returned job id, drain with
+      `env DANCING_BEAR_WORKER_STATE_DIR="$PRIV" ./bin/worker run-once --max 1`,
+      and read it back with
+      `env DANCING_BEAR_WORKER_STATE_DIR="$PRIV" ./bin/worker show <id>`.
+
+      The private queue holds only this stage's own jobs, and every
+      non-terminal outcome (plain retry and deferral alike) re-queues with
+      not_before set `--backoff` seconds ahead (default 60), so after each
+      drain nothing earlier is eligible and the next `run-once` claims the
+      job just enqueued. As cheap defence in depth, confirm from `show` that
+      the drained job carries the id you enqueued. A mismatch here means one
+      of the assumptions above is wrong — most likely a missing
+      DANCING_BEAR_WORKER_STATE_DIR prefix —
+      so FAIL the stage and say which call you suspect, rather than
+      recording the outcome as evidence about the retry protocol.
+
+      That reasoning depends on the DEFAULT backoff, so do not pass
+      `--backoff 0`: a job re-queued with no delay is immediately eligible
+      again, and since it was enqueued earlier it would be the head for the
+      next drain, not the job you just added. With the default, the cases can
+      run in any order; running them a, b, e, d, c keeps the two that end
+      pending together at the end.
+
+        a) Success:
+             env DANCING_BEAR_WORKER_STATE_DIR="$PRIV" ./bin/worker enqueue --type "{job_type}" --payload-json '{"message": "hello"}'
+           Expect: job in done/, result carries echoed + length.
+        b) Terminal:
+             env DANCING_BEAR_WORKER_STATE_DIR="$PRIV" ./bin/worker enqueue --type "{job_type}" --payload-json '{}'
+           Expect: job in error/ after ONE drain. This is the important
+           one — it must land in error/ from that single run-once, not back
+           in pending/ with a future not_before, which is what proves the
+           terminal- prefix was honoured rather than the failure being
+           treated as retryable. Note the stored `attempts` field does NOT
+           move: a terminal outcome goes straight to queue_ops.finish(),
+           which never touches the counter (only retry() increments it), so
+           expect attempts_after == attempts_before, typically 0 -> 0. Do
+           not assert that attempts reached 1.
+        c) Deferred:
+             env DANCING_BEAR_WORKER_STATE_DIR="$PRIV" ./bin/worker enqueue --type "{job_type}" --payload-json '{"message": "x", "defer": true}'
+           Expect: job back in pending/ with attempts UNCHANGED from before
+           this drain (not incremented, not reset to 0 — the same number it
+           had going in). The unchanged count is the entire point of the
+           deferred- protocol: job_runtime's _handle_outcome calls
+           _undo_retry_attempt to restore the pre-drain attempts after a
+           deferred- requeue, precisely so a defer never consumes a retry.
+           Asserting only "it did not complete" would also pass for a plain
+           retry, which increments attempts — record the before/after
+           attempts count for this case to prove it did NOT change.
+
+           Observe it ONCE; do not try to drain it to a terminal state. The
+           deferred- branch restores the attempt count after every requeue,
+           so repeated run-once calls would defer it forever — an earlier
+           revision of this file told the agent to loop "until its attempts
+           exhaust", which cannot terminate. The private queue makes a
+           still-pending deferred job harmless: nothing polls it, and STEP 3
+           deletes it.
+        d) Plain failure:
+             env DANCING_BEAR_WORKER_STATE_DIR="$PRIV" ./bin/worker enqueue --type "{job_type}" --payload-json '{"message": "x", "fail": true}'
+           Expect: attempts incremented and the job re-queued to pending
+           with a future not_before, not moved to error/ on the first try.
+
+        e) Non-object payload — two layers, each checked separately. The
+           handler's own `terminal-payload-not-object` guard is NOT what
+           fires in either; see write-handler's description.
+           e1) The CLI refuses it:
+                 env DANCING_BEAR_WORKER_STATE_DIR="$PRIV" ./bin/worker enqueue --type "{job_type}" --payload-json '"bad"'
+               Expect: exit status 2, an "expected a JSON object" error, no
+               job id, and `list` counts identical before and after.
+           e2) The runtime rejects one that reached a job file anyway.
+               Enqueue a valid job:
+                 env DANCING_BEAR_WORKER_STATE_DIR="$PRIV" ./bin/worker enqueue --type "{job_type}" --payload-json '{"message": "x"}'
+               then, with the Read and Edit tools (not a shell one-liner),
+               change that job's `"payload"` value to the string "bad" in
+               `$PRIV/queue/pending/<the job id>.json` — the PRIVATE queue's
+               file, whose path starts with the recorded PRIV value; never
+               edit a job file anywhere else. Drain once.
+               Expect: run-once exits 0; the job is in error/ with
+               `"error": "invalid payload: expected object, got str"`, and
+               NOT in processing/ or pending/; attempts_after ==
+               attempts_before, since it is finished, not retried. That
+               error text, rather than terminal-payload-not-object, is what
+               proves the runtime stopped it before any handler ran.
+
+      STEP 3 — DELETE THE PRIVATE QUEUE. After recording the final state of
+      every job, list the private queue once for the record:
+
+        env DANCING_BEAR_WORKER_STATE_DIR="$PRIV" ./bin/worker list
+
+      then remove the whole directory:
+
+        rm -rf "$PRIV"
+
+      Before running that, confirm the value you are about to delete is the
+      path `mktemp -d` returned in STEP 1 — never an empty or unset
+      variable, and never the user's real worker state directory under
+      ~/Library/Application Support/dancing-bear. Then confirm
+      the directory no longer exists.
+
+      What this means, and it is the claim verified.json must make: NOTHING
+      IS LEFT BEHIND. Cases (c) and (d) end pending, and (b) and (e2) end in
+      error/, but in a queue that no
+      longer exists; the user's real queue was never read or written, so no
+      record of this demo is in it and nothing for the daemon to pick up. No
+      delete-by-id is needed, and none of the user's jobs was claimed.
+
+      If the stage fails partway, still run STEP 3 before reporting the
+      failure — an abandoned private directory is harmless to the queue but
+      is litter, and it is the one cleanup this stage owns.
+
+      Write {workspace}/validation/verified.json:
+        {
+          "landed": {"commit_sha": "...", "is_ancestor_of_head": true|false, "files_tracked": true|false},
+          "type_in_cli": true|false,
+          "queue": {"private_state_dir": "<the mktemp -d path>", "type_seen_by_private_worker": true|false},
+          "cases": [
+            {"case": "success",  "job_id": "...", "id_confirmed": true|false, "final_state": "done",    "attempts_before": N, "attempts_after": N, "as_expected": true|false},
+            {"case": "terminal", "job_id": "...", "id_confirmed": true|false, "final_state": "error",   "attempts_before": N, "attempts_after": N, "as_expected": true|false},
+            {"case": "plain",    "job_id": "...", "id_confirmed": true|false, "final_state": "pending", "attempts_before": N, "attempts_after": N, "as_expected": true|false},
+            {"case": "deferred", "job_id": "...", "id_confirmed": true|false, "final_state": "pending", "attempts_before": N, "attempts_after": N, "as_expected": true|false},
+            {"case": "non_object_enqueue", "exit_status": N, "queue_counts_unchanged": true|false, "as_expected": true|false},
+            {"case": "non_object_runtime", "job_id": "...", "id_confirmed": true|false, "final_state": "error", "error": "...", "attempts_before": N, "attempts_after": N, "as_expected": true|false}
+          ],
+          "cleanup": {"private_state_dir_removed": true|false, "left_in_user_queue": []},
+          "verified": true|false
+        }
+
+      COPY `landed` and `type_in_cli` FORWARD from verify-landed's
+      proposal.json rather than re-deriving them. Those checks belong to the
+      read-only stage that ran before the gate, and re-running git or the CLI
+      probe here could report a different answer than the one the user
+      approved — verified.json must describe the run that was authorized.
+      `type_seen_by_private_worker` is this stage's own STEP 1 check, and is
+      a separate fact: that the worker driving the private queue loaded this
+      tree's REGISTRY.
+
+      verified is true only if proposal.json's `landed` showed the commit is
+      an ancestor of HEAD, `type_in_cli` and `type_seen_by_private_worker`
+      were true, every case's `id_confirmed` is true (non_object_enqueue has
+      no job id and no such field), every case behaved as
+      expected, and `private_state_dir_removed` is true. In particular:
+        - terminal: final_state is error after a single drain, and
+          attempts_after equals attempts_before — it was finished, not
+          retried.
+        - deferred: attempts_after equals attempts_before. That equality is
+          the whole point of the deferred- protocol and is the only thing
+          that distinguishes it from an ordinary retry.
+        - plain: attempts_after is attempts_before + 1 and final_state is
+          pending.
+        - non_object_enqueue: exit_status is 2 and queue_counts_unchanged
+          is true.
+        - non_object_runtime: final_state is error, error is exactly
+          "invalid payload: expected object, got str", and attempts_after
+          equals attempts_before.
+
+      `left_in_user_queue` is always the empty list on a correct run, and
+      it is recorded anyway so that a reader deciding whether the demo left
+      anything behind has an explicit answer rather than an inference.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Bash, Read, Write, Edit]
+      access: read-write
+    required: true
+    outputs:
+      - name: verified
+        mode: generate
+        description: >
+          verified.json recording the ancestry check, the CLI registration
+          check, one job per retry class (success, terminal, deferred, plain)
+          plus the two non-object payload layers (CLI refusal, runtime
+          rejection)
+          drained in a private queue with its attempt count before and after,
+          and confirmation that the private queue was deleted.
+    writes_to:
+      - validation/verified.json
+    validates_output:
+      - path: validation/verified.json
+        checks: [is_json, has_key:cases, has_key:verified]

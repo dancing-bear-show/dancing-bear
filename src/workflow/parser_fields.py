@@ -26,6 +26,7 @@ from .models import (
     ValidationSpec,
     ValidationStrategy,
 )
+from .param_rules import parse_param_rules
 from .parser_errors import WorkflowParseError
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,7 @@ def _parse_trigger(data: dict[str, Any], source: str) -> TriggerSpec:
     return TriggerSpec(
         source=data["source"],
         params={str(k): _param_default(str(k), v, source) for k, v in params.items()},
+        rules=parse_param_rules(data, source),
     )
 
 

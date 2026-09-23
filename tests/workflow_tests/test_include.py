@@ -879,10 +879,11 @@ class TestMalformedFragmentTrigger(unittest.TestCase):
     """
 
     def _params_for(self, trigger_yaml: str) -> dict[str, str]:
-        from workflow.include import _frag_trigger_params
+        from workflow.include import _frag_trigger
 
         body = "fragment: true\n" + trigger_yaml + "stages: []\n"
-        return _frag_trigger_params(body, "frag.yaml")
+        params, _rules = _frag_trigger(body, "frag.yaml")
+        return params
 
     def test_scalar_trigger_yields_no_params(self):
         self.assertEqual(self._params_for("trigger: manual\n"), {})

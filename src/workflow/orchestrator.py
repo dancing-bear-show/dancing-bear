@@ -27,7 +27,8 @@ from workflow.models import (
     WorkflowRun,
     make_stage_result,
 )
-from workflow.compiler import match_when_expression
+from workflow.compiler import WorkflowCompileError, enforce_param_rules, match_when_expression
+from workflow.param_rules import UnsafePathError, require_shell_safe_path
 from workflow.persistence import (
     init_workspace,
     list_stage_results,
@@ -59,6 +60,20 @@ class WorkflowExecutionError(Exception):
     """Raised when workflow execution fails."""
 
 
+def _require_valid_params(manifest: WorkflowManifest, trigger_params: dict[str, str]) -> None:
+    """Re-check the run's params against the workflow's rules before anything runs.
+
+    ``compile_workflow`` already enforced them for the params it compiled
+    with, but a programmatic caller can pair a compiled manifest with a
+    different ``trigger_params`` -- and those reach ``when`` evaluation and
+    worker-queue job payloads. Checked before the workspace is created.
+    """
+    try:
+        enforce_param_rules(manifest.definition.trigger, trigger_params)
+    except WorkflowCompileError as exc:
+        raise WorkflowExecutionError(str(exc)) from exc
+
+
 class WorkflowOrchestrator:
     """Executes a compiled workflow manifest via pluggable dispatch."""
 
@@ -79,6 +94,7 @@ class WorkflowOrchestrator:
         self._results: dict[str, StageResult] = {}
         self._status = StageStatus.pending
         self._trigger_params = dict(config.trigger_params)
+        _require_valid_params(config.manifest, self._trigger_params)
 
         name = config.manifest.definition.name
         self._run_id = config.run_id or f"{name}-{iso_now()}-{uuid.uuid4().hex[:8]}"
@@ -110,6 +126,12 @@ class WorkflowOrchestrator:
 
         Reads existing stage results and skips completed groups.
         """
+        _require_valid_params(manifest, trigger_params or {})
+        # A fresh run is checked inside init_workspace; resume bypasses it.
+        try:
+            require_shell_safe_path(workspace_dir, "workspace path")
+        except UnsafePathError as exc:
+            raise WorkflowExecutionError(str(exc)) from exc
         orch = cls.__new__(cls)
         orch._manifest = manifest
         orch._dry_run = False

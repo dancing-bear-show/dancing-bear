@@ -383,8 +383,8 @@ stages:
 
       RUN THE CLI. Do not implement any of the above yourself:
 
-        ./bin/workflow parse-overview {workspace}/outputs/threads.json \
-          --pr {pr_number} --out {workspace}/outputs/review-overview.json
+        ./bin/workflow parse-overview "{workspace}/outputs/threads.json" \
+          --pr {pr_number} --out "{workspace}/outputs/review-overview.json"
 
       That command is the implementation. It lives in
       src/core/copilot_overview.py with unit tests in

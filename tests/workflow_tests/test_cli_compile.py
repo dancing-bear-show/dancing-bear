@@ -791,6 +791,7 @@ class TestManifestHonoursParamOverrides(unittest.TestCase):
         "  source: manual\n"
         "  params:\n"
         "    mode: fast\n"
+        "    other: y\n"
         "stages:\n"
         "  - name: fast-path\n"
         "    kind: execute\n"

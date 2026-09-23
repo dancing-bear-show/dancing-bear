@@ -11,7 +11,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, cast
 
-from .models import FanOutSpec, IncludeSpec, StageSpec
+from .models import FanOutSpec, IncludeSpec, ParamRules, StageSpec
+from .param_rules import parse_param_rules
 
 __all__ = [
     "FragmentContext",
@@ -122,6 +123,13 @@ def _parse_fragment_str(
         raise WorkflowParseError(
             f"{source}: fragment YAML must declare 'fragment: true' at the top level"
         )
+
+    # Parsed only to reject a malformed rule block here, so linting or
+    # validating the fragment alone reports it; the rules themselves reach the
+    # importer through collect_include_params.
+    trigger = data.get("trigger")
+    if isinstance(trigger, dict):
+        parse_param_rules(trigger, source)
 
     if "stages" not in data:
         raise WorkflowParseError(f"{source}: fragment missing required key 'stages'")
@@ -305,7 +313,7 @@ def collect_include_params(
     ctx: FragmentContext,
     *,
     _visited: frozenset[str] | None = None,
-) -> dict[str, str]:
+) -> tuple[dict[str, str], ParamRules]:
     """Trigger param defaults declared by included fragments, depth-first.
 
     ``_expand_includes`` inlines a fragment's *stages* only, so a param a
@@ -319,9 +327,14 @@ def collect_include_params(
     Returned defaults are the weakest binding. The caller layers the importing
     workflow's own trigger params over these, so a local declaration still
     wins, and caller-supplied ``--params`` override both.
+
+    Fragments' ``param_rules``/``required`` are returned alongside. Unlike
+    defaults they never override one another: they are merged, so every
+    pattern any fragment or the importer declares for a name must hold.
     """
     visited = _visited if _visited is not None else frozenset()
     collected: dict[str, str] = {}
+    rules = ParamRules()
 
     for inc in includes:
         frag_path = _resolve_frag_path(inc.path, ctx.source_path)
@@ -335,20 +348,26 @@ def collect_include_params(
 
         nested = _parse_nested_includes(frag_text, frag_path_str)
         if nested:
-            collected.update(
-                collect_include_params(
-                    nested,
-                    FragmentContext(source=frag_path_str, source_path=frag_path),
-                    _visited=visited | {frag_path_key},
-                )
+            nested_params, nested_rules = collect_include_params(
+                nested,
+                FragmentContext(source=frag_path_str, source_path=frag_path),
+                _visited=visited | {frag_path_key},
             )
-        collected.update(_frag_trigger_params(frag_text, frag_path_str))
+            collected.update(nested_params)
+            rules = rules.merged(nested_rules)
+        frag_params, frag_rules = _frag_trigger(frag_text, frag_path_str)
+        collected.update(frag_params)
+        rules = rules.merged(frag_rules)
 
-    return collected
+    return collected, rules
 
 
-def _frag_trigger_params(frag_text: str, source: str) -> dict[str, str]:
-    """Parse one fragment's ``trigger.params`` into name -> default strings."""
+def _frag_trigger(frag_text: str, source: str) -> tuple[dict[str, str], ParamRules]:
+    """Parse one fragment's ``trigger`` into param defaults and param rules.
+
+    A malformed ``param_rules``/``required`` raises rather than being dropped:
+    a rule silently ignored reads as protection that is not there.
+    """
     import yaml  # lazy — optional dep
 
     from workflow.parser_fields import _param_default  # noqa: PLC0415
@@ -356,9 +375,9 @@ def _frag_trigger_params(frag_text: str, source: str) -> dict[str, str]:
     try:
         data = yaml.safe_load(frag_text)
     except yaml.YAMLError:
-        return {}
+        return {}, ParamRules()
     if not isinstance(data, dict):
-        return {}
+        return {}, ParamRules()
 
     # A fragment's trigger is optional metadata, so _parse_fragment_str
     # accepts `trigger: manual` (a scalar) as readily as a mapping. Calling
@@ -366,11 +385,12 @@ def _frag_trigger_params(frag_text: str, source: str) -> dict[str, str]:
     # workflow importing it instead of producing a WorkflowParseError.
     trigger = data.get("trigger")
     if not isinstance(trigger, dict):
-        return {}
+        return {}, ParamRules()
+    rules = parse_param_rules(trigger, source)
     params = trigger.get("params") or {}
     if not isinstance(params, dict):
-        return {}
-    return {str(k): _param_default(str(k), v, source) for k, v in params.items()}
+        return {}, rules
+    return {str(k): _param_default(str(k), v, source) for k, v in params.items()}, rules
 
 
 def _parse_nested_includes(frag_text: str, source: str) -> tuple[IncludeSpec, ...]:

@@ -23,23 +23,23 @@ Delegates to `workflows/code/ci-debug.yaml`.
 
 ```python
 # From a GitHub Actions run URL
-Skill(skill="workflow", args="--workflow workflows/code/ci-debug.yaml --params github-actions_url=<RUN_URL> test_cmd='PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/<domain> -t . -f -q' source_root='<domain>/'")
+Skill(skill="workflow", args="--workflow workflows/code/ci-debug.yaml --params run_url=<RUN_URL> test_cmd='PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/<domain> -t . -f -q' source_root='<domain>/'")
 
 # From a PR number
 Skill(skill="workflow", args="--workflow workflows/code/ci-debug.yaml --params pr_number=<PR_NUMBER> test_cmd='PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/<domain> -t . -f -q' source_root='<domain>/'")
 
 # Both (run URL for logs + qlty PR-scoped check)
-Skill(skill="workflow", args="--workflow workflows/code/ci-debug.yaml --params github-actions_url=<RUN_URL> pr_number=<PR_NUMBER> test_cmd='PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/<domain> -t . -f -q' source_root='<domain>/'")
+Skill(skill="workflow", args="--workflow workflows/code/ci-debug.yaml --params run_url=<RUN_URL> pr_number=<PR_NUMBER> test_cmd='PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/<domain> -t . -f -q' source_root='<domain>/'")
 ```
 
-At least one of `github-actions_url` or `pr_number` must be provided.
+At least one of `run_url` or `pr_number` must be provided.
 
 ## Workflow Params
 
 | Param | Default | Description |
 |-------|---------|-------------|
-| `github-actions_url` | `""` | GitHub Actions run URL (optional if pr_number given) |
-| `pr_number` | `""` | PR number to check (optional if github-actions_url given) |
+| `run_url` | `""` | GitHub Actions run URL (optional if pr_number given) |
+| `pr_number` | `""` | PR number to check (optional if run_url given) |
 | `test_cmd` | `""` | Test invocation for local verify (e.g. `PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/core -t . -f -q`; `-f` is unittest's failfast — `-x` is pytest syntax and errors here. The PYTHONPATH prefix is required in a worktree or imports resolve to the main checkout.) |
 | `source_root` | `""` | Source dir for coverage scoping (e.g. `core/`) |
 | `min_coverage` | `"80"` | Minimum new coverage % required by qlty gate |

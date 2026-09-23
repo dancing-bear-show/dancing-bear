@@ -16,6 +16,7 @@ from .include import (
     _parse_include,
     _expand_includes,
 )
+from .param_rules import check_rules_declared
 from .parser_errors import WorkflowParseError
 from .parser_fields import _parse_stage, _parse_trigger
 from .parser_validate import (
@@ -86,10 +87,16 @@ def parse_workflow_str(content: str, source: str = "<string>") -> WorkflowDefini
         # Fragments declare trigger params their own inlined stages reference.
         # Layer them UNDER the importing workflow's own params so a local
         # declaration still wins; caller --params override both downstream.
-        inherited = collect_include_params(includes, frag_ctx)
-        if inherited:
-            merged = {**inherited, **trigger.params}
-            trigger = replace(trigger, params=merged)
+        inherited, inherited_rules = collect_include_params(includes, frag_ctx)
+        trigger = replace(
+            trigger,
+            params={**inherited, **trigger.params},
+            rules=trigger.rules.merged(inherited_rules),
+        )
+
+    # After the fragment merge, so a rule may constrain a param that only an
+    # included fragment declares.
+    check_rules_declared(trigger.rules, trigger.params, source)
 
     _validate_unique_names(stages, source)
     _validate_refs(stages, source)

@@ -1,0 +1,3263 @@
+name: qwen-local-handler
+version: "1.0"
+description: >
+  Add a local-LLM job handler (Qwen 2.5 Coder 14B via Ollama) to the existing
+  file-based worker queue, then install and verify the full stack end to end.
+
+  The design decision this workflow encodes, made before it was written: the
+  queue is NOT replaced. worker/handlers.py's REGISTRY is already the seam for
+  a new job type — a qwen handler registered there inherits priority ordering,
+  not_before scheduling, attempts/backoff, the deferred-/terminal- outcome
+  protocol (worker/job_runtime.py), max_inflight clamping, stale-job reaping,
+  and the whole `worker list/status/show/retry/purge` CLI for free. A message
+  broker (beanstalkd et al.) was considered and rejected: it adds a third
+  daemon, a dependency against a dependency-light repo, a rewrite of
+  queue_ops.py plus every worker_queue consumer in src/workflow/, and it
+  trades `cat error/job-123.json` inspectability for a binary protocol — all
+  to buy blocking reserve, cross-machine producers and million-job scale that
+  a single-machine single-daemon queue does not need.
+
+  The one real gap beanstalkd would have closed is long-job liveness: a 14B
+  patch job can run for minutes, and the queue has no heartbeat, so a
+  slow-but-healthy job risks being cut off mid-flight. That is addressed here
+  inside the existing queue (stage impl-heartbeat), not by swapping the queue
+  out.
+
+  WHICH mechanism actually bounds a long job is NOT assumed by this workflow,
+  because the obvious answer is wrong. An adversarial review of an earlier
+  draft established, against the source:
+
+    - reap_stale_processing_jobs measures age from `processing_started_at`
+      (queue_ops.py `_reap_resolve_start_time`), fixed at claim time — so a
+      heartbeat field COULD fix the reaper, and that was this workflow's
+      original premise.
+    - But `_reap_one_job` returns None when `effective_timeout <= 0`, and the
+      shipped configs/launchd/com.dancing-bear.worker.plist passes no
+      `--job-timeout` at all. Under the installed configuration the reaper
+      therefore never fires: the premise does not reproduce.
+    - The real ceiling is job_runtime.py's `_join_with_timeout`, an in-process
+      thread join on `_effective_job_timeout` that NO heartbeat write can
+      extend, plus the per-job `timeout_sec` that job_runtime injects into the
+      handler's own payload as `timeout`.
+
+  So the survey stage records BOTH paths and the design stage must state which
+  one bounds a long qwen job under the shipped plist BEFORE specifying any
+  field. The design gate is where that decision gets made and approved —
+  including the option of dropping the heartbeat entirely if the reaper is not
+  the constraint. Do not re-adopt the original premise without re-deriving it.
+
+  Job contract (decided up front, not up for re-litigation in the design
+  stage): a qwen job produces a PATCH and never applies it. The model's
+  nondeterminism stays quarantined in a reviewable artifact — the handler
+  validates the patch with `git apply --check` and stores it; a human applies
+  it. No in-place edits.
+
+  Stage dependency graph:
+
+    survey                                   (G0 — read the real code, no assumptions)
+        |
+    design  [human gate]                     (G1 — contract + retry taxonomy, approved before any edit)
+        |
+        +----------------+----------------+
+        |                |                |
+    impl-handler    impl-heartbeat    impl-tests    (G2 — parallel, partitioned by file)
+        |                |                |
+        +----------------+----------------+
+        |
+    merge-impl                               (G3 — verify the merges landed; merges nothing)
+        |
+    adversarial-test-review                  (G4 — Opus attacks the suite; teeth-tests it)
+        |
+    integrate                                (G5 — act on findings, then lint/typecheck/suite)
+        |
+    install                                  (G6 — idempotent: ollama, model, worker launchd)
+        |
+    validate-config                          (G7 — installed config matches the design)
+        |
+    verify                                   (G8 — real job through the real queue)
+        |
+    acceptance                               (G9 — judge the run against D1-D11)
+        |
+    report                                   (G10 — summary + how to use it)
+
+  GUARDS. Beyond the job contract, the design stage specifies nine guards,
+  each protecting against a failure this queue does not otherwise prevent:
+
+    input confinement  — the payload's files list is read into a prompt and
+                         nothing constrains it, so a traversal or a symlink
+                         could feed a private key to the model and thence to
+                         the job record. Resolved-path containment plus a
+                         denylist; violations are terminal, never retried.
+    patch caps         — `git apply --check` validates a diff that rewrites
+                         .github/workflows/ci.yml just as happily as a
+                         one-line fix. Caps on files/lines plus a path
+                         denylist, checked by parsing the diff.
+    redaction          — anything derived from payload content passes through
+                         core.secrets.mask_text before reaching the result or
+                         telemetry, neither of which carries file contents.
+                         The PATCH does, by design — a diff quotes its input
+                         verbatim — so the artifact's location outside the
+                         checkout is the boundary that matters. See 5f.
+    concurrency lock   — see below; the memory guard of the set.
+    memory precheck    — headroom the lock cannot see.
+    disk precheck      — a full disk turns atomic_write_json into a partial
+                         write mid queue-transition.
+    admission cap      — enqueue has no admission control, so a fan-out of
+                         200 jobs is accepted instantly and drains for days.
+    model pinning      — the tag is mutable; a digest change is recorded and
+                         surfaced rather than silently altering output.
+    explain mode       — build the prompt, run every guard, report, and stop
+                         without calling the model. The cheap debugging path,
+                         and what makes confinement testable without a GPU.
+
+  CONCURRENCY IS A SAFETY PROPERTY HERE, not a tuning preference. The queue
+  runs jobs on real threads (job_runtime `_process_batch`) and the shipped
+  plist sets `--max-per-tick 8 --max-inflight 8`. Those caps are GLOBAL —
+  `_calculate_allowed_jobs` has no per-type awareness — so without a guard
+  the daemon will happily start 8 simultaneous 14B generations and exhaust
+  the machine's memory. The handler therefore takes an exclusive lock around
+  the model call, holding qwen to one at a time while leaving cheap job types
+  (run_cli, run_shell, workflow_stage) their full parallelism. A memory
+  precheck covers what the lock cannot see: headroom consumed by everything
+  else on the machine. validate-config then confirms, after install, that the
+  configuration those guards assume is the configuration actually on disk.
+
+  merge-impl VERIFIES rather than merges. SKILL.md rule 7 assigns copy-back
+  and the branch merge to the orchestrator, per isolated stage, at that
+  stage's completion — so by G3 the branches are already merged. What the
+  orchestrator does not check is whether the result is coherent, and a stage
+  CAN report success while its code never lands: an agent that edits without
+  committing leaves an empty branch, and the merge then succeeds against
+  nothing. So each impl stage commits and records its SHA, and merge-impl
+  confirms that SHA is an ancestor of HEAD and that every expected file is
+  present and tracked. It must never run `git merge` itself — an earlier
+  draft did, and treated the empty commit range of a correctly-merged tree as
+  the silent-loss failure case, which would have failed the run exactly when
+  everything went right.
+
+  The adversarial review at G3 exists because a passing test suite is not
+  evidence of a working one. It asks the inverse question — what mutation of
+  the source would this test fail to catch — and proves its answer by breaking
+  the source and confirming the test goes red. Its findings are inputs to
+  integrate, which must fix every blocking one before the gates run.
+
+  Telemetry: the handler emits OTLP spans/metrics for every job, so local
+  inference shows up in `./bin/telemetry otel` alongside Claude Code usage.
+  That is specified in the design stage's contract and implemented by
+  impl-handler — see the "telemetry" section of contract.json.
+
+  Idempotence is a hard requirement of the install stage, not a nice-to-have:
+  every step is check-then-act, and a second consecutive run must change
+  nothing and still exit 0. Re-running must never re-pull a 9GB model that is
+  already present, never stack a second launchd agent, and never restart a
+  healthy daemon.
+
+  SHIPPED AS THREE PRs, not one. The work this workflow produces is far too
+  large for a single reviewable change — a handler, nine guards, a telemetry
+  emitter, an entry point, a test suite and an installer. Reviewing that as
+  one diff means reviewing none of it. The checkpoints in impl-handler (C1-C6)
+  are chosen to line up with these boundaries, so each PR is a coherent,
+  independently-revertable unit that leaves the repo working:
+
+    PR 1 — "the seam": qwen.py with the handler signature, payload/result
+           schema, input confinement, payload validation, the REGISTRY line,
+           and tests for all of it. NO model call — the transport is stubbed
+           and the handler returns a terminal "not implemented". This is
+           checkpoints C1-C2. It is reviewable in isolation, it proves the
+           registration works, and the security boundary lands BEFORE
+           anything can reach a model. Merging it changes no behaviour for
+           existing job types.
+
+    PR 2 — "the model": the Ollama transport, diff extraction, patch
+           validation and caps, the concurrency lock, deferral bound, and the
+           memory/disk prechecks, with their tests. Checkpoints C3-C5. This
+           is the PR that makes the handler actually do something, and it is
+           the one that most needs the adversarial test review.
+
+    PR 3 — "the ergonomics": qwen_telemetry.py, bin/qwen, the launchd/install
+           path and the docs. Checkpoint C6. Nothing here can break job
+           correctness, which is why it goes last and can be reviewed
+           quickly.
+
+  Whoever runs this workflow opens the PRs at those boundaries rather than
+  at the end. The stages after integrate (install, validate-config, verify,
+  acceptance) exercise the FULL stack, so they belong with PR 3 — run them
+  once the first two have merged, or against the combined branch if you are
+  staging all three before any merge. Say which you did in the report.
+
+  A single-PR run is acceptable ONLY for a throwaway spike. If you take that
+  path, say so explicitly in the report rather than letting a 2000-line diff
+  arrive unannounced.
+
+  DEFINITION OF DONE — what a successful end-to-end run means. Every stage
+  below declares validates_output checks, but those are STRUCTURAL: the
+  engine's `has_key` asserts a key is present, never that its value is true
+  (src/workflow/output_checks.py's _check_has_key). So `has_key:config_valid`
+  passes on config_valid=false, and a run could reach the report with every
+  stage green and nothing working. The acceptance stage (G10) closes that by
+  reading the VALUES and judging them against this list.
+
+  A run is SUCCESSFUL only when all of these hold:
+
+    D1  The handler is registered: "{job_type}" appears in
+        `./bin/worker enqueue --help` when run from this worktree.
+    D2  The full suite ran and passed — a literal "Ran N tests" line, no
+        failures, and a test count no lower than impl-tests reported.
+    D3  qlty and typecheck-changed both passed over the changed files.
+    D4  Every blocking finding from the adversarial test review is fixed, or
+        listed as deferred with a reason.
+    D5  Each impl stage's commit is an ancestor of HEAD, or is a recorded
+        legitimate no-change, and every file the design listed exists and is
+        tracked.
+    D6  The install is idempotent: a second pass of its read-only checks
+        reports every step already-satisfied.
+    D7  The installed configuration matches the design (config_valid true,
+        no blocking findings).
+    D8  A real job ran end to end and produced a patch that passes
+        `git apply --check` — and the patch was NOT applied.
+    D9  The guards hold live: a path outside the allowlist is rejected
+        terminally without leaking contents, and two concurrent jobs never
+        generate simultaneously.
+    D10 No regression: an existing run_shell job still completes.
+    D11 A human can use it — `bin/qwen` exists, is executable, and the report
+        shows the three real commands (submit, read, apply).
+    D12 Every implementation checkpoint (C1-C6) is recorded with a pass, or
+        with an explicit reason for a fail. Absent checkpoints count as
+        unmet: the point of a checkpoint is the evidence it leaves behind.
+    D13 The work is split into the three commits matching the PR boundaries,
+        each reachable — or the run explicitly declares itself a single-PR
+        spike in the report.
+
+  PARTIAL SUCCESS IS A VALID AND USEFUL OUTCOME, and must be reported as
+  itself rather than as failure or as success. Two cases are expected:
+    - Telemetry unverifiable because the collector is down (D8's span check).
+      The design makes export best-effort; this does not fail a run.
+    - daemon_serves_this_code false, because the daemon runs the main
+      checkout while this code is on a branch. The handler works from this
+      worktree; background jobs wait for the merge. Expected, not a defect.
+  Anything else unmet means the run did not succeed, whatever the individual
+  stages reported.
+
+metadata:
+  author: dancing-bear
+  created: "2026-09-21"
+
+trigger:
+  source: manual
+  params:
+    model_tag: "qwen2.5-coder:14b"
+    ollama_host: "http://localhost:11434"
+    job_type: "qwen_patch"
+    # Approximate resident size of {model_tag} at Q4 quantization, used by the
+    # memory precheck. The survey verifies this against `ollama list` rather
+    # than trusting it — override when changing model_tag.
+    model_resident_gb: "9"
+    # Safety margin above the model size before a generation is allowed to
+    # start, leaving room for the OS and whatever else is running.
+    memory_margin_gb: "4"
+  # Enforced by the engine in compile_workflow BEFORE any param is substituted
+  # into stage text, so compile/run/init-workspace exit 1 on a violation and
+  # no stage ever sees a rejected value. The per-stage check-params calls below
+  # repeat these checks as defence in depth; keep the two patterns identical.
+  param_rules:
+    model_tag: '[A-Za-z0-9][A-Za-z0-9._-]{0,63}(:[A-Za-z0-9][A-Za-z0-9._-]{0,63})?'
+    ollama_host: 'https?://[A-Za-z0-9][A-Za-z0-9.-]{0,252}(:[0-9]{1,5})?/?'
+    job_type: '[a-z][a-z0-9_]{2,40}'
+    # Only reach prompt text and the design's memory arithmetic, not a shell;
+    # constrained anyway so a design never computes against a non-number.
+    model_resident_gb: '[1-9][0-9]{0,2}'
+    memory_margin_gb: '[0-9]{1,3}'
+  required: [model_tag, ollama_host, job_type, model_resident_gb, memory_margin_gb]
+
+workspace_dir: "{work_dir}/qwen-local-handler"
+
+stages:
+  # ===========================================================================
+  # G0: Survey — read what actually exists before designing against it
+  # ===========================================================================
+  - name: survey
+    kind: gather
+    depends_on: []
+    reads_from: []
+    description: >
+      STEP 0 — VALIDATE {job_type} BEFORE ANYTHING ELSE. This is the first
+      stage in the DAG, so it is the only place a check can land ahead of
+      every isolated implementation stage. {job_type} is caller-overridable
+      via --params and is interpolated into `git commit -m` in three later
+      stages; a value containing a quote or `$(...)` executes there, inside
+      an isolated worktree, long before the install stage's own parameter
+      gate runs.
+
+      Validate it the way the install stage validates {ollama_host} — from
+      the file the ENGINE wrote, so the value never becomes shell source.
+      Any mechanism that embeds it in shell text is defeatable, a heredoc
+      included (probe-disproven: a newline plus the delimiter closes it and
+      executes the remainder while the regex then passes on the remnant):
+
+        ./bin/workflow check-params "{workspace}"/manifest.json \
+          --check 'job_type=[a-z][a-z0-9_]{2,40}'
+
+      The check itself lives in src/workflow/param_guard.py and is covered by
+      tests/workflow_tests/test_param_guard.py, including both disproven
+      payloads above — so a future edit here cannot silently gut it. Note what
+      is and is not interpolated: the PATH to manifest.json is engine-
+      controlled, and the untrusted value appears nowhere on the command line.
+
+      DEFENCE IN DEPTH. The engine already enforces this same pattern via
+      trigger.param_rules at compile time, before any substitution, so on a
+      normal run this call cannot fail. Keep it anyway: it is the guard that
+      still holds if those rules are loosened or the workflow is run by
+      something other than the engine.
+
+      Branch on the EXIT STATUS, not on echoed text. If it fails, ABORT the
+      whole run here — write survey.json with {"aborted": true,
+      "reason": "job_type failed validation"} and report the stage FAILED so
+      no downstream stage is scheduled. Do not sanitize or auto-correct: an
+      override with shell metacharacters is a caller error to report.
+
+      The pattern is deliberately narrower than "no metacharacters": a job
+      type is a queue registry key, so lowercase, digits and underscore is
+      the whole legitimate alphabet. Anything else is either an attack or a
+      typo, and both should stop the run.
+
+      Read the real code and record exact signatures. Do not infer the queue's
+      behaviour from this description — the point of this stage is to catch
+      drift between it and the tree.
+
+      File access rules: use Read for file contents (not cat/head/tail) and
+      Glob for file discovery (not find/ls). Bash is for querying live system
+      state only (which ollama, sw_vers, launchctl list).
+
+      Read and record:
+        1. src/worker/handlers.py — the HandlerFn type alias, the exact
+           (bool, object) return contract, how REGISTRY is populated, and how
+           ShellJobProcessor wraps SafeProcessor. Note the nosec comment
+           convention on subprocess calls.
+        2. src/worker/job_runtime.py — the outcome dispatch in _handle_outcome.
+           Record verbatim how a result string prefixed "deferred-" and
+           "terminal-" is treated differently from a plain failure, and where
+           attempts/max_attempts are read. This is the retry protocol the new
+           handler must speak.
+        3. src/worker/queue_ops.py — the Job dataclass fields (note
+           timeout_sec), enqueue/start_processing/finish/retry, and the
+           reaper: `reap_stale_processing_jobs`, `_reap_one_job`,
+           `_reap_resolve_start_time`, `_reap_effective_timeout`. Record
+           which timestamp field decides staleness, and record the exact
+           condition under which the reaper does NOTHING (read the
+           `effective_timeout <= 0` branch and say what value makes it fire).
+        3b. THE SECOND TIMEOUT PATH — do not skip this; the workflow's
+           original premise was wrong because it did. Read
+           src/worker/job_runtime.py: `_effective_job_timeout`,
+           `_join_with_timeout`, `DaemonRunner._process_batch`, and the place
+           where `timeout_sec` is injected into the job payload as `timeout`.
+           This is an in-process thread deadline that no heartbeat write can
+           extend. Record it as a separate mechanism from the reaper.
+        3c. THE SHIPPED CONFIGURATION — read
+           configs/launchd/com.dancing-bear.worker.plist's ProgramArguments
+           and record VERBATIM which daemon flags it passes. Then state
+           plainly, from 3, 3b and this: under the installed configuration,
+           which mechanism (if either) actually terminates a 20-minute job?
+           If the answer is "neither", say so — that is a valid and important
+           finding, and the design stage depends on it.
+        4. src/worker/cli.py — how `enqueue --type` derives its choices from
+           HANDLERS.keys(), so a new registry entry appears in the CLI
+           automatically.
+        5. src/worker/_helpers.py — get_worker_state_dir and get_repo_root.
+        6. configs/launchd/com.dancing-bear.worker.plist and
+           bin/worker-install-launchd — the template placeholders
+           (__REPO_ROOT__, __HOME__) and the unload-then-load install
+           sequence. Record whether the existing installer is idempotent.
+        7. src/core/paths.py — output_dir(), the resolution order for
+           generated artifacts. Patches are generated output and must go
+           through it, not to a relative path.
+        8. tests/worker_tests/ (Glob it) — the existing test layout, how
+           handlers are tested, and whether subprocess/network is mocked.
+        9. src/telemetry/otel/models.py — the EXACT record shape OTLPReader
+           parses: the resourceMetrics/resourceLogs/resourceSpans envelopes,
+           OTLPValue's stringValue/intValue/doubleValue/boolValue keys, and
+           how attributes are nested. A qwen span that does not match this
+           shape lands on disk and is silently skipped by every query, so
+           record the shape precisely enough to construct one by hand.
+        10. src/telemetry/otel/reader.py — OTLPDataDir.from_env (which env var
+           names the data dir) and the three filenames it reads.
+        11. src/telemetry/otel/health.py and configs/otel/collector-config.yaml
+           — the receiver ports (grpc/http), which env var overrides the host
+           port, and the pipeline that routes OTLP to the JSONL files.
+        12. src/telemetry/otel/cost_models.py — enough to confirm whether a
+           record lacking a cost attribute is handled gracefully by the cost
+           rollups, since local inference will emit tokens but no dollars.
+
+      BASELINE GENERATION — VALIDATE {ollama_host} AND {model_tag} FIRST.
+      This is the first live probe in the whole workflow, and it reaches a
+      caller-supplied host and tag before the install stage's Step 0 gate has
+      ever run. The engine's trigger.param_rules reject a bad override at
+      compile time, but `resolve_params` is still raw string replacement, so
+      if those rules were ever loosened a stage documented as read-only would
+      make
+      a network call to — or run a shell command containing — whatever the
+      caller passed.
+
+      Apply the SAME check STEP 0 above applies to {job_type}, against the
+      same file, for both params:
+        ollama_host: ^https?://[A-Za-z0-9][A-Za-z0-9.-]{0,252}(:[0-9]{1,5})?/?$
+        model_tag:   ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}(:[A-Za-z0-9][A-Za-z0-9._-]{0,63})?$
+      Branch on the exit status. If either fails, SKIP the baseline entirely
+      and record it as not-run with the reason — do not abort the survey,
+      which is otherwise pure reading and still worth having, and do not
+      "fix" the value. The install stage will fail the same check later and
+      report it as the caller error it is.
+
+      THIS PROBE GENERATES, AND THAT MAKES IT THE ONE EXCEPTION IN THE PAIR.
+      qwen-admin's health stage was changed to never generate, because a
+      read-only probe that loads a second 14B model can cause the OOM it is
+      meant to diagnose. The same hazard exists here and cannot be dodged the
+      same way: there is no `/api/tags` substitute for "what does this model's
+      diff output actually look like", which is the one thing this stage
+      exists to learn and the design stage cannot proceed honestly without.
+
+      So generate, but only when it is demonstrably safe, and skip rather than
+      race:
+        - The handler and its exclusive lock DO NOT EXIST YET at survey time —
+          this stage runs before any of it is built — so there is no lock to
+          take and nothing to serialise against. Check instead whether the
+          queue could produce a competing generation: if a `{job_type}` lane
+          already exists with anything in pending/ or processing/, or the
+          worker daemon is loaded and running, SKIP the baseline and record
+          "baseline: skipped (live {job_type} lane — would risk concurrent
+          model load)".
+        - THE QUEUE CHECK IS ITSELF A TOCTOU, so treat it as a filter and not
+          a guarantee: a job can be claimed between the check and the
+          generate. Two things make that residual risk acceptable here, and
+          both must hold — if either does not, SKIP:
+            (i) the check must find the lane EMPTY and the daemon NOT
+                loaded. An idle-but-loaded daemon can claim a job at its next
+                poll, so "loaded" is a skip, not a pass.
+            (ii) the generation must be tiny — one small snippet, short
+                timeout — so the exposure is seconds rather than minutes,
+                and a collision degrades to slow rather than to swap-death.
+          This is a bounded read-only probe on an idle machine, not a
+          destructive action; that is why a narrowed window is acceptable
+          here and was NOT acceptable for the lock delete in qwen-admin,
+          which is irreversible and can start a second generation outright.
+          Do not cite this paragraph as precedent for narrowing a race on
+          anything destructive.
+        - On a re-run against an already-installed stack, prefer driving one
+          real job through the installed handler over probing Ollama
+          directly: that path takes the lock and is what the admin workflow
+          assumes.
+        - `ollama ps` before and after; if a model was already resident and
+          busy, skip.
+
+      Record which branch ran in survey.json, and never present a skipped
+      baseline as an obtained one — an unvalidated diff-format assumption is
+      a stated gap, and the design stage is told to treat it as one.
+
+      Then, only if both params pass AND the safety check above allows it: do
+      this only if `{model_tag}` is ALREADY present in `ollama list` (never
+      pull here; install owns that). Take the host value from the validated
+      manifest read rather than re-interpolating the raw `{ollama_host}`
+      token into the command — the engine's substitution is raw text
+      replacement, so re-typing the token here reintroduces the unvalidated
+      value into shell source after the check that was supposed to be the
+      boundary. Run exactly one tiny generation asking for a diff on a
+      three-line snippet you supply inline, and record VERBATIM:
+        - whether the response is a bare diff or is wrapped in prose and/or a
+          ```diff fence
+        - whether it starts with `---`/`+++` or `diff --git`
+        - whether the hunk headers are well-formed
+        - the wall-clock duration
+      This is the single most valuable thing this stage can produce, and
+      nothing else in the workflow can substitute for it: the design stage is
+      otherwise choosing the prompt's output instruction, the diff extraction
+      strategy and every patch-cap threshold without ever having seen what
+      this model actually emits. Keep it tiny — one small snippet, short
+      timeout. If the model is absent, record
+      "baseline: unavailable (model not installed)" and say plainly in
+      survey.json that the design's diff-format assumptions are unvalidated.
+
+      Also probe the live machine (Bash, read-only — install nothing here):
+        command -v ollama || echo "ollama: absent"
+        ollama list 2>/dev/null || echo "ollama daemon: not responding"
+        VALIDATE {ollama_host} BEFORE IT REACHES ANY SHELL. This is the first
+        stage that touches it, so the check belongs here — not only in
+        install.
+
+        QUOTING IS NOT THE CONTROL, and an earlier revision of this file wrongly
+        said it was. Double quotes do NOT stop `$(...)` or backtick expansion,
+        and a value containing a double quote closes the quoting and appends
+        arbitrary commands. Verified directly:
+          value  http://host$(echo PWNED)/api   inside "..."  ->  the
+          subshell RUNS and the output becomes http://hostPWNED/api.
+        So a quoted-but-unvalidated substitution executes caller-supplied
+        code during a stage documented as read-only.
+
+        VALIDATION ALONE IS NOT ENOUGH — IT DOES NOT TRANSFORM THE VALUE.
+        Checking `{ollama_host}` above and then writing `{ollama_host}` into a
+        command below leaves you exactly where you started: the engine
+        substitutes the raw text at that second site regardless of what the
+        check concluded. The validated value has to reach the command by a
+        different route than the token.
+
+        Do this instead: capture it from the manifest into a shell variable,
+        and use only the variable.
+
+          HOST=$(./bin/workflow check-params "{workspace}"/manifest.json \
+            --check 'ollama_host=https?://[A-Za-z0-9][A-Za-z0-9.-]{0,252}(:[0-9]{1,5})?/?' \
+            --print ollama_host) || exit 1
+
+        `--print` emits the value ONLY when every `--check` passed, and
+        refuses a name no `--check` covers — so $HOST is either validated or
+        the command exited non-zero having printed nothing. Keep the
+        `|| exit 1`: a rejection otherwise leaves HOST empty and the curl
+        below would run against "/api/tags".
+
+        The untrusted value never appears in that command line — only the
+        workspace path, which the engine controls. The logic lives in
+        src/workflow/param_guard.py and is covered by
+        tests/workflow_tests/test_param_guard.py, including both payloads
+        disproven above.
+
+        Record in survey.json that the validation ran and what it accepted.
+
+        curl -sS -m 3 -f -o /dev/null "$HOST/api/tags" && echo "http: ok" || echo "http: unreachable"
+        launchctl list 2>/dev/null | grep -i dancing-bear || echo "no dancing-bear agents loaded"
+        sysctl -n hw.memsize
+
+      Write {workspace}/outputs/analysis/survey.json:
+        {
+          "handler_contract": {"signature": "...", "return": "...", "registry_line": "..."},
+          "retry_protocol": {"deferred_prefix": "...", "terminal_prefix": "...", "plain_failure": "..."},
+          "reaper": {"function": "...", "timestamp_field": "...", "staleness_rule": "...", "action": "...", "no_op_condition": "..."},
+          "inprocess_timeout": {"function": "...", "deadline_source": "...", "extendable_by_heartbeat": true|false, "payload_injection": "..."},
+          "shipped_plist": {"daemon_flags": ["..."], "job_timeout_passed": true|false, "what_actually_bounds_a_long_job": "reaper|join_timeout|per_job_timeout_sec|nothing"},
+          "job_fields": ["id", "type", "..."],
+          "launchd": {"template": "...", "placeholders": ["..."], "installer_idempotent": true|false},
+          "output_dir_api": "...",
+          "test_layout": {"dir": "...", "mocking_style": "..."},
+          "telemetry": {"record_envelopes": ["..."], "value_keys": ["..."], "attribute_nesting": "...", "data_dir_env_var": "...", "collector_ports": {"grpc": N, "http": N}, "port_override_env_var": "...", "cost_absent_handling": "..."},
+          "machine": {"ollama_installed": true|false, "ollama_responding": true|false, "model_present": true|false, "worker_agent_loaded": true|false, "memory_gb": N},
+          "baseline_generation": {"available": true|false, "unavailable_reason": "..." | null, "raw_response_excerpt": "...", "is_bare_diff": true|false, "wrapped_in_fence": true|false, "wrapped_in_prose": true|false, "header_style": "---/+++|diff --git|other", "hunk_headers_wellformed": true|false, "duration_ms": N}
+        }
+
+      Record what you actually found. If the reaper has no timestamp field at
+      all, say so — that is a real finding that changes the heartbeat design.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Glob, Grep, Bash, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: survey
+        mode: generate
+        description: >
+          survey.json written to {workspace}/outputs/analysis/ recording exact
+          handler/retry/reaper contracts read from source, plus live machine state.
+    writes_to:
+      - outputs/analysis/survey.json
+    validates_output:
+      - path: outputs/analysis/survey.json
+        checks: [is_json, has_key:handler_contract, has_key:retry_protocol, has_key:reaper, has_key:machine]
+
+  # ===========================================================================
+  # G1: Design — the contract, reviewed by a human before any file is written
+  # ===========================================================================
+  - name: design
+    kind: propose
+    human_gate: true
+    depends_on: [survey]
+    reads_from: [survey]
+    description: >
+      Read {workspace}/outputs/analysis/survey.json and write a concrete design. Cite
+      the survey for every claim about existing behaviour — do not restate this
+      YAML's description as if it were evidence.
+
+      Design the items below — the six numbered concerns and the nine guards
+      (5b-5j) — and no more. Scope is fixed: do not propose replacing the
+      queue, adding a broker, or an agent framework. If you believe something
+      outside this list is needed, say so in design.md as a recommendation
+      for a future run rather than designing it here.
+
+      1. PAYLOAD AND RESULT SCHEMA for job type "{job_type}".
+         Payload must carry at minimum: files (list of repo-relative paths to
+         include as context), instruction (what to change), and optional
+         model/system/temperature/max_tokens overrides. Result must carry the
+         patch text, whether `git apply --check` passed, the model used, token
+         counts if Ollama returns them, and duration_ms. Decide and state:
+         where does the patch text live? Inline in the job JSON, or written to
+         a file under core.paths.output_dir(...) with the path in the result?
+         A multi-KB diff inline makes `worker show` unreadable — weigh that
+         against a second artifact to track. Pick one and justify it.
+
+      2. PROMPT CONSTRUCTION. Start from survey.json's baseline_generation:
+         if it is available, it tells you what this model ACTUALLY emits —
+         bare diff, fenced, or wrapped in prose — and your diff-extraction
+         strategy must handle exactly that rather than an assumed format.
+         Cite the observed values. If the baseline was unavailable, say so
+         explicitly here and design extraction defensively (tolerate a fence
+         and surrounding prose), because you are guessing.
+
+         Then: how file contents become a prompt — delimiters,
+         whether line numbers are included, the instruction to emit a unified
+         diff and nothing else, and the total context budget. Note the model's
+         context window and what happens when the files exceed it — truncate,
+         or fail terminally with a clear message? Decide.
+
+      3. RETRY TAXONOMY, mapped onto the exact prefixes recorded in the
+         survey's retry_protocol. Classify at least: connection refused,
+         request timeout, HTTP 5xx, HTTP 404 model-not-found, a 200 response
+         whose body contains no diff, and a diff that fails `git apply --check`.
+         Each maps to exactly one of: plain failure (retries with backoff),
+         "terminal-..." (no retry), or "deferred-..." (re-queue without
+         consuming an attempt). State the rule you are applying — the
+         principle is that re-sampling can plausibly fix a bad generation but
+         cannot fix a missing model.
+
+      4. LONG-JOB LIVENESS. Decide, do not assume — an earlier draft of this
+         workflow asserted the reaper was the constraint and was wrong.
+
+         FIRST, answer from survey.json's reaper / inprocess_timeout /
+         shipped_plist sections: under the SHIPPED plist, what actually
+         terminates a 20-minute qwen job? State the answer explicitly and cite
+         the fields you read. Then pick exactly one route:
+
+         (a) NOTHING terminates it (the reaper is a no-op because no
+             --job-timeout is passed, and no per-job timeout_sec is set).
+             Then a heartbeat fixes a problem that does not occur, and the
+             honest design is to DROP the heartbeat: say so, recommend
+             removing the impl-heartbeat stage from this run, and note the
+             latent risk — the moment someone adds --job-timeout to the plist
+             or sets timeout_sec, the reaper starts firing on long jobs.
+             Specify the heartbeat as a documented follow-up, not as work to
+             do now. Choosing this is a success, not a failure of the stage.
+
+         (b) THE REAPER binds (a timeout is in play via --job-timeout or a
+             per-job timeout_sec). Then specify the smallest change that keeps
+             a live job alive: which field the handler writes while waiting,
+             how often, and how `_reap_resolve_start_time` must consult it.
+
+         (c) THE IN-PROCESS JOIN binds (`_join_with_timeout`). Then say
+             plainly that a heartbeat field CANNOT fix this — the deadline is
+             computed in the daemon thread, not from the job file — and
+             specify what would: a larger per-job timeout_sec for this job
+             type, or a change to how `_effective_job_timeout` is derived.
+             Do not specify a heartbeat field for this case; it would be
+             decoration.
+
+         For (b) or (c), state explicitly what happens to existing
+         run_cli/run_shell/workflow_stage jobs that never write the new field.
+         Backward compatibility is the whole risk: they are the queue's
+         current users, and a missing field must mean exactly what it means
+         today, not "immediately stale" or "never stale".
+
+      5. OLLAMA TRANSPORT. Confirm stdlib urllib against {ollama_host} (no new
+         dependency — the repo is dependency-light). Specify the endpoint,
+         request body, how the timeout is derived from the job's timeout_sec,
+         and how a connection failure is distinguished from a slow generation.
+
+      5b. CONCURRENCY GUARD — the single most important safety property of
+         this handler, because the queue provides no protection here.
+
+         THE PROBLEM, verified against source and the shipped config:
+           - job_runtime.py's `_process_batch` starts a real threading.Thread
+             per job, so jobs in one tick run genuinely concurrently.
+           - The shipped plist passes `--max-per-tick 8 --max-inflight 8`, and
+             `_calculate_allowed_jobs` counts everything in processing/ with
+             NO notion of job type. Both caps are global.
+           - Therefore nothing prevents 8 simultaneous {model_tag}
+             generations. At roughly {model_resident_gb} GB resident each,
+             that is far beyond this machine's memory and means swapping,
+             an OOM kill, or a stalled system — not merely slow jobs.
+
+         THE REQUIREMENT: at most ONE {job_type} job may call the model at a
+         time, without constraining run_cli / run_shell / workflow_stage,
+         which are cheap and should keep their 8-wide parallelism.
+
+         Specify a handler-side exclusive lock, held only around the model
+         call (never around the whole handler — patch validation and
+         telemetry must not hold it):
+           - A lock file under the worker state dir (see survey's
+             get_worker_state_dir), NOT in the repo.
+           - Acquired with an atomic primitive — O_CREAT|O_EXCL, or fcntl
+             flock. Do not implement check-then-create; two jobs starting in
+             the same tick will race it.
+           - STALE LOCK RECOVERY is mandatory. A daemon killed mid-generation
+             leaves the lock file behind, and a lock nothing can ever acquire
+             turns every future qwen job into a permanent no-op. Write the
+             holder's PID and an ISO timestamp into the file, and say exactly
+             how you check liveness.
+
+             AGE ALONE IS NOT STALENESS. Reclaim on a DEAD holder PID. Do NOT
+             reclaim solely because the lock is older than the ceiling while
+             its holder is still alive — a 14B generation on CPU legitimately
+             runs longer than any ceiling short enough to be useful, so an
+             age-only rule reclaims the lock out from under a running job and
+             produces exactly the concurrent generation the lock exists to
+             prevent. That is worse than the deadlock it was meant to fix:
+             the deadlock is visible and the double generation is not.
+
+             So the contract is:
+               - holder PID not alive                 -> STALE, reclaim
+               - holder alive, age within ceiling     -> HELD, wait
+               - holder alive, age beyond ceiling     -> SUSPECT, do NOT
+                 reclaim on age. A recycled PID can make a dead holder look
+                 alive, so liveness alone is not proof either. Resolve it
+                 with a second signal before reclaiming: read the holder's
+                 command line and confirm it is a worker process, and check
+                 whether the {job_type} lane actually has anything in
+                 processing/. A live PID that is not a worker, or an empty
+                 processing/ lane, means the lock is orphaned and may be
+                 reclaimed. Otherwise leave it alone and defer.
+
+             This is the SAME three-way classification the admin workflow's
+             health probe reports (qwen-admin.yaml, "Concurrency guard").
+             They must agree: if you change the rule here, change it there.
+             A handler that reclaims on age while the probe calls the same
+             lock healthy will look correct from both sides while silently
+             running two models at once.
+
+         CONTENTION BEHAVIOUR — block, but BOUNDED, and the ceiling must be
+         enforced BY THE HANDLER'S OWN WAIT LOOP. Do not rely on any daemon
+         timeout to interrupt a blocked handler; read job_runtime before
+         designing this, because the daemon's behaviour is not what it
+         appears:
+           - `_process_batch` calls `t.start()` on EVERY thread before it
+             joins any of them, so N qwen jobs in one tick are all running
+             and all contending for the lock simultaneously. A bounded wait
+             does not serialise them — it only decides how long each waits
+             before giving up.
+           - `_join_with_timeout` joins threads SEQUENTIALLY against one
+             cumulative start_time, so a later thread can be handed
+             remaining=0.0 and abandoned while still alive.
+           - That function is not even reached under the shipped plist:
+             `any(t > 0 for t in timeouts)` is False when no --job-timeout is
+             passed and no job sets timeout_sec, so `_process_batch` takes
+             the `else` branch and calls a bare `t.join()` per thread, with
+             no deadline at all.
+         So if the handler blocks indefinitely, the tick blocks indefinitely,
+         and the whole daemon stalls — every job type with it. The ceiling is
+         the handler's responsibility alone.
+
+         Specify:
+           - A wait ceiling enforced inside the handler (a timed acquire
+             loop, or flock with a deadline — say which). State the value and
+             justify it against a realistic generation time for {model_tag},
+             remembering that N-1 jobs may each wait the full ceiling.
+           - On acquiring within the ceiling: proceed normally.
+           - On timing out: return "deferred-qwen-busy" so the job goes back
+             to pending without consuming an attempt (survey's retry_protocol
+             confirms `_handle_outcome` calls `_undo_retry_attempt` for the
+             deferred- prefix), and increment the deferral counter from 5b2 —
+             a job that can never win the lock must eventually fail loudly
+             rather than cycle forever.
+           - Never hold a queue slot indefinitely.
+
+      5b2. DEFERRAL BOUND — required by every guard that returns a
+         "deferred-" outcome (5b busy, 5c low-memory, 5g low-disk).
+
+         THE PROBLEM, verified in source: job_runtime's `_handle_outcome`
+         routes any "deferred-" prefix to `q.retry(...)` and then calls
+         `_undo_retry_attempt(...)`, which rewrites `attempts` back to its
+         previous value. That is deliberate and correct — waiting on a
+         transient condition must not burn a job's attempts — but it means
+         max_attempts NEVER bounds a deferral. Nothing else bounds it either:
+         the reaper only looks at processing/, and purge only touches
+         done/ and error/, so a job cycling pending -> processing -> pending
+         is invisible to both. A job that defers on every poll cycles at the
+         daemon's interval forever.
+
+         This is not hypothetical. Three paths reach it: a stale lock whose
+         holder PID was recycled (so liveness checks say "alive" and
+         qwen-admin's triage explicitly refuses to clear it); a machine that
+         sits persistently just under the memory threshold; and a disk that
+         stays just under the free-space floor. In each case the lane looks
+         idle, nothing errors, and no attempt is ever consumed.
+
+         A PAYLOAD FIELD CANNOT CARRY THIS COUNTER, and an earlier draft of
+         this design got it wrong in exactly the way it warned against. The
+         handler can mutate `job["payload"]` in memory, but nothing writes
+         that back: `_handle_outcome` calls `q.retry(proc_path, ...)`, and
+         `retry` (queue_ops.py:206) starts with
+         `data = safe_load_json(job_path, ...)` — it RELOADS the job from
+         disk and writes only attempts, not_before, updated_at and
+         last_error. `_undo_retry_attempt` then rewrites attempts alone. The
+         handler's increment is discarded on every single deferral, so a
+         naive "deferrals" payload key never exceeds 1 and
+         terminal-deferral-limit is unreachable. The guard would look
+         present and do nothing.
+
+         So the counter must live somewhere the retry path actually writes,
+         or be derived from state the queue already persists. Survey the
+         options and pick one, stating the mechanism explicitly:
+           (a) Derive it — `retry` DOES persist `last_error`, and a deferred
+               outcome sets it to the "deferred-…" string. Counting requires
+               history the job record does not keep, so this alone gives you
+               "the last outcome was a deferral", not a count. Say so if you
+               choose it, and pair it with a wall-clock bound instead: the
+               queue persists enqueued_at and updated_at, so "deferred and
+               first enqueued more than N minutes ago" is a bound the
+               existing fields CAN express.
+           (b) Side-channel — the handler owns a file under the worker state
+               dir keyed by job id, incremented before it returns deferred.
+               This works without touching shared queue code, but the
+               handler must clean it up on success or terminal exit, or the
+               directory grows without bound.
+           (c) Extend the queue — add the field to `retry`'s preserved set in
+               queue_ops. The honest option, and the only one that makes the
+               counter a first-class queue concept, but it edits shared code
+               every job type depends on and therefore belongs to
+               impl-heartbeat's file ownership, not impl-handler's.
+         Whichever you choose, VERIFY it against the real code path before
+         writing the contract: construct the job record the way `retry`
+         leaves it and confirm your field survives. Do not assume
+         persistence — that assumption is what made the first attempt inert.
+           - A ceiling. Past it, return "terminal-deferral-limit" with the
+             reason that caused the deferrals, so the job lands in error/
+             where `worker status` and qwen-admin can see it. A job that
+             cannot run for an hour is a condition someone must look at, not
+             something to retry silently until the machine is rebooted.
+           - RECOVERABILITY IS MANDATORY. terminal- means the queue will not
+             retry it; it must NOT mean the work is lost. A job that hit the
+             ceiling only because the lane was busy is legitimate work that
+             deserves to run later. So the error record must carry the full
+             original payload, and `worker requeue-errors --match` must be
+             able to find these jobs — state the exact match string an
+             operator would use, and confirm it against the flag's real
+             behaviour (it matches a substring of the job JSON). Say in
+             design.md how a user re-runs a batch of deferral-limited jobs in
+             one command. A guard that discards a user's request because the
+             machine was briefly busy is a worse failure than the backlog it
+             was protecting against.
+           - Count deferral REASONS separately in the result, so the error
+             record says which guard starved it — "47 deferrals:
+             qwen-busy 45, low-memory 2" is actionable where a bare count is
+             not.
+           - State the ceiling and justify it against the wait ceiling from
+             5b and a realistic generation time: the bound should allow a
+             genuinely busy lane to drain, and still trip well inside an
+             hour on a wedged one.
+
+      5c. MEMORY PRECHECK. The lock caps concurrent qwen jobs, but it cannot
+         see the rest of the machine — a build, a browser, or another model
+         can consume the headroom a single {model_tag} needs, and the failure
+         mode there is swapping rather than a clean error.
+
+         Before acquiring the lock, compare available memory against the
+         model's resident size plus a stated safety margin. If there is not
+         enough, return "deferred-low-memory" — the same no-attempt-consumed
+         path as above — rather than starting a generation that will thrash.
+
+         State how you read available memory on this platform and cite it;
+         do not assume a Linux-only source such as /proc/meminfo, since the
+         survey records this as a macOS host. If you cannot measure it
+         reliably, say so and make the precheck a no-op with a logged
+         warning rather than guessing a number — a wrong memory reading that
+         defers every job is worse than no precheck at all.
+
+         Record both guards in contract.json so impl-handler implements
+         exactly what was approved and impl-tests can assert against it.
+
+      5d. INPUT CONFINEMENT — the highest-consequence guard in this design,
+         because its failure mode is exfiltration rather than a crash.
+
+         The payload's `files` list is read into a prompt. Nothing in the
+         queue constrains it, so `{"files": ["~/.ssh/id_rsa"]}` or a
+         `../../../.config/credentials.ini` traversal is a well-formed job
+         today. The prompt then reaches the model, the job record on disk,
+         and any telemetry derived from it.
+
+         THE BOUNDARY IS NOT THE REPO ROOT, and this is the part that is easy
+         to get wrong. Containment under the repo root stops the traversal
+         case (`~/.config/credentials.ini` is outside, so it is caught), but
+         this checkout is a personal-assistants working tree that routinely
+         holds generated artifacts, test fixtures and out/ output — some
+         carrying PII. Repo-root containment admits all of it, leaving a
+         fixed pattern denylist as the only thing between the model and a
+         sensitive file that happens to live in-tree.
+
+         So specify containment as an ALLOWLIST of source directories the
+         job may read from — src/, tests/, bin/, workflows/, concerns/,
+         docs — rather than "anything under the repo root". Everything else
+         is denied by default, including out/, _data/, .venv/, .git/,
+         backups/ and any path the repo's own scan-ignore list names. State
+         the allowlist in the contract and justify any addition. A job that
+         legitimately needs a file outside it is a case for the user to
+         approve explicitly, not for the guard to admit by default.
+
+         Then, in this order (each check must run BEFORE the file is opened,
+         never after — a handler that reads then rejects has already loaded
+         the contents into memory and possibly a log line):
+           - Resolve every path to an absolute real path (resolving symlinks)
+             and require it to sit under one of the allowlisted directories.
+             Compare resolved paths, never raw strings — a string-prefix
+             check is defeated by `..` and by a symlink pointing outside.
+           - Reject anything matching a denylist regardless of location:
+             `credentials.ini`, `.env*`, `*token*.json`, `id_rsa`/`id_ed25519`
+             and other private keys, `*.pem`, `*.p12`, and anything under a
+             `.git/` directory. State the full list in the contract. Treat
+             the denylist as defence in depth BEHIND the allowlist, not as
+             the primary control — a fixed pattern list cannot anticipate
+             every sensitive filename.
+           - Note the TOCTOU gap honestly: the path is resolved, then opened,
+             and a symlink could in principle change between the two. Say
+             whether you close it (open first, then validate the opened
+             file's real path via its descriptor) or accept it with a stated
+             rationale. Do not leave it unmentioned.
+           - Reject a file above a stated size ceiling, and reject a
+             directory (the payload takes files, not trees).
+           - Any violation is TERMINAL — "terminal-path-not-allowed" — never
+             a retry. A disallowed path will still be disallowed next time,
+             and retrying it just repeats the attempt to read a secret.
+           - Log the REJECTED PATH but never the file's contents.
+
+      5e. OUTPUT BLAST RADIUS. `git apply --check` proves a patch applies; it
+         does not prove it is sane. A model can emit a diff touching two
+         hundred files, or rewriting .github/workflows/ci.yml, or replacing
+         bin/worker. The patch is reviewed by a human before it applies, and
+         that review is the real control — but a 200-file diff is exactly the
+         kind of thing a reviewer skims.
+
+         Specify caps, all terminal on breach (never retried):
+           - Maximum files touched, and maximum lines changed. State both
+             values and justify them against the "small, localized edit"
+             job this handler is for.
+           - A path-prefix denylist the patch may not touch:
+             `.github/`, `bin/`, `configs/`, `.claude/`, and any path outside
+             the repo root. Parse the diff's target paths and check them;
+             do not rely on `git apply --check`, which is happy to modify CI.
+           - Record files_touched and lines_changed in the result either way,
+             so a reviewer sees the size before opening the diff.
+
+      5f. REDACTION BEFORE PERSISTENCE. The repo already has
+         `core.secrets.mask_text`, used across core/gh_cli.py. Route every
+         string derived from payload content — error messages, truncated
+         model output, anything landing in the job result or a telemetry
+         attribute — through it before it is written.
+
+         State two limits plainly, because an earlier draft of this design
+         overclaimed and would have misled whoever implemented it:
+
+         (1) mask_text matches credential SHAPES (Authorization headers,
+             api_key= pairs, URI netloc passwords, JSON/repr mapping fields).
+             It will not recognise a novel secret format. It reduces
+             exposure; it is not general content redaction.
+
+         (2) "File contents are never persisted" is FALSE as a blanket claim,
+             and the design must not repeat it. The patch IS the product and
+             it IS persisted — a unified diff carries context lines lifted
+             verbatim from the input files. Say instead what is actually
+             true: the prompt is never persisted, and file contents reach
+             disk only inside the patch artifact, which is the reviewable
+             output this workflow exists to produce.
+
+             That makes the patch artifact's LOCATION a confidentiality
+             boundary, not just a tidiness question — it is written under
+             core.paths.output_dir(), outside the checkout, and
+             validate-config verifies that. Say so here.
+
+         (3) One persistence path the handler does NOT control: job_runtime's
+             SafeProcessor path writes `envelope.diagnostics["message"]`
+             straight into the job record with no masking. A traceback raised
+             from inside prompt assembly can therefore carry a fragment of
+             file content to disk, bypassing every mask_text call the handler
+             makes. Specify the mitigation: catch exceptions at the handler
+             boundary and return a masked, content-free failure string of
+             your own rather than letting an arbitrary exception propagate
+             into the envelope. Do not rely on the queue to redact for you.
+
+      5g. DISK PRECHECK, the same shape as the memory guard in 5c. Patches
+         are written under `core.paths.output_dir()` and a model pull needs
+         several GB. A full disk turns `atomic_write_json` into a partial
+         write during a queue state transition, which is a far worse failure
+         than a deferred job. Before writing a patch, check free space on the
+         target filesystem against a stated threshold and return
+         "deferred-low-disk" if short. Fails open on an unreadable reading,
+         like the memory guard, and for the same reason.
+
+      5h. QUEUE ADMISSION CAP. `enqueue` writes a file and returns; there is
+         no admission control anywhere in the queue. A fan-out that enqueues
+         200 {job_type} jobs is accepted instantly, and with the 5b lock
+         holding the lane to one at a time that is a multi-day backlog
+         draining at full CPU with no way to see it coming.
+
+         Specify a depth ceiling for the {job_type} lane, counting pending +
+         processing for this type only (other types are cheap and must not be
+         constrained).
+
+         WHERE IT IS ENFORCED IS CONSTRAINED BY THIS RUN'S FILE OWNERSHIP,
+         and one of the obvious answers is not available. A true enqueue-path
+         check lives in src/worker/cli.py's enqueue command or in
+         queue_ops.enqueue — but cli.py is owned by NO stage in this workflow,
+         and impl-heartbeat's ownership of queue_ops.py is scoped to the
+         liveness route only. So "enforced at enqueue" cannot be delivered
+         here without widening a stage's file ownership, which would put two
+         parallel stages in the same file.
+
+         Choose one, explicitly, and record it in contract.json's
+         admission.enforced_at:
+
+         (a) HANDLER-SIDE ADMISSION (deliverable this run). The handler
+             counts its own lane at job start and, past the ceiling, returns
+             "terminal-lane-over-capacity" for the EXCESS job. Note honestly
+             what this does and does not do: it does not stop the enqueue, so
+             the queue still fills; it converts a silent multi-day backlog
+             into visible errors that `worker status` and qwen-admin surface.
+             That is a real improvement over nothing, and it is not the same
+             as admission control — say so rather than implying otherwise.
+
+         (b) OPERATOR LIMIT ONLY (deliverable this run). No code. qwen-admin
+             reports lane depth and estimated drain time against the ceiling,
+             and a human acts. State plainly in the contract that the cap is
+             UNENFORCED in code so nobody later assumes protection that does
+             not exist.
+
+         (c) ENQUEUE-PATH CHECK (NOT deliverable this run). If you judge this
+             the right answer, say so and specify it as a follow-up with the
+             file-ownership change it needs — do not assign it to a stage
+             that cannot legally touch cli.py.
+
+         Whichever you choose, the contract must name it so impl-handler,
+         impl-tests and validate-config all agree on what exists.
+
+      5i. MODEL IDENTITY PINNING. `{model_tag}` is a MUTABLE tag: Ollama can
+         re-pull a different build under the same name, silently changing
+         output quality and token behaviour with no signal at all.
+
+         Record the model's digest at install time, and have the handler
+         compare the running model's digest against the recorded one. On a
+         mismatch, do not fail the job — record the observed digest in the
+         result and the telemetry span so a quality change is attributable
+         later, and surface it as a finding. State how you read the digest
+         (Ollama's API exposes model details; name the endpoint and field
+         from the survey rather than assuming).
+
+      5j. EXPLAIN MODE. Specify a payload flag (e.g. `"explain": true`) that
+         builds the prompt, runs every guard above, reports what it WOULD do
+         — resolved file list, per-file sizes, total prompt size, token
+         estimate, model and options — and returns WITHOUT calling the model.
+
+         This is the cheap debugging path for prompt-construction and
+         confinement bugs, which otherwise cost a full generation each to
+         observe. It is also what makes 5d testable without a model: an
+         explain-mode job must reject a disallowed path exactly as a real one
+         does. Specify that explain mode runs the guards for real — an
+         explain path that skips validation would prove nothing.
+
+      5k. THE ENTRY POINT — how a human actually submits a job. Design this
+         explicitly; it is the difference between a working system and a
+         working system nobody can use.
+
+         `worker enqueue` accepts only `--payload-json`, so without an entry
+         point of its own, submitting real work means hand-shelling a JSON
+         blob containing a multi-line natural-language instruction and a file
+         list — quoting a prompt inside a shell string inside JSON. Every
+         stage of this workflow would still pass: an agent assembles that
+         JSON happily. The gap only appears when a person tries to use it.
+
+         Specify a `bin/qwen` wrapper (a new file, so it collides with no
+         stage's ownership and needs no change to cli.py):
+           - `./bin/qwen patch --files a.py b.py --instruction "..."` builds
+             the payload and enqueues it.
+           - `--instruction-file PATH` for anything longer than a line.
+           - `--explain` sets the explain flag from 5j.
+           - `--show <job_id>` prints the job's state and, when done, the
+             patch path and its files/lines counts.
+           - `--apply <job_id>` prints the `git apply` command for the user
+             to run. It must NOT apply the patch itself: patches are produced
+             for review, and that contract does not bend for convenience.
+         Assign it to impl-handler (it owns new files) and say so in
+         files_to_create. Keep it thin — argument assembly and a call into
+         the same enqueue path, no business logic, so it cannot drift from
+         the handler's contract.
+
+      5m. THRESHOLDS ARE PROVISIONAL — say so, and make them changeable.
+         Every numeric threshold in the guards above (wait ceiling, deferral
+         ceiling, memory margin, disk floor, lane depth, max_files,
+         max_lines, file size cap, staleness ceiling) is being chosen before
+         a single generation has been observed. That is unavoidable in a
+         design stage, but pretending otherwise is not.
+
+         So: collect them all in ONE place in the implementation — a module
+         level constants block or a small frozen dataclass — rather than
+         scattering literals through the handler. List them in design.md in
+         a single table with, for each, the value, the reasoning, and what
+         observation would justify changing it. Mark them explicitly as
+         first-run estimates.
+
+         The two that most plausibly fail closed on legitimate work are
+         max_files/max_lines (a reasonable refactor can touch more than a
+         cautious first guess) and the wait ceiling (which N-1 contending
+         jobs each pay in full). Prefer generous initial values for those
+         two: a patch that is too large is caught by the human review this
+         workflow is built around, whereas a patch never generated teaches
+         nobody anything. The report stage is instructed to surface the
+         observed values from the run against these estimates.
+
+      6. TELEMETRY. Local inference must be visible in `./bin/telemetry otel`
+         alongside Claude Code usage, so a qwen job emits OTLP like any other
+         work. The survey recorded the existing pipeline; design against it:
+
+         - EXPORT PATH. The repo's collector (configs/otel/collector-config.yaml)
+           already receives OTLP on grpc 4317 / http 4318 and writes the same
+           metrics.jsonl / events.jsonl / spans.jsonl that OTLPReader consumes.
+           Prefer exporting OTLP/HTTP to the collector over writing those JSONL
+           files directly — a handler appending to a file the collector also
+           owns invites interleaved writes. Note that the host-side port may be
+           remapped (the health module's default mentions OTEL_GRPC_PORT 4327),
+           so resolve the endpoint from the same env var the rest of the repo
+           uses rather than hardcoding 4318.
+         - NO NEW DEPENDENCY. The opentelemetry SDK is not a dependency of this
+           repo and must not become one for this. Emit the OTLP JSON payload
+           over stdlib urllib, matching the record shape OTLPReader already
+           parses (models.py: resourceMetrics / resourceLogs / resourceSpans
+           with OTLPValue-shaped attributes). Read those dataclasses and match
+           them exactly — a shape mismatch means the data lands on disk and is
+           silently skipped by every query.
+         - WHAT TO EMIT. One span per job covering the whole handler
+           invocation, with attributes: job.id, job.type, model, outcome
+           (success / the terminal or deferred prefix), attempt number,
+           patch.valid, and duration. Metrics for prompt/completion tokens
+           when Ollama returns them, and generation duration. Attribute names
+           should sit under a stable prefix (e.g. qwen.*) so they are
+           filterable and never collide with claude_code.* attributes.
+         - COST. Local inference costs no API dollars, and a cost model that
+           invents a dollar figure for it would corrupt every existing cost
+           rollup. Emit tokens and duration; do NOT emit a cost attribute.
+           State this explicitly in the design so nobody adds one later.
+         - FAILURE IS NON-FATAL. If the collector is down, the job must still
+           succeed. Telemetry export is best-effort: swallow its errors,
+           never let an export failure change the job's outcome, and never
+           retry the job because telemetry failed.
+
+      NO PLACEHOLDERS IN THE SHIPPED CONTRACT. The schema below is written
+      with "..." and N to show SHAPE. Every one of those must be replaced
+      with a real value before you finish. impl-handler and impl-tests both
+      build directly against these fields — a test suite written against
+      "lock_path": "..." is a suite asserting nothing, and it will look
+      complete. Before writing the file, re-read it and confirm no literal
+      "...", no bare N, and no "TBD" remains in any field the guards depend
+      on: every threshold, every terminal/deferred string, every path.
+      Where you genuinely cannot decide a value, write the value you
+      recommend and note the uncertainty in design.md — never leave the
+      placeholder for a downstream stage to interpret.
+
+      Finally, populate contract.json's files_to_create and files_to_modify
+      with the exact repo paths this design implies — they are what merge-impl
+      checks for presence after merging, so a path missing here becomes a file
+      nobody verifies landed. The impl stages are partitioned by file
+      (impl-handler owns the new handler and telemetry modules plus the
+      registry line; impl-heartbeat owns the queue/runtime files; impl-tests
+      owns tests only), so list each path under the stage that will own it.
+
+      Write {workspace}/outputs/design/design.md with one section per item above, and
+      {workspace}/outputs/design/contract.json:
+        {
+          "job_type": "{job_type}",
+          "payload_schema": {...},
+          "result_schema": {...},
+          "patch_storage": "inline" | "file",
+          "retry_map": [{"condition": "...", "outcome": "plain|terminal|deferred", "reason": "..."}],
+          "heartbeat": {"field": "...", "interval_sec": N, "reaper_change": "...", "backward_compatible": "..."},
+          "transport": {"endpoint": "...", "method": "...", "timeout_derivation": "..."},
+          "telemetry": {"endpoint_env_var": "...", "span_name": "...", "attributes": ["..."], "metrics": ["..."], "emits_cost": false, "failure_is_nonfatal": "..."},
+          "concurrency": {"lock_path": "...", "primitive": "O_EXCL|flock", "scope": "model call only", "wait_ceiling_sec": N, "on_timeout": "deferred-qwen-busy", "stale_detection": "...", "stale_ceiling_sec": N},
+          "memory_guard": {"source": "...", "model_resident_gb": N, "margin_gb": N, "on_insufficient": "deferred-low-memory", "unavailable_fallback": "no-op with warning"},
+          "deferral_bound": {"mechanism": "derived-wallclock|side-channel-file|queue-field", "where_persisted": "<the exact file/field the retry path actually writes>", "verified_against": "<how you proved it survives queue_ops.retry reloading from disk>", "ceiling": N, "ceiling_unit": "count|minutes", "on_exceeded": "terminal-deferral-limit", "reasons_counted_separately": true, "cleanup": "<required for side-channel: when the entry is removed>"},
+          "input_confinement": {"allowlist_dirs": ["..."], "denylist": ["..."], "resolution": "realpath+symlink", "check_before_open": true, "toctou": "closed-via-fd|accepted-with-rationale", "max_file_bytes": N, "on_violation": "terminal-path-not-allowed", "logs_contents": false},
+          "patch_caps": {"max_files": N, "max_lines": N, "denied_prefixes": ["..."], "on_breach": "terminal-patch-too-broad", "records_size_always": true},
+          "redaction": {"helper": "core.secrets.mask_text", "applies_to": ["..."], "prompt_never_persisted": true, "contents_reach_disk_only_in": "the patch artifact", "patch_dir_outside_checkout": true, "exception_boundary": "handler catches and returns a masked content-free string; job_runtime's envelope.diagnostics path is NOT masked", "known_limit": "pattern-based; no novel secret formats"},
+          "disk_guard": {"path": "...", "min_free_gb": N, "on_insufficient": "deferred-low-disk", "unavailable_fallback": "no-op with warning"},
+          "admission": {"max_lane_depth": N, "counts": "pending+processing for this type only", "enforced_at": "handler-side|operator-limit|follow-up", "on_exceeded": "terminal-lane-over-capacity" | null, "stops_the_enqueue": false, "other_types_unconstrained": true},
+          "model_pinning": {"digest_source": "...", "recorded_at": "install", "on_mismatch": "record and surface, do not fail"},
+          "explain_mode": {"payload_flag": "...", "runs_guards": true, "calls_model": false, "reports": ["..."]},
+          "entry_point": {"path": "bin/qwen", "subcommands": ["patch", "--show", "--apply", "--explain"], "applies_patches": false, "owner_stage": "impl-handler"},
+          "files_to_create": ["..."],
+          "files_to_modify": ["..."]
+        }
+
+      Then ask the user:
+        A) Approve — implement as designed
+        B) Approve with changes — state them, revise contract.json, then proceed
+        C) Stop — do not write any code
+
+      Do not create, edit, or install anything in this stage. The next three
+      stages are the first to touch the tree.
+    agent:
+      role: Plan
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: design_doc
+        mode: generate
+        description: >
+          design.md and contract.json written to {workspace}/outputs/design/ —
+          payload/result schema, prompt construction, retry taxonomy,
+          heartbeat change, and transport, each cited to survey.json.
+    writes_to:
+      - outputs/design/design.md
+      - outputs/design/contract.json
+    validates_output:
+      - path: outputs/design/contract.json
+        checks: [is_json, has_key:payload_schema, has_key:result_schema, has_key:retry_map, has_key:heartbeat, has_key:files_to_create]
+
+  # ===========================================================================
+  # G2a: Handler — the new job type. Owns src/worker/qwen.py + the registry line.
+  # ===========================================================================
+  - name: impl-handler
+    kind: execute
+    depends_on: [design]
+    reads_from: [design, survey]
+    description: >
+      ISOLATION BOUNDARY — this stage and every stage below marked
+      `isolation: worktree` runs in its OWN git worktree, not the shared
+      {workspace}. Its upstream inputs are copied in before it starts, under
+      `<your-cwd>/inputs/`, preserving each upstream stage's relative path —
+      so design's `outputs/design/contract.json` arrives at
+      `<your-cwd>/inputs/outputs/design/contract.json`, and survey's
+      `outputs/analysis/survey.json` arrives at
+      `<your-cwd>/inputs/outputs/analysis/survey.json`. A bare or
+      `{workspace}`-rooted path resolves against the orchestrator's shared
+      tree instead, which this agent cannot see. Likewise its OWN outputs must
+      be written under `<your-cwd>/outputs/...`, never to {workspace} — the
+      orchestrator copies them back after the stage completes. Every path
+      below in this and other isolated stages is written accordingly.
+
+      Implement the "{job_type}" handler exactly as approved in
+      <your-cwd>/inputs/outputs/design/contract.json (see the survey artifact
+      at <your-cwd>/inputs/outputs/analysis/survey.json for the recorded
+      handler_contract, retry_protocol and telemetry shape this must match).
+
+      File ownership — this stage runs in parallel with impl-heartbeat and
+      impl-tests. Touch ONLY:
+        - src/worker/qwen.py                 (new — handler + Ollama transport)
+        - src/worker/qwen_telemetry.py       (new — OTLP emit, kept separate so
+                                              best-effort telemetry never
+                                              tangles with job control flow)
+        - bin/qwen                           (new — the entry point from
+                                              contract.json's entry_point;
+                                              thin argument assembly only, no
+                                              business logic, and it must
+                                              NEVER apply a patch itself)
+        - src/worker/handlers.py             (the REGISTRY line and its import ONLY)
+      Do not touch queue_ops.py, job_runtime.py, anything under tests/, or
+      anything under src/telemetry/ — other stages own those, or they are
+      read-only dependencies here. Telemetry is EMITTED by the worker and READ
+      by src/telemetry; do not modify the reader to accommodate the writer.
+
+      BUILD IN CHECKPOINTS — do not write the whole handler and test it at
+      the end. Each checkpoint below must pass before you start the next,
+      and you record the evidence in handler-impl.json's "checkpoints" array.
+      The reason is specific: nine guards, a transport, telemetry and an
+      entry point are too much to debug at once, and a failure at the end
+      gives you no signal about which layer broke. A checkpoint that fails
+      tells you exactly where you are.
+
+        C1  IMPORTS AND REGISTERS. Create qwen.py with the handler function
+            signature and a stub body returning a terminal "not implemented"
+            string, plus the REGISTRY line. Verify:
+
+              PYTHONPATH="$PWD/src" python3 -c "import worker, worker.handlers as h; print(worker.__file__); print(sorted(h.REGISTRY))"
+
+            "{job_type}" must appear, AND the printed worker.__file__ must be
+            under YOUR worktree.
+
+            NEVER use a bare `python3 -c "import worker..."` here. Measured
+            from a worktree on 2026-09-22, the bare form resolves `worker` to
+            the MAIN CHECKOUT's src — not because of anything inherited, but
+            because that is where the active editable install points. The
+            registry check would then pass against a tree that does not
+            contain the qwen.py you just wrote, reporting the seam as broken,
+            or (worse, once main has the handler) reporting it as working
+            when your branch's version is what failed to import.
+
+            Prepending `$PWD/src` fixes it and also wins against an inherited
+            foreign PYTHONPATH, since PYTHONPATH entries are searched in
+            order. Both facts were verified by probe; do not substitute
+            `-E`, `-I` or `-P`, which strip the fix rather than the problem.
+            `make check-env` asserts the same property and is the cheaper
+            check when you only need a yes/no.
+        C2  GUARDS REJECT. Implement input confinement and the payload
+            validation, still with no model call. Verify by calling the
+            handler directly in-process with a disallowed path and with a
+            valid payload: the first returns the terminal confinement
+            string, the second gets past validation to the stub. Now the
+            security boundary exists before anything can reach the model.
+        C3  TRANSPORT ROUND-TRIPS. Add the Ollama call. Verify against a
+            LOCAL stub server or a monkeypatched urlopen — not the real
+            model, which may not be installed yet at this stage. Prove the
+            request shape and response parsing, nothing more.
+        C4  PATCH VALIDATES. Add diff extraction, `git apply --check`, and
+            the patch caps. Verify with a known-good diff and a known-bad
+            one; assert the caps reject an oversized one.
+        C5  CONCURRENCY AND DEFERRALS. Add the lock, the wait ceiling, the
+            deferral counter and the memory/disk prechecks. Verify the lock
+            is released on both the success and the exception path — the
+            exception path is what strands a lock in production.
+        C6  TELEMETRY AND ENTRY POINT. Add qwen_telemetry.py and bin/qwen
+            last, since neither can break job correctness. Verify bin/qwen
+            builds a payload matching the contract and that --apply prints
+            rather than executes.
+
+      After each checkpoint run the fast local check for that layer and
+      record its command and result. Do not proceed past a failing
+      checkpoint by deciding a later layer will fix it.
+
+      Implementation requirements:
+        - Follow the SafeProcessor/BaseProducer pattern already used by
+          ShellJobProcessor in handlers.py, per the survey's handler_contract.
+        - Return (bool, object) matching the recorded contract. Speak the
+          retry protocol via the exact "terminal-"/"deferred-" prefixes from
+          the survey — a misspelled prefix silently degrades to a plain retry.
+        - stdlib urllib only. No requests, no ollama SDK. Import inside the
+          function if that matches the repo's lazy-import convention for
+          optional paths.
+        - Validate the generated patch by writing it to a temp file and
+          running `git apply --check`, honouring the nosec convention the
+          survey recorded on subprocess call sites.
+        - Write generated patches via core.paths.output_dir(), never to a
+          relative path (see the repo's generated-output rule).
+        - Never log or echo the prompt's file contents at INFO or above.
+        - Type-annotate everything: a new file must be clean under mypy, since
+          the ratchet blocks on any error in a file that was clean at baseline.
+        - LIVENESS CALL, gated on the route contract.json's liveness section
+          recorded — do not call a helper unconditionally, since under route
+          (a) none exists:
+            * Route (b): call the heartbeat helper from impl-heartbeat while
+              waiting on the model. That stage is running in parallel, so
+              take the helper's name and signature from contract.json's
+              heartbeat section, not from the other worktree. If integrate
+              finds the signature drifted, it reconciles — do not guess and
+              do not silently skip the call.
+            * Route (a): impl-heartbeat ships no helper (it records
+              "a-no-change"). Do not invent one or call anything — there is
+              nothing to call, and inventing a helper here would silently
+              re-introduce the heartbeat the design stage explicitly dropped.
+            * Route (c): the fix is a per-job timeout on the model call
+              derived from timeout_sec, per contract.json's transport
+              section — not a heartbeat call. No liveness helper exists to
+              call under this route either.
+        - CONCURRENCY GUARD, per contract.json's "concurrency" section. The
+          queue's max-inflight is global, so this lock is the ONLY thing
+          preventing 8 simultaneous generations from exhausting memory.
+          Implement it exactly as approved: an atomic acquire (never
+          check-then-create), held around the model call ONLY, released in a
+          `finally` so a raised exception cannot strand it. Detect and
+          reclaim a stale lock as specified. On wait-timeout return the exact
+          "deferred-" string from the contract — a misspelled prefix degrades
+          to a plain retry and burns the job's attempts.
+        - MEMORY PRECHECK, per contract.json's "memory_guard" section, before
+          acquiring the lock. If the memory source is unavailable, log a
+          warning and proceed — never defer every job on an unreadable
+          reading.
+        - INPUT CONFINEMENT, per contract.json's "input_confinement". This
+          runs FIRST, before any file is opened and before the lock — a
+          rejected job must never read the file it was denied, and
+          validate-config probes that ordering specifically by passing a
+          nonexistent disallowed path (a file-not-found error instead of the
+          confinement error proves the read came first). Check the resolved
+          real path against the ALLOWLIST of directories, not merely against
+          the repo root; use Path.resolve() plus a proper containment test
+          (is_relative_to or equivalent), never a string prefix. Never log or
+          echo the contents of a rejected file — the path alone.
+        - DEFERRAL BOUND, per contract.json's "deferral_bound", implemented
+          with the EXACT mechanism the contract records — not a payload key.
+          A payload mutation does not persist: `q.retry` reloads the job from
+          disk (queue_ops.py:206) and writes only attempts, not_before,
+          updated_at and last_error, so an in-memory increment is discarded
+          every time and the ceiling is never reached. Whatever mechanism the
+          design chose, prove it survives a real retry cycle before relying
+          on it. Without a working bound a deferred job is unbounded:
+          `_undo_retry_attempt` resets attempts, and neither the reaper
+          (processing/ only) nor purge (done/ and error/ only) can see a job
+          cycling through pending.
+        - EXCEPTION BOUNDARY, per contract.json's redaction section: catch
+          exceptions at the handler boundary and return your own masked,
+          content-free failure string. An exception that escapes into
+          SafeProcessor's envelope is written to the job record by
+          job_runtime with NO masking, so a traceback raised during prompt
+          assembly could carry file content to disk.
+        - PATCH CAPS, per contract.json's "patch_caps". Parse the diff's
+          target paths yourself and check them against the denied prefixes;
+          `git apply --check` will happily validate a patch that rewrites
+          .github/workflows/ci.yml. Record files_touched and lines_changed
+          in the result on EVERY job, pass or fail, so a reviewer sees the
+          size before opening the diff.
+        - REDACTION, per contract.json's "redaction". Every string derived
+          from payload content that reaches the RESULT or TELEMETRY goes
+          through core.secrets.mask_text first, and those two carry counts,
+          paths and durations only — never file contents.
+          Be precise about the one place contents DO reach disk, because an
+          earlier revision of this file overclaimed and the design (item 5f)
+          already corrects it: the PATCH is the product, and a unified diff
+          carries context lines lifted verbatim from the input files. So
+          "file contents are never persisted" is false as a blanket claim.
+          What is true: the prompt is never persisted, and contents reach
+          disk only inside the patch artifact — which is why that artifact's
+          location outside the checkout is a confidentiality boundary, not a
+          tidiness preference. Do not restate the blanket claim anywhere.
+        - DISK PRECHECK, per contract.json's "disk_guard", before writing the
+          patch. Fails open like the memory guard.
+        - MODEL PINNING, per contract.json's "model_pinning": read the
+          running model's digest and compare to the recorded one. A mismatch
+          is recorded and surfaced, never a job failure — the model still
+          works, it is just not provably the one that was validated.
+        - EXPLAIN MODE, per contract.json's "explain_mode": when the flag is
+          set, run every guard above for real, report what would happen, and
+          return without calling the model. A short-circuit that skips the
+          guards would make explain mode useless for debugging exactly the
+          thing it exists to debug.
+        - ADMISSION CAP, per contract.json's "admission". Implement whatever
+          the approved design chose in its "enforced_at" field, and implement
+          it literally — this is the one guard that may legitimately live
+          OUTSIDE the handler (the handler cannot reject an enqueue that has
+          already happened). If the design put it in the enqueue path, that
+          means a change to the enqueue command or queue_ops, which is
+          impl-heartbeat's file territory, not yours: in that case implement
+          nothing here, record it in handler-impl.json under
+          "deferred_to_other_stage", and say so. If the design made it an
+          operator limit surfaced by qwen-admin only, record that it is
+          deliberately unenforced in code. What you must NOT do is silently
+          skip it — an admission cap that exists only in a contract file
+          protects nothing.
+        - TELEMETRY (qwen_telemetry.py), per contract.json's telemetry section:
+          emit one OTLP span per job matching the record shape recorded in
+          survey.json, over stdlib urllib, to the endpoint resolved from the
+          documented env var. Emit tokens and duration; emit NO cost
+          attribute. Wrap every export in a best-effort guard so a collector
+          that is down, unreachable or slow cannot fail, delay or retry the
+          job — and carry the nosec comment the repo requires on a
+          deliberately broad except, explaining the intent.
+
+      COMMIT BEFORE FINISHING — this is not optional and not a formality.
+      You run in your own git worktree on a `worktree-agent-*` branch. The
+      orchestrator merges your work with `git merge`, and git merge moves
+      COMMITS, not uncommitted files. If you return with edits uncommitted,
+      the merge succeeds against an empty branch, this stage reports success,
+      and every line you wrote is silently lost. So, as your final action
+      before writing the result JSON:
+      Commit in THREE commits matching the PR boundaries in the workflow
+      description, not one — a reviewer splitting a 2000-line diff afterwards
+      is doing work you could have done for free here:
+
+        after C2:  git add src/worker/qwen.py src/worker/handlers.py
+                   git commit -m "feat(worker): register the handler with input confinement"
+        after C5:  git add src/worker/qwen.py
+                   git commit -m "feat(worker): add Ollama transport, patch validation and concurrency guards"
+        after C6:  chmod +x bin/qwen
+                   git add src/worker/qwen_telemetry.py bin/qwen
+                   Wiring qwen_telemetry.py into the handler means editing
+                   src/worker/qwen.py itself (the call site that invokes the
+                   emitter). If C6 touched qwen.py, `git add` it here too —
+                   `git status --porcelain src/worker/qwen.py` after the C6
+                   checkpoint tells you whether it did. Any C6 edit to
+                   qwen.py left out of this commit is uncommitted and lost
+                   when the orchestrator merges only commits.
+                   git commit -m "feat(worker): add qwen entry point and OTLP telemetry"
+
+      Stage files by name, never `git add -A`. The chmod matters: a wrapper
+      that is not executable fails at the first thing a user tries. Record
+      all three SHAs in handler-impl.json — commit_sha is the LAST one (what
+      merge-impl checks for ancestry), and commit_shas lists all three so the
+      PR split is reproducible.
+      Stage only the files this stage owns, by name — never `git add -A`.
+      Then confirm the commit exists with `git log --oneline -1` and record
+      its SHA in the JSON below.
+
+      Write <your-cwd>/outputs/handler-impl.json (your own worktree cwd, per
+      the isolation boundary stated above — the orchestrator copies this back
+      into {workspace}/outputs/ after the stage completes):
+        {
+          "files_created": [...], "files_modified": [...],
+          "registry_key": "{job_type}", "commit_sha": "<the LAST sha>",
+          "commit_shas": [{"pr": 1, "sha": "...", "checkpoints": ["C1", "C2"]}, {"pr": 2, "sha": "...", "checkpoints": ["C3", "C4", "C5"]}, {"pr": 3, "sha": "...", "checkpoints": ["C6"]}],
+          "checkpoints": [{"id": "C1", "passed": true|false, "command": "...", "evidence": "...", "notes": "..."}],
+          "deferred_to_other_stage": [...],
+          "notes": "..."
+        }
+      A checkpoint you skipped is recorded passed=false with the reason, not
+      omitted — an absent checkpoint reads as one that passed.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash, Glob, Grep]
+      access: read-write
+      isolation: worktree
+    required: true
+    outputs:
+      - name: handler_impl
+        mode: generate
+        description: >
+          src/worker/qwen.py created and registered in handlers.py REGISTRY;
+          handler-impl.json records the files touched.
+    writes_to:
+      - outputs/handler-impl.json
+
+  # ===========================================================================
+  # G2b: Heartbeat — the reaper fix. Owns queue_ops.py + job_runtime.py.
+  # ===========================================================================
+  - name: impl-heartbeat
+    kind: execute
+    depends_on: [design]
+    reads_from: [design, survey]
+    description: >
+      ISOLATION BOUNDARY — this stage runs in its OWN git worktree and cannot
+      see the shared {workspace} in either direction. Read every input from
+      `<your-cwd>/inputs/`, preserving the upstream relative path, and write
+      every output under `<your-cwd>/outputs/`. A bare or `{workspace}`-rooted
+      path resolves against the orchestrator's shared tree, which this agent
+      cannot read or write; the orchestrator copies your outputs back after
+      the stage completes.
+
+      FIRST, read `<your-cwd>/inputs/outputs/design/contract.json`'s
+      heartbeat/liveness section and check which
+      route the approved design chose. If it chose route (a) — nothing
+      currently terminates a long job, so no change is warranted — then make
+      NO code change. Write <your-cwd>/outputs/heartbeat-impl.json with
+      {"files_modified": [], "route": "a-no-change", "reason": "<cite the
+      design>", "commit_sha": null} and finish. Do not invent a heartbeat to
+      justify this stage's existence; a no-op here is the correct outcome of
+      that decision, and integrate is told to expect it.
+
+      If the design chose route (c) — the in-process join is the constraint —
+      implement what the design specified for that (per-job timeout_sec
+      derivation), NOT a heartbeat field, which cannot affect an in-process
+      thread deadline.
+
+      Otherwise (route b), implement the heartbeat change from contract.json,
+      so a healthy long-running job is not reaped mid-flight.
+
+      File ownership — parallel with impl-handler and impl-tests. Touch ONLY:
+        - src/worker/queue_ops.py
+        - src/worker/job_runtime.py
+      Do not create or edit src/worker/qwen.py, do not edit the REGISTRY, and
+      do not write tests — other stages own those.
+
+      CHECKPOINT BEFORE COMMITTING (record it in heartbeat-impl.json's
+      "checkpoints"): after making the change, run the EXISTING worker tests
+      and confirm they still pass. CAPTURE THE EXIT STATUS SEPARATELY from
+      the summary line — piping straight into grep reports GREP's status, and
+      a failing suite still prints "Ran N tests" and "FAILED", so the grep
+      succeeds and the checkpoint records a false green on a red suite:
+
+        make test > /tmp/heartbeat-check.log 2>&1; echo "EXIT=$?"
+        grep -E "^Ran [0-9]+ tests|^OK|^FAILED" /tmp/heartbeat-check.log
+
+      The checkpoint passes only when EXIT=0 AND a "Ran N tests" line is
+      present. EXIT=0 with no summary line means the suite never ran (a
+      concurrent venv race can produce exactly that); a summary line with a
+      non-zero exit means it ran and failed. Record both values, not a
+      verdict.
+
+      You are editing shared queue code that every job type depends on, so a
+      green existing suite is the evidence that matters far more than any new
+      test. If the suite was already failing before your change, say so with
+      the baseline rather than claiming your change is clean.
+
+      Requirements:
+        - BACKWARD COMPATIBILITY IS THE WHOLE RISK HERE. run_cli, run_shell and
+          workflow_stage jobs are the queue's current users and will never
+          write a heartbeat field. A job with no heartbeat must behave exactly
+          as it does today — fall back to the existing timestamp the survey
+          recorded, with the same staleness rule. Do not make a missing
+          heartbeat mean "immediately stale" or "never stale".
+        - Expose a small public helper (e.g. a touch/heartbeat function in
+          queue_ops) that a handler can call while waiting. It must write
+          atomically using the existing atomic_write_json helper — a torn
+          write in processing/ would corrupt a live job record.
+        - A heartbeat write must not reset attempts, not_before, or any other
+          field. Read-modify-write only the heartbeat timestamp.
+        - Keep the existing nosec/logging conventions.
+
+      COMMIT BEFORE FINISHING, IF YOU CHANGED ANY FILE — not optional then.
+      You run in your own git worktree on a `worktree-agent-*` branch, and
+      the orchestrator merges with `git merge`, which moves COMMITS, not
+      uncommitted files. Return with edits uncommitted and the merge succeeds
+      against an empty branch while this stage reports success — your work is
+      lost silently. As your final action before writing the result JSON:
+        git add src/worker/queue_ops.py src/worker/job_runtime.py
+        git commit -m "fix(worker): keep a live long-running job from being reaped"
+      Stage only the files this stage owns, by name — never `git add -A`.
+      Confirm with `git log --oneline -1` and record the SHA below.
+
+      ROUTE (a) IS THE EXCEPTION, and it is a legitimate one: it makes NO
+      code change by design, so there is nothing to stage and `git commit`
+      would fail with an empty index. On route (a), skip the commit entirely,
+      record commit_sha: null with route "a-no-change", and finish. That is
+      not a violation of the isolated-stage contract — merge-impl is told to
+      expect it — and it is the one case where an empty branch is the correct
+      outcome rather than lost work.
+
+      Before skipping, confirm `git status --porcelain` is actually empty. If
+      it is not, you DID change something and route (a) was the wrong call or
+      was not followed: commit as above and say so in notes, rather than
+      discarding real edits to match the declared route.
+
+      Write <your-cwd>/outputs/heartbeat-impl.json (NOT {workspace} — see the
+      isolation boundary above):
+        {"files_modified": [...], "helper_name": "...", "fallback_behaviour": "...", "commit_sha": "...", "checkpoints": [{"id": "existing-suite-green", "passed": true|false, "command": "...", "evidence": "<the Ran N tests line>"}], "notes": "..."}
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash, Glob, Grep]
+      access: read-write
+      isolation: worktree
+    required: true
+    outputs:
+      - name: heartbeat_impl
+        mode: generate
+        description: >
+          queue_ops.py/job_runtime.py updated with a backward-compatible
+          heartbeat; heartbeat-impl.json records the helper and fallback.
+    writes_to:
+      - outputs/heartbeat-impl.json
+
+  # ===========================================================================
+  # G2c: Tests — written against the approved contract, not against the code.
+  # ===========================================================================
+  - name: impl-tests
+    kind: execute
+    depends_on: [design]
+    reads_from: [design, survey]
+    description: >
+      ISOLATION BOUNDARY — this stage runs in its OWN git worktree and cannot
+      see the shared {workspace} in either direction. Read every input from
+      `<your-cwd>/inputs/`, preserving the upstream relative path, and write
+      every output under `<your-cwd>/outputs/`. A bare or `{workspace}`-rooted
+      path resolves against the orchestrator's shared tree, which this agent
+      cannot read or write; the orchestrator copies your outputs back after
+      the stage completes.
+
+      Write tests against the contract in
+      `<your-cwd>/inputs/outputs/design/contract.json`.
+      This stage runs in PARALLEL with the two implementation stages, so the
+      implementation does not exist yet in this worktree — that is intentional.
+      Write to the contract's signatures. The integrate stage reconciles any
+      drift; report a mismatch there rather than weakening an assertion here.
+
+      File ownership — touch ONLY files under tests/worker_tests/. Never edit
+      anything under src/.
+
+      Required coverage:
+        - HAPPY PATH: a mocked 200 response containing a valid unified diff →
+          handler returns success, result matches result_schema.
+        - Every row of contract.json's retry_map. One test per condition,
+          each asserting the EXACT outcome string prefix. A test that accepts
+          "any failure" would pass even if the handler mapped a missing model
+          to an infinite retry loop — assert the prefix.
+        - LIVENESS, gated on the route recorded in contract.json's heartbeat/
+          liveness section — fresh/stale heartbeat tests cannot exist under
+          routes (a) or (c), where no heartbeat field is ever written:
+            * Route (b): HEARTBEAT — the reaper does NOT reap a job whose
+              heartbeat is fresh; it DOES reap one whose heartbeat is stale.
+            * Route (a): no heartbeat tests. Instead, require a test asserting
+              the EXISTING reaper behaviour is UNCHANGED — a job record built
+              exactly as run_cli/run_shell build it today still reaps (or does
+              not) on the same condition it did before this workflow touched
+              anything. The backward-compatibility case still matters even
+              though no heartbeat field exists to test.
+            * Route (c): require tests for whatever the design specified for
+              the in-process join fix instead (e.g. the per-job timeout_sec
+              derivation) — not a heartbeat test, which would assert nothing
+              under this route.
+          Record which route you wrote tests for in tests-impl.json (see
+          below) so merge-impl and acceptance can tell an intentional absence
+          of heartbeat tests from a missing test.
+        - BACKWARD COMPATIBILITY: a job record with no heartbeat field is
+          treated exactly as before. Construct it as the existing handlers do,
+          with no heartbeat key at all. This applies under every route, since
+          run_cli/run_shell/workflow_stage jobs never write the field
+          regardless of which liveness route was chosen.
+        - Patch validation: a response whose diff fails `git apply --check` is
+          reported as such and not silently treated as a success.
+        - TELEMETRY SHAPE: the emitted OTLP payload parses back through
+          src/telemetry/otel's own models (OTLPSpansRecord.from_dict and
+          friends) and yields the expected attributes. Assert round-trip
+          through the real reader dataclasses — not against a hand-written
+          expected dict, which would pass even if the shape were wrong for
+          the reader. Assert no cost attribute is present.
+        - TELEMETRY IS NON-FATAL: with the collector unreachable (mock the
+          export to raise), the job still returns success and its result is
+          unchanged. This is the test that stops a telemetry outage from
+          taking out the queue.
+        - LIVENESS CALL ACTUALLY HAPPENS — route (b) only: assert the handler
+          invokes the heartbeat helper during a long generation — assert
+          call_count on a mock, not merely that the job succeeded. A job that
+          never heartbeats succeeds fine in a fast test and gets reaped in
+          production. Under route (a), write no such test — there is no
+          helper to call, and asserting call_count on a nonexistent helper
+          would either fail to import or assert nothing. Under route (c),
+          assert instead whatever the design specified there (e.g. that the
+          per-job timeout_sec was derived and passed through).
+        - CONCURRENCY — the guard that protects the machine, so test it
+          properly:
+            * With the lock already held, the handler returns the exact
+              "deferred-" string from contract.json. Assert the full prefix,
+              not just that it failed.
+            * The model is NOT called while the lock is held — assert
+              call_count on the transport mock is 0. A test that only checks
+              the return value would pass even if the handler generated
+              anyway and discarded the result, which is the exact memory
+              blowup this guard exists to prevent.
+            * The lock is released after a SUCCESSFUL job, so a second job
+              can acquire it.
+            * The lock is released when the model call RAISES — the failure
+              path is what strands a lock in production. Prove it by making
+              the transport raise, then asserting a subsequent job acquires.
+            * A stale lock (dead PID, or older than the ceiling) is
+              reclaimed rather than blocking forever.
+        - MEMORY PRECHECK: with available memory mocked below the threshold,
+          the handler returns "deferred-low-memory" AND does not call the
+          model (assert call_count 0). With memory ample, it proceeds. With
+          the memory source unavailable/raising, it proceeds with a warning
+          rather than deferring — assert that explicitly, since a precheck
+          that fails closed would silently stop every qwen job.
+        - INPUT CONFINEMENT — the security-critical case; test it hardest.
+          Build these in a tmp_path fixture, never against real paths:
+            * A path outside the allowlist (`../../etc/passwd` shape) is
+              rejected terminally AND the file is never opened. Assert on an
+              open/read mock's call_count, not just the return value: a
+              handler that reads the file and then rejects it has already
+              leaked it into memory and possibly into a log line.
+            * ORDERING, tested the way validate-config probes it: a
+              NONEXISTENT path outside the allowlist returns the confinement
+              error, not a file-not-found. This is the assertion that proves
+              the check precedes the read; without it, a handler that reads
+              first passes every other confinement test.
+            * A path inside the repo but OUTSIDE the allowlist (an `out/` or
+              `_data/` artifact) is rejected. Repo-root containment alone
+              would admit these, so this is the test that distinguishes the
+              allowlist from the weaker boundary.
+            * A SYMLINK inside the root pointing outside it is rejected.
+              This is the case a string-prefix check passes and a resolved
+              check catches — if this test is absent, the guard is untested
+              in the way that matters.
+            * Each denylist entry is rejected even when it sits inside the
+              root (a `credentials.ini` in the repo is still denied).
+            * A file over the size ceiling, and a directory path, are
+              rejected.
+            * An allowed, ordinary repo file is accepted — prove the guard
+              is not simply rejecting everything, which would pass every
+              test above.
+        - PATCH CAPS: a diff exceeding max_files, one exceeding max_lines,
+          and one touching a denied prefix (`.github/workflows/ci.yml`) each
+          return the exact terminal string. Assert the ci.yml case
+          specifically with a diff that WOULD pass `git apply --check`, since
+          the whole point is that the check does not catch it. Also assert
+          files_touched/lines_changed are recorded on a SUCCESSFUL job.
+        - REDACTION: a payload or error string carrying a credential shape
+          (`api_key=...`, an Authorization header) comes back masked in both
+          the result and the telemetry attributes. Assert the raw secret
+          does not appear anywhere in either — search the serialized forms,
+          not just the field you expect it in.
+        - EXCEPTION BOUNDARY: make prompt assembly raise an exception whose
+          message embeds file content, and assert the handler returns its own
+          masked, content-free string rather than letting it propagate. A
+          test that only checks the job failed would pass while the content
+          reached the job record through job_runtime's unmasked diagnostics
+          path.
+        - DEFERRAL BOUND — test the PERSISTENCE first, because that is where
+          the first design failed. Drive the counter through a REAL retry
+          cycle, not a simulated one: call the actual `queue_ops.retry`
+          against a temp queue root, then `_undo_retry_attempt`, then read the
+          job back off disk and assert the counter is still there. A test
+          that keeps the job dict in memory between deferrals passes against
+          a mechanism that persists nothing, which is exactly the bug
+          (`retry` reloads from disk and writes only attempts, not_before,
+          updated_at, last_error).
+          Then, with the lock permanently held, assert the handler returns
+          "terminal-deferral-limit" AT the specified ceiling — the exact
+          prefix, at the exact count, not merely eventually — and that the
+          terminal result names the dominant deferral reason so the error
+          record is actionable.
+        - ADMISSION CAP: only if contract.json's enforced_at is
+          "handler-side". Assert the excess job returns
+          "terminal-lane-over-capacity" and that a job of ANOTHER type at the
+          same depth is unaffected.
+        - DISK GUARD: free space mocked below threshold returns
+          "deferred-low-disk" and writes no patch file; ample space proceeds;
+          an unreadable reading proceeds with a warning.
+        - MODEL PINNING: a digest mismatch is recorded in the result and the
+          span but the job still SUCCEEDS — assert success explicitly, since
+          the easy wrong implementation fails the job.
+        - ENTRY POINT (bin/qwen): assert it builds a payload matching
+          contract.json's payload_schema from --files/--instruction, that
+          --instruction-file is read correctly, and — the one that matters —
+          that --apply PRINTS the git apply command without executing it.
+          Assert no subprocess ran for the apply path; a wrapper that
+          helpfully applies the patch breaks this workflow's central
+          contract, and a test asserting only its output text would miss it.
+        - EXPLAIN MODE: returns without calling the model (assert transport
+          call_count 0), reports the resolved file list and prompt size, and
+          — critically — still rejects a disallowed path exactly as a real
+          run does. That last assertion is what stops explain mode from
+          becoming a guard bypass.
+          If the contract declares admission an operator limit or a follow-up
+          with no code, write no test for it and note that in tests-impl.json
+          rather than inventing coverage for something unimplemented.
+
+      Mocking: no network and no real model in tests. Mock at the HTTP
+      boundary, matching the style recorded in the survey's test_layout.
+      Never call a real Ollama endpoint — the suite must pass on a machine
+      with no Ollama installed.
+
+      Assert behaviour, never import-only coverage. Do not write a test whose
+      sole purpose is to raise a coverage number.
+
+      COMMIT BEFORE FINISHING — not optional. You run in your own git
+      worktree on a `worktree-agent-*` branch, and the orchestrator merges
+      with `git merge`, which moves COMMITS, not uncommitted files. An
+      uncommitted test suite is merged as nothing at all, while this stage
+      still reports success. As your final action before writing the result
+      JSON, stage the test files this stage created BY NAME (never
+      `git add -A`) and commit:
+        git commit -m "test(worker): cover the handler, retry map and heartbeat"
+      Confirm with `git log --oneline -1` and record the SHA below.
+
+      Write <your-cwd>/outputs/tests-impl.json (NOT {workspace} — see the
+      isolation boundary above):
+        {"test_files": [...], "test_count": N, "retry_map_rows_covered": N, "liveness_route_tested": "a|b|c", "commit_sha": "...", "checkpoints": [{"id": "tests-collect", "passed": true|false, "command": "...", "evidence": "..."}], "notes": "..."}
+      "liveness_route_tested" must match the route contract.json recorded, so
+      merge-impl and acceptance can tell an intentional absence of heartbeat
+      tests (route a or c) from a missing test.
+
+      CHECKPOINT: before committing, confirm your tests at least COLLECT and
+      run — a test file with an import error or a syntax slip contributes
+      zero coverage while looking complete in a file listing. Run the suite
+      restricted to your new files and record the "Ran N tests" line. Since
+      the implementation does not exist in your worktree, failures are
+      EXPECTED and fine; collection errors are not. Record which you saw.
+    agent:
+      role: tester
+      model: sonnet
+      tools: [Read, Write, Edit, Bash, Glob, Grep]
+      access: read-write
+      isolation: worktree
+    required: true
+    outputs:
+      - name: tests_impl
+        mode: generate
+        description: >
+          tests under tests/worker_tests/ covering the happy path, every
+          retry_map row, heartbeat freshness and backward compatibility.
+    writes_to:
+      - outputs/tests-impl.json
+
+  # ===========================================================================
+  # G3: Merge check — verify the orchestrator's merges landed (never merges)
+  # ===========================================================================
+  - name: merge-impl
+    kind: execute
+    depends_on: [impl-handler, impl-heartbeat, impl-tests]
+    reads_from: [impl-handler, impl-heartbeat, impl-tests, design]
+    description: >
+      VERIFY that the three implementation stages' work landed in this tree.
+      Do NOT merge anything — verification only, and that distinction is the
+      whole point of this stage.
+
+      Why: .claude/skills/workflow/SKILL.md rule 7 assigns copy-back AND the
+      branch merge to the ORCHESTRATOR, "as part of THAT stage's completion,
+      before releasing any dependent stage" (7b/7c). By the time this stage
+      runs, each isolated branch should already be merged. An earlier draft
+      of this workflow had this stage run `git merge` itself and treat an
+      empty `git log <branch>..worktree-agent-<id>` as the silent-loss
+      failure case — which is exactly what a CORRECTLY merged tree produces,
+      so it would have failed the run precisely when everything went right.
+      Never re-add a merge here.
+
+      What the orchestrator does not do is check that the result is coherent.
+      That is this stage's job, and it matters because a stage can report
+      success while its code never lands (an agent that edits but never
+      commits leaves an empty branch; the merge then succeeds against
+      nothing).
+
+      For each of impl-handler, impl-heartbeat and impl-tests:
+
+        1. Read its result JSON (outputs/handler-impl.json,
+           outputs/heartbeat-impl.json, outputs/tests-impl.json) and take the
+           commit_sha it recorded.
+        2. A null/absent commit_sha may be legitimate: impl-heartbeat records
+           route "a-no-change" when the approved design chose to ship no
+           liveness fix, and impl-handler may record
+           "deferred_to_other_stage" for the admission cap. Check the reason
+           the stage gave. A recorded no-change is fine; a missing
+           commit_sha with no explanation means the agent never committed and
+           its work is gone.
+        2b. VALIDATE commit_sha BEFORE IT REACHES A COMMAND. These files are
+           agent-written, so the value is untrusted regardless of which
+           stage produced it — a confused or compromised agent can put
+           anything in that field, and step 3 puts it straight into `git`.
+           Require a full 40-character hex SHA and nothing else:
+
+             ./bin/workflow check-params "{workspace}"/outputs/<the impl file> \
+               --top-level --check 'commit_sha=[0-9a-f]{40}'
+
+           `--top-level` reads the field from the document root, since this is
+           a stage output rather than the engine's manifest. A null or absent
+           commit_sha fails the same call. The check lives in
+           src/workflow/param_guard.py, covered by
+           tests/workflow_tests/test_param_guard.py.
+
+           Branch on the EXIT STATUS. A short SHA, a ref name, or anything
+           carrying a space or shell metacharacter FAILS this stage — do not
+           resolve it, do not truncate it, and do not retry with rev-parse,
+           since each of those turns a rejection back into an execution path.
+           Apply the same discipline to any path you take from these files
+           before passing it to `git ls-files`: confirm it is a
+           repo-relative path with no `..` segment and no leading `-`, or
+           report it rather than querying it. The demo's verify-landed stage
+           carries this exact check for this exact reason.
+
+        3. Confirm the commit is actually reachable from HEAD:
+             git merge-base --is-ancestor <the validated commit_sha> HEAD
+           A commit_sha that is NOT an ancestor means the orchestrator did
+           not merge that branch — report it as unmerged. Do not merge it
+           yourself; report it so the orchestrator's contract failure is
+           visible rather than papered over.
+        4. Confirm every path the design listed for that stage in
+           contract.json's files_to_create / files_to_modify now exists in
+           the working tree, and that it is tracked by git (a file present
+           but untracked did not come from a merge).
+        5. Check the stage's "checkpoints" array, where it has one. Every
+           checkpoint must be recorded with passed true, or with passed
+           false and a reason. A checkpoint recorded false means the agent
+           built on a layer it knew was broken — report it prominently, since
+           the downstream gates may still pass while the underlying layer is
+           wrong. An impl stage that recorded NO checkpoints when the design
+           called for them is reported the same way: absent evidence is not
+           evidence of success.
+        6. Where a stage recorded commit_shas for the PR split, confirm each
+           listed SHA is reachable and that they are in the stated order.
+           A split recorded but not actually made leaves whoever opens the
+           PRs with nothing to split.
+
+      Then record the tree's state:
+        git status --porcelain
+        git log --oneline -8
+      A dirty working tree here is worth reporting — the orchestrator's
+      merges should leave it clean.
+
+      Write {workspace}/validation/merge.json:
+        {
+          "verified": [{"stage": "...", "commit_sha": "...", "is_ancestor_of_head": true|false, "checkpoints_passed": N, "checkpoints_failed": ["..."], "commit_shas_reachable": true|false}],
+          "no_change_stages": [{"stage": "...", "reason": "..."}],
+          "missing_commits": [{"stage": "...", "detail": "..."}],
+          "unmerged_branches": [{"stage": "...", "commit_sha": "...", "detail": "..."}],
+          "files_present": [...],
+          "files_missing": [...],
+          "working_tree_clean": true|false,
+          "all_landed": true|false
+        }
+      all_landed is true only when every stage is either verified as an
+      ancestor of HEAD or is a recorded legitimate no-change, AND
+      files_missing is empty.
+    agent:
+      role: unit-validator
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: merge_record
+        mode: generate
+        description: >
+          merge.json recording, per stage, whether its commit is an ancestor
+          of HEAD, whether its expected files are present and tracked, and
+          any stage that legitimately produced no commit.
+    writes_to:
+      - validation/merge.json
+    validates_output:
+      - path: validation/merge.json
+        checks: [is_json, has_key:verified, has_key:all_landed]
+
+  # ===========================================================================
+  # G4: Adversarial test review — attack the suite before trusting it
+  # ===========================================================================
+  - name: adversarial-test-review
+    kind: execute
+    depends_on: [merge-impl]
+    reads_from: [merge-impl, impl-tests, impl-handler, impl-heartbeat, design, survey]
+    description: >
+      Adversarial review of the test suite. You are NOT checking that tests
+      pass — a suite of vacuous tests passes perfectly. You are looking for
+      tests that would stay green while the code is broken. Be hostile; a
+      balanced review is a failed review here.
+
+      This stage runs AFTER merge-impl, so all three implementation branches
+      are merged into one tree and their files are readable by their normal
+      repo paths. You also run in your OWN worktree (isolation: worktree),
+      which is what makes the teeth test below safe: the source you break is
+      your private copy, not the shared tree other agents are using.
+      If a file named in handler-impl.json / heartbeat-impl.json /
+      tests-impl.json is still unreadable, record it as "could not review"
+      and set verdict "needs-work" — do not silently review nothing.
+
+      For EVERY test, answer one question: what mutation of the source would
+      this test fail to catch? Then hunt specifically for these failure modes,
+      each of which has burned this repo before:
+
+      1. ASSERTING THE SYMPTOM AWAY. A test that forces the risky call to fail
+         (or mocks it into never happening) and then asserts the tally is
+         right pins the behaviour for the wrong reason. The test passes
+         whether or not the bug exists. Check: does the test assert
+         call_count / the actual invocation, or only the end state?
+
+      2. VACUOUS GUARDS. `if x: assert ...` where x is never true in the
+         fixture. `assertTrue(result)` on a truthy dict that would be truthy
+         when empty. try/except around the assertion. A loop over an empty
+         list — zero iterations, zero assertions, green.
+
+      3. RETRY PREFIX PRECISION. contract.json's retry_map maps each condition
+         to exactly one of plain / "terminal-" / "deferred-". A test asserting
+         merely "it failed" cannot tell a terminal failure from an infinite
+         retry loop — and mapping model-not-found to a plain retry means the
+         daemon retries a 404 forever. Every retry_map row needs a test
+         asserting the EXACT prefix. List any row lacking one.
+
+      4. MOCK-SHAPED-WRONG. The HTTP mock must return what Ollama actually
+         returns, per the transport section of contract.json. A mock returning
+         a bare string where the real API returns {"response": "..."} makes
+         the test pass against a handler that could never work live. Compare
+         the mock's shape to the documented response shape.
+
+      5. HEARTBEAT TESTS THAT CANNOT FAIL. The fresh-heartbeat test must fail
+         if the reaper ignores the field; the stale test must fail if the
+         reaper never reaps. If both would pass against an unchanged reaper,
+         they test nothing. Check the timestamps are actually on opposite
+         sides of the staleness threshold, not both trivially fresh.
+
+      6. BACKWARD-COMPAT THEATRE. The no-heartbeat test must build a job
+         record with NO heartbeat key — not one with the key set to None or
+         "", which may take a different code path than a record written by
+         the existing run_cli/run_shell handlers.
+
+      7. GUARD TESTS THAT CANNOT FAIL. The guards in contract.json
+         (input_confinement, patch_caps, redaction, disk, memory,
+         concurrency) are the ones whose absence is most costly, so scrutinise
+         them hardest:
+           * Does the confinement test assert the file was never OPENED
+             (mock call_count), or only that the handler returned an error?
+             The latter passes against a handler that reads the secret and
+             then rejects it.
+           * Is there a SYMLINK test? Without it the guard is untested
+             against the one input a naive string-prefix check lets through.
+           * Is there a positive case proving the guard accepts a legitimate
+             file? A guard that rejects everything passes every negative
+             test.
+           * Does the patch-cap test for a denied prefix use a diff that
+             genuinely passes `git apply --check`? If it uses a malformed
+             diff, it proves nothing about the cap.
+           * Does the redaction test search the whole serialized result and
+             span for the raw secret, or only the one field it expects?
+           * Does the explain-mode test assert the guards still fire? An
+             explain path that skips validation is a bypass, not a feature.
+         Any "no" here is a blocking finding.
+
+      8. TELEMETRY TESTED AGAINST ITSELF. The shape test must round-trip the
+         emitted payload through src/telemetry/otel's real reader dataclasses.
+         A test comparing the payload to a hand-written expected dict proves
+         only that the code does what the code does — both can be wrong for
+         the reader in exactly the same way, and the data lands on disk and is
+         silently skipped by every query. Check which one was written. Also
+         confirm the non-fatal test actually raises from the export path,
+         rather than mocking it into a no-op that never exercises the guard.
+
+      9. SAD PATHS ABSENT ENTIRELY. Enumerate what is NOT tested: malformed
+         JSON from Ollama, an empty response body, a response with prose
+         around the diff, a patch touching a file outside the repo, a payload
+         with a files list naming a nonexistent path, timeout_sec of 0, an
+         oversized context, a collector that accepts the connection then hangs.
+         Missing coverage is a finding.
+
+      Then run the teeth test on the highest-value cases. For the two or three
+      tests that matter most (happy path, one terminal-prefix case, and the
+      liveness case if the design shipped one): temporarily break the SOURCE
+      in the obvious way, run just that test, and confirm it goes red.
+
+      This is safe here and ONLY here: you are in your own isolated worktree,
+      so the break is confined to your private copy. Never do this in a shared
+      tree. Constraints:
+        - Break one thing at a time and restore it before the next.
+        - Restore with `git checkout -- <file>` (an exact revert), not by
+          retyping what you think the line said.
+        - After each restore run `git status --porcelain` and record its
+          VERBATIM output in the record below. Empty output is the proof; a
+          self-asserted "restored: true" is not.
+        - Never commit from this stage. If you cannot restore a file cleanly,
+          stop, set verdict "needs-work", and say exactly which file is dirty
+          — a dirty worktree here is discarded, but a silent one is a lie.
+
+      A test that stays green against a deliberately broken implementation is
+      the single most important finding this stage can produce.
+
+      Write <your-cwd>/validation/test-review.json (your own worktree cwd —
+      this stage is isolation: worktree too, per the isolation boundary
+      stated at impl-handler above; the orchestrator copies this back into
+      {workspace}/validation/ after the stage completes):
+        {
+          "tests_reviewed": N,
+          "findings": [
+            {"test": "...", "file": "...", "failure_mode": "asserting-symptom-away|vacuous-guard|imprecise-prefix|mock-shape|toothless-heartbeat|compat-theatre|other",
+             "severity": "blocking|suggestion",
+             "detail": "...", "mutation_not_caught": "...", "fix": "..."}
+          ],
+          "retry_map_rows_without_exact_prefix_test": [...],
+          "sad_paths_missing": [...],
+          "teeth_test": [{"test": "...", "mutation": "...", "went_red": true|false, "git_status_after_restore": "<verbatim porcelain output; empty string means clean>"}],
+          "verdict": "sound|needs-work"
+        }
+
+      Set verdict "sound" only if there are no blocking findings, every
+      retry_map row has an exact-prefix test, and every teeth test went red.
+      Do not fix anything here — integrate acts on this. An empty findings
+      list on a suite this size is itself suspicious; if you truly found
+      nothing, say what you checked that makes you confident.
+    agent:
+      role: critic
+      model: opus
+      tools: [Read, Glob, Grep, Bash, Write, Edit]
+      # read-write + worktree isolation is what makes the teeth test legitimate:
+      # the stage must mutate source to prove a test has teeth, and isolation
+      # confines that mutation to a throwaway copy. Declaring it read-only
+      # while instructing it to edit source would be a contract the engine
+      # cannot enforce and other agents cannot rely on.
+      access: read-write
+      isolation: worktree
+    required: true
+    outputs:
+      - name: test_review
+        mode: generate
+        description: >
+          test-review.json listing tests that would stay green against broken
+          code, uncovered retry_map rows and sad paths, and teeth-test results.
+    writes_to:
+      - validation/test-review.json
+    validates_output:
+      - path: validation/test-review.json
+        checks: [is_json, has_key:findings, has_key:teeth_test, has_key:verdict]
+
+  # ===========================================================================
+  # G5: Integrate — act on review findings, then run the real gates
+  # ===========================================================================
+  - name: integrate
+    kind: execute
+    depends_on: [merge-impl, adversarial-test-review]
+    reads_from: [merge-impl, adversarial-test-review, impl-handler, impl-heartbeat, impl-tests, design]
+    description: >
+      merge-impl has already landed the three implementation branches, so you
+      are working in one coherent tree. Read validation/merge.json first: if
+      all_landed is false, or files_missing is non-empty, STOP and report —
+      running gates against a tree that is missing half the implementation
+      produces a meaningless green.
+
+      Then reconcile drift: impl-tests wrote against contract.json while the
+      implementation was being written in parallel. Where they disagree, fix
+      the side that departs from the approved contract. Do not weaken a test
+      to match a wrong implementation; do not bend the implementation to match
+      a test that misread the contract.
+
+      Then act on {workspace}/validation/test-review.json. Fix every BLOCKING
+      finding before running the gates, and add a test for every row in
+      retry_map_rows_without_exact_prefix_test and for each entry in
+      sad_paths_missing. If a teeth_test row has went_red false, that test is
+      toothless against a real bug — rewrite it so the same mutation fails it,
+      do not simply mark it reviewed. Record which findings you fixed and which
+      you are consciously deferring, with a reason; silently dropping a
+      blocking finding is not an option.
+
+      Then run the real gates, in this order, and record verbatim output:
+
+        1. Prove imports resolve to THIS checkout before trusting any result.
+           A bare `python3 -c "import worker"` from a worktree resolves to the
+           MAIN CHECKOUT's src — verified by probe on 2026-09-22, with no
+           inherited PYTHONPATH involved; the active editable install simply
+           points there. An inherited PYTHONPATH is a second way to get the
+           same false green. Both are defeated by prepending this tree:
+             make check-env
+             PYTHONPATH="$PWD/src" python3 -c "import worker, core; print(worker.__file__); print(core.__file__)"
+           Both paths must be under this worktree. If not, stop and report —
+           nothing below this line means anything otherwise. Do not "simplify"
+           this to a bare python3, and do not reach for -E/-I/-P: those strip
+           the prefix that makes it correct, not the condition that breaks it.
+
+        2. Full suite. Exit code alone is NOT evidence the suite ran; a
+           concurrent venv race can exit 0 having run nothing:
+             make test > /tmp/qwen-t.log 2>&1; echo "EXIT=$?"; grep -E "^Ran [0-9]+ tests" /tmp/qwen-t.log
+           The 2>&1 is required — unittest writes the summary to stderr. No
+           "Ran N tests" line means the suite did not run: re-run it, and do
+           not report a baseline from that output.
+
+        3. Lint the changed files with qlty, not make lint — CI runs qlty,
+           which adds bandit and radarlint on top of ruff, so make lint alone
+           can be green while CI fails. Include the working tree, since
+           main...HEAD omits uncommitted files. Write the path list to a file
+           first and pass the paths explicitly — the destructive-bash guard
+           rejects command substitution in a worktree session:
+             git diff --name-only main...HEAD > /tmp/qwen-changed.txt
+             git diff --name-only >> /tmp/qwen-changed.txt
+             sort -u /tmp/qwen-changed.txt
+           then run the scan over those paths, listed out explicitly.
+
+           Use `./bin/qlty-assistant scan --rescan-until-stable <paths>` for
+           this, NOT raw `~/.qlty/bin/qlty check`. qlty caps findings per run
+           and the cap is nondeterministic — 16 identical runs on an unchanged
+           tree have yielded 0-4 findings each against a union of 22 — so a
+           single clean scan proves nothing. `--rescan-until-stable` is a flag
+           on the repo's qlty-assistant wrapper; raw `qlty check` does not
+           accept it and will fail on an unknown argument.
+
+           Do not use `--filter` to confirm a finding is gone: a filtered run
+           frequently reports "No issues" in the same minute an unfiltered one
+           reports findings.
+
+        4. make typecheck-changed — blocks on any error in a file that was
+           clean at baseline. src/worker/qwen.py is new, so it is not
+           grandfathered: it must be clean. Never add a type: ignore to pass.
+
+      Fix what fails and re-run until clean, or report precisely what remains
+      broken. A partially-green result reported as success is worse than a
+      failure — state the actual state.
+
+      Before writing your result, self-check every one of these. Each must be
+      true, or the corresponding field in integrate.json must record why not:
+        - merge.json reported all_landed true with no files_missing.
+        - worker and core import from THIS checkout, not the main checkout.
+        - A literal "Ran N tests" line was captured from make test's output.
+        - The test count is no lower than impl-tests reported — review
+          findings only ever add tests, so a drop means tests were removed or
+          the suite did not fully run.
+        - Every blocking finding in test-review.json is either fixed or listed
+          in review_findings_deferred with a reason.
+        - all_gates_passed is true ONLY if tests, qlty and typecheck-changed
+          each actually passed. Do not set it true on a partial run.
+
+      Write {workspace}/validation/integrate.json:
+        {
+          "merge_verified": true|false,
+          "import_paths_correct": true|false,
+          "tests": {"ran": N, "failures": N, "errors": N, "summary_line": "..."},
+          "qlty": {"clean": true|false, "findings": [...]},
+          "typecheck_changed": {"clean": true|false, "errors": [...]},
+          "drift_reconciled": [...],
+          "review_findings_fixed": [...],
+          "review_findings_deferred": [{"finding": "...", "reason": "..."}],
+          "all_gates_passed": true|false
+        }
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash, Glob, Grep]
+      access: read-write
+    required: true
+    outputs:
+      - name: integration
+        mode: generate
+        description: >
+          integrate.json recording verbatim gate results, review findings
+          acted on, and any contract drift reconciled between tests and
+          implementation.
+    writes_to:
+      - validation/integrate.json
+    validates_output:
+      - path: validation/integrate.json
+        checks: [is_json, has_key:merge_verified, has_key:tests, has_key:all_gates_passed]
+
+  # ===========================================================================
+  # G6: Install — idempotent, check-then-act, full stack
+  # ===========================================================================
+  - name: install
+    kind: publish
+    depends_on: [integrate]
+    reads_from: [integrate, survey]
+    description: >
+      Declared kind: publish, not execute — every step below creates external
+      resource state outside this workspace (a brew-installed binary, a
+      running Ollama server, a multi-GB pulled model, a loaded launchd agent),
+      and the workflow skill's convention authorizes exactly that class of
+      side effect only from a publish stage. Declaring it publish keeps the
+      convention and the behaviour in agreement.
+
+      Install the full stack. EVERY step is check-then-act: check state first,
+      act only if the check fails, and report each step as "already satisfied"
+      or "changed". A second consecutive run of this stage must change nothing
+      and exit 0 — that is the acceptance criterion for the whole stage, and
+      the verify stage tests it by running the checks again.
+
+      Read {workspace}/validation/integrate.json first. If all_gates_passed is
+      false, do NOT install — write a skip record to
+      {workspace}/validation/install.json explaining which gate failed, and
+      stop. Installing on top of code that does not pass its own tests is how
+      a broken daemon ends up running at boot.
+
+      Step 0 — VALIDATE {ollama_host} AND {model_tag} BEFORE FIRST USE. Both
+      are trigger params, substituted directly into the text below with no
+      quoting (resolve_params in src/workflow/compiler.py is plain string
+      replacement). The engine enforces trigger.param_rules at compile time,
+      before that substitution, so a hostile override never reaches this
+      stage; this Step 0 is defence in depth against those rules drifting,
+      and it costs nothing before Step 2 or Step 3 runs a command.
+        - `{ollama_host}` must match a strict http(s) URL shape: scheme
+          `http` or `https`, then `://`, then a host (and optional `:port`),
+          with no whitespace, quotes, backticks, `$`, `;`, `|`, `&`, or
+          newline anywhere in the value.
+        - `{model_tag}` must match a model-tag grammar: `name[:tag]`, each
+          part starting alphanumeric, then alphanumeric plus `.`, `-`, `_`
+          (at most 64 characters), at most one `:` separating
+          name and tag, no whitespace, quotes, backticks, `$`, `;`, `|`, `&`,
+          or newline.
+        DO NOT VALIDATE BY SUBSTITUTING INTO A SHELL COMMAND. The obvious
+        form — `printf '%s' "{ollama_host}" | grep -Eq ...` — already loses:
+        the engine pastes the raw value into that command line, so a value
+        containing `$(...)`, a backtick, or a `"` executes while the
+        "validator" is being constructed. Double quotes do not prevent
+        command substitution; verified directly, `"http://h$(echo PWNED)"`
+        runs the subshell. The check must never be a shell string built
+        around the untrusted value.
+
+        Validate OUT of the shell instead.
+
+        NO QUOTING STYLE FIXES THIS, INCLUDING A HEREDOC. An earlier revision
+        of this file prescribed writing the value to a file with a
+        single-quoted delimiter (`<<'RAW'`). That is also broken, and was
+        disproven by probe: the engine substitutes the value into the script
+        TEXT before bash ever parses it, so a value containing a newline, the
+        literal delimiter, and more script closes the heredoc early and runs
+        the remainder. Measured — `http://ok\nRAW\ntouch /tmp/PWNED\n...`
+        created the file, and the regex then PASSED on the truncated remnant,
+        so the check reported success after arbitrary code had already run.
+        That is the worst possible outcome: an inert guard that looks green.
+
+        The lesson is general. Any mechanism that embeds the untrusted value
+        into shell source is defeated by some encoding of that value. The
+        value must never become shell source at all.
+
+        USE THE FILE THE ENGINE ALREADY WROTE. `init-workspace` serialises
+        every trigger param into `{workspace}/manifest.json` under
+        `trigger_params`, via json.dump — so the value is DATA on disk, and it
+        never passed through a shell on the way there. Read it from there and
+        validate it in Python:
+
+          ./bin/workflow check-params "{workspace}"/manifest.json \
+            --check 'ollama_host=https?://[A-Za-z0-9][A-Za-z0-9.-]{0,252}(:[0-9]{1,5})?/?' \
+            --check 'model_tag=[A-Za-z0-9][A-Za-z0-9._-]{0,63}(:[A-Za-z0-9][A-Za-z0-9._-]{0,63})?'
+
+        That is one call for BOTH params: it reports every failing param and
+        exits non-zero if any of them fails. The check lives in
+        src/workflow/param_guard.py, covered by
+        tests/workflow_tests/test_param_guard.py — including both payloads
+        disproven above, so a future edit cannot silently gut the guard.
+
+        Note what is and is not interpolated: the PATH to manifest.json is a
+        workspace path the engine controls, and the untrusted value appears
+        nowhere in the command. Verified end to end — the heredoc-escape
+        payload above reaches manifest.json byte-for-byte intact, nothing
+        executes during init-workspace, and the validator rejects it.
+
+        Then branch on the EXIT STATUS, not on echoed text — `|| echo
+        "REJECTED"` leaves the pipeline status 0 and the stage carries on with
+        a rejected value.
+
+        (Do NOT reach for os.environ either: the engine never exports trigger
+        params to the environment — resolve_params (compiler.py:382-391)
+        substitutes them into the description TEXT, and nothing in
+        src/workflow/ calls os.environ[...] or putenv. A still earlier
+        revision said exactly that and was unfollowable.)
+
+        Apply the same check to {model_tag}, reading it from the same file.
+        State in install.json which mechanism you used, and abort before any
+        command runs if either pattern fails:
+          ollama_host: ^https?://[A-Za-z0-9][A-Za-z0-9.-]{0,252}(:[0-9]{1,5})?/?$
+          model_tag:   ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}(:[A-Za-z0-9][A-Za-z0-9._-]{0,63})?$
+
+        THEN BIND THEM TO SHELL VARIABLES IN STEP 1b BEFORE USING THEM.
+        Passing here is necessary but not sufficient: validation does not
+        rewrite the `{ollama_host}` / `{model_tag}` tokens elsewhere in this
+        description, and the engine substitutes the raw value at each one. The
+        `--print` form in Step 1b is what actually gets a validated value into
+        a command; this step is the abort gate, not the delivery mechanism.
+        If either is rejected, abort the stage immediately: write
+        {workspace}/validation/install.json with skipped=true and a
+        skip_reason naming which param failed and the reason check-params
+        gave — NEVER its value, redacted or otherwise — and do not proceed
+        to Step 1. "Redact if necessary" would leave it to the agent to judge
+        whether a hostile value is safe to write, and a rejected value is by
+        definition the one not to trust with that judgement. check-params
+        itself never echoes a rejected value (pinned by
+        tests/workflow_tests/test_param_guard.py); this record must not undo
+        that one step downstream. Do not attempt to
+        sanitize or auto-correct a rejected value — an override with shell
+        metacharacters is a caller error to report, not silently fix.
+
+      Step 1 — Ollama binary.
+        Check:  command -v ollama
+        Act:    brew install ollama
+        Never reinstall or upgrade an existing install — a working ollama is
+        already satisfied, whatever its version. This is the expected cold
+        state on a fresh machine, not an error: absent ollama is what this
+        step exists to resolve.
+
+        CHECK THE INSTALLER BEFORE USING IT. `brew install` is the act only
+        when Homebrew is actually present and the platform is the one it
+        serves. Verify BOTH before running it, and read survey.json's
+        recorded `sw_vers` rather than re-deriving the platform:
+          - `command -v brew` must succeed.
+          - the platform must be macOS.
+
+        If ollama is missing AND either check fails, do NOT improvise another
+        installation route. Specifically: do not pipe a remote install script
+        into a shell, do not download a release tarball, and do not fall back
+        to a package manager the survey did not record. Installing software
+        by a path nobody reviewed is a worse outcome than not installing it.
+
+        Instead abort the stage: write {workspace}/validation/install.json
+        with skipped=true and a skip_reason naming which check failed and the
+        one-line command the operator should run themselves (`brew install
+        ollama`, or their platform's equivalent). A stage that stops with a
+        clear instruction is a good result here; the run can be repeated
+        after the operator acts, and every step in this stage is idempotent
+        precisely so that re-running costs nothing.
+
+      Step 1b — Capture both validated values into shell variables.
+        Step 0's check proves the values are SAFE; it does not make them
+        AVAILABLE. Writing `{ollama_host}` into Step 2 or `{model_tag}` into
+        Step 3 puts the raw trigger param back into shell source, because the
+        engine substitutes at every occurrence of the token regardless of what
+        Step 0 concluded. Bind them once, here, and use only the variables:
+
+          HOST=$(./bin/workflow check-params "{workspace}"/manifest.json \
+            --check 'ollama_host=https?://[A-Za-z0-9][A-Za-z0-9.-]{0,252}(:[0-9]{1,5})?/?' \
+            --print ollama_host) || exit 1
+          TAG=$(./bin/workflow check-params "{workspace}"/manifest.json \
+            --check 'model_tag=[A-Za-z0-9][A-Za-z0-9._-]{0,63}(:[A-Za-z0-9][A-Za-z0-9._-]{0,63})?' \
+            --print model_tag) || exit 1
+
+        `--print` writes a value ONLY when every `--check` in that invocation
+        passed, and refuses a name no `--check` covers, so each variable holds
+        a validated value or the command exited non-zero having printed
+        nothing. Keep both `|| exit 1` guards: without them a rejection leaves
+        the variable empty and the commands below run against "/api/tags" or
+        an empty tag. From here on, $HOST and $TAG are the ONLY forms used —
+        `{ollama_host}` and `{model_tag}` must not appear in any command.
+
+      Step 2 — Ollama server reachable.
+        Check:  curl -sS -m 5 -f -o /dev/null "$HOST/api/tags"
+                (the variable from Step 1b, never the raw token. -f turns a
+                non-2xx status into a non-zero exit, so no curl format string
+                is needed — exit 0 means the server is up)
+        Act:    start the server in the background (`ollama serve`), then poll
+                that same "$HOST/api/tags" check until it returns 200, up to
+                ~30s. Poll the VARIABLE — re-interpolating {ollama_host} into
+                the poll loop reintroduces exactly what Step 1b removed.
+        If it already returns 200, do NOT start a second server and do NOT
+        restart the running one — something else may be using it.
+
+      Step 3 — Model present.
+        Check:  ollama list | grep -F -- "$TAG"
+                (the variable from Step 1b; `--` ends option parsing so a tag
+                that happened to start with `-` cannot be read as a grep flag)
+        Act:    ollama pull -- "$TAG"
+                (same variable, same reason — both uses reach a shell)
+        This is a multi-GB download. Never pull when the check already matches.
+
+        Then RECORD THE DIGEST, whether or not you pulled. `{model_tag}` is a
+        mutable tag — Ollama can serve a different build under the same name
+        later, silently changing output quality with no signal. Read the
+        model's digest (the survey recorded which API field carries it) and
+        write it into the install record, so validate-config and the handler
+        can detect a swap. If the digest cannot be read, record null and say
+        why rather than omitting the field.
+        If the machine's memory_gb from survey.json is under 24, note in the
+        record that a 14B model will be tight and a 7B tag is the fallback —
+        but pull the requested tag regardless; sizing is the user's call.
+
+      Step 4 — Worker launchd agent.
+        Check:  launchctl list | grep -F com.dancing-bear.worker
+        READ THIS BEFORE ACTING — the daemon and this run's code may live in
+        different trees, and that is the normal case, not an edge case.
+
+        The handler this workflow just built is committed to THIS worktree's
+        branch. The launchd daemon runs the MAIN checkout's `bin/worker`,
+        whose REGISTRY comes from the main checkout's handlers.py — which
+        does not contain the new handler until this branch is merged to
+        main. The main checkout may also be sitting on an unrelated branch
+        entirely. So a daemon installed here cannot run {job_type} jobs, and
+        a `worker run-once` invoked from this worktree can.
+
+        Record which tree the daemon serves, and set
+        "daemon_serves_this_code" accordingly. Do NOT try to resolve the
+        conflict by pointing launchd at the worktree — that bakes an
+        ephemeral path into a KeepAlive agent, which is the trap Step 4
+        exists to avoid. The honest outcome is: the daemon is installed for
+        the LONG TERM (after this branch merges), while this run's
+        verification drains jobs itself from this worktree. verify is
+        written to expect exactly that.
+
+        If it is already loaded, this step is already satisfied. Do NOT
+        reinstall, reload or restart a healthy agent.
+
+        If it is absent, mind this trap before acting:
+        `bin/worker-install-launchd` derives its REPO_ROOT from its own
+        location (`SCRIPT_DIR` via BASH_SOURCE, then `..`) and seds that into
+        the plist's ProgramArguments[0] AND WorkingDirectory. There is no flag
+        or env var to override it. So running `./bin/worker-install-launchd`
+        from THIS worktree bakes an ephemeral
+        `.claude/worktrees/<name>/bin/worker` path into
+        ~/Library/LaunchAgents — and because the plist sets RunAtLoad and
+        KeepAlive true, that becomes a permanently crash-looping agent the
+        moment the worktree is pruned. You must not do that.
+
+        Act:    resolve the MAIN checkout and run ITS copy by absolute path.
+                Resolve it with:
+                  git rev-parse --git-common-dir
+                (the main checkout is that path's parent when it ends in
+                /.git), cross-checked against `git worktree list`, whose first
+                row is the main working tree. Then run:
+                  <main-checkout>/bin/worker-install-launchd
+                Afterwards, read back ~/Library/LaunchAgents/com.dancing-bear.worker.plist
+                and CONFIRM the path it contains is the main checkout and
+                contains no ".claude/worktrees" segment. Record that check.
+
+        If you cannot resolve the main checkout, or the readback shows a
+        worktree path, do not leave it installed: report it under
+        manual_steps_required with the exact command for the user to run
+        themselves. An unresolvable path is a manual step, never a guess.
+
+      Step 5 — Queue directories.
+        Check:  the queue root from survey.json (get_worker_state_dir) exists
+                with pending/processing/done/error subdirectories.
+        Act:    the queue creates them on demand via _ensure_dirs — prefer
+                triggering that with a harmless `./bin/worker list` over
+                mkdir-ing by hand, so the layout stays owned by one place.
+
+      Write {workspace}/validation/install.json:
+        {
+          "skipped": true|false,
+          "skip_reason": "..." | null,
+          "steps": [
+            {"step": "ollama_binary",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false},
+            {"step": "ollama_server",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false},
+            {"step": "model_present",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false, "model_digest": "..." | null},
+            {"step": "worker_launchd", "already_satisfied": true|false, "action_taken": "...", "ok": true|false, "daemon_repo_root": "...", "daemon_serves_this_code": true|false, "detail": "..."},
+            {"step": "queue_dirs",     "already_satisfied": true|false, "action_taken": "...", "ok": true|false}
+          ],
+          "all_ok": true|false,
+          "manual_steps_required": [...]
+        }
+
+      Report honestly: a step you skipped because it could not be done safely
+      is "manual_steps_required", not ok=true.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Bash, Read, Write, Edit]
+      access: read-write
+    required: true
+    outputs:
+      - name: install_record
+        mode: generate
+        description: >
+          install.json recording each check-then-act step, whether it was
+          already satisfied, and any step deferred to the user.
+    writes_to:
+      - validation/install.json
+    validates_output:
+      - path: validation/install.json
+        checks: [is_json, has_key:steps, has_key:all_ok]
+
+  # ===========================================================================
+  # G7: Validate config — the installed configuration must match the design
+  # ===========================================================================
+  - name: validate-config
+    kind: execute
+    depends_on: [install]
+    reads_from: [install, design, survey]
+    description: >
+      Check that the configuration the running system will actually use
+      matches what the design assumed. Installing successfully is not the
+      same as being configured correctly, and every item below is a case
+      where the install can report ok while the system behaves wrongly.
+
+      READ-ONLY. Report mismatches; do not fix them here. A fix belongs in
+      install (so it is idempotent and re-runnable) or in the user's hands,
+      not in a validation stage that would make the problem invisible on the
+      next run.
+
+      Check 1 — DAEMON CONCURRENCY vs the qwen guard.
+        Read the installed plist at
+        ~/Library/LaunchAgents/com.dancing-bear.worker.plist and record its
+        ProgramArguments verbatim. Note --max-per-tick and --max-inflight.
+        These are GLOBAL caps with no per-type awareness, so the daemon will
+        start that many jobs of ANY type concurrently. Cross-check against
+        contract.json's "concurrency" section: the handler-side lock is what
+        holds qwen to one at a time, so confirm the approved lock design was
+        actually implemented (grep the merged source for the lock path /
+        primitive named in the contract). If the daemon allows N>1 and the
+        lock is absent, that is a BLOCKING finding — it is the configuration
+        that lets N concurrent 14B generations exhaust memory.
+
+      Check 2 — THE LOCK PATH IS WRITABLE AND CORRECTLY LOCATED.
+        Resolve the lock path from contract.json. Confirm its parent
+        directory exists and is writable, and that it is under the worker
+        state dir, NOT inside the repo checkout. A lock file in the repo is
+        wrong twice over: it can be committed, and it does not survive as a
+        cross-process guard the way a state-dir path does. Do not create the
+        lock file itself — only verify the location is usable.
+
+      Check 3 — NO STALE LOCK IS PRESENT RIGHT NOW.
+        If the lock file already exists before any job has run, something
+        left it behind. Record its contents (PID, timestamp) and whether the
+        PID is alive. A stale lock present at install time would silently
+        defer every qwen job forever. Report it; do not delete it — say what
+        the user should run to clear it.
+
+      Check 4 — MEMORY HEADROOM vs the model.
+        Read available memory using the same source contract.json's
+        "memory_guard" names, and compare to model_resident_gb +
+        memory_margin_gb. Report whether a single generation can run right
+        now. This is a snapshot, not a guarantee — say so. If total machine
+        memory cannot accommodate even one generation plus margin, that is a
+        blocking finding: the model tag is wrong for this hardware and the
+        user should pick a smaller one.
+
+      Check 5 — TIMEOUT PATHS ARE COHERENT.
+        From survey.json's shipped_plist section and the installed plist,
+        record whether --job-timeout is passed. Then state the consequence
+        plainly, because the two settings interact:
+          - No --job-timeout (the shipped default): the reaper never fires,
+            and `_join_with_timeout` joins with no deadline. A wedged
+            generation hangs its thread indefinitely.
+          - With --job-timeout set: both the reaper and the in-process join
+            become live, and any liveness design from the design stage must
+            actually handle them.
+        Cross-check against whichever route contract.json's liveness section
+        chose. If the design assumed one configuration and the plist has the
+        other, that is a blocking mismatch — this is exactly the class of
+        wrong assumption that an earlier draft of this workflow shipped.
+
+      Check 6 — GUARDS ARE PRESENT AND ACTUALLY WIRED. A grep is the weakest
+        possible evidence here and must not be the whole check: it cannot
+        distinguish a mask_text import that is never called, a confinement
+        check inside an unreachable branch, a cap constant defined and never
+        compared, or — most importantly — a confinement check placed AFTER
+        the file read, when 5d's entire requirement is that it runs BEFORE.
+        Ordering is invisible to grep.
+
+        So do both, and report them separately:
+
+        (a) PRESENCE (grep): confirm each guard named in contract.json
+            appears in the merged source — confinement, patch caps,
+            mask_text, disk precheck, explain mode, deferral counter, and
+            the admission cap per its enforced_at. Absent-but-contracted is
+            blocking.
+
+        (b) BEHAVIOUR (probe): prove the two order-dependent guards actually
+            fire, using explain mode so nothing reaches the model. Run the
+            handler directly in-process (import it; do not enqueue — this
+            stage must not mutate the queue) with:
+              - a payload naming a path outside the allowlist. Expect the
+                contract's terminal confinement string. To prove ORDERING
+                rather than mere rejection, point it at a path that does not
+                exist at all: a handler that validates first returns the
+                confinement error, while one that reads first surfaces a
+                file-not-found. Getting a file-not-found here is a BLOCKING
+                finding — it means the read precedes the check.
+              - a payload naming an allowed, existing file. Expect success,
+                proving the guard is not simply rejecting everything.
+
+        A guard that passes (a) and fails (b) is worse than one that is
+        absent, because the tests and this check would both look green.
+        Record each guard's presence and probe result independently.
+
+        The admission cap is the one guard that may legitimately be absent
+        from the handler: contract.json's "admission.enforced_at" says where
+        it lives, and it may be an enqueue-path change or a documented
+        operator limit with no code at all. Check it against what the
+        contract actually claims, and treat "declared enforced in code but
+        not present" as blocking while "declared an operator limit" is
+        merely reported. An unenforced cap that nobody wrote down as
+        unenforced is the failure to catch here.
+
+      Check 7 — MODEL DIGEST RECORDED. Confirm the install stage recorded a
+        digest for {model_tag} and that the currently-loaded model's digest
+        matches it. A mismatch is not blocking — the tag is mutable by
+        design — but it must be reported, since it means the model in use is
+        not provably the one this run validated.
+
+      Check 8 — PATCH OUTPUT DIRECTORY. Resolve core.paths.output_dir for
+        this domain and confirm it exists, is writable, and sits OUTSIDE the
+        repo checkout (the repo's generated-output rule). Report current free
+        space on that filesystem against disk_guard's min_free_gb. A patch
+        directory inside the checkout is a blocking finding: generated
+        patches carrying source excerpts would be one `git add -A` away from
+        a commit.
+
+      Check 9 — OLLAMA'S OWN CONCURRENCY SETTINGS.
+        Record whether OLLAMA_NUM_PARALLEL and OLLAMA_MAX_LOADED_MODELS are
+        set in the environment the server runs under, and their values if so.
+        Do not assume defaults — read them, and if they are unset say
+        "unset (server default, not verified here)" rather than guessing a
+        number. These bound how the server itself handles simultaneous
+        requests, independently of our lock; note any value that would allow
+        more parallelism than the handler's guard intends.
+
+      Write {workspace}/validation/config-validation.json:
+        {
+          "checks": [
+            {"check": "daemon_concurrency",  "passed": true|false, "blocking": true|false, "detail": "...", "observed": {"max_per_tick": N, "max_inflight": N, "lock_implemented": true|false}},
+            {"check": "lock_path_usable",    "passed": true|false, "blocking": true|false, "detail": "...", "path": "...", "inside_repo": true|false},
+            {"check": "no_stale_lock",       "passed": true|false, "blocking": false,      "detail": "...", "lock_present": true|false, "holder_pid_alive": true|false|null},
+            {"check": "memory_headroom",     "passed": true|false, "blocking": true|false, "detail": "...", "available_gb": N, "required_gb": N},
+            {"check": "timeout_coherent",    "passed": true|false, "blocking": true|false, "detail": "...", "job_timeout_passed": true|false, "design_route": "..."},
+            {"check": "guards_present",      "passed": true|false, "blocking": true|false, "detail": "...", "found": {"input_confinement": true|false, "patch_caps": true|false, "redaction": true|false, "disk_guard": true|false, "explain_mode": true|false, "deferral_counter": true|false, "admission": "handler-side|operator-limit|follow-up|MISSING"}},
+            {"check": "guards_wired",        "passed": true|false, "blocking": true|false, "detail": "...", "probes": [{"probe": "nonexistent-path-outside-allowlist", "expected": "terminal confinement string", "observed": "...", "ordering_correct": true|false}, {"probe": "allowed-existing-file", "expected": "success", "observed": "..."}]},
+            {"check": "model_digest",        "passed": true|false, "blocking": false,      "detail": "...", "recorded": "...", "observed": "...", "matches": true|false},
+            {"check": "patch_output_dir",    "passed": true|false, "blocking": true|false, "detail": "...", "path": "...", "inside_repo": true|false, "writable": true|false, "free_gb": N},
+            {"check": "ollama_concurrency",  "passed": true|false, "blocking": false,      "detail": "...", "num_parallel": "...", "max_loaded_models": "..."}
+          ],
+          "blocking_failures": [...],
+          "config_valid": true|false,
+          "remediation": [{"finding": "...", "fix": "...", "who": "install-stage|user"}]
+        }
+
+      config_valid is true only when no check with blocking true failed.
+      Report honestly: a check you could not perform is passed=false with a
+      detail saying why, never passed=true by default.
+    agent:
+      role: unit-validator
+      model: sonnet
+      tools: [Bash, Read, Grep, Glob, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: config_validation
+        mode: generate
+        description: >
+          config-validation.json recording whether the installed daemon
+          config, lock location, memory headroom, timeout settings and
+          Ollama concurrency match what the design assumed.
+    writes_to:
+      - validation/config-validation.json
+    validates_output:
+      - path: validation/config-validation.json
+        checks: [is_json, has_key:checks, has_key:config_valid]
+
+  # ===========================================================================
+  # G8: Verify — a real job through the real queue, plus an idempotence re-run
+  # ===========================================================================
+  - name: verify
+    # publish, not execute: this stage enqueues and drains REAL jobs in the
+    # user's queue. The skill's convention authorizes external state changes
+    # only from a publish stage, and the generated execute prompt tells the
+    # agent there are none — which would contradict the checks below. install
+    # is publish for the same reason.
+    kind: publish
+    depends_on: [validate-config]
+    reads_from: [validate-config, install, design, integrate]
+    description: >
+      Prove the stack works end to end, and prove the install is idempotent.
+
+      This stage MUTATES live state — it enqueues real jobs into the real
+      queue and drains them — which is why it is declared read-write. Keep
+      that mutation to the minimum the checks below require: never requeue,
+      purge, or delete anything, and never touch a job you did not enqueue.
+
+      Read {workspace}/validation/config-validation.json FIRST. If
+      config_valid is false, do NOT enqueue anything: a blocking config
+      failure means the guards this workflow relies on are not in place, and
+      running a real generation could be exactly the memory event the guard
+      exists to prevent. Record the blocking findings, write verified=false
+      with a clear reason, and stop.
+
+      Read {workspace}/validation/install.json. If skipped or all_ok is false,
+      record what could not be verified and why — do not fabricate a pass.
+
+      Check A — IDEMPOTENCE. Re-run the five read-only CHECK commands from the
+      install stage (command -v ollama, the /api/tags curl, ollama list,
+      launchctl list, the queue dirs). Every one must now report
+      already-satisfied. Any check that still reports "needs action" means the
+      install did not converge — that is a real failure, report it as one.
+      Run only the checks; do not re-run the actions.
+
+      Check B — REAL JOB THROUGH THE REAL QUEUE. Use the actual CLI, not a
+      Python harness that imports the handler directly — the point is to prove
+      the wiring from CLI to registry to handler to result:
+
+        1. Confirm the new type is exposed:
+             ./bin/worker enqueue --help
+           "{job_type}" must appear in --type's choices, since they derive
+           from HANDLERS.keys(). If it does not, the registry line never
+           landed — stop and report that.
+
+           Run this from THIS worktree, so the CLI imports the code this run
+           built. Confirm it first — a bare `python3 -c "import worker"` from
+           a worktree resolves to the MAIN CHECKOUT (probe-verified
+           2026-09-22, no inherited PYTHONPATH needed), and an inherited
+           PYTHONPATH can redirect it elsewhere again:
+             PYTHONPATH="$PWD/src" python3 -c "import worker; print(worker.__file__)"
+           The path must be under this worktree's src/. If it is not, stop:
+           nothing below proves anything about this run's code.
+
+           Note the `./bin/worker` wrapper does NOT have this problem — it
+           resolves its repo root through the symlink and inserts that src/
+           itself. The bare interpreter is the hazard, so the check above
+           exists to confirm the ENVIRONMENT, not the wrapper.
+
+           This proves the CLI process sees the handler. It does NOT prove
+           the DAEMON does, and per install.json's daemon_serves_this_code
+           the daemon most likely does NOT — it runs the main checkout, which
+           lacks this handler until the branch merges. Consequences for the
+           checks below:
+             - Drain jobs YOURSELF from this worktree with
+               `./bin/worker run-once`. Do not wait for the daemon.
+             - If the daemon IS running and shares the same queue root, it
+               may claim your job first and fail it as an unknown handler —
+               a terminal failure, no retry. If a job lands in error/ with an
+               unknown-handler message, that is this race, not a defect in
+               the handler: record it as such, re-enqueue, and drain
+               immediately yourself.
+             - Do NOT restart or reconfigure the daemon to work around this.
+               It is correctly installed for after the merge; the mismatch is
+               expected during the run and must be reported, not papered over.
+        2. Enqueue a small, real job against a file that exists in this
+           checkout, with an instruction whose correct answer is obvious and
+           checkable (e.g. add a docstring to one small function). Capture the
+           job id.
+        3. Drain it — but mind the race. If the launchd daemon installed at
+           the previous stage is running, it is polling this same queue every
+           5 seconds with --max-per-tick 8, so it may claim your job before
+           you do, and `run-once --max 1` takes whatever sits at the head of
+           the priority order, which may be an unrelated real job of the
+           user's. Both outcomes corrupt this check: one makes you read a job
+           you did not drain, the other burns an attempt on someone's work.
+
+           CHECKING AFTERWARDS IS NOT ENOUGH, and this is the part that needs
+           care: `run-once` has no id or type selector, so by the time you
+           notice it drained the wrong job, you have already executed a real
+           job of the user's and consumed one of its attempts. Detecting the
+           mismatch repairs the REPORT, not the damage. The precondition must
+           be made safe before you run it at all.
+
+           So, in this order:
+
+           a. Re-read your job by id (`./bin/worker show <job_id>`). If the
+              daemon already moved it to done/ or error/, that IS a valid
+              end-to-end drain — record that the daemon processed it and skip
+              run-once entirely. This is the preferred path.
+
+           b. If it is still pending, check what else is pending BEFORE
+              draining: `./bin/worker list`. If the pending count is 1, your
+              job is unambiguously the head and `./bin/worker run-once --max 1`
+              is safe. Run it.
+
+           c. If anything else is pending, do NOT run run-once. You cannot
+              target your job and must not execute someone else's. Either
+              wait briefly and re-check (a) in case the daemon takes yours, or
+              record the check as "not-verifiable — queue contended, N other
+              jobs pending" and move on. A skipped check reported honestly is
+              worth more than a green one bought by burning a stranger's job.
+
+           d. Whichever path ran, confirm the job you read back is the id you
+              enqueued before reporting its result as yours.
+
+           Do not start a daemon here, and do not sleep-poll in a loop; if a
+           wait is needed, bound it.
+        4. Read the result: ./bin/worker show <job_id>
+        5. Assert against contract.json's result_schema: the job is in done/
+           (not error/), the result carries a patch, and the patch passes
+           `git apply --check`. Do NOT apply the patch — this workflow's whole
+           contract is that patches are produced for review, never applied.
+
+      Check C — NO REGRESSION IN EXISTING JOB TYPES. The heartbeat change
+      touched shared queue code. Enqueue one trivial run_shell job
+      (something like `echo ok`) and confirm it still completes into done/.
+      A green qwen job with a broken run_shell path is a net loss.
+
+      DRAIN IT THE SAME WAY CHECK B DOES — the safety gate is not optional
+      here just because the job is trivial. A bare `./bin/worker run-once`
+      defaults to --max 5 and takes whatever sits at the head of the global
+      priority order, so it can execute up to five unrelated jobs of the
+      user's and consume their attempts, while this check is only trying to
+      prove run_shell still works. Reuse Check B's sequence exactly:
+        a. read your job back by id first — if the daemon already handled it,
+           that is a valid drain and you are done;
+        b. otherwise check `./bin/worker list` and drain with
+           `./bin/worker run-once --max 1` ONLY when your job is
+           unambiguously the single pending entry;
+        c. if anything else is pending, record this check as
+           "not-verifiable — queue contended" rather than draining;
+        d. confirm the job you read back is the id you enqueued.
+
+      THE COUNT IS ADVISORY. A job can be enqueued between the `list` and the
+      `run-once`, and `run-once` has only `--max` and `--backoff` — no id or
+      type selector — so nothing above makes the claim id-scoped. Step (d)
+      corrects the REPORT after a mis-drain; it does not prevent one, and a
+      stranger's job has already lost an attempt by then. There is no
+      isolated-queue fallback either: the queue root is hardcoded in
+      worker/_helpers.py:42 with no override.
+
+      So treat (c) as the DEFAULT on any doubt rather than a last resort.
+      Draining is justified only when the queue is provably quiet; a check
+      recorded as not-verifiable is an honest result, while consuming
+      someone else's attempt to produce evidence is not.
+
+      Check D — TELEMETRY LANDED AND IS QUERYABLE. Run
+      `./bin/telemetry otel health` first. If the collector is not running,
+      record telemetry as "not verifiable — collector down" and do NOT treat
+      that as a failure of this workflow; the design makes export best-effort,
+      and Check B already proved the job succeeds regardless.
+
+      If the collector IS running, prove the span from Check B's job is both
+      on disk and visible through the CLI — these are different claims, and
+      only the second one matters to a user:
+        - Find the job id in the span data (`./bin/telemetry otel inspect`
+          or events-search, whichever the survey recorded as matching).
+        - Confirm the span's attributes include the model and outcome, and
+          that NO cost attribute is present.
+        - Confirm `./bin/telemetry otel sessions` / `cost` still run without
+          error with this record present. A malformed record that breaks an
+          existing query is a regression in the telemetry CLI, not a
+          telemetry success — report it as a failure.
+
+      Check E0 — THE GUARDS HOLD AGAINST A REAL JOB, cheaply. Run these
+      BEFORE any real generation: they cost no model time and they are the
+      checks whose failure matters most.
+
+        1. EXPLAIN MODE. Enqueue a job with the explain flag from
+           contract.json and an ordinary repo file. Drain it. The result must
+           report the resolved file list and prompt size, and must show the
+           model was never called. This also confirms the whole enqueue →
+           handler → result path works before spending a generation on it.
+
+        2. PATH CONFINEMENT, live. Enqueue an explain-mode job whose files
+           list names a path OUTSIDE the repo — use a harmless one such as
+           /etc/hosts, never a real secret; the point is to prove the guard
+           fires, and pointing a test at ~/.ssh would be reckless even
+           expecting rejection. The job must fail TERMINALLY with the
+           contract's "terminal-path-not-allowed" string, and its attempts
+           must NOT climb to max_attempts. Confirm the rejected path appears
+           in the error but no file contents do.
+
+      Check E — THE CONCURRENCY GUARD ACTUALLY HOLDS, live. Unit tests prove
+      the lock logic; this proves it under the real daemon, which is where
+      the 8-wide batch actually happens.
+
+      Enqueue TWO {job_type} jobs back to back, then drain — under the SAME
+      queue-contention gate as Checks B and C, adjusted for two jobs. This
+      check needs `run-once --max 2`, which widens the blast radius rather
+      than narrowing it: `run-once` has no id or type selector, so on a
+      contended queue it can claim two of the user's unrelated jobs, consume
+      their attempts, and leave this stage reporting on jobs it never
+      enqueued.
+        a. Read both jobs back by id first. If the daemon already handled
+           them, that is a valid drain — prefer it, and skip run-once.
+        b. Otherwise check `./bin/worker list`. Drain with
+           `./bin/worker run-once --max 2` ONLY when YOUR TWO jobs are
+           unambiguously the only pending entries.
+        a0. THE COUNT CHECK IS NOT ATOMIC, and on a shared queue it cannot
+           be made so from here: a producer can enqueue between the list and
+           the drain, and `run-once` has no id or type filter to scope the
+           claim. So treat step b as necessary-but-not-sufficient, and
+           VERIFY AFTER THE FACT rather than trusting the precondition:
+           after draining, confirm the jobs you read back carry the two ids
+           you enqueued (step d). If they do not, you drained someone else's
+           work — report the check as INVALID, say which ids you actually
+           saw, and do NOT present its outcome as concurrency evidence. An
+           after-the-fact mismatch is recoverable as a reporting problem;
+           presenting a contaminated drain as proof is not.
+
+           Prefer the daemon path in step a whenever it is available, since
+           it takes the real lock and involves no `run-once` at all.
+        c. If anything else is pending, do NOT drain. Record the check as
+           "not-verifiable — queue contended" and set concurrency_guard.held
+           to null rather than true. An unproven guard must never be
+           reported as a held one; this is the guard whose failure means two
+           14B models in memory at once.
+        d. Confirm the two jobs you read back carry the two ids you
+           enqueued, before drawing any conclusion from their outcomes.
+
+      Read both back by
+      id and confirm the model was never generating for both at once — the
+      evidence is that one job completed and the other returned the
+      "deferred-" busy string from contract.json and was re-queued with its
+      attempts UNCHANGED (read the attempts field on both).
+
+      Do NOT accept "they completed sequentially, with the second job's start
+      timestamp at or after the first job's finish" as evidence — that branch
+      was deliberately removed and must not be re-added. queue_ops.py's
+      start_processing() records processing_started_at at CLAIM time, before
+      the handler ever attempts the concurrency lock, so two jobs claimed in
+      the same tick have overlapping-or-ordered timestamps whether or not the
+      lock actually serialized their model calls. A timestamp comparison
+      cannot distinguish "the lock worked" from "the lock did nothing and the
+      jobs happened to be processed in claim order." The explicit
+      deferred-outcome branch above is the only evidence that actually proves
+      the lock was held and honoured.
+
+      If the design's telemetry emits per-job model-call start/end spans (not
+      queue timestamps), you may cite those as an alternative: two spans with
+      non-overlapping model-call intervals is real evidence, because the span
+      brackets the model call itself rather than the claim. Do not substitute
+      any other timestamp source for the deferred-outcome check.
+
+      If both ran concurrently, that is a blocking failure — say so plainly
+      rather than reporting a green end-to-end run. Keep this to two jobs:
+      the point is to prove the guard, not to stress the machine.
+
+      Write {workspace}/validation/verify.json:
+        {
+          "guards_live": {"explain_mode": {"job_id": "...", "model_called": false, "reported": [...]}, "path_confinement": {"job_id": "...", "outcome": "terminal-path-not-allowed", "attempts": N, "contents_leaked": false}, "held": true|false},
+          "concurrency_guard": {"jobs": ["...", "..."], "outcome": "one-deferred|span-non-overlapping|CONCURRENT", "attempts_unchanged_on_deferred": true|false, "held": true|false},
+          "idempotence": {"all_already_satisfied": true|false, "checks": [...]},
+          "job_flow": {"type_in_cli_choices": true|false, "job_id": "...", "final_state": "done|error|...", "patch_present": true|false, "git_apply_check_passed": true|false, "patch_path": "..."},
+          "regression": {"run_shell_ok": true|false, "detail": "..."},
+          "telemetry": {"collector_up": true|false, "span_found": true|false, "attributes_present": [...], "cost_attribute_absent": true|false, "existing_queries_ok": true|false, "detail": "..."},
+          "verified": true|false,
+          "failures": [...]
+        }
+      Before writing your result, self-check each of these; every one must
+      hold or verify.json must record why it does not:
+        - The idempotence checks were actually re-run, and each reported
+          already-satisfied.
+        - A real job was enqueued through ./bin/worker and its id recorded,
+          and the job you read back is that same id.
+        - The resulting patch was validated with `git apply --check` and NOT
+          applied.
+        - An existing run_shell job still completes, proving no regression in
+          the shared queue code.
+        - Telemetry was either confirmed queryable via ./bin/telemetry otel,
+          or recorded as not-verifiable with the collector down — never
+          assumed either way.
+        - Explain mode ran without calling the model, and a path outside the
+          repo was rejected terminally without leaking contents.
+        - The concurrency guard was exercised with two real jobs and held.
+        - verified is true only if checks A, B, C, E0 and E genuinely passed.
+          D may be not-verifiable without failing the stage.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Bash, Read, Write]
+      # read-write because Checks B and C enqueue and drain real jobs; the
+      # stage is scoped to touch only jobs it created itself.
+      access: read-write
+    required: true
+    outputs:
+      - name: verification
+        mode: generate
+        description: >
+          verify.json recording idempotence re-checks, a real end-to-end job
+          through the CLI, and a no-regression check on existing job types.
+    writes_to:
+      - validation/verify.json
+    validates_output:
+      - path: validation/verify.json
+        checks: [is_json, has_key:idempotence, has_key:job_flow, has_key:verified]
+
+  # ===========================================================================
+  # G9: Acceptance — judge the run against the definition of done
+  # ===========================================================================
+  - name: acceptance
+    kind: execute
+    depends_on: [verify]
+    reads_from: [verify, validate-config, install, integrate, adversarial-test-review, merge-impl, impl-tests, design]
+    description: >
+      Decide whether this run actually succeeded, by reading the VALUES in
+      the prior stages' JSON and judging them against the DEFINITION OF DONE
+      in this workflow's description (D1-D11). This stage exists because the
+      per-stage validates_output checks are structural only: the engine's
+      has_key asserts a key is present, not that it is true, so every stage
+      can be green while the system does not work.
+
+      READ-ONLY. Judge; do not fix. A failed criterion is a finding for the
+      report and the user, not something to repair here — a run that quietly
+      patches itself at the last stage cannot be trusted to have succeeded.
+
+      For each criterion, read the specific field and record the actual
+      value you read, not a restatement of intent:
+
+        D1  verify.json job_flow.type_in_cli_choices
+        D2  integrate.json tests.summary_line, tests.failures, tests.errors,
+            and tests.ran compared against tests-impl.json's test_count
+        D3  integrate.json qlty.clean and typecheck_changed.clean
+        D4  test-review.json blocking findings vs integrate.json's
+            review_findings_fixed / review_findings_deferred — every blocker
+            must appear in one of those two lists
+        D5  merge.json all_landed, files_missing (must be empty), and each
+            verified[].is_ancestor_of_head
+        D6  verify.json idempotence.all_already_satisfied
+        D7  config-validation.json config_valid and blocking_failures
+        D8  verify.json job_flow.final_state == "done",
+            git_apply_check_passed true, and patch_present true. Confirm the
+            patch was NOT applied — job_flow must not report an application.
+        D9  verify.json guards_live.path_confinement.outcome (the terminal
+            string) with contents_leaked false, and
+            concurrency_guard.outcome != "CONCURRENT"
+        D10 verify.json regression.run_shell_ok
+        D11 bin/qwen exists and is executable (check the file mode), and
+            install/report list the real submit/read/apply commands
+        D12 merge.json's verified[].checkpoints_failed is empty and
+            checkpoints_passed matches the count the design called for
+        D13 merge.json's verified[].commit_shas_reachable, or the report
+            declares a single-PR spike
+
+      Then classify the run:
+        - "success" — every criterion met.
+        - "partial" — every criterion met EXCEPT one or both of the two
+          expected cases named in the definition of done (telemetry
+          unverifiable with the collector down; daemon_serves_this_code
+          false). Name which, and say what the user must do about it.
+        - "failed" — anything else unmet. Do not soften this. A run that
+          produced code but no working patch is a failed run with useful
+          artifacts, and saying so plainly is more useful than a green
+          summary.
+
+      If a criterion cannot be evaluated because an upstream file is missing
+      or malformed, record it as "unevaluable" with the reason — never as
+      met. An unevaluable criterion makes the overall result "failed", since
+      the evidence for success does not exist.
+
+      Write {workspace}/validation/acceptance.json:
+        {
+          "criteria": [
+            {"id": "D1", "met": true|false|"unevaluable", "source": "<file.field>", "observed": "<the actual value>", "detail": "..."}
+          ],
+          "met_count": N,
+          "unmet": ["D..."],
+          "unevaluable": ["D..."],
+          "expected_exceptions": [{"id": "D...", "reason": "collector-down|daemon-serves-other-tree", "user_action": "..."}],
+          "result": "success|partial|failed",
+          "one_line_verdict": "..."
+        }
+    agent:
+      role: unit-validator
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: acceptance
+        mode: generate
+        description: >
+          acceptance.json judging the run against D1-D11 with the observed
+          value behind each verdict, and an overall success/partial/failed
+          result.
+    writes_to:
+      - validation/acceptance.json
+    validates_output:
+      - path: validation/acceptance.json
+        checks: [is_json, has_key:criteria, has_key:result, has_key:one_line_verdict]
+
+  # ===========================================================================
+  # G10: Report — what shipped, what it costs, how to use it
+  # ===========================================================================
+  - name: report
+    kind: propose
+    depends_on: [acceptance]
+    reads_from: [acceptance, verify, validate-config, install, integrate, merge-impl, design, survey]
+    description: >
+      Read every prior stage output and write {workspace}/validation/report.md.
+      Cite the stage files for each claim; do not restate intent as outcome.
+
+      ## Qwen Local Handler — Report
+
+      ### Result
+      Lead with acceptance.json's result and one_line_verdict — success,
+      partial or failed — before anything else. Then a table of D1-D11 with
+      met/unmet and the observed value behind each. If the result is
+      "partial", state which expected exception applied and what the user
+      must do. If "failed", say so in the first line: a reader who stops
+      after this section must not come away thinking the run worked.
+
+      ### What shipped
+      Files created and modified, from merge.json's files_present list, with
+      the per-stage commit SHAs from its "verified" entries (each carries
+      stage, commit_sha and is_ancestor_of_head — there is no branch field,
+      so do not report one). Note any stage merge.json recorded under
+      no_change_stages, with its reason — a stage that legitimately shipped
+      nothing is not a gap.
+
+      ### Design decisions
+      One line each for the five contract.json sections, plus the standing
+      decision this workflow encoded: the queue was extended, not replaced,
+      and patches are produced for review rather than applied.
+
+      ### Gate results
+      | Gate | Result |
+      |------|--------|
+      Tests (with the literal "Ran N tests" line), qlty, typecheck-changed —
+      from integrate.json.
+
+      ### Install state
+      One row per install.json step: already-satisfied vs changed. List
+      manual_steps_required prominently if non-empty.
+
+      ### Configuration
+      One row per config-validation.json check. Lead with any blocking
+      failure. State the daemon's max-inflight alongside the handler lock,
+      since the pair is what bounds concurrent generations — and say plainly
+      that the queue's caps are global, so the lock is the only per-type
+      protection. Include the memory headroom snapshot and note it is a
+      snapshot. List remediation entries with who owns each.
+
+      ### Verification
+      Idempotence, the end-to-end job (id, final state, patch path), and the
+      run_shell no-regression result, from verify.json.
+
+      ### How to use it
+      Lead with `./bin/qwen` — the entry point from contract.json's
+      entry_point section — not with a hand-assembled `--payload-json` blob.
+      Give the three commands a user actually needs, copy-pasteable and with
+      real values from this run:
+        - submit a patch job (files + instruction)
+        - read the result and find the patch
+        - the `git apply` command to run after reviewing it
+      State plainly that neither the workflow nor bin/qwen ever applies a
+      patch: that is the reviewer's step, by design.
+      Mention the raw `worker enqueue --payload-json` form only as a
+      fallback, since quoting a multi-line instruction through shell and JSON
+      is exactly what the wrapper exists to avoid.
+
+      ### How to ship it
+      The three PR boundaries from the workflow description, with the actual
+      commit SHAs from handler-impl.json's commit_shas, so whoever opens the
+      PRs can do it mechanically. For each: its title, the files it contains,
+      and what a reviewer should focus on. State whether the post-integrate
+      stages (install, validate-config, verify) were run against the combined
+      branch or after partial merges — a reviewer needs to know which PRs the
+      end-to-end evidence actually covers.
+
+      If the run took the single-PR spike path, say so here in the first
+      line, with the diff size, so nobody is surprised by it.
+
+      ### Thresholds: estimate vs observed
+      A table of the guard thresholds from contract.json (the 5m list)
+      alongside anything this run actually measured — generation duration,
+      patch files/lines, peak memory, deferral counts. Say which estimates
+      the run gave evidence for, which it did not exercise at all, and which
+      look wrong. This is the calibration data the design stage had to guess
+      without, and it is the main reason to re-read this report later.
+
+      ### Known limits and next steps
+      Honest list. Include anything verify.json put in "failures", the context
+      window ceiling from the design, and whatever was deferred — the model
+      sizing note if the machine is under 24GB, and any manual install step.
+      State plainly whether the daemon serves this code (install.json's
+      daemon_serves_this_code): if false, the handler works from this
+      worktree but background jobs will not run until the branch merges to
+      main, which is the single most important caveat for anyone trying to
+      use this afterwards.
+      If any gate or check failed, lead with that rather than burying it.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: final_report
+        mode: generate
+        description: >
+          report.md summarizing shipped files, design decisions, gate results,
+          install state, verification, usage, and honest known limits.
+    writes_to:
+      - validation/report.md

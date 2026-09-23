@@ -17,9 +17,52 @@ Supports `--agentic`: `./bin/workflow --agentic --agentic-format yaml --agentic-
 ./bin/workflow init-workspace workflow.yaml  # create workspace + manifest
 ./bin/workflow resume <workspace-dir>      # show which stages need re-running
 ./bin/workflow validate-fragment frag.yaml # validate a workflow fragment
+./bin/workflow check-params "<ws>/manifest.json" --check 'name=regex'  # guard a param
+./bin/workflow parse-overview "<ws>/outputs/threads.json" --pr N --out "<ws>/outputs/review-overview.json"
+./bin/workflow check-paths <path> [<path> ...]                          # refuse escaping/protected paths
+./bin/workflow check-fix-index "<ws>/outputs/fix-index.json"            # id / file_id gate
+./bin/workflow thread-fingerprints "<ws>/outputs/threads.json"          # per-thread discriminators
+./bin/workflow check-thread-ids "<ws>/outputs/threads.json" "<ws>/outputs/triage.json" [--repair]
+./bin/workflow aggregate-fix-results "<ws>/outputs/fix-index.json" "<ws>/outputs/fixes" "<ws>/outputs/fix-results.json"
 ```
 
+Stage guards. Each one reads untrusted values as JSON data from a workspace
+file (never from argv). Exit 0 means pass, 1 means fail. Errors go to stderr
+and name an entry, never its rejected value.
+
+- `check-params` validates params against `--check name=regex` (full match,
+  repeatable). It reads the manifest's `trigger_params`, or the document root
+  with `--top-level`, for stage outputs such as `handler.json`. `--print name`
+  writes that one value to stdout only if every check passed, and only for a
+  name some `--check` covers. It lets a stage write `X=$(...)` instead of
+  interpolating a raw param.
+- `check-fix-index` checks that every fix-index entry has a unique string
+  `id` and a unique `file_id` matching `[A-Za-z0-9][A-Za-z0-9._-]{0,199}`.
+- `check-paths` exits 1 and prints `REFUSED <reason>: <path>` for any path that
+  escapes the repo or is protected (`.git`, `.github/`, `.claude/`, `.envrc`).
+- `parse-overview` parses Copilot overview review bodies from a threads.json
+  into linked and unlinked findings, each with an `id` and a `file_id`. See
+  `core/copilot_overview.py`.
+- `thread-fingerprints` prints JSON `[{index, thread_id, database_id,
+  body_fingerprint}]` for a threads.json. It is the one tested body hash.
+- `check-thread-ids` is the review-fix-threads id-coherence gate. It skips null
+  ids. Each other id must exist in the fetch and match the discriminator triage
+  recorded (`database_id`, or `fingerprint` as a fallback), so swapped ids
+  halt. A coordinate-only difference halts unless `--repair` is given, which
+  rewrites triage.json and records `_id_repairs`. See `review_ids.py`.
+- `aggregate-fix-results` merges `fixes/<file_id>.json` into fix-results.json
+  on `id`, never `thread_id`. A file counts only if its name is an expected
+  `file_id` and its in-file `id` and `thread_id` equal that entry's; otherwise
+  it is a `key_mismatch` and its finding is reported missing.
+
 `run` defaults to dry-run; pass `--execute` to execute. `--params key=value` overrides trigger parameters (repeatable).
+
+Constrain overridable params with `trigger.param_rules` (name → full-match regex)
+and `trigger.required` (names that must be non-blank). The engine enforces both in
+`compile_workflow`, before any `{param}` is substituted, so `compile`, `run`, and
+`init-workspace` all exit 1 on a violation. A blank optional param is exempt from
+its rule. Errors name the param, never the value. Fragments may declare rules too,
+and every rule that applies to a param must pass. See `param_rules.py`.
 
 ## Architecture
 
@@ -58,7 +101,7 @@ Set `human_gate: true` on any stage to pause execution for human review after th
 
 ## Key Modules
 
-- `cli.py` — CLIApp-based dispatch; 9 subcommands; `_emit_one`/`_emit_rows` delegate to `core.cli_output`
+- `cli.py` — CLIApp-based dispatch; `_emit_one`/`_emit_rows` delegate to `core.cli_output`
 - `cli_dispatch.py` — argument resolution; errors raise `CLIError` (not `SystemExit`)
 - `cli_compile.py` — `_cmd_compile` implementation
 - `compiler.py` — BFS topological sort; `WorkflowCompileError` subclasses `CLIError`; splits human-gated stages into isolated groups
@@ -71,6 +114,8 @@ Set `human_gate: true` on any stage to pause execution for human review after th
 - `models.py` — `StageKind`, `ResolvedStage`, `WorkflowManifest`, `WorkflowRun` dataclasses
 - `linter.py` — structural lint checks
 - `output_checks.py` — post-stage output validation
+- `param_guard.py` — `check-params`: validate params read as JSON data
+- `review_ids.py` — `check-fix-index`, `thread-fingerprints`, `check-thread-ids`, `aggregate-fix-results`
 
 ## Tests
 

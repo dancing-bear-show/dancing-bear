@@ -39,10 +39,31 @@ def get_repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+WORKER_STATE_DIR_ENV = "DANCING_BEAR_WORKER_STATE_DIR"
+
+
 def get_worker_state_dir(subdir: str = "queue") -> Path:
-    """Return the worker state directory under ~/Library/Application Support/dancing-bear."""
-    app_support = Path.home() / "Library" / "Application Support" / "dancing-bear"
-    return app_support / subdir
+    """Return a worker state directory (queue, logs, ...).
+
+    Defaults to ~/Library/Application Support/dancing-bear/<subdir>. Setting
+    DANCING_BEAR_WORKER_STATE_DIR replaces that base, which gives a process a
+    fully private queue: nothing else enqueues into it, and the launchd daemon,
+    started without the variable, never sees it. This is the seam for running
+    real jobs without touching the user's shared queue. Redirecting HOME would
+    do the same but also redirects git's configuration, which is why a
+    dedicated variable exists. A relative value is resolved against the
+    current directory.
+
+    Read at call time; note queue_ops computes QUEUE_ROOT once at import, so
+    the variable must be in the environment when the process starts.
+    """
+    override = os.environ.get(WORKER_STATE_DIR_ENV, "").strip()
+    base = (
+        Path(override).expanduser().resolve()
+        if override
+        else Path.home() / "Library" / "Application Support" / "dancing-bear"
+    )
+    return base / subdir
 
 
 # ---------------------------------------------------------------------------
@@ -92,4 +113,6 @@ def _get_log_dir() -> Path:
     env_dir = os.environ.get("SRE_LOG_DIR") or os.environ.get("DANCING_BEAR_LOG_DIR")
     if env_dir:
         return Path(env_dir)
-    return Path.home() / "Library" / "Application Support" / "dancing-bear" / "logs"
+    # Through get_worker_state_dir, so DANCING_BEAR_WORKER_STATE_DIR moves the
+    # logs along with the queue instead of leaving them in the shared location.
+    return get_worker_state_dir("logs")

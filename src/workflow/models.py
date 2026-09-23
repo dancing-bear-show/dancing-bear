@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from workflow.param_guard import ParamCheck
+
 __all__ = [
     # Enums
     "StageKind",
@@ -26,6 +28,7 @@ __all__ = [
     "FanOutMode",
     "FanOutSpec",
     "IncludeSpec",
+    "ParamRules",
     "OutputCheck",
     "OutputSpec",
     "DomainRule",
@@ -300,11 +303,31 @@ class StageSpec:
 
 
 @dataclass(frozen=True)
+class ParamRules:
+    """Engine-enforced constraints on trigger params (``param_rules`` + ``required``).
+
+    ``checks`` may hold several patterns for one name -- one from the workflow
+    and one from each included fragment that constrains it -- and a value must
+    satisfy ALL of them. Enforced by ``workflow.param_rules`` before any
+    ``{param}`` is substituted into stage text.
+    """
+
+    checks: tuple[ParamCheck, ...] = ()
+    required: frozenset[str] = frozenset()
+
+    def merged(self, other: ParamRules) -> ParamRules:
+        """Combine two rule sets: every pattern from both applies; required is a union."""
+        extra = tuple(c for c in other.checks if c not in self.checks)
+        return ParamRules(checks=self.checks + extra, required=self.required | other.required)
+
+
+@dataclass(frozen=True)
 class TriggerSpec:
     """Declares what initiates a workflow."""
 
     source: str  # noqa - manual, schedule, webhook, etc.
     params: dict[str, str] = field(default_factory=dict)  # noqa
+    rules: ParamRules = field(default_factory=ParamRules)
 
 
 @dataclass(frozen=True)
