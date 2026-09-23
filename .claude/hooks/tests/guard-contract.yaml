@@ -403,12 +403,64 @@ promises:
       - {what: "fd duplication",        tool: Bash, input: "make test 2>&1",               expect: allow}
       - {what: "fd duplication, 1>&2",  tool: Bash, input: "cmd 1>&2",                     expect: allow}
       - {what: "truncate size operand", tool: Bash, input: "truncate -s 0 /tmp/log",       expect: allow}
-      - {what: "unexpanded variable",   tool: Bash, input: "echo x > $OUT",                expect: allow}
+      # Was `allow`, from when the Bash branch scanned strings and a `$` token had to be
+      # waved through to avoid refusing it as a new root file. With a parser the value is
+      # known to be UNKNOWN -- and $OUT may be src/mail/cli.py. Unknowable write targets
+      # fail closed; see the next group.
+      - {what: "unexpanded variable",   tool: Bash, input: "echo x > $OUT",                expect: block}
       - {what: "touch an artifact",     tool: Bash, input: "touch outputs/marker",         expect: allow}
       - {what: "tee to tmp",            tool: Bash, input: "tee /tmp/out.log",             expect: allow}
       # `>&file` is a real write, not a descriptor -- it only duplicates when a DIGIT
       # follows. Distinguishing them wrongly reinstated an earlier round's bypass.
       - {what: ">&file is a write",     tool: Bash, input: "echo x >&AGENTS.md",           expect: block}
+
+  - group: "What the shell decides at run time fails closed"
+    why: >
+      The Bash branch now parses rather than scans, and the parser can say something
+      the scanner never could: "this value is not known until the shell runs." A
+      variable, a command substitution or an unparseable construct in a position that
+      decides a write is refused, never guessed. Positions that only READ stay open,
+      or the role could not use a loop variable at all.
+    cases:
+      - {what: "variable target",         tool: Bash, input: "P=src/x.py; echo x > $P",         expect: block}
+      - {what: "IFS-spliced target",      tool: Bash, input: "echo x > src${IFS}/mail/cli.py",  expect: block}
+      - {what: "substituted target",      tool: Bash, input: "echo x > $(printf AGENTS.md)",    expect: block}
+      - {what: "unknown command name",    tool: Bash, input: "$CMD src/mail/cli.py",            expect: block}
+      - {what: "eval of a variable",      tool: Bash, input: "eval \"$CMD\"",                   expect: block}
+      - {what: "program on stdin",        tool: Bash, input: "echo 'rm -rf src' | bash",        expect: block}
+      - {what: "xargs into a mutator",    tool: Bash, input: "find src -name x | xargs rm",     expect: block}
+      - {what: "unparseable command",     tool: Bash, input: "echo 'unterminated > src/x",      expect: block}
+      - {what: "variable in a read",      tool: Bash, input: "grep -rn \"$PAT\" src/",          expect: allow}
+      - {what: "loop variable in a read", tool: Bash, input: "for f in src/*.py; do wc -l \"$f\"; done", expect: allow}
+      - {what: "substitution in a read",  tool: Bash, input: "wc -l $(git ls-files src)",       expect: allow}
+
+  - group: "Shell grammar cannot smuggle a write past the parser"
+    why: >
+      Each row is a spelling the string scanner could not see through, because each
+      is a rule of the shell grammar rather than a character pattern: quote joining,
+      escapes, $'...', brace expansion, substitution bodies (which RUN wherever they
+      sit), compound-command keywords, and wrappers that exec their arguments.
+    cases:
+      - {what: "quote-joined word",   tool: Bash, input: "rm -rf \"s\"r'c'",                  expect: block}
+      - {what: "backslash escape",    tool: Bash, input: "rm -rf s\\rc",                      expect: block}
+      - {what: "ANSI-C string",       tool: Bash, input: "rm -rf $'\\x73rc'",                 expect: block}
+      - {what: "brace expansion",     tool: Bash, input: "rm -rf {src,tmpx}",                 expect: block}
+      - {what: "command subst body",  tool: Bash, input: "cat $(rm -rf src)",                 expect: block}
+      - {what: "backtick body",       tool: Bash, input: "cat `touch src/x.py`",              expect: block}
+      - {what: "process subst body",  tool: Bash, input: "tee >(cat > src/x.py) < /tmp/y",    expect: block}
+      - {what: "heredoc subst runs",  tool: Bash, input: "cat <<EOF\n$(rm -rf src)\nEOF",     expect: block}
+      - {what: "quoted heredoc data", tool: Bash, input: "cat <<'EOF' > /tmp/o.md\nrm -rf src\nEOF", expect: allow}
+      - {what: "for loop body",       tool: Bash, input: "for f in a; do rm -rf src; done",   expect: block}
+      - {what: "if body",             tool: Bash, input: "if true; then rm -rf src; fi",      expect: block}
+      - {what: "brace group redirect", tool: Bash, input: "{ echo x; } > src/x.py",           expect: block}
+      - {what: "env wrapper",         tool: Bash, input: "env rm -rf src",                    expect: block}
+      - {what: "bash -c string",      tool: Bash, input: "bash -c 'rm -rf src'",              expect: block}
+      - {what: "find -exec",          tool: Bash, input: "find src -exec rm {} +",            expect: block}
+      - {what: "long-option prefix",  tool: Bash, input: "cp --target=src /tmp/e.py",         expect: block}
+      - {what: "[[ > ]] compares",    tool: Bash, input: "[[ a > b ]] && echo ok",            expect: allow}
+      - {what: "(( > )) compares",    tool: Bash, input: "(( 2 > 1 )) && echo ok",            expect: allow}
+      - {what: "comment is not code", tool: Bash, input: "echo x # > src/x.py",               expect: allow}
+      - {what: "rm -- dash file",     tool: Bash, input: "rm -- -probe.py",                   expect: allow}
 
   - group: "The Edit tool is bound like Write"
     why: >

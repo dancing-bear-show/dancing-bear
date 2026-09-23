@@ -55,22 +55,22 @@
 #     us. There is no grammar to approximate: the path we judge is the path that gets
 #     written. If it resolves under a guarded prefix, the call is blocked, full stop.
 #
-#   Bash -- WEAK, and structurally so. Added because the Write-only version was
-#     trivially bypassable (`echo x > src/mail/cli.py` never reached this hook), which
-#     review caught. But it works by scanning a COMMAND STRING for operands that look
-#     like guarded paths, and block-destructive-bash.sh's header documents four rounds
-#     of adversarial review finding 68 holes in exactly that approach. Everything it
-#     says applies here verbatim: `> src${IFS}/x.py`, a path in a variable, a quote-
-#     concatenated filename, `python3 -c "open(...)"` with a computed name -- all reach
-#     the shell. Fixing them individually means writing a bash parser.
+#   Bash -- PARSED, and still weaker than Write/Edit. The first version scanned the
+#     command string for operands that looked like guarded paths; fourteen review rounds
+#     on PR #395 found the same defect in a new spelling each time. It now runs a real
+#     shell parser (_bash_write_targets.py): quoting, redirections, separators, compound
+#     commands, substitutions and per-command option grammars are parsed rather than
+#     pattern-matched, and anything decided at run time -- `> $P`, `> src${IFS}/x.py`,
+#     `$(...)` in a write position, an unparseable construct -- is REFUSED, not guessed.
 #
-# So: the Bash branch raises the cost of an accidental source edit from zero to
-# noticeable. It does not make the boundary unbypassable, and nothing here should be
-# read as saying it does. The strong guarantee is on Write/Edit only.
+#     What remains out of reach is command SEMANTICS, not grammar: which files a
+#     program writes once it runs. `python3 -c "open(...)"`, `make`, `git checkout --
+#     src/x`, a script file, or any mutating tool missing from the analyser's command
+#     table all reach the shell. That is why the strong guarantee is still claimed for
+#     Write/Edit only.
 #
-# Both branches are still worth having. An agent that reflexively runs
-# `sed -i` on a file it was reading is the realistic failure, not an agent
-# deliberately assembling a path from $IFS to evade a hook.
+# An agent that reflexively runs `sed -i` on a file it was reading is the realistic
+# failure, and the Bash branch catches it in every spelling the shell accepts.
 #
 # Deliberately NOT a git query. `git ls-files <path>` would be a truer test of
 # "tracked", but it forks a process on every Write, answers "no" for a new file inside
@@ -272,9 +272,10 @@ _is_repo_root_file() { # _is_repo_root_file <repo-relative-path> [strict] -> 0 i
     # source at the root. The dash filter belongs to the Bash side alone.
     return 0
   fi
-  # Non-strict (Bash): operands really can be flags, and a dash-led one is never a
-  # filename we should refuse.
-  case "$1" in -*) return 1 ;; esac
+  # Non-strict (Bash). There used to be a dash filter here -- "a dash-led operand is a
+  # flag, never a filename" -- because the string scanner could not tell the two apart.
+  # The analyser parses options per command, so a flag never reaches this function; a
+  # dash-led word that does is an operand after `--`, i.e. a real filename.
   [ -e "$REPO_ROOT/$1" ]
 }
 
@@ -283,139 +284,6 @@ _is_repo_root_file() { # _is_repo_root_file <repo-relative-path> [strict] -> 0 i
 # Shared by the Write/Edit and Bash branches so the two cannot drift into disagreeing
 # about what counts as source. A path one tool refuses and the other permits is the
 # same shape of hole as a pair of guards disagreeing about what a template is.
-# _option_values <args...> -> the VALUES glued onto options, as separate tokens.
-#
-# `--directory=src` and `-tsrc` are each ONE token starting with `-`, so the `-*` flag
-# filter downstream discarded them -- and the destination went with them. Both forms are
-# unglued here so the path survives as its own operand.
-#
-# Both spellings are emitted for every caller in the mutator group rather than for the
-# one command review named: `patch --directory=src` was the reported case, but rounds
-# 10, 12 and 13 each found the same shape in a different command (cp, install, mv,
-# patch, ln), which is what fixing instances instead of the class costs.
-_option_values() {
-  local a
-  for a in "$@"; do
-    case "$a" in
-      --*=*) printf '%s ' "${a#*=}" ;;
-      --*) ;;
-      -[tdDo]?*) printf '%s ' "${a#-?}" ;;   # -tsrc, -dsrc, -osrc
-    esac
-  done
-}
-
-# _attached_opt_value <letter> <args...> -> prints the value of an ATTACHED short
-# option, e.g. `-tsrc` for letter `t`.
-#
-# coreutils accepts `install -tsrc file` and `ln -tsrc file` as well as the
-# separated `-t src`. The separated form was parsed and the attached one fell
-# through the `-*` flag filter, taking the destination with it. `ln -tsrc` was worse
-# than a miss: the cluster contains an `s`, so it also read as `-s` and switched the
-# arm to symlink semantics.
-_attached_opt_value() {
-  local letter="$1" a
-  shift
-  for a in "$@"; do
-    case "$a" in
-      --*) ;;                                  # long option, not a cluster
-      -"$letter"?*) printf '%s' "${a#-"$letter"}"; return ;;
-    esac
-  done
-}
-
-# _cluster_flags <cluster> <value-taking letters...> -> the flag letters in a short
-# option cluster, stopping at the first letter that takes an ATTACHED value.
-#
-# `-tsrc` is `-t` plus the directory `src`, not a cluster of -t -s -r -c. Scanning the
-# raw token for a letter therefore reads the VALUE as flags: `ln -tsrc /tmp/x` looked
-# symbolic because `src` contains an `s`, and symbolic ln treats its source operand as
-# a harmless read -- so a hard link into a tracked path was allowed. Same shape would
-# hit `install -tdir` on the `-d` test.
-_cluster_flags() {
-  local cluster="$1" rest out="" c v
-  shift
-  rest="$cluster"
-  while [ -n "$rest" ]; do
-    c=${rest%"${rest#?}"}          # first character
-    out="$out$c"
-    for v in "$@"; do
-      [ "$c" = "$v" ] && { printf '%s' "$out"; return; }
-    done
-    rest=${rest#?}
-  done
-  printf '%s' "$out"
-}
-
-# _drop_opt_values <args...> -> the operands, with the VALUE of any separated
-# value-taking short option removed.
-#
-# `truncate -s 0 /tmp/log` puts the size `0` in the operand list, indistinguishable by
-# position from a filename. Harmless while operands were classified non-strictly (no
-# repo-root file is named `0`), and an over-block the moment they are judged strictly.
-# Same shape as `2>&1`'s descriptor, handled at normalisation for the same reason.
-#
-# Only the separated spelling needs this: `-s0` is one token that the `-*` filter
-# already drops, and `--size=0` is unglued by _option_values into a value that
-# classifies as ok.
-_drop_opt_values() {
-  local a skip=0 out=""
-  for a in "$@"; do
-    if [ "$skip" -eq 1 ]; then skip=0; continue; fi
-    case "$a" in
-      -s|-c|-n|-m|-o|--size|--bytes|--lines|--mode|--output) skip=1 ;;
-    esac
-    out="$out $a"
-  done
-  printf '%s' "$out"
-}
-
-# _target_dir <args...> -> prints the -t/--target-directory VALUE, or nothing.
-#
-# Covers all three spellings coreutils accepts, because cp, install, ln and mv each
-# handled a different subset and each was wrong in its own way:
-#   --target-directory=src          one token, discarded by the `-*` filter downstream
-#   -t src / --target-directory src value is the NEXT token
-#   -tsrc                           attached short option, which read as a flag and vanished
-#
-# The separated form's old inline version tested
-# `[ "$_prev" = "-t" ] || [ "$_prev" = "--target-directory" ] && _tdir="$a"` with no
-# grouping, and its `*)` branch matched `-t` itself -- so `-t` became its own target.
-# One helper, so a fix lands on every caller rather than on the single command review
-# happened to name. Four separate rounds found this same bug in cp, install, mv and
-# patch before it was written down as one shape.
-_target_dir() {
-  local a prev="" v
-  for a in "$@"; do
-    case "$a" in
-      --target-directory=*) printf '%s' "${a#--target-directory=}"; return ;;
-    esac
-  done
-  v=$(_attached_opt_value t "$@")
-  if [ -n "$v" ]; then printf '%s' "$v"; return; fi
-  for a in "$@"; do
-    if [ "$prev" = "-t" ] || [ "$prev" = "--target-directory" ]; then
-      printf '%s' "$a"; return
-    fi
-    prev="$a"
-  done
-}
-
-# _last_operand <args...> -> prints the final non-flag operand, or nothing.
-#
-# Replaces an inline `set -- $(...); for _ in $(seq 1 $(( $# - 1 ))); do shift; done;
-# printf $1` that CRASHED under `set -u` whenever every argument was a flag: `$#`
-# was 0, so `$1` was unbound and the hook exited 1. Exit 1 is neither block (2) nor
-# allow (0) -- _harness.sh documents that a hook dying this way was historically
-# reported as ALLOW, which makes a crash worse than a wrong decision. Found by
-# review as `install -tsrc /tmp/evil.py`.
-_last_operand() {
-  local a last=""
-  for a in "$@"; do
-    case "$a" in -*) ;; *) last="$a" ;; esac
-  done
-  printf '%s' "$last"
-}
-
 classify_path() {
   # Two statements, not `local p="$1" rel="$p"`. In a single `local`, bash expands the
   # later initialiser before the earlier assignment is visible, so `rel="$p"` read an
@@ -769,7 +637,7 @@ classify_path() {
 TOOL=$(jq -r '.tool_name // ""' <<< "$PAYLOAD" 2>/dev/null || echo "")
 
 # ---------------------------------------------------------------------------
-# Bash branch -- weak by construction; see the SCOPE note above.
+# Bash branch -- parsed, not scanned; see the SCOPE note above.
 # ---------------------------------------------------------------------------
 if [ "$TOOL" = "Bash" ]; then
   if ! CMD=$(jq -er '.tool_input.command' <<< "$PAYLOAD" 2>/dev/null); then
@@ -789,369 +657,109 @@ if [ "$TOOL" = "Bash" ]; then
     exit 2
   fi
 
-  # WHY THIS IS NOT A BARE OPERAND SCAN.
+  # WHY A PARSER, AND WHY THIS SHAPE.
   #
-  # block-destructive-bash.sh scans every operand regardless of command word, and says
-  # at length why. That is right for ITS question ("does this command touch a
-  # credential file at all?"), because reading a secret is as bad as writing one.
+  # This branch used to find write targets by substituting characters in the raw
+  # command string and word-splitting what was left. Fourteen review rounds on PR #395
+  # each found the same defect in a new spelling: `>&`, a separator glued to a target,
+  # `--target-directory=src`, `-tsrc`, the `s` of `-tsrc` read as `-s`, the `0` of
+  # `truncate -s 0`. Each is one rule of the shell grammar, and a string scanner has to
+  # rediscover every rule as a separate bug. _bash_write_targets.py parses instead:
+  # quoting, redirections, command separators, compound commands, substitutions, and
+  # per-command option grammars. See its docstring for the full model.
   #
-  # It is wrong here, and the first version of this branch got it wrong: the question
-  # is "does this command MODIFY source?", and a read does not. Scanning every operand
-  # blocked `cat src/mail/cli.py`, `grep -rn AppMeta src/`, `rg --files src/` and
-  # `./bin/workflow list` -- reading and running the repo is the researcher's entire
-  # job, so that version made the role useless. Caught by the suite's ALLOW half, which
-  # is why both halves are asserted.
+  # The division of labour is deliberate:
+  #   * the analyser answers "which paths does this command WRITE?" -- grammar
+  #   * classify_path answers "is that path tracked source?" -- policy
+  # classify_path stays here, shared with Write/Edit, so the two branches still cannot
+  # drift into disagreeing about what counts as source.
   #
-  # So a token is judged only where it is a WRITE TARGET:
-  #   * the operand of an output redirect (`> path`, `>> path`, `>| path`, `>& path`), or
-  #   * an operand of a command word that is unambiguously mutating.
+  # What the parser adds that the scanner could not express at all is REFUSAL. A
+  # variable, a command substitution or an unparseable construct in a position that
+  # decides a write is reported as unknowable, and this branch blocks on it -- where
+  # the scanner either guessed from the literal text or silently let it through.
   #
-  # The command-word list is the weak part and is knowingly incomplete -- see the SCOPE
-  # note at the top. `/bin/sed` is handled by matching on the basename, but a mutating
-  # tool nobody listed still passes. That is the documented limit, not an oversight.
+  # `python3 -I -S`, never bare `python3`: hooks run with the session's environment, and
+  # a foreign PYTHONPATH would run that tree's sitecustomize.py before the analyser
+  # starts. Located beside this script rather than via CLAUDE_PROJECT_DIR, so a global
+  # install that copies both files keeps working, and one that copies only this file
+  # fails closed below instead of running some other checkout's analyser.
+  _analyser="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)/_bash_write_targets.py"
+  if [ ! -f "$_analyser" ]; then
+    echo "Blocked: the Bash analyser is missing ($_analyser)." >&2
+    echo "It must sit beside this hook. Failing closed rather than allowing an" >&2
+    echo "uninspected $AGENT command." >&2
+    exit 2
+  fi
 
-  # 1. Redirect targets. Normalise every output-redirect spelling to a `>` marker plus
-  #    the token, so the target is identifiable whatever the operator and spacing.
-  #
-  #    `>&` MUST be rewritten before the generic `>` arm. Left to the generic arm,
-  #    `echo x >&src/mail/cli.py` becomes `> &src/mail/cli.py` -- the token still
-  #    carries a leading `&`, so classify_path judges "&src/mail/cli.py", matches
-  #    nothing, and the write goes through. Review found that live; the suite pins it.
-  #    (`>&1` and friends are digits, not paths, so they classify as ok and cost
-  #    nothing.)
-  #
-  #    SEPARATORS GLUED TO THE TARGET must be split before word-splitting, or they
-  #    stay attached to it: `echo x >AGENTS.md; make test` yields the token
-  #    `AGENTS.md;`. Prefix rules tolerate that (`src/mail/cli.py;` still starts with
-  #    `src/`, which is why a src/ example appeared to be safe), but every EXACT
-  #    comparison fails on it -- repo-root files, the bare directory token, the repo
-  #    root itself. So `echo x >AGENTS.md; make test` wrote a root policy file while
-  #    `echo x >src/...; make test` was blocked by luck. Split them here rather than
-  #    trimming the token later, so one normalisation serves every rule.
-  redir=${CMD//>>/ >}
-  redir=${redir//>|/ >}
-  # `>&` is TWO different operators sharing a spelling, and they must not collapse to
-  # the same marker once redirect targets are classified strictly:
-  #   `echo x >&AGENTS.md`  -- a real write to a file
-  #   `make test 2>&1`      -- duplicates a file descriptor; writes no file
-  # Both used to normalise to `>`, and the resulting bare `1` was harmless only because
-  # the NON-strict path requires a root file to already exist (none is named `1`).
-  # Strict classification drops that existence test, so `1` would be judged a new
-  # repo-root file and refused -- breaking `make test 2>&1`, which is this repo's own
-  # documented way to run its suite. A descriptor is not a filename, so it is marked
-  # apart here rather than being distinguished after the fact.
-  # ...but ONLY when a DIGIT follows. `>&1` duplicates a descriptor; `>&AGENTS.md` is
-  # an ordinary write, and an earlier round found it as a live bypass. Marking every
-  # `>&` as a descriptor reinstated that bypass -- caught here by the suite's BLOCK
-  # half, one edit after the ALLOW half caught the opposite mistake.
-  redir=${redir//>&0/ >FD }
-  redir=${redir//>&1/ >FD }
-  redir=${redir//>&2/ >FD }
-  redir=${redir//>&/ >}
-  redir=${redir//>/ > }
-  redir=${redir//&&/ }
-  redir=${redir//||/ }
-  redir=${redir//;/ }
-  redir=${redir//|/ }
-  redir=${redir//&/ }
-  redir=${redir//$'\n'/ }
-  redir=${redir//$'\r'/ }
-  # Tokens are collected into TWO lists, because strictness is a property of the TOKEN,
-  # not of the tool:
-  #
-  #   strict_targets -- unambiguous write destinations: a redirect operand, or the
-  #     destination of a known mutator. These are filenames the shell is about to
-  #     create, exactly like Write's `file_path`, so a repo-root name is guarded
-  #     whether or not it exists yet.
-  #   targets -- everything else, judged non-strictly.
-  #
-  # Split because `echo x > new.py` and `touch new.py` CREATED new source at the repo
-  # root while `Write new.py` was blocked. Round 11 made the existence test
-  # tool-dependent; that was the right idea applied at the wrong granularity, since one
-  # Bash command string mixes both kinds -- `rm -rf srcfoo` and the `1` of `2>&1` are
-  # bare words that must stay non-strict, while the operand of `>` is a path by
-  # construction.
-  targets=""
-  strict_targets=""
-  prev=""
-  for tok in $redir; do
-    if [ "$prev" = ">" ]; then
-      strict_targets="$strict_targets $tok"
+  # Records are NUL-terminated because a path may contain a newline. `OK` must be the
+  # LAST record: a missing python3, a crash or a truncated stream all end without it,
+  # and each of those is a block -- the analyser dying must never read as approval.
+  _saw_ok=0
+  _bad_record=0
+  _refusal=""
+  _strict=()
+  _loose=()
+  while IFS= read -r -d '' _rec; do
+    if [ "$_saw_ok" -eq 1 ]; then
+      _bad_record=1
+      continue
     fi
-    prev="$tok"
-  done
-
-  # 2. WRITE DESTINATIONS of mutating command words -- not every operand.
-  #
-  #    Treating every operand as a target contradicted this branch's own
-  #    write-target-only design, and blocked ordinary reads: `cp src/mail/cli.py
-  #    /tmp/copy.py` (a normal way to produce an artifact) and `sed -n '1,5p'
-  #    src/mail/cli.py` (prints, writes nothing) were both refused. Review caught it.
-  #
-  #    So the commands split into three shapes:
-  #      * LAST-ARG writers (cp, mv, install, ln) -- only the final operand is the
-  #        destination; everything before it is a source being read.
-  #      * ALL-ARG writers (rm, rmdir, truncate, touch, shred, unlink, chmod, chown,
-  #        patch, tee) -- every operand is acted on.
-  #      * CONDITIONAL writers (sed, dd) -- sed rewrites only with -i; dd writes only
-  #        to its of= operand. Without those, they read.
-  #
-  #    Split on separators so each segment is judged against its own leading command
-  #    word -- `cat a.py && sed -i '' b.py` must not let the harmless first half
-  #    vouch for the second.
-  #    NEWLINES and a bare `&` are separators too, and omitting them was a hole rather
-  #    than a nicety: `read -ra` consumes only the first physical line, so everything
-  #    after a newline was never inspected at all -- `cat README.md\nsed -i '' …
-  #    src/mail/cli.py` was allowed outright. `&` backgrounds the first command and
-  #    starts a second, so it splits for the same reason `&&` does. Order matters:
-  #    `&&` must be replaced before the bare `&`, or it becomes two empty separators.
-  segs=${CMD//&&/;}
-  segs=${segs//||/;}
-  segs=${segs//|/;}
-  segs=${segs//&/;}
-  segs=${segs//$'\n'/;}
-  segs=${segs//$'\r'/;}
-  IFS=';' read -ra _segments <<< "$segs"
-  for seg in "${_segments[@]}"; do
-    # shellcheck disable=SC2086
-    set -- $seg
-    [ "$#" -gt 0 ] || continue
-    word=${1##*/}          # /bin/sed -> sed
-    word=${word#\\}        # \sed     -> sed
-    case "$word" in
-      touch|tee|truncate)
-        # CREATING mutators, so their operands are STRICT: each of these brings a
-        # named file into existence, which makes the operand a filename by
-        # construction -- the same standing as a redirect target or Write's file_path.
-        # Without this, `touch new.py` created new source at the repo root while
-        # `Write new.py` was blocked, because the root-file rule required the file to
-        # already exist.
-        #
-        # Split from the group below by MEASUREMENT, not by reading: each command was
-        # run against a non-existent path to see whether a file appeared. touch, tee
-        # and truncate create; rm, rmdir, unlink, shred, chmod and chown all error.
-        shift
-        strict_targets="$strict_targets $(_option_values "$@") $(_drop_opt_values "$@")"
-        ;;
-      rm|rmdir|shred|unlink|chmod|chown|patch)
-        # NON-creating mutators, so their operands stay NON-strict. These act on a
-        # file that must already exist, and their operands are bare shell words rather
-        # than paths by construction: `rm -rf srcfoo` names nothing and must not be
-        # refused as a new repo-root file. Making this group strict re-introduced
-        # exactly the over-blocking the existence test was added to prevent, and the
-        # suite's ALLOW half caught it.
-        #
-        # `patch` belongs here rather than with the creating group: it can create a
-        # file, but only one the DIFF names -- never the bare operand.
-        #
-        # `_option_values` unglues `--opt=path` and `-tpath` forms so a path hidden in
-        # an option value survives the `-*` filter downstream. Applied to the whole
-        # group rather than to the one command review named: `patch --directory=src`
-        # was the reported case, but the shape is the same for any of these, and
-        # fixing instances one at a time is what produced rounds 10, 12 and 13 finding
-        # it separately in cp, install, mv, patch and ln.
-        shift
-        targets="$targets $(_option_values "$@") $*"
-        ;;
-      install)
-        # Wrong in BOTH directions before this, which is why it needs its own arm:
-        #   install --target-directory=src /tmp/evil.py   -- the destination hides in
-        #     an option VALUE, and the `-*` filter skipped it, so the write was allowed
-        #   install src/mail/cli.py /tmp/copy.py          -- an ordinary copy READS the
-        #     source, and treating every operand as a target refused it
-        # With -d every operand is a directory being created; otherwise the shape
-        # matches cp -- last operand is the destination, the rest are sources.
-        shift
-        _dmode=0
-        for a in "$@"; do
-          case "$a" in
-            -d|--directory) _dmode=1 ;;
-            --*) ;;
-            # Clustered, e.g. -vd -- but NOT the `d` of `install -tdir`, which is part
-            # of the attached value. See _cluster_flags.
-            -*) case "$(_cluster_flags "${a#-}" t)" in *d*) _dmode=1 ;; esac ;;
-          esac
-        done
-        _idir=$(_target_dir "$@")
-        if [ -n "$_idir" ]; then
-          strict_targets="$strict_targets $_idir"
-        elif [ "$_dmode" -eq 1 ]; then
-          # -d creates each operand as a directory.
-          for a in "$@"; do
-            case "$a" in -*) ;; *) targets="$targets $a" ;; esac
-          done
-        else
-          strict_targets="$strict_targets $(_last_operand "$@")"
-        fi
-        ;;
-      ln)
-        # A HARD link is a second NAME for the same inode, so every operand matters --
-        # including the source, which `cp` treats as a harmless read.
-        #
-        # `ln src/mail/cli.py /tmp/out` was allowed under the cp model (only the
-        # destination classified), and a later Write to /tmp/out then edited the
-        # TRACKED FILE. No amount of path resolution finds that: the two names are
-        # equally real and neither is a link to the other. This is a different class
-        # from every symlink fix on this branch, which are all about FOLLOWING a link.
-        #
-        # So for `ln` without -s, every operand is a target. With -s it is a symlink
-        # and the cp model is right -- creating a symlink writes only the link itself,
-        # and the symlink resolver above catches a later write through it.
-        shift
-        _symbolic=0
-        for a in "$@"; do
-          case "$a" in
-            -s|--symbolic) _symbolic=1 ;;
-            --*) ;;
-            # `-tsrc` is `-t` with an ATTACHED VALUE, not a cluster: everything after
-            # the `t` is a directory NAME, so scanning the whole token for an `s` read
-            # the `s` of `src` as `-s` and switched this arm to symlink semantics --
-            # which treats the source operand as a harmless read. _cluster_flags stops
-            # at the first value-taking letter, so only `-vs`-style letters count.
-            -*) case "$(_cluster_flags "${a#-}" t)" in *s*) _symbolic=1 ;; esac ;;
-          esac
-        done
-        if [ "$_symbolic" -eq 0 ]; then
-          # Every operand is a target here -- but `-tsrc` and `--target-directory=src`
-          # are single tokens starting with `-`, so the `-*` filter downstream drops
-          # them and the destination directory goes with them. `_option_values` unglues
-          # both spellings back into their own operands.
-          targets="$targets $(_option_values "$@") $*"
-          continue
-        fi
-        _tdir=$(_target_dir "$@")
-        if [ -n "$_tdir" ]; then
-          strict_targets="$strict_targets $_tdir"
-        else
-          strict_targets="$strict_targets $(_last_operand "$@")"
-        fi
-        ;;
-      cp)
-        # Normally the final operand is written. `cp a b c dir/` writes into dir/
-        # alone, and the earlier operands are sources being READ -- blocking those is
-        # what made `cp src/mail/cli.py /tmp/copy.py` fail.
-        #
-        # EXCEPT with -t/--target-directory, which moves the destination to the front
-        # and makes every positional operand a source. `cp -t src /tmp/evil.py` writes
-        # under src/ while the last-operand rule looked only at /tmp/evil.py and
-        # allowed it. Review found that; the suite pins both spellings.
-        shift
-        _tdir=$(_target_dir "$@")
-        if [ -n "$_tdir" ]; then
-          strict_targets="$strict_targets $_tdir"
-        else
-          strict_targets="$strict_targets $(_last_operand "$@")"
-        fi
-        ;;
-      mv)
-        # mv is NOT like cp: it REMOVES the source. `mv src /tmp/elsewhere` destroys
-        # the tree just as surely as `rm -rf src`, so both ends are write targets.
-        #
-        # Every operand is already a target, so `-t src` is covered -- but
-        # `--target-directory=src` is ONE token that the `-*` filter downstream
-        # discards as a flag, taking the destination with it. Unglued here so the
-        # value survives as its own operand.
-        shift
-        targets="$targets $(_option_values "$@") $*"
-        ;;
-      sed)
-        # Rewrites in place only with -i. Without it, sed reads and prints.
-        #
-        # Detected by SHAPE, not by listing spellings. The previous version enumerated
-        # `-i`, `-i.`, `--in-place` and two quoted forms, and missed `-iE` and `-Ei` --
-        # both of which edit in place on GNU and BSD sed. Enumerating option spellings
-        # drifts exactly like enumerating tracked files did, so: any short-option
-        # cluster containing `i`, or the long form, counts.
-        _inplace=0
-        for a in "$@"; do
-          case "$a" in
-            --in-place*) _inplace=1 ;;
-            --*) ;;                       # some other long option
-            -*)
-              # A short-option cluster: -i, -iE, -Ei, -i.bak, -n -i, …
-              case "${a#-}" in
-                *i*) _inplace=1 ;;
-              esac
-              ;;
-          esac
-        done
-        if [ "$_inplace" -eq 1 ]; then
-          shift
-          targets="$targets $*"
-        fi
-        ;;
-      dd)
-        # Writes only to of=; if= is the input.
-        for a in "$@"; do
-          case "$a" in
-            of=*) targets="$targets ${a#of=}" ;;
-          esac
-        done
-        ;;
+    case "$_rec" in
+      OK)  _saw_ok=1 ;;
+      U*)  [ -n "$_refusal" ] || _refusal=${_rec#U} ;;
+      T1*) _strict+=("${_rec#T1}") ;;
+      T0*) _loose+=("${_rec#T0}") ;;
+      *)   _bad_record=1 ;;
     esac
-  done
+  done < <(printf '%s' "$PAYLOAD" | python3 -I -S "$_analyser" "$REPO_ROOT" 2>/dev/null)
 
-  # Strip quoting so `"src/x.py"` and `'src/x.py'` are seen as the path they contain.
-  targets=${targets//\"/ }
-  targets=${targets//\'/ }
+  if [ "$_saw_ok" -ne 1 ] || [ "$_bad_record" -ne 0 ]; then
+    echo "Blocked: the Bash analyser did not complete for a $AGENT command." >&2
+    echo "  ($_analyser -- is python3 on PATH?)" >&2
+    echo "Failing closed rather than allowing an uninspected command." >&2
+    exit 2
+  fi
 
-  strict_targets=${strict_targets//\"/ }
-  strict_targets=${strict_targets//\'/ }
+  if [ -n "$_refusal" ]; then
+    echo "Blocked: cannot tell what this $AGENT command writes." >&2
+    echo "  reason: $_refusal" >&2
+    echo "" >&2
+    echo "This guard parses the command and refuses what it cannot see through, rather" >&2
+    echo "than guessing: a value decided at run time could name tracked source. Spell" >&2
+    echo "write targets as literal paths, or write artifacts with the Write tool." >&2
+    exit 2
+  fi
 
-  # Tag each token with its strictness and walk one list. The tag is a prefix added and
-  # removed here rather than a sentinel VALUE in the list, because a sentinel is itself
-  # a legal filename and nothing would stop an operand from matching it.
-  tagged=""
-  for tok in $strict_targets; do tagged="$tagged 1:$tok"; done
-  for tok in $targets;        do tagged="$tagged 0:$tok"; done
-
-  for tagged_tok in $tagged; do
-    tok_strict=${tagged_tok%%:*}
-    tok=${tagged_tok#*:}
-    case "$tok" in
-      ""|-*) continue ;;   # empty, or a flag rather than a path
-    esac
-    # A token carrying unexpanded shell syntax is not a literal filename, whatever its
-    # provenance: `> $P` is a redirect, but `$P` is not the name of the file that gets
-    # written. Judging it strictly made it a new repo-root file and refused the command.
-    # These are the Bash branch's documented weak spot -- the value is unknowable from
-    # here -- so they fall back to the non-strict reading rather than being invented.
-    case "$tok" in
-      *'$'*|*'`'*|*'*'*|*'?'*|*'['*) tok_strict=0 ;;
-    esac
-    # A digits-only token is a size, a file descriptor, a line count or an exit code --
-    # never a source filename. Strict classification would read it as a NEW repo-root
-    # file (no existence test) and refuse the command. A repo-root file that really is
-    # named `0` is still caught by the non-strict path's existence test.
-    case "$tok" in
-      *[!0-9]*) ;;
-      ?*) tok_strict=0 ;;
-    esac
-    # A duplicated file descriptor (`2>&1`), not a filename. Marked at normalisation
-    # time; see the `>&` note above.
-    [ "$tok" = "FD" ] && continue
-    verdict=$(classify_path "$tok" "" "$tok_strict")
-    # An empty verdict means classify_path died rather than decided (see the note in
-    # that function). Refuse instead of reading the silence as approval.
+  _judge() { # _judge <strict> <path>; exits 2 on a guarded path
+    local verdict
+    verdict=$(classify_path "$2" "" "$1")
+    # An empty verdict means classify_path died rather than decided. Refuse instead of
+    # reading the silence as approval.
     if [ -z "$verdict" ]; then
-      echo "Blocked: path classification failed for token '$tok' in a $AGENT command." >&2
+      echo "Blocked: path classification failed for '$2' in a $AGENT command." >&2
       echo "Failing closed rather than allowing an unclassified operand." >&2
       exit 2
     fi
     if [ "${verdict#guarded:}" != "$verdict" ]; then
       echo "Blocked: the $AGENT role may not modify tracked source via Bash." >&2
-      echo "  command references: $tok" >&2
+      echo "  command writes: $2" >&2
       echo "  reason: ${verdict#guarded:}" >&2
       echo "" >&2
       echo "This role's definition (.claude/agents/$AGENT.md) states it never modifies" >&2
       echo "source, and forbids routing around that with sed -i, > redirects, or patch." >&2
       echo "Report what needs changing instead; implementing is another role's job." >&2
       echo "" >&2
-      echo "Reading these files is fine -- this only blocks commands naming them as" >&2
-      echo "operands. If you only meant to read one, use the Read tool." >&2
+      echo "Reading these files is fine -- this only blocks commands that WRITE them." >&2
+      echo "If you only meant to read one, use the Read tool." >&2
       exit 2
     fi
-  done
+  }
+
+  # `${a[@]+"${a[@]}"}`: an empty array under `set -u` is an unbound-variable error on
+  # bash < 4.4, and that exit 1 would be neither block nor allow.
+  for _t in ${_strict[@]+"${_strict[@]}"}; do _judge 1 "$_t"; done
+  for _t in ${_loose[@]+"${_loose[@]}"}; do _judge 0 "$_t"; done
   exit 0
 fi
 
