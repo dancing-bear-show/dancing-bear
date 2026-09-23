@@ -69,6 +69,12 @@ def _undo_retry_attempt(job_stem: str, original_attempts: int, q_root: Path) -> 
         pass
 
 
+def _processing_stems(root: Path) -> set[str]:
+    """Return the job stems currently in processing/ under ``root``."""
+    folder = q._ensure_dirs(root)["processing"]
+    return {p.stem for p in q._list_job_paths(folder)}
+
+
 # ============================================================================
 # Dataclasses
 # ============================================================================
@@ -377,11 +383,24 @@ class DaemonRunner:
             for stem in [s for s, t in self._live_threads.items() if not t.is_alive()]:
                 del self._live_threads[stem]
 
+    def _process_one_guarded(self, job_path: Path, job_data: dict[str, object]) -> int:
+        """Run ``process_one`` in a worker thread, logging any escaped exception.
+
+        Shared thread target for both the daemon tick and run_once, so an
+        error raised outside SafeProcessor (bad job metadata, queue I/O)
+        never surfaces as an uncaught thread exception.
+        """
+        try:
+            return self.processor.process_one(job_path, job_data)
+        except Exception:  # nosec B110 - thread boundary; logged, counted as processed
+            logger.exception("worker job %s raised outside the handler", job_path.stem)
+            return 1
+
     def _start_batch(self, items: list[tuple[Path, dict[str, object]]]) -> int:
         """Start one thread per item without joining; register and return count started."""
         started = 0
         for p, d in items:
-            t = threading.Thread(target=self.processor.process_one, args=(p, d), daemon=True)
+            t = threading.Thread(target=self._process_one_guarded, args=(p, d), daemon=True)
             with self._registry_lock:
                 self._live_threads[p.stem] = t
             t.start()
@@ -391,25 +410,32 @@ class DaemonRunner:
     def _calculate_allowed_jobs(self) -> int:
         """Calculate how many jobs can be started based on max_inflight cap.
 
-        Counts both the on-disk processing/ count and live registry threads,
-        since a started thread may not have renamed its job into processing/
-        yet. When max_inflight is unbounded (<= 0), live threads are still
-        capped at max_per_tick to preserve today's effective concurrency
-        rather than spawning unboundedly.
+        In-flight = every job in processing/ (ours or another worker's, e.g.
+        a concurrent ``worker run-once``) plus live local threads whose job
+        is not in processing/ yet (started but not past the rename). A
+        finished-but-unpruned thread whose job already left processing/ also
+        counts as unrepresented; that over-counts by at most one tick, which
+        is the conservative direction. When max_inflight is unbounded
+        (<= 0), live threads are still capped at max_per_tick to preserve
+        today's effective concurrency rather than spawning unboundedly.
         """
         with self._registry_lock:
-            live = len(self._live_threads)
-        if self.config.max_inflight > 0:
-            try:
-                cur_proc = int(counts(root=q.QUEUE_ROOT).get("processing", 0))
-                in_flight = max(cur_proc, live)
-                return max(
-                    0,
-                    min(self.config.max_per_tick, self.config.max_inflight - in_flight),
-                )
-            except Exception:  # nosec B110 - fallback to max_per_tick
-                return self.config.max_per_tick
-        return max(0, self.config.max_per_tick - live)
+            live_stems = set(self._live_threads)
+        live = len(live_stems)
+        if self.config.max_inflight <= 0:
+            return max(0, self.config.max_per_tick - live)
+        try:
+            # List stems before counting: a rename landing between the two
+            # reads is then counted twice (safe) rather than missed.
+            unrepresented = live_stems - _processing_stems(q.QUEUE_ROOT)
+            cur_proc = int(counts(root=q.QUEUE_ROOT).get("processing", 0))
+            in_flight = cur_proc + len(unrepresented)
+        except Exception:  # nosec B110 - unreadable queue; fall back to live threads only
+            in_flight = live
+        return max(
+            0,
+            min(self.config.max_per_tick, self.config.max_inflight - in_flight),
+        )
 
     def _run_once_batch(self) -> int:
         """Process one batch of jobs, blocking until every job finishes.
@@ -440,11 +466,8 @@ class DaemonRunner:
             _effective_job_timeout(d, self.config.job_timeout) for _, d in items
         ]
 
-        def _run(idx: int, pth: Path, dat: dict[str, object]):
-            try:
-                results[idx] = self.processor.process_one(pth, dat)
-            except Exception:  # nosec B110 - thread safety; result defaults to 1
-                results[idx] = 1
+        def _run(idx: int, pth: Path, dat: dict[str, object]) -> None:
+            results[idx] = self._process_one_guarded(pth, dat)
 
         for i, (p, d) in enumerate(items):
             t = threading.Thread(target=_run, args=(i, p, d), daemon=True)

@@ -6,7 +6,9 @@ completing other work, capacity accounting must account for started-but-not-
 yet-processing threads, an already-claimed job must not be dispatched twice,
 unbounded max_inflight must still cap live threads at max_per_tick, run_once
 must keep blocking until its batch finishes, and finished threads must be
-pruned so capacity recovers.
+pruned so capacity recovers. Also: an exception escaping process_one stays
+inside its thread, another worker's processing/ job counts against
+max_inflight, and a counts() failure still subtracts live threads.
 """
 
 from __future__ import annotations
@@ -305,21 +307,115 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_run_once_still_blocks_until_batch_finishes(self):
         """required_tests[4]: run_once still blocks until every job in its
-        batch has finished."""
-        enqueue(Job(id="ro1", type="cheap", payload={}), root=self.root)
+        batch has finished.
+
+        One job is gated on an Event, so "run_once has not returned" is
+        observed while the gate is provably closed rather than inferred
+        from timing."""
+        gate = threading.Event()
+        self.addCleanup(gate.set)  # before _drain_threads: never park a thread on failure
+        slow = _BlockingHandler(gate)
+        enqueue(Job(id="ro1", type="slow", payload={}), root=self.root)
         enqueue(Job(id="ro2", type="cheap", payload={}), root=self.root)
         runner = _make_runner(self.root, max_per_tick=5, max_inflight=0)
+        results: list[int] = []
 
         with _patch_queue_root(self.root), \
-             patch.dict("worker.job_runtime.HANDLERS", {"cheap": _cheap_handler}, clear=False):
-            result = runner.run_once()
+             patch.dict("worker.job_runtime.HANDLERS", {"slow": slow, "cheap": _cheap_handler}, clear=False):
+            caller = threading.Thread(target=lambda: results.append(runner.run_once()), daemon=True)
+            caller.start()
+            self.assertTrue(slow.started.wait(timeout=5), "gated job never started")
+            self.assertTrue(
+                _wait_for(lambda: (self.root / "done" / "ro2.json").exists(), timeout=5),
+                "ungated job never finished",
+            )
+            caller.join(timeout=0.05)
+            self.assertTrue(caller.is_alive(), "run_once returned while a batch job was still gated")
+            self.assertFalse((self.root / "done" / "ro1.json").exists())
 
-        self.assertEqual(result, 0)
-        # run_once returned only after both jobs finished — no polling/wait
-        # needed, since a non-blocking implementation would leave these
-        # still in processing/ at the moment run_once returns.
+            gate.set()
+            caller.join(timeout=5)
+            self.assertFalse(caller.is_alive(), "run_once never returned after the gate opened")
+
+        self.assertEqual(results, [0])
         self.assertTrue((self.root / "done" / "ro1.json").exists())
-        self.assertTrue((self.root / "done" / "ro2.json").exists())
+
+    def test_thread_exception_outside_handler_is_guarded_and_pruned(self):
+        """An exception escaping process_one (outside SafeProcessor) is logged,
+        never reaches threading.excepthook, and its thread is still pruned so
+        capacity recovers."""
+        enqueue(Job(id="boom", type="cheap", payload={}), root=self.root)
+        runner = _make_runner(self.root, max_per_tick=1, max_inflight=1)
+        excepthook_calls: list[object] = []
+
+        with patch("threading.excepthook", side_effect=excepthook_calls.append), \
+             patch.object(runner.processor, "process_one", side_effect=[RuntimeError("bad metadata"), 1]), \
+             self.assertLogs("worker.job_runtime", level="ERROR") as logs:
+            self.assertEqual(runner.tick(), 1)
+            runner._live_threads["boom"].join(timeout=5)
+            self.assertEqual(excepthook_calls, [], "exception escaped the worker thread")
+
+            started2 = runner.tick()
+
+        self.assertEqual(started2, 1, "the failed thread must be pruned so capacity recovers")
+        self.assertIn("boom", "\n".join(logs.output))
+
+    def test_external_processing_job_counts_against_max_inflight(self):
+        """processing/ may hold another worker's job (e.g. a concurrent
+        ``worker run-once``). With cap 3, one external processing job, one
+        local job already in processing/ and one local job held before its
+        rename, three are in flight, so a fourth must not start."""
+        gate = threading.Event()
+        rename_gate = threading.Event()
+        self.addCleanup(gate.set)  # before _drain_threads: never park a thread on failure
+        slow = _BlockingHandler(gate)
+        (self.root / "processing").mkdir(parents=True, exist_ok=True)
+        (self.root / "processing" / "external.json").write_text(
+            '{"id": "external", "type": "cheap"}', encoding="utf-8"
+        )
+        runner = _make_runner(self.root, max_per_tick=5, max_inflight=3)
+
+        with _patch_queue_root(self.root), \
+             patch.dict("worker.job_runtime.HANDLERS", {"slow": slow, "cheap": _cheap_handler}, clear=False):
+            enqueue(Job(id="claimed", type="slow", payload={}), root=self.root)
+            self.assertEqual(runner.tick(), 1)
+            self.assertTrue(slow.started.wait(timeout=5), "claimed job never reached its handler")
+
+            with _hold_start_processing(self.root, rename_gate) as held:
+                enqueue(Job(id="held", type="cheap", payload={}), root=self.root)
+                self.assertEqual(runner.tick(), 1)
+                self.assertTrue(_wait_for(lambda: held.waiting == 1, timeout=5))
+
+                enqueue(Job(id="fourth", type="cheap", payload={}), root=self.root)
+                started = runner.tick()
+
+                self.assertEqual(started, 0, "a 4th job started with 3 already in flight")
+                rename_gate.set()
+            gate.set()
+            done = self.root / "done"
+            self.assertTrue(
+                _wait_for(lambda: (done / "claimed.json").exists() and (done / "held.json").exists(), timeout=5)
+            )
+
+    def test_counts_failure_fallback_subtracts_live_threads(self):
+        """When counts() raises, the fallback still subtracts live threads
+        from max_inflight instead of returning max_per_tick."""
+        gate = threading.Event()
+        self.addCleanup(gate.set)  # before _drain_threads: never park a thread on failure
+        slow = _BlockingHandler(gate)
+        enqueue(Job(id="live1", type="slow", payload={}), root=self.root)
+        runner = _make_runner(self.root, max_per_tick=3, max_inflight=1)
+
+        with _patch_queue_root(self.root), \
+             patch.dict("worker.job_runtime.HANDLERS", {"slow": slow}, clear=False):
+            self.assertEqual(runner.tick(), 1)
+            self.assertTrue(slow.started.wait(timeout=5))
+            with patch("worker.job_runtime.counts", side_effect=OSError("queue unreadable")):
+                allowed = runner._calculate_allowed_jobs()
+            gate.set()
+            self.assertTrue(_wait_for(lambda: (self.root / "done" / "live1.json").exists(), timeout=5))
+
+        self.assertEqual(allowed, 0)
 
     def test_finished_threads_are_pruned_and_capacity_recovers(self):
         """required_tests[5]: finished threads are pruned, so capacity is
@@ -332,10 +428,11 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
             started1 = runner.tick()
             self.assertEqual(started1, 1)
 
-            # cheap handler returns immediately; wait for it to land in done/
-            # (and therefore for its thread to have exited) before the next
-            # tick, which is when pruning happens.
-            self.assertTrue(_wait_for(lambda: (self.root / "done" / "p1.json").exists(), timeout=5))
+            # Join p1's thread itself: its job landing in done/ does not mean
+            # the thread has exited, and pruning only drops dead threads.
+            p1_thread = runner._live_threads["p1"]
+            p1_thread.join(timeout=5)
+            self.assertFalse(p1_thread.is_alive())
 
             enqueue(Job(id="p2", type="cheap", payload={}), root=self.root)
             started2 = runner.tick()
