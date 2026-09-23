@@ -26,16 +26,15 @@ def build_agentic_capsule(compact: bool = False) -> str:
     llm = root / ".llm"
 
     commands = [
-        "setup venv: python3 -m venv .venv && source .venv/bin/activate",
-        "install: pip install -e .",
-        "help: ./bin/mail-assistant --help",
-        "labels export: python3 -m mail labels export --out labels.yaml",
-        "labels sync: python3 -m mail labels sync --config labels.yaml --dry-run",
-        "filters export: python3 -m mail filters export --out filters.yaml",
-        "messages search: ./bin/mail-assistant messages search --query 'subject:invoice' --json",
-        "messages search (structured, Gmail only): ./bin/mail-assistant messages search --from a@b.com --subject-contains invoice --unread",
-        "messages get: ./bin/mail-assistant messages get --ids MSG1,MSG2 --format json",
-        "messages threads-get: ./bin/mail-assistant messages threads-get --thread-id THREAD1 --include-body",
+        "setup: make venv",
+        "help: ./bin/mail --help",
+        "labels export: ./bin/mail labels export --out labels.yaml",
+        "labels sync: ./bin/mail labels sync --config labels.yaml --dry-run",
+        "filters export: ./bin/mail filters export --out filters.yaml",
+        "messages search: ./bin/mail messages search --query 'subject:invoice' --json",
+        "messages search (structured, Gmail only): ./bin/mail messages search --from a@b.com --subject-contains invoice --unread",
+        "messages get: ./bin/mail messages get --ids MSG1,MSG2 --format json",
+        "messages threads-get: ./bin/mail messages threads-get --thread-id THREAD1 --include-body",
     ]
 
     sections: list[tuple[str, str]] = []
@@ -130,8 +129,8 @@ def build_domain_map() -> str:
     """Programmatically build a minimal domain map with CLI tree and key modules."""
     root = Path(os.getcwd())
     parts: list[str] = [
-        "Top-Level\n- bin/ — wrappers (mail-assistant, mail-assistant-auth, llm)"
-        "\n- config/ — unified YAML inputs\n- out/ — derived artifacts"
+        "Top-Level\n- bin/ — wrappers (mail, mail-assistant-auth, llm)"
+        "\n- config/ — unified YAML inputs\n- out/ — legacy/opt-in outputs (default is outside the checkout)"
         "\n- tests/ — unit tests\n- .llm/ — agent context"
     ]
     parts.append(_section("CLI Tree", _build_cli_tree()))
@@ -180,7 +179,7 @@ def _mail_flows() -> list[dict[str, Any]]:
             'tags': ['unified', 'derive', 'gmail', 'outlook', 'safe'],
             'requires': [["config", "derive", "filters"]],
             'commands': [
-                "./bin/mail-assistant config derive.filters --out-gmail ./filters.gmail.from_unified.yaml --out-outlook ./filters.outlook.from_unified.yaml",
+                "./bin/mail config derive.filters --out-gmail ./filters.gmail.from_unified.yaml --out-outlook ./filters.outlook.from_unified.yaml",
             ],
             'notes': 'Reads ~/.config/dancing-bear/filters_unified.yaml unless --in is given.',
         },
@@ -190,7 +189,7 @@ def _mail_flows() -> list[dict[str, Any]]:
             'tags': ['labels', 'derive', 'gmail', 'outlook', 'safe'],
             'requires': [["config", "derive", "filters"], ["config", "derive", "labels"]],
             'commands': [
-                "./bin/mail-assistant config derive.labels --out-gmail ./labels.gmail.from_unified.yaml --out-outlook ./labels.outlook.from_unified.yaml",
+                "./bin/mail config derive.labels --out-gmail ./labels.gmail.from_unified.yaml --out-outlook ./labels.outlook.from_unified.yaml",
             ],
         },
         {
@@ -199,9 +198,9 @@ def _mail_flows() -> list[dict[str, Any]]:
             'tags': ['gmail', 'filters', 'plan', 'apply', 'verify', 'safe'],
             'requires': [["filters", "plan"], ["filters", "sync"], ["filters", "export"]],
             'commands': [
-                "./bin/mail-assistant filters plan --config ./filters.gmail.from_unified.yaml --delete-missing",
-                "./bin/mail-assistant filters sync --config ./filters.gmail.from_unified.yaml --delete-missing",
-                "./bin/mail-assistant filters export --out ./filters.gmail.export.after.yaml",
+                "./bin/mail filters plan --config ./filters.gmail.from_unified.yaml --delete-missing",
+                "./bin/mail filters sync --config ./filters.gmail.from_unified.yaml --delete-missing",
+                "./bin/mail filters export --out ./filters.gmail.export.after.yaml",
             ],
             'notes': 'Always run plan first; delete-missing removes unmanaged rules.',
         },
@@ -211,9 +210,9 @@ def _mail_flows() -> list[dict[str, Any]]:
             'tags': ['outlook', 'rules', 'plan', 'apply', 'verify', 'safe'],
             'requires': [["outlook", "rules.plan"], ["outlook", "rules.sync"], ["outlook", "rules.list"]],
             'commands': [
-                "./bin/mail-assistant outlook rules.plan --config ./filters.outlook.from_unified.yaml --move-to-folders",
-                "./bin/mail-assistant outlook rules.sync --config ./filters.outlook.from_unified.yaml --move-to-folders --delete-missing",
-                "./bin/mail-assistant outlook rules.list",
+                "./bin/mail outlook rules.plan --config ./filters.outlook.from_unified.yaml --move-to-folders",
+                "./bin/mail outlook rules.sync --config ./filters.outlook.from_unified.yaml --move-to-folders --delete-missing",
+                "./bin/mail outlook rules.list",
             ],
             'notes': 'Use --categories-only on plan/sync when folder moves are restricted.',
         },
@@ -223,7 +222,7 @@ def _mail_flows() -> list[dict[str, Any]]:
             'tags': ['gmail', 'filters', 'sweep', 'dry-run', 'safe'],
             'requires': [["filters", "sweep"]],
             'commands': [
-                "./bin/mail-assistant filters sweep --config ./filters.gmail.from_unified.yaml --days 90 --only-inbox --dry-run",
+                "./bin/mail filters sweep --config ./filters.gmail.from_unified.yaml --days 90 --only-inbox --dry-run",
             ],
         },
         {
@@ -232,7 +231,7 @@ def _mail_flows() -> list[dict[str, Any]]:
             'tags': ['gmail', 'filters', 'sweep', 'range', 'dry-run', 'safe'],
             'requires': [["filters", "sweep-range"]],
             'commands': [
-                "./bin/mail-assistant filters sweep-range --config ./filters.gmail.from_unified.yaml --from-days 0 --to-days 3650 --step-days 90 --dry-run",
+                "./bin/mail filters sweep-range --config ./filters.gmail.from_unified.yaml --from-days 0 --to-days 3650 --step-days 90 --dry-run",
             ],
         },
         {
@@ -241,9 +240,9 @@ def _mail_flows() -> list[dict[str, Any]]:
             'tags': ['gmail', 'labels', 'plan', 'apply', 'verify', 'safe'],
             'requires': [["labels", "plan"], ["labels", "sync"], ["labels", "export"]],
             'commands': [
-                "./bin/mail-assistant labels plan --config config/labels_current.yaml",
-                "./bin/mail-assistant labels sync --config config/labels_current.yaml --delete-missing",
-                "./bin/mail-assistant labels export --out ./labels.export.after.yaml",
+                "./bin/mail labels plan --config config/labels_current.yaml",
+                "./bin/mail labels sync --config config/labels_current.yaml --delete-missing",
+                "./bin/mail labels export --out ./labels.export.after.yaml",
             ],
             'notes': "Add --sweep-redirects to relabel old→new per 'redirects' then delete old.",
         },
@@ -253,9 +252,9 @@ def _mail_flows() -> list[dict[str, Any]]:
             'tags': ['gmail', 'signatures', 'export', 'normalize', 'sync', 'safe'],
             'requires': [["signatures", "export"], ["signatures", "normalize"], ["signatures", "sync"]],
             'commands': [
-                "./bin/mail-assistant signatures export --out out/signatures.export.yaml",
-                "./bin/mail-assistant signatures normalize --config config/signatures.yaml --out-html out/signature.preview.html",
-                "./bin/mail-assistant signatures sync --config config/signatures.yaml",
+                "./bin/mail signatures export --out out/signatures.export.yaml",
+                "./bin/mail signatures normalize --config config/signatures.yaml --out-html out/signature.preview.html",
+                "./bin/mail signatures sync --config config/signatures.yaml",
             ],
         },
         {
@@ -264,9 +263,9 @@ def _mail_flows() -> list[dict[str, Any]]:
             'tags': ['outlook', 'categories', 'list', 'export', 'sync', 'safe'],
             'requires': [["outlook", "categories.list"], ["outlook", "categories.export"], ["outlook", "categories.sync"]],
             'commands': [
-                "./bin/mail-assistant outlook categories.list",
-                "./bin/mail-assistant outlook categories.export --out ./outlook.categories.export.yaml",
-                "./bin/mail-assistant outlook categories.sync --config ./labels.outlook.from_unified.yaml",
+                "./bin/mail outlook categories.list",
+                "./bin/mail outlook categories.export --out ./outlook.categories.export.yaml",
+                "./bin/mail outlook categories.sync --config ./labels.outlook.from_unified.yaml",
             ],
         },
         {
@@ -275,7 +274,7 @@ def _mail_flows() -> list[dict[str, Any]]:
             'tags': ['outlook', 'folders', 'sync', 'safe'],
             'requires': [["outlook", "folders.sync"]],
             'commands': [
-                "./bin/mail-assistant outlook folders.sync --config ./labels.outlook.from_unified.yaml --dry-run",
+                "./bin/mail outlook folders.sync --config ./labels.outlook.from_unified.yaml --dry-run",
             ],
         },
         {
@@ -284,9 +283,9 @@ def _mail_flows() -> list[dict[str, Any]]:
             'tags': ['gmail', 'forwarding', 'safe'],
             'requires': [["forwarding", "list"], ["forwarding", "add"], ["forwarding", "status"]],
             'commands': [
-                "./bin/mail-assistant forwarding list",
-                "./bin/mail-assistant forwarding add --email you@example.com",
-                "./bin/mail-assistant forwarding status",
+                "./bin/mail forwarding list",
+                "./bin/mail forwarding add --email you@example.com",
+                "./bin/mail forwarding status",
             ],
             'notes': 'Verified forwarding address required for filter-based forwarding.',
         },
@@ -296,9 +295,9 @@ def _mail_flows() -> list[dict[str, Any]]:
             'tags': ['gmail', 'forwarding', 'filters', 'safe'],
             'requires': [["filters", "add-forward-by-label"], ["filters", "sync"]],
             'commands': [
-                "./bin/mail-assistant filters add-forward-by-label --label Finance/Statements --forward you@example.com --dry-run",
+                "./bin/mail filters add-forward-by-label --label Finance/Statements --forward you@example.com --dry-run",
                 "# Enforce verified forwarders on sync:",
-                "./bin/mail-assistant filters sync --config ./filters.gmail.from_unified.yaml --require-forward-verified --dry-run",
+                "./bin/mail filters sync --config ./filters.gmail.from_unified.yaml --require-forward-verified --dry-run",
             ],
         },
         {
@@ -307,9 +306,9 @@ def _mail_flows() -> list[dict[str, Any]]:
             'tags': ['gmail', 'auto', 'propose', 'apply', 'dry-run', 'safe'],
             'requires': [["auto", "propose"], ["auto", "summary"], ["auto", "apply"]],
             'commands': [
-                "./bin/mail-assistant auto propose --out out/auto.proposal.json --days 7 --only-inbox --dry-run",
-                "./bin/mail-assistant auto summary --proposal out/auto.proposal.json",
-                "./bin/mail-assistant auto apply --proposal out/auto.proposal.json --cutoff-days 7 --dry-run",
+                "./bin/mail auto propose --out out/auto.proposal.json --days 7 --only-inbox --dry-run",
+                "./bin/mail auto summary --proposal out/auto.proposal.json",
+                "./bin/mail auto apply --proposal out/auto.proposal.json --cutoff-days 7 --dry-run",
             ],
         },
     ]

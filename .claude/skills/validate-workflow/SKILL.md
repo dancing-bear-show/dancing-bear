@@ -181,7 +181,7 @@ git diff -z --name-only main...HEAD -- 'workflows/**/*.yaml' |
 
 | Error | Fix |
 |-------|-----|
-| `command not found: ./bin/mail-assistant labels-sync` | Subcommands are positional: `./bin/mail-assistant labels sync` |
+| `command not found: ./bin/mail labels-sync` | Subcommands are positional: `./bin/mail labels sync` |
 | `command not found: ./bin/telemetry costs` | Verify the real subcommand: `./bin/telemetry --help` |
 | `--params pr-number` (hyphen) | Change to `--params pr_number` (underscore — matches trigger.params) |
 | Stage table lists an unprefixed fragment stage | Add the include's `prefix` (e.g. `cov-identify-gaps`, not `identify-gaps`) |

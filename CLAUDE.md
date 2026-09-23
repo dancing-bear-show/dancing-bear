@@ -54,7 +54,7 @@ bin/                      # entry wrappers and helper scripts
 tests/                    # lightweight unittest suite
 .llm/                     # LLM context, flows, capsules
 configs/                  # runtime config templates (e.g. launchd plist)
-out/                      # derived outputs and plans
+out/                      # legacy/opt-in outputs (`--out-dir out`); default is outside the checkout
 ```
 
 ## LLM Context Files
@@ -76,7 +76,7 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 | Entry point | Subcommand depth | Example |
 |---|---|---|
 | `./bin/assistant` | dispatches to app | `./bin/assistant mail labels sync` |
-| `./bin/mail-assistant` | 2–3 levels deep | `mail-assistant labels sync --dry-run` |
+| `./bin/mail` | 2–3 levels deep | `mail labels sync --dry-run` |
 | `./bin/calendar` | 2–3 levels deep | `calendar outlook add --subject "..."` |
 | `./bin/llm` | 1–2 levels deep | `llm agentic --stdout` |
 | `./bin/worker` | 1 level deep | `worker enqueue --type <type>` |
@@ -87,7 +87,7 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 - Flags (`--dry-run`, `--profile`, `--format`) always follow the subcommand
 - The `assistant` dispatcher strips the app name and passes remaining argv directly to the app's `main()`
 - The workflow engine (`src/workflow/compiler.py`) inserts `--` before flags for most skills; `llm` and `docs` CLIs are exempt (`_NO_SEPARATOR_CLIS`). `docs` is reserved for a planned external documentation CLI — no `bin/docs` ships today
-- `--` separator is now **optional** for all CLIApp-based CLIs (mail, calendar, schedule, resume, phone, whatsapp, desk, wifi, maker, apple_music, workflow); `src/core/cli_framework.py` strips bare `--` tokens automatically. The workflow engine's `_NO_SEPARATOR_CLIS` exemption for `llm`/`docs` remains unchanged.
+- `--` separator is now **optional** for all CLIApp-based CLIs (mail, calendar, schedule, resume, phone, whatsapp, desk, wifi, maker, apple_music, workflow, worker, slides, sheets, telemetry, qlty, charts, diagrams); `src/core/cli_framework.py` strips bare `--` tokens automatically. The workflow engine's `_NO_SEPARATOR_CLIS` exemption for `llm`/`docs` remains unchanged.
 - Auto-derived agentic schema: **all 18 apps** support `--agentic --agentic-format json` to emit a machine-readable parser schema that never drifts from the real CLI; add `--agentic-compact` to strip low-value fields; add `--agentic-domain <prefix>` to filter to one subcommand group. Run `./bin/llm inventory --stdout` for the authoritative list — it prints the exact invocation per app, because `./bin/<app>` is wrong for four of them (`apple-music` and `qlty` use `-assistant` wrappers, `resume` goes through `./bin/assistant resume`, and `desk` has no wrapper: `python3 -m desk`).
 - Most apps get this via `CLIApp.run_with_assistant()`. Four wire it manually to preserve legacy no-subcommand exit codes: charts (1) and diagrams (0) call `assistant.add_agentic_flags(parser)` then `maybe_emit_agentic(...)` before their `cmd_func is None` branch; worker (1) and workflow (2) pass `on_no_command=` through `run_with_assistant()`.
 
@@ -170,7 +170,8 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 - **A single clean scan proves nothing.** qlty caps findings per run and the cap is
   nondeterministic: 16 identical runs on an unchanged tree yielded 0–4 findings each,
   while the union was 22. Two consecutive matching runs can both be the same capped
-  subset. Always use `--rescan-until-stable`; never trust one clean result. Do not use
+  subset. Always use `--rescan-until-stable` on `./bin/qlty-assistant scan` or
+  `triage` (a qlty-assistant flag — raw `qlty check` rejects it); never trust one clean result. Do not use
   `--filter` to verify a finding is gone — `--filter=radarlint-python` frequently
   returns "✔ No issues" in the same minute an unfiltered run reports radarlint findings.
 - **qlty now scans correctly from inside an agent worktree.** The exclusion is
@@ -245,7 +246,7 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
   here goes stale fast (it has already run 680 → 566 → 371 → **347**):
 
   ```bash
-  python3 -c "import json;d=json.load(open('typecheck-baseline.json'));print(d['total'])"
+  python3 -I -S -c "import json;d=json.load(open('typecheck-baseline.json'));print(d['total'])"
   ```
 
   Note `make typecheck` defaults to `TYPECHECK_PATHS ?= src`, so it measures
@@ -505,14 +506,15 @@ resolution order. This is the same diagnostic
 ## Check for an Existing Workflow First
 
 **Before starting any multi-step task, check whether a workflow already does it.**
-`./bin/workflow list` is the authoritative catalog and shows 53 workflows (as of
-2026-09-11). Counting the files instead overstates it: of 73 YAML files under
-`workflows/`, 19 are `fragment: true` includes that cannot run on their own.
+`./bin/workflow list` is the authoritative catalog and shows 56 workflows (as of
+2026-09-23; the count grows, so trust the command over this number). Counting the
+files instead overstates it: of 76 YAML files under `workflows/`, 19 are
+`fragment: true` includes that cannot run on their own.
 
-53 is the *listable* count, not quite the runnable one — `workflow list` skips
+56 is the *listable* count, not quite the runnable one — `workflow list` skips
 everything under `workflows/shared/`, and one file there
 (`workflows/shared/critique.yaml`) is a non-fragment workflow that can be invoked
-directly. So 54 are runnable and 53 are listed.
+directly. So 57 are runnable and 56 are listed.
 
 Reinventing a workflow wastes the work already invested in it and produces a
 second, diverging implementation of the same process.
@@ -619,7 +621,7 @@ outlook_token = /path/to/outlook_token.json
 
 ## Config Source of Truth
 
-- Filter configs (when used): canonical YAML lives in `config/` (not yet created); derived outputs go to `out/`
+- Filter configs (when used): the tracked template is `config/filters_unified.example.yaml`; the live config lives outside the checkout at `~/.config/dancing-bear/filters_unified.yaml`; derived outputs follow "Generated Output Location" above
 - Always run plan first, then apply with dry-run, then apply for real
 
 ## Security

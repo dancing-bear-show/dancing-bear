@@ -280,7 +280,7 @@ import unittest, subprocess
 
 class TestCLI(unittest.TestCase):
     def test_help(self):
-        out = subprocess.check_output(["./bin/mail-assistant", "--help"], text=True)
+        out = subprocess.check_output(["./bin/mail", "--help"], text=True)
         self.assertIn("labels", out)
 
 if __name__ == "__main__":
