@@ -44,24 +44,27 @@ from workflow.param_guard import load_params
 #: option. Do not widen it into a denylist.
 FILE_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}")
 
-#: Allowlist for one ``/``-separated segment of the path half of a
-#: ``tests_added`` id (before ``::``), which fix-aggregate folds into
-#: ``files_changed`` in :func:`_test_file_of` below. files_changed is staged
-#: with commit-and-push's ``git add <file1> <file2> ...`` and
+#: Allowlist for one ``/``-separated segment of a repo-relative path bound
+#: for ``files_changed`` -- both a fixer's reported files_changed entries and
+#: the path half of a ``tests_added`` id (before ``::``), which fix-aggregate
+#: folds into files_changed in :func:`_test_file_of` below. See
+#: :func:`_is_safe_repo_path`, which applies this to both. files_changed is
+#: staged with commit-and-push's ``git add <file1> <file2> ...`` and
 #: ``./bin/workflow check-paths <file1> <file2> ...`` -- both LLM agent stages
 #: that interpolate the path into shell command text, not a sandboxed argv
-#: array. A fixer/LLM-authored id such as ``tests/$(...)\.py::T::test`` would
-#: otherwise reach that text unchanged. Only plain relative POSIX path
-#: characters are accepted per segment (alphanumeric, ``.``, ``_``, ``-``); no
-#: ``\``, quotes, ``$``, backticks, parens, semicolons, or whitespace. A
-#: leading ``.`` is allowed so dotdirs like ``.claude``/``.github`` still
-#: reach files_changed and get refused downstream by check-paths -- a leading
-#: ``-`` is rejected so a segment can never be read as a flag, and a segment
-#: of exactly ``.`` or ``..`` is rejected separately, below, to block
-#: traversal. A rejected id yields ``None``, the same outcome as a
-#: non-path-shaped id -- commit-and-push's unlisted-edit check (Step 3b) is
-#: what catches a test file that reaches the tree without going through this
-#: path.
+#: array. A fixer/LLM-authored value such as ``tests/$(...)\.py`` or
+#: ``a.py; rm -rf /`` would otherwise reach that text unchanged, ahead of
+#: check-paths, which only runs once this list is already built into that
+#: text. Only plain relative POSIX path characters are accepted per segment
+#: (alphanumeric, ``.``, ``_``, ``-``); no ``\``, quotes, ``$``, backticks,
+#: parens, semicolons, or whitespace. A leading ``.`` is allowed so dotdirs
+#: like ``.claude``/``.github`` still reach files_changed and get refused
+#: downstream by check-paths -- a leading ``-`` is rejected so a segment can
+#: never be read as a flag, and a segment of exactly ``.`` or ``..`` is
+#: rejected separately, below, to block traversal. A rejected value is
+#: dropped, the same outcome as a non-path-shaped tests_added id --
+#: commit-and-push's unlisted-edit check (Step 3b) is what catches a file
+#: that reaches the tree without going through this path.
 _TEST_PATH_SEGMENT = re.compile(r"(?!-)[A-Za-z0-9._-]+")
 
 DISCRIMINATOR_DATABASE_ID = "database_id"
@@ -448,16 +451,34 @@ def _union_of(results: tuple[dict[str, Any], ...], field_name: str) -> list[str]
     return sorted(values)
 
 
+def _is_safe_repo_path(path: str) -> bool:
+    """True when every ``/``-separated segment of ``path`` is shell-safe.
+
+    The same contract ``_test_file_of`` applies to a tests_added id's path
+    half: every segment must match ``_TEST_PATH_SEGMENT`` (alphanumeric,
+    ``.``, ``_``, ``-``, no leading ``-``) and not be exactly ``.`` or
+    ``..``, which rejects traversal and every shell metacharacter (``$``,
+    backticks, parens, quotes, ``;``, whitespace, ``\\``) before the value
+    can reach files_changed and the shell command text commit-and-push
+    builds from it (``check-paths <...>`` and ``git add <...>``). Applied to
+    both a fixer's reported files_changed entries and the path derived from
+    each tests_added id -- files_changed is fixer/LLM-authored text, just
+    like a tests_added id, and check-paths runs after staging is already
+    text-interpolated, so a metacharacter must be refused here, not there.
+    """
+    if not path:
+        return False
+    segments = path.split("/")
+    if any(segment in (".", "..") for segment in segments):
+        return False
+    return all(_TEST_PATH_SEGMENT.fullmatch(segment) for segment in segments)
+
+
 def _test_file_of(test_id: str) -> str | None:
     """``tests/x/test_y.py::Class::method`` -> ``tests/x/test_y.py``.
 
     Only a path-shaped id yields a file, and only one built from safe
-    characters: every ``/``-separated segment must match
-    ``_TEST_PATH_SEGMENT`` (alphanumeric, ``.``, ``_``, ``-``, no leading
-    ``-``) and not be exactly ``.`` or ``..``, which rejects traversal and
-    every shell metacharacter (``$``, backticks, parens, quotes, ``;``,
-    whitespace, ``\\``) before the value can reach files_changed and the
-    shell command text commit-and-push builds from it. A dotted module id
+    characters -- see :func:`_is_safe_repo_path`. A dotted module id
     (``tests.x.test_y.Class``) cannot be mapped to a path without guessing
     where the module ends, so it yields None; commit-and-push's unlisted-edit
     check is what catches a test file that reaches the tree that way.
@@ -465,10 +486,7 @@ def _test_file_of(test_id: str) -> str | None:
     path = test_id.split("::", 1)[0].strip()
     if not path.endswith(".py"):
         return None
-    segments = path.split("/")
-    if any(segment in (".", "..") for segment in segments):
-        return None
-    if not all(_TEST_PATH_SEGMENT.fullmatch(segment) for segment in segments):
+    if not _is_safe_repo_path(path):
         return None
     return path
 
@@ -483,8 +501,14 @@ def _files_changed(results: tuple[dict[str, Any], ...]) -> list[str]:
     the run could not see it. Deriving the paths in tested code rather than
     trusting each fixer to repeat them also routes every test file through
     check-paths, which runs over this list.
+
+    files_changed entries are fixer/LLM-authored text, exactly like a
+    tests_added id's path half, and reach the same shell-interpolated
+    commit-and-push commands -- so they get the same ``_is_safe_repo_path``
+    contract here rather than relying on check-paths, which only runs after
+    this list is already built into that shell text.
     """
-    paths = set(_union_of(results, "files_changed"))
+    paths = {p for p in _union_of(results, "files_changed") if _is_safe_repo_path(p)}
     for test_id in _union_of(results, "tests_added"):
         path = _test_file_of(test_id)
         if path:

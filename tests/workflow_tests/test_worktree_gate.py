@@ -18,6 +18,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from core.process import run_binary
 from workflow.cli_dispatch import _cmd_check_unlisted, _cmd_snapshot_dirty
 from workflow.worktree_gate import (
     _GIT_STATUS_TIMEOUT,
@@ -288,6 +289,49 @@ class TestHeadCommitAndCommittedSince(_Repo):
         raise, not silently report no commits."""
         with self.assertRaises(RuntimeError):
             committed_since(self.repo, "0" * 40)
+
+    def test_committed_since_catches_commit_then_revert(self) -> None:
+        """A two-tree diff of baseline..HEAD nets a commit-then-revert of an
+        unlisted file to no diff, since the file is identical at both ends --
+        so this must walk each commit's own diff, not just the endpoints."""
+        baseline_head = head_commit(self.repo)
+        (self.repo / "src/sneaky.py").write_text("x = 1\n")
+        _git(self.repo, "add", "src/sneaky.py")
+        _git(self.repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+             "-m", "add sneaky")
+        _git(self.repo, "rm", "-q", "src/sneaky.py")
+        _git(self.repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+             "-m", "revert sneaky")
+        # Sanity: the naive two-tree diff really does net to nothing.
+        two_tree = run_binary(
+            ("git", "diff", "--name-only", "-z", f"{baseline_head}..HEAD"),
+            cwd=self.repo, timeout=_GIT_STATUS_TIMEOUT,
+        )
+        self.assertEqual(two_tree.stdout, "")
+        self.assertEqual(committed_since(self.repo, baseline_head), {"src/sneaky.py"})
+
+    def test_committed_since_reports_both_sides_of_a_rename(self) -> None:
+        """Default rename detection would report only the destination, so a
+        commit renaming a protected/unlisted source path could hide the
+        source from check-paths. Both names must be reported."""
+        (self.repo / "src/protected.py").write_text("p = 1\n")
+        _git(self.repo, "add", "src/protected.py")
+        _git(self.repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+             "-m", "add protected")
+        baseline_head = head_commit(self.repo)
+        _git(self.repo, "mv", "src/protected.py", "src/renamed.py")
+        _git(self.repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+             "-m", "rename protected")
+        # Sanity: default rename detection really does drop the source name.
+        with_renames = run_binary(
+            ("git", "diff", "--name-only", "-z", f"{baseline_head}..HEAD"),
+            cwd=self.repo, timeout=_GIT_STATUS_TIMEOUT,
+        )
+        self.assertEqual(with_renames.stdout.split("\0"), ["src/renamed.py", ""])
+        self.assertEqual(
+            committed_since(self.repo, baseline_head),
+            {"src/protected.py", "src/renamed.py"},
+        )
 
     def test_check_unlisted_catches_a_staged_and_committed_file(self) -> None:
         """End-to-end: a fixer stages and commits an unlisted file before

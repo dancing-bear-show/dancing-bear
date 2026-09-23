@@ -704,6 +704,37 @@ class TestAggregateFixResults(_Aggregate):
         ))
         self.assertEqual(self._merged()["files_changed"], ["src/a.py"])
 
+    def test_shell_metacharacter_files_changed_are_rejected(self) -> None:
+        """A reported files_changed entry gets the same safe-path contract as
+        a tests_added id: it too is fixer/LLM-authored text that reaches
+        commit-and-push's shell-interpolated ``check-paths <...>`` and
+        ``git add <...>`` before check-paths runs over the built list, so an
+        unrejected ``$(...)``, backtick, or embedded whitespace must not
+        survive aggregation."""
+        self._write_for(UNLINKED_A, _result(
+            UNLINKED_A, None,
+            files_changed=[
+                "src/a.py",
+                "src/$(id).py",
+                "src/`id`.py",
+                "src/../../etc/passwd",
+                "src/a b.py",
+                "src/te;st.py",
+            ],
+            tests_added=[],
+        ))
+        self.assertEqual(self._merged()["files_changed"], ["src/a.py"])
+
+    def test_safe_nested_files_changed_still_reaches_the_list(self) -> None:
+        """The contract must not over-reject: a plain multi-segment path
+        built from safe characters is still credited."""
+        self._write_for(UNLINKED_A, _result(
+            UNLINKED_A, None,
+            files_changed=["src/workflow/sub-dir/mod_1.py"],
+            tests_added=[],
+        ))
+        self.assertEqual(self._merged()["files_changed"], ["src/workflow/sub-dir/mod_1.py"])
+
     def test_null_thread_findings_reconcile_on_id(self) -> None:
         """Reconciling on thread_id would look for null.json and lose both."""
         self._write_for(UNLINKED_A, _result(UNLINKED_A, None))

@@ -646,13 +646,23 @@ def _cmd_snapshot_dirty(args: argparse.Namespace) -> int:
     recorded HEAD lets check-unlisted also catch a fixer that stages and
     commits an unlisted file before it runs, via ``committed_since``: ``git
     status`` alone reports a committed path clean.
+
+    HEAD is captured *before* the status snapshot, not after. In the shared
+    checkout, a commit from another session can land between the two calls;
+    capturing HEAD first means that commit is always at or after the
+    recorded baseline, so ``committed_since`` (which walks commits strictly
+    after ``baseline_head``) is guaranteed to see it. Capturing HEAD second
+    would instead record the post-commit sha as the baseline itself, making
+    that same commit invisible to both the dirty-path comparison (the path
+    was never dirty in this snapshot) and ``committed_since`` (it is not
+    after its own baseline).
     """
     from core.fileutil import atomic_write_json
     from workflow.worktree_gate import head_commit, snapshot_dirty
 
     try:
-        snapshot = snapshot_dirty(Path.cwd())
         head = head_commit(Path.cwd())
+        snapshot = snapshot_dirty(Path.cwd())
     except RuntimeError as exc:
         print(f"snapshot-dirty: {exc}", file=sys.stderr)
         return 1

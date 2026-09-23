@@ -474,6 +474,45 @@ class TestFanOutPrompt(unittest.TestCase):
         self.assertIn("/stages/002-plain.json", prompt)
 
 
+class TestFanOutReservedKeys(unittest.TestCase):
+    """PR #406 review: a fan_out.key equal to a dispatch placeholder name lets
+    the untrusted item value overwrite that placeholder everywhere it is
+    substituted, including the per-item result path.
+    """
+
+    def _spec(self, key: str) -> object:
+        from workflow.models import FanOutSpec
+
+        return make_stage_spec(
+            name="fix",
+            kind=StageKind.execute,
+            description="Fix {" + key + "}.",
+            fan_out=FanOutSpec(source="dispatch", field="items", key=key),
+        )
+
+    def test_key_fan_out_index_is_rejected(self) -> None:
+        """'fan_out_index' collides with the per-item result-path placeholder."""
+        spec = self._spec("fan_out_index")
+        with self.assertRaises(ValueError) as ctx:
+            build_agent_prompt(make_resolved_stage(spec=spec, index=5), "wf", "/ws")
+        self.assertIn("fan_out_index", str(ctx.exception))
+        self.assertIn("fix", str(ctx.exception))
+
+    def test_key_workspace_is_rejected(self) -> None:
+        """'workspace' collides with the {workspace} placeholder _resolve_ws fills."""
+        spec = self._spec("workspace")
+        with self.assertRaises(ValueError) as ctx:
+            build_agent_prompt(make_resolved_stage(spec=spec, index=5), "wf", "/ws")
+        self.assertIn("workspace", str(ctx.exception))
+
+    def test_ordinary_key_still_builds_a_prompt(self) -> None:
+        """Happy path: a non-reserved key renders normally, unaffected."""
+        spec = self._spec("service")
+        prompt = build_agent_prompt(make_resolved_stage(spec=spec, index=5), "wf", "/ws")
+        self.assertIn("Fix {service}.", prompt)
+        self.assertIn("/stages/005-fix-{fan_out_index}.json", prompt)
+
+
 class TestBuildGroupDispatch(unittest.TestCase):
     def test_returns_list_of_dicts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

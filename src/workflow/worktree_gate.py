@@ -111,20 +111,32 @@ def committed_since(repo: str | Path, baseline_head: str) -> set[str]:
     ``git status`` reports that path clean once it is committed even though it
     changed after the baseline.
 
+    Uses ``git log --name-only`` over the commit range rather than a single
+    ``git diff baseline..HEAD`` two-tree comparison: a two-tree diff nets out
+    a path that one commit added and a later commit removed, so a
+    commit-then-revert of an unlisted file would leave no trace. Walking each
+    commit's own diff against its parent still reports that path, once per
+    commit that touched it. ``--no-renames`` is passed for the same reason
+    ``parse_porcelain_z`` keeps both sides of a rename: with rename detection
+    on, a commit that renames a protected/unlisted source path would report
+    only the destination filename, letting the original path -- and whatever
+    it protected -- skip both this check and check-paths.
+
     Raises:
-        RuntimeError: if the diff against *baseline_head* fails -- including
+        RuntimeError: if the log over *baseline_head*..HEAD fails -- including
             when *baseline_head* no longer resolves (e.g. history was
             rewritten), since that is itself evidence the gate cannot trust
             what changed and must fail closed rather than report no commits.
     """
     run = run_binary(
-        ("git", "diff", "--name-only", "-z", f"{baseline_head}..HEAD"),
+        ("git", "log", "--name-only", "--no-renames", "-z", "--pretty=format:",
+         f"{baseline_head}..HEAD"),
         cwd=Path(repo),
         timeout=_GIT_STATUS_TIMEOUT,
     )
     if run.returncode != 0:
         raise RuntimeError(
-            f"git diff {baseline_head}..HEAD failed (exit {run.returncode}): {run.stderr.strip()}"
+            f"git log {baseline_head}..HEAD failed (exit {run.returncode}): {run.stderr.strip()}"
         )
     return {p for p in run.stdout.split("\0") if p}
 

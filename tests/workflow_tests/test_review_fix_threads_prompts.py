@@ -76,16 +76,46 @@ class TestUnlistedEditGate(unittest.TestCase):
         self.assertIn('"dirty_baseline_sha256" in pr-context.json', prompt)
         self.assertIn('shasum -a 256 "', prompt)
 
+    def test_init_actually_writes_the_hash_into_pr_context(self) -> None:
+        """PR #406 round 2: the old prose only computed and printed the
+        digest via shasum -- it never wrote dirty_baseline_sha256 into
+        pr-context.json, so _verify_baseline_provenance always failed
+        closed on the missing field. init must load the digest and merge
+        it into the file with jq, atomically (temp file + rename, not a
+        direct `>` redirect racing jq's own read of that path)."""
+        prompt = _flat(_prompts()["init"])
+        self.assertIn("dirty_baseline_sha256: $d", prompt)
+        self.assertIn("pr-context.json.tmp", prompt)
+        self.assertIn("mv ", prompt)
+        self.assertIn("atomic", prompt)
+
     def test_commit_rejects_a_baseline_that_no_longer_matches(self) -> None:
         prompt = _flat(_prompts()["commit-and-push"])
         self.assertIn("dirty_baseline_sha256", prompt)
         self.assertIn("fail closed", prompt)
 
     def test_commit_runs_check_unlisted_before_staging(self) -> None:
+        # check-unlisted now runs twice: once unconditionally in Step 1
+        # (before the no-files early return; see the test below), and again
+        # in Step 3b immediately before staging. check-paths (Step 3a) must
+        # still precede that second, pre-staging run.
         prompt = _prompts()["commit-and-push"]
-        gate = prompt.index("./bin/workflow check-unlisted")
-        self.assertLess(gate, prompt.index("git add <file1>"))
-        self.assertLess(prompt.index("./bin/workflow check-paths"), gate)
+        staging_gate = prompt.rindex("./bin/workflow check-unlisted")
+        self.assertLess(staging_gate, prompt.index("git add <file1>"))
+        self.assertLess(prompt.index("./bin/workflow check-paths"), staging_gate)
+
+    def test_commit_runs_check_unlisted_before_the_no_files_early_return(self) -> None:
+        """PR #406 round 2: Step 1 used to return {"committed": false} on an
+        empty files_changed before Step 3b's check-unlisted gate ever ran,
+        so a fixer that edited a file but under-reported an empty
+        files_changed list left the edit behind undetected. The gate must
+        now run before that early-return decision, not only later in Step
+        3b."""
+        prompt = _flat(_prompts()["commit-and-push"])
+        early_return = prompt.index('"reason": "no files changed"')
+        first_gate_mention = prompt.index("./bin/workflow check-unlisted")
+        self.assertLess(first_gate_mention, early_return)
+        self.assertIn("unconditionally", prompt)
 
 
 class TestParamProse(unittest.TestCase):

@@ -181,8 +181,20 @@ stages:
       workflow alone. Close the gap with provenance instead: compute this
       file's own sha256 right after writing it, and record that hash as
       "dirty_baseline_sha256" in pr-context.json — a file this init stage owns
-      and no later stage is ever instructed to modify:
-        shasum -a 256 "{workspace}/outputs/dirty-baseline.json"
+      and no later stage is ever instructed to modify. Computing the digest
+      is not enough; it must be written into the field
+      _verify_baseline_provenance reads, or every run reaches check-unlisted
+      and fails closed on the missing field before any commit:
+        DIGEST=$(shasum -a 256 "{workspace}/outputs/dirty-baseline.json" | cut -d' ' -f1)
+        jq --arg d "$DIGEST" '. + {dirty_baseline_sha256: $d}' \
+          "{workspace}/outputs/pr-context.json" > "{workspace}/outputs/pr-context.json.tmp" \
+          && mv "{workspace}/outputs/pr-context.json.tmp" "{workspace}/outputs/pr-context.json"
+      Write through a temp file and rename rather than redirecting `jq`
+      straight into pr-context.json: `>` truncates the destination before jq
+      reads it, and jq reads the same path as its input argument, so a direct
+      redirect would race jq against the shell's own truncation and leave the
+      file empty. The rename is atomic, so a reader never observes a
+      partially written file.
       check-unlisted (commit-and-push, Step 3b) must re-hash dirty-baseline.json
       at verification time and fail closed if it no longer matches the value
       recorded here, so a baseline rewritten after init wrote it is rejected
@@ -1033,9 +1045,24 @@ stages:
       X" and have that be true on the remote branch, not just true on this
       machine's disk.
 
-      Step 1 — read {workspace}/outputs/fix-results.json. If files_changed is
-      empty (every thread was "rejected" or "moot", so nothing touched the
-      tree), write {workspace}/outputs/commit-result.json with
+      Step 1 — read {workspace}/outputs/fix-results.json. Before deciding
+      whether there is anything to commit, run the check-unlisted gate
+      unconditionally — including when files_changed is empty:
+        ./bin/workflow check-unlisted "{workspace}/outputs/dirty-baseline.json" "{workspace}/outputs/fix-results.json"
+      A fixer that edited a file but under-reported an empty files_changed
+      list produces exactly that case, and an early return here — before
+      this command ever ran — would let the edit reach the tree undetected,
+      skipped over by every later stage that only looks at files_changed.
+      See Step 3b below for what this command checks and how. If it exits
+      non-zero: stage and push NOTHING, write commit-result.json with
+      {"committed": false, "pushed": false, "unlisted_paths": [...]}, report
+      this stage failed, and exit non-zero — the same handling Step 3b uses,
+      run here first so an empty files_changed cannot skip it.
+
+      Once check-unlisted has passed, branch on files_changed. If it is empty
+      (every thread was "rejected" or "moot", so nothing touched the tree —
+      and check-unlisted just confirmed no fixer left an unlisted edit
+      either), write {workspace}/outputs/commit-result.json with
       {"committed": false, "reason": "no files changed", "sha": null} and stop
       here — an empty commit is not a valid outcome and `git commit` with
       nothing staged exits non-zero.
@@ -1072,7 +1099,13 @@ stages:
       tests, and verify-fixes — which tests the working tree — could not see
       the gap.
 
-      Step 3b — refuse edits the list does not name, BEFORE staging:
+      Step 3b — refuse edits the list does not name, BEFORE staging. This was
+      already run once, unconditionally, back in Step 1 — including on the
+      empty-files_changed path that used to return before it ever executed.
+      Re-running it here (files_changed is non-empty on this path, so the
+      command and its inputs are identical to Step 1's run) is cheap and
+      keeps this step's failure handling local to where staging is about to
+      happen:
         ./bin/workflow check-unlisted "{workspace}/outputs/dirty-baseline.json" "{workspace}/outputs/fix-results.json"
       Before trusting dirty-baseline.json, check-unlisted must verify it
       against the "dirty_baseline_sha256" value init recorded in
