@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import io
 import json
 import tempfile
@@ -40,6 +41,7 @@ from workflow.cli_dispatch import (
     _stage_names_from_manifest,
     _stage_names_from_plan,
 )
+from workflow.cli_dispatch_review import _cmd_snapshot_dirty
 from workflow.models import StageStatus
 
 
@@ -1044,6 +1046,72 @@ class TestBuildResolvedParamsImportError(unittest.TestCase):
                     pass  # expected
                 except ModuleNotFoundError:
                     self.fail("_build_resolved_params leaked a raw ModuleNotFoundError")
+
+
+class TestCmdSnapshotDirtyCallOrder(unittest.TestCase):
+    """HEAD must be captured before the dirty-path status snapshot.
+
+    In the shared checkout another session can commit an unlisted edit
+    between the two git calls. Capturing HEAD first guarantees that commit
+    lands after the recorded baseline_head, so check-unlisted's
+    committed_since walk (which looks at commits strictly after
+    baseline_head) is able to see it. Capturing HEAD second would instead
+    bake the post-commit sha into the baseline itself, making that same
+    commit invisible to both the dirty-path comparison and committed_since.
+    """
+
+    def test_head_commit_called_before_snapshot_dirty(self) -> None:
+        calls: list[str] = []
+
+        def fake_head_commit(_repo: object) -> str:
+            calls.append("head_commit")
+            return "a" * 40
+
+        def fake_snapshot_dirty(_repo: object) -> dict:
+            calls.append("snapshot_dirty")
+            return {}
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            out_path = str(Path(tmp_dir) / "baseline.json")
+            with patch("workflow.worktree_gate.head_commit", side_effect=fake_head_commit), \
+                 patch("workflow.worktree_gate.snapshot_dirty", side_effect=fake_snapshot_dirty):
+                rc = _cmd_snapshot_dirty(argparse.Namespace(out=out_path))
+            self.assertEqual(rc, 0)
+            self.assertEqual(calls, ["head_commit", "snapshot_dirty"])
+
+    def test_head_captured_before_a_mid_window_commit_is_still_after_baseline(self) -> None:
+        """Sad path: simulate the race directly. If a commit landed between
+        the two calls, the fake snapshot_dirty mutates a shared 'head at
+        snapshot time' marker; head_commit must have already run and its
+        return value must predate that marker, proving the recorded
+        baseline_head could not have absorbed the mid-window commit."""
+        order: list[str] = []
+        head_snapshot_during_race = {}
+
+        def fake_head_commit(_repo: object) -> str:
+            order.append("head_commit")
+            return "before-race-commit"
+
+        def fake_snapshot_dirty(_repo: object) -> dict:
+            order.append("snapshot_dirty")
+            # A commit from another session lands in this window.
+            head_snapshot_during_race["head_after_race_commit"] = "after-race-commit"
+            return {}
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            out_path = str(Path(tmp_dir) / "baseline.json")
+            with patch("workflow.worktree_gate.head_commit", side_effect=fake_head_commit), \
+                 patch("workflow.worktree_gate.snapshot_dirty", side_effect=fake_snapshot_dirty):
+                rc = _cmd_snapshot_dirty(argparse.Namespace(out=out_path))
+            self.assertEqual(rc, 0)
+            recorded = json.loads(Path(out_path).read_text())
+            # The recorded head is the pre-race value: the mid-window commit
+            # therefore lands strictly after baseline_head and committed_since
+            # will walk it, instead of being silently absorbed into the
+            # baseline the way a snapshot-then-head order would allow.
+            self.assertEqual(recorded["head"], "before-race-commit")
+            self.assertNotEqual(recorded["head"], head_snapshot_during_race["head_after_race_commit"])
+            self.assertEqual(order, ["head_commit", "snapshot_dirty"])
 
 
 if __name__ == "__main__":

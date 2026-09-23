@@ -21,11 +21,10 @@ Use Existing Commands First
 ./bin/mail --agentic --agentic-format json --agentic-compact
 ./bin/mail --agentic --agentic-format json --agentic-domain labels
 # Works for all 19 apps. `./bin/llm inventory --stdout` prints the exact
-# invocation for each, since ./bin/<app> is wrong for four:
+# invocation for each, since ./bin/<app> is wrong for three:
 #   apple-music -> ./bin/apple-music-assistant
 #   qlty        -> ./bin/qlty-assistant
 #   resume      -> ./bin/assistant resume
-#   desk        -> python3 -m desk
 ```
 
 Agentic Shortcuts (LLM CLI)

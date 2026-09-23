@@ -99,7 +99,7 @@ by the actual changes, so validators only spend time on relevant checks.
 | Changed files | `git diff main...HEAD --name-only` |
 | Post inline comment | `gh api repos/$OWNER/$REPO/pulls/N/comments -f path=src/foo.py -F line=42 -f body="..." -f commit_id=$SHA -f side=RIGHT` |
 | Review threads | run the `workflows/shared/pr-review-threads.yaml` fragment, or the GraphQL query below |
-| Global findings log | `tail -20 ~/.cache/claude/code-review-findings.ndjson \| python3 -m json.tool` |
+| Global findings log | `tail -20 ~/.cache/claude/code-review-findings.ndjson \| python3 -I -S -m json.tool --json-lines` |
 
 Prefix every `gh` command with `GITHUB_TOKEN=` — a stale token in the environment
 silently breaks auth. Resolve owner/repo rather than hardcoding it:
@@ -146,7 +146,7 @@ Each completed review appends one NDJSON record to
 
 ```bash
 # tail recent reviews
-tail -5 ~/.cache/claude/code-review-findings.ndjson | python3 -m json.tool
+tail -5 ~/.cache/claude/code-review-findings.ndjson | python3 -I -S -m json.tool --json-lines
 
 # count findings by PR
 jq -r '[.pr_number, .total, .critical, .major, .minor] | @tsv' \

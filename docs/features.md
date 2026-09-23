@@ -107,7 +107,7 @@ See `workflow-engine.md` for stage kinds, gates, and authoring.
 
 ## 4. Every CLI describes itself to agents
 
-All 18 apps emit a machine-readable schema derived from the actual argparse
+All 19 apps emit a machine-readable schema derived from the actual argparse
 parser, so it cannot drift from the real CLI the way hand-written docs do.
 Agents read the schema instead of guessing at flags.
 
@@ -116,9 +116,8 @@ Agents read the schema instead of guessing at flags.
 ./bin/telemetry --agentic --agentic-format yaml --agentic-compact
 ```
 
-Four invocations are non-obvious: `apple-music` and `qlty` use `-assistant`
-wrappers, `resume` goes through `./bin/assistant resume`, and `desk` has no
-wrapper (`python3 -m desk`).
+Three invocations are non-obvious: `apple-music` and `qlty` use `-assistant`
+wrappers, and `resume` goes through `./bin/assistant resume`.
 
 See `why-clis-not-mcp.md` for the reasoning behind this over an MCP server.
 

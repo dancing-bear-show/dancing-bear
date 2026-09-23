@@ -17,7 +17,7 @@ stages:
       test file and, within each file, every test class and test method name.
 
       Domains and their test directories:
-        mail         -> tests/mail_tests/, tests/mail/
+        mail         -> tests/mail_tests/
         calendars    -> tests/calendars_tests/
         schedule     -> tests/schedule_tests/
         phone        -> tests/phone_tests/

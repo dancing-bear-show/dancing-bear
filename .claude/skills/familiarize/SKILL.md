@@ -67,7 +67,7 @@ Load only the wrapper(s) relevant to the current task.
 - `./bin/workflow` — YAML DAG workflow engine (`parse`, `compile`, `run`, `lint`, `list`, `status`)
 
 These three are standalone argparse CLIs rather than `llm --app` routes, but they
-**do** support `--agentic` — as do all 18 apps. Discover them the same way as any
+**do** support `--agentic` — as do all 19 apps. Discover them the same way as any
 other surface; `llm familiar --verbose` surfaces them too.
 
 ## After Familiarize
@@ -77,5 +77,5 @@ You should know:
 - How to run CLIs (`./bin/<assistant> <subcommand> <flags>`)
 - Visualization + orchestration tooling (`charts`, `diagrams`, `workflow`)
 - Where to find patterns (`.llm/PATTERNS.md`)
-- Paths to skip (`.venv/`, `.git/`, `.cache/`, `maker/`, `_disasm/`, `out/`, `_out/`, `backups/`)
+- Paths to skip (`.venv/`, `.git/`, `.cache/`, `src/maker/`, `_disasm/`, `out/`, `_out/`, `backups/`)
 - Available skills (`/familiarize`, `/dancing-bear-rules`, etc.)

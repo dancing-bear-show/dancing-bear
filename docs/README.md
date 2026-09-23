@@ -44,7 +44,7 @@ Don't trust a command you read in a doc — the schemas are auto-derived from th
 parsers and can't drift:
 
 ```bash
-./bin/llm inventory --stdout                                  # how to invoke all 18 apps
+./bin/llm inventory --stdout                                  # how to invoke all 19 apps
 ./bin/<app> --agentic --agentic-format yaml --agentic-compact # one app's real schema
 ./bin/workflow list                                           # the authoritative workflow catalog
 ```

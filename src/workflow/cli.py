@@ -46,7 +46,9 @@ from workflow.cli_dispatch_review import (
     _cmd_check_fix_index,
     _cmd_check_paths,
     _cmd_check_thread_ids,
+    _cmd_check_unlisted,
     _cmd_parse_overview,
+    _cmd_snapshot_dirty,
     _cmd_thread_fingerprints,
 )
 
@@ -297,6 +299,25 @@ def cmd_aggregate_fix_results(args: argparse.Namespace) -> int:
     return _cmd_aggregate_fix_results(args)
 
 
+@app.command(
+    "snapshot-dirty",
+    help="Record the checkout's dirty/untracked paths and content hashes as JSON",
+)
+@app.argument("out", help="Path to write the snapshot JSON")
+def cmd_snapshot_dirty(args: argparse.Namespace) -> int:
+    return _cmd_snapshot_dirty(args)
+
+
+@app.command(
+    "check-unlisted",
+    help="Exit 1 if a path changed since the snapshot is missing from fix-results files_changed",
+)
+@app.argument("baseline", help="Snapshot JSON from snapshot-dirty")
+@app.argument("fix_results", help="Path to fix-results.json")
+def cmd_check_unlisted(args: argparse.Namespace) -> int:
+    return _cmd_check_unlisted(args)
+
+
 def _no_command_usage() -> int:
     """Preserve the legacy no-subcommand behavior (one-line usage to
     stderr, ExitCode.USAGE) rather than CLIApp's default (full --help),
@@ -304,7 +325,8 @@ def _no_command_usage() -> int:
     print(
         "Usage: workflow {parse,compile,run,lint,list,status,init-workspace,resume,"
         "validate-fragment,parse-overview,check-paths,check-params,check-fix-index,"
-        "thread-fingerprints,check-thread-ids,aggregate-fix-results} [options]",
+        "thread-fingerprints,check-thread-ids,aggregate-fix-results,snapshot-dirty,"
+        "check-unlisted} [options]",
         file=sys.stderr,
     )
     return ExitCode.USAGE

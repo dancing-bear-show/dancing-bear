@@ -72,6 +72,106 @@ def _ws(workspace_dir: str | Path) -> str:
     return str(Path(workspace_dir).resolve())
 
 
+_WORKSPACE_PLACEHOLDER = "{workspace}"
+
+
+def _resolve_ws(text: str, ws: str) -> str:
+    """Substitute the resolved workspace path for every ``{workspace}`` token.
+
+    Trigger params are resolved at compile time, but the workspace does not
+    exist until ``init-workspace`` runs, so this is the first point that knows
+    the path. Left literal, a stage's Task body says ``{workspace}/outputs/x``
+    while the generated sections name the real path, and the agent has to
+    guess that the two mean the same directory.
+
+    Isolated stages get the shared path too: in their descriptions
+    ``{workspace}`` always names the shared workspace they must NOT touch
+    ("do not write {workspace}/..."), never their own cwd.
+    """
+    return text.replace(_WORKSPACE_PLACEHOLDER, ws)
+
+
+#: Placeholder the orchestrator fills with a fan-out item's zero-based position
+#: in ``fan_out.field``. Used for the per-item result path instead of the key
+#: value, which is untrusted prior-stage data.
+FAN_OUT_POSITION = "fan_out_index"
+
+#: Placeholder names that neither a fan-out's ``key`` nor a declared trigger
+#: param may use. Both are substituted into the rendered prompt by name (the
+#: orchestrator's item-value pass fills every brace-wrapped occurrence of the
+#: key; ``_resolve_ws`` fills every ``{workspace}``), so a stage authored with
+#: ``key: fan_out_index`` or ``key: workspace`` makes the untrusted item value
+#: overwrite the position or workspace placeholder wherever it appears in the
+#: prompt — including the per-item result path in ``_completion``, defeating
+#: the protection that keeps the untrusted key value out of that path. A
+#: trigger param of either name does the same through
+#: ``compiler.resolve_params``, which substitutes every declared
+#: ``{<param>}``: every item would share one result file. The compiler's
+#: ``enforce_param_rules`` rejects such a param.
+RESERVED_PLACEHOLDERS = frozenset({FAN_OUT_POSITION, "workspace"})
+
+
+def _fan_out_key(stage: ResolvedStage) -> str | None:
+    """The per-item placeholder name of an agent fan-out stage, else None.
+
+    ``worker_queue`` fan-outs substitute the key into ``fan_out.script`` in
+    Python and never render an agent prompt, so only ``agent`` mode counts.
+
+    Raises ``ValueError`` if the key collides with a reserved placeholder
+    name (``fan_out_index`` or ``workspace``) — see ``RESERVED_PLACEHOLDERS``.
+    """
+    fan_out = stage.spec.fan_out
+    if fan_out is None or fan_out.mode != "agent":
+        return None
+    if not fan_out.key or not fan_out.key.strip():
+        # An empty key would read as "no fan-out" to the result-path suffix,
+        # so every item would write the same completion file.
+        raise ValueError(f"stage '{stage.spec.name}' fan_out.key must be a non-empty name")
+    if fan_out.key in RESERVED_PLACEHOLDERS:
+        raise ValueError(
+            f"stage '{stage.spec.name}' fan_out.key {fan_out.key!r} collides with a "
+            f"reserved dispatch placeholder ({sorted(RESERVED_PLACEHOLDERS)}); "
+            "choose a different key name"
+        )
+    return fan_out.key
+
+
+def _fan_out_section(stage: ResolvedStage) -> list[str]:
+    """Explain the per-item placeholder a fan-out prompt still carries.
+
+    ``{<key>}`` is left literal on purpose: one rendered prompt serves every
+    item, and the orchestrator substitutes each item's value before spawning
+    that item's agent. The note avoids spelling the braced token itself so it
+    still reads correctly after that substitution has run over it.
+
+    The key value comes from prior-stage JSON and is unconstrained -- it can
+    contain ``/`` or ``../`` -- so it never reaches a path. The per-item result
+    path built in ``_completion`` carries the separate ``FAN_OUT_POSITION``
+    placeholder, which the orchestrator fills with the item's position.
+    """
+    fan_out = stage.spec.fan_out
+    key = _fan_out_key(stage)
+    if fan_out is None or key is None:
+        return []
+    return [
+        "## Fan-out",
+        (
+            f"This stage runs as one agent per element of `{fan_out.field}` in the "
+            f"`{fan_out.source}` stage's output. Wherever this prompt refers to the "
+            f"item's `{key}`, the orchestrator has substituted YOUR item's value. If "
+            f"a brace-wrapped `{key}` placeholder is still visible anywhere above or "
+            "below, substitution did not happen: report status \"failed\" and do not "
+            "guess which item is yours.\n\n"
+            "The Completion section's result path is numbered by your item's "
+            f"zero-based position in `{fan_out.field}`, not by its `{key}`: that "
+            "value comes from prior-stage JSON and is not a trusted filename. The "
+            f"orchestrator fills a brace-wrapped `{FAN_OUT_POSITION}` placeholder "
+            "with the position; the same rule applies if it is still visible."
+        ),
+        "",
+    ]
+
+
 def _is_isolated(stage: ResolvedStage) -> bool:
     """True if this stage's agent runs in its own git worktree."""
     agent = stage.spec.agent
@@ -132,7 +232,13 @@ def _write_paths(stage: ResolvedStage, ws: str) -> list[str]:
 
 def _completion(stage: ResolvedStage, ws: str) -> str:
     root = _ISOLATED_ROOT if _is_isolated(stage) else ws
-    result_path = f"{root}/stages/{stage.index:03d}-{stage.spec.name}.json"
+    # A fan-out stage's N agents share this prompt; without a per-item suffix
+    # every one of them is told to write the same result file.
+    # The suffix is the item's POSITION, never its key value: the value comes
+    # from prior-stage JSON and may contain "/" or "..", which would carry the
+    # result file out of stages/.
+    suffix = f"-{{{FAN_OUT_POSITION}}}" if _fan_out_key(stage) else ""
+    result_path = f"{root}/stages/{stage.index:03d}-{stage.spec.name}{suffix}.json"
     isolated_note = (
         "\n\nYou are running in your OWN git worktree. Write every path above "
         "as an absolute path under your own cwd — NOT under the shared "
@@ -156,7 +262,7 @@ def _section(heading: str, items: list[str]) -> list[str]:
     return [f"## {heading}"] + [f"- {i}" for i in items] + [""]
 
 
-def _header(stage: ResolvedStage, workflow_name: str, verb: str = "executing") -> list[str]:
+def _header(stage: ResolvedStage, workflow_name: str, ws: str, verb: str = "executing") -> list[str]:
     return [
         f"You are {verb} stage '{stage.spec.name}' in workflow '{workflow_name}'.",
         "",
@@ -184,15 +290,16 @@ def _header(stage: ResolvedStage, workflow_name: str, verb: str = "executing") -
         "- `./bin/schedule-assistant plan -- --format yaml`",
         "",
         "## Task",
-        stage.spec.description,
+        _resolve_ws(stage.spec.description, ws),
         "",
+        *_fan_out_section(stage),
     ]
 
 
 # -- Per-kind prompt builders -------------------------------------------------
 
 def _gather(stage: ResolvedStage, wf: str, ws: str) -> str:
-    lines = _header(stage, wf)
+    lines = _header(stage, wf, ws)
     write_root = _ISOLATED_ROOT if _is_isolated(stage) else ws
     lines += ["## Workspace", f"Write all output to: {write_root}/outputs/", ""]
     if stage.cli_commands:
@@ -213,7 +320,7 @@ def _gather(stage: ResolvedStage, wf: str, ws: str) -> str:
 
 def _action(stage: ResolvedStage, wf: str, ws: str, input_verb: str = "Read prior stage outputs from") -> str:
     """Shared builder for propose, execute, and publish stages."""
-    lines = _header(stage, wf)
+    lines = _header(stage, wf, ws)
     rp = _read_paths(stage, ws)
     if rp:
         lines += _section(f"Input Data\n{input_verb}", rp)
@@ -230,13 +337,13 @@ def _action(stage: ResolvedStage, wf: str, ws: str, input_verb: str = "Read prio
     return "\n".join(lines)
 
 
-def _domain_rules_section(spec: ValidationSpec) -> list[str]:
+def _domain_rules_section(spec: ValidationSpec, ws: str) -> list[str]:
     """Build the Domain Rules section lines from a validation spec."""
     rules: list[str] = []
     for r in spec.domain_rules:
-        entry = f"[{r.severity}] {r.id}: {r.description}"
+        entry = f"[{r.severity}] {r.id}: {_resolve_ws(r.description, ws)}"
         if r.source_cmd:
-            entry += f"\n  Verify with: `{r.source_cmd}`"
+            entry += f"\n  Verify with: `{_resolve_ws(r.source_cmd, ws)}`"
         rules.append(entry)
     return _section("Domain Rules", rules)
 
@@ -266,9 +373,9 @@ def _validate(stage: ResolvedStage, wf: str, ws: str) -> str:
         "", f"## Strategy: {strategy}", "",
     ]
     if spec and spec.criteria:
-        lines += _section("Criteria", list(spec.criteria))
+        lines += _section("Criteria", [_resolve_ws(c, ws) for c in spec.criteria])
     if spec and spec.domain_rules:
-        lines += _domain_rules_section(spec)
+        lines += _domain_rules_section(spec, ws)
     rp = _read_paths(stage, ws)
     if rp:
         lines += _section("Target Data\nRead outputs from", rp)

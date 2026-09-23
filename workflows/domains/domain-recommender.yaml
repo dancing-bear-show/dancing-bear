@@ -195,11 +195,9 @@ stages:
         Set has_agentic_schema=true if exit code == 0.
         Every app supports --agentic, so a false here is a defect worth
         reporting, not an expected result. Note the invocation differs for
-        four of them: apple-music is <REPO_ROOT>/bin/apple-music-assistant, qlty is
-        <REPO_ROOT>/bin/qlty-assistant, resume is <REPO_ROOT>/bin/assistant resume, and desk has
-        no wrapper — run it as
-        PYTHONPATH="<REPO_ROOT>/src" python3 -m desk --agentic --agentic-format yaml --agentic-compact
-        (it is available; a failed ./bin/desk is not evidence otherwise). Run
+        three of them: apple-music is <REPO_ROOT>/bin/apple-music-assistant, qlty is
+        <REPO_ROOT>/bin/qlty-assistant, and resume is <REPO_ROOT>/bin/assistant resume.
+        desk now has a wrapper like every other app: <REPO_ROOT>/bin/desk. Run
         <REPO_ROOT>/bin/llm inventory --stdout for the authoritative list and the
         exact invocation form rather than assuming <REPO_ROOT>/bin/<cli>.
         "core" has no CLI — always false.
@@ -365,7 +363,7 @@ stages:
              once at startup; REPO_ROOT alone misses sibling worktrees). Any
              other prefix (/usr/bin/git, <root>/.venv/bin/python, another repo)
              is not a repo CLI — discard it.
-           Desk (no wrapper): r'python3\s+(?:-[^\s]+\s+)*-m\s+desk'
+           Desk, module form (transcripts from before ./bin/desk existed): r'python3\s+(?:-[^\s]+\s+)*-m\s+desk'
          After capturing the CLI name, apply dispatcher normalisation:
            If the captured name is "assistant", discard "assistant" and take the
            NEXT shell token as a candidate app name. Accept it ONLY if it matches
@@ -583,12 +581,11 @@ stages:
           runnable path is <REPO_ROOT>/<cli_bin> — never <REPO_ROOT>/bin/<cli_bin>,
           which yields bin/bin/mail. Below, <cli> means cli_bin with "bin/" removed.
           Run: <REPO_ROOT>/<cli_bin> --agentic --agentic-format yaml --agentic-compact
-          Four apps use a different invocation (<REPO_ROOT>/bin/llm inventory
+          Three apps use a different invocation (<REPO_ROOT>/bin/llm inventory
           --stdout is authoritative): apple-music is
           <REPO_ROOT>/bin/apple-music-assistant, qlty is
-          <REPO_ROOT>/bin/qlty-assistant, resume is <REPO_ROOT>/bin/assistant
-          resume, and desk has no wrapper — run
-          PYTHONPATH="<REPO_ROOT>/src" python3 -m desk --agentic --agentic-format yaml --agentic-compact
+          <REPO_ROOT>/bin/qlty-assistant, and resume is <REPO_ROOT>/bin/assistant
+          resume.
           Parse the YAML output to extract existing subcommand names.
           If the CLI has no agentic schema, fall back to: <REPO_ROOT>/<cli_bin> --help
           Read the domain's example_prompts from domain-map.json:
@@ -797,8 +794,7 @@ stages:
       search) — never ./bin/<cli> and never the unexpanded <REPO_ROOT>
       placeholder. The validation stage may run each probe outside the repo
       root, so a relative ./bin/ path can fail there and falsely report a
-      real command as missing. The same applies to desk:
-      PYTHONPATH="/abs/path/to/repo/src" python3 -m desk.
+      real command as missing.
       A source needing three commands gets three entries, all with the same
       "source" value. A source with no CLI at all (a plain filesystem scan) sets
       existing_command to null and explains in "note" — do not invent a command
@@ -870,7 +866,7 @@ stages:
           function_signature: the exact argparse subparser handler signature
             matching this repo's convention
           pseudocode: 3–5 lines describing core logic
-          test_file: tests/<domain>/test_<proposed_name>.py (or extend the
+          test_file: tests/<domain>_tests/test_<proposed_name>.py (or extend the
             nearest existing test file if one covers this CLI class)
           estimated_lines: realistic estimate for implementation + tests
 
@@ -880,7 +876,7 @@ stages:
             __init__.py
             cli.py            (CLIApp subclass with 2 candidate subcommands)
             _<domain>_client.py  (API/data-access layer if applicable)
-          tests/<domain>/
+          tests/<domain>_tests/
             test_<domain>_cli.py
         The bin/ wrapper is NOT hand-written: bin/* entries are symlinks to a
         single generated router (see bin/charts:1-12). Add the domain to
@@ -900,9 +896,8 @@ stages:
       Verify each named command really exists before writing it — resolve the
       repo root first (`git rev-parse --show-toplevel`) and probe with
       <REPO_ROOT>/bin/<cli> --agentic --agentic-format yaml --agentic-compact
-      or <REPO_ROOT>/bin/<cli> --help. desk has no wrapper: probe it with
-      PYTHONPATH="<REPO_ROOT>/src" python3 -m desk --agentic --agentic-format yaml --agentic-compact
-      (see <REPO_ROOT>/bin/llm inventory --stdout for the other exceptions).
+      or <REPO_ROOT>/bin/<cli> --help (see <REPO_ROOT>/bin/llm inventory
+      --stdout for the three apps whose invocation differs).
       Write every command in the sketch with the repo root expanded to its
       literal absolute path, per the existing_command FORMAT rule in gap-analysis.
       Name workflows/code/synthesize-workflow-from-telemetry.yaml as the tool to
@@ -919,7 +914,7 @@ stages:
               "file_to_modify": "src/mail/cli.py",
               "function_signature": "def _find_stale(self, args: argparse.Namespace) -> int:",
               "pseudocode": "filters = self._client.list_filters()\nstale = [f for f in filters if f.last_matched_days > 90]\nemit_rows(stale, fmt=args.format)",
-              "test_file": "tests/mail/test_mail_cli.py",
+              "test_file": "tests/mail_tests/test_mail_cli.py",
               "estimated_lines": 55
             }
           ]
