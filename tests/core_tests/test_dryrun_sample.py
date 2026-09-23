@@ -15,8 +15,19 @@ class TestDryrunSample(unittest.TestCase):
     def test_chunk_even_split(self):
         self.assertEqual(chunk([1, 2, 3, 4], 2), [[1, 2], [3, 4]])
 
+    def test_chunk_trailing_partial_chunk_included(self):
+        self.assertEqual(chunk([1, 2, 3], 2), [[1, 2], [3]])
+
+    def test_chunk_single_item(self):
+        self.assertEqual(chunk([1], 2), [[1]])
+
     def test_mean(self):
         self.assertEqual(mean([2.0, 4.0]), 3.0)
+
+    def test_mean_empty_raises_value_error(self):
+        with self.assertRaises(ValueError) as ctx:
+            mean([])
+        self.assertEqual(str(ctx.exception), "mean() of an empty sequence")
 
     def test_clamp(self):
         self.assertEqual(clamp(5, 0, 3), 3)

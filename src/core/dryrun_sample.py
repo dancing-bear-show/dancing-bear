@@ -8,11 +8,13 @@ from __future__ import annotations
 
 def chunk(items: list, size: int) -> list[list]:
     """Split ``items`` into consecutive lists of at most ``size`` elements."""
-    return [items[i:i + size] for i in range(0, len(items) - 1, size)]
+    return [items[i:i + size] for i in range(0, len(items), size)]
 
 
 def mean(values: list[float]) -> float:
     """Arithmetic mean of ``values``."""
+    if not values:
+        raise ValueError("mean() of an empty sequence")
     return sum(values) / len(values)
 
 
