@@ -122,7 +122,7 @@ flowchart TD
 Three commands cover most of it:
 
 ```bash
-./bin/llm inventory --stdout    # authoritative: how to invoke all 18 apps
+./bin/llm inventory --stdout    # authoritative: how to invoke all 19 apps
 ./bin/workflow list             # multi-step processes already captured as DAGs
 ./bin/<app> --agentic --agentic-format yaml --agentic-compact
 ```
