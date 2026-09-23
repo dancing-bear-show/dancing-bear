@@ -88,6 +88,21 @@ def _description(manifest: WorkflowManifest) -> str:
     return manifest.resolved_stages["s1"].spec.description
 
 
+class TestReservedPlaceholderParams(unittest.TestCase):
+    """PR #406 round 11: resolve_params substitutes every declared {param},
+    so a param named fan_out_index or workspace would overwrite the dispatch
+    placeholder -- every fan-out item then shares one result file."""
+
+    def test_param_named_after_a_dispatch_placeholder_is_rejected(self) -> None:
+        for name in ("fan_out_index", "workspace"):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(WorkflowCompileError, f"{name} collide with reserved"):
+                    _compile(_workflow_yaml(params=f'    {name}: "0"\n'))
+
+    def test_ordinary_params_still_compile(self) -> None:
+        _compile(_workflow_yaml(params='    fan_out_idx: "0"\n    ollama_host: "http://h"\n    pr_number: "1"\n'))
+
+
 class TestCompileEnforcement(unittest.TestCase):
     """compile_workflow is the enforcement point: it raises before substituting."""
 

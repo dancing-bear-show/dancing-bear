@@ -96,15 +96,19 @@ def _resolve_ws(text: str, ws: str) -> str:
 #: value, which is untrusted prior-stage data.
 FAN_OUT_POSITION = "fan_out_index"
 
-#: Placeholder names a fan-out's ``key`` must not equal. Both are substituted
-#: into the rendered prompt by name (the orchestrator's item-value pass fills
-#: every brace-wrapped occurrence of the key; ``_resolve_ws`` fills every
-#: ``{workspace}``), so a stage authored with ``key: fan_out_index`` or
-#: ``key: workspace`` makes the untrusted item value overwrite the position
-#: or workspace placeholder wherever it appears in the prompt — including the
-#: per-item result path in ``_completion``, defeating the protection that
-#: keeps the untrusted key value out of that path.
-_RESERVED_FAN_OUT_KEYS = frozenset({FAN_OUT_POSITION, "workspace"})
+#: Placeholder names that neither a fan-out's ``key`` nor a declared trigger
+#: param may use. Both are substituted into the rendered prompt by name (the
+#: orchestrator's item-value pass fills every brace-wrapped occurrence of the
+#: key; ``_resolve_ws`` fills every ``{workspace}``), so a stage authored with
+#: ``key: fan_out_index`` or ``key: workspace`` makes the untrusted item value
+#: overwrite the position or workspace placeholder wherever it appears in the
+#: prompt — including the per-item result path in ``_completion``, defeating
+#: the protection that keeps the untrusted key value out of that path. A
+#: trigger param of either name does the same through
+#: ``compiler.resolve_params``, which substitutes every declared
+#: ``{<param>}``: every item would share one result file. The compiler's
+#: ``enforce_param_rules`` rejects such a param.
+RESERVED_PLACEHOLDERS = frozenset({FAN_OUT_POSITION, "workspace"})
 
 
 def _fan_out_key(stage: ResolvedStage) -> str | None:
@@ -114,15 +118,15 @@ def _fan_out_key(stage: ResolvedStage) -> str | None:
     Python and never render an agent prompt, so only ``agent`` mode counts.
 
     Raises ``ValueError`` if the key collides with a reserved placeholder
-    name (``fan_out_index`` or ``workspace``) — see ``_RESERVED_FAN_OUT_KEYS``.
+    name (``fan_out_index`` or ``workspace``) — see ``RESERVED_PLACEHOLDERS``.
     """
     fan_out = stage.spec.fan_out
     if fan_out is None or fan_out.mode != "agent":
         return None
-    if fan_out.key in _RESERVED_FAN_OUT_KEYS:
+    if fan_out.key in RESERVED_PLACEHOLDERS:
         raise ValueError(
             f"stage '{stage.spec.name}' fan_out.key {fan_out.key!r} collides with a "
-            f"reserved dispatch placeholder ({sorted(_RESERVED_FAN_OUT_KEYS)}); "
+            f"reserved dispatch placeholder ({sorted(RESERVED_PLACEHOLDERS)}); "
             "choose a different key name"
         )
     return fan_out.key

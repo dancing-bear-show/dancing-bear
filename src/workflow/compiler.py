@@ -17,6 +17,7 @@ from pathlib import Path
 from core.cli_errors import CLIError, ExitCode
 from core.fileutil import safe_read_text
 from core.date_utils import iso_now
+from workflow.dispatch import RESERVED_PLACEHOLDERS
 from workflow.harness_outputs import describe, find_refused_outputs
 from workflow.models import (
     OutputMode,
@@ -121,9 +122,20 @@ def enforce_param_rules(trigger: TriggerSpec, overrides: Mapping[str, object]) -
     rewriting a regex quantifier; a built-in ``work_dir`` is shell-safe; and
     the effective values satisfy the workflow's ``param_rules``/``required``.
 
+    Also rejects a declared param named after a dispatch placeholder
+    (``RESERVED_PLACEHOLDERS``): ``resolve_params`` would substitute its value
+    into ``{fan_out_index}``/``{workspace}`` before dispatch fills them, so
+    every fan-out item would share one result file.
+
     Raises:
         WorkflowCompileError: naming each rejected param and the reason.
     """
+    reserved = sorted(RESERVED_PLACEHOLDERS.intersection(trigger.params or {}))
+    if reserved:
+        raise WorkflowCompileError(
+            "trigger params rejected: " + ", ".join(reserved)
+            + " collide with reserved dispatch placeholders; rename the param"
+        )
     undeclared = undeclared_overrides(trigger.params, overrides)
     if undeclared:
         raise WorkflowCompileError(
