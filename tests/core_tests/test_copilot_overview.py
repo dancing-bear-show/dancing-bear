@@ -16,11 +16,11 @@ from core.copilot_overview import (
     PROTECTED_PATH,
     classify_repo_path,
     is_copilot_overview,
-    normalize_login,
     parse_overview,
     safe_repo_path,
     strip_zwsp,
 )
+from core.github.authors import normalize_login
 
 ZWSP = "​"
 _ICONS = "https://github.githubassets.com/static/images/icons/copilot-code-review"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 import sys
@@ -10,14 +11,128 @@ from typing import Any
 from core.cli_errors import CLIError, ExitCode
 from core.secrets import mask_text
 
-__all__ = ["GhCLI"]
+__all__ = ["GhCLI", "GhError", "field_args"]
+
+
+class GhError(CLIError):
+    """A ``gh`` call failed, including a GraphQL call that exited 0 with errors."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(mask_text(message), ExitCode.ERROR)
+
+
+def field_args(variables: dict[str, Any] | None) -> list[str]:
+    """Render variables as ``gh api`` field flags, choosing the flag by type.
+
+    ``-F`` is a *typed* field: it converts ``true``/``false``/``null``/digits,
+    and it reads a value beginning with ``@`` as a file path. A string routed
+    through it can therefore change type, or post a local file's contents. So
+    only ``bool`` and ``int`` values use ``-F``; every other value uses ``-f``,
+    which sends the literal text. ``None`` is omitted, because gh would
+    otherwise send the string ``"None"``.
+    """
+    out: list[str] = []
+    for key, value in (variables or {}).items():
+        if value is None:
+            continue
+        if isinstance(value, bool):
+            out.extend(["-F", f"{key}={'true' if value else 'false'}"])
+        elif isinstance(value, int):
+            out.extend(["-F", f"{key}={value}"])
+        else:
+            out.extend(["-f", f"{key}={value}"])
+    return out
 
 
 class GhCLI:
     """Thin wrapper around the `gh` CLI for JSON-friendly calls."""
-    def __init__(self, run_func: Callable[..., Any] | None = None) -> None:
-        """Create a GhCLI that uses the provided run function (for tests)."""
+    def __init__(
+        self,
+        run_func: Callable[..., Any] | None = None,
+        *,
+        scrub_github_token: bool = False,
+    ) -> None:
+        """Create a GhCLI that uses the provided run function (for tests).
+
+        ``scrub_github_token`` drops ``GITHUB_TOKEN`` from the child environment
+        so gh uses its own keyring credentials: a stale exported token otherwise
+        silently overrides them and every call fails auth. ``GH_TOKEN`` is left
+        alone — it is gh's own variable and is set deliberately.
+        """
         self._run = run_func or subprocess.run
+        self._scrub = scrub_github_token
+
+    def _exec(self, cmd: list[str], *, input_text: str | None = None) -> Any:
+        """Run ``cmd`` with captured text output and the configured environment."""
+        kwargs: dict[str, Any] = {"text": True, "capture_output": True}
+        if self._scrub:
+            kwargs["env"] = {k: v for k, v in os.environ.items() if k != "GITHUB_TOKEN"}
+        if input_text is not None:
+            kwargs["input"] = input_text
+        return self._run(cmd, **kwargs)
+
+    def run(self, args: list[str], *, input_text: str | None = None) -> Any:
+        """Run ``gh <args>`` and return the completed process unchanged.
+
+        For porcelain commands (``pr create``, ``pr checks --watch``) whose exit
+        status and text output are the result: the caller decides what counts
+        as failure.
+        """
+        return self._exec(["gh", *args], input_text=input_text)
+
+    def api_paginated(self, path: str) -> list[Any]:
+        """GET every page of a REST list endpoint and return one flat list.
+
+        REST returns 30 items per page by default, and the page that goes
+        missing without ``--paginate`` is the *last* — for reviews and comments,
+        the newest. ``--slurp`` wraps the pages in one JSON array so a page
+        boundary cannot corrupt the parse.
+        """
+        res = self._exec(["gh", "api", "--paginate", "--slurp", path])
+        if res.returncode != 0:
+            raise GhError(res.stderr or res.stdout or f"gh api {path} failed")
+        try:
+            pages = json.loads(res.stdout or "[]")
+        except json.JSONDecodeError as exc:
+            raise GhError(f"gh api {path} returned non-JSON output: {exc}") from exc
+        if not isinstance(pages, list):
+            raise GhError(f"gh api {path} returned {type(pages).__name__}, expected a list of pages")
+        items: list[Any] = []
+        for page in pages:
+            if not isinstance(page, list):
+                raise GhError(f"gh api {path} is not a list endpoint (page is {type(page).__name__})")
+            items.extend(page)
+        return items
+
+    def graphql_checked(self, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Run a GraphQL call and return its ``data``, raising on any failure.
+
+        ``gh`` exits 0 on an HTTP 200 whose body carries a GraphQL ``errors``
+        array, so exit status alone says nothing about whether a mutation
+        landed. This raises on a non-zero exit, a non-JSON body, an ``errors``
+        array, or a missing ``data`` object.
+        """
+        qfile_path = None
+        try:
+            qfile_path = self._write_query_tempfile(query)
+            res = self._exec(self._build_graphql_cmd(query, qfile_path, variables))
+        finally:
+            self._cleanup_tempfile(qfile_path)
+        try:
+            payload = json.loads(res.stdout or "null")
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict) and payload.get("errors"):
+            messages = "; ".join(
+                str(e.get("message", e)) if isinstance(e, dict) else str(e)
+                for e in payload["errors"]
+            )
+            raise GhError(f"GraphQL errors: {messages}")
+        if res.returncode != 0:
+            raise GhError(res.stderr or res.stdout or "gh api graphql failed")
+        if not isinstance(payload, dict) or not isinstance(payload.get("data"), dict):
+            raise GhError("gh api graphql returned no data object")
+        return payload["data"]
 
     def ensure_available(self) -> None:
         """Raise SystemExit if the `gh` binary is not available in PATH."""
@@ -26,20 +141,17 @@ class GhCLI:
 
     def auth_status(self) -> tuple[bool, str]:
         """Return (ok, output) from `gh auth status`."""
-        res = self._run(["gh", "auth", "status"], text=True, capture_output=True)
+        res = self._exec(["gh", "auth", "status"])
         return (res.returncode == 0, res.stdout or res.stderr or "")
 
     def api(self, path: str, params: dict[str, Any] | None = None) -> Any:
         """Call `gh api` and parse JSON response for the given path.
 
-        Note: For GET query params, use `-F key=value` as separate argv tokens
-        to avoid quoting/flag parsing issues.
+        Params go through ``field_args``, so a string value is sent literally
+        and never read as an ``@file`` reference.
         """
-        cmd = ["gh", "api", path]
-        if params:
-            for k, v in params.items():
-                cmd.extend(["-F", f"{k}={v}"])
-        res = self._run(cmd, text=True, capture_output=True)
+        cmd = ["gh", "api", path, *field_args(params)]
+        res = self._exec(cmd)
         if res.returncode != 0:
             err_msg = mask_text(res.stderr or res.stdout or "gh api failed")
             raise CLIError(err_msg, ExitCode.ERROR)
@@ -63,7 +175,7 @@ class GhCLI:
             k = str(k).replace("_", "-")
             cmd += [f"--{k}", str(v)]
         cmd += ["--json", "number,title,repository,createdAt,updatedAt,url"]
-        res = self._run(cmd, text=True, capture_output=True)
+        res = self._exec(cmd)
         if res.returncode != 0:
             err_msg = mask_text(res.stderr or res.stdout or "gh search prs failed")
             raise CLIError(err_msg, ExitCode.ERROR)
@@ -80,7 +192,7 @@ class GhCLI:
         masked on the failure path.
         """
         cmd = ["gh", "api", "--include", path]
-        res = self._run(cmd, text=True, capture_output=True)
+        res = self._exec(cmd)
         if res.returncode != 0:
             # -1 signals process failure, distinct from the success-path status=0
             # default used when no HTTP/ status line is parsed.
@@ -112,7 +224,7 @@ class GhCLI:
         try:
             qfile_path = self._write_query_tempfile(query)
             cmd = self._build_graphql_cmd(query, qfile_path, variables)
-            res = self._run(cmd, text=True, capture_output=True)
+            res = self._exec(cmd)
             return self._parse_graphql_result(res, debug)
         finally:
             self._cleanup_tempfile(qfile_path)
@@ -140,10 +252,7 @@ class GhCLI:
             cmd.extend(["-F", f"query=@{qfile_path}"])
         else:
             cmd.extend(["-f", f"query={query}"])
-        for k, v in (variables or {}).items():
-            if v is None:
-                continue  # omit null variables — gh CLI passes "None" as a string otherwise
-            cmd.extend(["-F", f"{k}={v}"])
+        cmd.extend(field_args(variables))
         return cmd
 
     @staticmethod
@@ -189,7 +298,7 @@ class GhCLI:
         if fields:
             # `gh pr view` supports a JSON output with selected fields
             cmd += ["--json", ",".join(fields)]
-        res = self._run(cmd, text=True, capture_output=True)
+        res = self._exec(cmd)
         if res.returncode != 0:
             err_msg = mask_text(res.stderr or res.stdout or "gh pr view failed")
             raise CLIError(err_msg, ExitCode.ERROR)
@@ -216,7 +325,7 @@ class GhCLI:
         if cmd[:2] != ["pr", "list"]:
             raise ValueError('pr_list expects cmd to start with ["pr", "list", ...]')
         full_cmd = ["gh", *cmd]
-        res = self._run(full_cmd, text=True, capture_output=True)
+        res = self._exec(full_cmd)
         if res.returncode != 0:
             err_msg = mask_text(res.stderr or res.stdout or "gh pr list failed")
             raise CLIError(err_msg, ExitCode.ERROR)
