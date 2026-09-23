@@ -792,6 +792,7 @@ If a stage has `fan_out` defined, check `fan_out.mode`:
 2. Parse JSON and extract the array at `fan_out.field`.
 3. For each item, spawn a separate background agent:
    ```python
+   import json
    import re
 
    # The key value is untrusted prior-stage JSON, and it is substituted into
@@ -809,9 +810,15 @@ If a stage has `fan_out` defined, check `fan_out.mode`:
    for position, item in enumerate(items):          # position fills {fan_out_index}
      value = str(item[fan_out.key])
      if not SAFE_KEY_VALUE.fullmatch(value):
-       # Write this item's result as failed at
-       # stages/{index:03d}-{stage_name}-{position}.json, naming the rejected
-       # key by position only (never echo the value), and do not spawn it.
+       # Record the item as failed BEFORE skipping it. Step 5 waits on every
+       # position's result file, so an item skipped without one hangs the
+       # whole fan-out until the monitor times out. Name the rejected key by
+       # position only -- never echo the value, which is untrusted.
+       Write(f"{workspace}/stages/{index:03d}-{stage_name}-{position}.json", json.dumps({
+           "stage_name": stage_name, "stage_index": index, "status": "failed",
+           "output_files": [], "data": {"position": position},
+           "errors": [f"item {position}: fan_out.key value is not a safe filename segment"],
+       }))
        continue
      fan_kwargs = dict(
          description=f"Stage {stage_name} — {position}",
