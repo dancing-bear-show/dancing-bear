@@ -157,41 +157,50 @@ def fetch_raw_threads(gh: GhCLI, owner: str, repo: str, pr: int) -> tuple[list[d
     count GitHub reported did not match what was collected.
     """
     threads: list[dict[str, Any]] = []
-    truncated = False
     cursor: str | None = None
-    reported_total: int | None = None
+    reported_total: Any = None
     for _ in range(MAX_PAGES):
         data = gh.graphql_checked(
             THREADS_QUERY, {"owner": owner, "name": repo, "pr": int(pr), "after": cursor},
         )
         conn = _dig(data, "repository", "pullRequest", "reviewThreads", what=f"PR #{pr} threads")
         threads.extend(conn.get("nodes") or [])
-        raw_total = conn.get("totalCount")
-        reported_total = int(raw_total) if raw_total is not None else None
+        reported_total = conn.get("totalCount")
         cursor = _next_cursor(conn.get("pageInfo"), cursor, f"PR #{pr} threads")
         if cursor is None:
             break
     else:
         raise GhError(f"PR #{pr} threads: exceeded {MAX_PAGES} pages")
 
-    if reported_total is None or len(threads) != reported_total:
-        truncated = True
-
+    truncated = _count_disagrees(len(threads), reported_total)
     for node in threads:
-        comments = node.get("comments") or {}
-        nodes = list(comments.get("nodes") or [])
-        more = _next_cursor(comments.get("pageInfo"), None, f"thread {node.get('id')} comments")
-        if more is not None:
-            extra, _ = _page_thread_comments(gh, str(node["id"]), more)
-            nodes.extend(extra)
-        # A missing totalCount is not "trust the nodes we got" — it is a
-        # response GitHub did not fully describe, and must fail closed the
-        # same as an explicit count that disagrees with what was collected.
-        thread_total = comments.get("totalCount")
-        if thread_total is None or len(nodes) != int(thread_total):
-            truncated = True
-        node["comments"] = {"totalCount": comments.get("totalCount"), "nodes": nodes}
+        # Evaluate the completion first: `or` would short-circuit it once
+        # truncated is already set, leaving later threads' comments unpaged.
+        thread_short = _complete_thread_comments(gh, node)
+        truncated = thread_short or truncated
     return threads, truncated
+
+
+def _count_disagrees(collected: int, reported: Any) -> bool:
+    """True when a reported totalCount is missing or differs from what came back.
+
+    A missing count is not "trust the nodes we got": it is a response GitHub
+    did not fully describe, and fails closed the same as a count that
+    disagrees. An explicit 0 is a real count, never a stand-in for "unknown".
+    """
+    return reported is None or collected != int(reported)
+
+
+def _complete_thread_comments(gh: GhCLI, node: dict[str, Any]) -> bool:
+    """Page one thread's remaining comments into ``node``; return True if short."""
+    comments = node.get("comments") or {}
+    nodes = list(comments.get("nodes") or [])
+    more = _next_cursor(comments.get("pageInfo"), None, f"thread {node.get('id')} comments")
+    if more is not None:
+        extra, _ = _page_thread_comments(gh, str(node["id"]), more)
+        nodes.extend(extra)
+    node["comments"] = {"totalCount": comments.get("totalCount"), "nodes": nodes}
+    return _count_disagrees(len(nodes), comments.get("totalCount"))
 
 
 def fetch_thread_states(gh: GhCLI, owner: str, repo: str, pr: int) -> tuple[list[dict[str, Any]], bool]:

@@ -35,45 +35,55 @@ class GhCall:
         return got[1] if got else None
 
 
+def _stdin_json(kwargs: dict[str, Any]) -> dict[str, Any]:
+    return json.loads(kwargs.get("input") or "{}")
+
+
+def _as_field(val: Any, *, typed: bool) -> tuple[str, str]:
+    """Render a JSON value as the (flag, text) pair older assertions expect.
+
+    Strings read as ``-f``. Non-strings read as ``-F`` when ``typed`` (REST
+    POST, where line must stay an int) and as ``-f`` otherwise (GraphQL
+    variables), so call.value()/call.fields keep meaning "was sent" — now
+    against the stdin JSON rather than argv.
+    """
+    if isinstance(val, str):
+        return "-f", val
+    return ("-F" if typed else "-f"), json.dumps(val)
+
+
+def _parse_argv_fields(call: GhCall, argv: list[str]) -> None:
+    """Legacy transport: -f/-F pairs in argv, query possibly via @tempfile."""
+    pairs = zip(argv, argv[1:])
+    for flag, arg in pairs:
+        if flag not in ("-f", "-F"):
+            continue
+        key, _, val = arg.partition("=")
+        if key != "query":
+            call.fields[key] = (flag, val)
+        elif flag == "-F" and val.startswith("@"):
+            with open(val[1:], encoding="utf-8") as fh:
+                call.query = fh.read()
+        else:
+            call.query = val
+
+
 def parse_call(argv: list[str], kwargs: dict[str, Any]) -> GhCall:
     call = GhCall(argv=list(argv), input=kwargs.get("input"), env=kwargs.get("env"),
                   timeout=kwargs.get("timeout"))
-    if argv[:3] == ["gh", "api", "graphql"] and "--input" in argv:
-        # Request body travels as JSON on stdin: {"query": ..., "variables": {...}}.
-        # Represent each variable as if it arrived via "-f" so existing
-        # call.value()/call.fields assertions are unaffected by the transport
-        # change — they now assert "in the stdin JSON", not "in argv".
-        payload = json.loads(kwargs.get("input") or "{}")
+    stdin_body = "--input" in argv
+    if stdin_body and argv[:3] == ["gh", "api", "graphql"]:
+        # {"query": ..., "variables": {...}} on stdin.
+        payload = _stdin_json(kwargs)
         call.query = payload.get("query", "")
         for key, val in (payload.get("variables") or {}).items():
-            call.fields[key] = ("-f", val if isinstance(val, str) else json.dumps(val))
-        return call
-    if "--method" in argv and "POST" in argv and "--input" in argv:
-        # REST POST body travels as JSON on stdin too: {"body": ..., "line": 12, ...}.
-        # Tag string values "-f" and non-string (int/bool) values "-F" so
-        # existing call.value()/call.fields assertions keep meaning "was
-        # sent", now against the stdin JSON instead of argv -f/-F pairs.
-        payload = json.loads(kwargs.get("input") or "{}")
-        for key, val in payload.items():
-            tag = "-f" if isinstance(val, str) else "-F"
-            call.fields[key] = (tag, val if isinstance(val, str) else json.dumps(val))
-        return call
-    i = 0
-    while i < len(argv):
-        tok = argv[i]
-        if tok in ("-f", "-F") and i + 1 < len(argv):
-            key, _, val = argv[i + 1].partition("=")
-            if key == "query":
-                if tok == "-F" and val.startswith("@"):
-                    with open(val[1:], encoding="utf-8") as fh:
-                        call.query = fh.read()
-                else:
-                    call.query = val
-            else:
-                call.fields[key] = (tok, val)
-            i += 2
-            continue
-        i += 1
+            call.fields[key] = _as_field(val, typed=False)
+    elif stdin_body and "--method" in argv and "POST" in argv:
+        # REST POST fields on stdin: {"body": ..., "line": 12, ...}.
+        for key, val in _stdin_json(kwargs).items():
+            call.fields[key] = _as_field(val, typed=True)
+    else:
+        _parse_argv_fields(call, argv)
     return call
 
 
