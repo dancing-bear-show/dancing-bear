@@ -142,9 +142,7 @@ class TestQltyInstruction(unittest.TestCase):
 
     def test_verify_fixes_runs_qlty_twice_on_named_files(self) -> None:
         prompt = _flat(_prompts()["verify-fixes"])
-        self.assertIn("~/.qlty/bin/qlty check <every path in commit-result.json's files_committed>",
-                      prompt)
-        self.assertIn("Run the qlty command TWICE", prompt)
+        self.assertIn("Run the qlty pass TWICE", prompt)
 
     def test_no_workflow_or_agent_repeats_the_stale_claim(self) -> None:
         roots = [*(_ROOT / "workflows").rglob("*.yaml"), *(_ROOT / ".claude/agents").glob("*.md")]
@@ -152,6 +150,35 @@ class TestQltyInstruction(unittest.TestCase):
         for path in roots:
             with self.subTest(path=str(path.relative_to(_ROOT))):
                 self.assertNotIn("scans zero files", _flat(path.read_text(encoding="utf-8")))
+
+
+class TestQltyPathsAreValidated(unittest.TestCase):
+    """commit-result.json's files_committed is an agent-authored echo, not a
+    code-validated list -- PR #406 review thread PRRT_kwDOQr1kjM6lP6Wt.
+    Expanding it straight into a shell command let a malformed or
+    prompt-injected path run shell syntax or point qlty elsewhere, even
+    though fix-results.json's files_changed already passed check-paths in
+    commit-and-push. verify-fixes must source qlty's paths from that
+    validated list instead, loaded argv-safely."""
+
+    def test_qlty_no_longer_expands_files_committed_directly(self) -> None:
+        prompt = _flat(_prompts()["verify-fixes"])
+        self.assertNotIn(
+            "~/.qlty/bin/qlty check <every path in commit-result.json's files_committed>",
+            prompt,
+        )
+
+    def test_qlty_sources_the_check_paths_validated_list(self) -> None:
+        prompt = _flat(_prompts()["verify-fixes"])
+        self.assertIn("fix-results.json's files_changed", prompt)
+        self.assertIn("check-paths", prompt)
+        self.assertIn("jq -r '.files_changed[]'", prompt)
+        self.assertIn("outputs/fix-results.json", prompt)
+
+    def test_qlty_loop_never_interpolates_a_path_into_shell_text(self) -> None:
+        prompt = _flat(_prompts()["verify-fixes"])
+        self.assertIn('while IFS= read -r p; do ~/.qlty/bin/qlty check "$p"; done',
+                      prompt)
 
 
 if __name__ == "__main__":

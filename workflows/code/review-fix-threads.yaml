@@ -1241,8 +1241,17 @@ stages:
 
       Step 2 — lint the changed files, with both linters:
         make lint
-        ~/.qlty/bin/qlty check <every path in commit-result.json's files_committed>
-      Run the qlty command TWICE and take the union of the findings: qlty caps
+      Then qlty. Do not expand commit-result.json's files_committed into the
+      command line: it is an echo written by the commit-and-push agent, not a
+      code-validated list, and a malformed or prompt-injected entry there
+      would run shell syntax or point qlty at the wrong path. Source paths
+      instead from fix-results.json's files_changed — the list commit-and-push
+      already ran through `./bin/workflow check-paths` before staging (Step
+      3a) — and load it argv-safely, one path per line, never interpolated
+      into shell text:
+        jq -r '.files_changed[]' {workspace}/outputs/fix-results.json > {workspace}/validation/qlty-paths.txt
+        while IFS= read -r p; do ~/.qlty/bin/qlty check "$p"; done < {workspace}/validation/qlty-paths.txt
+      Run the qlty pass TWICE and take the union of the findings: qlty caps
       findings per run and the cap is nondeterministic, so one clean run
       proves nothing. `make lint` is ruff only; qlty adds bandit and
       radarlint, which CI enforces, so skipping it passes a branch CI fails.

@@ -646,8 +646,10 @@ class TestAggregateFixResults(_Aggregate):
                          [REAL_ID_A, REAL_ID_TRAILING_DASH, UNLINKED_A, UNLINKED_B])
         self.assertEqual((doc["missing_results"], doc["key_mismatches"], doc["failed_tests"]), ([], [], []))
         self.assertEqual(doc["by_action"], {"fixed": 3, "rejected": 1, "moot": 0, "deferred": 0})
+        # REAL_ID_TRAILING_DASH is "rejected"; its tests_added must not be folded in
+        # even though the fixture leaves that field at its "fixed" default.
         test_files = sorted(f"tests/test_{_file_id(i)}.py"
-                            for i in (REAL_ID_A, REAL_ID_TRAILING_DASH, UNLINKED_A, UNLINKED_B))
+                            for i in (REAL_ID_A, UNLINKED_A, UNLINKED_B))
         self.assertEqual(doc["files_changed"], ["src/a.py", "src/b.py", *test_files])
 
     def test_test_files_are_committed_with_their_fix(self) -> None:
@@ -663,6 +665,28 @@ class TestAggregateFixResults(_Aggregate):
         ))
         self.assertEqual(self._merged()["files_changed"],
                          ["src/core/dryrun_sample.py", "tests/core_tests/test_dryrun_sample.py"])
+
+    def test_rejected_results_tests_added_is_not_staged(self) -> None:
+        """A rejected/moot/deferred result did not touch its test file --
+        crediting tests_added from it would stage a file the fixer never
+        wrote. PR #406 review: the _write_all_valid fixture already had a
+        rejected result carrying a leftover tests_added value and it was
+        (before this fix) folded into files_changed anyway."""
+        self._write_for(UNLINKED_A, _result(
+            UNLINKED_A, None, action="rejected", files_changed=[],
+            tests_added=["tests/unrelated/test_untouched.py::T::test_y"],
+        ))
+        self.assertEqual(self._merged()["files_changed"], [])
+
+    def test_non_fixed_files_changed_is_still_honoured(self) -> None:
+        """Only tests_added is restricted to fixed results -- a non-fixed
+        result's own files_changed is unaffected here; an unexpected entry on
+        a rejected result is the unlisted-edit gate's job, not this one's."""
+        self._write_for(UNLINKED_A, _result(
+            UNLINKED_A, None, action="moot", files_changed=["src/a.py"],
+            tests_added=["tests/unrelated/test_untouched.py::T::test_y"],
+        ))
+        self.assertEqual(self._merged()["files_changed"], ["src/a.py"])
 
     def test_protected_test_path_reaches_the_check_paths_list(self) -> None:
         """A test id is the one route a file could take around files_changed;

@@ -507,9 +507,21 @@ def _files_changed(results: tuple[dict[str, Any], ...]) -> list[str]:
     commit-and-push commands -- so they get the same ``_is_safe_repo_path``
     contract here rather than relying on check-paths, which only runs after
     this list is already built into that shell text.
+
+    Only a ``"fixed"`` result's ``tests_added`` is folded in. A rejected,
+    moot, or deferred result did not edit its test file -- it may still name
+    one (a rejected result copies the fixer schema, which defaults
+    ``tests_added`` to the file the fixer would have touched had the finding
+    been actioned) -- and crediting that path here would stage a file the
+    fixer never wrote, which is exactly the unlisted-edit gate this list
+    exists to keep narrow. files_changed itself is not restricted the same
+    way: a non-fixed result is expected to report ``files_changed: []``, and
+    if it names a path anyway that is caught downstream like any other
+    unlisted edit, not silently trusted here.
     """
     paths = {p for p in _union_of(results, "files_changed") if _is_safe_repo_path(p)}
-    for test_id in _union_of(results, "tests_added"):
+    fixed_results = tuple(r for r in results if r.get("action") == "fixed")
+    for test_id in _union_of(fixed_results, "tests_added"):
         path = _test_file_of(test_id)
         if path:
             paths.add(path)

@@ -262,6 +262,60 @@ class TestCheckUnlistedBaselineProvenance(_Repo):
                                    fix_results=str(self._results(["src/a.py"])))
         self.assertEqual((rc, out), (0, ""))
 
+    def test_baseline_is_not_reread_after_hash_verification(self) -> None:
+        """A fixer process races the check: it rewrites dirty-baseline.json
+        (with a false 'clean' dirty map so its own edit looks pre-existing)
+        immediately after the hash check reads it for hashing. A second,
+        separate read of the same path would pick up that rewritten content
+        even though the hash matched the original bytes -- the TOCTOU this
+        gate must close. _verify_baseline_provenance must parse the exact
+        bytes it hashed and the caller must reuse that object, so the
+        malicious rewrite is never consulted."""
+        baseline = self._snapshot()
+        original_bytes = baseline.read_bytes()
+        tampered = json.dumps({"dirty": {}, "head": "0" * 40}).encode("utf-8")
+        self.assertNotEqual(original_bytes, tampered)
+
+        real_read_bytes = Path.read_bytes
+        call_count = {"n": 0}
+
+        def racing_read_bytes(self_path: Path, *args: object, **kwargs: object) -> bytes:
+            data = real_read_bytes(self_path, *args, **kwargs)
+            if self_path == baseline:
+                call_count["n"] += 1
+                # Simulate the race: a fixer overwrites the file right after
+                # this read returns the bytes that get hashed.
+                baseline.write_bytes(tampered)
+            return data
+
+        (self.repo / "src/a.py").write_text("a = 2\n")
+        with patch.object(Path, "read_bytes", racing_read_bytes):
+            rc, out, err = self._run_cmd(_cmd_check_unlisted, baseline=str(baseline),
+                                         fix_results=str(self._results(["src/a.py"])))
+        # Exactly one read of the baseline's bytes: the hash-and-parse read.
+        # If check-unlisted still re-read the file afterwards (the old bug),
+        # that second read would see the tampered content instead.
+        self.assertEqual(call_count["n"], 1)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out, "")
+        # The file on disk is now the tampered version, proving the race
+        # window existed -- yet the run still used the verified snapshot.
+        self.assertEqual(baseline.read_bytes(), tampered)
+
+    def test_verified_but_non_object_baseline_is_rejected(self) -> None:
+        """A hash match only proves provenance, not shape: a baseline whose
+        verified bytes decode to a JSON array (not an object) must still be
+        rejected, matching the pre-fix behaviour where this check lived in
+        _load_json_object."""
+        path = self.ws / "baseline.json"
+        path.write_text(json.dumps(["not", "an", "object"]))
+        self._write_pr_context(path)
+        rc, out, err = self._run_cmd(_cmd_check_unlisted, baseline=str(path),
+                                     fix_results=str(self._results([])))
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertIn("baseline is not a JSON object", err)
+
 
 class TestHeadCommitAndCommittedSince(_Repo):
     def test_head_commit_returns_current_sha(self) -> None:

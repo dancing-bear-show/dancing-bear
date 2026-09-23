@@ -681,8 +681,9 @@ def _load_json_object(path: str, what: str) -> dict:
     return doc
 
 
-def _verify_baseline_provenance(baseline_path: str) -> None:
-    """Re-hash *baseline_path* and compare against pr-context.json's record.
+def _verify_baseline_provenance(baseline_path: str) -> dict:
+    """Re-hash *baseline_path*, compare against pr-context.json's record, and
+    return the exact bytes that were hashed, parsed as JSON.
 
     dirty-baseline.json is written into the same fixer-writable workspace
     directory that every later fix-threads agent (Bash, Write) can also
@@ -695,10 +696,17 @@ def _verify_baseline_provenance(baseline_path: str) -> None:
     on any mismatch (or a missing/malformed record) makes a rewritten
     baseline rejected rather than trusted.
 
+    The caller must use the returned object rather than re-reading
+    baseline_path itself: a separate read would not be atomic with the
+    hash check above, so a fixer-writable file replaced between the two
+    reads could pass verification against its old content while the
+    caller ends up parsing different, unverified bytes.
+
     Raises:
         ValueError: pr-context.json is missing/unreadable, its
-            dirty_baseline_sha256 field is missing or not a string, or the
-            current hash of *baseline_path* no longer matches it.
+            dirty_baseline_sha256 field is missing or not a string, the
+            current hash of *baseline_path* no longer matches it, or the
+            verified bytes are not a JSON object.
     """
     import hashlib
 
@@ -710,14 +718,22 @@ def _verify_baseline_provenance(baseline_path: str) -> None:
     if not isinstance(expected, str) or not expected:
         raise ValueError("pr-context.json has no 'dirty_baseline_sha256' string")
     try:
-        actual = hashlib.sha256(Path(baseline_path).read_bytes()).hexdigest()
+        baseline_bytes = Path(baseline_path).read_bytes()
     except OSError as exc:
         raise ValueError(f"baseline unreadable: {exc}") from exc
+    actual = hashlib.sha256(baseline_bytes).hexdigest()
     if actual != expected:
         raise ValueError(
             "dirty-baseline.json does not match dirty_baseline_sha256 recorded in "
             "pr-context.json -- baseline may have been rewritten after init"
         )
+    try:
+        doc = json.loads(baseline_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"baseline is not valid JSON: {exc}") from exc
+    if not isinstance(doc, dict):
+        raise ValueError("baseline is not a JSON object")
+    return doc
 
 
 def _cmd_check_unlisted(args: argparse.Namespace) -> int:
@@ -732,8 +748,7 @@ def _cmd_check_unlisted(args: argparse.Namespace) -> int:
     from workflow.worktree_gate import committed_since, snapshot_dirty, unlisted_changes
 
     try:
-        _verify_baseline_provenance(args.baseline)
-        baseline_doc = _load_json_object(args.baseline, "baseline")
+        baseline_doc = _verify_baseline_provenance(args.baseline)
         baseline = baseline_doc.get("dirty")
         baseline_head = baseline_doc.get("head")
         listed = _load_json_object(args.fix_results, "fix-results").get("files_changed")

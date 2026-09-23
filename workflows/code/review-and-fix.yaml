@@ -525,14 +525,20 @@ stages:
            evidence the check was actually run. Verify independently against
            the fixer's actual worktree instead:
              Bash tool: git worktree list --porcelain
-           Find the entry whose "branch" matches <branch> and take its
-           "worktree" path. Then:
-             Bash tool: git -C <worktree_path> status --porcelain --untracked-files=all -- . ':!outputs' ':!stages' ':!inputs' ':!validation'
+           Its "branch" field is the full ref (e.g. "refs/heads/<branch>"),
+           not the short name recorded in the fixer's result file. Find the
+           entry whose "branch" equals "refs/heads/<branch>" (not a bare
+           <branch> comparison — that never matches and silently falls
+           through to the untrusted fallback below) and take its "worktree"
+           path, quoting it as a shell variable so a path containing spaces
+           or shell metacharacters cannot split the command:
+             Bash tool: WORKTREE_PATH=<worktree_path>
+                        git -C "$WORKTREE_PATH" status --porcelain --untracked-files=all -- . ':!outputs' ':!stages' ':!inputs' ':!validation'
            Any output means uncommitted work was left behind — fail,
            recording it under "uncommitted" with the paths this command
            printed (not the fixer's self-reported list).
-           If no worktree entry matches <branch> (already removed), fall
-           back to the fixer's "uncommitted_paths" field only as a
+           If no worktree entry matches "refs/heads/<branch>" (already
+           removed), fall back to the fixer's "uncommitted_paths" field only as a
            last resort, and if it is ABSENT treat that the same as a
            non-empty list: an unverifiable worktree is not a clean one,
            so fail and record the branch under "uncommitted" with
