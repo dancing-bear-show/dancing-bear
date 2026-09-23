@@ -792,32 +792,48 @@ If a stage has `fan_out` defined, check `fan_out.mode`:
 2. Parse JSON and extract the array at `fan_out.field`.
 3. For each item, spawn a separate background agent:
    ```python
+   import re
+
+   # The key value is untrusted prior-stage JSON, and it is substituted into
+   # the WHOLE prompt -- including writes_to entries such as
+   # `analysis/domain-{domain}.json`, not only the result path. Validate it
+   # once, before any substitution: a value that is not a plain filename
+   # segment ("../../outside", "a/b", "$(id)") fails that item instead of
+   # being spliced into a path.
+   SAFE_KEY_VALUE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
+
    # Same accessors as the single-agent path — a compiled-manifest stage is a
    # plain dict with no `.agent`, so read role/isolation through _field().
    role = _field(stage, "spec.agent.role", "agent_role", "agent_type")
    isolation = _field(stage, "spec.agent.isolation", "agent_isolation", "isolation")
-   fan_kwargs = dict(
-       description=f"Stage {stage_name} — {item[fan_out.key]}",
-       subagent_type=ROLE_MAP[role],
-       run_in_background=True,
-       # Two substitutions over the rendered prompt, both at EVERY site:
-       #   "{<key>}"          -> item[fan_out.key], the item's value
-       #   "{fan_out_index}"  -> position, the item's zero-based index in
-       #                         fan_out.field
-       # The engine leaves both literal on purpose (one prompt serves every
-       # item). The result path uses ONLY {fan_out_index}: the key value is
-       # untrusted prior-stage JSON and may contain "/" or "..", so it must
-       # never become part of a filename. The prompt's Fan-out section tells
-       # the agent to fail if either braced placeholder survives.
-       prompt="...",
-   )
-   if team_name:
-       fan_kwargs["team_name"] = team_name
-       fan_kwargs["name"] = f"{stage_name}-{position}"
-   # Fan-out writers sharing one tree is the worst case: N agents, same files.
-   if isolation:
-       fan_kwargs["isolation"] = isolation
-   Agent(**fan_kwargs)
+   for position, item in enumerate(items):          # position fills {fan_out_index}
+     value = str(item[fan_out.key])
+     if not SAFE_KEY_VALUE.fullmatch(value):
+       # Write this item's result as failed at
+       # stages/{index:03d}-{stage_name}-{position}.json, naming the rejected
+       # key by position only (never echo the value), and do not spawn it.
+       continue
+     fan_kwargs = dict(
+         description=f"Stage {stage_name} — {position}",
+         subagent_type=ROLE_MAP[role],
+         run_in_background=True,
+         # Two substitutions over the rendered prompt, both at EVERY site:
+         #   "{<key>}"          -> value (validated above)
+         #   "{fan_out_index}"  -> position
+         # The engine leaves both literal on purpose (one prompt serves every
+         # item). The result path uses ONLY {fan_out_index}; any writes_to
+         # path that names the key gets the validated value. The prompt's
+         # Fan-out section tells the agent to fail if either braced
+         # placeholder survives.
+         prompt="...",
+     )
+     if team_name:
+         fan_kwargs["team_name"] = team_name
+         fan_kwargs["name"] = f"{stage_name}-{position}"
+     # Fan-out writers sharing one tree is the worst case: N agents, same files.
+     if isolation:
+         fan_kwargs["isolation"] = isolation
+     Agent(**fan_kwargs)
    ```
 4. All fan-out agents run in parallel (same group).
 5. Collect all results (one Monitor per agent) before advancing. Wait on each
