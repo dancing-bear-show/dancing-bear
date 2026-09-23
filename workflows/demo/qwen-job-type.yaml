@@ -130,7 +130,14 @@ stages:
       passes on the remnant). This stage is NOT isolated, so
       {workspace}/manifest.json is readable here:
 
-        python3 -c 'import json,re,sys,pathlib; p=json.loads(pathlib.Path(sys.argv[1]).read_text())["trigger_params"]; m=p["handler_module"]; t=p["job_type"]; sys.exit(0 if re.fullmatch(r"src/worker/[a-z][a-z0-9_]{2,40}\.py", m) and re.fullmatch(r"[a-z][a-z0-9_]{2,40}", t) else 1)' {workspace}/manifest.json
+        ./bin/workflow check-params {workspace}/manifest.json \
+          --check 'handler_module=src/worker/[a-z][a-z0-9_]{2,40}\.py' \
+          --check 'job_type=[a-z][a-z0-9_]{2,40}'
+
+      One call covers both params and exits non-zero if either fails. The
+      check lives in src/workflow/param_guard.py and is covered by
+      tests/workflow_tests/test_param_guard.py, including the heredoc-escape
+      payload above — so a future edit here cannot silently gut it.
 
       Branch on the EXIT STATUS, not on echoed text. If it fails, ABORT the
       whole run here — write seam.json with {"aborted": true, "reason":
@@ -435,7 +442,15 @@ stages:
       anything in that field, and it goes straight into a git invocation
       below. Require a full 40-character hex SHA and nothing else:
 
-        python3 -c 'import json,re,sys,pathlib; v=json.loads(pathlib.Path(sys.argv[1]).read_text()).get("commit_sha") or ""; sys.exit(0 if re.fullmatch(r"[0-9a-f]{40}", v) else 1)' {workspace}/outputs/handler.json
+        ./bin/workflow check-params {workspace}/outputs/handler.json --top-level \
+          --check 'commit_sha=[0-9a-f]{40}'
+
+      `--top-level` reads the field from the document root, because
+      handler.json is a stage output rather than the engine's manifest. A null
+      or absent commit_sha fails the check, so the "agent never committed"
+      case is caught by the same call. The check lives in
+      src/workflow/param_guard.py, covered by
+      tests/workflow_tests/test_param_guard.py.
 
       Branch on the EXIT STATUS. A short SHA, a ref name, or anything with a
       space or shell metacharacter FAILS this stage — do not resolve it, do

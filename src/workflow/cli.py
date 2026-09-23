@@ -31,6 +31,7 @@ from workflow.meta import META
 
 from workflow.cli_compile import _cmd_compile
 from workflow.cli_dispatch import (
+    _cmd_check_params,
     _cmd_init_workspace,
     _cmd_lint,
     _cmd_list,
@@ -203,12 +204,30 @@ def cmd_validate_fragment(args: argparse.Namespace) -> int:
     return _cmd_validate_fragment(args)
 
 
+@app.command(
+    "check-params",
+    help="Validate params read from a workspace JSON file (exit 0 pass, 1 fail)",
+)
+@app.argument("file", help="Path to manifest.json (or another engine/stage JSON file)")
+@app.argument(
+    "--check", action="append", default=[], required=True, metavar="name=regex",
+    help="Param name and full-match regex it must satisfy (repeatable)",
+)
+@app.argument(
+    "--top-level", action="store_true",
+    help="Read params from the document root instead of its 'trigger_params' key",
+)
+def cmd_check_params(args: argparse.Namespace) -> int:
+    return _cmd_check_params(args)
+
+
 def _no_command_usage() -> int:
     """Preserve the legacy no-subcommand behavior (one-line usage to
     stderr, ExitCode.USAGE) rather than CLIApp's default (full --help),
     since this is a public CLI surface."""
     print(
-        "Usage: workflow {parse,compile,run,lint,list,status,init-workspace,resume,validate-fragment} [options]",
+        "Usage: workflow {parse,compile,run,lint,list,status,init-workspace,resume,"
+        "validate-fragment,check-params} [options]",
         file=sys.stderr,
     )
     return ExitCode.USAGE

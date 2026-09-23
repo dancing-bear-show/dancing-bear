@@ -165,7 +165,17 @@ stages:
       the two files do not drift — read the value from the file the ENGINE
       wrote, where it is JSON data that never passed through a shell:
 
-        python3 -c 'import json,re,sys,pathlib; v=json.loads(pathlib.Path(sys.argv[1]).read_text())["trigger_params"]["ollama_host"]; sys.exit(0 if re.fullmatch(r"https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?", v) else 1)' {workspace}/manifest.json
+        ./bin/workflow check-params {workspace}/manifest.json \
+          --check 'ollama_host=https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?'
+
+      The check lives in src/workflow/param_guard.py and is covered by
+      tests/workflow_tests/test_param_guard.py, including both disproven
+      payloads above — so a future edit to this YAML cannot silently gut the
+      protection. That is why it is a CLI call and not an inline `python3 -c`
+      program: the catalog test only parses and compiles this text, so
+      validation logic embedded here is untested by construction. The other
+      three probes in this workflow call the same command for their own
+      params.
 
       `init-workspace` serialises every trigger param into manifest.json under
       `trigger_params` via json.dump. Only the workspace path — which the
@@ -373,7 +383,8 @@ stages:
       is raw string replacement. Read it from the engine's file, never from
       shell text:
 
-        python3 -c 'import json,re,sys,pathlib; v=json.loads(pathlib.Path(sys.argv[1]).read_text())["trigger_params"]["model_tag"]; sys.exit(0 if re.fullmatch(r"[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)?", v) else 1)' {workspace}/manifest.json
+        ./bin/workflow check-params {workspace}/manifest.json \
+          --check 'model_tag=[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)?'
 
       Branch on the EXIT STATUS. On failure, record the inventory with
       {"skipped": true, "skip_reason": "model_tag failed validation"} and
@@ -438,7 +449,9 @@ stages:
       caller-overridable and this stage has Bash. Same mechanism and same
       reasoning as the health stage; read them from the engine's file:
 
-        python3 -c 'import json,re,sys,pathlib; p=json.loads(pathlib.Path(sys.argv[1]).read_text())["trigger_params"]; t=p["job_type"]; h=p["stale_job_hours"]; sys.exit(0 if re.fullmatch(r"[a-z][a-z0-9_]{2,40}", t) and re.fullmatch(r"[0-9]{1,4}", h) and 1 <= int(h) <= 8760 else 1)' {workspace}/manifest.json
+        ./bin/workflow check-params {workspace}/manifest.json \
+          --check 'job_type=[a-z][a-z0-9_]{2,40}' \
+          --check 'stale_job_hours=[1-9][0-9]{0,3}'
 
       Branch on the EXIT STATUS. On failure, write the analysis with
       {"skipped": true, "skip_reason": "<which param> failed validation"}
@@ -603,7 +616,8 @@ stages:
       the same reasoning as the health stage's {ollama_host} check; a heredoc
       does NOT work, see that stage):
 
-        python3 -c 'import json,re,sys,pathlib; v=json.loads(pathlib.Path(sys.argv[1]).read_text())["trigger_params"]["spend_days"]; sys.exit(0 if re.fullmatch(r"[0-9]{1,4}", v) and 1 <= int(v) <= 3650 else 1)' {workspace}/manifest.json
+        ./bin/workflow check-params {workspace}/manifest.json \
+          --check 'spend_days=[1-9][0-9]{0,3}'
 
       Branch on the EXIT STATUS. On failure, write the spend record with
       {"skipped": true, "skip_reason": "spend_days failed validation"} and

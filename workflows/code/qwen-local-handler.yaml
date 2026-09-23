@@ -281,7 +281,14 @@ stages:
       included (probe-disproven: a newline plus the delimiter closes it and
       executes the remainder while the regex then passes on the remnant):
 
-        python3 -c 'import json,re,sys,pathlib; v=json.loads(pathlib.Path(sys.argv[1]).read_text())["trigger_params"]["job_type"]; sys.exit(0 if re.fullmatch(r"[a-z][a-z0-9_]{2,40}", v) else 1)' {workspace}/manifest.json
+        ./bin/workflow check-params {workspace}/manifest.json \
+          --check 'job_type=[a-z][a-z0-9_]{2,40}'
+
+      The check itself lives in src/workflow/param_guard.py and is covered by
+      tests/workflow_tests/test_param_guard.py, including both disproven
+      payloads above — so a future edit here cannot silently gut it. Note what
+      is and is not interpolated: the PATH to manifest.json is engine-
+      controlled, and the untrusted value appears nowhere on the command line.
 
       Branch on the EXIT STATUS, not on echoed text. If it fails, ABORT the
       whole run here — write survey.json with {"aborted": true,
@@ -1847,7 +1854,14 @@ stages:
            anything in that field, and step 3 puts it straight into `git`.
            Require a full 40-character hex SHA and nothing else:
 
-             python3 -c 'import json,re,sys,pathlib; v=json.loads(pathlib.Path(sys.argv[1]).read_text()).get("commit_sha") or ""; sys.exit(0 if re.fullmatch(r"[0-9a-f]{40}", v) else 1)' {workspace}/outputs/<the impl file>
+             ./bin/workflow check-params {workspace}/outputs/<the impl file> \
+               --top-level --check 'commit_sha=[0-9a-f]{40}'
+
+           `--top-level` reads the field from the document root, since this is
+           a stage output rather than the engine's manifest. A null or absent
+           commit_sha fails the same call. The check lives in
+           src/workflow/param_guard.py, covered by
+           tests/workflow_tests/test_param_guard.py.
 
            Branch on the EXIT STATUS. A short SHA, a ref name, or anything
            carrying a space or shell metacharacter FAILS this stage — do not
@@ -2288,7 +2302,15 @@ stages:
         never passed through a shell on the way there. Read it from there and
         validate it in Python:
 
-          python3 -c 'import json,re,sys,pathlib; v=json.loads(pathlib.Path(sys.argv[1]).read_text())["trigger_params"]["ollama_host"]; sys.exit(0 if re.fullmatch(r"https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?", v) else 1)' {workspace}/manifest.json
+          ./bin/workflow check-params {workspace}/manifest.json \
+            --check 'ollama_host=https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?' \
+            --check 'model_tag=[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)?'
+
+        That is one call for BOTH params: it reports every failing param and
+        exits non-zero if any of them fails. The check lives in
+        src/workflow/param_guard.py, covered by
+        tests/workflow_tests/test_param_guard.py — including both payloads
+        disproven above, so a future edit cannot silently gut the guard.
 
         Note what is and is not interpolated: the PATH to manifest.json is a
         workspace path the engine controls, and the untrusted value appears

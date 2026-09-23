@@ -1,7 +1,8 @@
 """Dispatch subcommands for the workflow CLI.
 
 Handles parse, run, lint, list, status, init-workspace, resume,
-and validate-fragment command handlers, plus their shared helpers.
+validate-fragment, and check-params command handlers, plus their shared
+helpers.
 """
 
 from __future__ import annotations
@@ -466,6 +467,38 @@ def _cmd_init_workspace(args: argparse.Namespace) -> int:
 
     print(str(workspace))
     return 0
+
+
+def _cmd_check_params(args: argparse.Namespace) -> int:
+    """Validate params read from a JSON file the engine wrote.
+
+    The value under test is NEVER taken from the command line -- only the
+    engine-controlled path to the JSON file is. See workflow/param_guard.py
+    for why any shell-embedding guard is defeatable.
+
+    Exit status is the contract: 0 accepted, 1 rejected or unreadable.
+    """
+    from workflow.param_guard import check_params, load_params, parse_check
+
+    try:
+        checks = [parse_check(spec) for spec in args.check]
+    except ValueError as exc:
+        print(f"check-params: {exc}", file=sys.stderr)
+        return 1
+
+    key = None if args.top_level else "trigger_params"
+    try:
+        params = load_params(args.file, key=key)
+    except ValueError as exc:
+        print(f"check-params: {exc}", file=sys.stderr)
+        return 1
+
+    result = check_params(params, checks)
+    if result.ok:
+        return 0
+    for failure in result.failures:
+        print(f"check-params: {failure}", file=sys.stderr)
+    return 1
 
 
 def _cmd_resume(args: argparse.Namespace) -> int:

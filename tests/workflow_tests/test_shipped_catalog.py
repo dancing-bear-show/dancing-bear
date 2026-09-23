@@ -59,9 +59,55 @@ _CONTRACT_DESCRIPTION_CHARS = 600
 # `git commit` invocation. Merely containing the substring "commit" is not
 # enough — a stage can mention committing only to forbid it (see
 # _NEGATIVE_COMMIT_RE below), which must not satisfy this check.
+#
+# Matching this pattern is necessary but NOT sufficient: the pattern starts
+# at the "commit" token and so cannot see a negator in front of it, which
+# means "Do not commit before you finish" matches it just as readily as
+# "COMMIT BEFORE FINISHING". Every use must go through
+# _has_unnegated_commit_instruction() below, which re-checks the lead-in.
 _AFFIRMATIVE_COMMIT_RE = re.compile(
     r"commit\b[^.]{0,80}\bfinish|\bgit\s+commit\b", re.IGNORECASE | re.DOTALL
 )
+
+# A negator immediately in front of a commit instruction, which inverts it.
+# Anchored with \Z so it matches only at the very END of the text preceding a
+# candidate match — i.e. the words that actually govern THAT occurrence.
+#
+# Scoping this to the lead-in rather than scanning the whole description is
+# the point. A correct description routinely contains a nearby prohibition
+# that governs something else: "commit your work before you finish; never
+# `git add -A`" forbids a staging shortcut, not the commit, and
+# qwen-local-handler.yaml's impl-heartbeat tells the agent to commit and then
+# to "skip the commit entirely" on its no-change route. A whole-description
+# negative scan would reject both of those real, shipped stages.
+#
+# The optional filler permits a short object between the negator and the verb
+# ("do not EVER commit", "must not, under any circumstances, commit") without
+# reaching back across a sentence boundary to borrow an unrelated negator.
+_NEGATED_LEADIN_RE = re.compile(
+    r"\b(never|do\s+not|don't|must\s+not|cannot|can't|without)\b[^.;:\n]{0,30}\Z",
+    re.IGNORECASE,
+)
+
+
+def _has_unnegated_commit_instruction(description: str) -> bool:
+    """Return True if the text gives at least one commit instruction that stands.
+
+    ``_AFFIRMATIVE_COMMIT_RE`` begins at the "commit" token, so on its own it
+    cannot tell "COMMIT BEFORE FINISHING" from "Do not commit before you
+    finish" — both contain the same span. This re-reads the text immediately
+    preceding each match and discards the ones a negator inverts.
+
+    It requires only ONE surviving instruction rather than demanding all be
+    clean, because a description that says "commit before you finish" and
+    later carves out "on route (a), skip the commit entirely" is correct: it
+    instructs the agent to commit in the case where there is anything to
+    commit. Demanding every occurrence be un-negated would reject that.
+    """
+    for match in _AFFIRMATIVE_COMMIT_RE.finditer(description):
+        if not _NEGATED_LEADIN_RE.search(description[: match.start()]):
+            return True
+    return False
 
 # Roles whose whole purpose is producing edits. For these the commit opt-out
 # below is NOT available: their work reaches the branch only as commits, so
@@ -210,7 +256,7 @@ def _instructs_commit(description: str) -> bool:
     giving no instruction to commit at all.
     """
     return bool(
-        _AFFIRMATIVE_COMMIT_RE.search(description)
+        _has_unnegated_commit_instruction(description)
         or _NEGATIVE_COMMIT_RE.search(description)
     )
 
@@ -294,7 +340,7 @@ def _commits(stage: dict) -> bool:
     agent = stage.get("agent") or {}
     role = agent.get("role") if isinstance(agent, dict) else None
     if role in _CODE_WRITING_ROLES:
-        return bool(_AFFIRMATIVE_COMMIT_RE.search(description))
+        return _has_unnegated_commit_instruction(description)
     return _instructs_commit(description)
 
 
