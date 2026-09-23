@@ -111,7 +111,7 @@ def _review(i: int, login: str = "someone", user_type: str = "User", body: str |
 class TestThreadPagination(unittest.TestCase):
     def test_more_than_one_page_of_threads_comes_back_complete(self):
         threads = [_thread(i, [comment_node(i)]) for i in range(THREAD_PAGE + 37)]
-        doc, raw, fake = _fetch(PagingGitHub(threads))
+        doc, _, fake = _fetch(PagingGitHub(threads))
         ids = [t["thread_id"] for t in doc["threads"]]
         self.assertEqual(ids, [f"PRRT_{i}" for i in range(THREAD_PAGE + 37)])
         self.assertFalse(doc["truncated"])
