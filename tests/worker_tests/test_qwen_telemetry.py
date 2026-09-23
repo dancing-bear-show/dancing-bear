@@ -197,6 +197,28 @@ class QwenTelemetryMetricsShapeTests(_OtelEnvIsolationMixin, unittest.TestCase):
         self.assertEqual(prompt_dp.get_attr("qwen.outcome"), "success")
         self.assertEqual(record.resource.get_attr("service.name"), "qwen-worker")
 
+    def test_token_sums_are_delta_over_the_job_interval(self) -> None:
+        """Per-job token counts must be DELTA over [job start, end].
+
+        CUMULATIVE with start == time would make a backend read each job's
+        count as a running total that resets per job.
+        """
+        from worker.qwen_telemetry import build_job_metrics
+
+        end_ns = 10_000_000_000
+        payload = build_job_metrics(
+            _METRIC_ATTRS, duration_ms=1500.0, prompt_tokens=84, completion_tokens=57, now_ns=end_ns
+        )
+        record = OTLPMetricsRecord.from_dict(payload)
+
+        by_name = {m.name: m for m in record.metrics}
+        for name in ("qwen.prompt_tokens", "qwen.completion_tokens"):
+            metric = by_name[name]
+            self.assertEqual(metric.aggregation_temporality, 1, name)
+            point = metric.data_points[0]
+            self.assertEqual(point.time_unix_nano, end_ns, name)
+            self.assertEqual(point.start_time_unix_nano, end_ns - 1_500_000_000, name)
+
     def test_token_metrics_absent_when_ollama_gave_no_counts(self) -> None:
         from worker.qwen_telemetry import build_job_metrics
 

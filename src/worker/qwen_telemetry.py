@@ -41,9 +41,8 @@ METRICS_PROTOCOL_ENV = "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL"
 
 _HTTP_PROTOCOLS = frozenset({"http/json", "http/protobuf"})
 
-# Metric names. Token counts are cumulative sums (each job contributes one
-# more count to a running total, matching OTLP's monotonic-sum convention
-# for per-request counters like Claude Code's own token metrics); duration
+# Metric names. Token counts are monotonic DELTA sums: each job reports only
+# its own count over its own interval, and the backend accumulates. Duration
 # is a gauge because it is a point-in-time measurement of one job, not
 # something that accumulates.
 METRIC_PROMPT_TOKENS = "qwen.prompt_tokens"
@@ -162,8 +161,14 @@ def build_job_span(attrs: dict[str, object], start_ns: int, end_ns: int) -> dict
     }
 
 
-def _sum_metric(name: str, value: float, attrs: dict[str, object], now_ns: int) -> dict[str, object]:
-    """A monotonic cumulative-sum metric with one data point.
+def _sum_metric(
+    name: str, value: float, attrs: dict[str, object], start_ns: int, now_ns: int
+) -> dict[str, object]:
+    """A monotonic DELTA-sum metric with one data point covering one job.
+
+    DELTA, not CUMULATIVE: each job reports only its own tokens, over the
+    interval [start_ns, now_ns]. Marked cumulative, a backend would read every
+    point as a running total that resets per job and derive nonsense rates.
 
     Matches telemetry.otel.models.OTLPMetric.from_dict, which prefers the
     "sum" shape when present. Values are emitted under "asDouble" because
@@ -174,11 +179,11 @@ def _sum_metric(name: str, value: float, attrs: dict[str, object], now_ns: int) 
         "name": name,
         "unit": "1",
         "sum": {
-            "aggregationTemporality": 2,  # CUMULATIVE
+            "aggregationTemporality": 1,  # DELTA
             "isMonotonic": True,
             "dataPoints": [
                 {
-                    "startTimeUnixNano": now_ns,
+                    "startTimeUnixNano": start_ns,
                     "timeUnixNano": now_ns,
                     "asDouble": float(value),
                     "attributes": _otlp_attributes(attrs),
@@ -228,11 +233,16 @@ def build_job_metrics(
     span, already masked by the caller.
     """
     timestamp_ns = now_ns if now_ns is not None else time.time_ns()
+    interval_start_ns = timestamp_ns - max(0, int(duration_ms * 1_000_000))
     metrics: list[dict[str, object]] = []
     if prompt_tokens is not None:
-        metrics.append(_sum_metric(METRIC_PROMPT_TOKENS, prompt_tokens, attrs, timestamp_ns))
+        metrics.append(
+            _sum_metric(METRIC_PROMPT_TOKENS, prompt_tokens, attrs, interval_start_ns, timestamp_ns)
+        )
     if completion_tokens is not None:
-        metrics.append(_sum_metric(METRIC_COMPLETION_TOKENS, completion_tokens, attrs, timestamp_ns))
+        metrics.append(
+            _sum_metric(METRIC_COMPLETION_TOKENS, completion_tokens, attrs, interval_start_ns, timestamp_ns)
+        )
     metrics.append(_gauge_metric(METRIC_GENERATION_DURATION_MS, "ms", duration_ms, attrs, timestamp_ns))
 
     return {
