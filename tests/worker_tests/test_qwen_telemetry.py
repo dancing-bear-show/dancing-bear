@@ -16,6 +16,7 @@ import os
 import threading
 import unittest
 import unittest.mock as mock
+import urllib.error
 
 from telemetry.otel.models import OTLPMetricsRecord, OTLPSpansRecord
 
@@ -403,6 +404,59 @@ class QwenTelemetryBackgroundExportTests(unittest.TestCase):
 
         self.assertEqual({c.kwargs["timeout"] for c in mock_post.call_args_list}, {qwen_telemetry.EXPORT_TIMEOUT_SEC})
         self.assertLessEqual(qwen_telemetry.EXPORT_TIMEOUT_SEC, 2.0)
+
+
+
+_ENDPOINT_PASSWORD = "s3cret-collector-pw"  # nosec B105 - fake secret planted to prove masking
+_ENDPOINT_TOKEN = "q-token-abc123"  # nosec B105 - fake secret planted to prove masking
+_SECRET_URL = f"http://user:{_ENDPOINT_PASSWORD}@collector:4318/v1/traces?token={_ENDPOINT_TOKEN}"
+
+
+class QwenTelemetryFailureLoggingTests(_OtelEnvIsolationMixin, unittest.TestCase):
+    """A failed export must not log a traceback or raw exception text.
+
+    urllib errors can embed the request URL, and a configured OTLP endpoint
+    may carry credentials, so the log line is type + masked message only.
+    """
+
+    def _assert_logged_safely(self, output: list[str]) -> None:
+        joined = "\n".join(output)
+        self.assertTrue(joined, "expected a log line")
+        self.assertNotIn(_ENDPOINT_PASSWORD, joined)
+        self.assertNotIn(_ENDPOINT_TOKEN, joined)
+        self.assertNotIn("Traceback", joined)
+
+    def test_span_and_metrics_export_failures_log_masked_text_without_traceback(self) -> None:
+        from worker import qwen_telemetry
+
+        error = urllib.error.URLError(f"connection refused to {_SECRET_URL}")
+        calls = (
+            lambda: qwen_telemetry.export_job_span({"qwen.job_id": "j"}, 0, 1),
+            lambda: qwen_telemetry.export_job_metrics({"qwen.job_id": "j"}, 1.0, 1, 1),
+        )
+        for call in calls:
+            with self.subTest(call=call), mock.patch.object(qwen_telemetry, "_post", side_effect=error), \
+                    self.assertLogs("worker.qwen_telemetry", level="DEBUG") as logs:
+                call()
+            self._assert_logged_safely(logs.output)
+
+    def test_background_task_failure_logs_masked_text_without_traceback(self) -> None:
+        from worker import qwen_telemetry
+
+        def _boom() -> None:
+            raise OSError(f"failed posting to {_SECRET_URL}")
+
+        with self.assertLogs("worker.qwen_telemetry", level="DEBUG") as logs:
+            qwen_telemetry._run_export_task(_boom)
+        self._assert_logged_safely(logs.output)
+
+    def test_describe_exception_keeps_type_and_masks_message(self) -> None:
+        from worker.qwen_telemetry import describe_exception
+
+        text = describe_exception(ConnectionError(_SECRET_URL))
+        self.assertTrue(text.startswith("ConnectionError: "))
+        self.assertNotIn(_ENDPOINT_PASSWORD, text)
+        self.assertNotIn(_ENDPOINT_TOKEN, text)
 
 
 if __name__ == "__main__":

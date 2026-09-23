@@ -66,6 +66,20 @@ class QwenJobIdPathTests(QwenHandlerCase):
 
         self.assertTrue(victim.exists(), "an unsafe id reached unlink outside the deferral dir")
 
+    def test_deferral_cleanup_failure_masks_a_credential_shaped_job_id(self) -> None:
+        """A valid job id can look like a token; the cleanup warning must mask it."""
+        job_id = "ghp_" + "a1b2c3d4e5" * 4  # nosec B105 - fake token-shaped id planted to prove masking
+        self.assertTrue(qwen.is_safe_job_id(job_id))
+        self.deferral_dir.mkdir(parents=True)
+
+        with mock.patch("pathlib.Path.unlink", side_effect=OSError(f"cannot remove {job_id}.json")), \
+                self.assertLogs("worker.qwen", level="WARNING") as logs:
+            qwen._clear_deferral_state(job_id)
+
+        joined = "\n".join(logs.output)
+        self.assertNotIn(job_id, joined)
+        self.assertNotIn("Traceback", joined)
+
     def test_symlink_at_the_job_file_name_is_refused(self) -> None:
         """Defence in depth: even a safe id may not write through a planted symlink."""
         outside = Path(self.tmpdir) / "outside.json"

@@ -24,6 +24,8 @@ import time
 import uuid
 from collections.abc import Callable
 
+from core.secrets import mask_text
+
 _log = logging.getLogger(__name__)
 
 SPAN_NAME = "qwen.job"
@@ -274,6 +276,16 @@ def _post(url: str, body: dict[str, object], timeout: float) -> None:
         resp.read()
 
 
+def describe_exception(exc: BaseException) -> str:
+    """A log-safe one-line description: exception type plus masked message.
+
+    Used instead of exc_info=True, whose traceback carries the raw exception
+    text. urllib errors can embed the request URL, and a configured OTLP
+    endpoint may include credentials or a query token.
+    """
+    return f"{type(exc).__name__}: {mask_text(str(exc))}"
+
+
 def export_job_span(attrs: dict[str, object], start_ns: int, end_ns: int) -> None:
     """Best-effort export of one qwen.job span. Never raises.
 
@@ -286,8 +298,8 @@ def export_job_span(attrs: dict[str, object], start_ns: int, end_ns: int) -> Non
         endpoint = _resolve_traces_endpoint()
         span_doc = build_job_span(attrs, start_ns, end_ns)
         _post(endpoint, span_doc, timeout=EXPORT_TIMEOUT_SEC)
-    except Exception:  # nosec B110 - best-effort telemetry: a down/slow/unreachable collector must never affect job outcome
-        _log.debug("qwen: span export failed (non-fatal)", exc_info=True)
+    except Exception as exc:  # nosec B110 - best-effort telemetry: a down/slow/unreachable collector must never affect job outcome
+        _log.debug("qwen: span export failed (non-fatal): %s", describe_exception(exc))
 
 
 def export_job_metrics(
@@ -305,8 +317,8 @@ def export_job_metrics(
         endpoint = _resolve_metrics_endpoint()
         metrics_doc = build_job_metrics(attrs, duration_ms, prompt_tokens, completion_tokens)
         _post(endpoint, metrics_doc, timeout=EXPORT_TIMEOUT_SEC)
-    except Exception:  # nosec B110 - best-effort telemetry: a down/slow/unreachable collector must never affect job outcome
-        _log.debug("qwen: metrics export failed (non-fatal)", exc_info=True)
+    except Exception as exc:  # nosec B110 - best-effort telemetry: a down/slow/unreachable collector must never affect job outcome
+        _log.debug("qwen: metrics export failed (non-fatal): %s", describe_exception(exc))
 
 
 # Export threads that have started and not yet finished. Only
@@ -318,8 +330,8 @@ _inflight_lock = threading.Lock()
 def _run_export_task(task: Callable[[], None]) -> None:
     try:
         task()
-    except Exception:  # nosec B110 - best-effort telemetry: an export failure must never surface anywhere
-        _log.debug("qwen: background telemetry export failed (non-fatal)", exc_info=True)
+    except Exception as exc:  # nosec B110 - best-effort telemetry: an export failure must never surface anywhere
+        _log.debug("qwen: background telemetry export failed (non-fatal): %s", describe_exception(exc))
     finally:
         with _inflight_lock:
             _inflight.discard(threading.current_thread())

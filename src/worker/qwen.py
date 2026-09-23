@@ -56,7 +56,7 @@ from pathlib import Path
 
 from core.secrets import mask_text
 from worker._helpers import get_repo_root, get_worker_state_dir
-from worker.qwen_telemetry import export_in_background, export_job_metrics, export_job_span
+from worker.qwen_telemetry import describe_exception, export_in_background, export_job_metrics, export_job_span
 
 _log = logging.getLogger(__name__)
 
@@ -1209,8 +1209,10 @@ def _clear_deferral_state(job_id: str) -> None:
         (_deferral_dir() / _job_file_name(job_id, _DEFERRAL_SUFFIX)).unlink()
     except FileNotFoundError:  # nosec B110 - nothing to clear, e.g. a job that never deferred
         pass
-    except OSError:
-        _log.warning("qwen: could not delete deferral state for %s", job_id, exc_info=True)
+    except OSError as exc:
+        _log.warning(
+            "qwen: could not delete deferral state for %s: %s", mask_text(job_id), describe_exception(exc)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1826,13 +1828,13 @@ def _export_event(event: _TelemetryEvent, attrs: dict[str, object]) -> None:
     # independent best-effort paths.
     try:
         export_job_span(attrs, event.start_ns, event.end_ns)
-    except Exception:  # nosec B110 - contract.telemetry.failure_is_nonfatal: export must never affect job outcome, independent of export_job_span's own internal guard
-        _log.debug("qwen: span telemetry export raised (non-fatal)", exc_info=True)
+    except Exception as exc:  # nosec B110 - contract.telemetry.failure_is_nonfatal: export must never affect job outcome, independent of export_job_span's own internal guard
+        _log.debug("qwen: span telemetry export raised (non-fatal): %s", describe_exception(exc))
     try:
         duration_ms = (event.end_ns - event.start_ns) / 1_000_000
         export_job_metrics(attrs, duration_ms, event.prompt_tokens, event.completion_tokens)
-    except Exception:  # nosec B110 - contract.telemetry.failure_is_nonfatal: export must never affect job outcome, independent of export_job_metrics's own internal guard
-        _log.debug("qwen: metrics telemetry export raised (non-fatal)", exc_info=True)
+    except Exception as exc:  # nosec B110 - contract.telemetry.failure_is_nonfatal: export must never affect job outcome, independent of export_job_metrics's own internal guard
+        _log.debug("qwen: metrics telemetry export raised (non-fatal): %s", describe_exception(exc))
 
 
 def _emit_telemetry(event: _TelemetryEvent) -> None:
@@ -1845,8 +1847,8 @@ def _emit_telemetry(event: _TelemetryEvent) -> None:
     try:
         attrs = _telemetry_attrs(event)
         export_in_background(lambda: _export_event(event, attrs))
-    except Exception:  # nosec B110 - contract.telemetry.failure_is_nonfatal: even failing to schedule the export must not affect the job
-        _log.debug("qwen: could not schedule telemetry export (non-fatal)", exc_info=True)
+    except Exception as exc:  # nosec B110 - contract.telemetry.failure_is_nonfatal: even failing to schedule the export must not affect the job
+        _log.debug("qwen: could not schedule telemetry export (non-fatal): %s", describe_exception(exc))
 
 
 def _deferral_outcome(job_id: str, reason: str, outcome: str) -> str:
