@@ -8,11 +8,14 @@ unbounded max_inflight must still cap live threads at max_per_tick, run_once
 must keep blocking until its batch finishes, and finished threads must be
 pruned so capacity recovers. Also: an exception escaping process_one stays
 inside its thread, another worker's processing/ job counts against
-max_inflight, and a counts() failure still subtracts live threads.
+max_inflight, an unreadable processing/ listing still subtracts live threads,
+a live thread counts once even after its file has left processing/, and the
+stale-job reap never requeues a job a live local thread still owns.
 """
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 import unittest
@@ -397,9 +400,9 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
                 _wait_for(lambda: (done / "claimed.json").exists() and (done / "held.json").exists(), timeout=5)
             )
 
-    def test_counts_failure_fallback_subtracts_live_threads(self):
-        """When counts() raises, the fallback still subtracts live threads
-        from max_inflight instead of returning max_per_tick."""
+    def test_listing_failure_fallback_subtracts_live_threads(self):
+        """When the processing/ listing raises, the fallback still subtracts
+        live threads from max_inflight instead of returning max_per_tick."""
         gate = threading.Event()
         self.addCleanup(gate.set)  # before _drain_threads: never park a thread on failure
         slow = _BlockingHandler(gate)
@@ -410,7 +413,7 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
              patch.dict("worker.job_runtime.HANDLERS", {"slow": slow}, clear=False):
             self.assertEqual(runner.tick(), 1)
             self.assertTrue(slow.started.wait(timeout=5))
-            with patch("worker.job_runtime.counts", side_effect=OSError("queue unreadable")):
+            with patch("worker.job_runtime._processing_stems", side_effect=OSError("queue unreadable")):
                 allowed = runner._calculate_allowed_jobs()
             gate.set()
             self.assertTrue(_wait_for(lambda: (self.root / "done" / "live1.json").exists(), timeout=5))
@@ -444,6 +447,89 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
         self.assertEqual(
             started2, 1, "capacity must recover once the first thread's job finished"
         )
+
+    def _register_live_thread(self, runner: Any, stem: str) -> None:
+        """Register a genuinely alive thread under ``stem`` in the runner."""
+        release = threading.Event()
+        thread = threading.Thread(target=release.wait, args=(5,), daemon=True)
+        thread.start()
+        self.addCleanup(release.set)  # before _drain_threads joins it
+        runner._live_threads[stem] = thread
+
+    def test_finishing_live_thread_counts_once_from_one_listing(self):
+        """A live thread whose job was in processing/ at the listing but has
+        since left it (finished, not yet pruned) still counts once. A second
+        read of processing/ after the listing would see neither the file nor
+        an unrepresented thread, and under-count."""
+        cases = (
+            # (cap, listing at the snapshot, expected allowed)
+            (1, {"fin"}, 0),  # the finishing thread fills the only slot
+            (2, {"fin"}, 1),  # counted once, not twice
+            (2, {"fin", "external"}, 0),  # external job and live thread both count
+            (2, set(), 1),  # file already gone before the listing
+        )
+        for cap, listing, expected in cases:
+            with self.subTest(cap=cap, listing=sorted(listing)):
+                runner = _make_runner(self.root, max_per_tick=5, max_inflight=cap)
+                self._register_live_thread(runner, "fin")
+                # processing/ on disk stays empty: the job's file is gone by
+                # the time any later read of the directory would run.
+                with patch("worker.job_runtime._processing_stems", return_value=set(listing)):
+                    allowed = runner._calculate_allowed_jobs()
+                self.assertEqual(allowed, expected)
+                self.assertLessEqual(allowed, cap)
+
+    def test_stale_reap_skips_job_owned_by_live_thread(self):
+        """With a positive job_timeout, a local job still running past its
+        timeout is not reaped back to pending/ and never runs twice, while an
+        unrelated stale processing/ job with no live thread is still reaped."""
+        gate = threading.Event()
+        self.addCleanup(gate.set)  # before _drain_threads: never park a thread on failure
+        slow = _BlockingHandler(gate)
+        cheap = _CountingHandler()
+        processing = self.root / "processing"
+        enqueue(Job(id="long", type="slow", payload={}), root=self.root)
+        runner = _make_runner(self.root, max_per_tick=5, max_inflight=0, job_timeout=60)
+
+        with _patch_queue_root(self.root), \
+             patch.dict("worker.job_runtime.HANDLERS", {"slow": slow, "cheap": cheap}, clear=False):
+            self.assertEqual(runner.tick(), 1)
+            self.assertTrue(slow.started.wait(timeout=5), "long job never started")
+
+            _backdate_processing(processing / "long.json")
+            (processing / "orphan.json").write_text(
+                json.dumps({"id": "orphan", "type": "cheap", "processing_started_at": _LONG_AGO}),
+                encoding="utf-8",
+            )
+
+            for _ in range(3):
+                runner.tick()
+                self.assertTrue((processing / "long.json").exists(), "live job was reaped")
+                self.assertFalse((self.root / "pending" / "long.json").exists())
+
+            self.assertTrue(
+                _wait_for(lambda: (self.root / "done" / "orphan.json").exists(), timeout=5),
+                "unowned stale job was not reaped and rerun",
+            )
+            self.assertEqual(cheap.call_count, 1)
+
+            gate.set()
+            self.assertTrue(_wait_for(lambda: (self.root / "done" / "long.json").exists(), timeout=5))
+            runner._live_threads["long"].join(timeout=5)
+            for _ in range(2):
+                runner.tick()
+
+        self.assertEqual(slow.call_count, 1, "live job was dispatched twice")
+
+
+_LONG_AGO = "2000-01-01T00:00:00Z"
+
+
+def _backdate_processing(path: Path) -> None:
+    """Make a processing/ job look older than any positive timeout."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["processing_started_at"] = _LONG_AGO
+    path.write_text(json.dumps(data), encoding="utf-8")
 
 
 def _wait_for(predicate: Callable[[], bool], timeout: float) -> bool:

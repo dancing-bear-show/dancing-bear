@@ -9,6 +9,7 @@ import threading
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from tests.worker_tests.helpers import QueueRootIsolationMixin
@@ -435,7 +436,7 @@ class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
         q.QUEUE_ROOT = self.root
         _ensure_dirs(self.root)
         runner, _ = self._make_runner()
-        with patch("worker.job_runtime.q.reap_stale_processing_jobs"), \
+        with patch("worker.job_runtime._reap_stale_unowned"), \
              patch("worker.job_runtime.q.list_pending", return_value=[]):
             result = runner.tick()
         self.assertEqual(result, 0)
@@ -448,11 +449,13 @@ class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
         job_data = json.loads(pending_path.read_text())
         runner, mock_proc = self._make_runner()
         # Patch list_pending to use test root so tick finds the job
-        with patch("worker.job_runtime.q.reap_stale_processing_jobs"), \
+        with patch("worker.job_runtime._reap_stale_unowned"), \
              patch("worker.job_runtime.q.list_pending", return_value=[(pending_path, job_data)]):
             result = runner.tick()
-        self.assertGreater(result, 0)
-        mock_proc.process_one.assert_called()
+        # tick() returns before its threads run; join them before asserting.
+        _join_live_threads(self, runner)
+        self.assertEqual(result, 1)
+        mock_proc.process_one.assert_called_once_with(pending_path, job_data)
 
     def test_run_once_returns_zero(self):
         from worker.queue_ops import _ensure_dirs
@@ -474,7 +477,7 @@ class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
         q.QUEUE_ROOT = self.root
         runner, _ = self._make_runner(max_per_tick=5, max_inflight=3)
         # No jobs in processing, so all 3 slots available (min of 5 and 3-0=3)
-        with patch("worker.job_runtime.counts", return_value={"processing": 0}):
+        with patch("worker.job_runtime._processing_stems", return_value=set()):
             result = runner._calculate_allowed_jobs()
         self.assertEqual(result, 3)
 
@@ -483,7 +486,7 @@ class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
         q.QUEUE_ROOT = self.root
         runner, _ = self._make_runner(max_per_tick=5, max_inflight=3)
         # 3 already processing, so 0 slots
-        with patch("worker.job_runtime.counts", return_value={"processing": 3}):
+        with patch("worker.job_runtime._processing_stems", return_value={"a", "b", "c"}):
             result = runner._calculate_allowed_jobs()
         self.assertEqual(result, 0)
 
@@ -496,10 +499,20 @@ class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
             p = enqueue(Job(id=f"cap{i}", type="noop", payload={}), root=self.root)
             paths_and_data.append((p, json.loads(p.read_text())))
         runner, mock_proc = self._make_runner(max_per_tick=2)
-        with patch("worker.job_runtime.q.reap_stale_processing_jobs"), \
+        with patch("worker.job_runtime._reap_stale_unowned"), \
              patch("worker.job_runtime.q.list_pending", return_value=paths_and_data):
-            runner.tick()
-        self.assertLessEqual(mock_proc.process_one.call_count, 2)
+            result = runner.tick()
+        # Join before asserting, or a count of 0 (threads not yet run) passes.
+        _join_live_threads(self, runner)
+        self.assertEqual(result, 2)
+        self.assertEqual(mock_proc.process_one.call_count, 2)
+
+
+def _join_live_threads(test: unittest.TestCase, runner: Any, timeout: float = 5.0) -> None:
+    """Join every thread a non-blocking tick() started, failing if one hangs."""
+    for stem, thread in list(runner._live_threads.items()):
+        thread.join(timeout=timeout)
+        test.assertFalse(thread.is_alive(), f"worker thread for {stem} never finished")
 
 
 class TestDaemonRunnerProcessBatch(unittest.TestCase, QueueRootIsolationMixin):

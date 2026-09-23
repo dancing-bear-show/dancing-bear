@@ -10,6 +10,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from core.cli_errors import UsageError
@@ -21,7 +22,6 @@ from worker._helpers import (
 )
 from worker import queue_ops as q
 from worker.handlers import REGISTRY as HANDLERS
-from worker.queue_metrics import counts
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,26 @@ def _processing_stems(root: Path) -> set[str]:
     """Return the job stems currently in processing/ under ``root``."""
     folder = q._ensure_dirs(root)["processing"]
     return {p.stem for p in q._list_job_paths(folder)}
+
+
+def _reap_stale_unowned(job_timeout: int, root: Path, owned: set[str]) -> list[str]:
+    """Reap stale processing/ jobs under ``root``, skipping stems in ``owned``.
+
+    Mirrors ``q.reap_stale_processing_jobs`` but never touches a job a live
+    local thread is still executing: moving it back to pending/ would let a
+    later tick run it a second time while the original is still running.
+    """
+    paths = q._ensure_dirs(root)
+    now = datetime.now(UTC)
+    log = logging.getLogger(q.__name__)
+    reaped: list[str] = []
+    for p in q._list_job_paths(paths["processing"]):
+        if p.stem in owned:
+            continue
+        job_id = q._reap_one_job(p, job_timeout, paths, now, log)
+        if job_id:
+            reaped.append(job_id)
+    return reaped
 
 
 # ============================================================================
@@ -360,10 +380,14 @@ class DaemonRunner:
         Never joins the threads it starts. Capacity accounts for jobs
         already claimed but not yet visible in processing/ (a started
         thread may not have finished ``start_processing``'s rename yet) by
-        counting live threads alongside the on-disk processing/ count.
+        counting live threads alongside the on-disk processing/ jobs. The
+        stale-job reap skips every job a live local thread still owns, so a
+        slow local job is never requeued and run twice.
         """
-        q.reap_stale_processing_jobs(self.config.job_timeout, root=q.QUEUE_ROOT)
         self._prune_live_threads()
+        with self._registry_lock:
+            owned = set(self._live_threads)
+        _reap_stale_unowned(self.config.job_timeout, q.QUEUE_ROOT, owned)
 
         allowed = self._calculate_allowed_jobs()
         if allowed <= 0:
@@ -410,14 +434,16 @@ class DaemonRunner:
     def _calculate_allowed_jobs(self) -> int:
         """Calculate how many jobs can be started based on max_inflight cap.
 
-        In-flight = every job in processing/ (ours or another worker's, e.g.
-        a concurrent ``worker run-once``) plus live local threads whose job
-        is not in processing/ yet (started but not past the rename). A
-        finished-but-unpruned thread whose job already left processing/ also
-        counts as unrepresented; that over-counts by at most one tick, which
-        is the conservative direction. When max_inflight is unbounded
-        (<= 0), live threads are still capped at max_per_tick to preserve
-        today's effective concurrency rather than spawning unboundedly.
+        In-flight is the union, by job stem, of one processing/ listing
+        (ours or another worker's, e.g. a concurrent ``worker run-once``)
+        and the live local threads. A single read means no interleaving can
+        drop a job: a live thread counts until it is pruned whether its file
+        is still in pending/, in processing/, or already gone, and each
+        external processing/ job counts once. A finished-but-unpruned thread
+        over-counts by at most one tick, which is the conservative
+        direction. When max_inflight is unbounded (<= 0), live threads are
+        still capped at max_per_tick to preserve today's effective
+        concurrency rather than spawning unboundedly.
         """
         with self._registry_lock:
             live_stems = set(self._live_threads)
@@ -425,11 +451,7 @@ class DaemonRunner:
         if self.config.max_inflight <= 0:
             return max(0, self.config.max_per_tick - live)
         try:
-            # List stems before counting: a rename landing between the two
-            # reads is then counted twice (safe) rather than missed.
-            unrepresented = live_stems - _processing_stems(q.QUEUE_ROOT)
-            cur_proc = int(counts(root=q.QUEUE_ROOT).get("processing", 0))
-            in_flight = cur_proc + len(unrepresented)
+            in_flight = len(_processing_stems(q.QUEUE_ROOT) | live_stems)
         except Exception:  # nosec B110 - unreadable queue; fall back to live threads only
             in_flight = live
         return max(
