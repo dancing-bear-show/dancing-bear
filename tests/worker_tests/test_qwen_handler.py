@@ -38,6 +38,7 @@ from tests.worker_tests.qwen_fixtures import (
     QwenHandlerCase,
     fenced,
     http_error,
+    require,
 )
 
 _PLAIN = qwen.TRANSIENT_OUTCOME_PREFIX
@@ -66,7 +67,7 @@ class QwenHandlerHappyPathTests(QwenHandlerCase):
         ok, result = self.run_handler()
 
         self.assertTrue(ok)
-        assert isinstance(result, dict)
+        result = self.as_dict(result)
         self.assertEqual(set(result), RESULT_SCHEMA_KEYS)
         self.assertIs(result["patch_valid"], True)
         self.assertEqual(result["files_touched"], 1)
@@ -76,8 +77,9 @@ class QwenHandlerHappyPathTests(QwenHandlerCase):
         self.assertIsNone(result["digest_matches_recorded"])
         self.assertEqual(result["prompt_tokens"], 84)
         self.assertEqual(result["completion_tokens"], 57)
-        self.assertIsInstance(result["duration_ms"], int)
-        self.assertGreaterEqual(result["duration_ms"], 0)
+        duration_ms = result["duration_ms"]
+        self.assertIsInstance(duration_ms, int)
+        self.assertGreaterEqual(int(str(duration_ms)), 0)
         self.assertIsNone(result["deferral_reasons"])
         self.assertEqual(len(self.generate_requests()), 1)
 
@@ -85,7 +87,7 @@ class QwenHandlerHappyPathTests(QwenHandlerCase):
         ok, result = self.run_handler()
 
         self.assertTrue(ok)
-        assert isinstance(result, dict)
+        result = self.as_dict(result)
         patch_path = Path(str(result["patch_path"]))
         self.assertEqual(patch_path, self.patch_dir / "qwen-test-job.patch")
         self.assertEqual(patch_path.read_text(encoding="utf-8"), REAL_DIFF + "\n")
@@ -94,9 +96,9 @@ class QwenHandlerHappyPathTests(QwenHandlerCase):
     def test_request_body_matches_the_transport_contract(self) -> None:
         self.run_handler({"system": "be terse"})
 
-        [(url, body, timeout)] = self.generate_requests()
+        [(url, raw_body, timeout)] = self.generate_requests()
         self.assertEqual(url, "http://localhost:11434/api/generate")
-        assert body is not None
+        body = require(raw_body)
         self.assertEqual(body["model"], MODEL)
         self.assertIs(body["stream"], False)
         self.assertEqual(body["system"], "be terse")
@@ -204,11 +206,12 @@ class QwenRetryMapTests(QwenHandlerCase):
                 self._assert_plain(out, detail)
 
     def test_no_diff_extractable_is_terminal(self) -> None:
-        for response in (
+        responses: tuple[dict[str, object], ...] = (
             {"response": "sorry, I cannot help with that"},
             {"response": ""},
             {"error": "model runner crashed"},
-        ):
+        )
+        for response in responses:
             with self.subTest(response=response):
                 self.generate_response = response
                 self.assertEqual(self.run_handler(), (False, "terminal-no-diff-found"))
@@ -266,7 +269,7 @@ class QwenRetryMapTests(QwenHandlerCase):
         self.assertEqual(self.generate_requests(), [])
 
     def test_invalid_payload_is_terminal(self) -> None:
-        cases = (
+        cases: tuple[dict[str, object], ...] = (
             {"files": None},
             {"files": []},
             {"files": "src/example/greet.py"},
@@ -300,8 +303,7 @@ class QwenBackwardCompatibilityTests(QwenHandlerCase):
         queue_root = Path(self.tmpdir) / "queue"
         job = q.Job(id="qwen-reaper-job", type="qwen_patch", payload={"files": [GREET_PATH], "instruction": "x"})
         self.assertEqual(job.timeout_sec, 0)
-        proc_path = q.start_processing(q.enqueue(job, root=queue_root), root=queue_root)
-        assert proc_path is not None
+        proc_path = require(q.start_processing(q.enqueue(job, root=queue_root), root=queue_root))
         day_old = time.time() - 86_400
         os.utime(proc_path, (day_old, day_old))
 
@@ -319,7 +321,7 @@ class QwenTelemetryTests(QwenHandlerCase):
             ok, result = self.run_handler()
 
         self.assertTrue(ok)
-        assert isinstance(result, dict)
+        result = self.as_dict(result)
         self.assertTrue(Path(str(result["patch_path"])).exists())
 
     def test_job_succeeds_when_collector_post_fails(self) -> None:
@@ -456,7 +458,7 @@ class QwenModelPinningTests(QwenHandlerCase):
             ok, result = self.run_handler()
 
         self.assertTrue(ok, "a digest mismatch must not fail the job")
-        assert isinstance(result, dict)
+        result = self.as_dict(result)
         self.assertIs(result["digest_matches_recorded"], False)
         self.assertEqual(result["model_digest"], RUNNING_DIGEST)
         self.assertEqual(self._pin_status(), "mismatch")
@@ -468,7 +470,7 @@ class QwenModelPinningTests(QwenHandlerCase):
         ok, result = self.run_handler()
 
         self.assertTrue(ok)
-        assert isinstance(result, dict)
+        result = self.as_dict(result)
         self.assertIs(result["digest_matches_recorded"], True)
         self.assertEqual(self._pin_status(), "match")
 
@@ -477,7 +479,7 @@ class QwenModelPinningTests(QwenHandlerCase):
             ok, result = self.run_handler()
 
         self.assertTrue(ok)
-        assert isinstance(result, dict)
+        result = self.as_dict(result)
         self.assertIsNone(result["digest_matches_recorded"])
         self.assertEqual(self._pin_status(), "unpinned")
         self.assertTrue(any("unpinned" in line for line in logs.output))
@@ -487,7 +489,7 @@ class QwenModelPinningTests(QwenHandlerCase):
 
         _, result = self.run_handler()
 
-        assert isinstance(result, dict)
+        result = self.as_dict(result)
         self.assertIsNone(result["digest_matches_recorded"])
         self.assertEqual(self._pin_status(), "unpinned")
 
@@ -498,7 +500,7 @@ class QwenModelPinningTests(QwenHandlerCase):
         ok, result = self.run_handler()
 
         self.assertTrue(ok)
-        assert isinstance(result, dict)
+        result = self.as_dict(result)
         self.assertIsNone(result["digest_matches_recorded"])
 
     def test_running_digest_unreadable_is_unverified(self) -> None:
@@ -508,7 +510,7 @@ class QwenModelPinningTests(QwenHandlerCase):
                 self.tags_error = error
                 ok, result = self.run_handler()
                 self.assertTrue(ok)
-                assert isinstance(result, dict)
+                result = self.as_dict(result)
                 self.assertIsNone(result["model_digest"])
                 self.assertIsNone(result["digest_matches_recorded"])
                 self.assertEqual(self._pin_status(), "unverified")
@@ -541,8 +543,7 @@ class QwenDeferralBoundTests(QwenHandlerCase):
 
         queue_root = Path(self.tmpdir) / "queue"
         job = q.Job(id="deferral-persist-job", type="qwen_patch", payload={"files": [GREET_PATH], "instruction": "x"})
-        proc_path = q.start_processing(q.enqueue(job, root=queue_root), root=queue_root)
-        assert proc_path is not None
+        proc_path = require(q.start_processing(q.enqueue(job, root=queue_root), root=queue_root))
 
         with self._lock_unavailable():
             ok, out = qwen.handle_qwen_patch(self.job(id=job.id))
@@ -736,10 +737,8 @@ class QwenExtractDiffTests(unittest.TestCase):
         from that line; git apply --check then rejects it (fail closed)."""
         text = f"--- note: see below\n{REAL_DIFF}\n"
 
-        extracted = qwen.extract_diff(text)
+        extracted = require(qwen.extract_diff(text))
 
-        self.assertIsNotNone(extracted)
-        assert extracted is not None
         self.assertTrue(extracted.startswith("--- note"))
 
     def test_unparseable_response_returns_none(self) -> None:
@@ -862,7 +861,7 @@ class QwenExplainModeTests(QwenHandlerCase):
         ok, report = self.run_handler({"explain": True, "instruction": instruction})
 
         self.assertTrue(ok)
-        assert isinstance(report, dict)
+        report = self.as_dict(report)
         greet = str((self.repo_root / GREET_PATH).resolve())
         size = (self.repo_root / GREET_PATH).stat().st_size
         self.assertEqual(report["resolved_files"], [greet])
@@ -889,7 +888,7 @@ class QwenExplainModeTests(QwenHandlerCase):
                 with patcher:
                     ok, report = self.run_handler({"explain": True})
                 self.assertTrue(ok)
-                assert isinstance(report, dict)
+                report = self.as_dict(report)
                 self.assertEqual(report["guard_results"], expected)
         self.assertFalse(self.deferral_file().exists(), "explain mode must not record deferrals")
 

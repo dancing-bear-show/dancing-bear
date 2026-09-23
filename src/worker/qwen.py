@@ -464,6 +464,7 @@ def _parse_diff_header_target(line: str) -> str | None:
 
 
 _RENAME_COPY_PREFIXES = ("rename from ", "rename to ", "copy from ", "copy to ")
+_GIT_DIFF_HEADER = "diff --git "
 
 
 def _extended_header_targets(line: str) -> list[str]:
@@ -472,8 +473,8 @@ def _extended_header_targets(line: str) -> list[str]:
     for prefix in _RENAME_COPY_PREFIXES:
         if line.startswith(prefix):
             return [_unquote_path(line[len(prefix):].strip())]
-    if line.startswith("diff --git "):
-        rest = line[len("diff --git "):].strip()
+    if line.startswith(_GIT_DIFF_HEADER):
+        rest = line[len(_GIT_DIFF_HEADER):].strip()
         left, sep, right = rest.partition(" b/")
         if sep:
             return [_strip_ab_prefix(_unquote_path(left)), _unquote_path(right)]
@@ -485,7 +486,7 @@ def _header_targets(line: str) -> list[str] | None:
     if line.startswith(("+++ ", "--- ")):
         target = _parse_diff_header_target(line)
         return [target] if target else []
-    if line.startswith(("diff --git ", *_RENAME_COPY_PREFIXES)):
+    if line.startswith((_GIT_DIFF_HEADER, *_RENAME_COPY_PREFIXES)):
         return _extended_header_targets(line)
     return None
 

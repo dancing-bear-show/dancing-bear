@@ -29,7 +29,7 @@ import urllib.error
 import urllib.request
 from email.message import Message
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar, cast
 from unittest import mock
 
 from tests.fixtures import TempDirMixin
@@ -80,6 +80,16 @@ RESULT_SCHEMA_KEYS = frozenset(
 REAL_GIT_APPLY_CHECK = qwen._git_apply_check
 REAL_LANE_DEPTH = qwen._lane_depth
 REAL_EXPORT_JOB_SPAN = qwen_telemetry.export_job_span
+
+
+_T = TypeVar("_T")
+
+
+def require(value: _T | None) -> _T:
+    """Return value, failing the test if it is None."""
+    if value is None:
+        raise AssertionError("expected a value, got None")
+    return value
 
 
 def fenced(diff: str) -> dict[str, object]:
@@ -202,6 +212,11 @@ class QwenHandlerCase(TempDirMixin, unittest.TestCase):
 
     def run_handler(self, payload: dict[str, object] | None = None, **overrides: object) -> tuple[bool, object]:
         return qwen.handle_qwen_patch(self.job(payload, **overrides))
+
+    def as_dict(self, value: object) -> dict[str, object]:
+        """Assert value is a dict and return it typed as one."""
+        self.assertIsInstance(value, dict)
+        return cast(dict[str, object], value)
 
     def generate_requests(self) -> list[tuple[str, dict[str, Any] | None, float | None]]:
         return [r for r in self.requests if r[0].endswith("/api/generate")]
