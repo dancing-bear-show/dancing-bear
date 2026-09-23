@@ -43,16 +43,19 @@ Order by impact:
 For each file needing coverage:
 
 1. **Read the source** to understand what to test
-2. **Read domain conftest.py** for available factories and fixtures:
-   - `tests/conftest.py` — global fixtures, AWS popup prevention
-   - `tests/<domain>/conftest.py` — domain-specific factories
-   - `tests/helpers/` — mock libraries (github_mocks.py, atlassian_adf_mocks.py)
+2. **Read the shared test helpers** for available factories, fakes and mixins. This is a
+   stdlib unittest suite: there are no `conftest.py` files and no `tests/helpers/` package.
+   - `tests/fixtures.py` — cross-domain helpers (`TempDirMixin`, `temp_yaml_file`, `capture_stdout`, `write_csv`, …)
+   - `tests/<domain>_tests/fixtures.py` — domain factories. Some domains name it
+     `shared_fixtures.py` (qlty, telemetry, wifi) or `helpers.py` (worker); `ls` the directory first
+   - `tests/fakes/` — offline Gmail, Outlook and DOCX fakes
+   - `tests/*_contract.py` — shared CLI and agentic contract mixins; subclass them rather than re-asserting
 3. **Write tests** following project conventions
 
 ### Test Conventions (Mandatory)
 
-- Use `make_*` factories from conftest, never construct dicts manually
-- Use conftest constants (`TEST_DATE_CREATED`, `DEFAULT_STATUS`, etc.)
+- Use the `make_*` factories in those fixture files, never construct dicts manually
+- Reuse constants the domain's fixtures module already defines rather than new literals
 - Patch where the name is **used**, not where it's **defined**
 - Specific assertions: `assertEqual`, `assertIn`, `assertIsInstance`
 - `@dataclass` for test fixtures
@@ -67,7 +70,7 @@ For each file needing coverage:
 For large coverage expansion, spawn `tester` agents:
 
 ```python
-Task(subagent_type="tester", prompt="Write tests for <domain>/<module>.py targeting 80%+ coverage. Read tests/<domain>/conftest.py first for available factories.")
+Task(subagent_type="tester", prompt="Write tests for src/<domain>/<module>.py targeting 80%+ coverage. Read tests/fixtures.py and the fixtures module in tests/<domain>_tests/ first for available factories.")
 ```
 
 ## Step 4: Verify
