@@ -107,30 +107,32 @@ stages:
         These are NOT passed to phase B or C.
 
       PHASE B — DOMAIN KEYWORD MAPPING: apply to all non-noise prompts.
-      Use WORD-BOUNDARY, CASE-INSENSITIVE matching (plurals in s/es allowed).
-      "plan" must not match inside "explain". First domain whose regex matches
-      wins. A prompt matched here goes into that domain's bucket regardless of
-      whether it also contains meta-work keywords — domain signal takes priority.
+      Use WORD-BOUNDARY, CASE-INSENSITIVE matching with optional s/es plurals.
+      Implement each pattern as r'\b<stem>(?:s|es)?\b' so that e.g. "calendars"
+      and "schedules" match their respective domains. "plan" must not match
+      inside "explain". First domain whose regex matches wins. A prompt matched
+      here goes into that domain's bucket regardless of whether it also contains
+      meta-work keywords — domain signal takes priority.
 
-        \bmail\b, \bgmail\b, \boutlook\b, \binbox\b, \blabel\b, \bfilter\b → mail
-        \bcalendar\b, \bevent\b, \binvite\b, \bmeeting\b                   → calendars
-        \bschedule\b, \brecurring\b                                         → schedule
-        \bresume\b, \bcv\b, \bcover letter\b, \boverlay\b                   → resume
-        \bphone\b, \bios\b, \blayout\b, \bhome screen\b, \bdock\b          → phone
-        \bwhatsapp\b, \bchat\b, \bmessage search\b                          → whatsapp
-        \bchart\b, \bgraph\b, \bplot\b, \btime series\b                    → charts
-        \bdiagram\b, \bmermaid\b, \bflowchart\b, \bsequence\b              → diagrams
-        \bslides\b, \bdeck\b, \bpowerpoint\b, \bpptx\b                     → slides
-        \bsheet\b, \bxlsx\b, \bspreadsheet\b, \bworkbook\b                 → sheets
-        \bworkflow\b, \byaml\b, \bstages\b, \bfragment\b, \bdag\b         → workflow
-        \btelemetry\b, \bcost\b, \btoken\b, \bsession\b                    → telemetry
-        \bworker\b, \benqueue\b, \bqueue\b, \bdaemon\b, \bjob\b            → worker
-        \bqlty\b, \blint\b, \bruff\b, \bbandit\b, \bcomplexity\b           → qlty
-        \bdesk\b, \bworkspace\b, \bdesktop\b                               → desk
-        \bwifi\b, \bnetwork\b, \bssid\b                                    → wifi
-        \bmusic\b, \bapple music\b, \bplaylist\b, \btrack\b                → apple_music
-        \bmaker\b, \bscaffold\b, \btemplate\b                              → maker
-        \bcore\b, \bshared library\b, \butility\b                          → core
+        \bmail\b, \bgmail\b, \boutlook\b, \binbox(?:es)?\b, \blabels?\b, \bfilters?\b → mail
+        \bcalendars?\b, \bevents?\b, \binvites?\b, \bmeetings?\b                       → calendars
+        \bschedules?\b, \brecurring\b                                                   → schedule
+        \bresumes?\b, \bcv\b, \bcover letters?\b, \boverlay\b                          → resume
+        \bphones?\b, \bios\b, \blayouts?\b, \bhome screens?\b, \bdocks?\b             → phone
+        \bwhatsapp\b, \bchats?\b, \bmessage search\b                                   → whatsapp
+        \bcharts?\b, \bgraphs?\b, \bplots?\b, \btime series\b                         → charts
+        \bdiagrams?\b, \bmermaid\b, \bflowcharts?\b, \bsequences?\b                   → diagrams
+        \bslides?\b, \bdecks?\b, \bpowerpoint\b, \bpptx\b                             → slides
+        \bsheets?\b, \bxlsx\b, \bspreadsheets?\b, \bworkbooks?\b                      → sheets
+        \bworkflows?\b, \byaml\b, \bstages?\b, \bfragments?\b, \bdag\b               → workflow
+        \btelemetry\b, \bcosts?\b, \btokens?\b, \bsessions?\b                         → telemetry
+        \bworkers?\b, \benqueue\b, \bqueues?\b, \bdaemon\b, \bjobs?\b                 → worker
+        \bqlty\b, \blints?\b, \bruff\b, \bbandit\b, \bcomplexity\b                    → qlty
+        \bdesk\b, \bworkspaces?\b, \bdesktop\b                                         → desk
+        \bwifi\b, \bnetworks?\b, \bssid\b                                              → wifi
+        \bmusic\b, \bapple music\b, \bplaylists?\b, \btracks?\b                       → apple_music
+        \bmaker\b, \bscaffolds?\b, \btemplates?\b                                      → maker
+        \bcore\b, \bshared library\b, \butilities?\b                                   → core
 
       PHASE C — META-WORK EXCLUSION: applies ONLY to prompts that were NOT
       matched by phase B (i.e., no domain keyword fired).
@@ -150,6 +152,10 @@ stages:
 
       ACCOUNTING CHECK — after all three phases, verify:
         mapped(B) + served_by(C) + noise(A) + to_cluster == total corpus entries
+      served_by(C) is the COUNT OF DISTINCT PROMPTS classified in phase C, NOT
+      the sum of keyword-bucket values (a prompt matching two keywords increments
+      two buckets but is only one prompt). Track a unique set of prompt indices
+      for phase C and take its len() as served_by(C) in the formula.
       Record this check in the "notes" field; flag a mismatch.
 
       Step 3 — cluster unmapped prompts by intent into UPPER_SNAKE labels using
@@ -266,9 +272,19 @@ stages:
       Script logic:
 
       1. Read sessions-index.json from the workspace (produced by pm-index-sessions).
-         For each entry, locate its transcript:
-           Glob: {projects_dir}/**/<session_id>.jsonl
-           If multiple files match, take the largest (by byte size).
+         Deduplicate entries by session_id first — sessions-index.json may contain
+         duplicate rows for the same session_id (the provider collects from both
+         flat and subdir layouts and appends without cross-dedup). Build a dict
+         keyed by session_id, keeping the last entry seen, before iterating.
+         For each unique session_id, locate its transcript files using BOTH layouts:
+           Flat layout (post-Apr 2026):
+             Glob: {projects_dir}/**/<session_id>.jsonl
+           Subdir layout (pre-Apr 2026):
+             Glob: {projects_dir}/**/<session_id>/subagents/*.jsonl
+         Collect ALL matching files across both globs. If the flat glob matches
+         multiple files, take the largest (by byte size) from that set.
+         Merge all located files for that session_id into the parse pass for step 2
+         — do not skip subdir-layout files even when a flat file also exists.
 
       2. Parse each .jsonl file line by line. Each line is a JSON record.
          Focus on assistant records (type == "assistant").
@@ -279,8 +295,17 @@ stages:
       3. Extract CLI invocations from each command string using:
            Primary pattern: r'(?:^|[\s;&|(])\./bin/([\w][\w-]*)'
            Desk (no wrapper): r'python3\s+(?:-[^\s]+\s+)*-m\s+desk'
-         Also capture up to two following lowercase tokens as subcommand hints:
-           After the CLI name, match r'(\s+([a-z][a-z-]*)(?:\s+([a-z][a-z-]*))?)?'
+         Also capture up to two following tokens as subcommand hints, but ONLY
+         if each token looks like a subcommand — not a flag, not a path segment:
+           After the CLI name, match each candidate token with r'[a-z][a-z-]*'
+           and skip it (stop capturing) if it:
+             - starts with '-' (a flag), or
+             - contains '/' (a path argument), or
+             - contains '.' (a filename), or
+             - is a known non-subcommand positional token for that CLI
+           In practice: after the CLI name, consume whitespace, then check the
+           next word; if it fails any of the stop conditions above, do not
+           record it as a subcommand. Apply the same check to the second token.
          Use these for cli_usage and top_subcommands tallies.
 
       4. Group tool_use Bash blocks by prompt span.
@@ -296,7 +321,16 @@ stages:
            - spans: number of prompt spans containing that pair
            - sessions: number of distinct session_ids containing that pair
            - For each pair, record the first 150 chars of the opening user
-             message of the first matching span as "example".
+             message of the first matching span as "example". Apply the same
+             redaction patterns used by pm-extract-prompts before storing:
+               sk-[A-Za-z0-9_-]{16,}                                    -> [redacted]
+               ghp_[A-Za-z0-9]{20,}  and  gho_[A-Za-z0-9]{20,}          -> [redacted]
+               AKIA[0-9A-Z]{12,}                                        -> [redacted]
+               eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+   -> [redacted]
+               (?i)(api[_-]?key|token|password|secret|bearer)\s*[=:]\s*\S+  -> \1=[redacted]
+             Also replace home-path user segments:
+               /Users/<name>/  ->  /Users/[user]/
+               /home/<name>/   ->  /home/[user]/
          Retain pairs with sessions >= {min_pattern_freq}.
 
       6. Aggregate cli_usage: for each CLI, count total sessions and total calls.
@@ -311,9 +345,13 @@ stages:
       (a) Prompt-text regex — scan prompt-corpus.json "prompts" for prompts whose
       text mentions ./bin/ CLIs directly. Apply the same regex as the primary
       source. Treat these as additional signal — a prompt that names a CLI is
-      higher-intent than one where only the agent ran it. Include any pairs
-      found here in cli_sequences if they meet the freq threshold, merging counts
-      with the primary source where the pair already exists.
+      higher-intent than one where only the agent ran it. For each pair found
+      here, union its session and span identity sets with those from the primary
+      source (do NOT add counts — a session present in both the primary and
+      secondary sets must be counted once, not twice). After unioning, recompute
+      sessions = len(union_session_set) and spans = len(union_span_set).
+      Include the pair in cli_sequences if its post-union sessions count meets
+      the freq threshold.
 
       (b) Manual-workflow signals — scan all prompt text for:
         Keywords: "every time", "keep having to", "always need to", "i always",
