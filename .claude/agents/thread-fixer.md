@@ -74,7 +74,7 @@ report `action: "moot"` rather than inventing a fix.
 5. If the fix changes behaviour, cover it. See below.
 6. Run the narrowest test that exercises your change:
    `PYTHONPATH="$PWD/src" python3 -m unittest tests.<module> -f -q`
-   Never bare `python3 -m unittest` without PYTHONPATH — in a worktree an
+   Never run unittest without that PYTHONPATH — in a worktree an
    inherited PYTHONPATH resolves imports to the *main* checkout and your change
    is not what ran. A green result from the wrong tree is worse than a red one.
 7. Do **not** run a repo-wide lint or `--fix` pass. Other fixer agents are

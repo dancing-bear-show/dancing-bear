@@ -38,7 +38,7 @@ A stage with **2 or more** matching heuristics is a strong split candidate.
 Measure description length per stage:
 
 ```bash
-python3 -c "
+python3 -I -c "
 import sys, yaml
 path = sys.argv[1]
 d = yaml.safe_load(open(path))

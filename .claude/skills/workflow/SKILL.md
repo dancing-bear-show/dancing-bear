@@ -417,7 +417,7 @@ Monitor(
     command=f"""
 until ls {workspace}/stages/{index:03d}-{stage_name}.json 2>/dev/null \
    && ls {workspace}/{writes_to_file} 2>/dev/null; do sleep 5; done
-python3 -c "
+python3 -I -S -c "
 import json
 s = json.load(open('{workspace}/stages/{index:03d}-{stage_name}.json'))
 print(f'{stage_name}: {{s[\"status\"]}}')
@@ -441,7 +441,7 @@ if result["status"] in ("success", "failed"):
 
 ```bash
 # Stage result must exist and show success:
-python3 -c "import json; s=json.load(open('{workspace}/stages/{N:03d}-{stage}.json')); assert s['status']=='success', s"
+python3 -I -S -c "import json; s=json.load(open('{workspace}/stages/{N:03d}-{stage}.json')); assert s['status']=='success', s"
 # Every writes_to output must exist:
 for file in {group_writes_to}; do
     ls {workspace}/${file} || echo "MISSING: ${file}"
