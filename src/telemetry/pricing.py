@@ -20,6 +20,7 @@ _mult_cache: tuple[float, float] = (-1.0, 1.0)
 
 # Model pricing (input_per_million, output_per_million) — Apr 2026
 _MODEL_PRICING: dict[str, tuple[float, float]] = {
+    "claude-opus-5-5": (4.0, 20.0),
     "claude-opus-4-7": (5.0, 25.0),
     "claude-opus-4-6": (5.0, 25.0),
     "claude-opus-4-5": (5.0, 25.0),
@@ -82,9 +83,10 @@ class TokenMetrics:
 
 # Ordered fallback rules for _get_model_pricing(): evaluated top-to-bottom
 # after an exact _MODEL_PRICING match fails. Each predicate takes the
-# lowercased model id; the first match wins. Order matters — the "1m" combos
-# must be checked before the generic opus/sonnet substring checks.
+# lowercased model id; the first match wins. Order matters — opus-5-5 and the
+# "1m" combos must be checked before the generic opus/sonnet substring checks.
 _PRICING_FALLBACK_RULES: list[tuple[Callable[[str], bool], str]] = [
+    (lambda m: "opus-5-5" in m, "claude-opus-5-5"),
     (lambda m: "opus" in m and "1m" in m, "claude-opus-4-7-1m"),
     (lambda m: "sonnet" in m and "1m" in m, "claude-sonnet-4-8-1m"),
     (lambda m: "opus" in m, "claude-opus"),

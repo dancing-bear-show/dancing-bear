@@ -213,6 +213,19 @@ class TestPricing(unittest.TestCase):
         cost = compute_cost(TokenMetrics(0, 1_000_000, 0, 0), "claude-opus-4-6")
         self.assertAlmostEqual(cost, 25.0, places=2)
 
+    @mock.patch("telemetry.pricing._cost_multiplier", return_value=1.0)
+    def test_compute_cost_opus_5_5(self, _mult):
+        # Opus 5.5 is $4/M input, $20/M output — below the generic opus rate
+        for model in ("claude-opus-5-5", "claude-opus-5-5[1m]"):
+            with self.subTest(model=model):
+                self.assertAlmostEqual(compute_cost(TokenMetrics(1_000_000, 0, 0, 0), model), 4.0, places=2)
+                self.assertAlmostEqual(compute_cost(TokenMetrics(0, 1_000_000, 0, 0), model), 20.0, places=2)
+
+    @mock.patch("telemetry.pricing._cost_multiplier", return_value=1.0)
+    def test_compute_cost_other_opus_1m_unaffected(self, _mult):
+        cost = compute_cost(TokenMetrics(1_000_000, 0, 0, 0), "claude-opus-5[1m]")
+        self.assertAlmostEqual(cost, 5.0, places=2)
+
     def test_zero_tokens(self):
         cost = compute_cost(TokenMetrics(0, 0, 0, 0), "claude-opus-4-6")
         self.assertEqual(cost, 0.0)

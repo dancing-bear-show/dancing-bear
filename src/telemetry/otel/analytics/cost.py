@@ -57,6 +57,7 @@ __all__ = [
 # Format: (input_cost_per_million, output_cost_per_million)
 # Source: https://platform.claude.com/docs/en/about-claude/pricing
 MODEL_PRICING: dict[str, tuple[float, float]] = {
+    "claude-opus-5-5": (4.0, 20.0),
     "claude-opus-4-8": (5.0, 25.0),
     "claude-opus-4-7": (5.0, 25.0),
     "claude-opus-4-6": (5.0, 25.0),
@@ -84,9 +85,10 @@ DEFAULT_MODEL = "claude-haiku-4-5"
 
 # Ordered fallback rules for get_model_pricing(): evaluated top-to-bottom after
 # an exact MODEL_PRICING match fails. Each predicate takes the lowercased model
-# name; the first match wins. Order matters — sonnet-5 and the "1m" combos must
-# be checked before the generic opus/sonnet/haiku substring checks.
+# name; the first match wins. Order matters — opus-5-5, sonnet-5 and the "1m"
+# combos must be checked before the generic opus/sonnet/haiku substring checks.
 _PRICING_FALLBACK_RULES: list[tuple[Callable[[str], bool], str]] = [
+    (lambda m: "opus-5-5" in m, "claude-opus-5-5"),
     (lambda m: "sonnet-5" in m, "claude-sonnet-5"),
     (lambda m: "opus" in m and "1m" in m, "claude-opus-4-7-1m"),
     (lambda m: "sonnet" in m and "1m" in m, "claude-sonnet-4-6-1m"),

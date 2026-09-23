@@ -273,6 +273,18 @@ class TestGetModelPricing(unittest.TestCase):
         result = get_model_pricing("CLAUDE-HAIKU-UNLISTED")
         self.assertEqual(result, MODEL_PRICING["claude-haiku"])
 
+    def test_exact_match_opus_5_5(self):
+        self.assertEqual(get_model_pricing("claude-opus-5-5"), (4.0, 20.0))
+
+    def test_opus_5_5_1m_beats_opus_1m(self):
+        # "opus-5-5" check comes before "opus"+"1m", which would price it at $5/$25
+        result = get_model_pricing("claude-opus-5-5[1m]")
+        self.assertEqual(result, MODEL_PRICING["claude-opus-5-5"])
+        self.assertNotEqual(result, MODEL_PRICING["claude-opus-4-7-1m"])
+
+    def test_other_opus_1m_unaffected_by_opus_5_5_rule(self):
+        self.assertEqual(get_model_pricing("claude-opus-5[1m]"), MODEL_PRICING["claude-opus-4-7-1m"])
+
     def test_sonnet_5_beats_sonnet_1m(self):
         # "sonnet-5" check comes before "sonnet"+"1m" — this is NOT a 1m variant
         # but the model name contains both "sonnet-5" and could match other paths
