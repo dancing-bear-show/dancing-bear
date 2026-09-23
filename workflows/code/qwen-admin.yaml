@@ -99,8 +99,11 @@ description: >
         recorded.
     A5  The post-action health re-check shows no layer — of all eight in
         health.json, not a fixed subset — that was up is now down. This is
-        the one that matters most: a run that fixes a stale lock but stops
-        the daemon is a net loss, and must be reported as one.
+        the one that matters most: a run that requeues a cluster of errors
+        but stops the daemon is a net loss, and must be reported as one.
+        (The example is deliberately an action this workflow can apply —
+        lock removal is withdrawn to manual-only, so it can never be the
+        "fix" half of that trade.)
     A6  The report distinguishes what was OBSERVED from what was PROPOSED
         from what was APPLIED. A proposed action reported as taken is the
         failure mode this workflow must never have.
@@ -815,6 +818,49 @@ stages:
            regular file, or is no longer orphaned) is reported as a manual
            step, never deleted.
 
+           THIS RE-CHECK IS ALSO A TOCTOU, AND THAT IS DELIBERATE HERE while
+           the same shape was rejected for the lock delete in item (d). The
+           window is real: `worker requeue-errors` preserves a job's id
+           (queue_ops.requeue_error re-uses `job_path.stem`), and `worker
+           enqueue --id <job_id>` lets an id that was absent from all four
+           folders be reintroduced outright. So a job CAN go live between the
+           re-check and the unlink, and this action can delete a live job's
+           patch. Do not read the re-check as a guarantee; it is a filter that
+           removes the common case.
+
+           Why that residual risk is accepted for (c) and was not for (d) —
+           the asymmetry is in the consequence, not the window:
+             - REVERSIBILITY. A patch artifact is derived output. Deleting one
+               costs a re-run of that job, which regenerates it from the same
+               inputs. Deleting a live lock starts a second 14B generation
+               beside the first; the machine goes to swap or OOM, and nothing
+               re-runs a killed host. One is expensive, the other is
+               unrecoverable.
+             - BLAST RADIUS. (c) is scoped to one named artifact under
+               core.paths.output_dir(), approved individually at the gate,
+               with no bulk form permitted. Its worst case is confined to the
+               job that owns that id. (d) has no per-target scope at all — the
+               lock is process-wide, so its worst case takes out every job on
+               the machine plus whatever else is resident.
+             - THE QUEUE RECORD SURVIVES. (c) unlinks an artifact and never
+               touches pending/, processing/, done/ or error/. A job whose
+               patch is deleted mid-flight fails or reports a missing file; it
+               is not lost, and the operator can see what happened. (d)
+               destroys the very invariant that makes the lane safe, and does
+               it silently — the second generation starts looking healthy.
+             - FREQUENCY. Orphan cleanup runs against artifacts whose ids are
+               absent from every folder, i.e. the steady-state case is a job
+               that was purged long ago and will never return. Reintroducing
+               a purged id requires someone to pass `--id` deliberately or to
+               requeue a record that no longer exists. The lock race needs no
+               deliberate act: any worker claiming any job hits it.
+
+           So: bounded, reversible, individually approved, and it leaves the
+           queue intact. That is what earns the narrowed window — not the
+           window's size, which is comparable to (d)'s. Do not cite this
+           paragraph as precedent for narrowing a race on anything
+           irreversible or process-wide; item (d) is what that gets.
+
         d) NOT ALLOWLISTED — REPORT AS A MANUAL STEP. Removing a STALE
            concurrency lock is deliberately excluded from the actions this
            workflow may apply, until the worker ships a lock-aware atomic
@@ -873,13 +919,26 @@ stages:
            correct action is to wait, and the correct proposal is none.
 
            For verdict "SUSPECT" — a live pid past the ceiling — removal is
-           allowed ONLY when the evidence says the pid is not really the
-           holder: holder_is_worker false, or lane_processing 0. Both mean
-           the lock outlived whatever took it, most likely via PID reuse.
-           Say which piece of evidence justified it. If the pid IS a worker
-           and the lane IS processing, treat it as "active" and propose
+           MANUAL-ONLY like the STALE case above, and reportable ONLY when
+           the evidence says the pid is not really the holder:
+           holder_is_worker false, or lane_processing 0. Both mean the lock
+           outlived whatever took it, most likely via PID reuse. Say which
+           piece of evidence justified the manual step. If the pid IS a
+           worker and the lane IS processing, treat it as "active" and report
            nothing, however old the lock looks — a long generation is exactly
            what this workflow's model is expected to produce.
+
+           SUSPECT IS NOT A BACK DOOR TO THE ALLOWLIST. The withdrawal above
+           covers every lock removal this workflow can reach, not just the
+           STALE verdict, and SUSPECT is the WEAKER of the two cases: STALE
+           at least knows the holder is dead, while SUSPECT is an inference
+           from a live pid that looks wrong. Whatever the evidence, removal
+           here is still read-compare-unlink on a live shared lock, which is
+           the sequence that was rejected. So propose no action for SUSPECT
+           either — write it as a manual step with the same contents the
+           STALE case requires (lock path, holder pid and timestamp, the
+           evidence for the verdict, and the exact command for the operator),
+           plus which of holder_is_worker / lane_processing carried it.
 
       Explicitly NOT allowlisted, and always reported as manual steps:
         starting the Ollama server; pulling {model_tag}; loading the worker
@@ -899,7 +958,7 @@ stages:
       Write outputs/analysis/triage.json:
         {
           "findings": [{"rank": N, "severity": "blocking|degraded|hygiene", "finding": "...", "source": "health.json|models.json|queue.json|spend.json", "evidence": "..."}],
-          "proposed_actions": [{"id": "a1", "action": "...", "command": "...", "params": {"job_id": "... (item c only)", "limit": N, "match_cluster": "...", "folders": "done|error"}, "addresses_finding": N, "allowlist_item": "a|b|c|d", "destructive": true|false, "reversible": true|false, "if_diagnosis_wrong": "..."}],
+          "proposed_actions": [{"id": "a1", "action": "...", "command": "...", "params": {"job_id": "... (item c only)", "limit": N, "match_cluster": "...", "folders": "done|error"}, "addresses_finding": N, "allowlist_item": "a|b|c (d is withdrawn — lock removal goes in manual_steps, never here)", "destructive": true|false, "reversible": true|false, "if_diagnosis_wrong": "..."}],
           "manual_steps": [{"step": "...", "why_not_automated": "..."}],
           "nothing_to_do": true|false
         }
@@ -994,8 +1053,13 @@ stages:
                           --match '"type": "{job_type}"' --match <cluster>
             b) purge    -> ./bin/worker purge --older-than <retention>
                            [--folders <done|error>]
-            c) delete ONE orphaned patch artifact at <path>
-            d) delete THE concurrency lock at its fixed, computed path
+            c) delete ONE orphaned patch artifact, at a path YOU re-derive
+               from the proposal's job_id — never a path it supplied
+            d) NO DERIVATION EXISTS. Lock removal is withdrawn from the
+               allowlist, so there is deliberately no command here to build.
+               See the (d) handling below: refuse it, record it under
+               manual_steps, and do not reconstruct a delete from the lock's
+               computed path.
 
           VALIDATE THE TRIGGER PARAMS TOO, not just the proposal's values.
           {job_type} and {purge_older_than} are caller-overridable and land
@@ -1064,9 +1128,11 @@ stages:
           finding and stop: that divergence is the signature this check
           exists to catch, not a formatting difference to reconcile.
 
-          If `allowlist_item` is absent, or names something outside a-d, the
-          action is not approvable by this stage regardless of what the gate
-          said. Record it under manual_steps.
+          If `allowlist_item` is absent, or names anything other than a, b or
+          c, the action is not approvable by this stage regardless of what the
+          gate said. Record it under manual_steps. Note that `d` fails this
+          check: it names a withdrawn item, so it is refused here for the same
+          reason an unrecognised value is — the approvable set is a-c, not a-d.
         - Re-check the precondition immediately before each action. State
           drifts between triage and approval: a daemon may have come back, a
           job may have finished. If the precondition no longer holds, skip the
