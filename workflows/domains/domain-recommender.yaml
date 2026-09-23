@@ -188,7 +188,9 @@ stages:
         First, resolve the repo root by running `git rev-parse --show-toplevel`
         and store it as REPO_ROOT. All repo CLI calls in this step use the
         absolute path <REPO_ROOT>/bin/<cli> — never ./bin/<cli>, because the
-        agent's working directory may not be the repo root.
+        agent's working directory may not be the repo root. <cli> is the bare
+        wrapper name (e.g. mail); record it in domain-map.json as
+        cli_bin "bin/<cli>" — so <REPO_ROOT>/<cli_bin> is the runnable path.
         Run: <REPO_ROOT>/bin/<cli> --agentic --agentic-format yaml --agentic-compact 2>/dev/null
         Set has_agentic_schema=true if exit code == 0.
         Every app supports --agentic, so a false here is a defect worth
@@ -352,7 +354,17 @@ stages:
            block["name"] == "Bash" and "input" in block and "command" in block["input"].
 
       3. Extract CLI invocations from each command string using:
-           Primary pattern: r'(?:^|[\s;&|(])\./bin/([\w][\w-]*)'
+           Primary pattern: r'(?:^|[\s;&|(])(\.|/[^\s;&|()\'"]*?)/bin/([\w][\w-]*)'
+             Group 2 is the CLI name. Group 1 is the prefix; keep the match
+             ONLY if the prefix is "." (the ./bin/<name> form) or an absolute
+             repo root — agents now run <REPO_ROOT>/bin/<name>, so matching
+             ./bin/ alone would drop those calls. An absolute prefix is a repo
+             root when it equals MAIN_ROOT, or MAIN_ROOT/.claude/worktrees/<one
+             path segment>, where MAIN_ROOT is the parent directory of
+             `git rev-parse --path-format=absolute --git-common-dir` (resolve it
+             once at startup; REPO_ROOT alone misses sibling worktrees). Any
+             other prefix (/usr/bin/git, <root>/.venv/bin/python, another repo)
+             is not a repo CLI — discard it.
            Desk (no wrapper): r'python3\s+(?:-[^\s]+\s+)*-m\s+desk'
          After capturing the CLI name, apply dispatcher normalisation:
            If the captured name is "assistant", discard "assistant" and take the
@@ -434,7 +446,7 @@ stages:
       SECONDARY SOURCES (keep both; they complement tool-call mining):
 
       (a) Prompt-text regex — scan WORKSPACE/prompt-corpus.json "prompts" (use the
-      absolute path — cwd is REPO_ROOT) for prompts whose text mentions ./bin/ CLIs
+      absolute path — cwd is REPO_ROOT) for prompts whose text mentions repo CLIs (./bin/<name> or an absolute repo-root bin/<name>)
       directly. Apply the same regex AND the same full dispatcher normalisation
       pipeline as the primary source (steps 3–4 above): the primary regex, the
       desk special case, the assistant-dispatcher normalisation, and the known-app
@@ -567,7 +579,10 @@ stages:
           Skip any domain whose cli_bin is null (e.g. "core") — these are
           shared-library domains with no CLI entry point. Do not attempt to run
           <REPO_ROOT>/bin/<None> or invent a CLI path for them; move on to the next domain.
-          Run: <REPO_ROOT>/bin/<cli> --agentic --agentic-format yaml --agentic-compact
+          cli_bin already carries the bin/ prefix (e.g. "bin/mail"), so the
+          runnable path is <REPO_ROOT>/<cli_bin> — never <REPO_ROOT>/bin/<cli_bin>,
+          which yields bin/bin/mail. Below, <cli> means cli_bin with "bin/" removed.
+          Run: <REPO_ROOT>/<cli_bin> --agentic --agentic-format yaml --agentic-compact
           Four apps use a different invocation (<REPO_ROOT>/bin/llm inventory
           --stdout is authoritative): apple-music is
           <REPO_ROOT>/bin/apple-music-assistant, qlty is
@@ -575,7 +590,7 @@ stages:
           resume, and desk has no wrapper — run
           PYTHONPATH="<REPO_ROOT>/src" python3 -m desk --agentic --agentic-format yaml --agentic-compact
           Parse the YAML output to extract existing subcommand names.
-          If the CLI has no agentic schema, fall back to: <REPO_ROOT>/bin/<cli> --help
+          If the CLI has no agentic schema, fall back to: <REPO_ROOT>/<cli_bin> --help
           Read the domain's example_prompts from domain-map.json:
             domain-map.json stores example_prompts at the DOMAIN level
             (domains[].example_prompts) — not per cluster. Clusters under a
@@ -916,6 +931,7 @@ stages:
       role: doc-writer
       model: sonnet
       tools:
+        - Bash
         - Read
         - Glob
         - Write
