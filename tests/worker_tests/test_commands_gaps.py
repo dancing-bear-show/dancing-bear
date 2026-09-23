@@ -429,7 +429,6 @@ class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
         cfg = WorkerConfig(**config_kwargs)
         proc = MagicMock(spec=JobProcessor)
         proc.process_one.return_value = 1
-        proc.process_claimed.return_value = 1
         runner = DaemonRunner(cfg, proc)
         return runner, proc
 

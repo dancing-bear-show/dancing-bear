@@ -331,7 +331,8 @@ class JobProcessor:
             # Already claimed by another worker
             return 0
 
-        return self.process_claimed(proc_path, job_data, started_at=st)
+        self.process_claimed(proc_path, job_data, started_at=st)
+        return 1
 
     def process_claimed(
         self,
@@ -339,15 +340,13 @@ class JobProcessor:
         job_data: dict[str, object],
         *,
         started_at: float | None = None,
-    ) -> int:
+    ) -> None:
         """Process a job this worker has already moved into processing/.
 
         The daemon tick claims each job itself before starting a thread on
         this method, so only confirmed claims ever run here. ``started_at``
         lets ``process_one`` include its claim in the logged duration.
-
-        Returns:
-            1 (the job was handled, finished, or retried)
+        Every path ends in a queue transition (finish or retry).
         """
         st = time.time() if started_at is None else started_at
         ctx = JobContext.from_item(proc_path, job_data)
@@ -366,7 +365,7 @@ class JobProcessor:
                 args=[self.command, "invalid_payload", ctx.job_type],
                 exit_code=2,
             )
-            return 1
+            return
         base_payload: dict[str, object] = dict(raw_payload or {})
 
         # Resolve effective per-job timeout
@@ -388,7 +387,7 @@ class JobProcessor:
                 args=[self.command, "unknown", ctx.job_type],
                 exit_code=2,
             )
-            return 1
+            return
 
         # Execute handler via JobSafeProcessor; always call finish/retry even on exception.
         request = JobRequest(job_id=str(job_data.get("id") or ""), payload=dict(base_payload))
@@ -407,7 +406,7 @@ class JobProcessor:
                 args=[self.command, ctx.job_type, "exception"],
                 exit_code=2,
             )
-            return 1
+            return
 
         outcome_ctx = OutcomeContext(
             proc_path=proc_path,
@@ -418,7 +417,6 @@ class JobProcessor:
         )
         producer = JobResultProducer(outcome_ctx)
         producer.produce(envelope)
-        return 1
 
 
 # ============================================================================
@@ -501,11 +499,14 @@ class DaemonRunner:
             job_path.stem, lambda: self.processor.process_one(job_path, job_data)
         )
 
-    def _process_claimed_guarded(self, proc_path: Path, job_data: dict[str, object]) -> int:
+    def _process_claimed_guarded(self, proc_path: Path, job_data: dict[str, object]) -> None:
         """Daemon-tick thread target: process a job ``_start_batch`` already claimed."""
-        return self._run_guarded(
-            proc_path.stem, lambda: self.processor.process_claimed(proc_path, job_data)
-        )
+
+        def _body() -> int:
+            self.processor.process_claimed(proc_path, job_data)
+            return 1
+
+        self._run_guarded(proc_path.stem, _body)
 
     @staticmethod
     def _claim(job_path: Path) -> Path | None:
