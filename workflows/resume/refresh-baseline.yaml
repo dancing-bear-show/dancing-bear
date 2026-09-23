@@ -124,7 +124,7 @@ stages:
 
       Guard 1 — the workspace must be outside the repo:
 
-        python3 -c "
+        python3 -I -S -c "
         import os, subprocess, sys
         ws = os.path.realpath('{workspace}')
         root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
@@ -138,7 +138,7 @@ stages:
       Guard 2 — the profile directory this run will WRITE to must also be
       outside the repo:
 
-        python3 -c "
+        python3 -I -S -c "
         import os, subprocess, sys
         pd = os.path.realpath('{profile_dir}')
         root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
@@ -656,7 +656,7 @@ stages:
       GUARD 2 — confirm the destination is outside the repo checkout before
       touching it:
 
-        python3 -c "
+        python3 -I -S -c "
         import os, subprocess, sys
         pd = os.path.realpath('{profile_dir}')
         root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()

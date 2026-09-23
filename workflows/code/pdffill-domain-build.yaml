@@ -449,7 +449,7 @@ stages:
         the optional dependency:
           Bash tool: pip install -e ".[pdffill]" -q 2>&1 | tail -5
         Confirm fitz is importable:
-          Bash tool: python3 -c "import fitz; print(fitz.__version__)" 2>&1
+          Bash tool: python3 -I -c "import fitz; print(fitz.__version__)" 2>&1
 
       Step 3 -- write implementation files:
         Write src/pdffill/__init__.py (empty or minimal re-exports only).
@@ -534,7 +534,7 @@ stages:
           if __name__ == "__main__":  # pragma: no cover
               raise SystemExit(main())
         Confirm the file exists and imports cleanly:
-          Bash tool: python3 -c "from pdffill.__main__ import main; print('ok')" 2>&1
+          Bash tool: PYTHONPATH="$PWD/src" python3 -c "from pdffill.__main__ import main; print('ok')" 2>&1
 
       Step 4 -- write bin/pdffill.
         Use the same Python wrapper pattern as bin/wifi (not exec python3 -m):
@@ -545,7 +545,7 @@ stages:
         Make it executable: Bash tool: chmod +x bin/pdffill
 
       Step 5 -- CLI import smoke check:
-        Bash tool: python3 -c "import pdffill.cli" 2>&1
+        Bash tool: PYTHONPATH="$PWD/src" python3 -c "import pdffill.cli" 2>&1
         If it fails, fix before writing the manifest (likely a module-level
         import of fitz or pdffill.widget at the top of cli.py).
 
@@ -806,7 +806,7 @@ stages:
           - Use the Edit tool.
 
       Step 5 -- re-run import smoke checks:
-        Bash tool: python3 -c "import pdffill; import pdffill.widget; import pdffill.inject; import pdffill.cli" 2>&1
+        Bash tool: PYTHONPATH="$PWD/src" python3 -c "import pdffill; import pdffill.widget; import pdffill.inject; import pdffill.cli" 2>&1
         If still failing, fix and retry once more.
 
       Step 6 -- write {workspace}/outputs/fix-integration-results.json:

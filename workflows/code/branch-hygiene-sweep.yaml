@@ -203,7 +203,7 @@ stages:
             --limit 500
         The github CLI scrubs a stale GITHUB_TOKEN automatically — no
         `GITHUB_TOKEN=` prefix or owner/repo preamble needed. The result is
-        a JSON list; parse with awk or python3 -c (no grep -P).
+        a JSON list; parse with awk or python3 -I -S -c (no grep -P).
         Build a map: branch_name -> {pr_number, pr_state, merge_commit_sha, title}.
         Branches with no PR entry map to {pr_number: null, ...}.
 
@@ -875,7 +875,7 @@ stages:
         the loss only once the branch is already gone. This is the last point
         where refusing still costs nothing.
 
-          protected=$(python3 -c "import json;print('\n'.join(json.load(open('$WS/outputs/inventory.json'))['protect_list']))")
+          protected=$(python3 -I -S -c "import json;print('\n'.join(json.load(open('$WS/outputs/inventory.json'))['protect_list']))")
           if printf '%s\n' "$protected" "main" | grep -Fxq "$branch"; then
             echo "REFUSED: $branch is protected"; continue
           fi

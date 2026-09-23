@@ -214,7 +214,7 @@ stages:
            original score is a valid outcome; a silently broken one is not.
 
         d. After each file, confirm it still imports:
-             python3 -c "import <module_path>" 2>&1
+             PYTHONPATH="$PWD/src" python3 -c "import <module_path>" 2>&1
            Derive module_path from the path relative to src/: strip the src/
            prefix, replace / with ., strip .py.
 
@@ -383,12 +383,12 @@ stages:
 
       Step 2 — import every touched module:
         For each modified or created .py file:
-          python3 -c "import <module_path>" 2>&1
+          PYTHONPATH="$PWD/src" python3 -c "import <module_path>" 2>&1
 
       Step 3 — export parity against git HEAD:
         For each touched file, confirm no public symbol vanished:
           a. git show HEAD:<path> | grep -n "^class \|^def "
-          b. python3 -c "import <m>; print([n for n in dir(<m>) if not n.startswith('_')])"
+          b. PYTHONPATH="$PWD/src" python3 -c "import <m>; print([n for n in dir(<m>) if not n.startswith('_')])"
           c. Any pre-existing public symbol now missing from the module and
              not relocated-with-call-sites-updated is a regression.
         If the file declared __all__, confirm it still resolves.

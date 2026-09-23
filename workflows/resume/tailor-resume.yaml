@@ -84,7 +84,7 @@ stages:
       Then confirm the PII placement is safe. The workspace must be OUTSIDE the
       repo checkout. Run:
 
-        python3 -c "
+        python3 -I -S -c "
         import os, subprocess, sys
         ws = os.path.realpath('{workspace}')
         root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()

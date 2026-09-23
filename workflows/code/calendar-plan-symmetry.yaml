@@ -683,7 +683,7 @@ stages:
       self-reported. Run this and paste its output into your summary; a non-zero
       exit means the round trip did NOT pass, regardless of what you wrote in
       the file:
-        python3 -c "import json,sys; d=json.load(open(sys.argv[1])); e=d.get('events_expected'); g=d.get('events_exported'); ok=isinstance(e,int) and isinstance(g,int) and e==g and bool(d.get('round_trip_passed')); print('ROUND_TRIP_VERDICT:', 'PASS' if ok else 'FAIL', '| expected=', e, '| exported=', g); sys.exit(0 if ok else 1)" {workspace}/outputs/integration.json
+        python3 -I -S -c "import json,sys; d=json.load(open(sys.argv[1])); e=d.get('events_expected'); g=d.get('events_exported'); ok=isinstance(e,int) and isinstance(g,int) and e==g and bool(d.get('round_trip_passed')); print('ROUND_TRIP_VERDICT:', 'PASS' if ok else 'FAIL', '| expected=', e, '| exported=', g); sys.exit(0 if ok else 1)" {workspace}/outputs/integration.json
       The engine's has_key check only verifies a key EXISTS — it cannot catch
       round_trip_passed: false. This command is the actual gate. Running it
       before integration.json exists would fail on a missing file rather than
@@ -893,7 +893,7 @@ stages:
         - "Report the happy:sad ratio for the added tests. A ratio with no sad-path tests at all is blocking regardless of the mode-by-mode result."
         - "Write findings to {workspace}/outputs/sad-path-coverage.json with keys: failure_modes (list of {mode, expected_behaviour, covered (boolean), tests (list of test names)}), tests_classified (list of {test, file, classification}), happy_count, sad_count, neither_count, uncovered_modes (list), blocking_issues (list), and passed (boolean)."
         - "Set passed=true ONLY if uncovered_modes is empty AND sad_count > 0 AND design.json carried a non-empty failure_modes list. Otherwise set passed=false and put the reason in blocking_issues. Be aware the engine's has_key check only verifies a key EXISTS, not that a list is empty — so a populated uncovered_modes will NOT be caught mechanically. You are the enforcement. Do not set passed=true with a non-empty uncovered_modes; a downstream reviewer reads this field and will treat true as meaning every named failure mode is tested."
-        - "Run this to make the verdict checkable rather than self-reported, and paste its output into your summary: python3 -c \"import json,sys; d=json.load(open(sys.argv[1])); u=d.get('uncovered_modes') or []; s=d.get('sad_count',0); ok=(not u) and s>0; print('SAD_PATH_VERDICT:', 'PASS' if ok else 'FAIL', '| uncovered=', u, '| sad_count=', s); sys.exit(0 if ok else 1)\" {workspace}/outputs/sad-path-coverage.json"
+        - "Run this to make the verdict checkable rather than self-reported, and paste its output into your summary: python3 -I -S -c \"import json,sys; d=json.load(open(sys.argv[1])); u=d.get('uncovered_modes') or []; s=d.get('sad_count',0); ok=(not u) and s>0; print('SAD_PATH_VERDICT:', 'PASS' if ok else 'FAIL', '| uncovered=', u, '| sad_count=', s); sys.exit(0 if ok else 1)\" {workspace}/outputs/sad-path-coverage.json"
     agent:
       role: reviewer
       # read-write because writes_to is non-empty. NOTE: `tools` and `access`

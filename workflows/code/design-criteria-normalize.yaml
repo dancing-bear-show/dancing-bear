@@ -259,7 +259,7 @@ stages:
         - Preserve every existing public function/class name unless the
           plan explicitly lists a rename (C10 gaps only).
         - After each SafeProcessor/BaseProducer conversion (C2), re-run a
-          quick smoke check: python3 -c "import <module_path>" 2>&1.
+          quick smoke check: PYTHONPATH="$PWD/src" python3 -c "import <module_path>" 2>&1.
         - Follow core/pipeline.py's SafeProcessor/BaseProducer template
           exactly as documented in .llm/PATTERNS.md "SafeProcessor Pattern".
         - Do not touch this domain's test files in this stage — tests are

@@ -91,7 +91,7 @@ stages:
             echo "FATAL: no .venv"; exit 1; }
           .venv/bin/python -m pip install -e ".[pdf,ocr]" > /tmp/pdf-install.log 2>&1
           status=$?; tail -2 /tmp/pdf-install.log; echo "INSTALL_EXIT=$status"
-          .venv/bin/python -c "import fitz; print('fitz ok')" 2>&1
+          .venv/bin/python -I -c "import fitz; print('fitz ok')" 2>&1
 
         Do not pipe the install into tail: a pipeline reports the LAST
         command's status, so a failed install would hide behind tail's zero
@@ -175,11 +175,11 @@ stages:
           test -x .venv/bin/python || make venv > /tmp/venv-create.log 2>&1
           test -x .venv/bin/python || { tail -20 /tmp/venv-create.log; \
             echo "FATAL: no .venv"; exit 1; }
-          if ! .venv/bin/python -c "import fitz" 2>/dev/null; then
+          if ! .venv/bin/python -I -c "import fitz" 2>/dev/null; then
             .venv/bin/python -m pip install -e ".[pdf,ocr]" > /tmp/pdf-install.log 2>&1
             status=$?; tail -2 /tmp/pdf-install.log; echo "INSTALL_EXIT=$status"
           fi
-          .venv/bin/python -c "import fitz; print('fitz ok')" 2>&1
+          .venv/bin/python -I -c "import fitz; print('fitz ok')" 2>&1
 
         The trailing import is the check that matters -- it must succeed
         before this stage does any work.  Piping the install into tail would
@@ -1188,7 +1188,7 @@ stages:
           ./bin/claims fill --help > /tmp/c2.log 2>&1; c2=$?; head -3 /tmp/c2.log
           ./bin/claims --agentic --agentic-format json --agentic-compact \
             > /tmp/c3.log 2>&1; c3=$?
-          python3 -c "import sys,json; json.load(open('/tmp/c3.log')); print('agentic JSON ok')"; c4=$?
+          python3 -I -S -c "import sys,json; json.load(open('/tmp/c3.log')); print('agentic JSON ok')"; c4=$?
           echo "CLAIMS_HELP_EXITS=$c1,$c2,$c3,$c4"
 
         All four must be 0.  Any non-zero is a FAIL: set cli_smoke fields to
