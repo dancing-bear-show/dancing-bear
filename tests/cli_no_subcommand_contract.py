@@ -20,9 +20,9 @@ Usage::
         EXPECTED_RC = 0
         EXPECTED_STREAM = "stdout"
 
-Measured across all 18 apps (rc / stream):
+Measured across all 19 apps (rc / stream):
 
-    rc=0, stdout   the other 16 apps -- full help, framework default
+    rc=0, stdout   the other 17 apps -- full help, framework default
     rc=1, stderr   worker    -- one-line usage; see worker.cli._no_command_usage()
     rc=2, stderr   workflow  -- one-line usage; same pattern
 

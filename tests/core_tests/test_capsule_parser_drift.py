@@ -52,6 +52,7 @@ APPS = {
     "charts": [["./bin/charts"]],
     "desk": [["python3", "-m", "desk"]],
     "diagrams": [["./bin/diagrams"]],
+    "github": [["./bin/github"]],
     "mail": [["./bin/mail"], ["./bin/mail-assistant"]],
     "maker": [["./bin/maker"]],
     "phone": [["./bin/phone"], ["./bin/phone-assistant"]],
@@ -371,7 +372,7 @@ class CapsuleMatchesParser(unittest.TestCase):
         # carry only a header and no invocations. Distinguish the two by asking
         # whether the capsule contains any command-shaped text at all.
         #
-        # Measured 2026-09-11: NO domain is header-only today — all 18 emit a
+        # Measured 2026-09-11: NO domain is header-only today — all 19 emit a
         # `commands:` section, including calendars, schedule and apple_music,
         # which this comment previously cited as the header-only examples. The
         # branch is kept as tolerance for a future minimal capsule, not because
