@@ -109,10 +109,13 @@ stages:
       PHASE B — DOMAIN KEYWORD MAPPING: apply to all non-noise prompts.
       Use WORD-BOUNDARY, CASE-INSENSITIVE matching with optional s/es plurals.
       Implement each pattern as r'\b<stem>(?:s|es)?\b' so that e.g. "calendars"
-      and "schedules" match their respective domains. "plan" must not match
-      inside "explain". First domain whose regex matches wins. A prompt matched
-      here goes into that domain's bucket regardless of whether it also contains
-      meta-work keywords — domain signal takes priority.
+      and "schedules" match their respective domains. Boundary rules prevent
+      false matches: e.g. "cv" must not match inside "cvs". Note: "plan" and
+      "apply" are deliberately excluded from the keyword table as generic dev
+      verbs — they route too many non-schedule prompts ("apply the fix",
+      "make a plan") to the schedule domain. First domain whose regex matches
+      wins. A prompt matched here goes into that domain's bucket regardless of
+      whether it also contains meta-work keywords — domain signal takes priority.
 
         \bmail\b, \bgmail\b, \boutlook\b, \binbox(?:es)?\b, \blabels?\b, \bfilters?\b → mail
         \bcalendars?\b, \bevents?\b, \binvites?\b, \bmeetings?\b                       → calendars
@@ -283,8 +286,12 @@ stages:
              Glob: {projects_dir}/**/<session_id>/subagents/*.jsonl
          Collect ALL matching files across both globs. If the flat glob matches
          multiple files, take the largest (by byte size) from that set.
-         Merge all located files for that session_id into the parse pass for step 2
-         — do not skip subdir-layout files even when a flat file also exists.
+         Each located .jsonl file is an independent conversation stream — parse
+         spans independently per file (never carry a span across a file boundary),
+         then union the resulting pair/session identities at the session-aggregation
+         step (step 5/6). Do not skip subdir-layout files when a flat file also
+         exists; each subagents/*.jsonl is a separate stream that contributes its
+         own spans to the union.
 
       2. Parse each .jsonl file line by line. Each line is a JSON record.
          Focus on assistant records (type == "assistant").
@@ -295,6 +302,16 @@ stages:
       3. Extract CLI invocations from each command string using:
            Primary pattern: r'(?:^|[\s;&|(])\./bin/([\w][\w-]*)'
            Desk (no wrapper): r'python3\s+(?:-[^\s]+\s+)*-m\s+desk'
+         After capturing the CLI name, apply dispatcher normalisation:
+           If the captured name is "assistant", discard "assistant" and take the
+           NEXT token as the app name (e.g. "./bin/assistant resume export" →
+           "resume"); shift subcommand capture by one position accordingly.
+           The "python3 -m desk" special case is unchanged.
+           Use ./bin/llm inventory --stdout for the authoritative invocation list
+           when the correct app name for a binary is in doubt.
+         All downstream tallies (cli_usage, top_subcommands, pairs) use the
+         normalised app name — "assistant" must never appear as a CLI name in
+         any output field.
          Also capture up to two following tokens as subcommand hints, but ONLY
          if each token looks like a subcommand — not a flag, not a path segment:
            After the CLI name, match each candidate token with r'[a-z][a-z-]*'
@@ -308,11 +325,13 @@ stages:
            record it as a subcommand. Apply the same check to the second token.
          Use these for cli_usage and top_subcommands tallies.
 
-      4. Group tool_use Bash blocks by prompt span.
-         A span starts at each user record whose message.content is a non-empty
-         STRING. (Tool-result user records have message.content as a LIST — they
-         must NOT start a new span; they belong to the current span.)
-         A span runs from its opening user record to the next string user record.
+      4. Group tool_use Bash blocks by prompt span — one file at a time.
+         Process each .jsonl file independently. A span starts at each user record
+         whose message.content is a non-empty STRING. (Tool-result user records
+         have message.content as a LIST — they must NOT start a new span; they
+         belong to the current span.) A span runs from its opening user record to
+         the next string user record within the SAME file. Never carry a span
+         across a file boundary.
          Collect all CLIs invoked by assistant tool_use blocks within each span.
 
       5. Within each span, enumerate all unordered pairs of distinct CLIs.
@@ -435,6 +454,9 @@ stages:
 
       Step 1 — subcommand gap detection:
         For each domain in domain-map.json with at least one mapped cluster:
+          Skip any domain whose cli_bin is null (e.g. "core") — these are
+          shared-library domains with no CLI entry point. Do not attempt to run
+          ./bin/<None> or invent a CLI path for them; move on to the next domain.
           Run: ./bin/<cli> --agentic --agentic-format yaml --agentic-compact
           Parse the YAML output to extract existing subcommand names.
           If the CLI has no agentic schema, fall back to: ./bin/<cli> --help
