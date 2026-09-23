@@ -1,23 +1,47 @@
-"""Tests for worker.qwen.resolve_input_files — the input-confinement guard.
+"""Tests for worker.qwen.resolve_input_files, the input-confinement guard.
 
-This is the security-critical case (contract.json:input_confinement); test it
-hardest. All paths are built inside a TempDirMixin tmp_path fixture, never
-against real repo paths.
+This is the security-critical case (contract.json:input_confinement). The
+guard must reject a path BEFORE opening it: a guard that reads the file and
+then rejects it has already pulled the contents into memory.
 
-worker.qwen does not exist in this worktree yet (impl-handler owns it, in a
-parallel stage). ModuleNotFoundError here is expected.
+"Never opened" is enforced by _no_file_reads, which fails on every read
+route rather than builtins.open alone: on Python 3.11 pathlib's read_text
+and read_bytes go through io.open, which a builtins.open patch does not
+intercept. Every rejection test runs under it, and the targets exist, so
+a reading guard would actually have something to read.
 """
 
 from __future__ import annotations
 
+import contextlib
 import os
+import stat
 import unittest
+from collections.abc import Iterator
 from pathlib import Path
 from unittest import mock
 
 from tests.fixtures import TempDirMixin
+from worker import qwen
 
 ALLOWLIST_DIRS = ("src", "tests", "bin", "workflows", "concerns", "docs")
+_READ_ROUTES = (
+    "builtins.open",
+    "io.open",
+    "os.open",
+    "pathlib.Path.open",
+    "pathlib.Path.read_text",
+    "pathlib.Path.read_bytes",
+)
+
+
+@contextlib.contextmanager
+def _no_file_reads() -> Iterator[None]:
+    """Fail the test if anything opens a file while the context is active."""
+    with contextlib.ExitStack() as stack:
+        for target in _READ_ROUTES:
+            stack.enter_context(mock.patch(target, side_effect=AssertionError(f"guard opened a file via {target}")))
+        yield
 
 
 class QwenConfinementBaseTests(TempDirMixin, unittest.TestCase):
@@ -26,153 +50,145 @@ class QwenConfinementBaseTests(TempDirMixin, unittest.TestCase):
         self.repo_root = Path(self.tmpdir) / "repo"
         for d in ALLOWLIST_DIRS:
             (self.repo_root / d).mkdir(parents=True, exist_ok=True)
-        (self.repo_root / "out").mkdir(parents=True, exist_ok=True)
-        (self.repo_root / "_data").mkdir(parents=True, exist_ok=True)
-        (self.repo_root / "outside").mkdir(parents=True, exist_ok=True)
+        for d in ("out", "_data", "srcevil"):
+            (self.repo_root / d).mkdir(parents=True, exist_ok=True)
+
+    def _write(self, rel: str, content: str = "secret-shaped content\n") -> Path:
+        path = self.repo_root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return path
+
+    def assert_rejected_unread(self, raw: str) -> None:
+        with _no_file_reads(), self.assertRaises(qwen.QwenGuardError, msg=raw) as ctx:
+            qwen.resolve_input_files([raw], self.repo_root)
+        self.assertEqual(str(ctx.exception), f"terminal-path-not-allowed: {raw}")
 
 
 class QwenConfinementRejectionTests(QwenConfinementBaseTests):
     def test_path_outside_allowlist_is_rejected_and_never_opened(self) -> None:
-        """A handler that reads the file and then rejects it has already
-        leaked it into memory and possibly into a log line."""
-        from worker import qwen
+        outside = self.repo_root.parent / "etc_passwd_shape"
+        outside.write_text("root:x:0:0::/root:/bin/bash\n", encoding="utf-8")
 
-        outside_file = self.repo_root.parent / "etc_passwd_shape"
-        outside_file.write_text("root:x:0:0::/root:/bin/bash\n", encoding="utf-8")
-        traversal_path = "../../etc/passwd"
+        self.assert_rejected_unread("../etc_passwd_shape")
+        self.assert_rejected_unread(str(outside))
 
-        with mock.patch("builtins.open") as mock_open:
-            with self.assertRaises(qwen.QwenGuardError) as ctx:
-                qwen.resolve_input_files([traversal_path], self.repo_root)
+    def test_sentinel_catches_a_pathlib_read(self) -> None:
+        """Proves _no_file_reads has teeth for the route the old builtins.open
+        patch missed."""
+        target = self._write("src/ok.py")
 
-        self.assertTrue(str(ctx.exception).startswith("terminal-path-not-allowed"))
-        mock_open.assert_not_called()
+        with _no_file_reads(), self.assertRaises(AssertionError):
+            target.read_bytes()
 
     def test_ordering_nonexistent_path_outside_allowlist_returns_confinement_error(self) -> None:
-        """Proves the confinement check precedes the read: a handler that
-        reads first would surface a file-not-found for this path instead,
-        and would pass every other confinement test in this file."""
-        from worker import qwen
-
-        nonexistent_traversal = "../../does/not/exist/at/all"
-
-        with self.assertRaises(qwen.QwenGuardError) as ctx:
-            qwen.resolve_input_files([nonexistent_traversal], self.repo_root)
-
-        self.assertTrue(str(ctx.exception).startswith("terminal-path-not-allowed"))
-        self.assertNotIsInstance(ctx.exception, FileNotFoundError)
+        """A handler that reads first would surface FileNotFoundError here."""
+        self.assert_rejected_unread("../../does/not/exist/at/all")
 
     def test_path_inside_repo_but_outside_allowlist_is_rejected(self) -> None:
-        """Repo-root containment alone would admit an out/ or _data/
-        artifact; the allowlist must distinguish these from the allowed
-        dirs."""
-        from worker import qwen
+        """Repo-root containment alone would admit an out/ or _data/ artifact."""
+        self._write("out/generated.json", "{}")
+        self._write("_data/queue.json", "{}")
 
-        out_artifact = self.repo_root / "out" / "generated.json"
-        out_artifact.write_text("{}", encoding="utf-8")
+        self.assert_rejected_unread("out/generated.json")
+        self.assert_rejected_unread("_data/queue.json")
 
-        with self.assertRaises(qwen.QwenGuardError) as ctx:
-            qwen.resolve_input_files(["out/generated.json"], self.repo_root)
+    def test_sibling_directory_sharing_an_allowlist_prefix_is_rejected(self) -> None:
+        """srcevil/ starts with the string 'src' but is not under src/."""
+        self._write("srcevil/x.py")
 
-        self.assertTrue(str(ctx.exception).startswith("terminal-path-not-allowed"))
+        self.assert_rejected_unread("srcevil/x.py")
 
-        data_artifact = self.repo_root / "_data" / "queue.json"
-        data_artifact.write_text("{}", encoding="utf-8")
-
-        with self.assertRaises(qwen.QwenGuardError) as ctx2:
-            qwen.resolve_input_files(["_data/queue.json"], self.repo_root)
-
-        self.assertTrue(str(ctx2.exception).startswith("terminal-path-not-allowed"))
+    def test_absolute_path_is_rejected(self) -> None:
+        self.assert_rejected_unread("/etc/passwd")
 
     def test_symlink_inside_root_pointing_outside_is_rejected(self) -> None:
-        """The case a string-prefix check passes and a resolved check
-        catches. If this test is absent, the guard is untested in the way
-        that matters."""
-        from worker import qwen
-
+        """The case a string-prefix check passes and a resolved check catches."""
         target = self.repo_root.parent / "outside_target.txt"
         target.write_text("leaked content\n", encoding="utf-8")
-        link = self.repo_root / "src" / "escape_link.txt"
-        os.symlink(target, link)
+        os.symlink(target, self.repo_root / "src" / "escape_link.txt")
 
-        with self.assertRaises(qwen.QwenGuardError) as ctx:
-            qwen.resolve_input_files(["src/escape_link.txt"], self.repo_root)
-
-        self.assertTrue(str(ctx.exception).startswith("terminal-path-not-allowed"))
+        self.assert_rejected_unread("src/escape_link.txt")
 
     def test_each_denylist_entry_is_rejected_even_inside_root(self) -> None:
-        """A credentials.ini in the repo is still denied, even though it
-        sits inside an allowlisted directory."""
-        from worker import qwen
+        for rel in (
+            "src/credentials.ini",
+            "src/.env.local",
+            "src/fake_token_store.json",
+            "src/id_rsa",
+            "src/id_ed25519",
+            "src/cert.pem",
+            "src/cert.p12",
+        ):
+            with self.subTest(path=rel):
+                self._write(rel)
+                self.assert_rejected_unread(rel)
 
-        cases = {
-            "src/credentials.ini": "credentials.ini",
-            "src/.env.local": ".env*",
-            "src/fake_token_store.json": "*token*.json",
-            "src/id_rsa": "id_rsa",
-            "src/id_ed25519": "id_ed25519",
-            "src/cert.pem": "*.pem",
-            "src/cert.p12": "*.p12",
-        }
-        for rel_path, _pattern in cases.items():
-            full = self.repo_root / rel_path
-            full.parent.mkdir(parents=True, exist_ok=True)
-            full.write_text("secret-shaped content\n", encoding="utf-8")
+    def test_denylist_matches_case_variants(self) -> None:
+        """A case-insensitive volume opens cert.PEM as the same kind of file."""
+        for rel in (
+            "src/Credentials.ini",
+            "src/.ENV",
+            "src/My_Token.JSON",
+            "src/ID_RSA",
+            "src/cert.PEM",
+            "src/bundle.P12",
+        ):
+            with self.subTest(path=rel):
+                self._write(rel)
+                self.assert_rejected_unread(rel)
 
-            with self.assertRaises(qwen.QwenGuardError, msg=rel_path) as ctx:
-                qwen.resolve_input_files([rel_path], self.repo_root)
-
-            self.assertTrue(
-                str(ctx.exception).startswith("terminal-path-not-allowed"), rel_path
-            )
+    def test_unreadable_denylisted_file_is_rejected_not_permission_error(self) -> None:
+        """A guard that opened the file first would raise PermissionError."""
+        secret = self._write("src/credentials.ini")
+        secret.chmod(0)
+        try:
+            with self.assertRaises(qwen.QwenGuardError):
+                qwen.resolve_input_files(["src/credentials.ini"], self.repo_root)
+        finally:
+            secret.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
     def test_path_containing_git_segment_is_rejected(self) -> None:
-        from worker import qwen
+        self._write("src/.git/config", "[core]\n")
+        self._write("src/.GIT/HEAD", "ref\n")
 
-        git_path = self.repo_root / "src" / ".git" / "config"
-        git_path.parent.mkdir(parents=True, exist_ok=True)
-        git_path.write_text("[core]\n", encoding="utf-8")
-
-        with self.assertRaises(qwen.QwenGuardError) as ctx:
-            qwen.resolve_input_files(["src/.git/config"], self.repo_root)
-
-        self.assertTrue(str(ctx.exception).startswith("terminal-path-not-allowed"))
+        self.assert_rejected_unread("src/.git/config")
+        self.assert_rejected_unread("src/.GIT/HEAD")
 
     def test_file_over_size_ceiling_is_rejected(self) -> None:
-        from worker import qwen
+        (self.repo_root / "src" / "big.py").write_bytes(b"x" * 100)
 
-        big_file = self.repo_root / "src" / "big.py"
-        with mock.patch("worker.qwen.THRESHOLDS", qwen.QwenThresholds(max_file_bytes=10), create=True):
-            big_file.write_bytes(b"x" * 100)
-            with self.assertRaises(qwen.QwenGuardError) as ctx:
-                qwen.resolve_input_files(["src/big.py"], self.repo_root)
-
-        self.assertTrue(str(ctx.exception).startswith("terminal-path-not-allowed"))
+        with mock.patch("worker.qwen.THRESHOLDS", qwen.QwenThresholds(max_file_bytes=10)):
+            self.assert_rejected_unread("src/big.py")
 
     def test_directory_path_is_rejected(self) -> None:
-        from worker import qwen
+        self.assert_rejected_unread("src")
 
-        # src/ itself is a directory, not a file.
-        with self.assertRaises(qwen.QwenGuardError) as ctx:
-            qwen.resolve_input_files(["src"], self.repo_root)
+    def test_first_violation_stops_before_later_paths(self) -> None:
+        self._write("src/ok.py")
 
-        self.assertTrue(str(ctx.exception).startswith("terminal-path-not-allowed"))
+        with mock.patch("worker.qwen._validate_one_input_file", wraps=qwen._validate_one_input_file) as validate:
+            with self.assertRaises(qwen.QwenGuardError):
+                qwen.resolve_input_files(["../x", "src/ok.py"], self.repo_root)
+
+        self.assertEqual(validate.call_count, 1)
 
 
 class QwenConfinementAcceptanceTests(QwenConfinementBaseTests):
     def test_allowed_ordinary_repo_file_is_accepted(self) -> None:
-        """Proves the guard is not simply rejecting everything, which would
-        pass every rejection test above."""
-        from worker import qwen
+        """Proves the guard is not simply rejecting everything."""
+        ok_file = self._write("src/worker/qwen.py", "# a normal repo file\n")
 
-        ok_file = self.repo_root / "src" / "worker" / "qwen.py"
-        ok_file.parent.mkdir(parents=True, exist_ok=True)
-        ok_file.write_text("# a normal repo file\n", encoding="utf-8")
+        with _no_file_reads():
+            resolved = qwen.resolve_input_files(["src/worker/qwen.py"], self.repo_root)
 
-        resolved = qwen.resolve_input_files(["src/worker/qwen.py"], self.repo_root)
+        self.assertEqual(resolved, [ok_file.resolve()])
 
-        self.assertEqual(len(resolved), 1)
-        self.assertEqual(Path(resolved[0]).resolve(), ok_file.resolve())
+    def test_every_allowlisted_directory_is_accepted(self) -> None:
+        for d in ALLOWLIST_DIRS:
+            with self.subTest(directory=d):
+                ok_file = self._write(f"{d}/file.txt", "ok\n")
+                self.assertEqual(qwen.resolve_input_files([f"{d}/file.txt"], self.repo_root), [ok_file.resolve()])
 
 
 if __name__ == "__main__":
