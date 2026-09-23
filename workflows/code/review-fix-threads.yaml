@@ -146,11 +146,18 @@ stages:
 
           Apply the override ONLY when the overview that still lists the
           finding as open was submitted AFTER the thread's most recent
-          comment. Compare review-overview.json "newest".submitted_at against
-          the thread's last comments[].created_at in threads.json. If the
-          thread has been commented on since that overview was written, the
+          comment. Compare that finding's OWN "source_submitted_at" from
+          review-overview.json against the thread's last comments[].created_at
+          in threads.json. If the thread has been commented on since, the
           reviewer has not yet seen the current state: skip the override and
           leave the thread resolved.
+
+          Use the per-finding timestamp, NOT "newest".submitted_at. The fold
+          keeps a finding's last-seen section even when a later review stops
+          listing it, so the global newest timestamp can belong to a review
+          that never mentioned this finding at all — and comparing against it
+          re-opens a thread on the strength of a review that said nothing
+          about it.
 
           That is the whole termination argument. Once this workflow replies
           to a thread, its reply is newer than the overview, so the next run
@@ -178,9 +185,15 @@ stages:
           under its own heading so a human sees what was fixed with no thread
           to close, and what still needs attention.
 
-        - Use the reviewer's own severity from review-overview.json where a
-          finding has one, instead of inferring it. Fall back to your own
-          judgement only for threads the overview does not cite.
+        - Record the reviewer's own severity from review-overview.json in
+          "reviewer_severity", verbatim ("High", "Medium", "Low"), and use it
+          to order work. Leave it null for threads the overview does not cite.
+
+          Keep it OUT of "severity", which is a category
+          (correctness|security|maintainability|style), not a rating. The two
+          are different axes: writing "High" into the category field breaks
+          triage.json's own contract, and translating it into a category
+          silently discards the authoritative rating. Carry both.
 
         - If review-overview.json has "present": false, skip every rule above
           and select on thread state alone. A human-only PR has no overview.
@@ -256,6 +269,7 @@ stages:
               "author_kind": "bot",
               "directive": "fix",
               "severity": "correctness|security|maintainability|style",
+              "reviewer_severity": "High|Medium|Low|null",
               "ask": "one sentence stating precisely what the reviewer wants",
               "reason": "why this directive — required for reject/moot/defer",
               "evidence": "file:line facts, required for reject"
@@ -269,7 +283,8 @@ stages:
               "is_outdated": false,
               "author_kind": "bot",
               "directive": "fix",
-              "severity": "Medium",
+              "severity": "correctness",
+              "reviewer_severity": "Medium",
               "ask": "one sentence stating precisely what the reviewer wants",
               "reason": "",
               "evidence": ""
@@ -303,8 +318,8 @@ stages:
   - name: fix-dispatch
     kind: gather
     executor: inline
-    depends_on: [triage-threads]
-    reads_from: [triage-threads, fetch-threads]
+    depends_on: [triage-threads, parse-review-overview]
+    reads_from: [triage-threads, fetch-threads, parse-review-overview]
     description: >
       Build the fan-out index for the fixer agents. One item per FILE, not per
       thread — this is what serialises same-file edits.
@@ -345,9 +360,23 @@ stages:
       Every item in a group MUST carry an id that is unique across the whole
       run and safe as a filename, because fix-threads writes one result file
       per id. Thread ids and "unlinked:" keys are both unique, but an
-      "unlinked:" key contains "/" and ":" — replace every character outside
-      [A-Za-z0-9._-] with "-" when using it as a filename, and keep the
-      original in the "id" field so fix-aggregate can match it back.
+      "unlinked:" key contains "/" and ":", so it needs sanitising for use as
+      a filename — and sanitising alone is not injective.
+
+      Build file_id as the sanitised form PLUS a hash suffix:
+      replace every character outside [A-Za-z0-9._-] with "-", then append
+      "-" and the first 8 hex characters of sha1(id). Keep the original in
+      the "id" field so fix-aggregate can match it back.
+
+      The hash is what makes it safe. Character replacement alone maps
+      "unlinked:a/b.py:10" and "unlinked:a-b.py:10" to the same name, so two
+      distinct findings would write the same result file — one silently
+      overwrites the other, and aggregation then pairs the surviving result
+      with the wrong finding while counting the set complete.
+
+      Assert the file_id set is unique before the fan-out starts, and fail
+      the stage if it is not. A collision detected after the agents run has
+      already destroyed one of the results.
 
       Write {workspace}/outputs/fix-index.json:
         {
@@ -823,6 +852,7 @@ stages:
       pr-thread-resolve fragment consumes:
 
         {
+          "run_id": "<the workflow run id, stable across retries>",
           "verify_file": "validation/verify-results.json",
           "blocked_reason": null,
           "incomplete_input": false,

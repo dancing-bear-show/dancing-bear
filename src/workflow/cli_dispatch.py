@@ -1,7 +1,8 @@
 """Dispatch subcommands for the workflow CLI.
 
 Handles parse, run, lint, list, status, init-workspace, resume,
-and validate-fragment command handlers, plus their shared helpers.
+parse-overview, and validate-fragment command handlers, plus their shared
+helpers.
 """
 
 from __future__ import annotations
@@ -497,3 +498,44 @@ def _cmd_resume(args: argparse.Namespace) -> int:
 
     emit_rows(rows, fmt=args.format, headers=["stage", "status", "needs_run", "reason"])
     return 2 if has_pending else 0
+
+
+# ---------------------------------------------------------------------------
+# parse-overview
+# ---------------------------------------------------------------------------
+
+
+def _cmd_parse_overview(args: argparse.Namespace) -> int:
+    """Parse Copilot overview bodies out of a fetched threads.json.
+
+    The parser lives in core.copilot_overview so it is unit-testable; this
+    handler only does I/O. Workflow stages call it rather than reimplementing
+    the scan inline, which is how the documented rules and the executed ones
+    stay the same thing.
+    """
+    from core.copilot_overview import parse_overview
+
+    path = Path(args.threads_json)
+    if not path.is_file():
+        raise CLIError(f"threads file not found: {path}", ExitCode.USAGE)
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise CLIError(f"threads file is not valid JSON: {exc}", ExitCode.USAGE) from exc
+
+    result = parse_overview(
+        review_bodies=data.get("review_bodies") or [],
+        threads=data.get("threads") or [],
+        pr_number=args.pr_number or str(data.get("pr_number") or ""),
+    )
+
+    rendered = json.dumps(result, indent=2, sort_keys=True)
+    if args.out_path:
+        out = Path(args.out_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(rendered + "\n", encoding="utf-8")
+        print(f"wrote {out}")
+    else:
+        print(rendered)
+    return 0

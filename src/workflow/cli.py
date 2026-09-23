@@ -35,6 +35,7 @@ from workflow.cli_dispatch import (
     _cmd_lint,
     _cmd_list,
     _cmd_parse,
+    _cmd_parse_overview,
     _cmd_resume,
     _cmd_run,
     _cmd_status,
@@ -158,6 +159,17 @@ def cmd_lint(args: argparse.Namespace) -> int:
 @app.argument("--format", "-f", **_format_kwargs(default="table"))
 def cmd_list(args: argparse.Namespace) -> int:
     return _cmd_list(args)
+
+
+@app.command(
+    "parse-overview",
+    help="Parse Copilot ccr-overview-v2 review bodies into structured findings",
+)
+@app.argument("threads_json", help="Path to threads.json from the pr-review-threads fragment")
+@app.argument("--pr", dest="pr_number", default="", help="PR number, recorded in the output")
+@app.argument("--out", dest="out_path", default="", help="Write JSON here (default: stdout)")
+def cmd_parse_overview(args: argparse.Namespace) -> int:
+    return _cmd_parse_overview(args)
 
 
 @app.command("status", help="Show status of a workflow run")

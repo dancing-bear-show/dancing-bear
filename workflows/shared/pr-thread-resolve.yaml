@@ -65,11 +65,28 @@ stages:
       fires is worse than no gate: it reads as protection while allowing
       every resolve through.
 
-      If resolve-plan.json omits "verify_file" entirely, the caller is
-      asserting it has no separate verification artifact. Proceed, and record
-      "verify_file": null in resolution.json so the report shows the gate did
-      not run. An absent key is a deliberate caller choice; a present key
-      pointing at an unreadable file is a failure.
+      A MISSING "verify_file" IS BLOCKED, not waved through. Write
+      resolution.json with status "blocked" and exit non-zero. An earlier
+      draft treated an absent key as "the caller has no verification
+      artifact", which hands any malformed or truncated plan a way to switch
+      the only gate off — and a plan is written by an agent, so that is a
+      likely failure, not a hypothetical one. Both real callers have a
+      verification artifact; a future one that genuinely does not needs an
+      explicit non-mutating mode, not a silent bypass.
+
+      "run_id" identifies this run and is required. It is what the marker in
+      Step 1 embeds, so a retry can recognise its own prior replies. Reject a
+      plan without one rather than inventing a value: a fresh id each attempt
+      would make every retry post duplicates.
+
+      CONSTRAIN THE PATH. verify_file arrives from an agent-written plan.
+      Reject it unless, after normalisation, it is relative, contains no ".."
+      segment, and resolves inside {workspace}. Reject absolute paths
+      outright. Without this, a malformed or prompt-injected plan can aim the
+      gate at any unrelated JSON file that happens to contain all_green true,
+      and the fragment then posts and resolves against a tree nothing
+      verified. Prefer matching it against the caller's known verification
+      path where you have one.
 
       On abort: post NO replies, resolve NO threads, write resolution.json
       with status "blocked" and the reason, then exit non-zero. Resolving a
@@ -85,6 +102,7 @@ stages:
       what deserves closing; this fragment owns doing it safely. Schema:
 
         {
+          "run_id": "review-fix-threads-20260923-a1b2c3d4",
           "verify_file": "validation/verify-results.json",
           "threads": [
             {
@@ -122,13 +140,23 @@ stages:
       unresolved, and a re-run that does not check posts a second
       near-identical reply.
 
-      Re-fetch each planned thread's current comments before posting. Skip the
-      reply when the thread's latest comment was written by the authenticated
-      actor (GITHUB_TOKEN= gh api user -q .login) at or after the plan's
-      baseline — take the baseline as the earliest created_at among the
-      threads this plan names, or the PR head SHA's commit time if the plan
-      records one. Record those as "already_replied" so the report
-      distinguishes them from fresh posts.
+      Every reply this fragment posts ends with a run marker on its own line:
+        <!-- dancing-bear-run: {run_id} -->
+      where {run_id} is the plan's "run_id". That marker is how a retry
+      recognises its own prior work, and it is invisible in rendered Markdown.
+
+      Re-fetch each planned thread's comments before posting — the WHOLE
+      paginated chain, not just the latest — and skip the reply when any
+      comment already carries this run's marker. Record those as
+      "already_replied".
+
+      Search the whole chain, not the last comment. If a reviewer commented
+      after the first run's reply, that reply is no longer latest, and a
+      latest-only check posts a duplicate — the exact case this step exists
+      for. And match the marker, not authorship-plus-recency: the same token
+      may post for other workflows, so "a recent comment by this actor" can
+      suppress a reply this run genuinely owes, leaving a thread resolved with
+      no explanation of what changed.
 
       Do NOT test this by comparing the reply text. A re-run composes its
       reply fresh, so a semantically identical reply is textually different
@@ -145,10 +173,27 @@ stages:
           addPullRequestReviewThreadReply(
             input:{pullRequestReviewThreadId:$threadId, body:$body}
           ){ comment{ id url } }
-        }' -F threadId="<thread_id>" -F body="<reply text>"
+        }' -F threadId="$THREAD_ID" -F body="$BODY"
 
-      Pass the body via -F, never interpolated into the query string: reply
-      text contains backticks and quotes that would break the GraphQL document.
+      Load the reply into a shell variable read from the plan FILE — never
+      substitute the text into the command source. `-F` stops GraphQL
+      interpolation, but text pasted inside a double-quoted shell word is
+      still evaluated by the shell: embedded backticks or $(...) execute, and
+      an embedded quote re-splits the argument. Review-derived text contains
+      exactly those characters, and this stage runs unattended with a token.
+      Read it with a JSON tool into the variable, e.g.
+        BODY=$(python3 -I -S -c 'import json,sys;print(json.load(open(sys.argv[1]))["threads"][int(sys.argv[2])]["reply"])' "$PLAN" "$i")
+      then pass -F body="$BODY".
+
+      VERIFY THE REPLY LANDED before treating it as posted. `gh` exits 0 on an
+      HTTP 200 that carries a GraphQL `errors` array, so exit status proves
+      nothing. Require `data.addPullRequestReviewThreadReply.comment.id` to be
+      non-null AND `errors` to be absent. If either check fails, record the
+      thread in "failed" and DO NOT resolve it.
+
+      This is the check the whole fragment rests on. Without it a failed reply
+      reads as success and Step 3 resolves a thread that has no reply on it —
+      precisely the silent closure this fragment exists to prevent.
 
       Step 3 — resolve, but only for action "reply-and-resolve" AND only when
       that thread's reply posted successfully.

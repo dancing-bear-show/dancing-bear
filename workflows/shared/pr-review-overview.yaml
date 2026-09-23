@@ -59,9 +59,23 @@ stages:
       Step 1 — select the overview bodies.
 
       Copilot posts a summary review whose body starts with the marker
-      `<!-- ccr-overview-v2 -->`. Select every review body carrying that
-      marker. Ignore bodies without it: human review summaries and other bots
-      have no finding index to parse.
+      `<!-- ccr-overview-v2 -->`. Select a review body only when it carries
+      that marker AND its author is the Copilot reviewer. Ignore the rest:
+      human review summaries and other bots have no finding index to parse.
+
+      THE AUTHOR CHECK IS NOT OPTIONAL. pr-review-threads.yaml deliberately
+      preserves human review bodies alongside bot ones, and downstream triage
+      trusts this output over a thread's own is_resolved state. Selecting on
+      the HTML marker alone lets anyone who pastes that comment string into a
+      review body decide which threads get re-opened or suppressed. Require
+      author_kind "bot" AND the login, suffix-stripped of any trailing
+      "[bot]", equal to "copilot-pull-request-reviewer".
+
+      Strip the suffix before comparing: GraphQL returns
+      "copilot-pull-request-reviewer" and REST returns
+      "copilot-pull-request-reviewer[bot]" for the same account, so an exact
+      match against either spelling alone silently selects nothing on the
+      other surface — which looks identical to a PR with no overview.
 
       Its shape:
 
@@ -95,8 +109,15 @@ stages:
       dropping its findings.
 
       Findings are keyed by the REST comment databaseId in the
-      `#discussion_r<id>` anchor, which joins to a thread's
-      comments[0].database_id in threads.json.
+      `#discussion_r<id>` anchor. Join it against EVERY comment in every
+      thread, not just comments[0], and carry the containing thread's id.
+
+      A `#discussion_r` anchor names one specific review comment, which may
+      be a reply inside an existing thread rather than the thread's opening
+      comment. Matching only the first comment reports such a citation as
+      cited_not_found, which marks the input incomplete and changes triage —
+      for a thread that was in fact fetched correctly. The fetch fragment
+      keeps the whole chain precisely so this join can see it.
 
       Step 2b — UNLINKED findings. Not every section uses the link form, and
       assuming it does silently drops entire sections.
@@ -144,10 +165,21 @@ stages:
       thread API — a consumer must surface them to a human, or fix them and
       mention them in a reply on some other thread.
 
-      Severity comes from the `alt` attribute of the `<picture>` immediately
-      preceding the link ("High severity", "Medium severity", ...). Prefer it
-      over any severity a downstream stage would infer: it is the reviewer's
-      own rating, not a guess.
+      Severity comes from the `alt` attribute of a severity `<picture>`
+      ("High severity", "Medium severity", ...), read from different places
+      for the two finding forms:
+        - Linked: the `<picture>` immediately preceding the link, on the
+          same line.
+        - Unlinked: the `<picture>` inside that finding's own nested
+          `<summary>`, which is the only one it has.
+
+      Read it for BOTH forms. An unlinked finding has no link for a severity
+      picture to precede, so a rule written only for the linked case leaves
+      every unlinked finding at null severity — and those are the repeat
+      offenders whose severity matters most for ordering work.
+
+      Prefer this over any severity a downstream stage would infer: it is the
+      reviewer's own rating, not a guess.
 
       Step 3 — fold the bodies together, oldest to newest.
 
@@ -163,6 +195,14 @@ stages:
       otherwise undefined — a coin flip that decides whether a resolved thread
       gets re-opened. If submitted_at is missing entirely, order on review_id
       alone and note it in the output.
+
+      Record on each finding the review it was LAST SEEN in — its
+      "source_review_id" and "source_submitted_at" — not the newest review
+      globally. A later review may omit a finding entirely while the fold
+      keeps its history, so the two diverge. Consumers that compare a
+      finding's recency against a thread's comments need the timestamp of the
+      review that actually mentioned it; the global one would let a review
+      that never named the finding re-open its thread.
 
       Unlinked findings key on path and line, and a fix round moves the line —
       so the same finding can arrive under two keys across two reviews,
@@ -211,6 +251,8 @@ stages:
               "previously_missed": false,
               "linked": true,
               "resolvable": true,
+              "source_review_id": 5285429513,
+              "source_submitted_at": "2026-09-23T00:12:35Z",
               "thread_id": "PRRT_kwDO...",
               "is_resolved": false,
               "path": "src/foo.py",
@@ -282,18 +324,31 @@ stages:
       common case, not a failure. Downstream stages must branch on "present"
       rather than assuming the findings map is populated.
 
-      Do the parse with an inline python3 script, not by reading lines
-      yourself. Every rule here — the line-oriented scan, the zero-width-space
-      strip, the sha1 fallback key, the oldest-to-newest fold, the shortfall
-      arithmetic — is mechanical and must give the same answer on every run.
-      An LLM reading a body that can hold thirteen findings by eye is exactly
-      where a silent partial parse comes from, and a partial parse here is
+      RUN THE CLI. Do not implement any of the above yourself:
+
+        ./bin/workflow parse-overview {workspace}/outputs/threads.json \
+          --pr {pr_number} --out {workspace}/outputs/review-overview.json
+
+      That command is the implementation. It lives in
+      src/core/copilot_overview.py with unit tests in
+      tests/core_tests/test_copilot_overview.py, so the documented rules and
+      the executed ones are the same thing and stay that way.
+
+      Everything above this line describes what the CLI does and why, so you
+      can judge its output and debug it — it is not a spec for you to
+      re-implement in an inline script. A parser assembled from prose per run
+      is untested, unauditable, and free to drift; that is exactly how a
+      silent partial parse gets in, and a partial parse here is
       indistinguishable from a clean PR.
+
+      After it runs, read the file and check "status". If it is "partial",
+      the parse found fewer findings than the reviewer claimed — report that
+      prominently rather than passing it downstream as a clean result.
     agent:
       role: researcher
       model: sonnet
-      tools: [Read, Write, Bash]
-      access: read-write
+      tools: [Read, Bash]
+      access: read-only
     required: true
     writes_to:
       - review-overview.json

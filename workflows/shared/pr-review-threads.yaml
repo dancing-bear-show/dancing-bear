@@ -104,7 +104,14 @@ stages:
       Step 2 — REST review bodies. Top-level review summaries belong to no
       thread, so Step 1 cannot see them, and Copilot puts its overall verdict
       there:
-        GITHUB_TOKEN= gh api "repos/$OWNER/$REPO/pulls/{pr_number}/reviews"
+        GITHUB_TOKEN= gh api --paginate "repos/$OWNER/$REPO/pulls/{pr_number}/reviews"
+
+      `--paginate` is required, not tidiness. REST returns 30 per page by
+      default, and a PR under active review passes 30 quickly — this one
+      reached 23 in a day. Without it the NEWEST reviews are the ones missing,
+      so the overview parser reports present:false or folds a stale review as
+      newest, and every downstream decision keyed on "the newest overview"
+      silently uses the wrong one.
 
       Copilot also posts a summary review body carrying an index of its
       findings, their severity, and whether it has raised each one before.
@@ -114,7 +121,7 @@ stages:
       in threads.json; that fragment reads them from there.
 
       Step 3 — REST issue comments (PR-level conversation):
-        GITHUB_TOKEN= gh api "repos/$OWNER/$REPO/issues/{pr_number}/comments"
+        GITHUB_TOKEN= gh api --paginate "repos/$OWNER/$REPO/issues/{pr_number}/comments"
 
       Step 4 — normalise into one list. Author classification must handle BOTH
       spellings GitHub returns for the same account: GraphQL reports the

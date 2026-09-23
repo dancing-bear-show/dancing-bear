@@ -621,6 +621,11 @@ stages:
         - ruff exits 0 with no new violations
         - test suite passes (or was explicitly skipped)
         - qlty check introduces no new issues on changed files
+        - >
+          outputs/fix/verify-results.json exists and contains a top-level
+          boolean "all_green", true only when every check above passed.
+          Downstream mutating stages fail closed on this exact field, so a
+          missing or non-boolean value blocks every reply and resolve.
       max_revisions: 1
     required: true
     writes_to:
@@ -639,6 +644,17 @@ stages:
       write the plan. The mutations themselves are done by the shared
       pr-thread-resolve fragment — this stage makes the judgement, not the
       API calls.
+
+      Step 0 — gate on verification before planning anything. Read
+      {workspace}/outputs/fix/verify-results.json and require all_green
+      exactly true. A missing file, a parse error, an unexpected shape, or an
+      absent all_green key all count as NOT green: write an empty plan with
+      "blocked_reason" set and exit non-zero.
+
+      Do not rely on the shared fragment's gate alone. A stage's status is
+      self-reported and the completion template pre-fills "success", so
+      verify-fixes reporting success is not evidence the tree is green. Check
+      here as well, so a red tree never even produces a mutating plan.
 
       Step 1 — build the fixed finding set:
         Use the Read tool on {workspace}/outputs/fix/fix-code-results.json.
@@ -690,6 +706,7 @@ stages:
       pr-thread-resolve fragment consumes:
 
         {
+          "run_id": "<the workflow run id, stable across retries>",
           "verify_file": "outputs/fix/verify-results.json",
           "threads": [
             {"thread_id": "PRRT_...", "action": "reply-and-resolve",
@@ -706,6 +723,16 @@ stages:
 
       Every thread gets a reply, including the ones being resolved. A thread
       closed with no explanation makes the reviewer re-derive what happened.
+
+      The `<sha>` and `<one line on what changed>` above are PLACEHOLDERS to
+      substitute, not text to post. Take the SHA from the actual pushed head
+      commit and the summary from that thread's own fix result. The shared
+      fragment posts the "reply" value verbatim, so a placeholder left in the
+      plan is published to the reviewer as-is and the thread is then resolved
+      on it.
+
+      Before writing the plan, reject any reply still containing "<" followed
+      by ">" and fail the stage rather than posting it.
 
       Never plan a sweep over every thread on the PR. A thread whose finding
       was skipped, or that a human opened about something else, must stay open
@@ -758,8 +785,14 @@ stages:
           Read verify-results.json → ruff status, test status, qlty new issues, all_green.
 
         Thread resolution:
-          Read thread-resolution.json → resolved_finding_ids count,
-          unresolved_finding_ids with reasons.
+          Read resolution.json — the OUTCOME — for status, replied,
+          already_replied, resolved, skipped, failed, and unresolved_after.
+          Read thread-resolution.json only for what was planned.
+
+          Report the outcome, and name any gap between the two. A plan is an
+          intention; resolution.json is what GitHub actually accepted. Showing
+          the operator the plan alone reports successes that may not have
+          happened — the precise failure this workflow's gate exists to catch.
 
       Present the summary to the operator, then ask:
         "Fix round complete. Approve for merge? (yes / request another round)"
