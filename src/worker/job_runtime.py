@@ -328,15 +328,97 @@ class JobProcessor:
 
 
 class DaemonRunner:
-    """Runs the worker daemon loop."""
+    """Runs the worker daemon loop.
+
+    ``tick()`` is the non-blocking, DAEMON-mode tick: it starts threads for
+    newly claimed jobs and returns immediately without waiting for them to
+    finish, so one long-running job never blocks a later tick from claiming
+    other work. Live threads are tracked in ``_live_threads`` (keyed by job
+    stem) across ticks and pruned as they finish. ``run_once()`` uses a
+    separate, still-blocking path (``_run_once_batch``) because
+    ``worker run-once``, the workflow ``worker_queue`` dispatch stage, and
+    existing tests depend on it waiting for the batch to complete before
+    returning.
+    """
 
     def __init__(self, config: WorkerConfig, processor: JobProcessor):
         """Initialize daemon with configuration and processor."""
         self.config = config
         self.processor = processor
+        self._live_threads: dict[str, threading.Thread] = {}
+        self._registry_lock = threading.Lock()
 
     def tick(self) -> int:
-        """Process one batch of jobs."""
+        """Start newly claimed jobs without blocking; return count started.
+
+        Never joins the threads it starts. Capacity accounts for jobs
+        already claimed but not yet visible in processing/ (a started
+        thread may not have finished ``start_processing``'s rename yet) by
+        counting live threads alongside the on-disk processing/ count.
+        """
+        q.reap_stale_processing_jobs(self.config.job_timeout, root=q.QUEUE_ROOT)
+        self._prune_live_threads()
+
+        allowed = self._calculate_allowed_jobs()
+        if allowed <= 0:
+            return 0
+
+        items = [
+            (p, d) for p, d in q.list_pending() if p.stem not in self._live_threads
+        ][:allowed]
+        if not items:
+            return 0
+
+        return self._start_batch(items)
+
+    def _prune_live_threads(self) -> None:
+        """Drop finished threads from the live-thread registry."""
+        with self._registry_lock:
+            for stem in [s for s, t in self._live_threads.items() if not t.is_alive()]:
+                del self._live_threads[stem]
+
+    def _start_batch(self, items: list[tuple[Path, dict[str, object]]]) -> int:
+        """Start one thread per item without joining; register and return count started."""
+        started = 0
+        for p, d in items:
+            t = threading.Thread(target=self.processor.process_one, args=(p, d), daemon=True)
+            with self._registry_lock:
+                self._live_threads[p.stem] = t
+            t.start()
+            started += 1
+        return started
+
+    def _calculate_allowed_jobs(self) -> int:
+        """Calculate how many jobs can be started based on max_inflight cap.
+
+        Counts both the on-disk processing/ count and live registry threads,
+        since a started thread may not have renamed its job into processing/
+        yet. When max_inflight is unbounded (<= 0), live threads are still
+        capped at max_per_tick to preserve today's effective concurrency
+        rather than spawning unboundedly.
+        """
+        with self._registry_lock:
+            live = len(self._live_threads)
+        if self.config.max_inflight > 0:
+            try:
+                cur_proc = int(counts(root=q.QUEUE_ROOT).get("processing", 0))
+                in_flight = max(cur_proc, live)
+                return max(
+                    0,
+                    min(self.config.max_per_tick, self.config.max_inflight - in_flight),
+                )
+            except Exception:  # nosec B110 - fallback to max_per_tick
+                return self.config.max_per_tick
+        return max(0, self.config.max_per_tick - live)
+
+    def _run_once_batch(self) -> int:
+        """Process one batch of jobs, blocking until every job finishes.
+
+        Uses ``_calculate_allowed_jobs`` for the capacity check; the
+        live-thread registry it also accounts for is unpopulated here since
+        this path never starts a registered thread, so it degrades to a
+        plain processing/-count check.
+        """
         q.reap_stale_processing_jobs(self.config.job_timeout, root=q.QUEUE_ROOT)
 
         allowed = self._calculate_allowed_jobs()
@@ -348,19 +430,6 @@ class DaemonRunner:
             return 0
 
         return self._process_batch(items)
-
-    def _calculate_allowed_jobs(self) -> int:
-        """Calculate how many jobs can be processed based on max_inflight cap."""
-        if self.config.max_inflight > 0:
-            try:
-                cur_proc = int(counts(root=q.QUEUE_ROOT).get("processing", 0))
-                return max(
-                    0,
-                    min(self.config.max_per_tick, self.config.max_inflight - cur_proc),
-                )
-            except Exception:  # nosec B110 - fallback to max_per_tick
-                return self.config.max_per_tick
-        return self.config.max_per_tick
 
     def _process_batch(self, items: list[tuple[Path, dict[str, object]]]) -> int:
         """Process a batch of jobs in parallel with threading."""
@@ -402,12 +471,22 @@ class DaemonRunner:
             t.join(timeout=remaining)
 
     def run_once(self) -> int:
-        """Run one tick and exit."""
-        self.tick()
+        """Run one batch, blocking until it finishes, and exit.
+
+        Deliberately does not call ``tick()``: ``worker run-once``, the
+        workflow ``worker_queue`` dispatch stage, and existing tests depend
+        on this call waiting for every started job to finish before
+        returning, which the non-blocking ``tick()`` no longer does.
+        """
+        self._run_once_batch()
         return 0
 
     def run_daemon(self) -> int:
-        """Run continuous daemon loop."""
+        """Run continuous daemon loop.
+
+        Calls the non-blocking ``tick()`` each iteration so a long-running
+        job never blocks the daemon from claiming other pending work.
+        """
         # Anchor the daemon's cwd to the repo root so job scripts that use
         # relative paths (./bin/...) resolve correctly.
         os.chdir(str(get_repo_root()))
