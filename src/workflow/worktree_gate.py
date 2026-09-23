@@ -75,18 +75,43 @@ def _content_hash(path: Path) -> str | None:
     return None
 
 
-def snapshot_dirty(repo: str | Path) -> dict[str, str | None]:
-    """Map every dirty or untracked path in *repo* to its content hash.
+_SNAPSHOT_ATTEMPTS = 5
 
-    Raises:
-        RuntimeError: if ``git status`` fails -- a gate that cannot see the
-            tree must fail closed, never report it clean.
-    """
-    root = Path(repo)
+
+def _sample_dirty(root: Path) -> dict[str, str | None]:
     run = run_binary(_STATUS_CMD, cwd=root, timeout=_GIT_STATUS_TIMEOUT)
     if run.returncode != 0:
         raise RuntimeError(f"git status failed (exit {run.returncode}): {run.stderr.strip()}")
     return {p: _content_hash(root / p) for p in sorted(parse_porcelain_z(run.stdout))}
+
+
+def snapshot_dirty(repo: str | Path) -> dict[str, str | None]:
+    """Map every dirty or untracked path in *repo* to its content hash.
+
+    The status listing and the hashes are separate reads, so a path edited
+    between them would be recorded with bytes that no single moment of the
+    tree ever had alongside that listing. The snapshot is therefore sampled
+    twice back to back and accepted only when both samples agree -- listing
+    and every hash. A tree that keeps changing is retried, and after
+    ``_SNAPSHOT_ATTEMPTS`` unstable pairs the snapshot fails rather than
+    record a baseline it could not observe.
+
+    Raises:
+        RuntimeError: if ``git status`` fails, or the tree never holds still
+            long enough to sample -- a gate that cannot see the tree must
+            fail closed, never report it clean.
+    """
+    root = Path(repo)
+    previous = _sample_dirty(root)
+    for _ in range(_SNAPSHOT_ATTEMPTS):
+        current = _sample_dirty(root)
+        if current == previous:
+            return current
+        previous = current
+    raise RuntimeError(
+        f"working tree kept changing across {_SNAPSHOT_ATTEMPTS + 1} samples; "
+        "cannot record a stable dirty baseline"
+    )
 
 
 def head_commit(repo: str | Path) -> str:

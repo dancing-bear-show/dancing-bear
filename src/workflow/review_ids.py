@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -412,27 +412,35 @@ class _Expected:
     id: str
     file_id: str
     thread_id: object
+    scope: str | None = None
 
 
 @dataclass(frozen=True)
 class FixResults:
-    """The fix-results.json document fix-aggregate writes."""
+    """The fix-results.json document fix-aggregate writes.
+
+    ``scopes`` maps each finding id to the one source file its fixer was
+    dispatched to (None when it had none).
+    """
 
     total_expected: int
     results: tuple[dict[str, Any], ...]
     missing_results: tuple[str, ...]
     key_mismatches: tuple[dict[str, Any], ...]
+    scopes: dict[str, str | None] = field(default_factory=dict)
 
     def to_json(self) -> dict[str, Any]:
         by_action = dict.fromkeys(_KNOWN_ACTIONS, 0)
         for result in self.results:
             action = str(result.get("action"))
             by_action[action] = by_action.get(action, 0) + 1
+        files_changed, out_of_scope = _files_changed(self.results, self.scopes)
         return {
             "total_expected": self.total_expected,
             "total_results": len(self.results),
             "by_action": by_action,
-            "files_changed": _files_changed(self.results),
+            "files_changed": files_changed,
+            "out_of_scope_paths": out_of_scope,
             "tests_added": _union_of(self.results, "tests_added"),
             "missing_results": list(self.missing_results),
             "failed_tests": [_failed_test(r) for r in self.results if _is_unproven_fix(r)],
@@ -491,7 +499,8 @@ def _test_file_of(test_id: str) -> str | None:
     return path
 
 
-def _files_changed(results: tuple[dict[str, Any], ...]) -> list[str]:
+def _files_changed(results: tuple[dict[str, Any], ...],
+                   scopes: dict[str, str | None]) -> tuple[list[str], list[dict[str, Any]]]:
     """Every file a fixer edited: its files_changed plus its tests' files.
 
     The fixer schema records tests as test ids, not paths, and a fixer that
@@ -516,14 +525,46 @@ def _files_changed(results: tuple[dict[str, Any], ...]) -> list[str]:
     could never be reported as an unlisted edit. Left off the list, an edit
     such a result really made stays dirty, check-unlisted reports it, and
     the commit fails closed.
+
+    Each fixed result is also held to its own scope: the one source file its
+    group was dispatched for (``scopes[id]``) plus test files under
+    ``tests/``. A fixer that lists any other path -- a compromised or
+    over-eager fixer claiming ``src/other.py`` -- does not get it authorized.
+    That path is returned in the second list instead, so the run reports it,
+    and because it is left off the first list, check-unlisted still sees the
+    edit and the commit fails closed.
+
+    Returns:
+        ``(files_changed, out_of_scope_paths)``, the latter as
+        ``{"id": ..., "path": ...}`` records.
     """
-    fixed_results = tuple(r for r in results if r.get("action") == "fixed")
-    paths = {p for p in _union_of(fixed_results, "files_changed") if _is_safe_repo_path(p)}
-    for test_id in _union_of(fixed_results, "tests_added"):
+    paths: set[str] = set()
+    out_of_scope: list[dict[str, Any]] = []
+    for result in results:
+        if result.get("action") != "fixed":
+            continue
+        scope = scopes.get(str(result.get("id")))
+        for path in _claimed_paths(result):
+            if path == scope or _is_test_path(path):
+                paths.add(path)
+            else:
+                out_of_scope.append({"id": result.get("id"), "path": path})
+    return sorted(paths), sorted(out_of_scope, key=lambda r: (str(r["id"]), r["path"]))
+
+
+def _claimed_paths(result: dict[str, Any]) -> set[str]:
+    """Safe repo paths a result claims: files_changed plus tests' files."""
+    one = (result,)
+    claimed = {p for p in _union_of(one, "files_changed") if _is_safe_repo_path(p)}
+    for test_id in _union_of(one, "tests_added"):
         path = _test_file_of(test_id)
         if path:
-            paths.add(path)
-    return sorted(paths)
+            claimed.add(path)
+    return claimed
+
+
+def _is_test_path(path: str) -> bool:
+    return path.startswith("tests/")
 
 
 def _out_of_scope_requests(results: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
@@ -556,14 +597,31 @@ def _failed_test(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _entry_scopes(index_path: str | Path) -> list[str | None]:
+    """The group file each finding is anchored to, in ``_index_entries`` order.
+
+    A group's ``data.path`` is the one source file its fixer was dispatched
+    to edit. It is None -- no source file in scope -- when absent or not a
+    safe repo path, e.g. a PR-level finding with no anchor.
+    """
+    scopes: list[str | None] = []
+    for item in _list_at(load_params(index_path, key=None), "items", index_path):
+        data = item["data"]
+        path = data.get("path")
+        scope = path if isinstance(path, str) and _is_safe_repo_path(path) else None
+        scopes.extend([scope] * len(data["threads"]))
+    return scopes
+
+
 def _expected_findings(index_path: str | Path) -> list[_Expected]:
     """Every finding in fix-index.json, after re-asserting the index gate."""
     gate = check_fix_index(index_path)
     if not gate.ok:
         raise ValueError(f"{index_path}: fix-index gate fails; run check-fix-index")
     return [
-        _Expected(id=entry["id"], file_id=entry["file_id"], thread_id=entry.get("thread_id"))
-        for _, entry in _index_entries(index_path)
+        _Expected(id=entry["id"], file_id=entry["file_id"], thread_id=entry.get("thread_id"),
+                  scope=scope)
+        for (_, entry), scope in zip(_index_entries(index_path), _entry_scopes(index_path), strict=True)
     ]
 
 
@@ -633,4 +691,5 @@ def aggregate_fix_results(index_path: str | Path, fixes_dir: str | Path) -> FixR
         results=tuple(credited[e.file_id] for e in expected_list if e.file_id in credited),
         missing_results=tuple(e.id for e in expected_list if e.file_id not in credited),
         key_mismatches=tuple(mismatches),
+        scopes={e.id: e.scope for e in expected_list},
     )

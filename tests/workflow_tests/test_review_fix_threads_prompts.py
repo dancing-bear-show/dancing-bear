@@ -238,19 +238,21 @@ class TestQltyPathsAreValidated(unittest.TestCase):
             prompt,
         )
 
-    def test_qlty_sources_the_check_paths_validated_list(self) -> None:
+    def test_qlty_sources_the_pushed_commit_not_a_workspace_file(self) -> None:
+        """PR #406 round 7 ("Previously missed"): fix-results.json stays in
+        the writable workspace, so a list read from it could be rewritten
+        after staging. The targets come from the pushed commit instead."""
         prompt = _flat(_prompts()["verify-fixes"])
-        self.assertIn("fix-results.json's files_changed", prompt)
-        self.assertIn("check-paths", prompt)
-        self.assertIn("jq -e -r '.files_changed[]'", prompt)
-        self.assertIn("outputs/fix-results.json", prompt)
+        self.assertIn("git diff-tree --no-commit-id --name-only -r -z --no-renames --diff-filter=d", prompt)
+        self.assertIn('[ "$HEAD_SHA" = "$REMOTE_SHA" ] || { echo "HEAD-NOT-PUSHED', prompt)
+        self.assertNotIn("jq -e -r '.files_changed[]'", prompt)
 
     def test_qlty_loop_never_interpolates_a_path_into_shell_text(self) -> None:
         prompt = _flat(_prompts()["verify-fixes"])
-        self.assertIn('while IFS= read -r p; do', prompt)
+        self.assertIn("while IFS= read -r -d '' p; do", prompt)
         self.assertIn('~/.qlty/bin/qlty check "$p" || qlty_status=1', prompt)
         self.assertIn('done < ', prompt)
-        self.assertIn('validation/qlty-paths.txt', prompt)
+        self.assertIn('validation/qlty-paths.z', prompt)
 
 
 class TestQltyLoopAccumulatesStatus(unittest.TestCase):
@@ -305,21 +307,73 @@ class TestQltyLoopAccumulatesStatus(unittest.TestCase):
 
 
 class TestQltyPathListMustBeNonEmpty(unittest.TestCase):
-    """PR #406 round 5: a failed jq left an empty path list, the loop checked
-    nothing, and exited 0 -- a green verification of zero files."""
+    """PR #406 round 5: a failed source left an empty path list, the loop
+    checked nothing, and exited 0 -- a green verification of zero files."""
 
     def setUp(self) -> None:
         self.prompt = _flat(_prompts()["verify-fixes"])
 
-    def test_jq_exit_and_path_count_are_checked(self) -> None:
-        self.assertIn("jq -e -r '.files_changed[]'", self.prompt)
-        self.assertIn('echo "JQ_EXIT=$?"', self.prompt)
-        self.assertIn("grep -c . ", self.prompt)
+    def test_path_count_is_checked(self) -> None:
+        self.assertIn("echo \"PATHS=$(tr -cd '\\0' <", self.prompt)
 
     def test_empty_or_failed_list_is_a_lint_failure_not_a_pass(self) -> None:
-        self.assertIn("if JQ_EXIT is non-zero or the count is 0", self.prompt)
+        self.assertIn("or DIFFTREE-FAILED, or on PATHS=0, set \"lint\": \"fail\"", self.prompt)
         self.assertIn("do not run qlty", self.prompt)
-        self.assertNotIn("jq -r '.files_changed[]' ", self.prompt)
+
+
+def _qlty_paths_block(workspace: str) -> str:
+    """verify-fixes' path-derivation lines exactly as the agent receives them."""
+    defn = parse_workflow(str(_WORKFLOW))
+    manifest = compile_workflow(defn, project_root=_ROOT, trigger_params={"pr_number": "405"})
+    prompt = build_agent_prompt(manifest.resolved_stages["verify-fixes"], defn.name, workspace)
+    section = prompt[prompt.index("HEAD_SHA=$(git rev-parse HEAD)"): prompt.index("`--diff-filter=d` leaves out")]
+    return "\n".join(ln.strip() for ln in section.splitlines() if ln.strip())
+
+
+@unittest.skipUnless(all(map(shutil.which, ("git", "jq", "bash"))), "needs git, jq and bash")
+class TestQltyPathsComeFromThePushedCommit(unittest.TestCase):
+    """Run the rendered block: it must list the pushed commit's files, and
+    refuse when HEAD is not what origin has."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        self.ws, self.repo, origin = root / "ws", root / "repo", root / "origin.git"
+        (self.ws / "outputs").mkdir(parents=True)
+        (self.ws / "validation").mkdir()
+        (self.ws / "outputs/pr-context.json").write_text(json.dumps({"head_branch": "feat/x"}))
+        # A decoy list: nothing the block does may read it.
+        (self.ws / "outputs/fix-results.json").write_text(json.dumps({"files_changed": ["decoy.py"]}))
+        git = TestPushVerificationRunsAsItsOwnCall._git
+        git("init", "-q", "--bare", str(origin))
+        git("init", "-q", "-b", "feat/x", str(self.repo))
+        (self.repo / "gone.py").write_text("x = 1\n")
+        git("-C", str(self.repo), "add", "gone.py")
+        git("-C", str(self.repo), "commit", "-q", "-m", "base")
+        (self.repo / "fixed file.py").write_text("y = 1\n")
+        git("-C", str(self.repo), "rm", "-q", "gone.py")
+        git("-C", str(self.repo), "add", "fixed file.py")
+        git("-C", str(self.repo), "commit", "-q", "-m", "fix")
+        git("-C", str(self.repo), "remote", "add", "origin", str(origin))
+        git("-C", str(self.repo), "push", "-q", "origin", "feat/x")
+        self.git = git
+
+    def _run(self) -> subprocess.CompletedProcess[str]:
+        argv = [str(shutil.which("bash")), "-c", _qlty_paths_block(str(self.ws))]
+        return subprocess.run(argv, cwd=self.repo, capture_output=True, text=True)  # nosec B603 - runs the workflow's own rendered block in a temp repo
+
+    def test_lists_the_pushed_commits_files_nul_delimited(self) -> None:
+        res = self._run()
+        self.assertIn("PATHS=1", res.stdout)
+        listed = (self.ws / "validation/qlty-paths.z").read_bytes().split(b"\0")
+        self.assertEqual([p for p in listed if p], [b"fixed file.py"])
+
+    def test_unpushed_head_is_refused(self) -> None:
+        self.git("-C", str(self.repo), "commit", "-q", "--allow-empty", "-m", "local only")
+        res = self._run()
+        self.assertIn("HEAD-NOT-PUSHED", res.stdout)
+        self.assertNotEqual(res.returncode, 0)
 
 
 if __name__ == "__main__":

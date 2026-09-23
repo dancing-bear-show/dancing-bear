@@ -506,6 +506,51 @@ class TestSnapshotDirtyTimeout(_Repo):
         self.assertIn("git status failed", str(ctx.exception))
 
 
+class TestSnapshotIsStable(_Repo):
+    """PR #406 round 9: status and hashes are separate reads, so an edit
+    landing between them was baked into the baseline as if it pre-existed.
+    The snapshot must be sampled until two consecutive samples agree."""
+
+    def _editing_run_binary(self, edits: int):
+        """real run_binary, but each of the first *edits* calls rewrites a
+        dirty file right after git status returns -- inside the window."""
+        from workflow.worktree_gate import run_binary as real_run_binary
+
+        target = self.repo / "src/dirty.py"
+        target.write_text("v0\n")
+        calls = {"n": 0}
+
+        def run(*args, **kwargs):
+            result = real_run_binary(*args, **kwargs)
+            calls["n"] += 1
+            if calls["n"] <= edits:
+                target.write_text(f"v{calls['n']}\n")
+            return result
+
+        return run, calls
+
+    def test_a_changing_tree_is_resampled_until_two_samples_agree(self) -> None:
+        """Samples 1 and 2 each see a different edit, so neither is a state
+        the tree held across two reads; the third agrees with the second."""
+        run, calls = self._editing_run_binary(edits=2)
+        with patch("workflow.worktree_gate.run_binary", side_effect=run):
+            snap = snapshot_dirty(self.repo)
+        self.assertEqual(calls["n"], 3)
+        self.assertEqual(snap["src/dirty.py"], hashlib.sha256(b"v2\n").hexdigest())
+
+    def test_a_quiet_tree_takes_exactly_two_samples(self) -> None:
+        run, calls = self._editing_run_binary(edits=0)
+        with patch("workflow.worktree_gate.run_binary", side_effect=run):
+            snapshot_dirty(self.repo)
+        self.assertEqual(calls["n"], 2)
+
+    def test_a_tree_that_never_holds_still_fails_closed(self) -> None:
+        run, _ = self._editing_run_binary(edits=10_000)
+        with patch("workflow.worktree_gate.run_binary", side_effect=run):
+            with self.assertRaisesRegex(RuntimeError, "kept changing"):
+                snapshot_dirty(self.repo)
+
+
 class TestSnapshotOutsideRepo(unittest.TestCase):
     def test_git_failure_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
