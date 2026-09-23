@@ -162,7 +162,8 @@ class TestTryReadCachedCompile(unittest.TestCase):
             cache_path = Path(tmp_dir) / "cache.json"
             cache_path.write_text('{"name": "wf", "total_stages": 1}', encoding="utf-8")
             result = _try_read_cached_compile(cache_path)
-        self.assertIsInstance(result, dict)
+        self.assertIsNotNone(result)
+        assert result is not None  # nosec B101 - narrows Optional for mypy
         self.assertEqual(result["name"], "wf")
 
     def test_corrupt_json_returns_none(self) -> None:
@@ -325,7 +326,7 @@ class TestBuildCompilePayload(unittest.TestCase):
         """
         from workflow import cli_compile
 
-        args = (b"name: x\n", "/repo", [])
+        args: tuple[bytes, str, list[str]] = (b"name: x\n", "/repo", [])
         before = cli_compile._compile_cache_path(*args)
         original = cli_compile._COMPILE_PAYLOAD_SCHEMA
         try:

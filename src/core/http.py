@@ -67,13 +67,15 @@ class HttpClient:
         self,
         base_url: str,
         default_headers: dict[str, str] | None = None,
-        timeout: float | None = None,
+        timeout: float | tuple[int, int] | None = None,
         retries: int | None = None,
         session: Any = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.default_headers: dict[str, str] = default_headers or {}
-        self.timeout = timeout if timeout is not None else _parse_env_float(ENV_HTTP_TIMEOUT, DEFAULT_HTTP_TIMEOUT)
+        self.timeout: float | tuple[int, int] = (
+            timeout if timeout is not None else _parse_env_float(ENV_HTTP_TIMEOUT, DEFAULT_HTTP_TIMEOUT)
+        )
         raw_retries = retries if retries is not None else _parse_env_int(ENV_HTTP_RETRIES, DEFAULT_HTTP_RETRIES)
         self.retries = max(1, raw_retries)  # always allow at least one attempt
         self.logger = logging.getLogger(f"http.{self.__class__.__name__}")

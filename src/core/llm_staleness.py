@@ -11,7 +11,7 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, cast
 
 DEFAULT_SKIP_DIRS = {
     "backups",
@@ -115,7 +115,7 @@ def _collect_stale_stats(root: Path, include: list[str] | None, limit: int) -> l
                 "latest_ts": datetime.fromtimestamp(latest, tz=timezone.utc).isoformat(timespec="seconds"),
             }
         )
-    stats.sort(key=lambda entry: entry["staleness_days"], reverse=True)
+    stats.sort(key=lambda entry: cast(float, entry["staleness_days"]), reverse=True)
     if limit > 0:
         stats = stats[:limit]
     return stats
@@ -129,7 +129,7 @@ def _count_py_files(path: Path) -> int | None:
         return None
 
 
-def _dep_stat_for_dir(name: str, path: Path) -> dict[str, int] | None:
+def _dep_stat_for_dir(name: str, path: Path) -> dict[str, object] | None:
     """Build one dependency-stat entry for a directory, or None if unscannable."""
     py_files = _count_py_files(path)
     if py_files is None:
@@ -144,14 +144,14 @@ def _dep_stat_for_dir(name: str, path: Path) -> dict[str, int] | None:
     }
 
 
-def _collect_dep_stats(root: Path, limit: int, order: str) -> list[dict[str, int]]:
+def _collect_dep_stats(root: Path, limit: int, order: str) -> list[dict[str, object]]:
     stats = [
         entry
         for name, path in _iter_candidate_dirs(root)
         if (entry := _dep_stat_for_dir(name, path)) is not None
     ]
     reverse = order == "desc"
-    stats.sort(key=lambda entry: entry["combined"], reverse=reverse)
+    stats.sort(key=lambda entry: cast(int, entry["combined"]), reverse=reverse)
     if limit > 0:
         stats = stats[:limit]
     return stats
@@ -165,7 +165,7 @@ def _status_for_area(area: str, days: float, overrides: dict) -> str:
 def _fail_on_stale(stats: list[dict[str, object]], overrides: dict) -> bool:
     for entry in stats:
         area = entry["area"]
-        days = float(entry["staleness_days"])
+        days = float(cast(float, entry["staleness_days"]))
         threshold = overrides.get(area, overrides.get("Root", DEFAULT_SLA_DAYS))
         if threshold is not None and days > threshold:
             return True
@@ -253,7 +253,7 @@ def _any_area_limit_exceeded(area_map: dict[str, object], overrides: dict[str, i
     """Return True if any area's staleness exceeds its override limit."""
     for area, limit in overrides.items():
         days = area_map.get(area)
-        if days is not None and limit is not None and days > limit:
+        if days is not None and limit is not None and cast(float, days) > limit:
             return True
     return False
 
@@ -265,7 +265,7 @@ def _handle_check(args, _llm_dir: Path) -> int:
         return 0
 
     stats = _collect_stale_stats(Path(args.root), list(overrides.keys()), args.limit)
-    area_map = {entry["area"]: entry["staleness_days"] for entry in stats}
+    area_map: dict[str, object] = {cast(str, entry["area"]): entry["staleness_days"] for entry in stats}
     root_limit = overrides.pop("Root", None)
 
     if _root_limit_exceeded(stats, root_limit, args.agg):

@@ -239,7 +239,7 @@ class FilterPipeline:
         al = read_yaml_or_json(str(alignment_path))
         matched_kw = al.get("matched_keywords") or []
         return [
-            m.get("skill")
+            str(m.get("skill"))
             for m in matched_kw
             if isinstance(m, dict) and m.get("skill")
         ]

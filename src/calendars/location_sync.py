@@ -97,7 +97,8 @@ class LocationSync:
         yaml_loc = (nev.get("location") or "").strip()
         if not (subj and yaml_loc):
             return None
-        cal_name = calendar or nev.get("calendar")
+        raw_cal = nev.get("calendar")
+        cal_name: str = calendar or (str(raw_cal) if raw_cal is not None else "")
         return nev, yaml_loc, cal_name
 
     def _plan_one(self, ev: dict[str, Any], calendar: str | None, dry_run: bool) -> bool:

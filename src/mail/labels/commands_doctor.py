@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import time
 from collections import Counter, defaultdict
+from functools import partial
 
 from core.retry import exponential_backoff
 
@@ -71,9 +72,7 @@ def _redirect_imap_labels(client, redirect_specs: list) -> int:
             continue
         ids = client.list_message_ids(label_ids=[old_id], max_pages=50, page_size=500)
         apply_in_chunks(
-            lambda chunk, nid=new_id, oid=old_id: client.batch_modify_messages(
-                chunk, add_label_ids=[nid], remove_label_ids=[oid]
-            ),
+            partial(client.batch_modify_messages, add_label_ids=[new_id], remove_label_ids=[old_id]),
             ids,
             500,
         )
@@ -437,7 +436,7 @@ def _sweep_one_parent(client, name_to_id: dict, parent: str, args, dry_run: bool
         return len(ids)
 
     apply_in_chunks(
-        lambda chunk, _pid=parent_id: client.batch_modify_messages(chunk, add_label_ids=[_pid]),
+        partial(client.batch_modify_messages, add_label_ids=[parent_id]),
         ids,
         int(args.batch_size),
     )

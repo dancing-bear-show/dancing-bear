@@ -131,13 +131,13 @@ class OutlookService:
         url = f"{endpoint}?startDateTime={params.start_iso}&endDateTime={params.end_iso}&$top={int(params.top)}&$select={params.select}"
         hdrs = self.headers()
         out: list[dict[str, Any]] = []
-        nxt = url
+        nxt: str | None = url
         while nxt:
             r = self._http.get(nxt, headers=hdrs)
             r.raise_for_status()
             data = r.json() or {}
             out.extend(data.get("value") or [])
-            nxt = data.get("@odata.nextLink")
+            nxt = data.get("@odata.nextLink") or None
         return out
 
     def delete_event_by_id(self, event_id: str) -> bool:
@@ -164,13 +164,13 @@ class OutlookService:
         folder_path = f"/me/mailFolders/{folder}/messages" if folder else "/me/messages"
         url = f"{base}{folder_path}?$top={int(top)}&$select={select}"
         out: list[dict[str, Any]] = []
-        nxt = url
+        nxt: str | None = url
         remaining_pages = int(pages)
         while nxt and remaining_pages > 0:
             r = self._http.get(nxt, headers=hdrs)
             r.raise_for_status()
             data = r.json() or {}
             out.extend(data.get("value") or [])
-            nxt = data.get("@odata.nextLink")
+            nxt = data.get("@odata.nextLink") or None
             remaining_pages -= 1
         return out

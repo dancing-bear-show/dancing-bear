@@ -19,6 +19,7 @@ import json
 import logging
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from core.fileutil import atomic_write_json
 from workflow.models import ManifestRef, StageResult, StageStatus, WorkflowManifest
@@ -222,7 +223,7 @@ def _deserialize_stage_result(data: dict) -> StageResult:
         normalized["status"] = StageStatus.pending
 
     valid_fields = {f.name for f in dataclasses.fields(StageResult)}
-    filtered = {k: v for k, v in normalized.items() if k in valid_fields}
+    filtered: dict[str, Any] = {k: v for k, v in normalized.items() if k in valid_fields}
 
     filtered.setdefault("stage_name", "unknown")
     filtered.setdefault("stage_index", 0)

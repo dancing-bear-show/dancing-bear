@@ -12,7 +12,7 @@ from core.paths import output_dir
 
 from ..device import find_cfgutil_path, map_udid_to_ecid
 from ..helpers import read_yaml, write_yaml
-from ..layout_merge import merge_folders, verify_conservation
+from ..layout_merge import MergePlan, merge_folders, verify_conservation
 
 
 def _merge_and_verify(
@@ -330,7 +330,7 @@ def _default_device_label() -> str | None:
 class ReorgSummary:
     """Bundle of reorg-result fields for the summary printout."""
 
-    plan_obj: object
+    plan_obj: MergePlan
     dump_eliminated: bool
     loose_filed: int
     out_profile: Path

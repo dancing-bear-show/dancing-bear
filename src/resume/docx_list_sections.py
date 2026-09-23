@@ -6,11 +6,14 @@ languages, certifications, and coursework.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .docx_bullets import BulletRenderer
 from .docx_styles import TextFormatter
 from .schema import _Item
+
+if TYPE_CHECKING:
+    from .schema import Resume
 
 _logger = logging.getLogger(__name__)
 
@@ -32,6 +35,10 @@ class ListSectionRenderer:
         self.doc = doc
         self.bullets = BulletRenderer(doc, page_cfg)
         self.text = TextFormatter()
+
+    def render(self, resume: "Resume", *args: Any, **kwargs: Any) -> Any:
+        """Render the section into the document. Overridden by each subclass."""
+        raise NotImplementedError(f"{type(self).__name__} must implement render()")
 
     def _extract_item_text(
         self, it: Any, name_keys: tuple, desc_key: str | None, desc_sep: str

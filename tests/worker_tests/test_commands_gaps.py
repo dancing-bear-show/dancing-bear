@@ -118,7 +118,9 @@ class TestHandleOutcome(unittest.TestCase, QueueRootIsolationMixin):
         q.QUEUE_ROOT = self.root
         job = Job(id=job_id, type="noop", payload={})
         pending = enqueue(job, root=self.root)
-        return start_processing(pending, self.root)
+        proc = start_processing(pending, self.root)
+        assert proc is not None  # nosec B101 - narrows Optional for mypy
+        return proc
 
     def _make_ctx(self, job_id: str, attempts: int = 0, max_attempts: int = 3):
         from worker.job_runtime import JobContext

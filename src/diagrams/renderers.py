@@ -8,9 +8,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 from core.cli_errors import CLIError, ExitCode
 from core.pipeline import BaseProducer, SafeProcessor
+
+
+class _Renderable(Protocol):
+    """Structural type for diagram builder objects with a render() method."""
+
+    def render(self) -> str: ...
 
 
 @dataclass(frozen=True)
@@ -62,7 +69,7 @@ class TextRenderer:
     No external dependencies — always importable.
     """
 
-    def render(self, diagram: object) -> str:
+    def render(self, diagram: str | _Renderable) -> str:
         """Render a diagram builder or raw string to Mermaid text.
 
         Args:
@@ -73,9 +80,9 @@ class TextRenderer:
         """
         if isinstance(diagram, str):
             return diagram
-        return diagram.render()  # type: ignore[union-attr]
+        return diagram.render()
 
-    def render_embedded(self, diagram: object) -> str:
+    def render_embedded(self, diagram: str | _Renderable) -> str:
         """Render wrapped in a ```mermaid code fence.
 
         Args:
@@ -144,10 +151,10 @@ class LocalRenderer:
         import shutil
         return shutil.which("mmdc") is not None
 
-    def _get_mermaid_text(self, diagram: object) -> str:
+    def _get_mermaid_text(self, diagram: str | _Renderable) -> str:
         if isinstance(diagram, str):
             return diagram
-        return diagram.render()  # type: ignore[union-attr]
+        return diagram.render()
 
     def _build_command(
         self,
@@ -200,7 +207,7 @@ class LocalRenderer:
 
     def render(
         self,
-        diagram: object,
+        diagram: str | _Renderable,
         opts: RenderOptions | None = None,
     ) -> bytes:
         """Render a diagram to bytes.
@@ -244,7 +251,7 @@ class LocalRenderer:
 
     def render_to_file(
         self,
-        diagram: object,
+        diagram: str | _Renderable,
         output_path: str,
         opts: RenderOptions | None = None,
     ) -> str:
@@ -290,7 +297,7 @@ class LocalRenderer:
         finally:
             pathlib.Path(tmp_input).unlink(missing_ok=True)
 
-    def validate_syntax(self, diagram: object) -> tuple[bool, str | None]:
+    def validate_syntax(self, diagram: str | _Renderable) -> tuple[bool, str | None]:
         """Validate Mermaid syntax by attempting an SVG render.
 
         Returns:

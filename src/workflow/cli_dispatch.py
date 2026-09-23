@@ -202,7 +202,7 @@ def _stage_names_from_manifest(workspace: Path) -> list[str]:
         return []
 
 
-def _build_stage_row(name: str, status: StageStatus | None) -> dict[str, str]:
+def _build_stage_row(name: str, status: StageStatus | None) -> dict[str, object]:
     """Build a resume table row for a single stage."""
     if status is None:
         return {"stage": name, "status": "-", "needs_run": "yes", "reason": "not yet attempted"}
@@ -260,7 +260,7 @@ def _cmd_parse(args: argparse.Namespace) -> int:
         "name": defn.name, "version": defn.version, "description": defn.description,
         "trigger_source": defn.trigger.source, "stage_count": len(defn.stages),
     }
-    stages = [{
+    stages: list[dict[str, object]] = [{
         "name": s.name, "kind": s.kind.value, "agent_role": s.agent.role,
         "depends_on": ", ".join(s.depends_on) or "-", "required": s.required,
     } for s in defn.stages]
@@ -319,7 +319,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         "dry_run": dry_run, "stages_completed": len(result.stage_results),
         "stages_total": len(defn.stages),
     }, fmt=args.format)
-    stage_rows = [{
+    stage_rows: list[dict[str, object]] = [{
         "stage": name, "status": sr.status.value,
         "duration_ms": sr.duration_ms, "errors": "; ".join(sr.errors) or "-",
     } for name, sr in result.stage_results.items()]
@@ -454,7 +454,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
     if not results:
         print(f"No stage results found in {workspace}.", file=sys.stderr)
         return 1
-    rows = [{
+    rows: list[dict[str, object]] = [{
         "index": sr.stage_index, "stage": sr.stage_name, "status": sr.status.value,
         "duration_ms": sr.duration_ms, "errors": "; ".join(sr.errors) or "-",
     } for sr in results]
@@ -662,7 +662,7 @@ def _cmd_resume(args: argparse.Namespace) -> int:
     if not stage_names:
         stage_names = sorted(existing.keys())
 
-    rows = [_build_stage_row(name, existing.get(name)) for name in stage_names]
+    rows: list[dict[str, object]] = [_build_stage_row(name, existing.get(name)) for name in stage_names]
     has_pending = any(r["needs_run"] == "yes" for r in rows)
 
     emit_rows(rows, fmt=args.format, headers=["stage", "status", "needs_run", "reason"])

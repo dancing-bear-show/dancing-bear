@@ -34,6 +34,7 @@ import importlib
 import io
 import json
 import unittest
+from typing import TYPE_CHECKING
 
 #: Keys every app's JSON schema exposes at the top level. Verified identical
 #: across all fourteen apps, so this is asserted as an exact set rather than a
@@ -46,8 +47,15 @@ EXPECTED_SCHEMA_KEYS = frozenset(
 #: (sheets) to ~37KB (mail); anything below this is a stub from a swallowed import.
 MIN_CAPSULE_BYTES = 200
 
+# Type the mixin as a TestCase for mypy only; at runtime it must stay a plain
+# object, or unittest would collect and run the mixin itself.
+if TYPE_CHECKING:
+    _MixinBase = unittest.TestCase
+else:
+    _MixinBase = object
 
-class AgenticCLIContractMixin:
+
+class AgenticCLIContractMixin(_MixinBase):
     """Contract tests for an app's ``--agentic`` CLI surface.
 
     Subclasses must set :attr:`MODULE_PATH` and :attr:`APP_ID`, and must also
@@ -60,7 +68,7 @@ class AgenticCLIContractMixin:
     #: name -- ``calendars`` emits ``agentic: calendar`` (singular).
     APP_ID: str
 
-    def _run(self: unittest.TestCase, argv: list[str], *, expect_rc: int | None = 0) -> tuple[int, str]:
+    def _run(self, argv: list[str], *, expect_rc: int | None = 0) -> tuple[int, str]:
         """Invoke ``main(argv)`` and capture stdout.
 
         Asserts ``rc == expect_rc`` by default so every caller enforces the

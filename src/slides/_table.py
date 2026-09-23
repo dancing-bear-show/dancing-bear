@@ -46,8 +46,8 @@ class _TableHost(Protocol):
         self,
         run: object,
         *,
-        font_size: Pt | None = ...,
-        theme_color: MSO_THEME_COLOR | None = ...,
+        font_size: "Pt | int | None" = ...,
+        theme_color: "MSO_THEME_COLOR | int | None" = ...,
         bold: bool | None = ...,
     ) -> None: ...
     def _format_bullet_text(self, text: str, level: int) -> str: ...
@@ -216,7 +216,7 @@ class TableMixin:
                     self._style_run(run, font_size=Pt(FONT_SIZE_TABLE_CELL), theme_color=theme_color)
 
     def _add_table_to_slide(
-        self,
+        self: "_TableHost",
         slide,
         headers: list[str],
         rows: list[list[object]],

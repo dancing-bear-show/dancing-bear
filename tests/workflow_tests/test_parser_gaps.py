@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 
+from workflow.models import WorkflowDefinition
 from workflow.parser import WorkflowParseError, parse_workflow_str
 
 
@@ -24,7 +25,7 @@ stages:
 """
 
 
-def _parse(stages: str) -> object:
+def _parse(stages: str) -> WorkflowDefinition:
     return parse_workflow_str(_wf(stages))
 
 
@@ -237,6 +238,7 @@ class TestParseDomainRuleErrors(unittest.TestCase):
           category: accuracy
 """)
         stage = defn.stages[0]
+        assert stage.validation is not None  # nosec B101 - narrows Optional for mypy
         self.assertEqual(len(stage.validation.domain_rules), 1)
         self.assertEqual(stage.validation.domain_rules[0].id, "DR-001")
 

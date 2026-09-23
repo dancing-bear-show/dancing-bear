@@ -64,6 +64,10 @@ class EventIterationProcessor(SafeProcessor):
     its distinct per-item step.
     """
 
+    # Subclasses assign their YAML loader here; the default is the module-level
+    # _load_yaml, but tests may rebind it to a fake.
+    _config_loader: Any = None
+
     def _process_safe(self, payload: Any) -> Any:
         items = self._load_events(payload)
         accumulator = self._init_accumulator(payload)

@@ -219,7 +219,7 @@ def compute_condition(
 
 def report_to_dict(report: Report) -> dict[str, Any]:
     def _clean(value: Any) -> Any:
-        if dataclasses.is_dataclass(value):
+        if dataclasses.is_dataclass(value) and not isinstance(value, type):
             return {k: _clean(v) for k, v in dataclasses.asdict(value).items()}
         if isinstance(value, list):
             return [_clean(v) for v in value]

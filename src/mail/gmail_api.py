@@ -277,7 +277,7 @@ class GmailClient(ConfigCacheMixin):
 
     def list_forwarding_addresses(self) -> list[str]:
         infos = self.list_forwarding_addresses_info()
-        return [i.get("forwardingEmail") for i in infos if i.get("forwardingEmail")]
+        return [str(i["forwardingEmail"]) for i in infos if i.get("forwardingEmail")]
 
     def list_forwarding_addresses_info(self) -> list[dict[str, Any]]:
         resp = self.service.users().settings().forwardingAddresses().list(userId="me").execute()
@@ -285,7 +285,7 @@ class GmailClient(ConfigCacheMixin):
 
     def get_verified_forwarding_addresses(self) -> list[str]:
         infos = self.list_forwarding_addresses_info()
-        return [i.get("forwardingEmail") for i in infos if i.get("verificationStatus") == "accepted"]
+        return [str(i["forwardingEmail"]) for i in infos if i.get("verificationStatus") == "accepted" and i.get("forwardingEmail")]
 
     def create_forwarding_address(self, email: str) -> dict[str, Any]:
         body = {"forwardingEmail": email}

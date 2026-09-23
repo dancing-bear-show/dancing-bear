@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from .client import OutlookClientBase, _requests
+from .client import _requests
 from .models import MessageSearchQuery, SearchParams
 from ._mail_labels import LabelsFiltersMixin
 from ._mail_folders import FoldersMixin
@@ -88,6 +88,7 @@ class _OutlookMailHost(Protocol):
     """
 
     # --- From OutlookClientBase ---
+    def _headers(self) -> dict[str, str]: ...
     def _headers_search(self) -> dict[str, str]: ...
 
     # --- From ConfigCacheMixin (via OutlookClientBase) ---
@@ -245,7 +246,7 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
         return ids
 
     def list_messages(
-        self: OutlookClientBase,
+        self: _OutlookMailHost,
         folder: str = "inbox",
         top: int = 25,
         pages: int = 1,
@@ -264,7 +265,7 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
                 break
         return msgs
 
-    def move_message(self: OutlookClientBase, msg_id: str, dest_folder_id: str) -> None:
+    def move_message(self: _OutlookMailHost, msg_id: str, dest_folder_id: str) -> None:
         body = {"destinationId": dest_folder_id}
         r = _requests().post(
             f"{GRAPH_API_URL}/me/messages/{msg_id}/move",
@@ -274,7 +275,7 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
         r.raise_for_status()
 
     def get_message(
-        self: OutlookClientBase,
+        self: _OutlookMailHost,
         msg_id: str,
         select_body: bool = True,
     ) -> dict[str, Any]:
@@ -291,7 +292,7 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
         return r.json()
 
     def search_messages(
-        self: OutlookClientBase,
+        self: _OutlookMailHost,
         query: str = "",
         params: MessageSearchQuery | None = None,
         **kwargs: Any,
@@ -326,8 +327,8 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
         return msgs
 
     # -------------------- Signatures --------------------
-    def list_signatures(self: OutlookClientBase) -> list[dict[str, Any]]:
+    def list_signatures(self: _OutlookMailHost) -> list[dict[str, Any]]:
         raise NotImplementedError("Outlook signatures are not available via Microsoft Graph API v1.0")
 
-    def update_signature(self: OutlookClientBase, signature_html: str) -> None:
+    def update_signature(self: _OutlookMailHost, signature_html: str) -> None:
         raise NotImplementedError("Outlook signatures cannot be updated programmatically via Graph v1.0")

@@ -8,11 +8,18 @@ from core.cli_errors import CLIError
 from core.cli_output import OutputWriter
 
 
-PayloadT = TypeVar("PayloadT")
 ResultT = TypeVar("ResultT")
 RequestT = TypeVar("RequestT")
 T = TypeVar("T")
 R = TypeVar("R")
+
+# Protocol-specific variance-safe TypeVars for Consumer/Processor/Producer.
+# Protocol[PayloadT] where PayloadT is produced (returned) needs a covariant var;
+# Protocol[PayloadT] where PayloadT is consumed (parameter) needs contravariant.
+_PayloadCov = TypeVar("_PayloadCov", covariant=True)
+_PayloadContra = TypeVar("_PayloadContra", contravariant=True)
+_ResultCov = TypeVar("_ResultCov", covariant=True)
+_ResultContra = TypeVar("_ResultContra", contravariant=True)
 
 
 def diagnostic_message(diagnostics: dict[str, Any] | None) -> str | None:
@@ -45,18 +52,18 @@ class ResultEnvelope(Generic[ResultT]):
         return self.payload
 
 
-class Consumer(Protocol[PayloadT]):
-    def consume(self) -> PayloadT:
+class Consumer(Protocol[_PayloadCov]):
+    def consume(self) -> _PayloadCov:
         ...
 
 
-class Processor(Protocol[PayloadT, ResultT]):
-    def process(self, payload: PayloadT) -> ResultT:
+class Processor(Protocol[_PayloadContra, _ResultCov]):
+    def process(self, payload: _PayloadContra) -> _ResultCov:
         ...
 
 
-class Producer(Protocol[ResultT]):
-    def produce(self, result: ResultT) -> None:
+class Producer(Protocol[_ResultContra]):
+    def produce(self, result: _ResultContra) -> None:
         ...
 
 

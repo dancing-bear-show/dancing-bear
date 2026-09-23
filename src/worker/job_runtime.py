@@ -44,7 +44,8 @@ def _finish_or_retry(
 def _effective_job_timeout(job_data: dict[str, object], default_timeout: int) -> int:
     """Resolve per-job timeout override, falling back to default_timeout."""
     try:
-        per_job = int(job_data.get("timeout_sec") or 0)
+        raw = job_data.get("timeout_sec") or 0
+        per_job = int(raw) if isinstance(raw, (int, float, str)) else 0
         return per_job if per_job > 0 else default_timeout
     except (TypeError, ValueError):
         return default_timeout
@@ -98,12 +99,14 @@ class JobContext:
     @classmethod
     def from_item(cls, job_path: Path, job_data: dict[str, object]) -> JobContext:
         """Create JobContext from queue item."""
+        raw_attempts = job_data.get("attempts") or 0
+        raw_max = job_data.get("max_attempts") or 3
         return cls(
             job_path=job_path,
             job_data=job_data,
             job_type=str(job_data.get("type") or ""),
-            attempts=int(job_data.get("attempts") or 0),
-            max_attempts=int(job_data.get("max_attempts") or 3),
+            attempts=int(raw_attempts) if isinstance(raw_attempts, (int, float, str)) else 0,
+            max_attempts=int(raw_max) if isinstance(raw_max, (int, float, str)) else 3,
         )
 
 

@@ -151,7 +151,7 @@ class TestChunkSlides(unittest.TestCase):
 
     def _make_slide(self, title: str, bullet_count: int) -> SlideContent:
         """Factory to create a slide with N bullets."""
-        bullets = [BulletItem(text=f"Bullet {i}") for i in range(bullet_count)]
+        bullets: list[str | BulletItem] = [BulletItem(text=f"Bullet {i}") for i in range(bullet_count)]
         return SlideContent(title=title, subtitle="Sub", bullets=bullets, notes="Notes")
 
     def test_under_limit_unchanged(self):

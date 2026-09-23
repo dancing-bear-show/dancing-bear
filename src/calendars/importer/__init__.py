@@ -11,6 +11,7 @@ compatibility for the original functional API.
 from __future__ import annotations
 
 import os
+from typing import Callable
 
 from core.date_utils import DAY_NAMES, normalize_day, normalize_days
 from core.patterns import (
@@ -47,8 +48,8 @@ from .web_parser_vendors_rh import (
 from .web_parser_vendors_aurora import AuroraAquaticsParser
 
 
-# Parser registry: maps kind/extension to parser class
-_KIND_PARSERS = {
+# Parser registry: maps kind/extension to parser factory
+_KIND_PARSERS: dict[str, Callable[[], ScheduleParser]] = {
     'csv': CSVParser,
     'xlsx': XLSXParser,
     'pdf': PDFParser,
@@ -57,7 +58,7 @@ _KIND_PARSERS = {
     'url': WebParser,
 }
 
-_EXT_PARSERS = {
+_EXT_PARSERS: dict[str, Callable[[], ScheduleParser]] = {
     '.csv': CSVParser,
     '.xlsx': XLSXParser,
     '.xlsm': XLSXParser,

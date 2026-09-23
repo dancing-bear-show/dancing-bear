@@ -156,8 +156,6 @@ class TestHasAttachmentProviderAsymmetry(unittest.TestCase):
 
     def _json_for(self, candidate) -> dict:
         producer = MessagesSearchProducer(output_json=True)
-        printed = []
-        producer._write = printed.append  # not used by _produce_success; kept harmless
         import io
         import contextlib
         buf = io.StringIO()

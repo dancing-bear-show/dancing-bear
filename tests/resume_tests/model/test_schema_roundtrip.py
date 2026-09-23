@@ -37,20 +37,19 @@ from tests.resume_tests.fixtures import (
 WARN_LOGGER = "resume.schema"
 
 
-class RoundTripMixin:
+class RoundTripMixin(unittest.TestCase):
     """Shared assertion for the exact round-trip contract.
 
-    Intended to be mixed into unittest.TestCase subclasses. Methods annotate
-    self: unittest.TestCase to let mypy see assertEqual and assertIsInstance.
+    Intended to be mixed into unittest.TestCase subclasses.
     """
 
-    def assert_round_trips(self: unittest.TestCase, data: dict) -> Resume:
+    def assert_round_trips(self, data: dict) -> Resume:
         """Assert ``from_dict -> to_dict`` reproduces ``data`` exactly."""
         resume = Resume.from_dict(data)
         self.assertEqual(resume.to_dict(), data)
         return resume
 
-    def assert_tolerates(self: unittest.TestCase, data: dict) -> Resume:
+    def assert_tolerates(self, data: dict) -> Resume:
         """Assert malformed input yields a usable Resume without raising."""
         resume = Resume.from_dict(data)
         self.assertIsInstance(resume, Resume)
@@ -433,7 +432,7 @@ class TestContactPromotionFalsyTopLevel(RoundTripMixin, unittest.TestCase):
     """
 
     #: (field, falsy top-level value, truthy contact value)
-    FALSY_CASES = (
+    FALSY_CASES: tuple[tuple[str, object, object], ...] = (
         ("name", "", "Promoted Person"),
         ("email", "", "p@example.com"),
         ("phone", "", "555-0100"),

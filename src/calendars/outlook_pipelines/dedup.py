@@ -93,7 +93,8 @@ class OutlookDedupProcessor(SafeProcessor[OutlookDedupRequest, OutlookDedupResul
         ))
 
         duplicates = self._find_duplicates(occ or [], payload)
-        deleted, logs = 0, []
+        deleted: int = 0
+        logs: list[Any] = []
         if payload.apply and duplicates:
             deleted, logs = self._delete_duplicates(svc, duplicates)
 

@@ -10,6 +10,7 @@ import os
 import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 import sys
 from pathlib import Path
+from typing import Any
 
 from core.cli_errors import CLIError, ExitCode
 from core.cli_output import emit_one
@@ -185,7 +186,7 @@ def _build_manifest_dict(plan: dict, args) -> dict:
     Returns:
         Manifest dictionary with meta, device, profile, and plan sections
     """
-    manifest = {
+    manifest: dict[str, Any] = {
         "meta": {"name": "ios_layout_manifest", "version": 1},
         "device": {
             "label": getattr(args, "label", None) or os.environ.get("IOS_DEVICE_LABEL"),

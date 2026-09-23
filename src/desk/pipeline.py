@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
 from core.cli_output import OutputWriter
 from core.pipeline import SafeProcessor, BaseProducer, RequestConsumer
@@ -70,10 +70,14 @@ class ApplyRequest:
 ApplyRequestConsumer = RequestConsumer[ApplyRequest]
 
 
+class _Applier(Protocol):
+    def __call__(self, plan_path: str, *, dry_run: bool) -> None: ...
+
+
 class ApplyProcessor(SafeProcessor[ApplyRequest, None]):
     """Apply operations from a plan file with automatic error handling."""
 
-    def __init__(self, applier: Callable[[str, bool], None] = apply_plan_file) -> None:
+    def __init__(self, applier: _Applier = apply_plan_file) -> None:
         self._applier = applier
 
     def _process_safe(self, payload: ApplyRequest) -> None:

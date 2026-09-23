@@ -78,7 +78,7 @@ def align_candidate_to_job(
     matches = matcher.collect_matches_from_candidate(candidate)
 
     # Build matched keywords list with full metadata
-    matched_keywords = []
+    matched_keywords: list[dict[str, Any]] = []
     for kw, result in matches.items():
         matched_keywords.append({
             "skill": result.keyword,

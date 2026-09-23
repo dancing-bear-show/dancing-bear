@@ -27,7 +27,7 @@ class AppLogger:
         except Exception:  # nosec B110 - logging must never crash the app
             pass
 
-    def start(self, cmd: str, argv: list[str] | None = None) -> str:
+    def start(self, cmd: str, argv: list[str] | dict | None = None) -> str:
         sid = str(uuid.uuid4())
         rec = {
             "ts": time.time(),

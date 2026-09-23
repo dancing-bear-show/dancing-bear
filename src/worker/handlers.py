@@ -155,7 +155,8 @@ def _validate_run_cli_payload(
     payload: dict[str, object],
 ) -> tuple[str, None, None] | tuple[None, str, list]:
     """Validate payload.cmd and its program. Returns (error, None, None) or (None, prog, cmd_list)."""
-    cmd_list = list(payload.get("cmd") or [])
+    raw_cmd = payload.get("cmd") or []
+    cmd_list = list(raw_cmd) if isinstance(raw_cmd, (list, tuple)) else []
     if not cmd_list:
         return "missing payload.cmd", None, None
     prog = str(cmd_list[0])
@@ -166,7 +167,8 @@ def _validate_run_cli_payload(
 
 def _parse_run_cli_timeout(payload: dict[str, object]) -> int:
     try:
-        return int(payload.get("timeout") or 300)
+        raw = payload.get("timeout") or 300
+        return int(raw) if isinstance(raw, (int, float, str)) else 300
     except Exception:  # nosec B110 - fallback to default timeout
         return 300
 
@@ -176,7 +178,8 @@ def handle_run_cli(job: dict[str, object]) -> tuple[bool, object]:  # pragma: no
 
     payload schema: {"cmd": ["bin_name_or_path", "arg1", ...], "env": {..}, "timeout": 300, "cwd": "/optional/path"}
     """
-    payload = dict(job.get("payload") or {})
+    raw_payload = job.get("payload") or {}
+    payload: dict[str, object] = dict(raw_payload) if isinstance(raw_payload, dict) else {}
     error, prog, cmd_list = _validate_run_cli_payload(payload)
     if error is not None:
         return (False, error)
@@ -184,7 +187,8 @@ def handle_run_cli(job: dict[str, object]) -> tuple[bool, object]:  # pragma: no
         return (False, "internal error: validation succeeded but prog/cmd_list are None")
 
     cmd = _build_command(prog, cmd_list)
-    env_overlay = dict(payload.get("env") or {})
+    raw_env = payload.get("env") or {}
+    env_overlay: dict[str, object] = dict(raw_env) if isinstance(raw_env, dict) else {}
     cwd = str(payload.get("cwd") or "").strip() or None
     timeout = _parse_run_cli_timeout(payload)
 
@@ -261,9 +265,11 @@ def _needs_tempfile(script: str) -> bool:
 
 def _resolve_exec_context(payload: dict[str, object]) -> tuple[dict, int, str | None]:
     """Extract env overlay, timeout, and cwd from a job payload."""
-    env_overlay = dict(payload.get("env") or {})
+    raw_env = payload.get("env") or {}
+    env_overlay = dict(raw_env) if isinstance(raw_env, dict) else {}
     try:
-        timeout = int(payload.get("timeout") or 300)
+        raw_timeout = payload.get("timeout") or 300
+        timeout = int(raw_timeout) if isinstance(raw_timeout, (int, float, str)) else 300
     except Exception:  # nosec B110 - fallback to default timeout
         timeout = 300
     cwd = str(payload.get("cwd") or "") or None
@@ -358,7 +364,8 @@ def handle_run_shell(job: dict[str, object]) -> tuple[bool, object]:  # pragma: 
 
     Restricts the program to an allowlist controlled by DANCING_BEAR_WORKER_SHELL_ALLOWLIST.
     """
-    payload = dict(job.get("payload") or {})
+    raw_payload = job.get("payload") or {}
+    payload: dict[str, object] = dict(raw_payload) if isinstance(raw_payload, dict) else {}
 
     # Prefer ``script`` key — write to temp file to avoid quote-escaping issues.
     raw_script = payload.get("script")
@@ -366,7 +373,8 @@ def handle_run_shell(job: dict[str, object]) -> tuple[bool, object]:  # pragma: 
         return _dispatch_script_key(payload, raw_script)
 
     # Fall back to ``argv``-based dispatch.
-    argv = list(payload.get("argv") or [])
+    raw_argv = payload.get("argv") or []
+    argv = list(raw_argv) if isinstance(raw_argv, (list, tuple)) else []
     if not argv:
         return (False, "missing payload.argv and payload.script")
 
@@ -424,14 +432,16 @@ def handle_workflow_stage(job: dict[str, object]) -> tuple[bool, object]:
             "trigger_params": {...},
         }
     """
-    payload = dict(job.get("payload") or {})
+    raw_payload = job.get("payload") or {}
+    payload: dict[str, object] = dict(raw_payload) if isinstance(raw_payload, dict) else {}
     workspace_dir = str(payload.get("workspace_dir") or "").strip() or None
 
     script = str(payload.get("script") or "").strip()
     if script:
         return _dispatch_workflow_stage_script(job, payload, script, workspace_dir)
 
-    cli_commands = list(payload.get("cli_commands") or [])
+    raw_cli = payload.get("cli_commands") or []
+    cli_commands = list(raw_cli) if isinstance(raw_cli, (list, tuple)) else []
     if cli_commands:
         return _dispatch_workflow_stage_cli_commands(job, payload, cli_commands, workspace_dir)
 

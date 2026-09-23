@@ -51,8 +51,8 @@ class StylingMixin:
         self,
         run,
         *,
-        font_size: Pt | None = None,
-        theme_color: MSO_THEME_COLOR | None = None,
+        font_size: "Pt | int | None" = None,
+        theme_color: "MSO_THEME_COLOR | int | None" = None,
         bold: bool | None = None,
     ) -> None:
         """Apply styling to a text run.

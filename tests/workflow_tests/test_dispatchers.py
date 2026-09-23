@@ -607,7 +607,7 @@ class TestWorkerQueueDispatcherHandlerRegistered(unittest.TestCase):
         handler = REGISTRY[WorkerQueueDispatcher.JOB_TYPE]
         self.assertIs(handler, handle_workflow_stage)
 
-        job = {"payload": {"workflow_name": "wf", "stage_name": "s", "stage_index": 0}}
+        job: dict[str, object] = {"payload": {"workflow_name": "wf", "stage_name": "s", "stage_index": 0}}
         ok, detail = handler(job)
         self.assertFalse(ok)
         self.assertEqual(detail, "workflow_stage job has neither script nor cli_commands")

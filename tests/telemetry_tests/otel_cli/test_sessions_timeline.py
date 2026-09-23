@@ -168,7 +168,9 @@ class TestEventToTimelineEntry(unittest.TestCase):
             get_attr_side_effect=lambda k: "429" if k == "status_code" else None,
         )
         result = _event_to_timeline_entry(event)
-        self.assertIn("429", result["detail"])
+        detail = result["detail"]
+        assert isinstance(detail, str)  # nosec B101 - narrows Optional for mypy
+        self.assertIn("429", detail)
 
 
 # ---------------------------------------------------------------------------

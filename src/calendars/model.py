@@ -52,7 +52,7 @@ def _normalize_range(ev: dict[str, Any]) -> dict[str, str | None] | None:
     )
     if not (start_date or until):
         return None
-    out: dict[str, str] = {}
+    out: dict[str, str | None] = {}
     if start_date:
         out["start_date"] = start_date
     if until:

@@ -11,7 +11,7 @@ def norm_label_name_outlook(name: str | None, mode: str = "join-dash") -> str:
     """Normalize a Gmail-style nested label to an Outlook-compatible name."""
     parts = (name or "").split("/")
     if not parts:
-        return name
+        return name or ""
     if mode == "first":
         return parts[0]
     if mode == "join-colon":
@@ -36,9 +36,9 @@ def norm_label_color_outlook(color: dict | str | None) -> dict | None:
         return {"name": name} if name else None
     if not isinstance(color, dict):
         return None
-    name = color.get("name")
-    if name and isinstance(name, str):
-        return {"name": name}
+    color_name: str | None = color.get("name") if isinstance(color.get("name"), str) else None
+    if color_name:
+        return {"name": color_name}
     return None
 
 

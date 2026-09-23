@@ -68,6 +68,7 @@ class TestStageResultRoundTrip(unittest.TestCase):
             loaded = read_stage_result(tmp_path, "gather-filters")
 
             self.assertIsNotNone(loaded)
+            assert loaded is not None  # nosec B101 - narrows Optional for mypy
             self.assertEqual(loaded.stage_name, "gather-filters")
             self.assertEqual(loaded.stage_index, 0)
 
@@ -85,6 +86,7 @@ class TestStageResultRoundTrip(unittest.TestCase):
             loaded = read_stage_result(tmp_path, "test-stage")
 
             self.assertIsNotNone(loaded)
+            assert loaded is not None  # nosec B101 - narrows Optional for mypy
             self.assertEqual(loaded.status, StageStatus.failed)
 
     def test_write_stage_result_preserves_errors(self) -> None:
@@ -96,6 +98,7 @@ class TestStageResultRoundTrip(unittest.TestCase):
             loaded = read_stage_result(tmp_path, "test-stage")
 
             self.assertIsNotNone(loaded)
+            assert loaded is not None  # nosec B101 - narrows Optional for mypy
             self.assertIn("timeout", loaded.errors)
             self.assertIn("rate limit", loaded.errors)
 
@@ -142,6 +145,7 @@ class TestManifestRoundTrip(unittest.TestCase):
             loaded = read_manifest(tmp_path)
 
             self.assertIsNotNone(loaded)
+            assert loaded is not None  # nosec B101 - narrows Optional for mypy
             # read_manifest returns a ManifestRef (lightweight reference), not the full manifest
             self.assertEqual(loaded.manifest_version, manifest.manifest_version)
 

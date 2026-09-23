@@ -212,7 +212,7 @@ class TestBuildStageRow(unittest.TestCase):
     def test_failed_status_marks_needs_run(self) -> None:
         row = _build_stage_row("propose", StageStatus.failed)
         self.assertEqual(row["needs_run"], "yes")
-        self.assertIn("failed", row["reason"])
+        self.assertIn("failed", str(row["reason"]))
 
     def test_pending_status_marks_needs_run(self) -> None:
         row = _build_stage_row("validate", StageStatus.pending)
