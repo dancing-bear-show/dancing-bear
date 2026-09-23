@@ -115,6 +115,10 @@ fi
 # workspace is left alone. Round 7's bug hid behind an absent directory: the ALLOW
 # case passed because `outputs/` did not exist, not because the guard was right.
 MADE_DIRS=""
+# Symlinks are tracked too, and removed on exit. The round-14 rows link REPO-ROOT names
+# (analysis, context, stages, ...) at src/, so leaving them behind would litter the
+# working tree with links into source that a later `git status` reports as untracked.
+MADE_LINKS=""
 ensure_dirs() {
   local spec="$1" csv="$spec" linkspec="" d pair
   # The flattener appends "#LINKS#a>b|c>d" when a group needs symlinks.
@@ -130,7 +134,16 @@ ensure_dirs() {
     for d in $csv; do
       [ -n "$d" ] || continue
       if [ ! -d "$REPO_ROOT/$d" ]; then
-        mkdir -p "$REPO_ROOT/$d" && MADE_DIRS="$MADE_DIRS $d"
+        # A FAILED mkdir must abort, not be skipped. Silently ignoring it lets a
+        # workspace-root ALLOW row run against an absent directory and pass because
+        # nothing was there -- which is round 7's bug exactly, reintroduced one level
+        # up in the code that exists to prevent it. A setup failure is not a result.
+        if ! mkdir -p "$REPO_ROOT/$d"; then
+          echo "FATAL: could not create required directory '$d' for group setup." >&2
+          echo "Aborting rather than running rows against an absent directory." >&2
+          exit 1
+        fi
+        MADE_DIRS="$MADE_DIRS $d"
       fi
     done
   fi
@@ -140,13 +153,32 @@ ensure_dirs() {
     for pair in $linkspec; do
       [ -n "$pair" ] || continue
       local link="${pair%%>*}" target="${pair#*>}"
-      mkdir -p "$(dirname "$link")" 2>/dev/null
-      ln -sfn "$target" "$link" 2>/dev/null
+      # `ln -sfn` over an existing REAL directory creates the link INSIDE it rather
+      # than replacing it, so the case would then exercise a path that does not exist
+      # and pass for the wrong reason. Anything already at the name that is not our
+      # own symlink is a setup failure.
+      if [ -e "$link" ] && [ ! -L "$link" ]; then
+        echo "FATAL: '$link' already exists and is not a symlink." >&2
+        echo "Refusing to run link rows against it." >&2
+        exit 1
+      fi
+      if ! mkdir -p "$(dirname "$link")"; then
+        echo "FATAL: could not create the parent directory for link '$link'." >&2
+        exit 1
+      fi
+      if ! ln -sfn "$target" "$link"; then
+        echo "FATAL: could not create the symlink '$link' -> '$target'." >&2
+        echo "Aborting rather than running link rows against a missing link." >&2
+        exit 1
+      fi
+      MADE_LINKS="$MADE_LINKS $link"
     done
   fi
 }
 cleanup_dirs() {
-  local d
+  local d l
+  # Links first: one may sit inside a directory we also have to remove.
+  for l in $MADE_LINKS; do [ -L "$l" ] && rm -f "$l"; done
   for d in $MADE_DIRS; do rmdir "$REPO_ROOT/$d" 2>/dev/null; done
   cleanup_scratch
 }

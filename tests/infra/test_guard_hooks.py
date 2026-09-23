@@ -36,6 +36,7 @@ not a silent pass.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import shutil
@@ -211,6 +212,16 @@ class TestGuardHooksAreWired(unittest.TestCase):
 
     SETTINGS = repo_root() / ".claude" / "settings.json"
 
+    # Test-only seam. The executing test below has to be provable -- the way to
+    # show it can tell an enforcing hook from a swallowed one is to point it at a
+    # settings file with `|| true` appended and watch it go red. Editing the real
+    # .claude/settings.json to do that is not an option: a guard hook blocks
+    # writes to it, and a probe that mutates the file it is validating can leave
+    # the repo in the broken state if it dies mid-run. So the path is overridable
+    # for a probe, and the override is deliberately NOT read from anywhere in the
+    # normal path -- unset, every test reads the real file.
+    SETTINGS_ENV_OVERRIDE = "DANCING_BEAR_GUARD_SETTINGS"
+
     # Every hook script that must be reachable from a PreToolUse entry, with the
     # tools its matcher has to cover. Keyed by script name so a renamed script
     # fails here rather than silently dropping its coverage.
@@ -220,9 +231,14 @@ class TestGuardHooksAreWired(unittest.TestCase):
         "block-readonly-role-writes.sh": {"Write", "Edit", "Bash"},
     }
 
+    def _settings_path(self) -> Path:
+        override = os.environ.get(self.SETTINGS_ENV_OVERRIDE)
+        return Path(override) if override else self.SETTINGS
+
     def _pre_tool_use(self) -> list[dict]:
-        self.assertTrue(self.SETTINGS.is_file(), f"missing {self.SETTINGS}")
-        data = json.loads(self.SETTINGS.read_text(encoding="utf-8"))
+        settings = self._settings_path()
+        self.assertTrue(settings.is_file(), f"missing {settings}")
+        data = json.loads(settings.read_text(encoding="utf-8"))
         hooks = data.get("hooks", {})
         entries = hooks.get("PreToolUse")
         self.assertIsInstance(
@@ -402,6 +418,161 @@ class TestGuardHooksAreWired(unittest.TestCase):
                         (HOOKS_DIR / script).is_file(),
                         msg=f"{script} is wired but missing from {HOOKS_DIR}",
                     )
+
+    # A payload each guard must BLOCK, i.e. must make the configured command exit 2.
+    #
+    # Every one of these was verified by piping it at the hook directly before being
+    # written down -- none is inferred from reading the script. They are also the
+    # shapes the hooks' own suites use, so a hook change that invalidates a payload
+    # fails that suite too rather than silently turning this test into a no-op.
+    #
+    # `{repo_root}` is substituted at call time. block-readonly-role-writes.sh judges
+    # a relative file_path against the payload's own `cwd`, so the field is load-
+    # bearing: without it the path is unresolvable and the hook may not block.
+    _BLOCKING_PAYLOADS = {
+        "block-destructive-bash.sh": {
+            "tool_name": "Bash",
+            "tool_input": {"command": "rm -rf /"},
+        },
+        "block-protected-paths.sh": {
+            "tool_name": "Write",
+            "tool_input": {"file_path": "{home}/.ssh/id_rsa", "content": "x"},
+        },
+        "block-readonly-role-writes.sh": {
+            "agent_type": "researcher",
+            "cwd": "{repo_root}",
+            "tool_name": "Write",
+            "tool_input": {"file_path": "src/mail/cli.py", "content": "x"},
+        },
+    }
+
+    @staticmethod
+    def _substitute(value: object, repo: str, home: str) -> object:
+        """Fill {repo_root}/{home} placeholders through a nested payload."""
+        if isinstance(value, str):
+            return value.format(repo_root=repo, home=home)
+        if isinstance(value, dict):
+            return {
+                k: TestGuardHooksAreWired._substitute(v, repo, home)
+                for k, v in value.items()
+            }
+        return value
+
+    def test_wired_commands_actually_block(self) -> None:
+        """Run each configured command for real and assert it exits 2.
+
+        WHY EXECUTION AND NOT ANOTHER PARSE
+        -----------------------------------
+        Every other test in this class inspects the settings TEXT. That proves a
+        command naming a guard is configured; it proves nothing about whether the
+        guard's decision survives to the harness. Claude reads exit status 2 as
+        "blocked", and a status-swallowing wrapper erases it without touching the
+        command's text at all::
+
+            bash "$CLAUDE_PROJECT_DIR/.claude/hooks/block-readonly-role-writes.sh" || true
+
+        That command passes every textual check above -- correct interpreter,
+        correct operand, resolving inside the repo's hooks dir, matcher intact --
+        and exits 0 on a payload the hook blocked. The guard is dormant and the
+        wiring suite is green, which is precisely the state this whole class was
+        written after discovering. Measured, not reasoned about: piping the
+        researcher payload through that wrapper exits 0 while the bare hook exits
+        2.
+
+        A blacklist of swallowing constructs would be the wrong fix -- `|| true`,
+        `; true`, `| cat`, `set +e`, a wrapper script, and `exit 0` at the end of a
+        multi-command hook all have the same effect and no finite pattern list
+        catches them. Running the command is the only check that covers the class
+        rather than the instances.
+
+        SCOPE: every guard in REQUIRED_HOOKS has a verified blocking payload, so
+        all three are executed. A future guard added without one would be caught
+        by the assertion below rather than silently skipped.
+        """
+        missing = shutil.which("bash") is None or shutil.which("jq") is None
+        self.assertFalse(
+            missing,
+            msg="bash and jq are required to execute the configured hook commands",
+        )
+
+        repo = str(repo_root())
+        home = str(Path.home())
+        executed: set[str] = set()
+
+        for entry in self._pre_tool_use():
+            for hook in entry.get("hooks", []):
+                for script in self._invoked_scripts(hook):
+                    payload = self._BLOCKING_PAYLOADS.get(script)
+                    self.assertIsNotNone(
+                        payload,
+                        msg=(
+                            f"{script} is wired but has no verified blocking payload "
+                            f"in _BLOCKING_PAYLOADS, so its exit status is never "
+                            f"checked. Add one -- and verify it blocks by piping it "
+                            f"at the hook -- rather than leaving the guard unproven."
+                        ),
+                    )
+                    self._assert_command_blocks(
+                        script,
+                        hook["command"],
+                        json.dumps(self._substitute(payload, repo, home)),
+                        repo,
+                    )
+                    executed.add(script)
+
+        # Guards the guard: an empty settings block, or _invoked_scripts returning
+        # nothing, would satisfy the loop above by never entering it.
+        self.assertEqual(
+            executed,
+            set(self.REQUIRED_HOOKS),
+            msg=(
+                f"only {sorted(executed)} were executed; "
+                f"{sorted(set(self.REQUIRED_HOOKS) - executed)} never ran, so their "
+                f"exit status is unproven"
+            ),
+        )
+
+    def _assert_command_blocks(
+        self, script: str, command: str, payload: str, repo: str
+    ) -> None:
+        """Run the command string AS CONFIGURED and require exit 2.
+
+        Run through the shell rather than tokenised and exec'd, because the point
+        is to exercise the command exactly as the harness would -- including any
+        `|| true`, pipeline, or subshell that a tokenised re-execution would
+        discard along with the bug it hides.
+        """
+        env = dict(os.environ)
+        env["CLAUDE_PROJECT_DIR"] = repo
+        # B602: the command comes from this repo's own settings.json, which is the
+        # artifact under test. Running it through the shell is the whole point --
+        # see the docstring. No external input reaches it.
+        proc = subprocess.run(  # nosec B602 - in-repo settings command, executed deliberately
+            command,
+            shell=True,
+            input=payload,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=repo,
+            env=env,
+            timeout=60,
+        )
+        self.assertEqual(
+            proc.returncode,
+            2,
+            msg=(
+                f"the configured command for {script} exited {proc.returncode} on a "
+                f"payload the hook blocks when run directly. Exit 2 is how a block "
+                f"reaches Claude; any other status leaves the guard dormant while "
+                f"the textual wiring tests stay green.\n"
+                f"  command: {command}\n"
+                f"  payload: {payload}\n"
+                f"  stdout:  {proc.stdout}\n"
+                f"  stderr:  {proc.stderr}"
+            ),
+        )
 
 
 def _attach(name: str) -> None:

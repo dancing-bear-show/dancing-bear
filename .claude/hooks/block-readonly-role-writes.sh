@@ -265,11 +265,16 @@ _is_repo_root_file() { # _is_repo_root_file <repo-relative-path> [strict] -> 0 i
     */*|"") return 1 ;;   # has a directory component, or is empty
   esac
   [ -n "$REPO_ROOT" ] || return 1
-  # A dash-led token is a flag, never a filename, in either mode.
-  case "$1" in -*) return 1 ;; esac
   if [ "${2:-0}" = "1" ]; then
+    # STRICT (Write/Edit): `file_path` is a path the harness is about to write, not a
+    # shell word. A leading dash is then part of the FILENAME -- `-probe.py` is a legal
+    # repo-root file, and skipping it as a flag allowed a read-only agent to create new
+    # source at the root. The dash filter belongs to the Bash side alone.
     return 0
   fi
+  # Non-strict (Bash): operands really can be flags, and a dash-led one is never a
+  # filename we should refuse.
+  case "$1" in -*) return 1 ;; esac
   [ -e "$REPO_ROOT/$1" ]
 }
 
@@ -278,23 +283,137 @@ _is_repo_root_file() { # _is_repo_root_file <repo-relative-path> [strict] -> 0 i
 # Shared by the Write/Edit and Bash branches so the two cannot drift into disagreeing
 # about what counts as source. A path one tool refuses and the other permits is the
 # same shape of hole as a pair of guards disagreeing about what a template is.
-# _option_values <args...> -> prints the VALUE half of every `--opt=value` token.
+# _option_values <args...> -> the VALUES glued onto options, as separate tokens.
 #
-# A path hidden in an option value is one shell word, so the `-*` filter that skips
-# flags takes the path with it. `patch --directory=src`, `mv --target-directory=src`,
-# `cp --target-directory=src` and `install --target-directory=src` were four
-# instances of that one shape, found in three separate review rounds. Unglueing the
-# value here means a new option carrying a path is covered without another round.
+# `--directory=src` and `-tsrc` are each ONE token starting with `-`, so the `-*` flag
+# filter downstream discarded them -- and the destination went with them. Both forms are
+# unglued here so the path survives as its own operand.
 #
-# Values that are plainly not paths (numbers, empty) cost nothing: classify_path
-# returns ok for them.
+# Both spellings are emitted for every caller in the mutator group rather than for the
+# one command review named: `patch --directory=src` was the reported case, but rounds
+# 10, 12 and 13 each found the same shape in a different command (cp, install, mv,
+# patch, ln), which is what fixing instances instead of the class costs.
 _option_values() {
   local a
   for a in "$@"; do
     case "$a" in
       --*=*) printf '%s ' "${a#*=}" ;;
+      --*) ;;
+      -[tdDo]?*) printf '%s ' "${a#-?}" ;;   # -tsrc, -dsrc, -osrc
     esac
   done
+}
+
+# _attached_opt_value <letter> <args...> -> prints the value of an ATTACHED short
+# option, e.g. `-tsrc` for letter `t`.
+#
+# coreutils accepts `install -tsrc file` and `ln -tsrc file` as well as the
+# separated `-t src`. The separated form was parsed and the attached one fell
+# through the `-*` flag filter, taking the destination with it. `ln -tsrc` was worse
+# than a miss: the cluster contains an `s`, so it also read as `-s` and switched the
+# arm to symlink semantics.
+_attached_opt_value() {
+  local letter="$1" a
+  shift
+  for a in "$@"; do
+    case "$a" in
+      --*) ;;                                  # long option, not a cluster
+      -"$letter"?*) printf '%s' "${a#-"$letter"}"; return ;;
+    esac
+  done
+}
+
+# _cluster_flags <cluster> <value-taking letters...> -> the flag letters in a short
+# option cluster, stopping at the first letter that takes an ATTACHED value.
+#
+# `-tsrc` is `-t` plus the directory `src`, not a cluster of -t -s -r -c. Scanning the
+# raw token for a letter therefore reads the VALUE as flags: `ln -tsrc /tmp/x` looked
+# symbolic because `src` contains an `s`, and symbolic ln treats its source operand as
+# a harmless read -- so a hard link into a tracked path was allowed. Same shape would
+# hit `install -tdir` on the `-d` test.
+_cluster_flags() {
+  local cluster="$1" rest out="" c v
+  shift
+  rest="$cluster"
+  while [ -n "$rest" ]; do
+    c=${rest%"${rest#?}"}          # first character
+    out="$out$c"
+    for v in "$@"; do
+      [ "$c" = "$v" ] && { printf '%s' "$out"; return; }
+    done
+    rest=${rest#?}
+  done
+  printf '%s' "$out"
+}
+
+# _drop_opt_values <args...> -> the operands, with the VALUE of any separated
+# value-taking short option removed.
+#
+# `truncate -s 0 /tmp/log` puts the size `0` in the operand list, indistinguishable by
+# position from a filename. Harmless while operands were classified non-strictly (no
+# repo-root file is named `0`), and an over-block the moment they are judged strictly.
+# Same shape as `2>&1`'s descriptor, handled at normalisation for the same reason.
+#
+# Only the separated spelling needs this: `-s0` is one token that the `-*` filter
+# already drops, and `--size=0` is unglued by _option_values into a value that
+# classifies as ok.
+_drop_opt_values() {
+  local a skip=0 out=""
+  for a in "$@"; do
+    if [ "$skip" -eq 1 ]; then skip=0; continue; fi
+    case "$a" in
+      -s|-c|-n|-m|-o|--size|--bytes|--lines|--mode|--output) skip=1 ;;
+    esac
+    out="$out $a"
+  done
+  printf '%s' "$out"
+}
+
+# _target_dir <args...> -> prints the -t/--target-directory VALUE, or nothing.
+#
+# Covers all three spellings coreutils accepts, because cp, install, ln and mv each
+# handled a different subset and each was wrong in its own way:
+#   --target-directory=src          one token, discarded by the `-*` filter downstream
+#   -t src / --target-directory src value is the NEXT token
+#   -tsrc                           attached short option, which read as a flag and vanished
+#
+# The separated form's old inline version tested
+# `[ "$_prev" = "-t" ] || [ "$_prev" = "--target-directory" ] && _tdir="$a"` with no
+# grouping, and its `*)` branch matched `-t` itself -- so `-t` became its own target.
+# One helper, so a fix lands on every caller rather than on the single command review
+# happened to name. Four separate rounds found this same bug in cp, install, mv and
+# patch before it was written down as one shape.
+_target_dir() {
+  local a prev="" v
+  for a in "$@"; do
+    case "$a" in
+      --target-directory=*) printf '%s' "${a#--target-directory=}"; return ;;
+    esac
+  done
+  v=$(_attached_opt_value t "$@")
+  if [ -n "$v" ]; then printf '%s' "$v"; return; fi
+  for a in "$@"; do
+    if [ "$prev" = "-t" ] || [ "$prev" = "--target-directory" ]; then
+      printf '%s' "$a"; return
+    fi
+    prev="$a"
+  done
+}
+
+# _last_operand <args...> -> prints the final non-flag operand, or nothing.
+#
+# Replaces an inline `set -- $(...); for _ in $(seq 1 $(( $# - 1 ))); do shift; done;
+# printf $1` that CRASHED under `set -u` whenever every argument was a flag: `$#`
+# was 0, so `$1` was unbound and the hook exited 1. Exit 1 is neither block (2) nor
+# allow (0) -- _harness.sh documents that a hook dying this way was historically
+# reported as ALLOW, which makes a crash worse than a wrong decision. Found by
+# review as `install -tsrc /tmp/evil.py`.
+_last_operand() {
+  local a last=""
+  for a in "$@"; do
+    case "$a" in -*) ;; *) last="$a" ;; esac
+  done
+  printf '%s' "$last"
 }
 
 classify_path() {
@@ -331,6 +450,48 @@ classify_path() {
       *)  p="$base/$p" ;;
     esac
     rel="$p"
+  fi
+
+  # A RELATIVE path with a symlinked component: resolve it against REPO_ROOT for the
+  # symlink check alone.
+  #
+  # The Bash branch passes no base on purpose -- a command can `cd` first, so a guessed
+  # cwd could make a textual prefix test refuse a path that lands elsewhere. That
+  # argument does not extend to RESOLUTION, and coupling the two through one `base`
+  # parameter let `echo x > analysis/srclink/mail/cli.py` through while the identical
+  # Write was blocked. Resolving can only find MORE guarded paths: if the link exists
+  # relative to the repo root it is a real link in this repo, and if the command cd's
+  # elsewhere the lookup finds nothing and the textual rules below still apply.
+  #
+  # Recursion rather than a second prefix test: re-listing the tracked trees here would
+  # be a copy that drifts, which is the exact failure the repo-root file list showed
+  # (11 of 20 names stale). Bounded by construction -- the recursive call is made with
+  # an ABSOLUTE path, which cannot re-enter this branch.
+  # Not gated on `strict`: strictness decides whether a NEW repo-root file counts,
+  # which is a separate question from where a symlinked component lands. Gating on it
+  # silently disabled this the moment redirect targets became strict in the same round
+  # -- `echo x > analysis/srclink/...` is both a strict target AND a relative path, and
+  # the two fixes cancelled out until a trace showed the branch was never entered.
+  if [ -z "$base" ] && [ -n "$REPO_ROOT" ]; then
+    case "$p" in
+      /*) ;;
+      *)
+        local _relparent _relcanon _relverdict
+        _relparent=$(dirname "$REPO_ROOT/$p")
+        if [ -d "$_relparent" ]; then
+          _relcanon=$(cd -P "$_relparent" 2>/dev/null && pwd -P) || _relcanon=""
+          # Only when resolution actually MOVED the path does this add anything; an
+          # ordinary relative path resolves to itself and is left to the rules below.
+          if [ -n "$_relcanon" ] && [ "$_relcanon" != "$(dirname "$REPO_ROOT/$p")" ]; then
+            _relverdict=$(classify_path "$_relcanon/$(basename "$p")" "" 0)
+            if [ "${_relverdict#guarded:}" != "$_relverdict" ]; then
+              printf '%s' "$_relverdict"
+              return
+            fi
+          fi
+        fi
+        ;;
+    esac
   fi
 
   # Collapse `/./` segments before anything else looks at the path. `a/./b` and `a/b`
@@ -410,7 +571,23 @@ classify_path() {
       # not match it textually. Canonicalise the path's own directory prefix the same
       # way before the comparison, or the fix above simply inverts the bug: physical
       # paths start working and logical ones stop.
-      if [ -n "$REPO_ROOT" ] && [ "${p#"$REPO_ROOT"/}" = "$p" ] && [ "$p" != "$REPO_ROOT" ]; then
+      # Canonicalise the path's own directory prefix before ANY of the tests below.
+      #
+      # This used to run only when the path did NOT already start with REPO_ROOT --
+      # it was added to rescue a checkout spelled through a symlink, and the inside
+      # case looked like it needed nothing. It did: a symlinked component INSIDE the
+      # repo is followed by the kernel and not by a textual prefix test, so
+      #
+      #   ln -s ../src out/srclink          (allowed: creates a link under out/)
+      #   Write out/srclink/mail/cli.py     (allowed: `out/` is an artifact directory)
+      #
+      # wrote tracked source through a path whose every component read as permitted.
+      # Both steps are legal alone; the bypass is the composition -- the same shape as
+      # the /tmp symlink case below, which WAS caught only because /tmp happens to sit
+      # outside the repo. The guarded-prefix rules must be applied to where the path
+      # LANDS, so canonicalisation belongs ahead of the inside/outside split rather
+      # than inside one arm of it.
+      if [ -n "$REPO_ROOT" ] && [ "$p" != "$REPO_ROOT" ]; then
         _pdir=$(dirname "$p")
         if [ -d "$_pdir" ]; then
           _pcanon=$(cd -P "$_pdir" 2>/dev/null && pwd -P) || _pcanon=""
@@ -653,6 +830,23 @@ if [ "$TOOL" = "Bash" ]; then
   #    trimming the token later, so one normalisation serves every rule.
   redir=${CMD//>>/ >}
   redir=${redir//>|/ >}
+  # `>&` is TWO different operators sharing a spelling, and they must not collapse to
+  # the same marker once redirect targets are classified strictly:
+  #   `echo x >&AGENTS.md`  -- a real write to a file
+  #   `make test 2>&1`      -- duplicates a file descriptor; writes no file
+  # Both used to normalise to `>`, and the resulting bare `1` was harmless only because
+  # the NON-strict path requires a root file to already exist (none is named `1`).
+  # Strict classification drops that existence test, so `1` would be judged a new
+  # repo-root file and refused -- breaking `make test 2>&1`, which is this repo's own
+  # documented way to run its suite. A descriptor is not a filename, so it is marked
+  # apart here rather than being distinguished after the fact.
+  # ...but ONLY when a DIGIT follows. `>&1` duplicates a descriptor; `>&AGENTS.md` is
+  # an ordinary write, and an earlier round found it as a live bypass. Marking every
+  # `>&` as a descriptor reinstated that bypass -- caught here by the suite's BLOCK
+  # half, one edit after the ALLOW half caught the opposite mistake.
+  redir=${redir//>&0/ >FD }
+  redir=${redir//>&1/ >FD }
+  redir=${redir//>&2/ >FD }
   redir=${redir//>&/ >}
   redir=${redir//>/ > }
   redir=${redir//&&/ }
@@ -662,11 +856,27 @@ if [ "$TOOL" = "Bash" ]; then
   redir=${redir//&/ }
   redir=${redir//$'\n'/ }
   redir=${redir//$'\r'/ }
+  # Tokens are collected into TWO lists, because strictness is a property of the TOKEN,
+  # not of the tool:
+  #
+  #   strict_targets -- unambiguous write destinations: a redirect operand, or the
+  #     destination of a known mutator. These are filenames the shell is about to
+  #     create, exactly like Write's `file_path`, so a repo-root name is guarded
+  #     whether or not it exists yet.
+  #   targets -- everything else, judged non-strictly.
+  #
+  # Split because `echo x > new.py` and `touch new.py` CREATED new source at the repo
+  # root while `Write new.py` was blocked. Round 11 made the existence test
+  # tool-dependent; that was the right idea applied at the wrong granularity, since one
+  # Bash command string mixes both kinds -- `rm -rf srcfoo` and the `1` of `2>&1` are
+  # bare words that must stay non-strict, while the operand of `>` is a path by
+  # construction.
   targets=""
+  strict_targets=""
   prev=""
   for tok in $redir; do
     if [ "$prev" = ">" ]; then
-      targets="$targets $tok"
+      strict_targets="$strict_targets $tok"
     fi
     prev="$tok"
   done
@@ -709,13 +919,37 @@ if [ "$TOOL" = "Bash" ]; then
     word=${1##*/}          # /bin/sed -> sed
     word=${word#\\}        # \sed     -> sed
     case "$word" in
-      rm|rmdir|truncate|touch|shred|unlink|chmod|chown|patch|tee)
-        # `_option_values` unglues `--opt=path` forms so the path survives the `-*`
-        # filter downstream. Applied to the whole group rather than to the one
-        # command review named: `patch --directory=src` was the reported case, but
-        # the shape is the same for any of these, and fixing instances one at a time
-        # is what produced rounds 10 and 12 finding the same bug in cp, install, mv
-        # and patch separately.
+      touch|tee|truncate)
+        # CREATING mutators, so their operands are STRICT: each of these brings a
+        # named file into existence, which makes the operand a filename by
+        # construction -- the same standing as a redirect target or Write's file_path.
+        # Without this, `touch new.py` created new source at the repo root while
+        # `Write new.py` was blocked, because the root-file rule required the file to
+        # already exist.
+        #
+        # Split from the group below by MEASUREMENT, not by reading: each command was
+        # run against a non-existent path to see whether a file appeared. touch, tee
+        # and truncate create; rm, rmdir, unlink, shred, chmod and chown all error.
+        shift
+        strict_targets="$strict_targets $(_option_values "$@") $(_drop_opt_values "$@")"
+        ;;
+      rm|rmdir|shred|unlink|chmod|chown|patch)
+        # NON-creating mutators, so their operands stay NON-strict. These act on a
+        # file that must already exist, and their operands are bare shell words rather
+        # than paths by construction: `rm -rf srcfoo` names nothing and must not be
+        # refused as a new repo-root file. Making this group strict re-introduced
+        # exactly the over-blocking the existence test was added to prevent, and the
+        # suite's ALLOW half caught it.
+        #
+        # `patch` belongs here rather than with the creating group: it can create a
+        # file, but only one the DIFF names -- never the bare operand.
+        #
+        # `_option_values` unglues `--opt=path` and `-tpath` forms so a path hidden in
+        # an option value survives the `-*` filter downstream. Applied to the whole
+        # group rather than to the one command review named: `patch --directory=src`
+        # was the reported case, but the shape is the same for any of these, and
+        # fixing instances one at a time is what produced rounds 10, 12 and 13 finding
+        # it separately in cp, install, mv, patch and ln.
         shift
         targets="$targets $(_option_values "$@") $*"
         ;;
@@ -728,30 +962,26 @@ if [ "$TOOL" = "Bash" ]; then
         # With -d every operand is a directory being created; otherwise the shape
         # matches cp -- last operand is the destination, the rest are sources.
         shift
-        _idir=""
         _dmode=0
-        _prev=""
         for a in "$@"; do
           case "$a" in
-            --target-directory=*) _idir="${a#--target-directory=}" ;;
             -d|--directory) _dmode=1 ;;
-            -*) ;;
-            *) if [ "$_prev" = "-t" ] || [ "$_prev" = "--target-directory" ]; then _idir="$a"; fi ;;
+            --*) ;;
+            # Clustered, e.g. -vd -- but NOT the `d` of `install -tdir`, which is part
+            # of the attached value. See _cluster_flags.
+            -*) case "$(_cluster_flags "${a#-}" t)" in *d*) _dmode=1 ;; esac ;;
           esac
-          _prev="$a"
         done
+        _idir=$(_target_dir "$@")
         if [ -n "$_idir" ]; then
-          targets="$targets $_idir"
+          strict_targets="$strict_targets $_idir"
         elif [ "$_dmode" -eq 1 ]; then
           # -d creates each operand as a directory.
           for a in "$@"; do
             case "$a" in -*) ;; *) targets="$targets $a" ;; esac
           done
         else
-          set -- $(for a in "$@"; do case "$a" in -*) ;; *) printf '%s ' "$a" ;; esac; done)
-          [ "$#" -gt 0 ] || continue
-          for _ in $(seq 1 $(( $# - 1 ))); do shift; done
-          targets="$targets $1"
+          strict_targets="$strict_targets $(_last_operand "$@")"
         fi
         ;;
       ln)
@@ -773,30 +1003,27 @@ if [ "$TOOL" = "Bash" ]; then
           case "$a" in
             -s|--symbolic) _symbolic=1 ;;
             --*) ;;
-            -*) case "${a#-}" in *s*) _symbolic=1 ;; esac ;;
+            # `-tsrc` is `-t` with an ATTACHED VALUE, not a cluster: everything after
+            # the `t` is a directory NAME, so scanning the whole token for an `s` read
+            # the `s` of `src` as `-s` and switched this arm to symlink semantics --
+            # which treats the source operand as a harmless read. _cluster_flags stops
+            # at the first value-taking letter, so only `-vs`-style letters count.
+            -*) case "$(_cluster_flags "${a#-}" t)" in *s*) _symbolic=1 ;; esac ;;
           esac
         done
         if [ "$_symbolic" -eq 0 ]; then
-          targets="$targets $*"
+          # Every operand is a target here -- but `-tsrc` and `--target-directory=src`
+          # are single tokens starting with `-`, so the `-*` filter downstream drops
+          # them and the destination directory goes with them. `_option_values` unglues
+          # both spellings back into their own operands.
+          targets="$targets $(_option_values "$@") $*"
           continue
         fi
-        set -- "$@"
-        _tdir=""
-        _prev=""
-        for a in "$@"; do
-          case "$a" in
-            --target-directory=*) _tdir="${a#--target-directory=}" ;;
-            *) [ "$_prev" = "-t" ] || [ "$_prev" = "--target-directory" ] && _tdir="$a" ;;
-          esac
-          _prev="$a"
-        done
+        _tdir=$(_target_dir "$@")
         if [ -n "$_tdir" ]; then
-          targets="$targets $_tdir"
+          strict_targets="$strict_targets $_tdir"
         else
-          set -- $(for a in "$@"; do case "$a" in -*) ;; *) printf '%s ' "$a" ;; esac; done)
-          [ "$#" -gt 0 ] || continue
-          for _ in $(seq 1 $(( $# - 1 ))); do shift; done
-          targets="$targets $1"
+          strict_targets="$strict_targets $(_last_operand "$@")"
         fi
         ;;
       cp)
@@ -809,21 +1036,11 @@ if [ "$TOOL" = "Bash" ]; then
         # under src/ while the last-operand rule looked only at /tmp/evil.py and
         # allowed it. Review found that; the suite pins both spellings.
         shift
-        _tdir=""
-        _prev=""
-        for a in "$@"; do
-          case "$a" in
-            --target-directory=*) _tdir="${a#--target-directory=}" ;;
-            *) [ "$_prev" = "-t" ] || [ "$_prev" = "--target-directory" ] && _tdir="$a" ;;
-          esac
-          _prev="$a"
-        done
+        _tdir=$(_target_dir "$@")
         if [ -n "$_tdir" ]; then
-          targets="$targets $_tdir"
+          strict_targets="$strict_targets $_tdir"
         else
-          [ "$#" -gt 0 ] || continue
-          for _ in $(seq 1 $(( $# - 1 ))); do shift; done
-          targets="$targets $1"
+          strict_targets="$strict_targets $(_last_operand "$@")"
         fi
         ;;
       mv)
@@ -878,11 +1095,42 @@ if [ "$TOOL" = "Bash" ]; then
   targets=${targets//\"/ }
   targets=${targets//\'/ }
 
-  for tok in $targets; do
+  strict_targets=${strict_targets//\"/ }
+  strict_targets=${strict_targets//\'/ }
+
+  # Tag each token with its strictness and walk one list. The tag is a prefix added and
+  # removed here rather than a sentinel VALUE in the list, because a sentinel is itself
+  # a legal filename and nothing would stop an operand from matching it.
+  tagged=""
+  for tok in $strict_targets; do tagged="$tagged 1:$tok"; done
+  for tok in $targets;        do tagged="$tagged 0:$tok"; done
+
+  for tagged_tok in $tagged; do
+    tok_strict=${tagged_tok%%:*}
+    tok=${tagged_tok#*:}
     case "$tok" in
       ""|-*) continue ;;   # empty, or a flag rather than a path
     esac
-    verdict=$(classify_path "$tok")
+    # A token carrying unexpanded shell syntax is not a literal filename, whatever its
+    # provenance: `> $P` is a redirect, but `$P` is not the name of the file that gets
+    # written. Judging it strictly made it a new repo-root file and refused the command.
+    # These are the Bash branch's documented weak spot -- the value is unknowable from
+    # here -- so they fall back to the non-strict reading rather than being invented.
+    case "$tok" in
+      *'$'*|*'`'*|*'*'*|*'?'*|*'['*) tok_strict=0 ;;
+    esac
+    # A digits-only token is a size, a file descriptor, a line count or an exit code --
+    # never a source filename. Strict classification would read it as a NEW repo-root
+    # file (no existence test) and refuse the command. A repo-root file that really is
+    # named `0` is still caught by the non-strict path's existence test.
+    case "$tok" in
+      *[!0-9]*) ;;
+      ?*) tok_strict=0 ;;
+    esac
+    # A duplicated file descriptor (`2>&1`), not a filename. Marked at normalisation
+    # time; see the `>&` note above.
+    [ "$tok" = "FD" ] && continue
+    verdict=$(classify_path "$tok" "" "$tok_strict")
     # An empty verdict means classify_path died rather than decided (see the note in
     # that function). Refuse instead of reading the silence as approval.
     if [ -z "$verdict" ]; then
@@ -933,10 +1181,24 @@ fi
 # Judge the path with the same function the Bash branch uses, so the two tools cannot
 # drift into disagreeing about what counts as source.
 # The payload's cwd, so a relative file_path is judged where it actually lands.
-# Absent or non-string means "no base" and classify_path falls back to treating the
-# path as repo-root-relative, which is the old behaviour rather than a fail-open --
-# an absolute path is unaffected and a relative one still meets every other rule.
+#
+# Falls back to REPO_ROOT rather than to "no base", which was a fail-open. The claim
+# that no-base "treats the path as repo-root-relative" was only true of the TEXTUAL
+# prefix tests; the symlink resolver needs a real absolute path to follow a link, so
+# with no cwd it never ran. `out/srclink/mail/cli.py`, where out/srclink -> ../src, was
+# classified by its literal spelling -- `out/` is an artifact directory -- and ALLOWED,
+# while the identical payload WITH a cwd was blocked. A missing optional field is not
+# authorization, and the strong Write/Edit guarantee cannot depend on the harness
+# choosing to send one.
+#
+# REPO_ROOT is the right base because the prefix rules are written repo-relative
+# anyway, so it reproduces the intended reading of a bare `src/mail/cli.py` while also
+# giving the resolver something to resolve. If REPO_ROOT itself is unknown the guard
+# has already failed closed upstream.
 CWD=$(jq -r 'if (.cwd | type) == "string" then .cwd else "" end' <<< "$PAYLOAD" 2>/dev/null || echo "")
+if [ -z "${CWD//[[:space:]]/}" ]; then
+  CWD="$REPO_ROOT"
+fi
 
 VERDICT=$(classify_path "$FILE" "$CWD" 1)
 # Same fail-closed check as the Bash branch: an empty verdict is a dead helper, not

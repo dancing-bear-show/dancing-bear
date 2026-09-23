@@ -117,6 +117,27 @@ promises:
       - {link: "{TMP}/chain-1",       target: "{REPO}/src/mail/cli.py"}
       - {link: "{TMP}/chain-2",       target: "{TMP}/chain-1"}
       - {link: "{TMP}/chain-3",       target: "{TMP}/chain-2"}
+      # Round 13: a link whose every component is INSIDE the repo and reads as an
+      # artifact path. Every row above crosses the repo boundary, and the resolver
+      # only ran in the branch that handles outside paths -- so this one shape, the
+      # one an agent can create with no access to /tmp at all, was never resolved.
+      - {link: "{REPO}/out/srclink",  target: "{REPO}/src"}
+      # Round 14: the same two-step INSIDE each allowlisted artifact root. Sharper
+      # than out/, because these are the directories a read-only role is explicitly
+      # permitted to write -- so the bypass needs no access to /tmp at all.
+      #
+      # Nested one level rather than replacing the root itself: the carve-out covers
+      # the whole subtree, so `analysis/link/...` tests the same rule, and linking
+      # `analysis` directly would contradict the artifacts group's rows asserting that
+      # `analysis/report.json` IS writable. Both rows are right; they just cannot
+      # describe the same directory at once, and setup persists for the whole run.
+      - {link: "{REPO}/analysis/srclink",   target: "{REPO}/src"}
+      - {link: "{REPO}/context/srclink",    target: "{REPO}/src"}
+      - {link: "{REPO}/validation/srclink", target: "{REPO}/src"}
+      - {link: "{REPO}/stages/srclink",     target: "{REPO}/src"}
+      - {link: "{REPO}/dispatch/srclink",   target: "{REPO}/src"}
+      - {link: "{REPO}/workspace/srclink",  target: "{REPO}/src"}
+      - {link: "{REPO}/artifacts/srclink",  target: "{REPO}/src"}
     cases:
       - {what: "symlink to a source file",  tool: Write, input: "{TMP}/src-link.py",       expect: block}
       - {what: "write through a dir link",  tool: Write, input: "{TMP}/dir-link/cli.py",   expect: block}
@@ -127,6 +148,30 @@ promises:
       # A link pointing genuinely outside the repo must stay writable, or every
       # tmpdir-on-a-symlink platform (macOS /tmp -> /private/tmp) breaks.
       - {what: "link outside the repo",     tool: Write, input: "{TMP}/outside-link/x.json", expect: allow}
+      # Round 13. Spelled entirely within an artifact directory; lands in src/.
+      - {what: "in-repo dir link, relative", tool: Write, input: "out/srclink/mail/cli.py",   expect: block}
+      - {what: "in-repo dir link, absolute", tool: Write, input: "{REPO}/out/srclink/mail/cli.py", expect: block}
+      - {what: "in-repo dir link via Edit",  tool: Edit,  input: "out/srclink/mail/cli.py",   expect: block}
+      # ...and with NO cwd at all, which is how it was found. A missing optional
+      # field must not be the difference between blocked and allowed.
+      - {what: "in-repo dir link, no cwd",   tool: Write, input: "out/srclink/mail/cli.py", cwd: "", expect: block}
+      # The link's own creation stays allowed: it writes only under out/. The
+      # promise is about writes THROUGH the link, not about making one.
+      - {what: "creating the link itself",   tool: Bash,  input: "ln -s ../src out/srclink",  expect: allow}
+      # Round 14. Every allowlisted artifact root, because the carve-out that makes
+      # them writable is exactly what made the resolver unreachable for them.
+      - {what: "link under analysis/",   tool: Write, input: "analysis/srclink/mail/cli.py",   expect: block}
+      - {what: "link under context/",    tool: Write, input: "context/srclink/mail/cli.py",    expect: block}
+      - {what: "link under validation/", tool: Write, input: "validation/srclink/mail/cli.py", expect: block}
+      - {what: "link under stages/",     tool: Write, input: "stages/srclink/mail/cli.py",     expect: block}
+      - {what: "link under dispatch/",   tool: Write, input: "dispatch/srclink/mail/cli.py",   expect: block}
+      - {what: "link under workspace/",  tool: Write, input: "workspace/srclink/mail/cli.py",  expect: block}
+      - {what: "link under artifacts/",  tool: Write, input: "artifacts/srclink/mail/cli.py",  expect: block}
+      - {what: "artifact link via Edit", tool: Edit,  input: "analysis/srclink/mail/cli.py",   expect: block}
+      - {what: "artifact link via Bash", tool: Bash,  input: "echo x > analysis/srclink/mail/cli.py", expect: block}
+      # The artifact root itself stays writable -- the link is the problem, not the
+      # directory. Without this the fix could "pass" by refusing the carve-out entirely.
+      - {what: "real artifact still ok", tool: Write, input: "analysis/report.json", expect: allow}
 
   - group: "A hard link cannot be used to alias a tracked file"
     why: >
@@ -145,6 +190,16 @@ promises:
       - {what: "symlink from source",    tool: Bash, input: "ln -s src/mail/cli.py /tmp/l.py", expect: allow}
       - {what: "symlink, both outside",  tool: Bash, input: "ln -s /tmp/a /tmp/b",            expect: allow}
       - {what: "hard link, both outside", tool: Bash, input: "ln /tmp/a /tmp/b",              expect: allow}
+      # Round 13. `-tsrc` is `-t` with an ATTACHED value: the separated `-t src` was
+      # parsed and this spelling fell through the flag filter, taking the destination
+      # with it. Worse for ln than for the others -- scanning the token for an `s`
+      # found the one in `src` and read the whole call as a symlink, which treats the
+      # source operand as a harmless read.
+      - {what: "ln -tDIR attached",       tool: Bash, input: "ln -tsrc /tmp/x",                expect: block}
+      - {what: "ln -t DIR separated",     tool: Bash, input: "ln -t src /tmp/x",               expect: block}
+      - {what: "ln --target-directory=",  tool: Bash, input: "ln --target-directory=src /tmp/x", expect: block}
+      # A genuine -s cluster must still read as symbolic.
+      - {what: "ln -vs stays symbolic",   tool: Bash, input: "ln -vs src/mail/cli.py /tmp/l",  expect: allow}
 
   - group: "Every read-only role is bound, not just researcher"
     why: >
@@ -228,6 +283,15 @@ promises:
       # a target (refused a read).
       - {what: "install --target-dir", tool: Bash, input: "install --target-directory=src /tmp/e.py", expect: block}
       - {what: "install -t",           tool: Bash, input: "install -t src /tmp/evil.py",   expect: block}
+      # Round 13: the attached spelling of the same option. coreutils accepts both,
+      # the separated form was parsed, and `-tsrc` read as a flag and vanished.
+      - {what: "install -tDIR attached", tool: Bash, input: "install -tsrc /tmp/evil.py", expect: block}
+      # An all-flags operand list must not crash: `set --` left $# at 0 and `$1` was
+      # unbound under `set -u`, exiting 1 -- neither block nor allow, which the
+      # harness notes is the worst outcome a hook can produce.
+      - {what: "install, flags only",    tool: Bash, input: "install -v",                 expect: allow}
+      - {what: "cp, flags only",         tool: Bash, input: "cp -r",                      expect: allow}
+      - {what: "ln, flags only",         tool: Bash, input: "ln -s",                      expect: allow}
       - {what: "install -d",           tool: Bash, input: "install -d src/newdir",         expect: block}
       - {what: "install to source",    tool: Bash, input: "install /tmp/x.py src/mail/cli.py", expect: block}
       # Round 12: the SAME option-value shape in two more mutators. cp, install, mv
@@ -311,6 +375,40 @@ promises:
       - {what: "NEW root dotfile",     tool: Edit,  input: ".newrc",            expect: block}
       - {what: "bare word is not a root file", tool: Bash, input: "rm -rf srcfoo",  expect: allow}
       - {what: "fd number is not a file",      tool: Bash, input: "make test 2>&1", expect: allow}
+      # Round 13, and the same strict/non-strict split as round 11 applied to only
+      # half its subject. The existence test was made tool-dependent; the DASH filter
+      # was left universal, so a leading dash still meant "flag, not a filename" even
+      # for Write -- where file_path is a real path the harness is about to create and
+      # a dash is simply the first character of the name.
+      - {what: "dash-led root file",   tool: Write, input: "-probe.py",       expect: block}
+      - {what: "double-dash root file", tool: Write, input: "--weird.md",     expect: block}
+      - {what: "dash-led via Edit",    tool: Edit,  input: "-probe.py",       expect: block}
+      # Bash keeps the dash filter: there, a dash-led operand really is a flag.
+      - {what: "dash operand via Bash", tool: Bash, input: "ls -la",          expect: allow}
+      # Round 14. The strict/non-strict split was made per TOOL, but strictness is a
+      # property of the TOKEN: one Bash command string mixes unambiguous write
+      # destinations with bare shell words. `echo x > new.py` and `touch new.py`
+      # created new source at the repo root while `Write new.py` was blocked.
+      - {what: "NEW root file via redirect", tool: Bash, input: "echo x > brand_new.py",   expect: block}
+      - {what: "NEW root file via append",   tool: Bash, input: "echo x >> brand_new.py",  expect: block}
+      - {what: "NEW root file via clobber",  tool: Bash, input: "echo x >| brand_new.py",  expect: block}
+      - {what: "NEW root file via touch",    tool: Bash, input: "touch brand_new.py",      expect: block}
+      - {what: "NEW root file via tee",      tool: Bash, input: "tee brand_new.py",        expect: block}
+      - {what: "NEW root file via truncate", tool: Bash, input: "truncate -s 0 brand_new.py", expect: block}
+      # ...while the bare words that share the shape must stay allowed. Each of these
+      # broke when strictness was first applied to the whole mutator group, and each
+      # was caught by the ALLOW half rather than by review.
+      - {what: "rm bare word",          tool: Bash, input: "rm -rf srcfoo",                expect: allow}
+      - {what: "chmod bare word",       tool: Bash, input: "chmod 644 srcfoo",             expect: allow}
+      - {what: "fd duplication",        tool: Bash, input: "make test 2>&1",               expect: allow}
+      - {what: "fd duplication, 1>&2",  tool: Bash, input: "cmd 1>&2",                     expect: allow}
+      - {what: "truncate size operand", tool: Bash, input: "truncate -s 0 /tmp/log",       expect: allow}
+      - {what: "unexpanded variable",   tool: Bash, input: "echo x > $OUT",                expect: allow}
+      - {what: "touch an artifact",     tool: Bash, input: "touch outputs/marker",         expect: allow}
+      - {what: "tee to tmp",            tool: Bash, input: "tee /tmp/out.log",             expect: allow}
+      # `>&file` is a real write, not a descriptor -- it only duplicates when a DIGIT
+      # follows. Distinguishing them wrongly reinstated an earlier round's bypass.
+      - {what: ">&file is a write",     tool: Bash, input: "echo x >&AGENTS.md",           expect: block}
 
   - group: "The Edit tool is bound like Write"
     why: >
@@ -337,6 +435,13 @@ promises:
       - {what: "file_path object",  payload: '{"agent_type":"researcher","tool_name":"Write","tool_input":{"file_path":{}}}',  expect: block}
       - {what: "file_path empty",   payload: '{"agent_type":"researcher","tool_name":"Write","tool_input":{"file_path":""}}',  expect: block}
       - {what: "command missing",   payload: '{"agent_type":"researcher","tool_name":"Bash","tool_input":{}}',                 expect: block}
+      # Round 13: not malformed, but the same principle -- an ABSENT optional field is
+      # not authorization. With no cwd the base was empty, and an empty base skipped
+      # symlink resolution entirely, so the identical write was blocked with a cwd and
+      # allowed without one. Belongs here because only a raw payload can omit the key.
+      - {what: "no cwd key, source path", payload: '{"agent_type":"researcher","tool_name":"Write","tool_input":{"file_path":"src/mail/cli.py","content":"x"}}', expect: block}
+      - {what: "no cwd key, root file",   payload: '{"agent_type":"researcher","tool_name":"Write","tool_input":{"file_path":"AGENTS.md","content":"x"}}',       expect: block}
+      - {what: "no cwd key, artifact",    payload: '{"agent_type":"researcher","tool_name":"Write","tool_input":{"file_path":"/tmp/ok.json","content":"x"}}',    expect: allow}
       - {what: "command object",    payload: '{"agent_type":"researcher","tool_name":"Bash","tool_input":{"command":{}}}',     expect: block}
       - {what: "command empty",     payload: '{"agent_type":"researcher","tool_name":"Bash","tool_input":{"command":""}}',     expect: block}
       - {what: "no agent_type key", payload: '{"tool_name":"Write","tool_input":{"file_path":"src/x.py"}}',                    expect: allow}
