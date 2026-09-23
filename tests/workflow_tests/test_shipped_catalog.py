@@ -133,10 +133,15 @@ def _baseline() -> dict[str, set[str]]:
     """Load the grandfathered-violations baseline as sets of ``file::stage`` keys.
 
     The gate below was added long after the catalog it checks, so a strict
-    pass would have demanded a 79-violation cleanup across 18 workflows
-    before anything could land. Instead these are recorded once and the test
-    blocks only NEW violations — the same ratchet the repo already uses for
-    mypy (typecheck-baseline.json and its legacy_files).
+    pass would have demanded cleaning up every pre-existing violation before
+    anything could land. Instead these are recorded once and the test blocks
+    only NEW violations — the same ratchet the repo already uses for mypy
+    (typecheck-baseline.json and its legacy_files).
+
+    No count is quoted here on purpose: an earlier revision said 79, which
+    went stale the moment a fourth category was added. The authoritative
+    per-category numbers are the ceilings in
+    ``TestBaselineDoesNotRot.test_baseline_never_grows``, and the file itself.
     """
     raw = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
 
