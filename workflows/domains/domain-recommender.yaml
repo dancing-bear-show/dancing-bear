@@ -188,18 +188,19 @@ stages:
         First, resolve the repo root by running `git rev-parse --show-toplevel`
         and store it as REPO_ROOT. All repo CLI calls in this step use the
         absolute path <REPO_ROOT>/bin/<cli> — never ./bin/<cli>, because the
-        agent's working directory may not be the repo root. <cli> is the bare
-        wrapper name (e.g. mail); record it in domain-map.json as
-        cli_bin "bin/<cli>" — so <REPO_ROOT>/<cli_bin> is the runnable path.
-        Run: <REPO_ROOT>/bin/<cli> --agentic --agentic-format yaml --agentic-compact 2>/dev/null
+        agent's working directory may not be the repo root.
+        cli_bin is the full invocation relative to REPO_ROOT, including any
+        dispatcher argument — so <REPO_ROOT>/<cli_bin> is always runnable as-is.
+        For most apps it is "bin/<cli>" (e.g. "bin/mail", "bin/desk"). Three
+        differ: apple-music is "bin/apple-music-assistant", qlty is
+        "bin/qlty-assistant", and resume is "bin/assistant resume" (two tokens —
+        "bin/assistant" alone would probe the dispatcher, not resume). Run
+        <REPO_ROOT>/bin/llm inventory --stdout for the authoritative list rather
+        than assuming bin/<cli>.
+        Run: <REPO_ROOT>/<cli_bin> --agentic --agentic-format yaml --agentic-compact 2>/dev/null
         Set has_agentic_schema=true if exit code == 0.
         Every app supports --agentic, so a false here is a defect worth
-        reporting, not an expected result. Note the invocation differs for
-        three of them: apple-music is <REPO_ROOT>/bin/apple-music-assistant, qlty is
-        <REPO_ROOT>/bin/qlty-assistant, and resume is <REPO_ROOT>/bin/assistant resume.
-        desk now has a wrapper like every other app: <REPO_ROOT>/bin/desk. Run
-        <REPO_ROOT>/bin/llm inventory --stdout for the authoritative list and the
-        exact invocation form rather than assuming <REPO_ROOT>/bin/<cli>.
+        reporting, not an expected result.
         "core" has no CLI — always false.
 
       Write domain-map.json:
@@ -277,8 +278,10 @@ stages:
       Write and run a Python scratch script (python3 -I -S) to parse the
       transcripts. Write the script to a file in WORKSPACE (defined in step 2); keep
       all intermediate and output files there too. Run the script with the
-      working directory set to the REPO ROOT (not the workspace), so that
-      ./bin/ references inside the script resolve correctly. Concretely:
+      working directory set to the REPO ROOT (not the workspace), so git and
+      other repo-relative operations behave as they would in the checkout. The
+      cwd is NOT what makes repo CLIs resolve — every CLI call uses an absolute
+      REPO_ROOT/bin/<name> path (step 3), never ./bin/. Concretely:
         1. Before writing the script, capture the repo root by running
            `git rev-parse --show-toplevel` in the current (repo-root) shell
            session. Store it in a variable (e.g. REPO_ROOT).
@@ -306,8 +309,9 @@ stages:
 
       Script logic:
 
-      1. Read WORKSPACE/sessions-index.json (produced by pm-index-sessions; use the
-         absolute path — cwd is REPO_ROOT, so a bare relative name resolves there).
+      1. Read WORKSPACE/sessions-index.json (produced by pm-index-sessions). Use
+         the absolute path only — a bare "sessions-index.json" would resolve
+         inside the checkout, where the file does not exist.
          Deduplicate entries by session_id first — sessions-index.json may contain
          duplicate rows for the same session_id (the provider collects from both
          flat and subdir layouts and appends without cross-dedup). Build a dict
@@ -578,15 +582,12 @@ stages:
           Skip any domain whose cli_bin is null (e.g. "core") — these are
           shared-library domains with no CLI entry point. Do not attempt to run
           <REPO_ROOT>/bin/<None> or invent a CLI path for them; move on to the next domain.
-          cli_bin already carries the bin/ prefix (e.g. "bin/mail"), so the
-          runnable path is <REPO_ROOT>/<cli_bin> — never <REPO_ROOT>/bin/<cli_bin>,
-          which yields bin/bin/mail. Below, <cli> means cli_bin with "bin/" removed.
+          cli_bin is the full invocation relative to the repo root, bin/ prefix
+          and any dispatcher argument included (e.g. "bin/mail",
+          "bin/assistant resume"), so the runnable command is
+          <REPO_ROOT>/<cli_bin> — never <REPO_ROOT>/bin/<cli_bin>, which yields
+          bin/bin/mail. Below, <cli> means cli_bin with "bin/" removed.
           Run: <REPO_ROOT>/<cli_bin> --agentic --agentic-format yaml --agentic-compact
-          Three apps use a different invocation (<REPO_ROOT>/bin/llm inventory
-          --stdout is authoritative): apple-music is
-          <REPO_ROOT>/bin/apple-music-assistant, qlty is
-          <REPO_ROOT>/bin/qlty-assistant, and resume is <REPO_ROOT>/bin/assistant
-          resume.
           Parse the YAML output to extract existing subcommand names.
           If the CLI has no agentic schema, fall back to: <REPO_ROOT>/<cli_bin> --help
           Read the domain's example_prompts from domain-map.json:
