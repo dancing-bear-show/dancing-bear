@@ -8,18 +8,25 @@ Pre-fix behavior (on 112a0223 before each fix is applied):
 - Thread 3: nan and +inf pass the ``< 0`` check and reach WorkerConfig.
 - Round 2, claim ownership: a thread was registered before its claim, so a
   grace=0 drain could requeue another worker's processing/ copy of the job.
+- Round 2, staged metadata: recovery published a staged record that still
+  said ``status: processing`` as-is.
 
 Post-fix:
 - Threads 1 and round 2: ``_start_batch`` claims each job in the dispatching
   thread and registers a worker thread only for a confirmed claim; nothing
   is claimed once a stop is requested.
 - Thread 2: recover_staged_requeues moves *.json.requeue files to pending/.
+- Round 2, staged metadata: recovery, requeue_processing and the stale-job
+  reaper share one stage -> normalise -> publish path; recovery normalises a
+  record the crash left as ``status: processing``, and no publish overwrites
+  an existing pending/ job.
 - Thread 3: math.isfinite check rejects nan, +inf, and -inf.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import threading
 import unittest
 from pathlib import Path
@@ -35,6 +42,10 @@ from tests.worker_tests.test_daemon_nonblocking import (
 from worker.queue_ops import (
     Job,
     enqueue,
+    list_pending,
+    reap_stale_processing_jobs,
+    recover_staged_requeues,
+    requeue_processing,
     start_processing as _real_start,
 )
 
@@ -261,6 +272,141 @@ class TestStagedRequeueRecovery(unittest.TestCase, QueueRootIsolationMixin):
         self.assertEqual(result, [])
         # Normal pending job is untouched
         self.assertTrue((self.root / "pending" / "normal1.json").exists())
+
+
+# ---------------------------------------------------------------------------
+# Round 2, thread PRRT_kwDOQr1kjM6lV8YI: normalise staged records on publish
+#
+# Pre-fix (fd986138): a crash right after the staging rename, before the
+# metadata rewrite, left a record saying ``status: processing``; recovery
+# renamed it into pending/ as-is.  Recovery and the reaper also replaced an
+# existing pending/ file of the same id, and the reaper published before
+# writing its metadata, so a claim landing in between left two copies.
+# ---------------------------------------------------------------------------
+
+_REASON = "requeued-on-shutdown"
+
+
+class TestStagedRecordNormalisation(unittest.TestCase, QueueRootIsolationMixin):
+    def setUp(self) -> None:
+        self.setup_queue_root()
+        self.processing = self.root / "processing"
+        self.pending = self.root / "pending"
+        self.processing.mkdir(parents=True, exist_ok=True)
+        self.pending.mkdir(parents=True, exist_ok=True)
+
+    def _plant_staged(self, job_id: str, data: dict[str, Any]) -> Path:
+        staged = self.processing / f"{job_id}.json.requeue"
+        staged.write_text(json.dumps(data), encoding="utf-8")
+        return staged
+
+    def test_unrewritten_staged_record_is_normalised(self) -> None:
+        """A staged record still saying ``processing`` is published as pending."""
+        self._plant_staged("crashed1", {
+            "id": "crashed1",
+            "type": "slow",
+            "payload": {"k": "v"},
+            "status": "processing",
+            "attempts": 2,
+            "not_before": "2000-01-01T00:00:00Z",
+            "processing_started_at": "2000-01-01T00:00:05Z",
+        })
+
+        self.assertEqual(recover_staged_requeues(root=self.root), ["crashed1"])
+
+        data = _read(self.pending / "crashed1.json")
+        self.assertEqual(data["status"], "pending")
+        self.assertEqual(data["last_error"], _REASON)
+        self.assertEqual(data["attempts"], 2, "recovery must not consume an attempt")
+        self.assertEqual(data["payload"], {"k": "v"})
+        self.assertNotEqual(data["not_before"], "2000-01-01T00:00:00Z", "not_before must be reset to now")
+        self.assertEqual([p.stem for p, _ in list_pending(root=self.root)], ["crashed1"])
+        self.assertEqual(list(self.processing.iterdir()), [])
+
+    def test_already_normalised_staged_record_is_published_unchanged(self) -> None:
+        staged = self._plant_staged("done-rewrite", {
+            "id": "done-rewrite",
+            "type": "slow",
+            "status": "pending",
+            "attempts": 1,
+            "not_before": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+            "last_error": "some earlier reason",
+        })
+        before = staged.read_bytes()
+
+        self.assertEqual(recover_staged_requeues(root=self.root), ["done-rewrite"])
+
+        self.assertEqual((self.pending / "done-rewrite.json").read_bytes(), before)
+
+    def test_unreadable_staged_record_is_published_unchanged(self) -> None:
+        staged = self._plant_staged("garbled", {})
+        staged.write_text("{not json", encoding="utf-8")
+
+        self.assertEqual(recover_staged_requeues(root=self.root), ["garbled"])
+
+        self.assertEqual((self.pending / "garbled.json").read_text(encoding="utf-8"), "{not json")
+
+    def test_recovery_never_overwrites_an_existing_pending_job(self) -> None:
+        existing = enqueue(Job(id="dup", type="slow", payload={"new": True}), root=self.root)
+        before = existing.read_bytes()
+        staged = self._plant_staged("dup", {"id": "dup", "type": "slow", "status": "processing"})
+
+        self.assertEqual(recover_staged_requeues(root=self.root), [])
+
+        self.assertEqual(existing.read_bytes(), before)
+        self.assertTrue(staged.exists(), "the staged job must be kept for a later recovery")
+
+    def test_recovery_finishes_an_interrupted_publish(self) -> None:
+        """A publish that linked pending/ but stopped before unlinking the stage."""
+        staged = self._plant_staged("half", {"id": "half", "type": "slow", "status": "pending"})
+        os.link(staged, self.pending / "half.json")
+
+        self.assertEqual(recover_staged_requeues(root=self.root), ["half"])
+
+        self.assertFalse(staged.exists())
+        self.assertEqual(_read(self.pending / "half.json")["id"], "half")
+
+    def test_requeue_processing_never_overwrites_an_existing_pending_job(self) -> None:
+        claimed = enqueue(Job(id="twice", type="slow", payload={}, attempts=1), root=self.root)
+        self.assertIsNotNone(_real_start(claimed, self.root))
+        existing = enqueue(Job(id="twice", type="slow", payload={"new": True}), root=self.root)
+        before = existing.read_bytes()
+
+        self.assertIsNone(requeue_processing("twice", reason=_REASON, root=self.root))
+
+        self.assertEqual(existing.read_bytes(), before)
+        staged = self.processing / "twice.json.requeue"
+        self.assertEqual(_read(staged)["status"], "pending", "staged copy is normalised and kept")
+
+    def test_reaper_writes_metadata_before_the_job_is_visible(self) -> None:
+        """A claim that lands during the reaper's metadata write must not duplicate the job."""
+        from worker import queue_ops as q
+
+        started = enqueue(Job(id="stale", type="slow", payload={}), root=self.root)
+        proc = _real_start(started, self.root)
+        if proc is None:
+            self.fail("could not claim the job")
+        data = _read(proc)
+        data["processing_started_at"] = "2000-01-01T00:00:00Z"
+        proc.write_text(json.dumps(data), encoding="utf-8")
+        real_write = q.atomic_write_json
+
+        def _other_worker_claims_then_write(path: Path, payload: Any, **kw: Any) -> None:
+            visible = self.pending / "stale.json"
+            if visible.exists():  # another worker claims it as soon as it is visible
+                visible.replace(self.processing / "stale.json")
+            real_write(path, payload, **kw)
+
+        with patch("worker.queue_ops.atomic_write_json", side_effect=_other_worker_claims_then_write):
+            reaped = reap_stale_processing_jobs(60, root=self.root)
+
+        self.assertEqual(reaped, ["stale"])
+        copies = list(self.root.rglob("stale.json*"))
+        self.assertEqual(len(copies), 1, f"job duplicated: {copies}")
+        record = _read(self.pending / "stale.json")
+        self.assertEqual(record["status"], "pending")
+        self.assertTrue(str(record["last_error"]).startswith("reaped after"))
 
 
 # ---------------------------------------------------------------------------

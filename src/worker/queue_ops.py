@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -233,6 +234,88 @@ def retry(
 
 
 _REQUEUE_STAGING_SUFFIX = ".requeue"
+SHUTDOWN_REQUEUE_REASON = "requeued-on-shutdown"
+
+
+def _normalize_requeued(data: dict[str, object], reason: str) -> None:
+    """Set the metadata every requeued pending/ record carries.
+
+    Eligible immediately, ``reason`` as ``last_error``, attempts untouched.
+    Shared by every path that publishes a staged record, so they cannot drift.
+    """
+    now = iso_now()
+    data["status"] = "pending"
+    data["not_before"] = now
+    data[FIELD_UPDATED_AT] = now
+    data["last_error"] = str(reason)
+
+
+def _rewrite_staged(staged: Path, reason: str, *, only_if_unnormalized: bool) -> None:
+    """Normalise a staged record's metadata in place, before it is published.
+
+    ``only_if_unnormalized`` leaves a record that already says
+    ``status: pending`` untouched: its requeue finished the rewrite before
+    it was interrupted. An unreadable record is published as-is rather than
+    replaced with near-empty metadata; stale metadata beats a lost job.
+    """
+    data = safe_load_json(staged, default=None)
+    if not isinstance(data, dict):
+        _log.debug("Staged job %s is not a JSON object; publishing unchanged", staged)
+        return
+    if only_if_unnormalized and data.get("status") == "pending":
+        return
+    _normalize_requeued(data, reason)
+    atomic_write_json(staged, data)
+
+
+def _publish_no_clobber(staged: Path, dest: Path) -> bool:
+    """Move ``staged`` to ``dest`` unless ``dest`` already holds another file.
+
+    A hard link publishes atomically and fails if ``dest`` exists, so a
+    pending/ job with the same id is never overwritten. If ``dest`` is
+    already a link to ``staged`` (an earlier publish stopped before its
+    unlink), only the staging name is removed. Returns False, leaving
+    ``staged`` in place for a later recovery, when ``dest`` is a different
+    file.
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.link(staged, dest)
+    except FileExistsError:
+        if not dest.samefile(staged):
+            _log.warning("Not publishing %s: %s already exists", staged.name, dest)
+            return False
+    except OSError:
+        # No hard links on this filesystem: check-then-replace is the best available.
+        if dest.exists():
+            _log.warning("Not publishing %s: %s already exists", staged.name, dest)
+            return False
+        staged.replace(dest)
+        return True
+    staged.unlink(missing_ok=True)
+    return True
+
+
+def _stage_and_requeue(src: Path, pending_dir: Path, reason: str) -> Path | None:
+    """Claim ``src`` from processing/ by renaming it, normalise it, then publish it.
+
+    The staging name matches no queue listing, so the claim is atomic and no
+    other worker can pick up the pending/ copy before its metadata is
+    written. Returns the pending/ path, or None when ``src`` was already gone
+    (nothing is written) or the publish was refused (the staged file stays
+    for ``recover_staged_requeues``).
+    """
+    staged = src.with_name(src.name + _REQUEUE_STAGING_SUFFIX)
+    try:
+        src.rename(staged)
+    except FileNotFoundError:
+        return None
+    try:
+        _rewrite_staged(staged, reason, only_if_unnormalized=False)
+    except Exception as exc:  # still move the job: stale metadata beats a stranded file
+        _log.debug("Failed to update metadata for requeued job %s: %s", src.stem, exc)
+    new_path = _job_path(pending_dir, src.stem)
+    return new_path if _publish_no_clobber(staged, new_path) else None
 
 
 def requeue_processing(job_id: str, *, reason: str, root: Path | None = None) -> Path | None:
@@ -241,63 +324,43 @@ def requeue_processing(job_id: str, *, reason: str, root: Path | None = None) ->
     The job becomes eligible immediately and records ``reason`` as
     ``last_error``. Returns the pending/ path, or None when the job is no
     longer in processing/ (it finished or was moved elsewhere first), in
-    which case nothing is written.
+    which case nothing is written, or when pending/ already holds a job with
+    that id (the staged copy is kept for ``recover_staged_requeues``).
 
-    The processing/ file is first renamed to a staging name that no queue
-    listing matches, which claims it atomically, and only the fully updated
-    file is renamed into pending/. Unlike ``retry``, a job that vanished
-    before the claim is never recreated from empty metadata, and no other
-    worker can claim the pending/ copy before its metadata is written.
+    Unlike ``retry``, a job that vanished before the claim is never
+    recreated from empty metadata, and no other worker can claim the
+    pending/ copy before its metadata is written; see ``_stage_and_requeue``.
     """
     paths = _ensure_dirs(root)
-    src = _job_path(paths["processing"], job_id)
-    staged = src.with_name(src.name + _REQUEUE_STAGING_SUFFIX)
-    try:
-        src.rename(staged)
-    except FileNotFoundError:
-        return None
-    try:
-        data = safe_load_json(staged, default={})
-        data["status"] = "pending"
-        data["not_before"] = iso_now()
-        data[FIELD_UPDATED_AT] = iso_now()
-        data["last_error"] = str(reason)
-        atomic_write_json(staged, data)
-    except Exception as exc:  # still move the job: stale metadata beats a stranded file
-        _log.debug("Failed to update metadata for requeued job %s: %s", job_id, exc)
-    new_path = _job_path(paths["pending"], job_id)
-    _rename(staged, new_path)
-    return new_path
+    return _stage_and_requeue(_job_path(paths["processing"], job_id), paths["pending"], reason)
 
 
 def recover_staged_requeues(root: Path | None = None) -> list[str]:
-    """Complete any interrupted requeue_processing transitions in processing/.
+    """Complete any interrupted staged requeue in processing/.
 
-    A crash between the ``src.rename(staged)`` and the final ``_rename(staged,
-    new_path)`` inside ``requeue_processing`` leaves a ``*.json.requeue`` file
-    that ``_list_job_paths`` never matches (it filters to ``suffix == ".json"``).
-    On startup this function scans for those orphaned staging files and moves
-    them to pending/ idempotently, returning the job stems that were recovered.
-    Each call is safe to run more than once: if the pending/ copy already exists
-    the staging file is simply removed.
+    A crash between staging a job and publishing it leaves a
+    ``*.json.requeue`` file that ``_list_job_paths`` never matches (it
+    filters to ``suffix == ".json"``). On startup this function publishes
+    each one to pending/ and returns the recovered job ids.
+
+    A crash can also land before the staged metadata was rewritten, leaving
+    ``status: processing``. Such a record is normalised exactly as
+    ``requeue_processing`` would have, with ``SHUTDOWN_REQUEUE_REASON`` as
+    ``last_error``; one already rewritten is published unchanged. An
+    existing pending/ job with the same id is never overwritten, and a
+    second call is a no-op.
     """
     paths = _ensure_dirs(root)
-    proc_dir = paths["processing"]
-    if not proc_dir.exists():
-        return []
     recovered: list[str] = []
-    for staged in list(proc_dir.iterdir()):
-        if not staged.name.endswith(_REQUEUE_STAGING_SUFFIX):
+    for staged in list(paths["processing"].iterdir()):
+        if not staged.name.endswith(_JOB_SUFFIX + _REQUEUE_STAGING_SUFFIX):
             continue
-        stem = staged.name[: -len(_REQUEUE_STAGING_SUFFIX)]
-        if not stem.endswith(_JOB_SUFFIX):
-            continue
-        job_id = stem[:-len(_JOB_SUFFIX)]
-        new_path = _job_path(paths["pending"], job_id)
+        job_id = staged.name[: -len(_JOB_SUFFIX + _REQUEUE_STAGING_SUFFIX)]
         try:
-            _rename(staged, new_path)
-            recovered.append(job_id)
-            _log.info("recovered staged requeue for job %s", job_id)
+            _rewrite_staged(staged, SHUTDOWN_REQUEUE_REASON, only_if_unnormalized=True)
+            if _publish_no_clobber(staged, _job_path(paths["pending"], job_id)):
+                recovered.append(job_id)
+                _log.info("recovered staged requeue for job %s", job_id)
         except Exception as exc:  # nosec B110 - best-effort recovery; log and continue
             _log.debug("Failed to recover staged requeue %s: %s", staged, exc)
     return recovered
@@ -450,31 +513,22 @@ class ReapJobContext:
 
     p: Path
     paths: dict[str, Path]
-    data: dict[str, object]
     age: int
     job_timeout: int
     job_id: str
 
 
 def _reap_move_to_pending(ctx: ReapJobContext, log: logging.Logger) -> bool:
-    """Rename a stale processing job to pending/ and update its metadata."""
-    new_path = _job_path(ctx.paths["pending"], ctx.job_id)
+    """Requeue a stale processing job, writing its metadata before it is published."""
+    reason = f"reaped after {ctx.age}s (timeout {ctx.job_timeout}s)"
     try:
-        _rename(ctx.p, new_path)
-    except FileNotFoundError:
-        log.debug("Stale job %s already gone before reap rename; skipping", ctx.job_id)
-        return False
+        new_path = _stage_and_requeue(ctx.p, ctx.paths["pending"], reason)
     except Exception as exc:
         log.debug("Failed to reap stale job %s: %s", ctx.job_id, exc)
         return False
-    try:
-        ctx.data["status"] = "pending"
-        ctx.data[FIELD_UPDATED_AT] = iso_now()
-        ctx.data["last_error"] = f"reaped after {ctx.age}s (timeout {ctx.job_timeout}s)"
-        atomic_write_json(new_path, ctx.data)
-    except Exception as exc:
-        log.debug("Failed to update metadata for reaped job %s: %s", ctx.job_id, exc)
-        # job is in pending/ regardless; count it as reaped
+    if new_path is None:
+        log.debug("Stale job %s not requeued (gone, or pending/ copy exists)", ctx.job_id)
+        return False
     return True
 
 
@@ -509,7 +563,6 @@ def _reap_one_job(p: Path, job_timeout: int, paths: dict, now: datetime, log: lo
     reap_ctx = ReapJobContext(
         p=p,
         paths=paths,
-        data=data,
         age=age,
         job_timeout=effective_timeout,
         job_id=job_id,

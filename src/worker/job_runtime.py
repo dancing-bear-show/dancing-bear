@@ -28,8 +28,6 @@ from worker.handlers import REGISTRY as HANDLERS
 
 logger = logging.getLogger(__name__)
 
-SHUTDOWN_REQUEUE_REASON = "requeued-on-shutdown"
-
 # Signals that ask the daemon to stop. launchd stops an agent with SIGTERM,
 # so treating SIGTERM like Ctrl-C is what lets the drain run under launchd.
 _STOP_SIGNALS: tuple[signal.Signals, ...] = (signal.SIGTERM, signal.SIGINT)
@@ -648,7 +646,7 @@ class DaemonRunner:
         One deadline covers every thread, so the total wait never exceeds
         ``grace``. Each thread still alive at the deadline has its job moved
         from processing/ back to pending/ without consuming an attempt, with
-        ``last_error`` set to ``SHUTDOWN_REQUEUE_REASON``. Only jobs owned by
+        ``last_error`` set to ``q.SHUTDOWN_REQUEUE_REASON``. Only jobs owned by
         this runner's live threads are touched: ``_start_batch`` registers a
         thread only after this runner's own claim succeeded, so a job another
         worker won is never in the registry and its processing/ file is left
@@ -670,7 +668,7 @@ class DaemonRunner:
         for stem, thread in live.items():
             if not thread.is_alive():
                 continue
-            if q.requeue_processing(stem, reason=SHUTDOWN_REQUEUE_REASON, root=q.QUEUE_ROOT):
+            if q.requeue_processing(stem, reason=q.SHUTDOWN_REQUEUE_REASON, root=q.QUEUE_ROOT):
                 logger.warning("requeued running job %s on shutdown", stem)
                 requeued.append(stem)
         return requeued
@@ -692,8 +690,8 @@ class DaemonRunner:
         # Anchor the daemon's cwd to the repo root so job scripts that use
         # relative paths (./bin/...) resolve correctly.
         os.chdir(str(get_repo_root()))
-        # Complete any interrupted requeue_processing transitions left by a
-        # previous crash (*.json.requeue files invisible to the normal listing).
+        # Publish any staged requeue a previous crash interrupted
+        # (*.json.requeue files invisible to the normal listing).
         q.recover_staged_requeues(root=q.QUEUE_ROOT)
         previous = _install_stop_handlers(self.stop_event)
         try:
