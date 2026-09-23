@@ -81,16 +81,25 @@ def is_copilot_overview(body: dict[str, Any]) -> bool:
     return normalize_login(body.get("author")) == COPILOT_LOGIN
 
 
-def safe_repo_path(path: str) -> str | None:
-    """Return ``path`` normalised if it is a safe repo-relative path, else None.
+#: Reason a path was refused because it leaves the repository (or can't be
+#: trusted to stay in it): absolute, home-relative, backslashed, control
+#: characters, or climbing out with "..".
+ESCAPES_REPO = "escapes-repo"
+#: Reason a path was refused although it is inside the repository: it names
+#: infrastructure an unattended fixer must never edit.
+PROTECTED_PATH = "protected-path"
 
-    An unlinked finding's path is parsed out of review-body HTML, and the
-    workflow hands it to a fixer agent that can edit files. Treat it as
-    adversarial: reject absolute paths, home-relative paths, backslashes,
-    control characters, and anything whose normalised form climbs out of the
-    repository (``..``). A rejected path is reported, never dispatched.
-    """
-    candidate = strip_zwsp(path).strip()
+#: Any path segment equal to one of these is protected. ``.git`` anywhere
+#: covers submodule git dirs too; a ``.git/hooks`` edit runs code on the next
+#: git command. ``.envrc`` anywhere, because direnv sources the file in
+#: whichever directory a shell enters.
+_PROTECTED_ANY_SEGMENT = frozenset({".git", ".envrc"})
+#: Top-level directories holding CI and agent configuration and hooks.
+_PROTECTED_TOP_LEVEL = frozenset({".github", ".claude"})
+
+
+def _normalise_in_repo(candidate: str) -> str | None:
+    """Normalise ``candidate``, or None when it is not a safe relative path."""
     if not candidate or "\\" in candidate:
         return None
     if any(ord(ch) < 32 for ch in candidate):
@@ -98,11 +107,48 @@ def safe_repo_path(path: str) -> str | None:
     if candidate.startswith(("/", "~")) or re.match(r"^[A-Za-z]:", candidate):
         return None
     normalised = posixpath.normpath(candidate)
-    if normalised in (".", "..") or normalised.startswith("../"):
-        return None
-    if ".." in normalised.split("/"):
+    if normalised in (".", "..") or ".." in normalised.split("/"):
         return None
     return normalised
+
+
+def _is_protected(normalised: str) -> bool:
+    # casefold: macOS's default filesystem is case-insensitive, so `.GIT/hooks`
+    # is the same directory as `.git/hooks`.
+    parts = [p.casefold() for p in normalised.split("/")]
+    return parts[0] in _PROTECTED_TOP_LEVEL or any(
+        p in _PROTECTED_ANY_SEGMENT for p in parts
+    )
+
+
+def classify_repo_path(path: str) -> tuple[str | None, str | None]:
+    """Return ``(normalised, reason)`` for a reviewer-cited path.
+
+    ``reason`` is None for a path a fixer may edit, ESCAPES_REPO when the path
+    cannot be trusted at all (``normalised`` is then None), or PROTECTED_PATH
+    when it is inside the repo but names infrastructure — ``normalised`` is
+    kept so the finding keeps a stable id and the report can say where.
+    """
+    normalised = _normalise_in_repo(strip_zwsp(path).strip())
+    if normalised is None:
+        return None, ESCAPES_REPO
+    if _is_protected(normalised):
+        return normalised, PROTECTED_PATH
+    return normalised, None
+
+
+def safe_repo_path(path: str) -> str | None:
+    """Return ``path`` normalised if a fixer may be pointed at it, else None.
+
+    An unlinked finding's path is parsed out of review-body HTML, and the
+    workflow hands it to a fixer agent that can edit files — and whose edits
+    are committed and pushed before verification runs. Treat it as
+    adversarial: refuse anything that escapes the repository and anything
+    protected inside it (see classify_repo_path). A refused path is reported,
+    never dispatched.
+    """
+    normalised, reason = classify_repo_path(path)
+    return normalised if reason is None else None
 
 
 def _sort_key(body: dict[str, Any]) -> tuple[str, int]:
@@ -136,6 +182,7 @@ class Finding:
     line: int | None = None
     body: str | None = None
     path_rejected: str | None = None
+    path_rejected_reason: str | None = None
     source_review_id: int | None = None
     source_submitted_at: str | None = None
 
@@ -164,9 +211,12 @@ class Finding:
             "path": self.path,
             "line": self.line,
             "body": self.body,
-            # The raw path the reviewer text cited when it failed
-            # safe_repo_path(). Set means "report, never dispatch".
+            # The path the reviewer text cited when classify_repo_path()
+            # refused it (zero-width spaces stripped). Set means "report,
+            # never dispatch". The reason says why: ESCAPES_REPO or
+            # PROTECTED_PATH.
             "path_rejected": self.path_rejected,
+            "path_rejected_reason": self.path_rejected_reason,
             "file_id": _file_id(self.id),
             "source_review_id": self.source_review_id,
             "source_submitted_at": self.source_submitted_at,
@@ -191,6 +241,11 @@ def _record(findings: dict[str, Finding], fid: str, section: str,
     return entry
 
 
+def _norm_title(title: str | None) -> str:
+    """A title compared for identity: zero-width spaces gone, spaces collapsed."""
+    return re.sub(r"\s+", " ", strip_zwsp(title or "")).strip()
+
+
 def _dedupe_key(entry: Finding) -> tuple[str, str] | None:
     """Unlinked findings keyed on path+title, since line numbers drift.
 
@@ -200,7 +255,7 @@ def _dedupe_key(entry: Finding) -> tuple[str, str] | None:
     """
     if entry.linked or not entry.path:
         return None
-    title = re.sub(r"\s+", " ", strip_zwsp(entry.title or "")).strip()
+    title = _norm_title(entry.title)
     if not title:
         # No title means no identity beyond the path, and two unrelated
         # findings in one file would merge on (path, ""). Never merge those.
@@ -218,25 +273,32 @@ class _Pending:
     path: str | None = None
     line: int | None = None
     path_rejected: str | None = None
+    path_rejected_reason: str | None = None
+    # The normalised form of a PROTECTED path: never exposed as `path` (so it
+    # can't be dispatched) but still used for the id, keeping it stable.
+    id_path: str | None = None
     lines: list[str] = field(default_factory=list)
 
     def absorb(self, raw: str) -> None:
         """Take a path line if we still need one, otherwise body text."""
         match = _PATH_LINE.match(strip_zwsp(raw).strip())
-        if match and self.path is None and self.path_rejected is None:
-            safe = safe_repo_path(match.group(1))
-            if safe is None:
-                self.path_rejected = match.group(1)
+        if match and self.line is None:
+            normalised, reason = classify_repo_path(match.group(1))
+            if reason is None:
+                self.path = normalised
             else:
-                self.path = safe
+                self.path_rejected = strip_zwsp(match.group(1)).strip()
+                self.path_rejected_reason = reason
+                self.id_path = normalised
             self.line = int(match.group(2))
         elif raw.strip():
             self.lines.append(strip_zwsp(raw))
 
     @property
     def finding_id(self) -> str:
-        if self.path:
-            return f"unlinked:{self.path}:{self.line}"
+        located = self.path or self.id_path
+        if located:
+            return f"unlinked:{located}:{self.line}"
         seed = f"{self.title or ''}\0{self.path_rejected or ''}"
         digest = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:12]  # nosec B324 - key derivation, not security
         return f"unlinked:{digest}"
@@ -271,23 +333,43 @@ def _record_linked(findings: dict[str, Finding], link: re.Match[str], raw: str,
     )
 
 
-def _record_unlinked(findings: dict[str, Finding], pending: _Pending,
-                     review: dict[str, Any], emitted: dict[str, int]) -> None:
-    """Record a finished unlinked block under an id unique within this review.
+def _unlinked_slot(findings: dict[str, Finding], base: str, title: str | None,
+                   taken: set[str]) -> str:
+    """Pick the id an unlinked finding records under.
 
-    Two genuinely different findings can cite the same path:line; without a
-    suffix the second would silently overwrite the first. Counting per review
-    keeps the ids stable across reviews that list the same findings in the
-    same order.
+    ``path:line`` alone is not an identity. Two different findings can cite
+    one line in the same review, and across reviews a NEW finding can land on
+    the line an old one cited (a fix frees it, the next finding takes it). A
+    bare path:line key made the newcomer overwrite the old entry and inherit
+    its section history — losing the old finding and falsely marking the new
+    one "previously missed". So walk ``base``, ``base#2``, ``base#3`` … and
+    take the first slot not already used by this review whose existing
+    occupant, if any, has the same title. Matching on title rather than on
+    position also keeps ids stable when a later review lists the same
+    findings in a different order.
     """
-    base = pending.finding_id
-    emitted[base] = emitted.get(base, 0) + 1
-    fid = base if emitted[base] == 1 else f"{base}#{emitted[base]}"
+    wanted = _norm_title(title)
+    n = 1
+    while True:
+        fid = base if n == 1 else f"{base}#{n}"
+        if fid not in taken:
+            occupant = findings.get(fid)
+            if occupant is None or _norm_title(occupant.title) == wanted:
+                return fid
+        n += 1
+
+
+def _record_unlinked(findings: dict[str, Finding], pending: _Pending,
+                     review: dict[str, Any], taken: set[str]) -> None:
+    """Record a finished unlinked block under its identity slot."""
+    fid = _unlinked_slot(findings, pending.finding_id, pending.title, taken)
+    taken.add(fid)
     _record(
         findings, fid, pending.section, review,
         title=pending.title, severity=pending.severity,
         linked=False, path=pending.path, line=pending.line,
         body=pending.body, path_rejected=pending.path_rejected,
+        path_rejected_reason=pending.path_rejected_reason,
     )
 
 
@@ -295,7 +377,7 @@ def parse_body(review: dict[str, Any], findings: dict[str, Finding]) -> None:
     """Fold one overview review body into ``findings``, newest call winning."""
     section: str | None = None
     pending: _Pending | None = None
-    emitted: dict[str, int] = {}  # unlinked ids already recorded by this review
+    taken: set[str] = set()  # unlinked ids already recorded by this review
 
     for raw in (review.get("body") or "").splitlines():
         header = _SECTION.search(raw)
@@ -312,7 +394,7 @@ def parse_body(review: dict[str, Any], findings: dict[str, Finding]) -> None:
         elif pending is None:
             continue
         elif raw.strip() == "</details>":
-            _record_unlinked(findings, pending, review, emitted)
+            _record_unlinked(findings, pending, review, taken)
             pending = None
         else:
             pending.absorb(raw)

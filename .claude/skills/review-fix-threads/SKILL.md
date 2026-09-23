@@ -99,12 +99,13 @@ Skill(skill="workflow", args="--workflow workflows/code/review-fix-threads.yaml 
 5. **fix-dispatch** — group actionable threads **by file** into a fan-out index
 6. **fix-threads** — one `thread-fixer` agent per file group, in parallel
 7. **fix-aggregate** — merge per-thread results; flag any that are missing
-8. **verify-fixes** — `make test`, `make lint`, and a happy/sad-path coverage audit
-9. **check-prose** — every outgoing reply checked against `.claude/WRITING_GUIDE.md`
-10. **update-pr-description** *(fragment)* — regenerate title and body from the final diff
-11. **plan-resolution** — decide what may be replied to and closed; writes `resolve-plan.json`
-12. **resolve-threads** *(fragment)* — reply, then resolve; fails closed if verification was not green
-13. **report** — per-thread outcome table
+8. **commit-and-push** — refuse protected paths (`./bin/workflow check-paths`), then commit and push exactly the files fixers changed — **before** verification, so the tests run against what the PR actually contains
+9. **verify-fixes** — `make test`, `make lint`, and a happy/sad-path coverage audit
+10. **check-prose** — every outgoing reply checked against `.claude/WRITING_GUIDE.md`
+11. **update-pr-description** *(fragment)* — regenerate title and body from the final diff
+12. **plan-resolution** — decide what may be replied to and closed; writes `resolve-plan.json`
+13. **resolve-threads** *(fragment)* — reply, then resolve; fails closed if verification was not green
+14. **report** — per-thread outcome table, plus a Suspicious-input section
 
 ## Triage Directives
 

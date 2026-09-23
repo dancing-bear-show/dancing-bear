@@ -176,6 +176,11 @@ stages:
 
       Resolve the authenticated actor once, before the loop:
         ACTOR=$(GITHUB_TOKEN= gh api user -q .login)
+      If that fails or prints nothing (a GitHub App token can refuse
+      /user), stop: write resolution.json with status "blocked" and reason
+      "could not resolve authenticated actor", post nothing, exit non-zero.
+      An empty ACTOR matches no comment, so every retry would re-post its
+      replies as duplicates — fail closed instead.
 
       Re-fetch each planned thread's comments before posting — the WHOLE
       paginated chain, not just the latest — and skip the reply only when a
@@ -224,9 +229,21 @@ stages:
       double-quoted shell word is still evaluated by the shell: embedded
       backticks or $(...) execute, and an embedded quote re-splits the
       argument. Review-derived text contains exactly those characters, and
-      this stage runs unattended with a token. Read it with a JSON tool into
-      the variable, e.g.
-        BODY=$(python3 -I -S -c 'import json,sys;print(json.load(open(sys.argv[1]))["threads"][int(sys.argv[2])]["reply"])' "$PLAN" "$i")
+      this stage runs unattended with a token. Build it with a JSON tool, and
+      build it WITH the run marker — this is the one place every reply's
+      body is assembled, so it is where the marker gets attached:
+        BODY=$(python3 -I -S -c 'import json,re,sys; p=json.load(open(sys.argv[1])); r=re.sub(r"<!--\s*dancing-bear-run:.*?-->", "", p["threads"][int(sys.argv[2])]["reply"], flags=re.S).rstrip(); print(r + "\n\n<!-- dancing-bear-run: " + p["run_id"] + " -->")' "$PLAN" "$i")
+
+      Two things that one expression does, both required:
+        - Appends this run's marker. Step 1's already-replied check looks for
+          it; a reply posted without it is invisible to that check, and every
+          retry re-posts it.
+        - Strips any marker already inside the reply text first. Replies are
+          composed from reviewer-influenced material and may quote a
+          comment; a quoted marker would otherwise be posted by this
+          workflow's own account — satisfying both halves of Step 1's
+          marker-plus-author test and suppressing a reply on whatever thread
+          that marker names.
 
       PASS THE BODY WITH `-f`, NOT `-F`. This is not a style preference:
       `gh api -F key=value` is a TYPED field and treats a value beginning with

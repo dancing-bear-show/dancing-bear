@@ -31,6 +31,7 @@ from workflow.meta import META
 
 from workflow.cli_compile import _cmd_compile
 from workflow.cli_dispatch import (
+    _cmd_check_paths,
     _cmd_init_workspace,
     _cmd_lint,
     _cmd_list,
@@ -170,6 +171,15 @@ def cmd_list(args: argparse.Namespace) -> int:
 @app.argument("--out", dest="out_path", default="", help="Write JSON here (default: stdout)")
 def cmd_parse_overview(args: argparse.Namespace) -> int:
     return _cmd_parse_overview(args)
+
+
+@app.command(
+    "check-paths",
+    help="Exit non-zero if any path escapes the repo or is protected (.git, .github, .claude, .envrc)",
+)
+@app.argument("paths", nargs="+", help="Repo-relative paths to check")
+def cmd_check_paths(args: argparse.Namespace) -> int:
+    return _cmd_check_paths(args)
 
 
 @app.command("status", help="Show status of a workflow run")

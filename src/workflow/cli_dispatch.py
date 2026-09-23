@@ -553,6 +553,28 @@ def _load_threads_json(path: Path) -> dict:
     return data
 
 
+def _cmd_check_paths(args: argparse.Namespace) -> int:
+    """Refuse paths an unattended fixer must never edit or push.
+
+    The deterministic backstop for commit-and-push: its agent runs this over
+    the files it is about to stage, so a fixer steered into ``.git/hooks`` or
+    ``.claude/settings.json`` is stopped by tested code rather than by prose.
+    Prints one line per refused path; exits 0 only when every path is safe.
+    """
+    from core.copilot_overview import classify_repo_path
+
+    refused = 0
+    for raw in args.paths:
+        _, reason = classify_repo_path(raw)
+        if reason is not None:
+            refused += 1
+            print(f"REFUSED {reason}: {raw}")
+    if refused:
+        print(f"{refused} of {len(args.paths)} path(s) refused", file=sys.stderr)
+        return int(ExitCode.ERROR)
+    return 0
+
+
 def _cmd_parse_overview(args: argparse.Namespace) -> int:
     """Parse Copilot overview bodies out of a fetched threads.json.
 

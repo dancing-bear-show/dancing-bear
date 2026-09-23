@@ -11,7 +11,10 @@ import argparse
 import unittest
 
 from core.copilot_overview import (
+    ESCAPES_REPO,
     OVERVIEW_MARKER,
+    PROTECTED_PATH,
+    classify_repo_path,
     is_copilot_overview,
     normalize_login,
     parse_overview,
@@ -135,6 +138,21 @@ class TestAuthorGate(unittest.TestCase):
 
         self.assertFalse(out["present"])
         self.assertEqual(out["findings"], {})
+
+    def test_author_kind_is_matched_exactly(self):
+        """The fetch fragment writes lowercase "bot"; nothing else passes."""
+        for kind in ("Bot", "BOT", " bot", "bot "):
+            with self.subTest(kind=kind):
+                self.assertFalse(is_copilot_overview(_review(_body(), author_kind=kind)))
+
+    def test_bot_suffix_is_stripped_only_in_its_exact_form(self):
+        """GitHub spells it `[bot]`; a case variant is a different login."""
+        for login in ("copilot-pull-request-reviewer[Bot]",
+                      "copilot-pull-request-reviewer[BOT]",
+                      "Copilot-Pull-Request-Reviewer"):
+            with self.subTest(login=login):
+                self.assertFalse(is_copilot_overview(_review(_body(), author=login)))
+        self.assertEqual(normalize_login("x[Bot]"), "x[Bot]")
 
     def test_normalize_login_strips_only_bot_suffix(self):
         self.assertEqual(normalize_login("x[bot]"), "x")
@@ -575,7 +593,8 @@ class TestPathSafety(unittest.TestCase):
             ("./src/foo.py", "src/foo.py"),
             ("src//foo.py", "src/foo.py"),
             (f"src/{ZWSP}foo.py", "src/foo.py"),
-            (".claude/hooks/x.sh", ".claude/hooks/x.sh"),
+            ("docs/.github-notes.md", "docs/.github-notes.md"),
+            ("src/claude/x.py", "src/claude/x.py"),
         ):
             with self.subTest(raw=raw):
                 self.assertEqual(safe_repo_path(raw), expected)
@@ -610,6 +629,17 @@ class TestPathSafety(unittest.TestCase):
         self.assertFalse(entry["resolvable"])
         self.assertEqual(entry["title"], "Crafted")
 
+    def test_cited_path_is_normalised_into_path_and_id(self):
+        """`./src//foo.py` and `src/foo.py` are one file and must be one id,
+        or a single finding splits in two across reviews."""
+        review = _review(_body(_section(
+            "Previously missed", 1, _unlinked("Fine", "./src//foo.py", 3))))
+
+        out = parse_overview([review], [])
+
+        self.assertEqual(list(out["findings"]), ["unlinked:src/foo.py:3"])
+        self.assertEqual(out["findings"]["unlinked:src/foo.py:3"]["path"], "src/foo.py")
+
     def test_safe_path_leaves_path_rejected_null(self):
         review = _review(_body(_section(
             "Previously missed", 1, _unlinked("Fine", "src/foo.py", 3))))
@@ -618,6 +648,167 @@ class TestPathSafety(unittest.TestCase):
 
         self.assertEqual(entry["path"], "src/foo.py")
         self.assertIsNone(entry["path_rejected"])
+
+
+class TestProtectedPaths(unittest.TestCase):
+    """In-repo infrastructure a fixer must never edit — its edits are pushed
+    before verification runs."""
+
+    def test_protected_paths_are_classified(self):
+        for raw, normalised in (
+            (".git/hooks/pre-commit", ".git/hooks/pre-commit"),
+            (".git/config", ".git/config"),
+            (".GIT/hooks/pre-commit", ".GIT/hooks/pre-commit"),
+            ("vendor/lib/.git/config", "vendor/lib/.git/config"),
+            (".github/workflows/ci.yml", ".github/workflows/ci.yml"),
+            (".claude/settings.json", ".claude/settings.json"),
+            (".Claude/hooks/x.sh", ".Claude/hooks/x.sh"),
+            (".envrc", ".envrc"),
+            ("sub/dir/.envrc", "sub/dir/.envrc"),
+            ("./.git/config", ".git/config"),
+        ):
+            with self.subTest(raw=raw):
+                self.assertEqual(classify_repo_path(raw), (normalised, PROTECTED_PATH))
+                self.assertIsNone(safe_repo_path(raw))
+
+    def test_escaping_paths_are_classified_apart_from_protected_ones(self):
+        self.assertEqual(classify_repo_path("../x"), (None, ESCAPES_REPO))
+        self.assertEqual(classify_repo_path("/etc/passwd"), (None, ESCAPES_REPO))
+
+    def test_lookalike_names_are_not_protected(self):
+        """Only whole segments match: `.github` at the top, not `.github-x`."""
+        for raw in ("docs/.github-notes.md", "src/git/x.py", "notes/.envrc.md",
+                    "src/.claude_helper.py"):
+            with self.subTest(raw=raw):
+                self.assertEqual(classify_repo_path(raw), (raw, None))
+
+    def test_protected_finding_is_reported_with_a_stable_id(self):
+        review = _review(_body(_section(
+            "Previously missed", 1,
+            _unlinked("Hook edge case", ".claude/hooks/guard.sh", 12),
+        )))
+
+        out = parse_overview([review], [])
+
+        entry = out["findings"]["unlinked:.claude/hooks/guard.sh:12"]
+        self.assertIsNone(entry["path"])
+        self.assertEqual(entry["path_rejected"], ".claude/hooks/guard.sh")
+        self.assertEqual(entry["path_rejected_reason"], PROTECTED_PATH)
+        self.assertEqual(entry["line"], 12)
+
+    def test_escaping_finding_records_its_reason(self):
+        review = _review(_body(_section(
+            "Previously missed", 1, _unlinked("Bad", "../../x.py", 1))))
+
+        (entry,) = parse_overview([review], [])["findings"].values()
+
+        self.assertEqual(entry["path_rejected_reason"], ESCAPES_REPO)
+
+
+class TestCrossReviewIdentity(unittest.TestCase):
+    """path:line is a location, not an identity."""
+
+    def test_new_finding_on_an_old_line_does_not_take_over(self):
+        """A fix frees a line; the next finding lands there. The newcomer must
+        neither erase the old finding nor inherit its history."""
+        older = _review(
+            _body(_section("Previously missed", 1,
+                           _unlinked("Missing null check", "src/a.py", 10, text="old"))),
+            review_id=1, submitted_at="2026-09-22T22:00:00Z")
+        newer = _review(
+            _body(_section("Open", 1,
+                           _unlinked("SQL injection risk", "src/a.py", 10, text="new"))),
+            review_id=2, submitted_at="2026-09-22T23:00:00Z")
+
+        out = parse_overview([older, newer], [])
+
+        old = out["findings"]["unlinked:src/a.py:10"]
+        new = out["findings"]["unlinked:src/a.py:10#2"]
+        self.assertEqual(old["title"], "Missing null check")
+        self.assertTrue(old["previously_missed"])
+        self.assertEqual(new["title"], "SQL injection risk")
+        self.assertEqual(new["sections"], ["Open"])
+        self.assertFalse(new["previously_missed"])
+        self.assertEqual(out["previously_missed"], ["unlinked:src/a.py:10"])
+
+    def test_ids_do_not_depend_on_listing_order(self):
+        def review(order, review_id, stamp):
+            blocks = {"A": _unlinked("Alpha", "src/a.py", 10, text="alpha"),
+                      "B": _unlinked("Beta", "src/a.py", 10, text="beta")}
+            return _review(_body(_section("Previously missed", 2,
+                                          *(blocks[k] for k in order))),
+                           review_id=review_id, submitted_at=stamp)
+
+        out = parse_overview([review("AB", 1, "2026-09-22T22:00:00Z"),
+                              review("BA", 2, "2026-09-22T23:00:00Z")], [])
+
+        titles = {k: v["title"] for k, v in out["findings"].items()}
+        self.assertEqual(titles, {"unlinked:src/a.py:10": "Alpha",
+                                  "unlinked:src/a.py:10#2": "Beta"})
+        self.assertEqual(out["findings"]["unlinked:src/a.py:10"]["body"], "alpha")
+
+
+class TestDegradedOverview(unittest.TestCase):
+    """The shape Copilot posts when its full suite fails, as seen on PR #400."""
+
+    def _degraded(self) -> str:
+        return "\n".join([
+            "> [!NOTE]",
+            "> Copilot was unable to run its full agentic suite in this review.",
+            "",
+            OVERVIEW_MARKER,
+            "",
+            "## Copilot review overview",
+            "",
+            "**Review effort:** Lite  ",
+            f"**Findings:** 2 {_badge('High')} · 1 {_badge('Medium')}",
+            "",
+            _section("Open", 3,
+                     _linked("111", "A", "High"),
+                     _linked("222", "B", "High"),
+                     _linked("333", "C", "Medium")),
+        ])
+
+    def test_note_before_marker_and_no_verdict_still_parses(self):
+        threads = [_thread(f"T{i}", d) for i, d in enumerate((111, 222, 333))]
+
+        out = parse_overview([_review(self._degraded())], threads)
+
+        self.assertTrue(out["present"])
+        self.assertIsNone(out["newest"]["verdict"])
+        self.assertEqual(out["newest"]["findings_claimed"], 3)
+        self.assertEqual(out["newest"]["sections"], {"Open": 3})
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(len(out["findings"]), 3)
+
+
+class TestCheckPathsCli(unittest.TestCase):
+    """The backstop commit-and-push runs before staging anything."""
+
+    def _run(self, *paths):
+        import contextlib
+        import io
+
+        from workflow.cli_dispatch import _cmd_check_paths
+
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = _cmd_check_paths(argparse.Namespace(paths=list(paths)))
+        return code, out.getvalue()
+
+    def test_safe_paths_pass(self):
+        code, printed = self._run("src/core/x.py", "tests/core_tests/test_x.py")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(printed, "")
+
+    def test_any_refused_path_fails_the_whole_check(self):
+        code, printed = self._run("src/ok.py", ".git/hooks/pre-commit", "../escape.py")
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("REFUSED protected-path: .git/hooks/pre-commit", printed)
+        self.assertIn("REFUSED escapes-repo: ../escape.py", printed)
+        self.assertNotIn("src/ok.py", printed)
 
 
 class TestSameLineFindings(unittest.TestCase):
@@ -732,6 +923,7 @@ class TestParseOverviewCli(unittest.TestCase):
             "threads not a list": {"threads": {}, "review_bodies": []},
             "review_bodies element not an object": {"threads": [], "review_bodies": ["x"]},
             "threads element not an object": {"threads": [None], "review_bodies": []},
+            "threads key missing": {"review_bodies": []},
         }
         for label, payload in cases.items():
             with self.subTest(label):
@@ -804,9 +996,37 @@ class TestRealPayload(unittest.TestCase):
             "unlinked:.claude/hooks/block-readonly-role-writes.sh:357",
             "unlinked:src/workflow/linter.py:408",
         ])
-        for key in out["previously_missed"]:
-            self.assertNotIn(ZWSP, findings[key]["path"])
-            self.assertIsNone(findings[key]["path_rejected"])
+        # A real finding in an ordinary source file: dispatchable.
+        linter = findings["unlinked:src/workflow/linter.py:408"]
+        self.assertEqual(linter["path"], "src/workflow/linter.py")
+        self.assertIsNone(linter["path_rejected"])
+        self.assertEqual(linter["severity"], "Medium")
+        self.assertEqual(linter["section"], "Previously missed")
+
+        # A real finding about a hook script: genuine, but protected, so its
+        # location is reported and never handed to a fixer.
+        hooks = findings["unlinked:.claude/hooks/block-readonly-role-writes.sh:357"]
+        self.assertIsNone(hooks["path"])
+        self.assertEqual(hooks["path_rejected"], ".claude/hooks/block-readonly-role-writes.sh")
+        self.assertEqual(hooks["path_rejected_reason"], "protected-path")
+        self.assertNotIn(ZWSP, hooks["path_rejected"])
+        self.assertEqual(hooks["line"], 357)
+
+        # Spot-check linked findings against the real shape, not only counts:
+        # a severity or section regression must fail here, on real markup.
+        first = findings["4077827266"]
+        self.assertEqual(
+            (first["severity"], first["section"], first["thread_id"]),
+            ("High", "Open", "PRRT_kwDOQr1kjM6k9-X0"),
+        )
+        self.assertEqual(
+            sorted({f["severity"] for f in findings.values()}),
+            ["High", "Low", "Medium"],
+        )
+        self.assertEqual(out["newest"]["verdict"], "Changes recommended")
+        self.assertEqual(
+            out["newest"]["sections"], {"Open": 4, "Resolved since last review": 2},
+        )
 
 
 if __name__ == "__main__":

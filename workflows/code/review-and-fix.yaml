@@ -622,18 +622,10 @@ stages:
       model: sonnet
       tools: [Read, Bash, Write]
       access: read-write
-    validation:
-      strategy: unit
-      criteria:
-        - ruff exits 0 with no new violations
-        - test suite passes (or was explicitly skipped)
-        - qlty check introduces no new issues on changed files
-        - >
-          outputs/fix/verify-results.json exists and contains a top-level
-          boolean "all_green", true only when every check above passed.
-          Downstream mutating stages fail closed on this exact field, so a
-          missing or non-boolean value blocks every reply and resolve.
-      max_revisions: 1
+    # No validation: block. On a kind: execute stage it is never rendered and
+    # triggers no correction pass (dispatch.py gates both on kind: validate),
+    # so it would only imply a check that does not run. The contract lives in
+    # the description above, which execute stages DO render.
     required: true
     writes_to:
       - outputs/fix/verify-results.json
@@ -809,7 +801,12 @@ stages:
 
         Thread resolution:
           Read resolution.json — the OUTCOME — for status, replied,
-          already_replied, resolved, skipped, failed, and unresolved_after.
+          already_replied, forged_marker, resolved, skipped, failed, and
+          unresolved_after. Put any forged_marker entry at the TOP of the
+          summary: someone other than this workflow's account posted this
+          run's idempotency marker, which may be an attempt to suppress a
+          reply. This gate is the workflow's only human checkpoint, so a
+          signal left out here reaches no one.
           Read thread-resolution.json only for what was planned.
 
           Report the outcome, and name any gap between the two. A plan is an

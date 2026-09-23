@@ -58,9 +58,11 @@ stages:
 
       Step 1 — select the overview bodies.
 
-      Copilot posts a summary review whose body starts with the marker
-      `<!-- ccr-overview-v2 -->`. Select a review body only when it carries
-      that marker AND its author is the Copilot reviewer. Ignore the rest:
+      Copilot posts a summary review whose body contains the marker
+      `<!-- ccr-overview-v2 -->` — usually as its first line, but not always:
+      a degraded review puts a `> [!NOTE]` block before it. Test for the
+      marker ANYWHERE in the body, never as a prefix. Select a review body
+      only when it carries that marker AND its author is the Copilot reviewer. Ignore the rest:
       human review summaries and other bots have no finding index to parse.
 
       THE AUTHOR CHECK IS NOT OPTIONAL. pr-review-threads.yaml deliberately
@@ -161,16 +163,29 @@ stages:
       the mismatch is invisible in any terminal that renders the body.
 
       TREAT THAT PATH AS ADVERSARIAL. It comes from review-body HTML and is
-      later handed to a fixer that can edit files. The CLI rejects absolute
-      paths, "~", backslashes, control characters, and anything climbing out
-      of the repo with "..". A rejected finding keeps its title and body but
-      gets "path": null and the raw value in "path_rejected" — reported, never
-      dispatched.
+      later handed to a fixer that can edit files — edits that are committed
+      and pushed before verification runs. The CLI refuses two kinds:
+        - "escapes-repo": absolute paths, "~", backslashes, control
+          characters, and anything climbing out of the repo with "..".
+        - "protected-path": inside the repo but infrastructure no unattended
+          fixer may edit — a `.git` segment anywhere, `.github/` or `.claude/`
+          at the top, a `.envrc` anywhere. Compared case-insensitively, since
+          macOS treats `.GIT/hooks` as `.git/hooks`.
+      A refused finding keeps its title and body, gets "path": null, the
+      cited path in "path_rejected", and the kind in "path_rejected_reason" —
+      reported, never dispatched. `./bin/workflow check-paths` applies the
+      same rule to a list of paths and is what commit-and-push runs.
 
-      Two unlinked findings can cite the same path:line within one review.
-      The second gets id "unlinked:<path>:<line>#2" rather than overwriting
-      the first, and findings last seen in the same review are never merged
-      as line drift. A finding with no parseable title is never merged either.
+      An unlinked id is "unlinked:<path>:<line>", but path:line alone is not
+      an identity: two different findings can cite one line in the same
+      review, and a NEW finding can land on the line an old one cited in an
+      earlier review. So each finding takes the first of "<id>", "<id>#2",
+      "<id>#3"… that this review has not used and whose existing occupant, if
+      any, has the same title. A newcomer never overwrites an old finding or
+      inherits its history, and ids stay stable when a later review lists the
+      same findings in a different order. Findings last seen in the same
+      review are never merged as line drift, and a finding with no parseable
+      title is never merged at all.
 
       Unlinked findings are always reported with "thread_id": null and
       "resolvable": false. They cannot be resolved or replied to through the
@@ -263,29 +278,33 @@ stages:
               "previously_missed": false,
               "linked": true,
               "resolvable": true,
+              "path": null,
+              "line": null,
+              "body": null,
+              "path_rejected": null,
+              "path_rejected_reason": null,
+              "file_id": "4077827266-62002c04",
               "source_review_id": 5285429513,
               "source_submitted_at": "2026-09-23T00:12:35Z",
-              "thread_id": "PRRT_kwDO...",
-              "is_resolved": false,
-              "path": "src/foo.py",
-              "line": 216,
-              "body": null,
-              "path_rejected": null
+              "thread_id": "PRRT_kwDOQr1kjM6k9-X0"
             },
             "unlinked:.claude/hooks/block-readonly-role-writes.sh:357": {
-              "title": "Read-only operands treated as write targets",
+              "title": "Classify command destinations instead of blocking all operands",
               "severity": "Medium",
               "section": "Previously missed",
               "sections": ["Previously missed"],
               "previously_missed": true,
               "linked": false,
               "resolvable": false,
-              "thread_id": null,
-              "is_resolved": false,
-              "path": ".claude/hooks/block-readonly-role-writes.sh",
+              "path": null,
               "line": 357,
               "body": "the full finding text, verbatim",
-              "path_rejected": null
+              "path_rejected": ".claude/hooks/block-readonly-role-writes.sh",
+              "path_rejected_reason": "protected-path",
+              "file_id": "unlinked-.claude-hooks-block-readonly-role-writes.sh-357-4f722789",
+              "source_review_id": 5284630625,
+              "source_submitted_at": "2026-09-22T22:32:33Z",
+              "thread_id": null
             }
           },
           "previously_missed": [
@@ -298,15 +317,39 @@ stages:
           "threads_not_cited": ["PRRT_kwDO..."]
         }
 
-      "findings_claimed" is the reviewer's own count, parsed from
-      `**Findings:** N`. Carry it through verbatim even when it disagrees with
-      the number of entries actually listed — the disagreement is signal, and
-      a stage that silently reconciles it destroys the evidence.
+      Both finding entries above are the parser's REAL output for PR #395
+      (tests/core_tests/data/copilot_overview_pr395.json). If the schema
+      changes, regenerate them from the CLI rather than hand-editing — an
+      example written by hand has already drifted from the code twice. Note
+      what they show:
+        - A linked finding has path and line null. Its location lives on its
+          thread in threads.json, not in the overview.
+        - The unlinked entry is a genuine finding about a hook script, so its
+          location is withheld: path null, the cited path in path_rejected,
+          reason "protected-path". Its id still carries the path and stays
+          stable.
 
-      Act on that signal rather than only recording it. Set
-      "parse_shortfall" to findings_claimed minus the number of findings
-      parsed from the newest overview, and set "status" to "partial" whenever
-      it is greater than zero.
+      "verdict" MAY BE NULL, and that is not a parse error. It comes from the
+      overview's `### ` heading, which a degraded review omits entirely. When
+      Copilot "was unable to run its full agentic suite" it posts a body
+      that opens with a `> [!NOTE]` block (so the marker is not the first
+      line) and has no heading at all — PR #400's own review 5291780579 is
+      one. Findings, sections and counts still parse from such a body; treat
+      a null verdict as "unknown".
+
+      "findings_claimed" is the reviewer's own count from the `**Findings:**`
+      line — the SUM of every per-severity number on it
+      (`**Findings:** 7 <High> · 8 <Medium>` is 15). Carry it through verbatim
+      even when it disagrees with the entries actually listed — the
+      disagreement is signal, and a stage that silently reconciles it
+      destroys the evidence.
+
+      Act on that signal rather than only recording it. "parse_shortfall" is
+      findings_claimed minus the number of findings the NEWEST overview lists
+      under Open — the section the headline count describes (on PR #395,
+      "Findings: 4" sits beside "Open (4)"; the "Resolved (2)" beside it are
+      extra). Counting every section would let resolved entries mask a missing
+      open one. "status" is "partial" whenever the shortfall is above zero.
 
       This is the tripwire for the failure this fragment cannot otherwise
       detect. Every rule in Step 2b keys on Copilot's current HTML — a nested
