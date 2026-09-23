@@ -185,13 +185,22 @@ stages:
       and include them as "example_prompts" in each domain entry.
 
       Step 5 — check whether each domain's bin CLI exposes an agentic schema:
-        Run: ./bin/<cli> --agentic --agentic-format yaml --agentic-compact 2>/dev/null
+        First, resolve the repo root by running `git rev-parse --show-toplevel`
+        and store it as REPO_ROOT. All repo CLI calls in this step use the
+        absolute path <REPO_ROOT>/bin/<cli> — never ./bin/<cli>, because the
+        agent's working directory may not be the repo root.
+        cli_bin is the full invocation relative to REPO_ROOT, including any
+        dispatcher argument — so <REPO_ROOT>/<cli_bin> is always runnable as-is.
+        For most apps it is "bin/<cli>" (e.g. "bin/mail", "bin/desk"). Three
+        differ: apple-music is "bin/apple-music-assistant", qlty is
+        "bin/qlty-assistant", and resume is "bin/assistant resume" (two tokens —
+        "bin/assistant" alone would probe the dispatcher, not resume). Run
+        <REPO_ROOT>/bin/llm inventory --stdout for the authoritative list rather
+        than assuming bin/<cli>.
+        Run: <REPO_ROOT>/<cli_bin> --agentic --agentic-format yaml --agentic-compact 2>/dev/null
         Set has_agentic_schema=true if exit code == 0.
         Every app supports --agentic, so a false here is a defect worth
-        reporting, not an expected result. Note the invocation differs for
-        three of them: apple-music is ./bin/apple-music-assistant, qlty is
-        ./bin/qlty-assistant, and resume is ./bin/assistant resume. Run ./bin/llm inventory --stdout
-        for the authoritative list rather than assuming ./bin/<cli>.
+        reporting, not an expected result.
         "core" has no CLI — always false.
 
       Write domain-map.json:
@@ -267,13 +276,42 @@ stages:
       ./bin CLI in the baseline run). The real signal lives in tool_use records.
 
       Write and run a Python scratch script (python3 -I -S) to parse the
-      transcripts. Write the script to a file in the workspace directory and run
-      it from there. Do NOT attempt to parse JSONL in-context with the Read tool
+      transcripts. Write the script to a file in WORKSPACE (defined in step 2); keep
+      all intermediate and output files there too. Run the script with the
+      working directory set to the REPO ROOT (not the workspace), so git and
+      other repo-relative operations behave as they would in the checkout. The
+      cwd is NOT what makes repo CLIs resolve — every CLI call uses an absolute
+      REPO_ROOT/bin/<name> path (step 3), never ./bin/. Concretely:
+        1. Before writing the script, capture the repo root by running
+           `git rev-parse --show-toplevel` in the current (repo-root) shell
+           session. Store it in a variable (e.g. REPO_ROOT).
+        2. Store the absolute <workspace>/outputs/ directory in a variable
+           WORKSPACE — take it from the "Output Files" section of this prompt,
+           not from cwd. The engine places every declared artifact there, this
+           stage's and upstream stages' alike, so a file directly under
+           <workspace>/ is in the wrong place. Never
+           rely on cwd to resolve workspace files — once the script runs from
+           REPO_ROOT, a bare relative filename resolves inside the checkout, not
+           the workspace. Pass both REPO_ROOT and WORKSPACE as command-line
+           arguments to the script, or embed them as literals when writing the file.
+        3. Inside the script, invoke all repo CLIs via the absolute path
+           REPO_ROOT/bin/<name> — never as ./bin/<name>, because the script
+           may be called from the workspace directory by the agent.
+        4. Inside the script, read and write ALL workspace files using the
+           absolute path WORKSPACE/<filename> — never a bare filename or a
+           path relative to cwd.
+        5. The inventory call in step 3 below MUST use the absolute path and
+           MUST fail loudly (sys.exit with a non-zero code and an informative
+           message on stderr) if the call fails or returns empty output — do
+           NOT proceed with an empty known-app set.
+      Do NOT attempt to parse JSONL in-context with the Read tool
       — transcripts total hundreds of MB.
 
       Script logic:
 
-      1. Read sessions-index.json from the workspace (produced by pm-index-sessions).
+      1. Read WORKSPACE/sessions-index.json (produced by pm-index-sessions). Use
+         the absolute path only — a bare "sessions-index.json" would resolve
+         inside the checkout, where the file does not exist.
          Deduplicate entries by session_id first — sessions-index.json may contain
          duplicate rows for the same session_id (the provider collects from both
          flat and subdir layouts and appends without cross-dedup). Build a dict
@@ -318,14 +356,27 @@ stages:
            block["name"] == "Bash" and "input" in block and "command" in block["input"].
 
       3. Extract CLI invocations from each command string using:
-           Primary pattern: r'(?:^|[\s;&|(])\./bin/([\w][\w-]*)'
+           Primary pattern: r'(?:^|[\s;&|(])(\.|/[^\s;&|()\'"]*?)/bin/([\w][\w-]*)'
+             Group 2 is the CLI name. Group 1 is the prefix; keep the match
+             ONLY if the prefix is "." (the ./bin/<name> form) or an absolute
+             repo root — agents now run <REPO_ROOT>/bin/<name>, so matching
+             ./bin/ alone would drop those calls. An absolute prefix is a repo
+             root when it equals MAIN_ROOT, or MAIN_ROOT/.claude/worktrees/<one
+             path segment>, where MAIN_ROOT is the parent directory of
+             `git rev-parse --path-format=absolute --git-common-dir` (resolve it
+             once at startup; REPO_ROOT alone misses sibling worktrees). Any
+             other prefix (/usr/bin/git, <root>/.venv/bin/python, another repo)
+             is not a repo CLI — discard it.
            Desk, module form (transcripts from before ./bin/desk existed): r'python3\s+(?:-[^\s]+\s+)*-m\s+desk'
          After capturing the CLI name, apply dispatcher normalisation:
            If the captured name is "assistant", discard "assistant" and take the
            NEXT shell token as a candidate app name. Accept it ONLY if it matches
            r'^[a-z][a-z_-]*$' AND appears in the known-app list from
-           ./bin/llm inventory --stdout (run once at script startup and cache the
-           result as a set). If the next token is a flag (starts with '-'), a
+           <REPO_ROOT>/bin/llm inventory --stdout (run once at script startup
+           using the absolute REPO_ROOT path; exit non-zero with an error
+           message on stderr if the call fails or returns empty output — do
+           NOT proceed with an empty known-app set; cache the result as a
+           set). If the next token is a flag (starts with '-'), a
            shell operator (&&, ;, |, ||), or is absent, or is not in the
            known-app set, DISCARD the entire invocation — do not count it as
            "assistant" or as anything else. Shift subcommand capture by one
@@ -390,21 +441,38 @@ stages:
          Aggregate top_subcommands: for each (cli, subcommand) pair, count sessions
          and calls; report top-20 by calls.
 
-      The script writes its output to intent-sequences-raw.json in the workspace
-      directory. After running the script, read that file and write intent-sequences.json.
+      The script writes its output to WORKSPACE/intent-sequences-raw.json (absolute
+      path — never a bare filename while cwd is REPO_ROOT). After running the script,
+      read WORKSPACE/intent-sequences-raw.json and write WORKSPACE/intent-sequences.json.
 
       SECONDARY SOURCES (keep both; they complement tool-call mining):
 
-      (a) Prompt-text regex — scan prompt-corpus.json "prompts" for prompts whose
-      text mentions ./bin/ CLIs directly. Apply the same regex as the primary
-      source. Treat these as additional signal — a prompt that names a CLI is
-      higher-intent than one where only the agent ran it. For each pair found
-      here, union its session and span identity sets with those from the primary
-      source (do NOT add counts — a session present in both the primary and
-      secondary sets must be counted once, not twice). After unioning, recompute
-      sessions = len(union_session_set) and spans = len(union_span_set).
-      Include the pair in cli_sequences if its post-union sessions count meets
-      the freq threshold.
+      (a) Prompt-text regex — scan WORKSPACE/prompt-corpus.json "prompts" (use the
+      absolute path — cwd is REPO_ROOT) for prompts whose text mentions repo CLIs (./bin/<name> or an absolute repo-root bin/<name>)
+      directly. Apply the same regex AND the same full dispatcher normalisation
+      pipeline as the primary source (steps 3–4 above): the primary regex, the
+      desk special case, the assistant-dispatcher normalisation, and the known-app
+      validation set built from REPO_ROOT/bin/llm inventory --stdout. Do NOT apply
+      only the regex and skip normalisation — the secondary scan must produce the
+      same CLI name set as the primary source would for the same text. Specifically:
+        - "./bin/assistant resume export" must yield "resume", not "assistant"
+        - "./bin/assistant" with no valid next token must be discarded
+        - "assistant" must never appear in any prompt_text_pairs entry
+        - the desk regex must still match PYTHONPATH=... python3 ... -m desk forms
+      Treat these as a SEPARATE higher-intent signal — a prompt that names a CLI
+      is higher-intent than one where only the agent ran it.
+      Do NOT union these pairs into cli_sequences: span identity is
+      (session_id, file_path, opening_line_number), but prompt-corpus.json
+      carries only session_id and prompt_index, so the two sources cannot be
+      unioned without double-counting or collapsing distinct spans. Instead,
+      report them in a separate "prompt_text_pairs" list, counting sessions
+      by session_id only (deduplicated). Include every pair whose session count
+      meets the freq threshold, with:
+        sequence: sorted list of the two CLI names
+        sessions: count of distinct session_ids where this prompt-text pair appears
+        example: the first matching prompt text (first 150 chars, redacted)
+      Do NOT merge prompt_text_pairs entries into cli_sequences or modify
+      cli_sequences counts based on this secondary source.
 
       (b) Manual-workflow signals — scan all prompt text for:
         Keywords: "every time", "keep having to", "always need to", "i always",
@@ -420,6 +488,13 @@ stages:
               "freq": N,
               "spans": N,
               "example": "first 150 chars of opening user message of first matching span"
+            }
+          ],
+          "prompt_text_pairs": [
+            {
+              "sequence": ["mail", "workflow"],
+              "sessions": N,
+              "example": "first 150 chars of the first matching prompt text"
             }
           ],
           "cli_usage": [
@@ -475,11 +550,20 @@ stages:
     description: >
       Identify concrete gaps in the CLI surface and score each by ROI.
 
-      Sources to read:
-        domain-map.json        — domain coverage and cluster assignments
-        intent-sequences.json  — CLI co-occurrence and manual-workflow signals
-        prompt-corpus.json     — full prompt text for intent analysis
-        efficiency-scores.json — per-session cache/cost metrics and the top-10
+      Sources to read (all from WORKSPACE, the absolute <workspace>/outputs/
+      directory named in this prompt's "Output Files" section — the engine
+      places every declared artifact there, not directly under <workspace>/;
+      never rely on cwd to resolve these):
+        WORKSPACE/domain-map.json        — domain coverage and cluster assignments
+        WORKSPACE/intent-sequences.json  — CLI co-occurrence (cli_sequences from Bash
+                                 tool_use mining) and manual-workflow signals;
+                                 also contains prompt_text_pairs (a separate
+                                 higher-intent secondary signal: CLI pairs
+                                 mentioned directly in prompt text, counted by
+                                 session_id only — do NOT union with cli_sequences;
+                                 Step 3 consumes it on its own path)
+        WORKSPACE/prompt-corpus.json     — full prompt text for intent analysis
+        WORKSPACE/efficiency-scores.json — per-session cache/cost metrics and the top-10
                                  expensive prompts. Context only; it does NOT
                                  carry a per-session avg_tool_calls_after field.
                                  ROI scoring reads tool_calls_after directly
@@ -487,13 +571,25 @@ stages:
                                  the prompts belonging to each gap.
 
       Step 1 — subcommand gap detection:
-        For each domain in domain-map.json with at least one mapped cluster:
+        First, resolve the repo root by running `git rev-parse --show-toplevel`
+        and store it as REPO_ROOT. Store the <workspace>/outputs/ directory
+        (see above) as WORKSPACE. All repo CLI calls in this stage use
+        <REPO_ROOT>/bin/<cli> — never ./bin/<cli>, because the agent's working
+        directory may not be the repo root. All workspace file reads and writes
+        in this stage use the absolute path WORKSPACE/<filename>; never rely on
+        cwd to resolve workspace files.
+        For each domain in WORKSPACE/domain-map.json with at least one mapped cluster:
           Skip any domain whose cli_bin is null (e.g. "core") — these are
           shared-library domains with no CLI entry point. Do not attempt to run
-          ./bin/<None> or invent a CLI path for them; move on to the next domain.
-          Run: ./bin/<cli> --agentic --agentic-format yaml --agentic-compact
+          <REPO_ROOT>/bin/<None> or invent a CLI path for them; move on to the next domain.
+          cli_bin is the full invocation relative to the repo root, bin/ prefix
+          and any dispatcher argument included (e.g. "bin/mail",
+          "bin/assistant resume"), so the runnable command is
+          <REPO_ROOT>/<cli_bin> — never <REPO_ROOT>/bin/<cli_bin>, which yields
+          bin/bin/mail. Below, <cli> means cli_bin with "bin/" removed.
+          Run: <REPO_ROOT>/<cli_bin> --agentic --agentic-format yaml --agentic-compact
           Parse the YAML output to extract existing subcommand names.
-          If the CLI has no agentic schema, fall back to: ./bin/<cli> --help
+          If the CLI has no agentic schema, fall back to: <REPO_ROOT>/<cli_bin> --help
           Read the domain's example_prompts from domain-map.json:
             domain-map.json stores example_prompts at the DOMAIN level
             (domains[].example_prompts) — not per cluster. Clusters under a
@@ -521,8 +617,8 @@ stages:
         When the intent spans sources, set type "workflow" instead of proposing a
         subcommand. Record:
           - the sources involved and, for each, the EXISTING command that already
-            covers it (probe them: ./bin/<cli> --agentic --agentic-format yaml
-            --agentic-compact, or --help)
+            covers it (probe them: <REPO_ROOT>/bin/<cli> --agentic --agentic-format yaml
+            --agentic-compact, or <REPO_ROOT>/bin/<cli> --help)
           - estimated_new_cli_code: how many lines of NEW CLI code are actually
             required, which is usually 0 when every source already has a command
           - a note that synthesize-workflow-from-telemetry.yaml is the right tool
@@ -532,18 +628,20 @@ stages:
         as a 90-line `mail messages scan-receipts` subcommand, but receipts
         arrive from mail, WhatsApp, and the local filesystem. Mail and WhatsApp
         are already covered by four separate existing commands —
-        `./bin/mail messages search`, `./bin/mail messages list-attachments`,
-        `./bin/mail messages download-attachment`, and `./bin/whatsapp search` —
+        `<REPO_ROOT>/bin/mail messages search`,
+        `<REPO_ROOT>/bin/mail messages list-attachments`,
+        `<REPO_ROOT>/bin/mail messages download-attachment`, and
+        `<REPO_ROOT>/bin/whatsapp search` —
         and the filesystem needs only a directory scan, no CLI at all. So the
         correct deliverable was a workflow with 0 lines of new CLI code.
         Record each of those as its OWN sources entry; never collapse several
         commands into one slash-joined string (see the format rule in Step 4).
 
         This test must run here, on every Step 1 candidate. Step 3 carries a
-        similar check but is driven by intent-sequences.json cli_sequences,
-        which is now sourced from Bash tool_use records rather than prompt text
-        and carries real signal — so run the MULTI-SOURCE TEST in Step 3 as well;
-        do not skip it under the assumption cli_sequences will be empty.
+        similar check but is driven by intent-sequences.json cli_sequences
+        (sourced from Bash tool_use records, so it carries real signal) and
+        prompt_text_pairs — so run the MULTI-SOURCE TEST in Step 3 as well;
+        do not skip it under the assumption either list will be empty.
 
       Step 2 — new domain candidates:
         For each cluster in domain-map.json "cluster_detail" where
@@ -563,6 +661,19 @@ stages:
           synthesize-workflow-from-telemetry.yaml is the correct tool — do not
           propose CLI surface to cover a workflow-shaped need.
           Set impl_complexity = "medium" (new subcommand) or "high" (new domain).
+          Record signal_source "tool_calls" and prompt_freq = the sequence's freq.
+
+        Then, SEPARATELY, for each entry in intent-sequences.json
+        prompt_text_pairs with sessions >= 3 — the higher-intent signal of a
+        user naming both CLIs in one prompt. Never add its sessions to a
+        cli_sequences freq; the two sources count different units (sessions vs
+        spans) and cannot be summed:
+          - If the same sorted sequence already produced a candidate above,
+            do not create a second one. Annotate the existing entry with
+            prompt_text_sessions = sessions, leaving its prompt_freq unchanged.
+          - Otherwise create a candidate exactly as above (same workflow-vs-CLI
+            judgement and MULTI-SOURCE TEST), with signal_source "prompt_text"
+            and prompt_freq = sessions.
 
       Step 4 — ROI scoring.
 
@@ -666,10 +777,10 @@ stages:
               "type": "workflow",
               "rationale": "intent spans mail + whatsapp + filesystem",
               "sources": [
-                {"source": "mail", "existing_command": "./bin/mail messages search"},
-                {"source": "mail", "existing_command": "./bin/mail messages list-attachments"},
-                {"source": "mail", "existing_command": "./bin/mail messages download-attachment"},
-                {"source": "whatsapp", "existing_command": "./bin/whatsapp search"},
+                {"source": "mail", "existing_command": "<REPO_ROOT>/bin/mail messages search"},
+                {"source": "mail", "existing_command": "<REPO_ROOT>/bin/mail messages list-attachments"},
+                {"source": "mail", "existing_command": "<REPO_ROOT>/bin/mail messages download-attachment"},
+                {"source": "whatsapp", "existing_command": "<REPO_ROOT>/bin/whatsapp search"},
                 {"source": "filesystem", "existing_command": null, "note": "no CLI — plain directory scan of the usual download dirs"}
               ],
               "example_prompts": ["..."],
@@ -690,9 +801,15 @@ stages:
       commas: the validation stage probes each existing_command by appending
       --help to it, and a joined string is not a command, so it cannot be probed
       and will fail. Probe with --help rather than running the command as
-      written — many subcommands require arguments (./bin/mail messages
+      written — many subcommands require arguments (<REPO_ROOT>/bin/mail messages
       list-attachments needs --id and exits 2 without it), so a verbatim run
       would report a real command as broken.
+      Record every existing_command with the repo root EXPANDED to the literal
+      absolute path you resolved (e.g. /abs/path/to/repo/bin/mail messages
+      search) — never ./bin/<cli> and never the unexpanded <REPO_ROOT>
+      placeholder. The validation stage may run each probe outside the repo
+      root, so a relative ./bin/ path can fail there and falsely report a
+      real command as missing.
       A source needing three commands gets three entries, all with the same
       "source" value. A source with no CLI at all (a plain filesystem scan) sets
       existing_command to null and explains in "note" — do not invent a command
@@ -744,7 +861,11 @@ stages:
       src/core/cli_framework.py to confirm the current base-class contract
       rather than assuming it from the patterns doc.
 
-      Step 2 — read gap-analysis.json. Take:
+      Step 2 — store the absolute <workspace>/outputs/ directory named in this
+      prompt's "Output Files" section as WORKSPACE; the engine places every
+      declared artifact there, not directly under <workspace>/, so take the path
+      from the prompt rather than from cwd. Read WORKSPACE/gap-analysis.json
+      (use the absolute path). Take:
         - Top 5 entries from subcommand_gaps by roi_score
         - Top 3 entries from new_domain_candidates by roi_score
         - ALL entries from workflow_candidates (there are usually few, and each
@@ -787,12 +908,17 @@ stages:
       function_signature null, and estimated_lines 0. In pseudocode, write the
       stage outline: the fan-out over each source naming the EXISTING command
       that covers it, then how results are joined, deduped, and organized.
-      Verify each named command really exists before writing it — probe with
-      ./bin/<cli> --agentic --agentic-format yaml --agentic-compact or --help.
+      Verify each named command really exists before writing it — resolve the
+      repo root first (`git rev-parse --show-toplevel`) and probe with
+      <REPO_ROOT>/bin/<cli> --agentic --agentic-format yaml --agentic-compact
+      or <REPO_ROOT>/bin/<cli> --help (see <REPO_ROOT>/bin/llm inventory
+      --stdout for the three apps whose invocation differs).
+      Write every command in the sketch with the repo root expanded to its
+      literal absolute path, per the existing_command FORMAT rule in gap-analysis.
       Name workflows/code/synthesize-workflow-from-telemetry.yaml as the tool to
       author it. Do not invent a src/ path for these; there is no code to write.
 
-      Write sketches.json:
+      Write WORKSPACE/sketches.json (use the absolute path — never a bare filename):
         {
           "generated_at": "<ISO-8601>",
           "sketches": [
@@ -815,6 +941,7 @@ stages:
       role: doc-writer
       model: sonnet
       tools:
+        - Bash
         - Read
         - Glob
         - Write
