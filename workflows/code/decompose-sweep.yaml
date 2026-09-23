@@ -761,7 +761,7 @@ stages:
       time. Escalate to code-writer-opus if either check is still failing.
 
       Step 1 — full test suite. Use make test, never a bare
-        `python3 -m unittest`: an inherited PYTHONPATH resolves packages to a
+        unittest run: an inherited PYTHONPATH resolves packages to a
         DIFFERENT checkout, so the suite passes against unmodified code.
           make test > /tmp/decompose-recheck.log 2>&1 \
             && grep -qE "^Ran [0-9]+ tests" /tmp/decompose-recheck.log \

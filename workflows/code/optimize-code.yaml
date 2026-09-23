@@ -212,7 +212,7 @@ stages:
         bin/ruff-resolve.sh check {source_root} {test_path}
         make test
 
-      Use `make test`, not a bare `python3 -m unittest` and not pytest: this
+      Use `make test`, not a bare unittest run and not pytest: this
       repo has no pytest, and a bare unittest run in a worktree resolves
       imports against the main checkout via an inherited PYTHONPATH, producing
       a false green. `make test` pins PYTHONPATH to this checkout.

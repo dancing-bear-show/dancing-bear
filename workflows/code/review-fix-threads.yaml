@@ -1107,7 +1107,7 @@ stages:
 
       Step 1 — full test suite:
         {test_cmd}
-      Use `make test` rather than a bare `python3 -m unittest`: in a worktree an
+      Use `make test` rather than a bare unittest run: in a worktree an
       inherited PYTHONPATH resolves imports to the main checkout, and the suite
       passes against code you did not change. That false green is
       indistinguishable from a real one.

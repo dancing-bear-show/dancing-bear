@@ -497,7 +497,7 @@ stages:
       Confirm the test suite still passes after every facade removal.
 
       CRITICAL — always use `make test` or an explicit PYTHONPATH. A bare
-      `python3 -m unittest` in a worktree can resolve mail/core/worker to the
+      unittest run in a worktree can resolve mail/core/worker to the
       MAIN checkout's source via an inherited PYTHONPATH, producing a false
       green against unmodified code. That failure mode is invisible: the run
       looks identical to a real pass. Deleting a module is exactly the change

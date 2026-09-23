@@ -192,7 +192,7 @@ stages:
       Read {workspace}/validation/qlty-results.json.
       For each issue with severity MAJOR or CRITICAL on changed files:
         - Apply the fix (Edit tool).
-        - Re-run the relevant test: python3 -m unittest <test_file> -v
+        - Re-run the relevant test: PYTHONPATH="$PWD/src" python3 -m unittest <test_file> -v
         - Confirm green before moving to the next.
 
       Push fixes:
