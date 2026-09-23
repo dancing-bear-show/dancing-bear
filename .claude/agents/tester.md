@@ -44,7 +44,7 @@ make test
 make cov
 ```
 
-Never bare `python3 -m unittest` / `coverage run -m unittest`. In a worktree an
+Never a bare unittest or `coverage run` of unittest. In a worktree an
 inherited PYTHONPATH resolves imports to the **main checkout**, so your new tests
 run against unmodified code and pass. That false green looks identical to a real
 one, and only turns red once a newly added module is imported by name.

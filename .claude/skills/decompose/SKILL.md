@@ -110,7 +110,7 @@ Rules:
        grep -rnE "<domain>[./]<module>" src/ tests/ bin/ .llm/ workflows/ concerns/ docs/ README.md
 4. Each new file must be independently runnable (no circular deps).
 5. Verify with `make test` (pins PYTHONPATH to this checkout). NEVER run bare
-   `python3 -m unittest` — an inherited PYTHONPATH silently resolves imports to
+   unittest — an inherited PYTHONPATH silently resolves imports to
    the MAIN checkout and produces a false green. Fallback:
        PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests -t .
 6. Do not rename test classes (preserves git blame).
@@ -166,7 +166,7 @@ Use the same style in all rewritten import sites and generated code — no relat
 # Confirm imports resolve to THIS checkout, not the main one
 make check-env
 
-# Full suite — never bare `python3 -m unittest` (false greens in a worktree)
+# Full suite — never a bare unittest run (false greens in a worktree)
 make test
 
 # Lint with the ruff build CI enforces (there is no bare `ruff` on PATH)
@@ -224,7 +224,7 @@ For multi-file decomposition, spawn one `code-writer` agent per file in a single
 - **Missing non-Python references**: `mock.patch()` target strings, `concerns/*.md` "when loaded" triggers, and README module lists break silently — tests stay green while the concerns guide stops firing
 - **Duplicating code**: shared helpers go into one submodule, not copied into each
 - **Duplicating test bodies**: when splitting a test file, each test must live in exactly one file — copying full method bodies into several files makes them run twice
-- **False-green verification**: bare `python3 -m unittest` in a worktree resolves to the main checkout — a missing tool or an unscanned tree is not a pass. (The `qlty check` half of this trap is fixed; worktrees now scan.)
+- **False-green verification**: a bare unittest run in a worktree resolves to the main checkout — a missing tool or an unscanned tree is not a pass. (The `qlty check` half of this trap is fixed; worktrees now scan.)
 - **Losing coverage**: run the test suite before and after; coverage must not drop
 - **Renaming test classes**: keep class names identical in the new files (preserves git blame)
 - **Touching bin/\***: entry point wrappers are public API — never move or rename them
