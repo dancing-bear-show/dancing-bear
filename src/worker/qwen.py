@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import posixpath
 import re
 import stat
 import time
@@ -72,21 +73,44 @@ class QwenGuardError(Exception):
     """Raised by a guard that rejects a job; str(exc) is the outcome string."""
 
 
+class QwenTransientError(Exception):
+    """A retryable transport failure (connection refused, timeout, HTTP 5xx,
+    malformed response body).
+
+    Deliberately distinct from QwenGuardError: str(exc) here is NOT an outcome
+    string. It becomes a plain (unprefixed) failure per contract.retry_map, so
+    job_runtime's normal attempts/backoff loop handles it rather than the
+    terminal/deferred fast paths.
+    """
+
+
+TRANSIENT_OUTCOME_PREFIX = "ollama-request-failed"
+
+
 def _repo_root() -> Path:
     return get_repo_root()
 
 
 def _is_denied_name(path: Path) -> bool:
-    name = path.name
+    """Denylist match on the file name, case-insensitively.
+
+    macOS volumes are case-insensitive by default, so Credentials.ini and
+    cert.PEM open the same bytes as their lowercase forms.
+    """
+    name = path.name.casefold()
     if name in DENYLIST_NAMES:
         return True
     if any(name.endswith(suf) for suf in DENYLIST_SUFFIXES):
         return True
-    if "token" in name.lower() and name.lower().endswith(".json"):
+    if "token" in name and name.endswith(".json"):
         return True
     if name.startswith(".env"):
         return True
     return False
+
+
+def _has_git_segment(path: Path) -> bool:
+    return any(part.casefold() == ".git" for part in path.parts)
 
 
 def _is_within_allowlist(resolved: Path, root: Path) -> bool:
@@ -128,7 +152,7 @@ def _check_confined_file_stat(raw: str, real: Path) -> None:
 def _validate_one_input_file(raw: str, root: Path) -> Path:
     """Resolve and validate a single payload.files entry. See resolve_input_files."""
     real = _resolve_real_path(raw, root)
-    if ".git" in real.parts:
+    if _has_git_segment(real):
         raise QwenGuardError(f"terminal-path-not-allowed: {raw}")
     if _is_denied_name(real):
         raise QwenGuardError(f"terminal-path-not-allowed: {raw}")
@@ -181,12 +205,27 @@ def _ollama_request(url: str, body: dict[str, object], timeout: float) -> dict[s
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 - fixed local ollama endpoint, not user-controlled
-            raw = resp.read().decode("utf-8")
-            return dict(json.loads(raw))
+            raw = resp.read()
     except urllib.error.HTTPError as exc:
         raise QwenGuardError(f"http-error-{exc.code}") from exc
     except urllib.error.URLError as exc:
         raise ConnectionError(str(exc.reason)) from exc
+    return _parse_json_object(raw)
+
+
+def _parse_json_object(raw: bytes) -> dict[str, object]:
+    """Decode a response body that must be a JSON object.
+
+    A truncated or non-JSON body (a proxy error page, a connection cut
+    mid-response) is transient: the same request can succeed next time.
+    """
+    try:
+        parsed = json.loads(raw.decode("utf-8"))
+    except ValueError as exc:  # JSONDecodeError and UnicodeDecodeError are both ValueError
+        raise QwenTransientError("malformed response body") from exc
+    if not isinstance(parsed, dict):
+        raise QwenTransientError("response body is not a JSON object")
+    return parsed
 
 
 def _ollama_tags(host: str, timeout: float) -> dict[str, object]:
@@ -202,10 +241,10 @@ def _ollama_tags(host: str, timeout: float) -> dict[str, object]:
     req = urllib.request.Request(f"{host}/api/tags", method="GET")  # noqa: S310 - fixed local ollama endpoint
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 - fixed local ollama endpoint, not user-controlled
-            raw = resp.read().decode("utf-8")
-            return dict(json.loads(raw))
-    except urllib.error.URLError as exc:
+            raw = resp.read()
+    except urllib.error.URLError as exc:  # HTTPError is a URLError subclass
         raise ConnectionError(str(exc.reason)) from exc
+    return _parse_json_object(raw)
 
 
 def _model_digest(host: str, model: str) -> str | None:
@@ -402,14 +441,53 @@ def extract_diff(response_text: str) -> str | None:
     return None
 
 
+def _strip_ab_prefix(target: str) -> str:
+    return target[2:] if target.startswith(("a/", "b/")) else target
+
+
+def _unquote_path(target: str) -> str:
+    """Drop the double quotes git puts around a path holding special characters."""
+    if len(target) >= 2 and target[0] == target[-1] == '"':
+        return target[1:-1]
+    return target
+
+
 def _parse_diff_header_target(line: str) -> str | None:
-    """Parse a +++/--- header line into a bare target path, or None for /dev/null."""
-    target = line[4:].strip()
+    """Parse a +++/--- header line into a bare target path, or None for /dev/null.
+
+    A traditional diff may append a tab and a timestamp after the path.
+    """
+    target = _unquote_path(line[4:].split("\t", 1)[0].strip())
     if target == "/dev/null":
         return None
-    if target.startswith(("a/", "b/")):
-        target = target[2:]
-    return target or None
+    return _strip_ab_prefix(target) or None
+
+
+_RENAME_COPY_PREFIXES = ("rename from ", "rename to ", "copy from ", "copy to ")
+
+
+def _extended_header_targets(line: str) -> list[str]:
+    """Paths named by git's extended headers, which a pure rename or copy
+    carries with no ---/+++ lines at all."""
+    for prefix in _RENAME_COPY_PREFIXES:
+        if line.startswith(prefix):
+            return [_unquote_path(line[len(prefix):].strip())]
+    if line.startswith("diff --git "):
+        rest = line[len("diff --git "):].strip()
+        left, sep, right = rest.partition(" b/")
+        if sep:
+            return [_strip_ab_prefix(_unquote_path(left)), _unquote_path(right)]
+    return []
+
+
+def _header_targets(line: str) -> list[str] | None:
+    """Return the paths a diff header line names, or None when line is not a header."""
+    if line.startswith(("+++ ", "--- ")):
+        target = _parse_diff_header_target(line)
+        return [target] if target else []
+    if line.startswith(("diff --git ", *_RENAME_COPY_PREFIXES)):
+        return _extended_header_targets(line)
+    return None
 
 
 def diff_stats(patch_text: str) -> tuple[list[str], int]:
@@ -417,13 +495,38 @@ def diff_stats(patch_text: str) -> tuple[list[str], int]:
     paths: list[str] = []
     lines_changed = 0
     for line in patch_text.splitlines():
-        if line.startswith("+++ ") or line.startswith("--- "):
-            target = _parse_diff_header_target(line)
-            if target and target not in paths:
-                paths.append(target)
-        elif line.startswith(("+", "-")) and not line.startswith(("+++", "---")):
+        targets = _header_targets(line)
+        if targets is not None:
+            paths.extend(t for t in targets if t and t not in paths)
+        elif line.startswith(("+", "-")):
             lines_changed += 1
     return paths, lines_changed
+
+
+def _normalise_patch_target(target: str) -> str | None:
+    """Return target as a normalised, casefolded repo-relative path.
+
+    Returns None when the path is absolute or escapes the repo root. The
+    comparison is casefolded because git apply on a case-insensitive volume
+    writes Bin/qwen straight onto bin/qwen; ./ and inner .. segments are
+    collapsed so ./bin/x and src/../bin/x cannot slip past a prefix check.
+    """
+    slashed = target.replace("\\", "/")
+    if slashed.startswith("/"):
+        return None
+    norm = posixpath.normpath(slashed)
+    if norm == ".." or norm.startswith("../"):
+        return None
+    return norm.casefold()
+
+
+def _is_denied_patch_target(target: str) -> bool:
+    norm = _normalise_patch_target(target)
+    if norm is None:
+        return True
+    if ".git" in norm.split("/"):
+        return True
+    return any(f"{norm}/".startswith(prefix) for prefix in DENIED_PATCH_PREFIXES)
 
 
 def check_patch_caps(patch_text: str) -> str | None:
@@ -431,18 +534,15 @@ def check_patch_caps(patch_text: str) -> str | None:
 
     Returns None when the patch is within caps, else the exact terminal
     outcome string. git apply --check happily validates a patch that
-    rewrites a denied path, so this is parsed independently.
+    rewrites a denied path, so this is parsed independently. Denied
+    prefixes are matched after normalisation and case folding, and any
+    path with a .git segment is denied as well.
     """
     paths, lines_changed = diff_stats(patch_text)
     if len(paths) > THRESHOLDS.max_files or lines_changed > THRESHOLDS.max_lines:
         return "terminal-patch-too-broad"
-    for target in paths:
-        if any(target.startswith(prefix) for prefix in DENIED_PATCH_PREFIXES):
-            return "terminal-patch-too-broad"
-        if Path(target).is_absolute():
-            return "terminal-patch-too-broad"
-        if ".." in Path(target).parts:
-            return "terminal-patch-too-broad"
+    if any(_is_denied_patch_target(target) for target in paths):
+        return "terminal-patch-too-broad"
     return None
 
 
@@ -514,18 +614,29 @@ def _lock_verdict(holder: _LockHolder, now: float) -> str:
 
 
 def _try_acquire_lock(lock_path: Path) -> bool:
-    """Attempt an atomic O_EXCL create of lock_path holding {pid, started_at}."""
+    """Atomically create lock_path holding {pid, started_at}; False if it already exists.
+
+    The payload is written to a private temp file first and then hard-linked
+    into place. os.link fails with FileExistsError exactly as O_EXCL does,
+    but the lock never exists in an empty, half-written state: an O_EXCL
+    create followed by a separate write left a window in which a second
+    thread would read an empty lock, judge it corrupt, and reclaim a live one.
+    """
+    import tempfile
+
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps({"pid": os.getpid(), "started_at": time.time()}).encode("utf-8")
+    fd, tmp_name = tempfile.mkstemp(dir=str(lock_path.parent), prefix=".model.lock.")
     try:
-        fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError:
-        return False
-    try:
-        os.write(fd, payload)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(payload)
+        try:
+            os.link(tmp_name, str(lock_path))
+        except FileExistsError:
+            return False
+        return True
     finally:
-        os.close(fd)
-    return True
+        os.unlink(tmp_name)
 
 
 def _reclaim_lock(lock_path: Path) -> bool:
@@ -664,11 +775,19 @@ def _deferral_limit_verdict(job_id: str, count: int) -> str | None:
 
 
 def _clear_deferral_state(job_id: str) -> None:
-    """Delete the deferral side-channel file on any terminal exit for this job id."""
+    """Delete the deferral side-channel file on any terminal exit for this job id.
+
+    Called after the job's outcome is decided, so a failure here is logged
+    and never changes that outcome.
+    """
+    if not job_id:
+        return
     try:
         _deferral_path(job_id).unlink()
     except FileNotFoundError:  # nosec B110 - nothing to clear, e.g. a job that never deferred
         pass
+    except OSError:
+        _log.warning("qwen: could not delete deferral state for %s", job_id, exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -676,12 +795,65 @@ def _clear_deferral_state(job_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _check_model_pin(host: str, model: str, recorded_digest: str | None) -> tuple[str | None, bool | None]:
-    """Return (running_digest, digest_matches_recorded). Never fails the job on mismatch."""
-    running_digest = _model_digest(host, model)
-    if recorded_digest is None or running_digest is None:
-        return running_digest, None
-    return running_digest, running_digest == recorded_digest
+def _recorded_digest_path() -> Path:
+    """Install-time digest record: a JSON object mapping model tag to its
+    /api/tags digest, e.g. {"qwen2.5-coder:14b": "9ec8...849"}. Written once
+    by the install step after the model is pulled; read on every job."""
+    return get_worker_state_dir("qwen") / "model_digest.json"
+
+
+def _load_recorded_digest(model: str) -> str | None:
+    """Return the install-time digest recorded for model, or None if none was recorded."""
+    path = _recorded_digest_path()
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError):
+        _log.warning("qwen: unreadable model digest record at %s; treating %s as unpinned", path, model)
+        return None
+    value = raw.get(model) if isinstance(raw, dict) else None
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _normalise_digest(digest: str) -> str:
+    return digest.strip().lower().removeprefix("sha256:")
+
+
+@dataclass(frozen=True)
+class ModelPin:
+    """Model identity check result.
+
+    status is "match", "mismatch", "unpinned" (no install-time digest was
+    recorded for this model) or "unverified" (the running digest could not
+    be read). Only match/mismatch set matches_recorded; the others leave it
+    None, per contract.result_schema.
+    """
+
+    running_digest: str | None
+    matches_recorded: bool | None
+    status: str
+
+
+def _check_model_pin(host: str, model: str) -> ModelPin:
+    """Compare the running model's digest with the install-time record.
+
+    Never fails the job (contract.model_pinning.on_mismatch). Every state
+    other than a match is logged at warning level, so an unpinned model is
+    visible rather than passing silently.
+    """
+    recorded = _load_recorded_digest(model)
+    running = _model_digest(host, model)
+    if recorded is None:
+        _log.warning("qwen: no install-time digest recorded for %s; model is unpinned", model)
+        return ModelPin(running, None, "unpinned")
+    if running is None:
+        _log.warning("qwen: could not read the running digest for %s; pin unverified", model)
+        return ModelPin(None, None, "unverified")
+    matches = _normalise_digest(running) == _normalise_digest(recorded)
+    if not matches:
+        _log.warning("qwen: model digest drift for %s: recorded %s, running %s", model, recorded, running)
+    return ModelPin(running, matches, "match" if matches else "mismatch")
 
 
 @dataclass(frozen=True)
@@ -832,16 +1004,6 @@ def _build_result(r: GenerationResult) -> dict[str, object]:
     }
 
 
-class QwenTransientError(Exception):
-    """A retryable transport failure (connection refused, timeout, HTTP 5xx).
-
-    Deliberately distinct from QwenGuardError: str(exc) here is NOT an outcome
-    string. It becomes a plain (unprefixed) failure per contract.retry_map, so
-    job_runtime's normal attempts/backoff loop handles it rather than the
-    terminal/deferred fast paths.
-    """
-
-
 def _call_ollama_generate(host: str, body: dict[str, object], timeout: float) -> dict[str, object]:
     """Call /api/generate and classify the failure per contract.retry_map.
 
@@ -850,23 +1012,13 @@ def _call_ollama_generate(host: str, body: dict[str, object], timeout: float) ->
     (refused, timeout) are transient and re-raised as QwenTransientError so
     the caller reports a plain, retryable failure.
 
-    _ollama_request is the documented module-level seam
-    (mock.patch("worker.qwen._ollama_request", ...)); tests patch it with
-    either a raw urllib.error.HTTPError/URLError/socket.timeout (matching
-    what urlopen itself raises) or with _ollama_request's own translated
-    QwenGuardError("http-error-<code>"). urllib.error.HTTPError is BOTH a
-    URLError and an OSError, so it must be classified by status code before
-    any bare `except OSError` branch, not caught generically as transient.
+    _ollama_request translates urlopen's errors before they reach here:
+    HTTPError becomes QwenGuardError("http-error-<code>") and URLError
+    becomes ConnectionError. A socket timeout during resp.read() escapes
+    as a bare TimeoutError, which the OSError branch covers.
     """
-    import urllib.error
-
     try:
         return _ollama_request(host, body, timeout)
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            raise QwenGuardError("terminal-model-not-found") from exc
-        # Any other HTTP status (5xx) is a server-side transient condition.
-        raise QwenTransientError(str(exc)) from exc
     except QwenGuardError as exc:
         if str(exc) == "http-error-404":
             raise QwenGuardError("terminal-model-not-found") from exc
@@ -956,10 +1108,12 @@ def _run_with_lock(
 
     Returns (diff, response) on success, or a string outcome: a
     "terminal-"/"deferred-" prefixed string from QwenGuardError, or a PLAIN
-    (unprefixed) string from QwenTransientError — connection-refused,
-    timeout, and HTTP 5xx are contract.retry_map "plain" outcomes, so
-    job_runtime's ordinary attempts/backoff loop must see them, not the
-    terminal/deferred fast paths.
+    string from QwenTransientError, prefixed TRANSIENT_OUTCOME_PREFIX —
+    connection-refused, timeout, and HTTP 5xx are contract.retry_map
+    "plain" outcomes, so job_runtime's ordinary attempts/backoff loop must
+    see them, not the terminal/deferred fast paths. The fixed prefix keeps
+    the outcome non-empty even when the exception message is. Masking
+    happens once, at handle_qwen_patch's boundary.
     """
     if not _acquire_model_lock(job_id):
         return "deferred-qwen-busy"
@@ -968,7 +1122,7 @@ def _run_with_lock(
     except QwenGuardError as exc:
         return str(exc)
     except QwenTransientError as exc:
-        return str(exc)
+        return f"{TRANSIENT_OUTCOME_PREFIX}: {exc}"
     finally:
         _release_model_lock(job_id)
 
@@ -984,12 +1138,16 @@ class _TelemetryEvent:
     end_ns: int
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
+    pin: ModelPin | None = None
 
 
-def _emit_telemetry(event: _TelemetryEvent) -> None:
-    # export_job_span is imported at module scope (not locally) specifically
-    # so mock.patch("worker.qwen.export_job_span", ...) — patch where the
-    # name is used, per house convention — actually intercepts this call.
+def _telemetry_attrs(event: _TelemetryEvent) -> dict[str, object]:
+    """Span attributes for event, every string value masked.
+
+    job_id, model and outcome can all carry payload- or model-derived text
+    (a transient outcome embeds the transport's error message), so the
+    masking is applied to the whole mapping rather than per field.
+    """
     attrs: dict[str, object] = {
         "qwen.job_id": event.identity.job_id,
         "qwen.job_type": JOB_TYPE,
@@ -1002,8 +1160,19 @@ def _emit_telemetry(event: _TelemetryEvent) -> None:
         attrs["qwen.prompt_tokens"] = event.prompt_tokens
     if event.completion_tokens is not None:
         attrs["qwen.completion_tokens"] = event.completion_tokens
+    if event.pin is not None:
+        attrs["qwen.model_pin"] = event.pin.status
+        attrs["qwen.model_digest"] = event.pin.running_digest
     attrs["qwen.generation_duration_ms"] = (event.end_ns - event.start_ns) // 1_000_000
+    return {key: mask_text(value) if isinstance(value, str) else value for key, value in attrs.items()}
+
+
+def _emit_telemetry(event: _TelemetryEvent) -> None:
+    # export_job_span is imported at module scope (not locally) specifically
+    # so mock.patch("worker.qwen.export_job_span", ...) — patch where the
+    # name is used, per house convention — actually intercepts this call.
     try:
+        attrs = _telemetry_attrs(event)
         export_job_span(attrs, event.start_ns, event.end_ns)
     except Exception:  # nosec B110 - contract.telemetry.failure_is_nonfatal: export must never affect job outcome, independent of export_job_span's own internal guard
         _log.debug("qwen: telemetry export raised (non-fatal)", exc_info=True)
@@ -1027,7 +1196,7 @@ def _finalize_success(
     """Write the patch, compute stats/pinning, emit telemetry, and build the success result."""
     patch_path = _write_patch_file(identity.job_id, diff)
     paths_touched, lines_changed = diff_stats(diff)
-    running_digest, digest_matches = _check_model_pin(host, identity.model, None)
+    pin = _check_model_pin(host, identity.model)
 
     prompt_tokens = response.get("prompt_eval_count")
     completion_tokens = response.get("eval_count")
@@ -1035,8 +1204,9 @@ def _finalize_success(
     completion_tokens = int(completion_tokens) if isinstance(completion_tokens, int) else None
     duration_ms = (end_ns - start_ns) // 1_000_000
 
-    _clear_deferral_state(identity.job_id)
-    _emit_telemetry(_TelemetryEvent(identity, "success", True, start_ns, end_ns, prompt_tokens, completion_tokens))
+    _emit_telemetry(
+        _TelemetryEvent(identity, "success", True, start_ns, end_ns, prompt_tokens, completion_tokens, pin)
+    )
 
     result = _build_result(
         GenerationResult(
@@ -1045,8 +1215,8 @@ def _finalize_success(
             files_touched=len(paths_touched),
             lines_changed=lines_changed,
             model=identity.model,
-            model_digest=running_digest,
-            digest_matches=digest_matches,
+            model_digest=pin.running_digest,
+            digest_matches=pin.matches_recorded,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             duration_ms=duration_ms,
@@ -1124,12 +1294,23 @@ def handle_qwen_patch(job: dict[str, object]) -> tuple[bool, object]:  # noqa - 
     that returns a masked, content-free string rather than letting a
     traceback (which could carry file content raised during prompt assembly)
     reach job_runtime's unmasked error path.
+
+    The boundary is also the single exit every outcome passes through, so
+    two rules are applied here once rather than at each return site: every
+    failure string is masked (job_runtime writes it to last_error verbatim),
+    and the deferral side-channel file is deleted on success and on every
+    terminal-* exit (contract.deferral_bound.cleanup).
     """
     raw_payload = job.get("payload")
     payload = dict(raw_payload) if isinstance(raw_payload, dict) else {}
     try:
-        return _run_guarded(job, payload)
+        ok, out = _run_guarded(job, payload)
     except QwenGuardError as exc:
-        return (False, mask_text(str(exc)))
-    except Exception as exc:  # nosec B110 - exception boundary: convert to a masked, content-free terminal string per contract.redaction.exception_boundary
-        return (False, f"terminal-internal-error: {mask_text(type(exc).__name__)}")
+        ok, out = False, str(exc)
+    except Exception as exc:  # nosec B110 - exception boundary: convert to a content-free terminal string per contract.redaction.exception_boundary
+        ok, out = False, f"terminal-internal-error: {type(exc).__name__}"
+    if not ok:
+        out = mask_text(str(out))
+    if ok or str(out).startswith("terminal-"):
+        _clear_deferral_state(str(job.get("id") or ""))
+    return ok, out
