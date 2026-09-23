@@ -56,6 +56,20 @@ query($owner: String!, $name: String!, $pr: Int!, $after: String) {{
 }}
 """
 
+THREAD_STATE_QUERY = f"""
+query($owner: String!, $name: String!, $pr: Int!, $after: String) {{
+  repository(owner: $owner, name: $name) {{
+    pullRequest(number: $pr) {{
+      reviewThreads(first: {THREAD_PAGE}, after: $after) {{
+        totalCount
+        pageInfo {{ hasNextPage endCursor }}
+        nodes {{ id isResolved }}
+      }}
+    }}
+  }}
+}}
+"""
+
 THREAD_COMMENTS_QUERY = f"""
 query($id: ID!, $after: String) {{
   node(id: $id) {{
@@ -168,6 +182,38 @@ def fetch_raw_threads(gh: GhCLI, owner: str, repo: str, pr: int) -> tuple[list[d
         if len(nodes) != int(comments.get("totalCount") or len(nodes)):
             truncated = True
         node["comments"] = {"totalCount": comments.get("totalCount"), "nodes": nodes}
+    return threads, truncated
+
+
+def fetch_thread_states(gh: GhCLI, owner: str, repo: str, pr: int) -> tuple[list[dict[str, Any]], bool]:
+    """Return every thread's ``id``/``isResolved``, without fetching any comments.
+
+    Same pagination and truncation contract as ``fetch_raw_threads`` (paginate
+    the thread connection, flag ``truncated`` on a count mismatch), but the
+    query never requests a thread's comment connection, so there is no
+    per-thread comment pagination to perform. Callers that only need
+    resolution state — ``threads state``'s post-mutation verification — get an
+    O(pages-of-threads) fetch instead of an O(threads) one.
+    """
+    threads: list[dict[str, Any]] = []
+    truncated = False
+    cursor: str | None = None
+    reported_total = 0
+    for _ in range(MAX_PAGES):
+        data = gh.graphql_checked(
+            THREAD_STATE_QUERY, {"owner": owner, "name": repo, "pr": int(pr), "after": cursor},
+        )
+        conn = _dig(data, "repository", "pullRequest", "reviewThreads", what=f"PR #{pr} thread states")
+        threads.extend(conn.get("nodes") or [])
+        reported_total = int(conn.get("totalCount") or 0)
+        cursor = _next_cursor(conn.get("pageInfo"), cursor, f"PR #{pr} thread states")
+        if cursor is None:
+            break
+    else:
+        raise GhError(f"PR #{pr} thread states: exceeded {MAX_PAGES} pages")
+
+    if len(threads) != reported_total:
+        truncated = True
     return threads, truncated
 
 

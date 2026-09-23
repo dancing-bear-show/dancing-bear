@@ -27,6 +27,7 @@ from .threads import (
     build_threads_doc,
     fetch_review_threads,
     fetch_thread_comments,
+    fetch_thread_states,
     render_summary,
 )
 
@@ -38,6 +39,7 @@ __all__ = [
     "client",
     "fetch_review_threads",
     "fetch_thread_comments",
+    "fetch_thread_states",
     "forged_run_marker",
     "has_run_marker",
     "mark_body",

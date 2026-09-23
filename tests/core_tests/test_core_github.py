@@ -19,6 +19,7 @@ from core.github import (
     classify_author,
     fetch_review_threads,
     fetch_thread_comments,
+    fetch_thread_states,
     forged_run_marker,
     has_run_marker,
     mark_body,
@@ -208,6 +209,41 @@ class TestThreadPagination(unittest.TestCase):
         n = COMMENT_PAGE + 5
         gh = GhCLI(run_func=FakeGh(PagingGitHub([_thread(0, [comment_node(i) for i in range(n)])])))
         self.assertEqual(len(fetch_thread_comments(gh, "PRRT_0")), n)
+
+
+# ---------------------------------------------------------------------------
+# Lightweight thread-state query (id/isResolved only, no comments)
+# ---------------------------------------------------------------------------
+
+
+class TestFetchThreadStates(unittest.TestCase):
+    def test_paginates_and_never_requests_comments(self):
+        n = THREAD_PAGE + 12
+        threads = [{"id": f"PRRT_{i}", "isResolved": i % 2 == 0} for i in range(n)]
+
+        def handler(call: GhCall):
+            self.assertNotIn("comments", call.query, "state query must not fetch comments")
+            nodes, info = paged(threads, THREAD_PAGE, call.value("after"), "t")
+            conn = {"totalCount": len(threads), "pageInfo": info, "nodes": nodes}
+            return ok({"data": {"repository": {"pullRequest": {"reviewThreads": conn}}}})
+
+        fake = FakeGh(handler)
+        nodes, truncated = fetch_thread_states(GhCLI(run_func=fake), "o", "r", 1)
+        self.assertEqual([n["id"] for n in nodes], [t["id"] for t in threads])
+        self.assertEqual([n["isResolved"] for n in nodes], [t["isResolved"] for t in threads])
+        self.assertFalse(truncated)
+        self.assertEqual(len(fake.calls), 2)
+
+    def test_count_mismatch_is_reported_truncated_with_no_partial_claim(self):
+        def handler(call: GhCall):
+            conn = {"totalCount": 3, "pageInfo": {"hasNextPage": False, "endCursor": None},
+                    "nodes": [{"id": "PRRT_1", "isResolved": False}]}
+            return ok({"data": {"repository": {"pullRequest": {"reviewThreads": conn}}}})
+        nodes, truncated = fetch_thread_states(GhCLI(run_func=FakeGh(handler)), "o", "r", 1)
+        self.assertTrue(truncated)
+        # The mismatched fetch still returns what came back; callers (cmd_threads_state)
+        # are the ones that must refuse to report counts when truncated is True.
+        self.assertEqual(len(nodes), 1)
 
 
 # ---------------------------------------------------------------------------

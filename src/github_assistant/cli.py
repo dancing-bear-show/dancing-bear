@@ -303,9 +303,11 @@ def cmd_threads_resolve(args) -> int:
 def cmd_threads_state(args) -> int:
     gh = _gh()
     owner, name = resolve_owner_repo(gh, _repo(args))
-    # A dedicated GraphQL query would be faster, but a re-fetch is the same
-    # code path callers already trust and re-uses its verified pagination.
-    raw_threads, truncated = _threads_mod.fetch_raw_threads(gh, owner, name, int(args.pr))
+    # A lightweight id/isResolved-only query: this verification step doesn't
+    # need comment bodies, and fetch_raw_threads pages every thread's comments
+    # (up to 50 inline, more via follow-up queries), which turns a large PR's
+    # post-mutation check into an unnecessary N+1-style crawl.
+    raw_threads, truncated = _threads_mod.fetch_thread_states(gh, owner, name, int(args.pr))
     if truncated:
         # A count GitHub reported did not match what came back, so any number
         # here is unverified. Report null, never a partial count that would

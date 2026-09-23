@@ -145,7 +145,7 @@ stages:
               ./bin/github pr view --pr {pr_number} --value headRefOid
             If {pr_number} is blank (branch-detected PR), omit --pr:
               ./bin/github pr view --value headRefOid
-          owner_repo: ./bin/github repo --format json | python3 -c "import sys,json; print(json.load(sys.stdin)['nameWithOwner'])"
+          owner_repo: ./bin/github repo --format json | python3 -I -S -c "import sys,json; print(json.load(sys.stdin)['nameWithOwner'])"
         These fields are required by the post-comments stage for the GitHub API.
 
       Step 2 — changed files and raw diff:
@@ -991,15 +991,20 @@ stages:
         finding's file (use the first critical finding if any; otherwise first
         major; otherwise first minor).
 
-        Then post the comment body file using the GitHub CLI. The
-        post-comments mechanism reads pr-context.json (which carries
-        owner_repo and commit_id guaranteed by fetch-pr-context) and anchors the
-        comment to the first finding's file and line. commit_id must be the PR
-        head SHA from pr-context.json — never git rev-parse HEAD, which in CI
-        resolves to a synthetic merge commit that GitHub rejects with HTTP 422.
-
+        Then post the comment body file using the GitHub CLI:
+          ./bin/github pr review-comment --pr {pr_number} \
+            --path FIRST_FINDING_PATH --line FIRST_FINDING_LINE --side RIGHT \
+            --body-file /tmp/cr-summary-body.txt
         This posts one consolidated comment thread rather than N individual
-        threads, keeping the PR review tab readable.
+        threads, keeping the PR review tab readable. Do not re-implement this
+        with raw gh. `pr review-comment` reads owner_repo from the current
+        checkout by default (pass --repo to override), sends --line as a
+        number, reads the body only from the file, and defaults --commit to
+        the PR head SHA fetched from GitHub — never git rev-parse HEAD, which
+        in CI resolves to a synthetic merge commit that GitHub rejects with
+        HTTP 422. Anchor path/line to the first finding's file and line (the
+        first critical finding if any; otherwise first major; otherwise first
+        minor), matching Step 2's selection above.
 
       Step 3 — track results:
         Write {workspace}/outputs/post-results.json:
