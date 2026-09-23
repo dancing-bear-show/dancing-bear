@@ -678,14 +678,18 @@ class TestAggregateFixResults(_Aggregate):
         ))
         self.assertEqual(self._merged()["files_changed"], [])
 
-    def test_non_fixed_files_changed_is_still_honoured(self) -> None:
-        """Only tests_added is restricted to fixed results -- a non-fixed
-        result's own files_changed is unaffected here; an unexpected entry on
-        a rejected result is the unlisted-edit gate's job, not this one's."""
+    def test_non_fixed_files_changed_is_not_authorized(self) -> None:
+        """PR #406 round 5: check-unlisted subtracts this list from the dirty
+        set, so a path listed by a moot/rejected result could never be
+        reported as an unlisted edit. Only fixed results may authorize a
+        commit; an edit a non-fixed result really made stays unlisted and
+        fails the gate."""
         self._write_for(UNLINKED_A, _result(
-            UNLINKED_A, None, action="moot", files_changed=["src/a.py"],
+            UNLINKED_A, None, action="moot", files_changed=["src/sneaky.py"],
             tests_added=["tests/unrelated/test_untouched.py::T::test_y"],
         ))
+        self._write_for(UNLINKED_B, _result(UNLINKED_B, None, files_changed=["src/a.py"],
+                                            tests_added=[]))
         self.assertEqual(self._merged()["files_changed"], ["src/a.py"])
 
     def test_protected_test_path_reaches_the_check_paths_list(self) -> None:

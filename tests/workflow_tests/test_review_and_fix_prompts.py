@@ -120,5 +120,22 @@ class TestMergeFixWorktreesStatusExitCode(unittest.TestCase):
         self.assertIn("git status exited non-zero: <code>", self.prompt)
 
 
+class TestMergeFixWorktreesEmptyPathFallback(unittest.TestCase):
+    """PR #406 round 5: with no matching worktree WORKTREE_PATH is empty, and
+    running `git -C ""` status pre-empted the documented fallback."""
+
+    def setUp(self) -> None:
+        self.prompt = _flat(_prompts()["merge-fix-worktrees"])
+
+    def test_empty_path_is_checked_before_git_status(self) -> None:
+        guard = self.prompt.index('[ -n "$WORKTREE_PATH" ] && echo "MATCHED" || echo "NO-MATCH"')
+        status = self.prompt.index('git -C "$WORKTREE_PATH" status')
+        self.assertLess(guard, status)
+
+    def test_status_runs_only_on_a_match_and_no_match_takes_the_fallback(self) -> None:
+        self.assertIn('Only on MATCHED: Bash tool: git -C "$WORKTREE_PATH" status', self.prompt)
+        self.assertIn('On NO-MATCH — no worktree entry matches "refs/heads/<branch>"', self.prompt)
+
+
 if __name__ == "__main__":
     unittest.main()

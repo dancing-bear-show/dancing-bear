@@ -547,6 +547,13 @@ stages:
                           /^worktree /{w=substr($0,10)}
                           $0=="branch " ENVIRON["REF"]{print w; exit}
                         ' {workspace}/validation/worktree-list.txt)"
+           Branch on WORKTREE_PATH BEFORE running git status. If it is empty,
+           no worktree matched: go straight to the fallback below and do NOT
+           run the status command — `git -C ""` runs against the current
+           directory (or fails), and either way it pre-empts the fallback the
+           empty result is supposed to trigger.
+             Bash tool: [ -n "$WORKTREE_PATH" ] && echo "MATCHED" || echo "NO-MATCH"
+           Only on MATCHED:
              Bash tool: git -C "$WORKTREE_PATH" status --porcelain --untracked-files=all -- . ':!outputs' ':!stages' ':!inputs' ':!validation'
                         echo "EXIT=$?"
            Capture and check the exit code as well as the output: a non-zero
@@ -559,8 +566,8 @@ stages:
            fixer's self-reported list), or with detail
            "git status exited non-zero: <code>" when the exit was non-zero
            and stdout was empty.
-           If no worktree entry matches "refs/heads/<branch>" (already
-           removed), fall back to the fixer's "uncommitted_paths" field only as a
+           On NO-MATCH — no worktree entry matches "refs/heads/<branch>"
+           (already removed) — fall back to the fixer's "uncommitted_paths" field only as a
            last resort, and if it is ABSENT treat that the same as a
            non-empty list: an unverifiable worktree is not a clean one,
            so fail and record the branch under "uncommitted" with

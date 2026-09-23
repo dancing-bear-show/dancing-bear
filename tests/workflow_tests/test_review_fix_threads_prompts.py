@@ -175,7 +175,7 @@ class TestQltyPathsAreValidated(unittest.TestCase):
         prompt = _flat(_prompts()["verify-fixes"])
         self.assertIn("fix-results.json's files_changed", prompt)
         self.assertIn("check-paths", prompt)
-        self.assertIn("jq -r '.files_changed[]'", prompt)
+        self.assertIn("jq -e -r '.files_changed[]'", prompt)
         self.assertIn("outputs/fix-results.json", prompt)
 
     def test_qlty_loop_never_interpolates_a_path_into_shell_text(self) -> None:
@@ -214,22 +214,45 @@ class TestQltyLoopAccumulatesStatus(unittest.TestCase):
         )
 
     def test_the_complete_pass_runs_twice_over_every_path(self) -> None:
-        # Fixed form: the whole loop (all paths) repeats a second time with a
-        # fresh status reset, and findings/statuses from both runs are
-        # unioned -- not one run over one path, or one run over all paths.
+        # The whole loop (all paths) runs twice inside one status scope.
         self.assertIn(
             "Run the complete pass over every path TWICE and take the union",
             self.prompt,
         )
-        self.assertIn("Run that same loop a second time", self.prompt)
-        self.assertIn("a fresh `qlty_status=0` reset first", self.prompt)
+        self.assertIn("for pass in 1 2; do", self.prompt)
+
+    def test_status_is_not_reset_between_passes(self) -> None:
+        """PR #406 round 5: resetting qlty_status before pass two erased a
+        pass-one failure whenever pass two came back clean."""
+        self.assertEqual(self.prompt.count("qlty_status=0"), 1)
+        self.assertLess(self.prompt.index("qlty_status=0"), self.prompt.index("for pass in 1 2; do"))
+        self.assertNotIn("a fresh `qlty_status=0` reset first", self.prompt)
+        self.assertIn('echo "QLTY_STATUS=$qlty_status"', self.prompt)
 
     def test_lint_fail_is_set_from_either_pass_or_a_nonzero_status(self) -> None:
         self.assertIn(
-            'finding in either qlty pass, either `qlty_status` non-zero, or a '
-            'non-zero `make lint`, sets "lint": "fail"',
+            'finding in either qlty pass, a non-zero QLTY_STATUS, a failed or '
+            'empty path list, or a non-zero `make lint`, sets "lint": "fail"',
             self.prompt,
         )
+
+
+class TestQltyPathListMustBeNonEmpty(unittest.TestCase):
+    """PR #406 round 5: a failed jq left an empty path list, the loop checked
+    nothing, and exited 0 -- a green verification of zero files."""
+
+    def setUp(self) -> None:
+        self.prompt = _flat(_prompts()["verify-fixes"])
+
+    def test_jq_exit_and_path_count_are_checked(self) -> None:
+        self.assertIn("jq -e -r '.files_changed[]'", self.prompt)
+        self.assertIn('echo "JQ_EXIT=$?"', self.prompt)
+        self.assertIn("grep -c . ", self.prompt)
+
+    def test_empty_or_failed_list_is_a_lint_failure_not_a_pass(self) -> None:
+        self.assertIn("if JQ_EXIT is non-zero or the count is 0", self.prompt)
+        self.assertIn("do not run qlty", self.prompt)
+        self.assertNotIn("jq -r '.files_changed[]' ", self.prompt)
 
 
 if __name__ == "__main__":

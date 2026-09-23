@@ -1249,7 +1249,17 @@ stages:
       already ran through `./bin/workflow check-paths` before staging (Step
       3a) — and load it argv-safely, one path per line, never interpolated
       into shell text:
-        jq -r '.files_changed[]' {workspace}/outputs/fix-results.json > {workspace}/validation/qlty-paths.txt
+        jq -e -r '.files_changed[]' {workspace}/outputs/fix-results.json > {workspace}/validation/qlty-paths.txt
+        echo "JQ_EXIT=$?"
+        grep -c . {workspace}/validation/qlty-paths.txt
+      The path list must be proven non-empty before any loop runs. A jq
+      failure (missing or malformed file, no files_changed key) or an empty
+      list leaves the loop with nothing to check, and a loop that checks
+      nothing exits 0 — a green verification of zero files. So if JQ_EXIT is
+      non-zero or the count is 0, set "lint": "fail" with the reason in
+      lint_violations and do not run qlty; commit-and-push only reaches this
+      stage with a non-empty files_changed, so an empty list here is an
+      error, not a clean result.
       Run the complete pass over every path TWICE and take the union of the
       findings: qlty caps findings per run and the cap is nondeterministic, so
       one clean run proves nothing — and a single run over only some paths is
@@ -1258,14 +1268,19 @@ stages:
       the status of its LAST iteration, so without capturing each path's exit
       code, a finding in any file except the last is followed by a clean
       check on the last file and the loop as a whole reads as passing.
-      Capture and OR each path's status into a running variable instead:
+      Capture and OR each path's status into a running variable instead, and
+      set it ONCE, before both passes — never reset it between them, or a
+      failure in pass one is erased by a clean pass two:
         qlty_status=0
-        while IFS= read -r p; do
-          ~/.qlty/bin/qlty check "$p" || qlty_status=1
-        done < {workspace}/validation/qlty-paths.txt
-      Run that same loop a second time (a fresh `qlty_status=0` reset first)
-      and take the union of findings and statuses from both runs — a finding
-      reported in either run counts. `make lint` is ruff only; qlty adds
+        for pass in 1 2; do
+          while IFS= read -r p; do
+            ~/.qlty/bin/qlty check "$p" || qlty_status=1
+          done < {workspace}/validation/qlty-paths.txt
+        done
+        echo "QLTY_STATUS=$qlty_status"
+      Take the union of findings from both passes — a finding reported in
+      either pass counts — and QLTY_STATUS is non-zero if any path failed in
+      either pass. `make lint` is ruff only; qlty adds
       bandit and radarlint, which CI enforces, so skipping it passes a branch
       CI fails. qlty scans correctly from inside .claude/worktrees/ — the
       exclusion was narrowed to `**/.claude/worktrees/**` on 2026-08-27 — so
@@ -1273,7 +1288,7 @@ stages:
       path argument `qlty check` defaults to the files it considers changed,
       and prints "No issues" whether or not it scanned anything. There is no
       standalone `ruff` on PATH; a missing tool is not a passing lint. Any
-      finding in either qlty pass, either `qlty_status` non-zero, or a
+      finding in either qlty pass, a non-zero QLTY_STATUS, a failed or empty path list, or a
       non-zero `make lint`, sets "lint": "fail" and goes in lint_violations.
 
       Step 3 — coverage on new behaviour. Verify against the tree, not the
