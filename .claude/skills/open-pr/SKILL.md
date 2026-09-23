@@ -21,7 +21,7 @@ Delegates to `workflows/code/open-pr.yaml` via the `/workflow` skill.
 Derive the params from context before invoking:
 - `pr_title`: use the conventional-commit format — read recent commits with `git log origin/main..HEAD --oneline` to determine type and scope
 - `test_cmd`: check the project's test runner — use `PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/<domain>_tests/ -t . -q` scoped to the changed domain
-- `source_root`: the source directory being changed, e.g. `mail/`
+- `source_root`: the source directory being changed, e.g. `src/mail/`
 - `test_path`: the corresponding test directory, e.g. `tests/mail_tests/`
 - `min_coverage`: default `80` unless the project specifies otherwise
 - `auth_domains`: default `github,qlty`
@@ -40,7 +40,7 @@ Skill(skill="workflow", args="--workflow workflows/code/open-pr.yaml --params pr
 |-------|---------|-------------|
 | pr_title | "" | Required: conventional-commit title e.g. "feat(mail): add label sync" |
 | test_cmd | "" | Test suite command e.g. `PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/mail_tests/ -t . -q` |
-| source_root | "" | Source root for mypy + qlty scoping e.g. "mail/" |
+| source_root | "" | Source root for mypy + qlty scoping e.g. "src/mail/" |
 | test_path | "" | Test directory path e.g. "tests/mail_tests/" |
 | min_coverage | "80" | Minimum coverage threshold (percent) |
 | auth_domains | "github,qlty" | Comma-separated services for pre-flight auth check |

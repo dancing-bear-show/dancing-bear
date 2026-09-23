@@ -45,9 +45,9 @@ trigger:
     # this workflow to the single consolidated reviewer.
     pr_size: "large"
     pr_number: ""          # PR number (required; auto-detected from branch if blank)
-    test_cmd: ""           # e.g. "pytest tests/grafana/ -x -q"
-    source_root: ""        # e.g. "grafana/"
-    test_path: ""          # e.g. "tests/grafana/"
+    test_cmd: ""           # e.g. 'PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/mail_tests -t . -f -q'
+    source_root: ""        # e.g. "src/mail/"
+    test_path: ""          # e.g. "tests/mail_tests/"
     min_coverage: "80"     # coverage threshold (percent, no % sign)
     auth_domains: "github"
     skip_review: "false"   # set "true" to bypass Phase 1 if review already ran

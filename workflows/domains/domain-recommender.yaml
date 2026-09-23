@@ -761,7 +761,7 @@ stages:
           function_signature: the exact argparse subparser handler signature
             matching this repo's convention
           pseudocode: 3–5 lines describing core logic
-          test_file: tests/<domain>/test_<proposed_name>.py (or extend the
+          test_file: tests/<domain>_tests/test_<proposed_name>.py (or extend the
             nearest existing test file if one covers this CLI class)
           estimated_lines: realistic estimate for implementation + tests
 
@@ -771,7 +771,7 @@ stages:
             __init__.py
             cli.py            (CLIApp subclass with 2 candidate subcommands)
             _<domain>_client.py  (API/data-access layer if applicable)
-          tests/<domain>/
+          tests/<domain>_tests/
             test_<domain>_cli.py
         The bin/ wrapper is NOT hand-written: bin/* entries are symlinks to a
         single generated router (see bin/charts:1-12). Add the domain to
@@ -804,7 +804,7 @@ stages:
               "file_to_modify": "src/mail/cli.py",
               "function_signature": "def _find_stale(self, args: argparse.Namespace) -> int:",
               "pseudocode": "filters = self._client.list_filters()\nstale = [f for f in filters if f.last_matched_days > 90]\nemit_rows(stale, fmt=args.format)",
-              "test_file": "tests/mail/test_mail_cli.py",
+              "test_file": "tests/mail_tests/test_mail_cli.py",
               "estimated_lines": 55
             }
           ]

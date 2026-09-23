@@ -293,7 +293,7 @@ stages:
       type == "new_domain":
         Plan the package layout:
           src/<domain>/__init__.py, cli.py (CLIApp subclass), and a data-access
-          module if applicable; bin/<domain> (thin wrapper); tests/<domain>/.
+          module if applicable; bin/<domain> (thin wrapper); tests/<domain>_tests/.
         Read src/core/cli_framework.py to get the real CLIApp contract, and read
         one existing small domain's cli.py as a reference implementation.
         If the domain writes output files it MUST use

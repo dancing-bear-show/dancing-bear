@@ -34,7 +34,7 @@ If the command returns a number, use it. If the branch has no open PR, ask the u
 **IMPORTANT**: Use the `/workflow` skill — do NOT call `./bin/workflow run --execute` directly. It only writes dispatch files and exits (status=pending). The `/workflow` skill is what actually spawns agents, waits for results, and handles human gates.
 
 ```python
-Skill(skill="workflow", args="--workflow workflows/code/review-and-fix.yaml --params pr_number=314 test_cmd='PYTHONPATH=\"$PWD/src\" python3 -m unittest tests/grafana/ -f -q' source_root=grafana/ test_path=tests/grafana/")
+Skill(skill="workflow", args="--workflow workflows/code/review-and-fix.yaml --params pr_number=314 test_cmd='PYTHONPATH=\"$PWD/src\" python3 -m unittest discover -s tests/mail_tests -t . -f -q' source_root=src/mail/ test_path=tests/mail_tests/")
 ```
 
 Skip Phase 1 if review already ran and findings are in `/tmp/review-and-fix-{pr_number}/outputs/`:
@@ -48,9 +48,9 @@ Skill(skill="workflow", args="--workflow workflows/code/review-and-fix.yaml --pa
 | Param | Default | Description |
 |-------|---------|-------------|
 | `pr_number` | `""` | PR number (required; auto-detected from branch if blank) |
-| `test_cmd` | `""` | e.g. `PYTHONPATH="$PWD/src" python3 -m unittest tests/grafana/ -f -q` |
-| `source_root` | `""` | e.g. `grafana/` |
-| `test_path` | `""` | e.g. `tests/grafana/` |
+| `test_cmd` | `""` | e.g. `PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/mail_tests -t . -f -q` |
+| `source_root` | `""` | e.g. `src/mail/` |
+| `test_path` | `""` | e.g. `tests/mail_tests/` |
 | `min_coverage` | `"80"` | Coverage threshold (percent, no % sign) |
 | `auth_domains` | `"github,qlty"` | Auth domains to pre-check |
 | `skip_review` | `"false"` | Set `"true"` to jump straight to Phase 2 |
