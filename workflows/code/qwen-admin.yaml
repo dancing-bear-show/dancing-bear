@@ -124,6 +124,21 @@ trigger:
     spend_days: "7"
     purge_older_than: "30d"
     stale_job_hours: "6"
+  # Enforced by the engine in compile_workflow BEFORE any param is substituted
+  # into stage text, so compile/run/init-workspace exit 1 on a violation and
+  # no stage ever sees a rejected value. The per-stage check-params calls below
+  # repeat these checks as defence in depth; keep the two patterns identical.
+  param_rules:
+    model_tag: '[A-Za-z0-9][A-Za-z0-9._-]{0,63}(:[A-Za-z0-9][A-Za-z0-9._-]{0,63})?'
+    ollama_host: 'https?://[A-Za-z0-9][A-Za-z0-9.-]{0,252}(:[0-9]{1,5})?/?'
+    job_type: '[a-z][a-z0-9_]{2,40}'
+    spend_days: '[1-9][0-9]{0,3}'
+    # Leading [1-9]: a zero window makes `worker purge` delete everything.
+    purge_older_than: '[1-9][0-9]{0,4}[dhm]'
+    stale_job_hours: '[1-9][0-9]{0,3}'
+  # Blank would skip the rule and substitute nothing; none of these has a
+  # meaningful empty value, and a blank purge window reaches a shell command.
+  required: [model_tag, ollama_host, job_type, spend_days, purge_older_than, stale_job_hours]
 
 workspace_dir: "{work_dir}/qwen-admin"
 
@@ -137,8 +152,12 @@ stages:
     reads_from: []
     description: >
       VALIDATE {ollama_host} BEFORE USING IT IN ANY COMMAND BELOW. It is a
-      trigger param, and nothing in the workflow engine validates or quotes
-      it before substitution — treat it as untrusted.
+      caller-overridable trigger param. The engine now rejects a value that
+      fails trigger.param_rules at compile time, before substitution, so a
+      run that reached this stage already passed that check; the check-params
+      call below repeats it as defence in depth and stays, because it is
+      also what binds the value into a shell variable. Substitution itself
+      still neither quotes nor escapes — treat the value as untrusted.
 
       QUOTING IS NOT THE CONTROL. An earlier revision of this stage ended by
       saying "pass it double-quoted everywhere", which does not work: double
@@ -165,8 +184,8 @@ stages:
       the two files do not drift — read the value from the file the ENGINE
       wrote, where it is JSON data that never passed through a shell:
 
-        ./bin/workflow check-params {workspace}/manifest.json \
-          --check 'ollama_host=https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?'
+        ./bin/workflow check-params "{workspace}"/manifest.json \
+          --check 'ollama_host=https?://[A-Za-z0-9][A-Za-z0-9.-]{0,252}(:[0-9]{1,5})?/?'
 
       The check lives in src/workflow/param_guard.py and is covered by
       tests/workflow_tests/test_param_guard.py, including both disproven
@@ -211,8 +230,8 @@ stages:
         1. Ollama binary:   command -v ollama
         2. Ollama server:   read the validated host into a shell variable
                             FROM THE MANIFEST, then use the variable:
-                              HOST=$(./bin/workflow check-params {workspace}/manifest.json \
-                                --check 'ollama_host=https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?' \
+                              HOST=$(./bin/workflow check-params "{workspace}"/manifest.json \
+                                --check 'ollama_host=https?://[A-Za-z0-9][A-Za-z0-9.-]{0,252}(:[0-9]{1,5})?/?' \
                                 --print ollama_host) || exit 1
                               curl -sS -m 5 -f -o /dev/null "$HOST/api/tags"
                             `--print` writes the value ONLY if every `--check`
@@ -420,8 +439,8 @@ stages:
       is raw string replacement. Read it from the engine's file, never from
       shell text:
 
-        ./bin/workflow check-params {workspace}/manifest.json \
-          --check 'model_tag=[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)?'
+        ./bin/workflow check-params "{workspace}"/manifest.json \
+          --check 'model_tag=[A-Za-z0-9][A-Za-z0-9._-]{0,63}(:[A-Za-z0-9][A-Za-z0-9._-]{0,63})?'
 
       Branch on the EXIT STATUS. On failure, record the inventory with
       {"skipped": true, "skip_reason": "model_tag failed validation"} and
@@ -486,7 +505,7 @@ stages:
       caller-overridable and this stage has Bash. Same mechanism and same
       reasoning as the health stage; read them from the engine's file:
 
-        ./bin/workflow check-params {workspace}/manifest.json \
+        ./bin/workflow check-params "{workspace}"/manifest.json \
           --check 'job_type=[a-z][a-z0-9_]{2,40}' \
           --check 'stale_job_hours=[1-9][0-9]{0,3}'
 
@@ -653,7 +672,7 @@ stages:
       the same reasoning as the health stage's {ollama_host} check; a heredoc
       does NOT work, see that stage):
 
-        ./bin/workflow check-params {workspace}/manifest.json \
+        ./bin/workflow check-params "{workspace}"/manifest.json \
           --check 'spend_days=[1-9][0-9]{0,3}'
 
       Branch on the EXIT STATUS. On failure, write the spend record with
@@ -1123,7 +1142,7 @@ stages:
           nothing; the G0 probes call the command and so must this stage,
           before constructing any action:
 
-            ./bin/workflow check-params {workspace}/manifest.json \
+            ./bin/workflow check-params "{workspace}"/manifest.json \
               --check 'job_type=[a-z][a-z0-9_]{2,40}' \
               --check 'purge_older_than=[1-9][0-9]{0,4}[dhm]'
 
@@ -1153,9 +1172,9 @@ stages:
           {workspace}/validation/action-params.json (one action at a time,
           overwriting), then:
 
-            N=$(./bin/workflow check-params {workspace}/validation/action-params.json \
+            N=$(./bin/workflow check-params "{workspace}"/validation/action-params.json \
                   --top-level --check 'limit=[1-9][0-9]{0,3}' --print limit) || exit 1
-            CLUSTER=$(./bin/workflow check-params {workspace}/validation/action-params.json \
+            CLUSTER=$(./bin/workflow check-params "{workspace}"/validation/action-params.json \
                   --top-level --check 'match_cluster=[A-Za-z0-9][A-Za-z0-9 ._:,()=-]{2,119}' \
                   --print match_cluster) || exit 1
 

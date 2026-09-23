@@ -28,6 +28,7 @@ import yaml
 
 from workflow.compiler import compile_workflow, validate_dag_contracts
 from workflow.linter import lint_workflow
+from workflow.models import WorkflowDefinition
 from workflow.parser import parse_workflow
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -81,11 +82,46 @@ _AFFIRMATIVE_COMMIT_RE = re.compile(
 # to "skip the commit entirely" on its no-change route. A whole-description
 # negative scan would reject both of those real, shipped stages.
 #
+# The negator list covers prohibitions phrased as avoidance or omission as well
+# as plain negation: "avoid git commit", "skip the commit", "refrain from
+# committing", "commit nothing; stash rather than commit". Each is a lead-in
+# that, left out, would let an explicit opt-out satisfy the gate by containing
+# the literal `git commit` or "commit ... finish".
+#
+# Erring broad is the safe direction. A missed negator is SILENT — the gate
+# reads as satisfied while the edits are lost at merge. A spurious one is LOUD
+# — the gate fails naming the stage, and the author rewords. Double negatives
+# ("do not finish without a `git commit`") land on the loud side for that
+# reason, and are best rewritten as the plain imperative anyway.
+_NEGATORS = (
+    r"never|nor"
+    r"|do\s+not|does\s+not|don['’]t|doesn['’]t"
+    r"|must\s+not|mustn['’]t|should\s+not|shouldn['’]t"
+    r"|will\s+not|won['’]t|may\s+not|need\s+not|needn['’]t"
+    r"|cannot|can\s+not|can['’]t|without"
+    r"|avoid(?:ing)?|skip(?:ping)?|refrain(?:ing)?\s+from"
+    r"|omit(?:ting)?|forgo(?:ing)?|instead\s+of|rather\s+than"
+    r"|no\s+need\s+to|not\s+(?:allowed|permitted)\s+to"
+    r"|(?:forbidden|prohibited)\s+(?:to|from)"
+)
+
+# Words that start a new clause, and so end the reach of a negator before
+# them: "never `git add -A` — and commit them before you finish" forbids the
+# staging shortcut, not the commit. Em and en dashes are excluded from the
+# filler for the same reason.
+_CLAUSE_BREAK = r"\b(?:and|then|but|or|so)\b"
+
 # The optional filler permits a short object between the negator and the verb
-# ("do not EVER commit", "must not, under any circumstances, commit") without
-# reaching back across a sentence boundary to borrow an unrelated negator.
+# ("do not EVER commit", "must not, under any circumstances, commit", "skip
+# the commit") without reaching back across a sentence or clause boundary to
+# borrow an unrelated negator.
+#
+# Bare "no" and "not" get NO filler: they negate only when directly adjacent
+# ("no `git commit`", "not commit"). Given filler they would swallow ordinary
+# conditions such as "if there are no failures, commit before you finish".
 _NEGATED_LEADIN_RE = re.compile(
-    r"\b(never|do\s+not|don't|must\s+not|cannot|can't|without)\b[^.;:\n]{0,30}\Z",
+    rf"\b(?:{_NEGATORS})\b(?:(?!{_CLAUSE_BREAK})[^.;:\n–—]){{0,30}}\Z"
+    r"|\bno(?:t)?\s+[`'\"]?\Z",
     re.IGNORECASE,
 )
 
@@ -124,9 +160,38 @@ _NEGATIVE_COMMIT_RE = re.compile(
 )
 
 
+# Sample values for trigger params that are ``required`` but ship with a blank
+# default, keyed by (workflow path relative to the repo root, param name).
+# compile_workflow rejects a blank required param, so the compile gate below
+# must supply one; a required param with a non-blank default needs no entry,
+# since its default already has to satisfy its own rule at parse time. Each
+# sample is checked against the param's real rules by compiling with it.
+# test_required_blank_params_have_samples fails on a missing entry AND on a
+# stale one, so this table cannot silently fall out of step with the catalog.
+_REQUIRED_PARAM_SAMPLES: dict[tuple[str, str], str] = {
+    ("workflows/code/review-fix-threads.yaml", "pr_number"): "391",
+}
+
+
 def _catalog_files() -> list[Path]:
     """Return every workflow YAML shipped in the repo, sorted for stable output."""
     return sorted(WORKFLOWS_DIR.rglob("*.yaml"))
+
+
+def _required_blank_params(defn: WorkflowDefinition) -> set[str]:
+    """Required trigger params whose declared default is blank (needs a sample)."""
+    params = defn.trigger.params or {}
+    return {name for name in defn.trigger.rules.required if not params.get(name, "").strip()}
+
+
+def _sample_params(path: Path, defn: WorkflowDefinition) -> dict[str, str]:
+    """The sample overrides the compile gate passes for *path*'s blank required params."""
+    rel = str(path.relative_to(REPO_ROOT))
+    return {
+        name: _REQUIRED_PARAM_SAMPLES[(rel, name)]
+        for name in _required_blank_params(defn)
+        if (rel, name) in _REQUIRED_PARAM_SAMPLES
+    }
 
 
 def _baseline() -> dict[str, set[str]]:
@@ -435,7 +500,11 @@ class TestShippedCatalogParses(unittest.TestCase):
                     defn.stages,
                     f"{path.relative_to(REPO_ROOT)} parsed to zero stages",
                 )
-                manifest = compile_workflow(defn, project_root=REPO_ROOT)
+                manifest = compile_workflow(
+                    defn,
+                    project_root=REPO_ROOT,
+                    trigger_params=_sample_params(path, defn),
+                )
                 self.assertEqual(
                     set(manifest.resolved_stages),
                     {s.name for s in defn.stages},
@@ -452,6 +521,33 @@ class TestShippedCatalogParses(unittest.TestCase):
                     f"{path.relative_to(REPO_ROOT)}: stages resolved but "
                     "never scheduled into a parallel group",
                 )
+
+    def test_required_blank_params_have_samples(self) -> None:
+        """Every required-but-blank-default param has a sample, and no sample is stale.
+
+        Without a sample the compile gate above fails with "required but
+        blank" — correct, but it reads as a broken workflow rather than a
+        missing table entry. A stale entry (its param is no longer required,
+        or now has a default) is reported too, so the table shrinks with the
+        catalog instead of accumulating dead rows.
+        """
+        needed: set[tuple[str, str]] = set()
+        for path in _catalog_files():
+            if _is_fragment(_load_raw(path)):
+                continue
+            rel = str(path.relative_to(REPO_ROOT))
+            needed |= {(rel, name) for name in _required_blank_params(parse_workflow(path))}
+        self.assertEqual(
+            sorted(needed - set(_REQUIRED_PARAM_SAMPLES)),
+            [],
+            "required trigger params with a blank default and no sample in "
+            "_REQUIRED_PARAM_SAMPLES; add one that satisfies the param's rule",
+        )
+        self.assertEqual(
+            sorted(set(_REQUIRED_PARAM_SAMPLES) - needed),
+            [],
+            "stale _REQUIRED_PARAM_SAMPLES entries: not a required param with a blank default",
+        )
 
     def test_no_new_reads_from_contract_warnings(self) -> None:
         """A stage reading an upstream that declares no outputs gets nothing.
@@ -591,6 +687,103 @@ class TestIsolatedStagesCommit(unittest.TestCase):
         )
 
 
+class TestCommitInstructionPredicate(unittest.TestCase):
+    """``_has_unnegated_commit_instruction`` must read the lead-in, not the token.
+
+    Every negated case is paired with its affirmative twin so a test cannot
+    pass merely because the predicate rejects everything (or accepts it).
+    """
+
+    def _assert_verdicts(self, cases: dict[str, bool]) -> None:
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertIs(_has_unnegated_commit_instruction(text), expected)
+
+    def test_original_negators_invert_the_instruction(self) -> None:
+        self._assert_verdicts({
+            "Do not commit before you finish.": False,
+            "Never run git commit here.": False,
+            "You must not, under any circumstances, commit before you finish.": False,
+            "Commit before you finish.": True,
+        })
+
+    def test_avoidance_and_omission_negators_invert_the_instruction(self) -> None:
+        self._assert_verdicts({
+            "Avoid git commit in this stage.": False,
+            "Avoid `git commit` in this stage.": False,
+            "Avoiding git commit keeps the tree clean.": False,
+            "Skip git commit.": False,
+            "Skipping the git commit is fine.": False,
+            "Refrain from git commit.": False,
+            "Omit the git commit.": False,
+            "Forgo the git commit.": False,
+            "Stash rather than git commit.": False,
+            "Use stash instead of git commit.": False,
+            "There is no need to git commit.": False,
+            "You are not allowed to git commit.": False,
+            "You are forbidden to git commit.": False,
+            "Neither stash nor git commit.": False,
+            "Run git commit in this stage.": True,
+        })
+
+    def test_modal_negators_invert_the_instruction(self) -> None:
+        self._assert_verdicts({
+            "You shouldn't commit before you finish.": False,
+            "You should not commit before you finish.": False,
+            "You mustn't commit before you finish.": False,
+            "You mustn’t commit before you finish.": False,
+            "The agent won't git commit.": False,
+            "You need not commit before you finish.": False,
+            "You should commit before you finish.": True,
+        })
+
+    def test_bare_no_and_not_negate_only_when_adjacent(self) -> None:
+        self._assert_verdicts({
+            "Make no git commit.": False,
+            "Make no `git commit`.": False,
+            "Do NOT git commit.": False,
+            # Given any filler, "no" would swallow an ordinary condition.
+            "If there are no failures, commit before you finish.": True,
+            "The note field is optional; commit before you finish.": True,
+        })
+
+    def test_negator_does_not_reach_across_a_clause_break(self) -> None:
+        # consolidate-schema.yaml::test-e2e-data: the "never" governs the
+        # staging shortcut, and the dash plus "and" start a new clause.
+        self._assert_verdicts({
+            "Stage them by name — never `git add -A` — and commit them "
+            "before you finish.": True,
+            "Never `git add -A`, then git commit.": True,
+            "Skip the lint step and commit before you finish.": True,
+            "Never stage with -A. Commit before you finish.": True,
+            "Do not stage with -A; commit before you finish.": True,
+        })
+
+    def test_one_standing_instruction_survives_a_negated_carve_out(self) -> None:
+        # qwen-local-handler.yaml::impl-heartbeat: commit, but skip it on the
+        # no-change route. The carve-out is itself negated and must not poison
+        # the affirmative instruction.
+        heartbeat = (
+            "COMMIT BEFORE FINISHING, IF YOU CHANGED ANY FILE.\n"
+            "  git add src/worker/queue_ops.py\n"
+            '  git commit -m "fix(worker): keep a live heartbeat"\n'
+            "Route (a) is NO code change by design, so there is nothing to "
+            "stage and `git commit` would fail with an empty index. On route "
+            "(a), skip the commit entirely, record commit_sha: null and finish."
+        )
+        carve_out_only = (
+            "On route (a), skip the commit entirely, record commit_sha: null "
+            "and finish."
+        )
+        self._assert_verdicts({heartbeat: True, carve_out_only: False})
+
+    def test_commit_sha_and_plural_commits_are_not_instructions(self) -> None:
+        self._assert_verdicts({
+            'Record "commit_sha": "<sha>" before you finish.': False,
+            "git merge moves COMMITS, not files, so finish cleanly.": False,
+        })
+
+
 class TestBaselineDoesNotRot(unittest.TestCase):
     """The grandfathered list must shrink as workflows are repaired.
 
@@ -727,6 +920,60 @@ class TestBaselineDoesNotRot(unittest.TestCase):
             "its removal. Delete these lines from "
             "shipped_catalog_baseline.json:\n  " + "\n  ".join(stale),
         )
+
+
+# A trigger-param guard inside stage text: `--check 'name=regex'`. A line that
+# also carries `--top-level` checks a field of some other JSON document, not a
+# trigger param, so it is excluded.
+_STAGE_CHECK_RE = re.compile(r"--check '([A-Za-z_]\w*)=([^']*)'", re.ASCII)
+
+
+def _stage_param_checks(path: Path) -> Iterator[tuple[str, str]]:
+    """Yield (name, pattern) for every in-stage trigger-param check in *path*."""
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if "--top-level" in line:
+            continue
+        yield from _STAGE_CHECK_RE.findall(line)
+
+
+class TestStageChecksMatchEngineRules(unittest.TestCase):
+    """An in-stage `check-params` pattern must equal the engine rule it repeats.
+
+    The engine enforces `trigger.param_rules` at compile time; stages keep
+    their own `check-params` calls as defence in depth. The two copies are
+    hand-maintained text, so without this test one can be loosened while the
+    other still reads as the boundary.
+    """
+
+    def test_stage_checks_equal_engine_rules(self) -> None:
+        drift: list[str] = []
+        compared = 0
+        for path in _catalog_files():
+            if _is_fragment(_load_raw(path)):
+                continue
+            rules: dict[str, set[str]] = {}
+            for check in parse_workflow(path).trigger.rules.checks:
+                rules.setdefault(check.name, set()).add(check.pattern)
+            for name, pattern in _stage_param_checks(path):
+                if name not in rules:
+                    continue
+                compared += 1
+                if pattern not in rules[name]:
+                    drift.append(f"{path.relative_to(REPO_ROOT)}: {name}")
+        self.assertGreater(compared, 0, "no in-stage checks compared; the scan is broken")
+        self.assertEqual(drift, [], "in-stage --check pattern differs from trigger.param_rules")
+
+    def test_scan_skips_top_level_and_reads_trigger_checks(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            probe = Path(tmp) / "probe.yaml"
+            probe.write_text(
+                "x --check 'a=[0-9]+' --check 'b=x'\n"
+                "y --top-level --check 'limit=[0-9]+'\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(list(_stage_param_checks(probe)), [("a", "[0-9]+"), ("b", "x")])
 
 
 if __name__ == "__main__":  # pragma: no cover

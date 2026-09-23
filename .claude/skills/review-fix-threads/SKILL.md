@@ -59,8 +59,9 @@ run against someone else's PR is a deliberate choice.
 GITHUB_TOKEN= gh pr view --json number -q .number
 ```
 
-If that returns a number, use it. If the branch has no open PR, ask — the
-workflow refuses to guess.
+If that returns a number, pass it as `pr_number`. It is required: the engine
+rejects a blank or non-numeric value at compile time, and the workflow no
+longer auto-detects it. If the branch has no open PR, ask. Do not guess.
 
 ## Invocation
 
@@ -72,20 +73,20 @@ directly. That only writes dispatch files and exits (status=pending). The
 Skill(skill="workflow", args="--workflow workflows/code/review-fix-threads.yaml --params pr_number=259")
 ```
 
-With a narrower test command:
+With coverage and a higher fan-out ceiling:
 
 ```python
-Skill(skill="workflow", args="--workflow workflows/code/review-fix-threads.yaml --params pr_number=259 test_cmd='make test' max_threads=15")
+Skill(skill="workflow", args="--workflow workflows/code/review-fix-threads.yaml --params pr_number=259 test_cmd='make cov' max_threads=15")
 ```
 
 ## Params
 
 | Param | Default | Description |
 |-------|---------|-------------|
-| `pr_number` | `""` | PR number (auto-detected from branch if blank) |
-| `test_cmd` | `"make test"` | Full-suite verification command |
-| `include_resolved` | `"false"` | `"true"` re-triages already-resolved threads |
-| `max_threads` | `"12"` | Concurrent-agent ceiling, counted in distinct **files**; overflow is deferred and reported, never dropped |
+| `pr_number` | — (**required**) | PR number, `[1-9][0-9]{0,6}`; derive it with `gh pr view` above. Blank or malformed fails at compile |
+| `test_cmd` | `"make test"` | Full-suite verification command: `make test` or `make cov` only |
+| `include_resolved` | `"false"` | `"true"` re-triages already-resolved threads (`true`/`false` only) |
+| `max_threads` | `"12"` | 1–999. Concurrent-agent ceiling, counted in distinct **files**; overflow is deferred and reported, never dropped |
 
 ## Stages
 

@@ -83,10 +83,11 @@ description: >
      WHY THIS DEMO STILL HAS A GATE, now that its queue is private. An
      earlier revision drove the user's SHARED queue, and the gate existed to
      approve mutating it. drive-the-queue no longer touches that queue at
-     all — it runs the worker against a throwaway HOME (see its
-     description), so the only lasting side effect is a temp directory it
-     deletes. That removes the gate's ORIGINAL reason, and it is honest to
-     say so rather than keep citing a hazard that is gone. The gate stays for
+     all — it runs the worker against a throwaway state directory named by
+     DANCING_BEAR_WORKER_STATE_DIR (see its description), so the only
+     lasting side effect is a temp directory it deletes. That removes the
+     gate's ORIGINAL reason, and it is honest to say so rather than keep
+     citing a hazard that is gone. The gate stays for
      a different reason that still holds: drive-the-queue EXECUTES code an
      agent wrote minutes earlier, on the user's machine, with the user's
      permissions — a private queue isolates the queue state, not the
@@ -135,6 +136,19 @@ trigger:
   params:
     job_type: "demo_echo"
     handler_module: "src/worker/demo_echo.py"
+  # Enforced by the engine in compile_workflow BEFORE any param is substituted
+  # into stage text, so compile/run/init-workspace exit 1 on a violation and
+  # no stage ever sees a rejected value. read-the-seam's check-params call
+  # repeats these checks as defence in depth; keep the two patterns identical.
+  # handler_module is a FILE PATH (write-handler creates it and `git add`s
+  # it), pinned to a new module directly under src/worker/. The regex still
+  # admits existing files such as handlers.py; the must-not-exist check in
+  # read-the-seam and write-handler is what stops an overwrite.
+  param_rules:
+    job_type: '[a-z][a-z0-9_]{2,40}'
+    handler_module: 'src/worker/[a-z][a-z0-9_]{2,40}\.py'
+  # A blank path or registry key has no meaning and would skip the rule.
+  required: [job_type, handler_module]
 
 workspace_dir: "{work_dir}/qwen-job-type-demo"
 
@@ -176,9 +190,14 @@ stages:
       passes on the remnant). This stage is NOT isolated, so
       {workspace}/manifest.json is readable here:
 
-        ./bin/workflow check-params {workspace}/manifest.json \
+        ./bin/workflow check-params "{workspace}"/manifest.json \
           --check 'handler_module=src/worker/[a-z][a-z0-9_]{2,40}\.py' \
           --check 'job_type=[a-z][a-z0-9_]{2,40}'
+
+      DEFENCE IN DEPTH. The engine already enforces these same patterns via
+      trigger.param_rules at compile time, before any substitution, so on a
+      normal run this call cannot fail. Keep it anyway: it is the guard that
+      still holds if those rules are loosened.
 
       One call covers both params and exits non-zero if either fails. The
       check lives in src/workflow/param_guard.py and is covered by
@@ -357,8 +376,8 @@ stages:
           (skipping this leaves it undefined, and the handler raises
           NameError). Do NOT copy the existing handlers' one-liner
           `payload = dict(job.get("payload") or {})`
-          (src/worker/handlers.py:179): `enqueue --payload-json` accepts ANY
-          JSON value, and `dict()` raises on a scalar — `dict("bad")` is a
+          (src/worker/handlers.py:179): a job record is JSON that anything
+          can write, and `dict()` raises on a scalar — `dict("bad")` is a
           ValueError and `dict(123)` a TypeError — while a list of pairs such
           as `[["message", "x"]]` converts silently into a dict, so neither
           conversion nor try/except is a type check. Write instead:
@@ -376,21 +395,17 @@ stages:
           classifies as RETRYABLE, burning every attempt on the class of
           input this demo teaches as terminal.
 
-          BE HONEST ABOUT WHAT THIS GUARD COVERS TODAY. It is defence in
-          depth, not a path the queue currently reaches: the worker runtime
-          performs its OWN `dict(job_data.get("payload") or {})` before
-          calling any handler (src/worker/job_runtime.py:278, where it builds
-          the JobRequest outside the SafeProcessor), so a scalar payload
-          raises there first, is swallowed by the batch thread's broad
-          except, and leaves the job stranded in processing/ while run-once
-          exits 0 — the handler never runs. That is an OPEN runtime defect,
-          predating this demo and tracked for its own fix, not something a
-          handler can fix, and this demo does NOT
-          enqueue a scalar payload for that reason — the only thing such a
-          case could observe is the runtime bug, and recording a stranded job
-          as the expected outcome would teach the wrong lesson. Keep the
-          guard anyway: the handler is also callable directly, and it must
-          not depend on its caller having validated for it.
+          BE HONEST ABOUT WHAT THIS GUARD COVERS TODAY. It is the THIRD layer,
+          and the queue never reaches it. `worker enqueue` refuses a
+          non-object `--payload-json` with exit 2 (src/worker/commands.py),
+          and the worker runtime rejects a non-object payload that got into
+          a job file some other way BEFORE looking up any handler
+          (JobProcessor.process_one in src/worker/job_runtime.py): the job
+          goes straight to error/ with "invalid payload: expected object,
+          got <type>", terminal, attempts untouched. drive-the-queue's case
+          (e) observes both layers. Keep the handler guard anyway: the
+          handler is also callable directly, and it must not depend on its
+          caller having validated for it.
         - Then read `message = payload.get("message")`. On success return
           (True, {"echoed": message, "length": len(message)}).
         - Demonstrate ALL THREE retry classes, since this is the part authors
@@ -527,7 +542,7 @@ stages:
       anything in that field, and it goes straight into a git invocation
       below. Require a full 40-character hex SHA and nothing else:
 
-        ./bin/workflow check-params {workspace}/outputs/handler.json --top-level \
+        ./bin/workflow check-params "{workspace}"/outputs/handler.json --top-level \
           --check 'commit_sha=[0-9a-f]{40}'
 
       `--top-level` reads the field from the document root, because
@@ -569,22 +584,26 @@ stages:
           needs in front of them — the handler module path and the output of
           `git show --stat <the validated commit_sha>` — and tell them to
           read the diff (`git show <sha>`) before approving.
-        - Do it in a PRIVATE, THROWAWAY QUEUE. The worker's queue root is
-          `Path.home()` plus a fixed suffix (src/worker/_helpers.py's
-          `get_worker_state_dir`), so every worker call in that stage runs
-          under `env HOME=<a fresh mktemp -d directory>`, giving a queue no
-          other producer and no launchd daemon can see. The user's real
+        - Do it in a PRIVATE, THROWAWAY QUEUE. The worker's queue root comes
+          from src/worker/_helpers.py's `get_worker_state_dir`, which uses
+          DANCING_BEAR_WORKER_STATE_DIR when it is set, so every worker call
+          in that stage runs under
+          `env DANCING_BEAR_WORKER_STATE_DIR=<a fresh mktemp -d directory>`,
+          giving a queue no other producer and no launchd daemon can see. The user's real
           queue at `~/Library/Application Support/dancing-bear/queue` is NOT
           read, NOT written, and none of its jobs can be claimed.
-        - Enqueue and drain FOUR jobs of type "{job_type}" in that private
-          queue, one per retry class, listed in planned_jobs below.
+        - Enqueue and drain FIVE jobs of type "{job_type}" in that private
+          queue — one per retry class, plus one whose payload is rewritten to
+          a non-object in the private pending/ folder — and attempt one
+          enqueue that the CLI must refuse. All are listed in planned_jobs
+          below.
         - Delete the private directory at the end. Nothing is left behind —
           no records in the user's queue, and no pending job for the daemon
           to pick up later.
 
       Do NOT probe the launchd daemon. Its state no longer changes anything
-      this demo does: the daemon runs with the user's real HOME, so it never
-      sees the private queue.
+      this demo does: the daemon starts without
+      DANCING_BEAR_WORKER_STATE_DIR, so it never sees the private queue.
 
       Write {workspace}/outputs/analysis/proposal.json:
         {
@@ -592,12 +611,14 @@ stages:
           "type_in_cli": true|false,
           "handler_module": "...",
           "commit_stat": "<git show --stat output>",
-          "queue": "private — worker runs under env HOME=<mktemp -d>; the user's real queue is untouched",
+          "queue": "private — worker runs under env DANCING_BEAR_WORKER_STATE_DIR=<mktemp -d>; the user's real queue is untouched",
           "planned_jobs": [
             {"case": "success",  "payload": {"message": "hello"}},
             {"case": "terminal", "payload": {}},
             {"case": "plain",    "payload": {"message": "x", "fail": true}},
-            {"case": "deferred", "payload": {"message": "x", "defer": true}}
+            {"case": "deferred", "payload": {"message": "x", "defer": true}},
+            {"case": "non_object_enqueue", "payload": "bad", "expect": "enqueue refused, exit 2, nothing queued"},
+            {"case": "non_object_runtime", "payload": "bad", "expect": "error/ with invalid payload, handler never runs"}
           ],
           "leaves_behind": "nothing — the private directory is deleted at the end",
           "safe_to_proceed": true|false
@@ -672,34 +693,43 @@ stages:
       this stage does not narrow that race; it removes it, by never touching
       the shared queue at all.
 
-      The seam that makes this possible: the worker's queue root is
-      `Path.home() / "Library/Application Support/dancing-bear" / "queue"`
-      (src/worker/_helpers.py's `get_worker_state_dir`, read once at import
-      by queue_ops.py's QUEUE_ROOT), and `Path.home()` follows the HOME
-      environment variable. A worker process started with HOME pointed at a
-      fresh empty directory therefore has a queue nobody else can see:
-      nothing else enqueues into a directory created a second ago, and the
-      launchd daemon runs with the user's real HOME, so it never polls it.
-      The worker's perf log follows HOME too, so that lands in the private
+      The seam that makes this possible: src/worker/_helpers.py's
+      `get_worker_state_dir` returns `$DANCING_BEAR_WORKER_STATE_DIR/queue`
+      when that variable is set, and only otherwise the default under
+      `~/Library/Application Support/dancing-bear` (queue_ops.py reads it
+      once at import into QUEUE_ROOT, so the variable must be set when the
+      process starts). A worker process started with it pointed at a fresh
+      empty directory therefore has a queue nobody else can see: nothing
+      else enqueues into a directory created a second ago, and the launchd
+      daemon starts without the variable, so it never polls it. The worker's
+      logs go through the same function, so they land in the private
       directory as well.
+
+      WHY A DEDICATED VARIABLE AND NOT HOME. An earlier revision pointed
+      HOME at the temp directory, which also moved the queue — and also
+      moved everything else that reads HOME: git's global config (so any
+      git call made in that environment lost the user's identity and
+      settings), tool caches, and credential lookups. The state-dir variable
+      is an explicit seam that relocates the worker's queue and logs and
+      nothing else.
 
         PRIV=$(mktemp -d)
 
       Record the path — each Bash call is a fresh shell, so re-set PRIV from
       the recorded value in every later call rather than assuming it
       persisted. Then prefix EVERY worker invocation — enqueue, run-once,
-      show, list — with `env HOME="$PRIV"`:
+      show, list — with `env DANCING_BEAR_WORKER_STATE_DIR="$PRIV"`:
 
-        env HOME="$PRIV" ./bin/worker enqueue --help
+        env DANCING_BEAR_WORKER_STATE_DIR="$PRIV" ./bin/worker enqueue --help
 
       A SINGLE CALL WITHOUT THE PREFIX SILENTLY HITS THE USER'S REAL QUEUE.
       Nothing errors; the command simply succeeds against the shared
       directory — an enqueue leaves a job there for the daemon, and a
       run-once claims the user's queue head. There is no flag that catches
       the omission, so check each command line for the prefix before
-      running it. Use `env HOME=...`, not a bare `HOME=... cmd` prefix: the
-      two are equivalent to the shell, but some command guards refuse the
-      bare VAR= form.
+      running it. Use `env DANCING_BEAR_WORKER_STATE_DIR=...`, not a bare
+      `VAR=... cmd` prefix: the two are equivalent to the shell, but some
+      command guards refuse the bare VAR= form.
 
       WHY THIS RUNS THE NEW HANDLER, not some other checkout's copy. Run
       `./bin/worker` by its relative path from the checkout verify-landed
@@ -708,17 +738,21 @@ stages:
       is a symlink to bin/_router.py, which derives the repo root from its
       own resolved path, strips any other checkout's `src/` from PYTHONPATH
       (bin/_pathrepair.py), and forces its own `src/` to the front of
-      sys.path before importing `worker`. None of that consults HOME, so
-      changing HOME moves the queue and nothing else. Confirm it rather than
+      sys.path before importing `worker`. None of that consults
+      DANCING_BEAR_WORKER_STATE_DIR, so setting it moves the queue and
+      nothing else. Confirm it rather than
       trusting it: the `enqueue --help` above must list "{job_type}" among
       the --type choices. That is the router loading THIS tree's REGISTRY —
       if the type is missing, the worker you are about to drive is not the
       one the handler was merged into; stop and report.
 
-      STEP 2 — EXERCISE THE FOUR RETRY CLASSES. For each case, enqueue with
-      `env HOME="$PRIV" ./bin/worker enqueue ...`, capture the returned job
-      id, drain with `env HOME="$PRIV" ./bin/worker run-once --max 1`, and
-      read it back with `env HOME="$PRIV" ./bin/worker show <id>`.
+      STEP 2 — EXERCISE THE FOUR RETRY CLASSES, THEN THE NON-OBJECT
+      PAYLOAD. For each case, enqueue with
+      `env DANCING_BEAR_WORKER_STATE_DIR="$PRIV" ./bin/worker enqueue ...`,
+      capture the returned job id, drain with
+      `env DANCING_BEAR_WORKER_STATE_DIR="$PRIV" ./bin/worker run-once --max 1`,
+      and read it back with
+      `env DANCING_BEAR_WORKER_STATE_DIR="$PRIV" ./bin/worker show <id>`.
 
       The private queue holds only this stage's own jobs, and every
       non-terminal outcome (plain retry and deferral alike) re-queues with
@@ -726,7 +760,8 @@ stages:
       drain nothing earlier is eligible and the next `run-once` claims the
       job just enqueued. As cheap defence in depth, confirm from `show` that
       the drained job carries the id you enqueued. A mismatch here means one
-      of the assumptions above is wrong — most likely a missing HOME prefix —
+      of the assumptions above is wrong — most likely a missing
+      DANCING_BEAR_WORKER_STATE_DIR prefix —
       so FAIL the stage and say which call you suspect, rather than
       recording the outcome as evidence about the retry protocol.
 
@@ -734,14 +769,14 @@ stages:
       `--backoff 0`: a job re-queued with no delay is immediately eligible
       again, and since it was enqueued earlier it would be the head for the
       next drain, not the job you just added. With the default, the cases can
-      run in any order; running them a, b, d, c keeps the two that end
+      run in any order; running them a, b, e, d, c keeps the two that end
       pending together at the end.
 
         a) Success:
-             env HOME="$PRIV" ./bin/worker enqueue --type "{job_type}" --payload-json '{"message": "hello"}'
+             env DANCING_BEAR_WORKER_STATE_DIR="$PRIV" ./bin/worker enqueue --type "{job_type}" --payload-json '{"message": "hello"}'
            Expect: job in done/, result carries echoed + length.
         b) Terminal:
-             env HOME="$PRIV" ./bin/worker enqueue --type "{job_type}" --payload-json '{}'
+             env DANCING_BEAR_WORKER_STATE_DIR="$PRIV" ./bin/worker enqueue --type "{job_type}" --payload-json '{}'
            Expect: job in error/ after ONE drain. This is the important
            one — it must land in error/ from that single run-once, not back
            in pending/ with a future not_before, which is what proves the
@@ -752,7 +787,7 @@ stages:
            expect attempts_after == attempts_before, typically 0 -> 0. Do
            not assert that attempts reached 1.
         c) Deferred:
-             env HOME="$PRIV" ./bin/worker enqueue --type "{job_type}" --payload-json '{"message": "x", "defer": true}'
+             env DANCING_BEAR_WORKER_STATE_DIR="$PRIV" ./bin/worker enqueue --type "{job_type}" --payload-json '{"message": "x", "defer": true}'
            Expect: job back in pending/ with attempts UNCHANGED from before
            this drain (not incremented, not reset to 0 — the same number it
            had going in). The unchanged count is the entire point of the
@@ -771,20 +806,36 @@ stages:
            still-pending deferred job harmless: nothing polls it, and STEP 3
            deletes it.
         d) Plain failure:
-             env HOME="$PRIV" ./bin/worker enqueue --type "{job_type}" --payload-json '{"message": "x", "fail": true}'
+             env DANCING_BEAR_WORKER_STATE_DIR="$PRIV" ./bin/worker enqueue --type "{job_type}" --payload-json '{"message": "x", "fail": true}'
            Expect: attempts incremented and the job re-queued to pending
            with a future not_before, not moved to error/ on the first try.
 
-      No case enqueues a non-object payload (such as `'"bad"'`). The handler
-      guards against one, but the worker runtime converts the payload itself
-      before any handler runs (src/worker/job_runtime.py:278, an open
-      defect), so such a job never reaches the handler and is stranded in
-      processing/ — see write-handler's description. Do not add that case here.
+        e) Non-object payload — two layers, each checked separately. The
+           handler's own `terminal-payload-not-object` guard is NOT what
+           fires in either; see write-handler's description.
+           e1) The CLI refuses it:
+                 env DANCING_BEAR_WORKER_STATE_DIR="$PRIV" ./bin/worker enqueue --type "{job_type}" --payload-json '"bad"'
+               Expect: exit status 2, an "expected a JSON object" error, no
+               job id, and `list` counts identical before and after.
+           e2) The runtime rejects one that reached a job file anyway.
+               Enqueue a valid job:
+                 env DANCING_BEAR_WORKER_STATE_DIR="$PRIV" ./bin/worker enqueue --type "{job_type}" --payload-json '{"message": "x"}'
+               then, with the Read and Edit tools (not a shell one-liner),
+               change that job's `"payload"` value to the string "bad" in
+               `$PRIV/queue/pending/<the job id>.json` — the PRIVATE queue's
+               file, whose path starts with the recorded PRIV value; never
+               edit a job file anywhere else. Drain once.
+               Expect: run-once exits 0; the job is in error/ with
+               `"error": "invalid payload: expected object, got str"`, and
+               NOT in processing/ or pending/; attempts_after ==
+               attempts_before, since it is finished, not retried. That
+               error text, rather than terminal-payload-not-object, is what
+               proves the runtime stopped it before any handler ran.
 
       STEP 3 — DELETE THE PRIVATE QUEUE. After recording the final state of
       every job, list the private queue once for the record:
 
-        env HOME="$PRIV" ./bin/worker list
+        env DANCING_BEAR_WORKER_STATE_DIR="$PRIV" ./bin/worker list
 
       then remove the whole directory:
 
@@ -792,11 +843,13 @@ stages:
 
       Before running that, confirm the value you are about to delete is the
       path `mktemp -d` returned in STEP 1 — never an empty or unset
-      variable, and never anything under the user's real home. Then confirm
+      variable, and never the user's real worker state directory under
+      ~/Library/Application Support/dancing-bear. Then confirm
       the directory no longer exists.
 
       What this means, and it is the claim verified.json must make: NOTHING
-      IS LEFT BEHIND. Cases (c) and (d) end pending, but in a queue that no
+      IS LEFT BEHIND. Cases (c) and (d) end pending, and (b) and (e2) end in
+      error/, but in a queue that no
       longer exists; the user's real queue was never read or written, so no
       record of this demo is in it and nothing for the daemon to pick up. No
       delete-by-id is needed, and none of the user's jobs was claimed.
@@ -809,14 +862,16 @@ stages:
         {
           "landed": {"commit_sha": "...", "is_ancestor_of_head": true|false, "files_tracked": true|false},
           "type_in_cli": true|false,
-          "queue": {"private_home": "<the mktemp -d path>", "type_seen_by_private_worker": true|false},
+          "queue": {"private_state_dir": "<the mktemp -d path>", "type_seen_by_private_worker": true|false},
           "cases": [
             {"case": "success",  "job_id": "...", "id_confirmed": true|false, "final_state": "done",    "attempts_before": N, "attempts_after": N, "as_expected": true|false},
             {"case": "terminal", "job_id": "...", "id_confirmed": true|false, "final_state": "error",   "attempts_before": N, "attempts_after": N, "as_expected": true|false},
             {"case": "plain",    "job_id": "...", "id_confirmed": true|false, "final_state": "pending", "attempts_before": N, "attempts_after": N, "as_expected": true|false},
-            {"case": "deferred", "job_id": "...", "id_confirmed": true|false, "final_state": "pending", "attempts_before": N, "attempts_after": N, "as_expected": true|false}
+            {"case": "deferred", "job_id": "...", "id_confirmed": true|false, "final_state": "pending", "attempts_before": N, "attempts_after": N, "as_expected": true|false},
+            {"case": "non_object_enqueue", "exit_status": N, "queue_counts_unchanged": true|false, "as_expected": true|false},
+            {"case": "non_object_runtime", "job_id": "...", "id_confirmed": true|false, "final_state": "error", "error": "...", "attempts_before": N, "attempts_after": N, "as_expected": true|false}
           ],
-          "cleanup": {"private_home_removed": true|false, "left_in_user_queue": []},
+          "cleanup": {"private_state_dir_removed": true|false, "left_in_user_queue": []},
           "verified": true|false
         }
 
@@ -831,8 +886,9 @@ stages:
 
       verified is true only if proposal.json's `landed` showed the commit is
       an ancestor of HEAD, `type_in_cli` and `type_seen_by_private_worker`
-      were true, every case's `id_confirmed` is true, every case behaved as
-      expected, and `private_home_removed` is true. In particular:
+      were true, every case's `id_confirmed` is true (non_object_enqueue has
+      no job id and no such field), every case behaved as
+      expected, and `private_state_dir_removed` is true. In particular:
         - terminal: final_state is error after a single drain, and
           attempts_after equals attempts_before — it was finished, not
           retried.
@@ -841,6 +897,11 @@ stages:
           that distinguishes it from an ordinary retry.
         - plain: attempts_after is attempts_before + 1 and final_state is
           pending.
+        - non_object_enqueue: exit_status is 2 and queue_counts_unchanged
+          is true.
+        - non_object_runtime: final_state is error, error is exactly
+          "invalid payload: expected object, got str", and attempts_after
+          equals attempts_before.
 
       `left_in_user_queue` is always the empty list on a correct run, and
       it is recorded anyway so that a reader deciding whether the demo left
@@ -857,6 +918,8 @@ stages:
         description: >
           verified.json recording the ancestry check, the CLI registration
           check, one job per retry class (success, terminal, deferred, plain)
+          plus the two non-object payload layers (CLI refusal, runtime
+          rejection)
           drained in a private queue with its attempt count before and after,
           and confirmation that the private queue was deleted.
     writes_to:

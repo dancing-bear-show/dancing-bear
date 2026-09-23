@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import re
 from collections import deque
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -20,14 +21,23 @@ from workflow.models import (
     OutputMode,
     ResolvedStage,
     StageSpec,
+    TriggerSpec,
     WorkflowDefinition,
     WorkflowManifest,
+)
+from workflow.param_rules import (
+    UnsafePathError,
+    is_identifier,
+    require_shell_safe_path,
+    undeclared_overrides,
+    validate_param_values,
 )
 
 __all__ = [
     "WorkflowCompileError",
     "ContractWarning",
     "compile_workflow",
+    "enforce_param_rules",
     "validate_dag_contracts",
 ]
 
@@ -101,6 +111,39 @@ def validate_dag_contracts(definition: WorkflowDefinition) -> list[ContractWarni
 # ---------------------------------------------------------------------------
 
 
+def enforce_param_rules(trigger: TriggerSpec, overrides: Mapping[str, object]) -> None:
+    """Raise if caller *overrides* are not allowed by *trigger*; never echo a value.
+
+    Checks, in order: every override key is a declared trigger param (after
+    fragment merge) or an engine built-in -- ``resolve_params`` would
+    otherwise rewrite any ``{key}`` in stage text, e.g. ``--params 2,40=x``
+    rewriting a regex quantifier; a built-in ``work_dir`` is shell-safe; and
+    the effective values satisfy the workflow's ``param_rules``/``required``.
+
+    Raises:
+        WorkflowCompileError: naming each rejected param and the reason.
+    """
+    undeclared = undeclared_overrides(trigger.params, overrides)
+    if undeclared:
+        raise WorkflowCompileError(
+            "trigger params rejected: undeclared param(s) "
+            + ", ".join(undeclared)
+            + "; only params declared under trigger.params may be passed"
+        )
+    params = {**trigger.params, **overrides}
+    work_dir = params.get("work_dir")
+    if isinstance(work_dir, str):
+        try:
+            require_shell_safe_path(work_dir, "param work_dir")
+        except UnsafePathError as exc:
+            raise WorkflowCompileError(f"trigger params rejected: {exc}") from exc
+    result = validate_param_values(trigger.rules, params)
+    if not result.ok:
+        raise WorkflowCompileError(
+            "trigger params rejected: " + "; ".join(result.failures)
+        )
+
+
 def compile_workflow(
     definition: WorkflowDefinition,
     *,
@@ -120,10 +163,14 @@ def compile_workflow(
         WorkflowManifest with parallel_groups computed and stages resolved.
 
     Raises:
-        WorkflowCompileError: On resolution failures.
+        WorkflowCompileError: On resolution failures, or when an effective
+            trigger param violates the workflow's ``param_rules``/``required``.
     """
     root = Path(project_root) if project_root else Path.cwd()
     params = {**(definition.trigger.params or {}), **(trigger_params or {})}
+    # Before ANY resolve_params call: once a value is substituted into stage
+    # text it is already in the prompt, and no later check can take it back.
+    enforce_param_rules(definition.trigger, trigger_params or {})
     stage_map: dict[str, StageSpec] = {s.name: s for s in definition.stages}
 
     parallel_groups = _compute_parallel_groups(definition.stages)
@@ -383,11 +430,15 @@ def resolve_params(template: str, params: dict[str, str]) -> str:
     """Resolve ``{param}`` placeholders in a string.
 
     Substitutes keys like ``{team}`` from trigger params.
-    Unresolved placeholders are left as-is.
+    Unresolved placeholders are left as-is. Only identifier-shaped keys are
+    substituted: a key such as ``2,40`` would otherwise rewrite a regex
+    quantifier ``{2,40}`` in stage text (defence in depth behind
+    ``enforce_param_rules``, which rejects undeclared keys outright).
     """
     result = template
     for key, value in params.items():
-        result = result.replace(f"{{{key}}}", value)
+        if is_identifier(key):
+            result = result.replace(f"{{{key}}}", value)
     return result
 
 

@@ -1,7 +1,8 @@
 """Dispatch subcommands for the workflow CLI.
 
 Handles parse, run, lint, list, status, init-workspace, resume,
-validate-fragment, and check-params command handlers, plus their shared
+validate-fragment, check-params, check-finding-keys, thread-fingerprints,
+check-thread-ids and aggregate-fix-results command handlers, plus their shared
 helpers.
 """
 
@@ -87,9 +88,20 @@ def _parse_params(raw: list[str]) -> tuple[dict[str, str], str | None]:
 
 def _build_resolved_params(path: str, cli_params: dict[str, str]) -> dict[str, str]:
     """Merge trigger-default and CLI params in priority order."""
+    from workflow.param_rules import UnsafePathError, require_shell_safe_path
     defn_only = _parse_workflow_safe(path)
     trigger_defaults = defn_only.trigger.params if defn_only.trigger else {}
     work_dir = str(Path.cwd() / "out")
+    if "work_dir" not in trigger_defaults and "work_dir" not in cli_params:
+        # The default is substituted as {work_dir} into stage text agents run
+        # as shell; an explicit value is checked by enforce_param_rules.
+        try:
+            require_shell_safe_path(work_dir, "the current working directory (default work_dir is <cwd>/out)")
+        except UnsafePathError as exc:
+            raise CLIError(
+                f"{exc}; run from another directory or pass --params work_dir=<path>",
+                ExitCode.ERROR,
+            ) from exc
     built_in_params = {"work_dir": work_dir}
     return {**built_in_params, **trigger_defaults, **cli_params}
 
@@ -104,15 +116,31 @@ def _resolve_base_dir(
     Expands ``~`` and environment variables in the resolved path so that
     YAML param defaults such as ``~/.local/share/dancing-bear/resume/foo``
     work without requiring an absolute path in the workflow file.
+
+    Raises:
+        CLIError: if the resolved base directory -- from ``--workspace``/
+            ``--base-dir``, the workflow's ``workspace_dir`` template, or the
+            temp dir -- contains characters unsafe for shell rendering. It
+            becomes part of ``{workspace}``; checked before anything is created.
     """
+    from workflow.param_rules import UnsafePathError, require_shell_safe_path
     if override:
-        return os.path.expandvars(os.path.expanduser(override))
-    if defn.workspace_dir:
+        base = os.path.expandvars(os.path.expanduser(override))
+        what = "the --workspace/--base-dir path"
+    elif defn.workspace_dir:
         resolved = resolve_params(defn.workspace_dir, params) if params else defn.workspace_dir
         expanded = os.path.expandvars(os.path.expanduser(resolved))
-        return str(Path(expanded).parent)
-    import tempfile
-    return tempfile.gettempdir()
+        base = str(Path(expanded).parent)
+        what = "the workspace base dir resolved from the workflow's workspace_dir"
+    else:
+        import tempfile
+        base = tempfile.gettempdir()
+        what = "the system temp directory"
+    try:
+        require_shell_safe_path(base, what)
+    except UnsafePathError as exc:
+        raise CLIError(str(exc), ExitCode.ERROR) from exc
+    return base
 
 
 def _confirm_execution(name: str, stage_count: int) -> bool:
@@ -516,6 +544,95 @@ def _cmd_check_params(args: argparse.Namespace) -> int:
     # No trailing newline: $(...) strips one, but a caller redirecting to a
     # file would otherwise get a value that differs from the manifest's.
     sys.stdout.write(value)
+    return 0
+
+
+def _cmd_check_finding_keys(args: argparse.Namespace) -> int:
+    """Fail unless every finding_key in a fix-index.json is present, unique
+    and filename-safe. Exit 0 pass, 1 fail. Offending entries are named by
+    position only -- a rejected key is untrusted text and is never echoed.
+    """
+    from workflow.review_ids import check_finding_keys
+
+    try:
+        result = check_finding_keys(args.file)
+    except ValueError as exc:
+        print(f"check-finding-keys: {exc}", file=sys.stderr)
+        return 1
+    for failure in result.failures:
+        print(f"check-finding-keys: {failure}", file=sys.stderr)
+    status = "ok" if result.ok else "FAILED"
+    print(f"check-finding-keys: {status} checked={result.checked} failed={len(result.failures)}")
+    return 0 if result.ok else 1
+
+
+def _cmd_thread_fingerprints(args: argparse.Namespace) -> int:
+    """Write each threads.json entry's discriminators as a JSON list to stdout."""
+    from dataclasses import asdict
+
+    from workflow.review_ids import thread_fingerprints
+
+    try:
+        rows = thread_fingerprints(args.file)
+    except ValueError as exc:
+        print(f"thread-fingerprints: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps([asdict(row) for row in rows], indent=2))
+    return 0
+
+
+def _cmd_check_thread_ids(args: argparse.Namespace) -> int:
+    """Id-coherence gate: triage.json thread ids against threads.json.
+
+    Exit 0 pass, 1 halt. A coordinate-only difference is a halt unless
+    ``--repair`` is given, in which case triage.json is rewritten with the
+    fetch's coordinates. Every other issue halts regardless, and nothing is
+    written when anything halts.
+    """
+    from workflow.review_ids import apply_relabels, check_thread_ids
+
+    try:
+        result = check_thread_ids(args.threads, args.triage)
+    except ValueError as exc:
+        print(f"check-thread-ids: {exc}", file=sys.stderr)
+        return 1
+    halts = result.halts(repair=args.repair)
+    for halt in halts:
+        print(f"check-thread-ids: {halt}", file=sys.stderr)
+    repaired = 0
+    if not halts and result.relabels:
+        apply_relabels(args.triage, result.relabels)
+        repaired = len(result.relabels)
+    print(
+        f"check-thread-ids: {'HALT' if halts else 'ok'} checked={result.checked} "
+        f"repaired={repaired} skipped_null={result.skipped_null} halted={len(halts)}"
+    )
+    return 1 if halts else 0
+
+
+def _cmd_aggregate_fix_results(args: argparse.Namespace) -> int:
+    """Merge per-finding fixer results into fix-results.json.
+
+    Exit 0 once the aggregate is written -- missing results and key mismatches
+    are recorded IN it for downstream stages, not treated as a failure here.
+    Exit 1, writing nothing, if fix-index.json is unreadable or fails the
+    finding_key gate. The summary names counts only.
+    """
+    from core.fileutil import atomic_write_json
+    from workflow.review_ids import aggregate_fix_results
+
+    try:
+        merged = aggregate_fix_results(args.index, args.fixes_dir)
+    except ValueError as exc:
+        print(f"aggregate-fix-results: {exc}", file=sys.stderr)
+        return 1
+    doc = merged.to_json()
+    atomic_write_json(args.out, doc)
+    print(
+        f"aggregate-fix-results: expected={doc['total_expected']} "
+        f"results={doc['total_results']} missing={len(doc['missing_results'])} "
+        f"failed_tests={len(doc['failed_tests'])} key_mismatches={len(doc['key_mismatches'])}"
+    )
     return 0
 
 

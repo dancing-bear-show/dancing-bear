@@ -11,6 +11,7 @@ from tests.workflow_tests.helpers.factories import (
     make_resolved_stage,
     make_stage_result,
     make_stage_spec,
+    make_trigger_spec,
     make_workflow_definition,
     make_workflow_manifest,
 )
@@ -26,10 +27,12 @@ from workflow.orchestrator import OrchestratorConfig, WorkflowExecutionError, Wo
 # ---------------------------------------------------------------------------
 
 
-def _make_manifest(stage_names: tuple[str, ...]):
+def _make_manifest(stage_names: tuple[str, ...], params: dict[str, str] | None = None):
     """Create a workflow manifest from a flat list of stage names (all in one group)."""
     stage_specs = [make_stage_spec(name=n) for n in stage_names]
-    wf = make_workflow_definition(stages=tuple(stage_specs))
+    wf = make_workflow_definition(
+        stages=tuple(stage_specs), trigger=make_trigger_spec(params=params or {}),
+    )
     resolved = {
         n: make_resolved_stage(spec=make_stage_spec(name=n), index=i)
         for i, n in enumerate(stage_names)
@@ -109,7 +112,8 @@ class TestWorkflowOrchestratorInit(unittest.TestCase):
 
     def test_trigger_params_stored(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            manifest = _make_manifest(("gather",))
+            # Only a declared param may be overridden (enforce_param_rules).
+            manifest = _make_manifest(("gather",), params={"env": "dev"})
             orch = _make_orch(manifest, tmp_dir, dry_run=True, trigger_params={"env": "prod"})
             self.assertEqual(orch._trigger_params, {"env": "prod"})
 

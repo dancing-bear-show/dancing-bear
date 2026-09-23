@@ -43,6 +43,11 @@
 # (prose, weakest), fix-dispatch Step 1b repairs against threads.json and halts
 # on an unrepairable id (structural, the real fix), and resolve-threads Step
 # 1a0 re-asserts validity before posting and aborts rather than guessing.
+# Both structural gates, the body fingerprint, and the finding_key gate are
+# tested code (src/workflow/review_ids.py, behind `./bin/workflow
+# check-thread-ids`, `thread-fingerprints` and `check-finding-keys`), not
+# snippets an agent re-types: three agents re-implementing one hash can
+# disagree, and nothing ever ran the embedded copies.
 
 name: review-fix-threads
 version: "1.0"
@@ -63,7 +68,7 @@ metadata:
 trigger:
   source: manual
   params:
-    pr_number: ""                 # required; auto-detected from branch if blank
+    pr_number: ""                 # required; the caller derives it (gh pr view) before invoking
     test_cmd: "make test"         # full-suite command for verify-fixes
     include_resolved: "false"     # "true" re-triages already-resolved threads
     max_threads: "12"             # fan-out ceiling; overflow is deferred and reported, never dropped
@@ -71,6 +76,25 @@ trigger:
                                   # group, so this bounds concurrent editors of the
                                   # same tree. Raising it far past ~12 invites .pyc
                                   # and lint-rewrite contention between agents.
+  # Enforced by the engine in compile_workflow, BEFORE any {param} is
+  # substituted, so no stage and no workspace path ever sees a rejected value.
+  # pr_number reaches workspace_dir, shell commands and double-quoted `gh api`
+  # URLs, where quoting does not stop `$(...)`; init's check-params call
+  # repeats this rule as defence in depth, so keep the two patterns identical.
+  # test_cmd is run verbatim as shell text by verify-fixes, so it is an
+  # allowlist of the intended full-suite commands, not a character class:
+  # `make test` pins PYTHONPATH to this checkout, and `make cov` is the same
+  # suite with coverage.
+  param_rules:
+    pr_number: '[1-9][0-9]{0,6}'
+    test_cmd: 'make (test|cov)'
+    include_resolved: 'true|false'
+    max_threads: '[1-9][0-9]{0,2}'
+  # A blank pr_number used to fall through to branch auto-detection inside
+  # init, but workspace_dir and every later {pr_number} substitution had
+  # already gone out blank. Blank test_cmd would make verify-fixes run
+  # nothing and report green; blank max_threads has no meaning.
+  required: [pr_number, test_cmd, include_resolved, max_threads]
 
 workspace_dir: "{work_dir}/review-fix-threads-{pr_number}"
 
@@ -90,26 +114,29 @@ stages:
         mkdir -p {workspace}/outputs/replies
         mkdir -p {workspace}/validation
 
-      Step 2 — resolve the PR number. If {pr_number} is non-empty, VALIDATE
-      IT FIRST — it is caller-overridable and it reaches seven interpolation
-      sites in this workflow, several inside double-quoted `gh api` URLs. A
-      value carrying a quote or `$(...)` becomes shell source there; double
-      quotes do not stop command substitution, which this PR established by
-      probe. Validate it once here, so every downstream use is covered:
+      Step 2 — re-validate the PR number. {pr_number} is REQUIRED and the
+      engine already enforced trigger.param_rules on it at compile time,
+      before substitution and before this workspace existed, so a run that
+      reached this stage passed that check. The caller (the
+      /review-fix-threads skill) derives the number with
+      `gh pr view --json number -q .number` BEFORE invoking; this stage no
+      longer auto-detects it. Auto-detection here came too late: a blank
+      value had already been substituted into workspace_dir and every later
+      {pr_number} site.
 
-        ./bin/workflow check-params {workspace}/manifest.json \
-          --check 'pr_number=[1-9][0-9]{0,8}'
+      It reaches seven interpolation sites in this workflow, several inside
+      double-quoted `gh api` URLs, where a value carrying a quote or `$(...)`
+      becomes shell source; double quotes do not stop command substitution,
+      which this PR established by probe. So repeat the check here as
+      defence in depth, with the SAME pattern as trigger.param_rules:
 
-      Branch on the EXIT STATUS. A non-digit value fails the run here rather
+        ./bin/workflow check-params "{workspace}/manifest.json" --check 'pr_number=[1-9][0-9]{0,6}'
+
+      Branch on the EXIT STATUS. A non-zero exit fails the run here rather
       than reaching a command. Digits-only is the whole legitimate alphabet
       for a PR number, so anything else is a caller error to report, never
-      to sanitize.
-
-      If blank, detect it from the current branch:
-        GITHUB_TOKEN= gh pr view --json number -q .number
-      If that fails or returns nothing, exit non-zero with the message
-      "no PR for the current branch — pass pr_number explicitly". Do not guess
-      a number and do not fall back to "most recent PR".
+      to sanitize. Do not guess a number and do not fall back to "most
+      recent PR".
 
       Step 3 — confirm the PR is open and record its head SHA:
         GITHUB_TOKEN= gh pr view <PR> --json number,state,title,headRefOid,headRefName
@@ -234,37 +261,45 @@ stages:
       `discriminator: "database_id"`. Only when it is absent, fall back to
       `body_fingerprint` and set `discriminator: "fingerprint"`.
 
-      For the fingerprint, use EXACTLY this code — the same code fix-dispatch
-      Step 1b and resolve-threads Step 1a0 use. Three agents compute this
-      value independently and they must agree byte-for-byte, so it is
-      reproduced verbatim here rather than described:
+      GET BOTH VALUES FROM THE TOOL, never compute them yourself:
 
-        fingerprint = sha256(
-            "\n".join(
-                " ".join(line.split())
-                for line in body.replace("\r\n", "\n").split("\n")
-            ).strip().encode("utf-8")
-        ).hexdigest()
+        ./bin/workflow thread-fingerprints "{workspace}/outputs/threads.json"
 
-      where `body` is the thread's FIRST comment body in threads.json. Note
-      it KEEPS line structure: whitespace is collapsed within each line, and
-      lines are rejoined with "\n". An earlier revision of this paragraph
-      paraphrased it as "runs of whitespace collapsed to single spaces",
-      which collapses newlines too — a different hash, so every valid entry
-      would have failed the coherence gate. Do not paraphrase it again.
+      It prints a JSON list with one row per threads.json entry, in file
+      order: {index, thread_id, database_id, body_fingerprint}. Match a
+      thread to its row by `index` (its position in threads.json), copy
+      `database_id` into `comment_database_id` and `body_fingerprint` into
+      `body_fingerprint`, verbatim. Exit non-zero means threads.json is
+      malformed: stop and report it rather than writing triage.json.
 
-      Copy the result verbatim into the entry. Do NOT derive it from `ask`,
-      which is your paraphrase and would fingerprint your own text rather
-      than the reviewer's.
+      The fingerprint is of the thread's FIRST comment body, and it is the
+      same tested function the fix-dispatch and resolve-threads gates use.
+      It used to be a Python snippet reproduced in three stages, which three
+      agents re-typed independently and had to agree on byte-for-byte; an
+      earlier revision of this paragraph paraphrased it as "runs of
+      whitespace collapsed to single spaces", which collapses newlines too —
+      a different hash, so every valid entry would have failed the coherence
+      gate. One implementation with a known-answer test cannot drift that way.
+
+      Do NOT derive either value from `ask`, which is your paraphrase and
+      would fingerprint your own text rather than the reviewer's.
 
       This is what the next stage's id-integrity gate compares against, and
       it is the ONLY field that can distinguish two threads anchored to the
       same (path, line): coordinates match for both, so a swapped pair passes
       every other check while each fix posts to the wrong thread. An entry
       without this field forces that gate to either invent a value or fall
-      back to coordinates, which is the defect it exists to catch. For a
-      null-id entry (a review-body or issue-comment finding) write null —
-      there is no thread body to hash, and the gate skips those by design.
+      back to coordinates, which is the defect it exists to catch.
+
+      For a null-id entry (a review-body or issue-comment finding),
+      `comment_database_id` is REQUIRED, not optional: it is that entry's only
+      stable identity, and fix-dispatch Step 4 looks the entry up by it —
+      halting rather than guessing if it is missing. The fetch always fills
+      `comments[0].database_id` on every surface (the REST review or comment
+      `id` for these), so copy it. Only `body_fingerprint` may be null for a
+      null-id entry, because the coherence gate skips null ids by design; an
+      earlier revision said simply "write null" here, which read as nulling
+      the id too.
 
       Step 5 — write {workspace}/outputs/triage.json:
         {
@@ -284,7 +319,7 @@ stages:
               "finding_key": "unique within this run: the thread_id when non-null, else a stable derivation (body-<n>, or the comment database_id)",
               "discriminator": "database_id|fingerprint",
               "comment_database_id": 123 | null,
-              "body_fingerprint": "sha256 per fix-dispatch Step 1b's exact algorithm; fallback when comment_database_id is null",
+              "body_fingerprint": "copied from ./bin/workflow thread-fingerprints; fallback when comment_database_id is null",
               "reason": "why this directive — required for reject/moot/defer",
               "evidence": "file:line facts, required for reject",
               "resolvable": true
@@ -364,26 +399,37 @@ stages:
       separate change to the shared fragment, since other workflows consume
       it too.
 
-      For every entry in triage.json:
+      RUN THE GATE. Every rule numbered below is implemented and unit-tested
+      in `workflow check-thread-ids`; do not re-implement any of it:
+
+        ./bin/workflow check-thread-ids "{workspace}/outputs/threads.json" "{workspace}/outputs/triage.json" --repair
+
+      Exit 0: the gate passed, and any coordinate-only relabels have been
+      written back into triage.json with an `_id_repairs` audit record.
+      Copy its stdout line (checked / repaired / skipped_null) into your
+      summary — zero repairs is the normal case and must be stated
+      explicitly rather than passing in silence.
+
+      Exit non-zero: HALT this stage and write no fix-index.json. Relay the
+      stderr lines verbatim; they name each bad entry by its position
+      (`triage threads[N]`), never by echoing the id, because a fabricated id
+      is untrusted text. Read triage.json at those positions if you need to
+      name the ids in your report. Do NOT edit triage.json to make the gate
+      pass and do NOT re-run it after hand edits — a halt here means triage
+      produced a wrong mapping, and guessing the right one is exactly what
+      the gate exists to prevent. When the gate is unrunnable (wrapper
+      missing, exit status unreadable), treat it as a halt: fail closed.
+
+      What the gate enforces, for every entry in triage.json — kept here so
+      a reader knows why each rule exists:
 
         1. Build an id -> (path, line) map from threads.json, keyed BY THREAD
            ID. Do not build the reverse; see step 4 for why (path, line) is
            not a key at all.
-        1b. Extend that map to id -> (path, line, body_fingerprint), where
-           the fingerprint is computed by EXACTLY this algorithm — three
-           agents compute this value independently and they must agree
-           byte-for-byte, so "collapse whitespace" is not a specification:
-
-             fingerprint = sha256(
-                 "\n".join(
-                     " ".join(line.split())
-                     for line in body.replace("\r\n", "\n").split("\n")
-                 ).strip().encode("utf-8")
-             ).hexdigest()
-
-           That is: normalise CRLF, collapse runs of intra-line whitespace to
-           one space, strip each line, keep line structure, strip the whole,
-           encode UTF-8. Do not substitute a different normalisation.
+        1b. Extend that map to id -> (path, line, discriminator). The body
+           fingerprint is the one tested function behind
+           `workflow thread-fingerprints` — the value triage recorded — and
+           it keeps line structure (it does not collapse newlines).
 
            PREFER THE COMMENT'S OWN ID. The fingerprint is a FALLBACK, not
            the primary discriminator: two independent threads CAN share an
@@ -396,10 +442,12 @@ stages:
            `comments[0].database_id`, which is unique per comment by
            construction. Compare THAT first, and fall back to the
            fingerprint only when it is absent (older fetches, or a surface
-           that does not supply one). Record which discriminator was used
-           per entry — `discriminator: "database_id"|"fingerprint"` — so a
-           later reader knows the strength of the check that passed rather
-           than assuming the strongest.
+           that does not supply one). Triage records which one it holds per
+           entry — `discriminator: "database_id"|"fingerprint"` — and the
+           gate compares exactly that one, halting when the field is missing
+           or names a value that was not recorded, so a later reader knows
+           the strength of the check that passed rather than assuming the
+           strongest.
            Coordinates alone cannot complete this check: two threads sharing
            one (path, line) — which step 4(ii) documents as real and observed
            on this very PR — can have their ids SWAPPED, and a coordinate
@@ -408,17 +456,17 @@ stages:
            already carries it, so nothing extra needs fetching.
 
         2. For each triage entry, look up ITS OWN thread_id in that map:
-             - present, coordinates match, AND the fingerprint of the body
-               triage recorded matches the fetch's: correct. Leave it alone.
-             - present, coordinates match, but the BODY does not: this is the
-               swap case. HALT the stage and report both ids — do not guess
-               which way round they belong, and do not fall back to
-               coordinates, because coordinates are exactly what cannot tell
-               these two apart.
+             - present, coordinates match, AND the discriminator triage
+               recorded matches the fetch's: correct. Leave it alone.
+             - present, coordinates match, but the DISCRIMINATOR does not:
+               this is the swap case. HALT — do not guess which way round
+               the pair belongs, and do not fall back to coordinates, because
+               coordinates are exactly what cannot tell these two apart.
              - present, but the coordinates differ: the entry was mislabelled.
                Trust the FETCH's coordinates — the id is the identity and the
-               line is derived from it. Still verify the fingerprint; a
-               mismatch here is a swap too, not a relabelling.
+               line is derived from it. The discriminator is still checked
+               FIRST; a mismatch here is a swap too, not a relabelling, and
+               halts rather than being repaired.
              - absent from the map entirely: corrupt or fabricated.
         3. For an absent id, HALT the whole stage and report it. Do NOT try to
            recover it from its (path, line): several threads can share one
@@ -457,30 +505,28 @@ stages:
            with no thread anchor at all. Test the null id FIRST, before the
            line check. Such an entry is fixable but never resolvable, so
            carry it with resolvable false.
-        6. Rewrite triage.json in place, recording "_id_repairs" as a list of
-           (old, new, path, line) so the run is auditable.
+        6. With --repair, rewrite triage.json in place (atomically, and only
+           when nothing halts), appending one "_id_repairs" record per
+           relabel — {thread_id, from: {path, line}, to: {path, line}} — so
+           the run is auditable. Ids are never repaired, only coordinates.
 
-      Then assert both over the entries with a NON-NULL thread_id, and fail
-      the stage if either does not hold:
+      The gate therefore asserts both over the entries with a NON-NULL
+      thread_id, and exits non-zero if either does not hold:
         - every thread_id in triage.json exists in threads.json
-        - for each, the fetch's (path, line) and body fingerprint match the
-          entry's
+        - for each, the fetch's (path, line) and discriminator match the
+          entry's (after repair)
 
       EXCLUDE NULL-ID ENTRIES FROM BOTH ASSERTIONS. Step 5 establishes that a
       review-body or issue-comment finding legitimately has no thread_id
       while still carrying a path and line quoted from the prose. An
       assertion phrased as "every (path, line) maps to a fetched id" contra-
       dicts that directly and halts a healthy run on the very case step 5
-      exists to protect — observed on PR #391 round 2. Filter on
+      exists to protect — observed on PR #391 round 2. The gate filters on
       `thread_id is not None` before either check, not inside it.
 
-      Note the first assertion is now id-keyed rather than coordinate-keyed,
+      Note the first assertion is id-keyed rather than coordinate-keyed,
       for the reason step 4 gives: (path, line) is not a key, so "the fetch's
       id for it" is not always well defined.
-
-      Print the counts checked, repaired, and skipped-as-null. Zero repairs
-      is the normal case and must be stated explicitly rather than passing in
-      silence.
 
       Step 2 — select threads with directive "fix". If there are none, write an
       index with total 0 and an empty items list and exit 0. A PR whose threads
@@ -499,6 +545,14 @@ stages:
       Step 4 — for each group, embed the FULL thread objects from threads.json
       (entire comment chain, not just the opening comment) plus the triage entry
       for each. The fixer must see what a human already said in the thread.
+
+      Find each entry's thread object by thread_id only when thread_id is
+      non-null. For a null-id entry, match the threads.json entry whose
+      `comments[0].database_id` equals the triage entry's
+      `comment_database_id`. Looking up `thread_id: null` matches every
+      review-body and issue-comment entry at once, so the fixer would get
+      some other finding's comments. If a null-id entry matches zero or
+      several objects, halt and name its finding_key. Do not pick one.
 
       Write {workspace}/outputs/fix-index.json:
         {
@@ -525,41 +579,41 @@ stages:
         }
       Index width = len(str(max(total-1, 0))) digits, zero-padded.
 
-      Build the index with an inline python3 script so it is written atomically.
+      Build the index with an inline python3 script, writing it FIRST to
+      "{workspace}/outputs/fix-index.candidate.json", never straight to
+      fix-index.json.
 
-      FAIL BEFORE FAN-OUT IF ANY finding_key REPEATS. Each fixer writes
-      outputs/fixes/<finding_key>.json, so two entries sharing a key write
-      the same file and the second silently replaces the first — the exact
-      data loss finding_key exists to prevent, reintroduced one level up.
-      triage is only INSTRUCTED to make keys unique; this is where that is
-      enforced. In the same script that builds the index, assert:
+      FAIL BEFORE FAN-OUT IF ANY finding_key IS MISSING, REPEATS, OR IS
+      UNSAFE. Each fixer writes outputs/fixes/<finding_key>.json, so two
+      entries sharing a key write the same file and the second silently
+      replaces the first — the exact data loss finding_key exists to
+      prevent, reintroduced one level up. triage is only INSTRUCTED to make
+      keys unique; this is where that is enforced, by tested code rather
+      than a snippet you re-type:
 
-        keys = [t.get("finding_key") for item in items for t in item["data"]["threads"]]
-        missing = [k for k in keys if not k]
-        present = [k for k in keys if k]
-        dupes = sorted({k for k in present if present.count(k) > 1})
-        unsafe = sorted(k for k in present
-                        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,99}", k))
-        if missing or dupes or unsafe:
-            sys.exit("finding_key invalid: missing=%d dupes=%r unsafe=%r"
-                     % (len(missing), dupes, unsafe))
+        ./bin/workflow check-finding-keys "{workspace}/outputs/fix-index.candidate.json" && mv "{workspace}/outputs/fix-index.candidate.json" "{workspace}/outputs/fix-index.json"
 
-      and write nothing if it fails (the script needs `import re, sys`).
-      `unsafe` exists because the key becomes a filename, and triage — an
-      LLM — produces it. It is an ALLOWLIST, not a denylist: an earlier
-      revision rejected only `/`, `\`, `..` and a leading `.`, which still
-      let `$(...)`, spaces, `;` and quotes through into a filename that
-      later stages handle. Every legitimate key already fits the narrow
-      shape — a `PRRT_...` thread id, a numeric database id, or `body-<n>`
-      — so nothing real is lost by requiring it.
-      `present` is separate from `keys` so that several MISSING keys are
-      reported as missing rather than as a duplicate of None. The message
-      uses %-formatting, not an f-string, deliberately: the engine treats a
-      brace-wrapped identifier in a description as a trigger-param
-      placeholder, so f-string braces would be substituted into the Python
-      if a param of that name were ever added (lint flags them for exactly
-      this reason). Exiting non-zero here
-      halts the run before any agent is spawned, which is the only point at
+      Exit 0 publishes the index with an atomic rename. Non-zero: delete the
+      candidate, write NO fix-index.json, relay the stderr lines verbatim and
+      fail the stage. Those lines name each bad entry by position
+      (`items[i].data.threads[j]`) and never echo the key, because a
+      rejected key is untrusted text; read the candidate at that position if
+      you need to see it. Do not "fix" a key and re-run — a bad key means
+      triage produced it, and the collision is still free to fix only
+      because nothing has fanned out yet.
+
+      What the check enforces: every key is present (several missing keys
+      are each reported as missing, never as duplicates of one another),
+      unique across the WHOLE index, and a string matching the allowlist
+      `[A-Za-z0-9][A-Za-z0-9_-]{0,99}` in full. The allowlist exists because
+      the key becomes a filename, and triage — an LLM — produces it. It is an
+      ALLOWLIST, not a denylist: an earlier revision rejected only `/`, `\`,
+      `..` and a leading `.`, which still let `$(...)`, spaces, `;` and
+      quotes through into a filename that later stages handle. Every
+      legitimate key already fits the narrow shape — a `PRRT_...` thread id
+      (including ones ending in `-`), a database id written as a STRING, or
+      `body-<n>` — so nothing real is lost by requiring it. Halting here
+      stops the run before any agent is spawned, which is the only point at
       which a collision is still free to fix.
     agent:
       role: researcher
@@ -619,6 +673,13 @@ stages:
       thread entry in fix-index.json carries its `finding_key`; fix-dispatch
       has already checked they are unique and filename-safe.
 
+      Write that same `finding_key` INSIDE the file as well, copied verbatim
+      from the fix-index.json entry, so the file content matches its filename.
+      fix-aggregate keeps result objects verbatim, so once results are
+      merged the filename is gone and the in-file `finding_key` is the only
+      thing that ties a result to its finding. fix-aggregate checks that it
+      matches the filename.
+
       A thread you decline to fix still gets a result file with
       action "rejected" or "moot" and its evidence — a missing file is
       indistinguishable from a crashed agent, and the aggregator treats it as
@@ -648,15 +709,29 @@ stages:
     # globs that directory and reconciles it against fix-index.json.
     reads_from: [fix-dispatch, triage-threads]
     description: >
-      Merge the per-thread result files into one aggregate.
+      Merge the per-thread result files into one aggregate. Every step below
+      is implemented and unit-tested in `workflow aggregate-fix-results`; run
+      it, do not re-implement any of it:
+
+        ./bin/workflow aggregate-fix-results "{workspace}/outputs/fix-index.json" "{workspace}/outputs/fixes" "{workspace}/outputs/fix-results.json"
+
+      Exit 0: fix-results.json is written. Copy its stdout line (expected /
+      results / missing / failed_tests / key_mismatches) into your summary.
+      Missing results and key mismatches are NOT a stage failure here; they
+      are recorded in the file, and verify-fixes and resolve-threads act on
+      them. Exit non-zero: fix-index.json is unreadable or fails the
+      finding_key gate, nothing was written, and this stage fails. Never
+      hand-write fix-results.json in either case: a merge re-typed by an
+      agent is exactly the untested logic this command replaced.
+
+      What it enforces, kept here so a reader knows why:
 
       Step 1 — read every {workspace}/outputs/fixes/*.json.
 
-      Step 2 — read {workspace}/outputs/fix-index.json and compute which
-      expected FINDING KEYS have no result file, matching each expected
-      `finding_key` against the filename `<finding_key>.json`. Record the
-      missing ones in missing_results as objects carrying both fields:
-      {"finding_key": "...", "thread_id": "..." | null}.
+      Step 2 — compute which expected FINDING KEYS in fix-index.json have no
+      result file, matching each expected `finding_key` against the filename
+      `<finding_key>.json`. The missing ones go in missing_results as objects
+      carrying both fields: {"finding_key": "...", "thread_id": "..." | null}.
 
       Reconcile on finding_key, never on thread_id. Result files are named by
       finding_key, so a null-id finding's result lives at `body-<n>.json`;
@@ -668,7 +743,35 @@ stages:
       crashed must never be reported as handled, and must never be resolved
       downstream.
 
-      Step 3 — write {workspace}/outputs/fix-results.json:
+      Step 2b — VERIFY EACH RESULT'S IDENTITY before merging it. For every
+      result file, let STEM be its filename without `.json`. The file passes
+      only if it is a readable JSON object and all three hold:
+        - STEM is a finding_key present in fix-index.json
+        - the object's `finding_key` field equals STEM exactly
+        - the object's `thread_id` equals that index entry's `thread_id`
+          (null equals null; null never equals a string)
+
+      A file that fails is a KEY MISMATCH. It means the fixer wrote the wrong
+      file or put the wrong identity in it, and there is no way to tell
+      which. Trust neither: do not add the object to results, and do not
+      credit it to the finding its in-file key names. Record it in
+      key_mismatches as
+      {"file": "<STEM>.json", "finding_key_in_file": "..." | null,
+       "thread_id_in_file": "..." | null, "reason": "..."}, and if STEM is an
+      expected key, also add that finding to missing_results. Its outcome is
+      unknown, so it must be neither replied to nor resolved. A result
+      missing the `finding_key` field is a mismatch too. Never backfill the
+      field from the filename, because that would pass the exact check this
+      step exists to make.
+
+      After this step, every object in results carries a `finding_key` that
+      is unique and verified. Downstream stages join on that field, since
+      merging discards the filenames.
+
+      Step 3 — the file it writes, {workspace}/outputs/fix-results.json.
+      `results` keeps each verified object verbatim, in fix-index order;
+      `failed_tests` lists every "fixed" result whose test_result is not
+      "pass" (an unrecognised value is recorded as "not-run"):
         {
           "total_expected": N,
           "total_results": N,
@@ -677,11 +780,11 @@ stages:
           "tests_added": ["tests/..."],
           "missing_results": [{"finding_key": "...", "thread_id": "PRRT_..." | null}],
           "failed_tests": [{"finding_key": "...", "thread_id": "PRRT_..." | null, "test_result": "fail|not-run"}],
-          "results": [ <each per-thread result object, verbatim> ]
+          "key_mismatches": [{"file": "...", "finding_key_in_file": "..." | null, "thread_id_in_file": "..." | null, "reason": "..."}],
+          "results": [ <each per-finding result object that passed Step 2b, verbatim> ]
         }
 
-      Use an inline python3 script. Do not re-run tests or edit source here —
-      this stage only merges.
+      Do not re-run tests or edit source here — this stage only merges.
     agent:
       role: researcher
       model: sonnet
@@ -845,14 +948,19 @@ stages:
         {
           "tests": "pass|fail", "test_output_tail": "...",
           "lint": "pass|fail", "lint_violations": [],
-          "coverage_gaps": [{"thread_id": "...", "missing": "sad-path"}],
+          "coverage_gaps": [{"finding_key": "...", "thread_id": "..." | null, "missing": "sad-path"}],
           "retry_count": 0,
           "preexisting_failures": [],
           "all_green": true
         }
 
+      Identify each coverage gap by the result's `finding_key`. Copy
+      `thread_id` alongside it for readability only, because several null-id
+      findings share `thread_id: null` and cannot be told apart by it.
+
       Set all_green false if tests fail, lint fails, any coverage_gaps remain,
-      or fix-results.json lists any missing_results or failed_tests.
+      or fix-results.json lists any missing_results, failed_tests or
+      key_mismatches.
 
       Then, whenever all_green is false, after writing the file:
         - report THIS STAGE as failed: write "status": "failed" in your stage
@@ -902,11 +1010,20 @@ stages:
       Step 1 — read .claude/WRITING_GUIDE.md in full.
 
       Step 2 — collect the reply text for every thread that will receive one:
-        - "fixed" threads: reply_text from {workspace}/outputs/fixes/*.json
+        - "fixed" threads: reply_text from the `results` array of
+          {workspace}/outputs/fix-results.json. Do not read
+          outputs/fixes/*.json directly: fix-aggregate has already dropped
+          any file whose identity failed its check, and reading the raw
+          files would bring those back.
         - "rejected"/"moot"/"defer" threads: compose the reply now from the
           triage entry's reason and evidence. These have no fixer agent, so
           nobody has written their reply yet.
         - "context" threads: no reply.
+
+      Match each result or triage entry to its reply by `finding_key`, not
+      by thread_id. Review-body and issue-comment findings all have
+      `thread_id: null`, so keying on it merges their replies into one
+      entry and all but one of them are lost.
 
       Step 3 — rewrite any reply that violates the guide. The failures that
       recur in generated review replies:
@@ -923,12 +1040,17 @@ stages:
       Step 4 — write {workspace}/outputs/replies/final-replies.json:
         {
           "replies": [
-            {"thread_id": "...", "directive": "fix",
+            {"finding_key": "PRRT_... or body-<n>", "thread_id": "PRRT_..." | null,
+             "directive": "fix",
              "text": "final reply text", "rewritten": true,
              "violations_fixed": ["sycophantic opening"]}
           ],
-          "no_reply": ["PRRT_... (context)"]
+          "no_reply": ["<finding_key> (context)"]
         }
+
+      `finding_key` is the reply's identity and must be unique across
+      replies. `thread_id` is copied from the triage entry, null included,
+      and is used only by resolve-threads to decide where to post.
 
       Every thread with directive fix, reject, moot, or defer must appear in
       replies. A thread that is about to be resolved with no explanation is the
@@ -943,6 +1065,7 @@ stages:
       strategy: unit
       criteria:
         - every fix/reject/moot/defer thread has a non-empty reply
+        - every reply carries a finding_key, and no finding_key repeats
         - no reply contains a sycophantic opening or exclamation mark
         - every rejection reply cites concrete evidence
       max_revisions: 1
@@ -990,28 +1113,32 @@ stages:
       unattended run says something nobody reviewed; check-prose owns that
       text, and its absence means the run is not ready to post.
 
-      Step 1a0 — ID COHERENCE GATE, before any posting decision. Read
-      {workspace}/outputs/threads.json and build an
-      id -> (path, line, discriminator) map keyed BY THREAD ID, where the
-      discriminator is `comments[0].database_id` when present and otherwise
-      the fingerprint — computed with the exact code in fix-dispatch Step 1b,
-      reproduced verbatim so this stage cannot drift from it:
+      Step 1a0 — ID COHERENCE GATE, before any posting decision. Run the
+      same tested gate fix-dispatch Step 1b ran, WITHOUT --repair:
 
-        fingerprint = sha256(
-            "\n".join(
-                " ".join(line.split())
-                for line in body.replace("\r\n", "\n").split("\n")
-            ).strip().encode("utf-8")
-        ).hexdigest()
+        ./bin/workflow check-thread-ids "{workspace}/outputs/threads.json" "{workspace}/outputs/triage.json"
 
-      It keeps line structure; do not collapse newlines. For every thread you
-      are about to reply to or resolve, its id
-      must appear in that map AND both the coordinates and the DISCRIMINATOR
-      you hold for it must match what the fetch recorded.
+      Exit non-zero (or a gate you could not run): ABORT exactly as in Step
+      0 — post nothing, resolve nothing, status "blocked", and relay its
+      stderr lines, which name each offending entry by position
+      (`triage threads[N]`); read triage.json at those positions to name the
+      ids in resolution.json. Exit 0: proceed.
+
+      It checks every non-null-id entry in triage.json — a superset of the
+      threads you are about to reply to or resolve. For each, the id must
+      appear in threads.json AND both the coordinates and the DISCRIMINATOR
+      triage recorded must match what the fetch recorded. There is no
+      repair here: fix-dispatch already rewrote any relabelled coordinates,
+      so a coordinate difference now is itself a halt. The fingerprint is
+      the one function behind `workflow thread-fingerprints`, so this stage
+      cannot drift from the value triage recorded.
+
+      Why the gate is shaped this way — it enforces every rule below; do not
+      re-check any of them by hand:
 
       COMPARE WHATEVER triage RECORDED, not the fingerprint specifically.
       Each entry carries `discriminator: "database_id"|"fingerprint"` naming
-      which one it holds; compare that one. Requiring a fingerprint here
+      which one it holds; the gate compares that one. Requiring a fingerprint here
       would halt every ordinary thread, since a GraphQL thread HAS a
       database_id and triage is told to record the fingerprint only as a
       fallback when it does not — the two rules would contradict and the
@@ -1030,13 +1157,13 @@ stages:
       check here would let exactly the failure Step 1b was written for reach
       production unchallenged.
 
-      Compare fingerprints only for entries whose thread_id is NON-NULL, as
-      Step 1b's companion rule requires. A null id is legitimate — a
+      Discriminators are compared only for entries whose thread_id is
+      NON-NULL, as Step 1b's companion rule requires. A null id is legitimate — a
       review-body or issue-comment finding has no thread to hash — and such
       entries are unresolvable anyway, so they are excluded from both the
       existence and the fingerprint assertions rather than failing them.
 
-      On a coordinates-match-but-fingerprint-differs result, HALT. Do not
+      On a coordinates-match-but-discriminator-differs result, it HALTS. Do not
       guess which way round the pair belongs, and do not fall back to
       coordinates: coordinates are precisely what cannot tell these two
       apart, so "falling back" to them means answering the question with the
@@ -1083,14 +1210,28 @@ stages:
             (the fixer crashed; nobody knows whether the code was changed).
             Match on finding_key, never thread_id: a null-id finding's
             thread_id is null and would match every other null-id entry.
-          - it has no entry in final-replies.json
+          - its finding_key appears in fix-results.json "key_mismatches" as
+            finding_key_in_file (a result claimed this finding from the
+            wrong file, so its outcome is unknown too)
+          - no entry in final-replies.json has its finding_key
 
         NO-RESOLVE set — a superset of NO-REPLY, plus:
-          - its result has action "fixed" with test_result "fail" or
+          - its result (the fix-results.json "results" object with the same
+            finding_key) has action "fixed" with test_result "fail" or
             "not-run" (it gets a factual status reply, below, but stays open)
           - resolvable is false (no thread_id — review bodies and PR-level
             comments cannot be resolved; they still get their reply, posted
             as a top-level comment by Step 3's null-id branch)
+
+      Every lookup in this stage that connects a triage entry, a result, a
+      reply and a resolution record matches them by finding_key. Use
+      thread_id only where the question is about the GitHub thread itself:
+      the Step 1a0 coherence check against threads.json, the null check that
+      picks the posting branch, re-reading a thread's existing comments, and
+      the threadId passed to the mutations. The first
+      question is "which finding is this?" and the second is "where on
+      GitHub does it go?", and only finding_key answers the first for a
+      null-id finding.
 
       Report every member of either set in "skipped" with its reason and
       which set it is in. An unresolved thread costs a human thirty seconds; a
@@ -1139,7 +1280,7 @@ stages:
         - thread_id NULL -> post one top-level PR comment instead:
 
             GITHUB_TOKEN= gh api "repos/$OWNER/$REPO/issues/{pr_number}/comments" \
-              -F body=@{workspace}/outputs/replies/<the reply file>
+              -F body=@{workspace}/outputs/replies/post-<finding_key>.md
 
           PASS THE BODY BY FILE, never interpolated into the command. Reply
           text is generated from review content and fix output: it routinely
@@ -1147,8 +1288,11 @@ stages:
           puts every one of them into shell source — so posting a reply can
           execute whatever a reviewer wrote. The threaded mutation below
           already avoids this with `-F`; this path must not be the weaker
-          one. Write the reply to a file under {workspace}/outputs/replies/
-          and hand `gh` the path with `-F body=@<file>`.
+          one. Write the reply to {workspace}/outputs/replies/post-<finding_key>.md
+          and hand `gh` the path with `-F body=@<file>`. Name it by
+          finding_key: a name derived from thread_id is the same `null` for
+          every finding on this branch, so each reply would overwrite the
+          one before and the same text would be posted several times.
 
           Open it by quoting the finding it answers (its path:line and the
           first line of the original comment), since a top-level comment
@@ -1168,7 +1312,7 @@ stages:
           addPullRequestReviewThreadReply(
             input:{pullRequestReviewThreadId:$threadId, body:$body}
           ){ comment{ id url } }
-        }' -F threadId="<thread_id>" -F body=@{workspace}/outputs/replies/<the reply file>
+        }' -F threadId="<thread_id>" -F body=@{workspace}/outputs/replies/post-<finding_key>.md
 
       PASS THE BODY BY FILE, exactly as the null-id path above does. `-F`
       alone is NOT sufficient, and an earlier revision of this file claimed
@@ -1226,11 +1370,18 @@ stages:
       Step 5 — write {workspace}/outputs/resolution.json:
         {
           "status": "ok|partial|blocked",
-          "replied": [{"thread_id": "...", "comment_url": "..."}],
-          "resolved": ["PRRT_..."],
-          "skipped": [{"thread_id": "...", "reason": "..."}],
-          "failed": [{"thread_id": "...", "error": "..."}]
+          "replied": [{"finding_key": "...", "thread_id": "..." | null, "posted_as": "thread-reply|issue-comment", "comment_url": "..."}],
+          "resolved": [{"finding_key": "...", "thread_id": "PRRT_..."}],
+          "skipped": [{"finding_key": "...", "thread_id": "..." | null, "reason": "..."}],
+          "failed": [{"finding_key": "...", "thread_id": "..." | null, "error": "..."}]
         }
+
+      Identify every record by finding_key. Several null-id findings can be
+      replied to, skipped or failed in one run, and records that carry only
+      `thread_id: null` cannot be told apart by the report.
+      `resolved` only ever holds non-null thread_ids, since only a real thread
+      can be resolved, but it still carries finding_key so every list joins
+      the same way.
 
       Step 6 — re-fetch to confirm the PR's actual state:
         GITHUB_TOKEN= gh api graphql -f query='
@@ -1298,7 +1449,12 @@ stages:
       success and must read as one.
 
       Close with a per-thread table: thread_id (short), path:line, directive,
-      action, replied, resolved.
+      action, replied, resolved. Build each row by joining triage.json,
+      fix-results.json and resolution.json on finding_key, not thread_id.
+      Joining on thread_id collapses every null-id finding into one row. In
+      the thread_id column, show the finding_key for a null-id finding so the
+      row can still be identified. List any fix-results.json key_mismatches
+      under Fixes as findings with an unknown outcome.
     agent:
       role: doc-writer
       model: sonnet

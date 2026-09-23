@@ -255,6 +255,19 @@ trigger:
     # Safety margin above the model size before a generation is allowed to
     # start, leaving room for the OS and whatever else is running.
     memory_margin_gb: "4"
+  # Enforced by the engine in compile_workflow BEFORE any param is substituted
+  # into stage text, so compile/run/init-workspace exit 1 on a violation and
+  # no stage ever sees a rejected value. The per-stage check-params calls below
+  # repeat these checks as defence in depth; keep the two patterns identical.
+  param_rules:
+    model_tag: '[A-Za-z0-9][A-Za-z0-9._-]{0,63}(:[A-Za-z0-9][A-Za-z0-9._-]{0,63})?'
+    ollama_host: 'https?://[A-Za-z0-9][A-Za-z0-9.-]{0,252}(:[0-9]{1,5})?/?'
+    job_type: '[a-z][a-z0-9_]{2,40}'
+    # Only reach prompt text and the design's memory arithmetic, not a shell;
+    # constrained anyway so a design never computes against a non-number.
+    model_resident_gb: '[1-9][0-9]{0,2}'
+    memory_margin_gb: '[0-9]{1,3}'
+  required: [model_tag, ollama_host, job_type, model_resident_gb, memory_margin_gb]
 
 workspace_dir: "{work_dir}/qwen-local-handler"
 
@@ -281,7 +294,7 @@ stages:
       included (probe-disproven: a newline plus the delimiter closes it and
       executes the remainder while the regex then passes on the remnant):
 
-        ./bin/workflow check-params {workspace}/manifest.json \
+        ./bin/workflow check-params "{workspace}"/manifest.json \
           --check 'job_type=[a-z][a-z0-9_]{2,40}'
 
       The check itself lives in src/workflow/param_guard.py and is covered by
@@ -289,6 +302,12 @@ stages:
       payloads above — so a future edit here cannot silently gut it. Note what
       is and is not interpolated: the PATH to manifest.json is engine-
       controlled, and the untrusted value appears nowhere on the command line.
+
+      DEFENCE IN DEPTH. The engine already enforces this same pattern via
+      trigger.param_rules at compile time, before any substitution, so on a
+      normal run this call cannot fail. Keep it anyway: it is the guard that
+      still holds if those rules are loosened or the workflow is run by
+      something other than the engine.
 
       Branch on the EXIT STATUS, not on echoed text. If it fails, ABORT the
       whole run here — write survey.json with {"aborted": true,
@@ -371,15 +390,17 @@ stages:
       BASELINE GENERATION — VALIDATE {ollama_host} AND {model_tag} FIRST.
       This is the first live probe in the whole workflow, and it reaches a
       caller-supplied host and tag before the install stage's Step 0 gate has
-      ever run. `resolve_params` is raw string replacement, so an override
-      arrives here unchecked; a stage documented as read-only would then make
+      ever run. The engine's trigger.param_rules reject a bad override at
+      compile time, but `resolve_params` is still raw string replacement, so
+      if those rules were ever loosened a stage documented as read-only would
+      make
       a network call to — or run a shell command containing — whatever the
       caller passed.
 
       Apply the SAME check STEP 0 above applies to {job_type}, against the
       same file, for both params:
-        ollama_host: ^https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?$
-        model_tag:   ^[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)?$
+        ollama_host: ^https?://[A-Za-z0-9][A-Za-z0-9.-]{0,252}(:[0-9]{1,5})?/?$
+        model_tag:   ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}(:[A-Za-z0-9][A-Za-z0-9._-]{0,63})?$
       Branch on the exit status. If either fails, SKIP the baseline entirely
       and record it as not-run with the reason — do not abort the survey,
       which is otherwise pure reading and still worth having, and do not
@@ -480,8 +501,8 @@ stages:
         Do this instead: capture it from the manifest into a shell variable,
         and use only the variable.
 
-          HOST=$(./bin/workflow check-params {workspace}/manifest.json \
-            --check 'ollama_host=https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?' \
+          HOST=$(./bin/workflow check-params "{workspace}"/manifest.json \
+            --check 'ollama_host=https?://[A-Za-z0-9][A-Za-z0-9.-]{0,252}(:[0-9]{1,5})?/?' \
             --print ollama_host) || exit 1
 
         `--print` emits the value ONLY when every `--check` passed, and
@@ -1869,7 +1890,7 @@ stages:
            anything in that field, and step 3 puts it straight into `git`.
            Require a full 40-character hex SHA and nothing else:
 
-             ./bin/workflow check-params {workspace}/outputs/<the impl file> \
+             ./bin/workflow check-params "{workspace}"/outputs/<the impl file> \
                --top-level --check 'commit_sha=[0-9a-f]{40}'
 
            `--top-level` reads the field from the document root, since this is
@@ -2270,19 +2291,19 @@ stages:
       a broken daemon ends up running at boot.
 
       Step 0 — VALIDATE {ollama_host} AND {model_tag} BEFORE FIRST USE. Both
-      are trigger params, substituted directly into the shell commands below
-      with no quoting by the workflow engine (resolve_params in
-      src/workflow/compiler.py is plain string replacement — it does not
-      validate or quote). A caller can override either at `--execute` time,
-      so nothing upstream guarantees they are safe to interpolate into a
-      shell command; validating here costs nothing and closes that off before
-      Step 2 or Step 3 ever runs a command.
+      are trigger params, substituted directly into the text below with no
+      quoting (resolve_params in src/workflow/compiler.py is plain string
+      replacement). The engine enforces trigger.param_rules at compile time,
+      before that substitution, so a hostile override never reaches this
+      stage; this Step 0 is defence in depth against those rules drifting,
+      and it costs nothing before Step 2 or Step 3 runs a command.
         - `{ollama_host}` must match a strict http(s) URL shape: scheme
           `http` or `https`, then `://`, then a host (and optional `:port`),
           with no whitespace, quotes, backticks, `$`, `;`, `|`, `&`, or
           newline anywhere in the value.
         - `{model_tag}` must match a model-tag grammar: `name[:tag]`, each
-          part alphanumeric plus `.`, `-`, `_`, at most one `:` separating
+          part starting alphanumeric, then alphanumeric plus `.`, `-`, `_`
+          (at most 64 characters), at most one `:` separating
           name and tag, no whitespace, quotes, backticks, `$`, `;`, `|`, `&`,
           or newline.
         DO NOT VALIDATE BY SUBSTITUTING INTO A SHELL COMMAND. The obvious
@@ -2317,9 +2338,9 @@ stages:
         never passed through a shell on the way there. Read it from there and
         validate it in Python:
 
-          ./bin/workflow check-params {workspace}/manifest.json \
-            --check 'ollama_host=https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?' \
-            --check 'model_tag=[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)?'
+          ./bin/workflow check-params "{workspace}"/manifest.json \
+            --check 'ollama_host=https?://[A-Za-z0-9][A-Za-z0-9.-]{0,252}(:[0-9]{1,5})?/?' \
+            --check 'model_tag=[A-Za-z0-9][A-Za-z0-9._-]{0,63}(:[A-Za-z0-9][A-Za-z0-9._-]{0,63})?'
 
         That is one call for BOTH params: it reports every failing param and
         exits non-zero if any of them fails. The check lives in
@@ -2346,8 +2367,8 @@ stages:
         Apply the same check to {model_tag}, reading it from the same file.
         State in install.json which mechanism you used, and abort before any
         command runs if either pattern fails:
-          ollama_host: ^https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?$
-          model_tag:   ^[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)?$
+          ollama_host: ^https?://[A-Za-z0-9][A-Za-z0-9.-]{0,252}(:[0-9]{1,5})?/?$
+          model_tag:   ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}(:[A-Za-z0-9][A-Za-z0-9._-]{0,63})?$
 
         THEN BIND THEM TO SHELL VARIABLES IN STEP 1b BEFORE USING THEM.
         Passing here is necessary but not sufficient: validation does not
@@ -2404,11 +2425,11 @@ stages:
         engine substitutes at every occurrence of the token regardless of what
         Step 0 concluded. Bind them once, here, and use only the variables:
 
-          HOST=$(./bin/workflow check-params {workspace}/manifest.json \
-            --check 'ollama_host=https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?' \
+          HOST=$(./bin/workflow check-params "{workspace}"/manifest.json \
+            --check 'ollama_host=https?://[A-Za-z0-9][A-Za-z0-9.-]{0,252}(:[0-9]{1,5})?/?' \
             --print ollama_host) || exit 1
-          TAG=$(./bin/workflow check-params {workspace}/manifest.json \
-            --check 'model_tag=[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)?' \
+          TAG=$(./bin/workflow check-params "{workspace}"/manifest.json \
+            --check 'model_tag=[A-Za-z0-9][A-Za-z0-9._-]{0,63}(:[A-Za-z0-9][A-Za-z0-9._-]{0,63})?' \
             --print model_tag) || exit 1
 
         `--print` writes a value ONLY when every `--check` in that invocation

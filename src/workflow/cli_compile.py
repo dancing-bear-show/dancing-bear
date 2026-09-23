@@ -55,7 +55,9 @@ def _fragment_bytes(
 # schema change is still served and silently lacks the new fields — e.g. a
 # pre-existing cache would drop agent_isolation, making `isolation: worktree` a
 # no-op again for any workflow that had already been compiled once.
-_COMPILE_PAYLOAD_SCHEMA = 5
+# Schema 6 changes no key: it invalidates entries cached before compile
+# enforced trigger param_rules, which were written without that check.
+_COMPILE_PAYLOAD_SCHEMA = 6
 
 
 def _compile_cache_path(
@@ -141,11 +143,11 @@ def _eval_when_for_manifest(when: str | None, params: dict[str, str]) -> bool:
 def _parse_param_overrides(raw: list[str] | None) -> dict[str, str]:
     """Parse repeatable ``--params key=value`` into a dict.
 
-    Entries without "=" are ignored rather than raising: this function only
-    feeds manifest metadata, and the run path already reports malformed
-    params. Silently dropping one here cannot select a wrong branch — an
-    unresolved {placeholder} is left as-is by resolve_params, which the
-    evaluators treat as a non-match.
+    Entries without "=" are ignored rather than raising: the run path already
+    reports malformed params. Silently dropping one here cannot select a wrong
+    branch — an unresolved {placeholder} is left as-is by resolve_params,
+    which the evaluators treat as a non-match — nor bypass param_rules, since
+    a dropped entry never reaches the compiled output at all.
     """
     out: dict[str, str] = {}
     for item in raw or []:
@@ -164,16 +166,17 @@ def _build_compile_payload(path: str, param_overrides: list[str] | None = None) 
     would advertise the default branch while execution took the other one.
     """
     from workflow.cli_dispatch import _load_manifest
-    defn, manifest = _load_manifest(path)
+    overrides = _parse_param_overrides(param_overrides)
+    # Overrides go through compile_workflow so its param_rules/required check
+    # sees them: compiling with defaults only would accept a hostile override
+    # here and reject a legitimately supplied required param.
+    defn, manifest = _load_manifest(path, trigger_params=overrides or None)
     max_par = max((len(g) for g in manifest.parallel_groups), default=0)
 
     contract_warnings = validate_dag_contracts(defn)
 
     # Caller overrides win over declared defaults, mirroring the run path.
-    effective_params = {
-        **defn.trigger.params,
-        **_parse_param_overrides(param_overrides),
-    }
+    effective_params = {**defn.trigger.params, **overrides}
 
     summary = {
         "name": defn.name, "total_stages": len(manifest.resolved_stages),

@@ -22,6 +22,7 @@ from pathlib import Path
 
 from core.fileutil import atomic_write_json
 from workflow.models import ManifestRef, StageResult, StageStatus, WorkflowManifest
+from workflow.param_rules import require_shell_safe_path
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +39,19 @@ def init_workspace(
     Default base: /tmp/{workflow_name}-{run_id}/
     Creates subdirs: stages/, outputs/, validation/
     Returns the workspace root path.
+
+    Raises:
+        UnsafePathError: if the final path (base dir, workflow name, or run
+            id) contains characters unsafe for shell rendering. It becomes
+            ``{workspace}`` in stage text agents run as shell, so it is
+            checked here -- the one point every new workspace passes through
+            -- before anything is created.
     """
     if base_dir is not None:
         root = Path(base_dir) / f"{workflow_name}-{run_id}"
     else:
         root = Path(tempfile.gettempdir()) / f"{workflow_name}-{run_id}"
+    require_shell_safe_path(root, "workspace path")
 
     root.mkdir(parents=True, exist_ok=True)
     for sub in _SUBDIRS:

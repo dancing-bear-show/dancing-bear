@@ -31,7 +31,10 @@ from workflow.meta import META
 
 from workflow.cli_compile import _cmd_compile
 from workflow.cli_dispatch import (
+    _cmd_aggregate_fix_results,
+    _cmd_check_finding_keys,
     _cmd_check_params,
+    _cmd_check_thread_ids,
     _cmd_init_workspace,
     _cmd_lint,
     _cmd_list,
@@ -39,6 +42,7 @@ from workflow.cli_dispatch import (
     _cmd_resume,
     _cmd_run,
     _cmd_status,
+    _cmd_thread_fingerprints,
     _cmd_validate_fragment,
 )
 
@@ -226,13 +230,57 @@ def cmd_check_params(args: argparse.Namespace) -> int:
     return _cmd_check_params(args)
 
 
+@app.command(
+    "check-finding-keys",
+    help="Fail unless every finding_key in a fix-index.json is present, unique, filename-safe",
+)
+@app.argument("file", help="Path to fix-index.json")
+def cmd_check_finding_keys(args: argparse.Namespace) -> int:
+    return _cmd_check_finding_keys(args)
+
+
+@app.command(
+    "thread-fingerprints",
+    help="Print each threads.json entry's database_id and body fingerprint as JSON",
+)
+@app.argument("file", help="Path to threads.json")
+def cmd_thread_fingerprints(args: argparse.Namespace) -> int:
+    return _cmd_thread_fingerprints(args)
+
+
+@app.command(
+    "check-thread-ids",
+    help="Id-coherence gate: triage.json thread ids vs threads.json (exit 0 pass, 1 halt)",
+)
+@app.argument("threads", help="Path to threads.json (the fetch)")
+@app.argument("triage", help="Path to triage.json")
+@app.argument(
+    "--repair", action="store_true",
+    help="Rewrite triage.json with the fetch's coordinates when only coordinates differ",
+)
+def cmd_check_thread_ids(args: argparse.Namespace) -> int:
+    return _cmd_check_thread_ids(args)
+
+
+@app.command(
+    "aggregate-fix-results",
+    help="Merge fixes/<finding_key>.json into fix-results.json, verifying each result's identity",
+)
+@app.argument("index", help="Path to fix-index.json")
+@app.argument("fixes_dir", help="Directory holding <finding_key>.json result files")
+@app.argument("out", help="Path to write fix-results.json")
+def cmd_aggregate_fix_results(args: argparse.Namespace) -> int:
+    return _cmd_aggregate_fix_results(args)
+
+
 def _no_command_usage() -> int:
     """Preserve the legacy no-subcommand behavior (one-line usage to
     stderr, ExitCode.USAGE) rather than CLIApp's default (full --help),
     since this is a public CLI surface."""
     print(
         "Usage: workflow {parse,compile,run,lint,list,status,init-workspace,resume,"
-        "validate-fragment,check-params} [options]",
+        "validate-fragment,check-params,check-finding-keys,thread-fingerprints,"
+        "check-thread-ids,aggregate-fix-results} [options]",
         file=sys.stderr,
     )
     return ExitCode.USAGE

@@ -29,8 +29,14 @@ If you find a real problem outside the thread's scope, record it in
 
 ## Input
 
-You receive a thread object with `thread_id`, `path`, `line`, `author_kind`,
-the full `comments` chain, and the triage `directive` telling you what to do.
+You receive a thread object with `finding_key`, `thread_id`, `path`, `line`,
+`author_kind`, the full `comments` chain, and the triage `directive` telling
+you what to do.
+
+`finding_key` is the finding's identity for this run. `thread_id` is only its
+GitHub address, and it is `null` for review-body and issue-comment findings,
+which have no thread. Several findings can therefore share `thread_id: null`,
+but no two share a `finding_key`.
 
 Read the **whole** comment chain before editing. The opening comment is often not
 the operative one: a human may have already narrowed the ask, disagreed with the
@@ -85,11 +91,13 @@ docstring, a rename with no call-site semantics). Say so in `coverage_note`.
 
 ## Output
 
-Write your result JSON to the path given in your prompt. Exactly this shape:
+Write your result JSON to the path given in your prompt, which is named
+`<finding_key>.json`. Exactly this shape:
 
 ```json
 {
-  "thread_id": "PRRT_kwDO...",
+  "finding_key": "PRRT_kwDO... or body-<n>",
+  "thread_id": "PRRT_kwDO... or null",
   "path": "src/resume/docx_sidebar_sections.py",
   "action": "fixed|rejected|moot|deferred",
   "summary": "one sentence: what you changed, or why you did not",
@@ -106,6 +114,18 @@ Write your result JSON to the path given in your prompt. Exactly this shape:
   "error": null
 }
 ```
+
+`finding_key` is required. Copy it verbatim from the entry you were given, and
+it must equal the result file's name without `.json`. It identifies the
+result: the aggregator checks it against the filename, and every later stage
+uses it to match this result to its triage entry, its reply, and its
+resolution record. A result whose key does not match its filename is treated
+as unreliable, and its finding is left unanswered and unresolved.
+
+`thread_id` is also copied verbatim, `null` included. Never fill in a null
+`thread_id` and never derive one from `finding_key`. The posting stage uses
+`thread_id` to address the GitHub thread, and uses a null value to decide
+that the reply goes out as a top-level PR comment.
 
 `reply_text` is posted verbatim to the GitHub thread by a later stage, so write
 it for the reviewer, not for the log. Two sentences: what changed and where, or
@@ -124,5 +144,7 @@ you'd like anything else!"
 - Resolve, close, or reply to a GitHub thread — a later stage owns that
 - Commit, push, amend, or rebase
 - Edit a file the thread did not point you at
+- Name a result file by `thread_id`. Null-id findings would all land in
+  `null.json` and overwrite each other
 - Report `test_result: "pass"` for a suite you did not run
 - Claim `sad_path_covered: true` without an assertion on the failure case
