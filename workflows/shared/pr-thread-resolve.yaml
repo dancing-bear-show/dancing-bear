@@ -166,8 +166,12 @@ stages:
       near-identical reply.
 
       Every reply this fragment posts ends with a run marker on its own line:
-        <!-- dancing-bear-run: {run_id} -->
-      where {run_id} is the plan's "run_id". That marker is how a retry
+        <!-- dancing-bear-run: PLAN_RUN_ID -->
+      where PLAN_RUN_ID is the literal value of resolve-plan.json's "run_id"
+      — which is manifest.json's original run_id, never this invocation's.
+      (Deliberately not written as a curly-brace template variable: the
+      orchestrator mints its own RUN_ID for each invocation and would fill
+      one with exactly the wrong value.) That marker is how a retry
       recognises its own prior work, and it is invisible in rendered Markdown.
 
       Resolve the authenticated actor once, before the loop:
