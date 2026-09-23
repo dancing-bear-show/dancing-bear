@@ -221,6 +221,36 @@ class TestGuardHookSuites(unittest.TestCase):
             {"analysis", "out", "workspace", "outputs"}, _contract_root_dirs()
         )
 
+    def test_guard_contract_cleans_up_after_a_setup_failure(self) -> None:
+        """A FATAL exit mid-setup must still remove what setup created.
+
+        A regular file where a symlink must go makes ensure_dirs abort after it
+        has already created earlier link parents (analysis/, context/, ...). The
+        EXIT trap then ran with ensure_dirs' IFS='|' still in scope, so its
+        space-joined lists never split and every created directory survived --
+        the success-path check in _run_suite never reaches this branch.
+        """
+        root = repo_root()
+        absent = {d for d in _contract_root_dirs() if not os.path.lexists(root / d)}
+        if "stages" not in absent:
+            self.skipTest("stages/ already exists at the repo root; cannot plant the blocker")
+        blocker_dir = root / "stages"
+        blocker_dir.mkdir()
+        (blocker_dir / "srclink").write_text("not a symlink\n", encoding="utf-8")
+        try:
+            proc = subprocess.run(  # nosec B603 B607 - trusted in-repo script, see _run_suite
+                ["bash", str(TESTS_DIR / "guard-contract.test.sh")],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                cwd=str(root), timeout=180,
+            )
+        finally:
+            (blocker_dir / "srclink").unlink()
+            blocker_dir.rmdir()
+        self.assertEqual(proc.returncode, 1, msg=proc.stdout + proc.stderr)
+        self.assertIn("already exists and is not a symlink", proc.stderr)
+        leftover = sorted(d for d in absent if os.path.lexists(root / d))
+        self.assertEqual(leftover, [], msg="setup failure left directories at the repo root")
+
     def _assert_ran_cases(self, name: str, stdout: str) -> None:
         """A suite that ran zero cases has not tested anything.
 

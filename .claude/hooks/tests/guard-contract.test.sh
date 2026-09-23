@@ -178,21 +178,32 @@ ensure_dirs() {
         missing="$missing $parent"
         parent=$(dirname "$parent")
       done
+      # Record BEFORE creating, never after: a mkdir that creates `analysis/` then
+      # fails, or a signal between creation and bookkeeping, would otherwise leave
+      # an untracked directory or link. Cleanup tolerates entries never created --
+      # rmdir of a missing directory fails quietly, and a link is removed only if
+      # [ -L ] -- so over-recording is harmless and under-recording leaks.
+      MADE_LINK_PARENTS="$missing $MADE_LINK_PARENTS"
+      MADE_LINKS="$MADE_LINKS $link"
       if ! mkdir -p "$(dirname "$link")"; then
         echo "FATAL: could not create the parent directory for link '$link'." >&2
         exit 1
       fi
-      MADE_LINK_PARENTS="$missing $MADE_LINK_PARENTS"
       if ! ln -sfn "$target" "$link"; then
         echo "FATAL: could not create the symlink '$link' -> '$target'." >&2
         echo "Aborting rather than running link rows against a missing link." >&2
         exit 1
       fi
-      MADE_LINKS="$MADE_LINKS $link"
     done
   fi
 }
 cleanup_dirs() {
+  # Pin IFS. bash scopes `local` dynamically, and ensure_dirs sets IFS to '|' or
+  # ',' while it loops -- so any exit taken INSIDE it (every FATAL setup branch,
+  # or a signal mid-setup) ran this trap with that IFS, the space-joined lists
+  # below never split, and nothing was removed. Measured: 10 of 10 mid-setup
+  # signals left the link-group directories behind.
+  local IFS=$' \t\n'
   local d l
   # Links first: one may sit inside a directory we also have to remove.
   for l in $MADE_LINKS; do [ -L "$l" ] && rm -f "$l"; done
@@ -203,6 +214,9 @@ cleanup_dirs() {
   cleanup_scratch
 }
 trap cleanup_dirs EXIT
+# A signal must become an exit, or the EXIT trap may not run: measured, a SIGHUP
+# mid-run left srclink symlinks and five empty directories at the repo root.
+trap 'exit 1' INT TERM HUP
 
 run_case() { # run_case <tool> <role> <cwd> <input> <expect> <label>
   local tool="$1" role="$2" cwd="$3" input="$4" expect="$5" label="$6" payload rc

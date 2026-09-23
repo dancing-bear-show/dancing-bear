@@ -751,45 +751,42 @@ stages:
 
         E2E_TMP=$(mktemp -d "${TMPDIR:-/tmp}/e2e-schema.XXXXXX") || exit 1
         trap 'rm -rf "$E2E_TMP"' EXIT
+        trap 'exit 1' INT TERM HUP
         ROOTS_FILE="$E2E_TMP/.worktree-roots"
         WT_LIST=$(git worktree list --porcelain) || exit 1
         printf '%s\n' "$WT_LIST" | awk '/^worktree /{print substr($0,10)}' > "$ROOTS_FILE"
         [ -s "$ROOTS_FILE" ] || { echo "no worktree roots enumerated, aborting" >&2; exit 1; }
-        E2E_REAL=$(cd "$E2E_TMP" && pwd -P)
         while IFS= read -r ROOT; do
           [ -d "$ROOT" ] || continue
-          ROOT_REAL=$(cd "$ROOT" && pwd -P)
-          case "$E2E_REAL" in
-            "$ROOT_REAL"|"$ROOT_REAL"/*)
-              echo "E2E_TMP resolved inside a checkout, aborting" >&2; exit 1 ;;
-          esac
+          D=$(cd "$E2E_TMP" && pwd -P) || exit 1
+          while :; do
+            if [ "$D" -ef "$ROOT" ]; then
+              echo "E2E_TMP resolved inside a checkout, aborting" >&2; exit 1
+            fi
+            [ "$D" = / ] && break
+            D=$(dirname "$D")
+          done
         done < "$ROOTS_FILE"
 
-      `mktemp -d` alone is not enough: it honors `TMPDIR`, and `TMPDIR` can be
-      set to point inside a checkout — any checkout, not just this worktree or
-      the main one. The loop above enumerates every `worktree <path>` line from
-      `git worktree list --porcelain` (which includes the main checkout),
-      canonicalizes each with `pwd -P`, skips a root whose directory no longer
-      exists (a prunable entry), and aborts if `$E2E_TMP` canonicalizes to one
-      of them or a path under one. `git worktree list` runs on its own line so
-      its exit status is checked directly, not masked by the `awk` pipe stage
-      after it — a piped `cmd | awk ... || exit 1` would NOT catch a `git`
-      failure, because `awk` exits 0 on empty input regardless of what `git`
-      did. An empty `$ROOTS_FILE` also aborts explicitly: a repo always has at
-      least one worktree, so zero enumerated roots means enumeration is
-      broken, not that no checkouts exist. The roots are read via `while read
-      < "$ROOTS_FILE"` rather than a plain `for ROOT in $ROOTS` word-split or a
-      piped `while read` — the former does not word-split on `$IFS` in zsh
-      (each root would need `SH_WORD_SPLIT`, unset by default, so the whole
-      multi-line list becomes one non-matching loop iteration and the check
-      silently passes), and the latter runs the loop body in a subshell, where
-      its `exit 1` would not stop the parent shell. Reading from a real file
-      avoids both. `trap ... EXIT` runs on normal completion,
-      an early `exit`, or an interrupted command, so a failure partway through
-      the pipeline still deletes `$E2E_TMP` — cleanup never depends on a
-      separate, rememberable step. Do NOT split this across multiple Bash
-      tool calls: the trap is only registered in the shell that sets it, so a
-      later call in a fresh shell would not delete anything.
+      Why each line is the way it is — every one was found by running this
+      under bash AND zsh, not by reading it:
+        - `mktemp -d` honors `TMPDIR`, which can point inside ANY checkout,
+          so every root from `git worktree list --porcelain` (main included)
+          is checked; a root whose directory is gone (prunable) is skipped.
+        - `git worktree list` runs on its own line: in `git ... | awk ... ||
+          exit 1` the `awk` exit status hides a `git` failure. Zero roots
+          also aborts — enumeration broke, it did not find nothing.
+        - The loop reads a file: zsh does not word-split `for R in $ROOTS`,
+          and a piped `while read` runs in a subshell whose `exit` is lost.
+        - Containment is `-ef` (same inode) on each ancestor of `$E2E_TMP`,
+          not a path-prefix match: bash's `pwd -P` keeps the case you typed,
+          so on a case-insensitive filesystem (macOS) `.../LINKED/tmp` is the
+          same directory as `.../linked/tmp` yet never matched a prefix.
+        - `trap 'exit 1' INT TERM HUP` turns a signal into a normal exit so
+          the EXIT trap runs: zsh skips an EXIT trap on SIGTERM, which is
+          what a tool timeout sends. SIGKILL cannot be trapped at all.
+      Do NOT split this across multiple Bash tool calls: a trap lives only in
+      the shell that set it.
 
       Pass `$E2E_TMP` as every `--out`/`--out-dir` for the sample run. Record
       in `<your-cwd>/outputs/e2e-summary.md` only non-identifying results —
