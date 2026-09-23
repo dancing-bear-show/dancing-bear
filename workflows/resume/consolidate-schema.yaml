@@ -1130,7 +1130,7 @@ stages:
     depends_on: [verify-pdf-fidelity]
     reads_from: [verify-schema, verify-pdf-fidelity, audit-sections, init, cr-validate-code]
     description: >
-      Write {workspace}/outputs/report.md summarizing the run. Measured numbers only —
+      Write {workspace}/outputs/run-report.md summarizing the run. Measured numbers only —
       pull them from verify-schema.md and pdf-fidelity.md rather than
       restating stage intentions.
 
@@ -1168,4 +1168,4 @@ stages:
       access: read-write
     required: true
     writes_to:
-      - "outputs/report.md"
+      - "outputs/run-report.md"

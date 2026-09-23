@@ -19,12 +19,14 @@ from __future__ import annotations
 
 import re
 import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from workflow.models import StageSpec, WorkflowDefinition
 
+from .harness_outputs import describe, find_refused_outputs
 from .include import extract_include_entries, resolve_fragment_path
 from .linter_access import _check_agent_access, _check_stage_access
 from .linter_types import LintError, LintResult, LintWarning
@@ -119,6 +121,7 @@ def lint_workflow(path: str | Path, *, check_commands: bool = False) -> LintResu
     _check_fan_out_worker_queue(defn, result)
     _check_inline_executor(defn, result)
     _check_agent_access(defn, result)
+    _check_refused_output_names(defn.stages, defn.trigger.params or {}, result)
 
     if check_commands:
         _check_cli_commands(defn, result)
@@ -144,7 +147,18 @@ def _lint_fragment(p: Path, text: str, result: LintResult) -> LintResult:
     result.stages = len(stages)
     result.dag_depth = _compute_dag_depth(stages)
     _check_stage_access(stages, result)
-    result.valid = True
+    # A fragment may declare its own trigger.params defaults, which include.py
+    # propagates to importers -- judge them here too, or a refused default
+    # passes standalone lint until some importer happens to be linted.
+    from workflow.include import _frag_trigger
+
+    try:
+        frag_params, _ = _frag_trigger(text, str(p))
+    except WorkflowParseError as exc:
+        result.errors.append(LintError(stage=_GLOBAL_STAGE, field="trigger", message=str(exc)))
+        frag_params = {}
+    _check_refused_output_names(stages, frag_params, result)
+    result.valid = len(result.errors) == 0
     return result
 
 
@@ -261,6 +275,27 @@ def _check_inline_executor(defn: object, result: LintResult) -> None:
                     ),
                 )
             )
+
+
+def _check_refused_output_names(
+    stages: tuple[StageSpec, ...], params: Mapping[str, str], result: LintResult
+) -> None:
+    """Emit an error for every agent-stage output the harness would refuse.
+
+    Eight workflows declared report.md or summary.md from a doc-writer stage, so
+    their final stage could never write its deliverable (see harness_outputs).
+    Param-derived names are checked against *params*' defaults too. The compiler
+    runs the same check on the effective params, which is the gate `workflow run`
+    cannot skip.
+    """
+    for item in find_refused_outputs(stages, params):
+        result.errors.append(
+            LintError(
+                stage=item.stage,
+                field="writes_to" if item.param is None else f"param:{item.param}",
+                message=describe(item),
+            )
+        )
 
 
 def _release_dependents(

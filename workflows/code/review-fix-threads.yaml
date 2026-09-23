@@ -1450,7 +1450,7 @@ stages:
     depends_on: [resolve-threads]
     reads_from: [resolve-threads, plan-resolution, verify-fixes, triage-threads, fix-aggregate, commit-and-push, update-pr-description, parse-review-overview]
     description: >
-      Write the run summary to {workspace}/outputs/report.md.
+      Write the run summary to {workspace}/outputs/run-report.md.
 
       Read triage.json, fix-results.json, verify-results.json,
       pr-describe-result.json, resolve-plan.json, resolution.json, and
@@ -1518,7 +1518,7 @@ stages:
       access: read-write
     required: true
     writes_to:
-      - report.md
+      - run-report.md
 
 include:
   # Triple-source thread fetch (GraphQL threads + review bodies + issue comments).
