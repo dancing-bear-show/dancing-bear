@@ -21,6 +21,7 @@ from .processors_rules_helpers import (
 )
 from .processors_rules_index import (
     _build_norm_existing_keys,
+    _build_reconcile_index,
     _build_unmappable_criteria_index,
 )
 
@@ -213,7 +214,7 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
 
         # Build the same indexes that sync uses so plan and apply classify each
         # desired rule identically.
-        reconcile_index = self._build_reconcile_index(existing_map) if reconcile else None
+        reconcile_index = _build_reconcile_index(existing_map) if reconcile else None
         norm_existing_keys = _build_norm_existing_keys(existing_map) if reconcile else None
         unmappable_index = _build_unmappable_criteria_index(existing_map) if reconcile else None
 
@@ -230,18 +231,3 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
                 would_reconcile += 1
 
         return plan_items, would_reconcile
-
-
-    def _build_reconcile_index(self, existing: dict[str, Any]) -> dict[str, Any]:
-        """Build a criteria-only index of live rules for reconciliation.
-
-        The first live rule for each criteria key wins; later duplicates are
-        skipped.  Entries are popped as they are matched, so the same live rule
-        cannot be reconciled twice.
-        """
-        index: dict[str, Any] = {}
-        for live_rule in existing.values():
-            ck = _criteria_key(live_rule.get("criteria") or {})
-            if ck not in index:
-                index[ck] = live_rule
-        return index
