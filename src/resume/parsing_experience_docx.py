@@ -278,7 +278,7 @@ def _parse_h2_experience(text: str, last_company: str) -> tuple[dict[str, Any], 
     start, end = "", ""
     if len(parts) > 1 and "-" in parts[1]:
         start, end = _split_date_range(parts[1])
-    role = {
+    role: dict[str, object] = {
         "title": title,
         "company": last_company,
         "start": start,

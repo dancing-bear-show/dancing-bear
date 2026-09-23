@@ -152,7 +152,7 @@ class TestHandleWorkflowStageCLIPath(unittest.TestCase):
     def test_cwd_honoured_by_handle_run_cli(self) -> None:
         """cwd from payload reaches _execute_subprocess, not just handle_workflow_stage."""
         from worker.handlers import handle_run_cli
-        job = {"id": "t", "type": "run_cli", "payload": {
+        job: dict[str, object] = {"id": "t", "type": "run_cli", "payload": {
             "cmd": ["./bin/worker", "status"],
             "cwd": "/tmp/custom-cwd",  # nosec B108 - test string only
         }}

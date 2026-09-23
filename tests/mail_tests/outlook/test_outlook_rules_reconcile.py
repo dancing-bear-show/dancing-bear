@@ -13,7 +13,10 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
-from mail.outlook.processors_rules_write import OutlookRulesSyncProcessor, OutlookRulesPlanProcessor
+from mail.outlook import processors_rules_plan, processors_rules_write
+from mail.outlook.processors_rules_write import OutlookRulesSyncProcessor
+from mail.outlook.processors_rules_plan import OutlookRulesPlanProcessor
+from mail.outlook.processors_rules_index import _build_reconcile_index
 from mail.outlook.processors_rules_helpers import (
     _criteria_key,
     _norm_criteria_field,
@@ -1474,6 +1477,43 @@ class TestReconcileFailureExitCode(unittest.TestCase):
 
         self.assertEqual(self._exit_code(envelope), 0)
         self.assertEqual(envelope.payload.failed, 0)
+
+
+class TestSharedReconcileIndex(unittest.TestCase):
+    """Plan and sync build their reconcile index from ONE function.
+
+    Plan used to carry its own copy that did not skip unmappable rules. Parity
+    held only because both paths consult the unmappable index first -- a
+    second copy of index logic is exactly how preview and apply drift apart.
+    """
+
+    UNMAPPABLE = {
+        "id": "unmappable",
+        "criteria": {"from": "bank.example"},
+        "action": {"forward": "old@other.com"},
+        "unmappedConditions": ["bodyContains"],
+    }
+    SIBLING = {
+        "id": "sibling",
+        "criteria": {"from": "bank.example"},
+        "action": {"forward": "other@other.com"},
+        "unmappedConditions": [],
+    }
+
+    def test_plan_and_sync_use_the_same_builder(self):
+        self.assertIs(processors_rules_plan._build_reconcile_index, _build_reconcile_index)
+        self.assertIs(processors_rules_write._build_reconcile_index, _build_reconcile_index)
+        self.assertFalse(hasattr(OutlookRulesPlanProcessor, "_build_reconcile_index"))
+        self.assertFalse(hasattr(OutlookRulesSyncProcessor, "_build_reconcile_index"))
+
+    def test_unmappable_rule_never_enters_the_index(self):
+        """Listed first, the unmappable rule must not shadow its mappable sibling."""
+        index = _build_reconcile_index({"u": dict(self.UNMAPPABLE), "s": dict(self.SIBLING)})
+        key = _criteria_key({"from": "bank.example"})
+        self.assertEqual(index[key]["id"], "sibling")
+
+    def test_index_is_empty_when_only_unmappable_rules_exist(self):
+        self.assertEqual(_build_reconcile_index({"u": dict(self.UNMAPPABLE)}), {})
 
 
 class TestUnmappableConditionsAreNotRewritten(unittest.TestCase):

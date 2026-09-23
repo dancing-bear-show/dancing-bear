@@ -32,7 +32,7 @@ def _validate_bullet_level(raw: object, context: str = "") -> int:
     if isinstance(raw, bool):
         raise ValueError(f"Bullet level must be an integer, got bool {raw!r}{suffix}")
     try:
-        level = int(raw)
+        level = int(raw) if isinstance(raw, (int, float, str)) else int(str(raw))
     except (TypeError, ValueError):
         raise ValueError(
             f"Bullet level must be an integer, got {type(raw).__name__} {raw!r}{suffix}"

@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 import time
+
+from typing import cast
 
 from core.cli_output import OutputWriter
 from core.pipeline import BaseProducer
@@ -10,7 +13,7 @@ from core.retry import exponential_backoff
 
 from ..providers.base import BaseProvider
 from ..utils.batch import apply_in_chunks
-from ..utils.gmail_ops import list_message_ids as _list_message_ids_shared, MessageQueryParams
+from ..utils.gmail_ops import list_message_ids as _list_message_ids_shared, MessageQueryParams, _ListMessagesClient
 from .processors_sweep import (
     FiltersPruneResult,
     FiltersSweepResult,
@@ -44,7 +47,7 @@ class FiltersSweepProducer(BaseProducer):
         total = 0
         for instruction in payload.instructions:
             ids = _list_message_ids_shared(
-                self.client,
+                cast(_ListMessagesClient, self.client),
                 MessageQueryParams(query=instruction.query, pages=self.config.pages, max_msgs=self.config.max_msgs),
             )
             query_display = instruction.query if instruction.query else _EMPTY_QUERY
@@ -55,10 +58,10 @@ class FiltersSweepProducer(BaseProducer):
                 )
             else:
                 apply_in_chunks(
-                    lambda chunk, _inst=instruction: self.client.batch_modify_messages(
-                        chunk,
-                        add_label_ids=_inst.add_label_ids,
-                        remove_label_ids=_inst.remove_label_ids,
+                    partial(
+                        self.client.batch_modify_messages,
+                        add_label_ids=instruction.add_label_ids,
+                        remove_label_ids=instruction.remove_label_ids,
                     ),
                     ids,
                     self.config.batch_size,
@@ -85,7 +88,7 @@ class FiltersSweepRangeProducer(BaseProducer):
             window_total = 0
             for instruction in window.instructions:
                 ids = _list_message_ids_shared(
-                    self.client,
+                    cast(_ListMessagesClient, self.client),
                     MessageQueryParams(query=instruction.query, pages=self.config.pages, max_msgs=self.config.max_msgs),
                 )
                 if self.config.dry_run:
@@ -96,10 +99,10 @@ class FiltersSweepRangeProducer(BaseProducer):
                     )
                 else:
                     apply_in_chunks(
-                        lambda chunk, _inst=instruction: self.client.batch_modify_messages(
-                            chunk,
-                            add_label_ids=_inst.add_label_ids,
-                            remove_label_ids=_inst.remove_label_ids,
+                        partial(
+                            self.client.batch_modify_messages,
+                            add_label_ids=instruction.add_label_ids,
+                            remove_label_ids=instruction.remove_label_ids,
                         ),
                         ids,
                         self.config.batch_size,

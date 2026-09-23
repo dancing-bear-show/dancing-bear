@@ -5,6 +5,7 @@ from __future__ import annotations
 import random
 import re
 from datetime import datetime
+from typing import Any
 
 from .client import AppleMusicCLIError, AppleMusicClient
 from .cli_helpers import PlaylistCreationConfig
@@ -47,7 +48,7 @@ _SEARCH_CANDIDATES = 5
 _ARTIST_STOPWORDS = frozenset({"the", "and", "feat", "featuring", "vs", "with", "de", "la", "le"})
 
 # Playlist presets for the create command
-PRESETS = {
+PRESETS: dict[str, dict[str, Any]] = {
     "spanish": {
         "name": "Spanish Vibes",
         "description": None,

@@ -82,7 +82,7 @@ def make_response(messages: list, next_link: str | None = None) -> MagicMock:
     """Build a mock Graph API response wrapping `messages`."""
     resp = MagicMock()
     resp.raise_for_status = MagicMock()
-    data = {"value": messages}
+    data: dict[str, object] = {"value": messages}
     if next_link:
         data["@odata.nextLink"] = next_link
     resp.json.return_value = data

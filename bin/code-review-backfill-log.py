@@ -46,6 +46,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import cast
 
 DEFAULT_LOG_PATH = Path.home() / ".cache" / "claude" / "code-review-findings.ndjson"
 
@@ -177,7 +178,7 @@ def scan_prs(owner_repo: str, numbers: list[int], already: set[str]) -> dict:
             continue
         comment = find_summary_comment(owner_repo, pr)
         parsed = parse_comment(comment.get("body") or "") if comment else None
-        if not parsed:
+        if comment is None or not parsed:
             no_comment.append(pr)
             continue
 
@@ -246,7 +247,7 @@ def main(argv: list[str] | None = None) -> int:
 
     owner_repo = args.repo
     if not owner_repo:
-        owner_repo = _gh_json(["repo", "view", "--json", "nameWithOwner"])["nameWithOwner"]
+        owner_repo = cast(dict, _gh_json(["repo", "view", "--json", "nameWithOwner"]))["nameWithOwner"]
 
     log_path = Path(args.log_path).expanduser()
     already = set() if args.force else existing_pr_numbers(log_path)

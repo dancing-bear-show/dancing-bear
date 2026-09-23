@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from .client import OutlookClientBase, _requests
+from .client import _requests
 from core.constants import GRAPH_API_URL
 
 _NEXT_LINK = "@odata.nextLink"
@@ -72,7 +72,7 @@ class FoldersMixin:
     Requires OutlookClientBase methods: _headers, cfg_get_json, cfg_put_json, cfg_clear.
     """
 
-    def list_folders(self: OutlookClientBase) -> list[dict[str, Any]]:
+    def list_folders(self: _FoldersHost) -> list[dict[str, Any]]:
         url: str | None = f"{GRAPH_API_URL}/me/mailFolders"
         out: list[dict[str, Any]] = []
         while url:
@@ -180,7 +180,7 @@ class FoldersMixin:
             if fid in cache:
                 return cache[fid]
             parts = []
-            cur = fid
+            cur: str | None = fid
             seen: set[str] = set()
             while cur and cur in name and cur not in seen:
                 seen.add(cur)
@@ -192,13 +192,16 @@ class FoldersMixin:
             return p
 
         for fid in by_id:
-            p = build_path(fid)
+            fid_str = str(fid) if fid is not None else None
+            if fid_str is None:
+                continue
+            p = build_path(fid_str)
             if p:
-                path_map[p] = fid
+                path_map[p] = fid_str
         self.cfg_put_json("folders_path_map", path_map)
         return path_map
 
-    def _ensure_child_folder(self: OutlookClientBase, parent_id: str, seg: str) -> str:
+    def _ensure_child_folder(self: _FoldersHost, parent_id: str, seg: str) -> str:
         """Ensure a child folder with name `seg` exists under `parent_id`. Returns child folder id."""
         r = _requests().get(
             f"{GRAPH_API_URL}/me/mailFolders/{parent_id}/childFolders",

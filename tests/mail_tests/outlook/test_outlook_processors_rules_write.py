@@ -17,10 +17,12 @@ from unittest.mock import MagicMock, patch
 from mail.outlook.processors_rules_write import (
     OutlookRulesSyncProcessor,
     OutlookRulesSyncResult,
-    OutlookRulesPlanProcessor,
-    OutlookRulesPlanResult,
     OutlookRulesSweepProcessor,
     OutlookRulesSweepResult,
+)
+from mail.outlook.processors_rules_plan import (
+    OutlookRulesPlanProcessor,
+    OutlookRulesPlanResult,
 )
 from mail.outlook.processors_rules_helpers import (
     RuleContext,

@@ -62,10 +62,10 @@ def parse_duration(s: str | None) -> int | None:
     return total or None
 
 
-def human_size(n: int) -> str:
+def human_size(n: int | float) -> str:
     for unit in ["B", "KB", "MB", "GB", "TB"]:
         if n < 1024 or unit == "TB":
-            return f"{n:.1f} {unit}" if unit != "B" else f"{n} {unit}"
+            return f"{n:.1f} {unit}" if unit != "B" else f"{int(n)} {unit}"
         n /= 1024
     return f"{int(n)} TB"
 

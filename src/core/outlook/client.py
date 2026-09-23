@@ -8,9 +8,12 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.cache import ConfigCacheMixin
+
+if TYPE_CHECKING:
+    import msal as _msal_types
 from core.constants import (
     GRAPH_API_URL,
     GRAPH_DEFAULT_SCOPE,
@@ -96,8 +99,8 @@ class OutlookClientBase(ConfigCacheMixin):
         self.token_path = token_path
         self.cache_dir = cache_dir
         self._token: dict[str, Any] | None = None
-        self._cache: "msal.SerializableTokenCache" | None = None
-        self._app: "msal.PublicClientApplication" | None = None
+        self._cache: _msal_types.SerializableTokenCache | None = None
+        self._app: _msal_types.PublicClientApplication | None = None
         self._scopes: list[str] = [GRAPH_DEFAULT_SCOPE]
         self.GRAPH = GRAPH_API_URL
 

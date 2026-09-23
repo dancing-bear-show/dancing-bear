@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from core.pipeline import Processor, ResultEnvelope
 
@@ -12,7 +13,7 @@ from .consumers import LabelsPlanPayload, LabelsSyncPayload, LabelsExportPayload
 @dataclass
 class LabelChange:
     name: str
-    changes: dict[str, dict[str, str]]
+    changes: dict[str, dict[str, Any]]
     spec: dict
 
 
@@ -121,8 +122,8 @@ class LabelsExportProcessor(Processor[LabelsExportPayload, ResultEnvelope[Labels
         )
 
 
-def _diff_label(current: dict, desired: dict) -> dict[str, dict[str, str]]:
-    changes: dict[str, dict[str, str]] = {}
+def _diff_label(current: dict, desired: dict) -> dict[str, dict[str, Any]]:
+    changes: dict[str, dict[str, Any]] = {}
     for key in ("color", "labelListVisibility", "messageListVisibility"):
         desired_value = desired.get(key)
         if desired_value and current.get(key) != desired_value:

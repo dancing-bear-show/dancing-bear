@@ -9,6 +9,7 @@ from core.cli_errors import UsageError
 from core.pipeline import Consumer
 
 from ..context import MailContext
+from ..providers.base import BaseProvider
 from core.yamlio import load_config
 
 if TYPE_CHECKING:
@@ -44,7 +45,7 @@ class FiltersImpactPayload:
     days: int | None
     only_inbox: bool
     pages: int
-    client: object
+    client: BaseProvider
 
 
 @dataclass
@@ -59,7 +60,7 @@ class FiltersSweepPayload:
     filters: list[dict]
     sweep_config: SweepConfig
     producer_config: SweepProducerConfig
-    client: object
+    client: BaseProvider
 
 
 @dataclass
@@ -69,7 +70,7 @@ class FiltersSweepRangePayload:
     to_days: int
     step_days: int
     producer_config: SweepProducerConfig
-    client: object
+    client: BaseProvider
 
 
 @dataclass
@@ -79,7 +80,7 @@ class FiltersPrunePayload:
     only_inbox: bool
     pages: int
     dry_run: bool
-    client: object
+    client: BaseProvider
 
 
 @dataclass
@@ -91,7 +92,7 @@ class FiltersAddForwardPayload:
     require_verified: bool
     verified_forward_addresses: set[str]
     dry_run: bool
-    client: object
+    client: BaseProvider
 
 
 @dataclass
@@ -102,7 +103,7 @@ class FiltersAddTokenPayload:
     needle: str
     tokens: list[str]
     dry_run: bool
-    client: object
+    client: BaseProvider
 
 
 @dataclass
@@ -113,7 +114,7 @@ class FiltersRemoveTokenPayload:
     needle: str
     tokens: list[str]
     dry_run: bool
-    client: object
+    client: BaseProvider
 
 
 class FiltersPlanConsumer(Consumer[FiltersPlanPayload]):

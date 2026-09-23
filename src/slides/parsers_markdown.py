@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from slides._parse_text import (
     DEFAULT_BULLET_LIMIT,
@@ -125,7 +125,7 @@ class _SectionState:
     heading_level: int = 0
 
 
-def _evolve(state: _SectionState, **changes: object) -> _SectionState:
+def _evolve(state: _SectionState, **changes: Any) -> _SectionState:
     """Typed wrapper for dataclasses.replace.
 
     `replace` is stubbed as returning `DataclassInstance`, so callers lose the

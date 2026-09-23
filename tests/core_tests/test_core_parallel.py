@@ -9,7 +9,7 @@ from core.parallel import chunked, parallel_map
 
 class TestChunked(unittest.TestCase):
     def test_empty_sequence(self) -> None:
-        result = list(chunked([], 3))
+        result: list[list[object]] = list(chunked([], 3))
         self.assertEqual(result, [])
 
     def test_exact_multiple(self) -> None:

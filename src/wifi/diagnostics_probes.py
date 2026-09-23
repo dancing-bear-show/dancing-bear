@@ -333,7 +333,7 @@ def dns_lookup(host: str) -> DnsResult:
         infos = socket.getaddrinfo(host, None)
         for family, _type, _proto, _canon, sockaddr in infos:
             if family in (socket.AF_INET, socket.AF_INET6):
-                ip = sockaddr[0]
+                ip = str(sockaddr[0])
                 if ip not in addresses:
                     addresses.append(ip)
         elapsed_ms = (time.perf_counter() - start) * 1000

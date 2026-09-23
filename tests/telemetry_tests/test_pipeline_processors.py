@@ -16,10 +16,15 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 from core.cli_output import OutputWriter
 from core.pipeline import RequestConsumer, ResultEnvelope
+
+if TYPE_CHECKING:
+    from telemetry.otel.cli.cost import CostScanRequest
+    from telemetry.parse_transcripts import TranscriptParseRequest
 
 
 # ---------------------------------------------------------------------------
@@ -41,7 +46,7 @@ def _make_output_writer() -> tuple[OutputWriter, io.StringIO]:
 class TestCostScanProcessorHappyPath(unittest.TestCase):
     """Consumer -> CostScanProcessor -> CostScanProducer happy path."""
 
-    def _make_request(self, data_dir_path: Path) -> "CostScanRequest":  # noqa: F821
+    def _make_request(self, data_dir_path: Path) -> "CostScanRequest":
         from telemetry.otel.cli.cost import CostScanRequest
         from telemetry.otel.reader import OTLPDataDir
         return CostScanRequest(
@@ -162,7 +167,7 @@ class TestTranscriptParseProcessorHappyPath(unittest.TestCase):
                 f.write(json.dumps(rec) + "\n")
         return p
 
-    def _make_request(self, **kwargs: object) -> "TranscriptParseRequest":  # noqa: F821
+    def _make_request(self, **kwargs: object) -> "TranscriptParseRequest":
         from telemetry.parse_transcripts import TranscriptParseRequest
 
         defaults = {

@@ -49,7 +49,7 @@ class TestNotBeforeFormatsDeferCorrectly(unittest.TestCase, QueueRootIsolationMi
 
     def _pending_ids(self) -> set[str]:
         from worker.queue_ops import list_pending
-        return {data["id"] for _, data in list_pending(self.root)}
+        return {str(data["id"]) for _, data in list_pending(self.root)}
 
     def test_future_z_suffix_is_deferred(self):
         self._write_job("z", _future(hours=1).strftime("%Y-%m-%dT%H:%M:%SZ"))
@@ -147,7 +147,7 @@ class TestNotBeforePastFormatsAreEligible(unittest.TestCase, QueueRootIsolationM
 
     def _pending_ids(self) -> set[str]:
         from worker.queue_ops import list_pending
-        return {data["id"] for _, data in list_pending(self.root)}
+        return {str(data["id"]) for _, data in list_pending(self.root)}
 
     def test_past_z_suffix_is_eligible(self):
         self._write_job("pz", _past(hours=1).strftime("%Y-%m-%dT%H:%M:%SZ"))

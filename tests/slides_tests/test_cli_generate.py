@@ -48,7 +48,8 @@ def _make_generate_args(**overrides: object) -> argparse.Namespace:
     No from_deck/upload/title/profile fields -- those flags do not exist on
     the rewritten CLI (Google Drive/Slides integration is out of scope).
     """
-    defaults = {
+    from typing import Any
+    defaults: dict[str, Any] = {
         "yaml_file": "deck.yaml",
         "output": None,
         "template": None,

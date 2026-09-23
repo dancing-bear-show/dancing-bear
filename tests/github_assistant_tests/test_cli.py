@@ -782,6 +782,102 @@ class TestPrEditVerifiesReadback(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
+class TestPrTitleFile(unittest.TestCase):
+    """--title-file keeps a composed title out of the shell command that sends it."""
+
+    HOSTILE = 'fix: "$(touch /tmp/pwned)" `id` title'
+
+    def _create(self, *title_args: str, title_text: str | None = None):
+        fake = FakeGhRunner()
+        fake.add(["pr", "create"], stdout="https://github.com/acme/widgets/pull/9\n")
+        fake.add(["pr", "view"], stdout=json.dumps({"number": 9, "url": "u"}))
+        with TemporaryDirectory() as td:
+            body_path = Path(td) / "pr.md"
+            body_path.write_text("body", encoding="utf-8")
+            title_path = Path(td) / "title.txt"
+            if title_text is not None:
+                title_path.write_text(title_text, encoding="utf-8")
+            args = [a.replace("TITLE_FILE", str(title_path)) for a in title_args]
+            with _install_client(fake):
+                rc, _out, err = _run_cli(["pr", "create", "--base", "main",
+                                          "--body-file", str(body_path), *args])
+        return rc, err, fake
+
+    def test_title_file_is_passed_verbatim_as_one_argv_element(self):
+        rc, _err, fake = self._create("--title-file", "TITLE_FILE", title_text=self.HOSTILE + "\n")
+        self.assertEqual(rc, 0)
+        argv = fake.calls[0].argv
+        self.assertEqual(argv[argv.index("--title") + 1], self.HOSTILE)
+
+    def test_exactly_one_trailing_line_ending_is_accepted(self):
+        for text in ("t\n", "t\r\n", "t\r", "t"):
+            rc, _err, fake = self._create("--title-file", "TITLE_FILE", title_text=text)
+            with self.subTest(text=repr(text)):
+                self.assertEqual(rc, 0)
+                argv = fake.calls[0].argv
+                self.assertEqual(argv[argv.index("--title") + 1], "t")
+
+    def test_both_from_stdin_is_refused_before_anything_is_read(self):
+        # One stdin cannot carry two values; pr edit would otherwise read the
+        # title, hit EOF for the body, and blank the PR body.
+        for argv in (["pr", "create", "--base", "main", "--title-file", "-", "--body-file", "-"],
+                     ["pr", "edit", "--pr", "3", "--title-file", "-", "--body-file", "-"]):
+            fake = FakeGhRunner()
+            with self.subTest(cmd=argv[1]), _install_client(fake), \
+                    patch("sys.stdin", io.StringIO("title\nbody text\n")) as stdin:
+                rc, _out, err = _run_cli(argv)
+                self.assertEqual(rc, 2)
+                self.assertIn("cannot both be -", err)
+                self.assertEqual(fake.calls, [])
+                self.assertEqual(stdin.tell(), 0, "stdin must not be consumed")
+
+    def test_unreadable_title_file_names_the_title_option(self):
+        with TemporaryDirectory() as td:
+            body_path = Path(td) / "pr.md"
+            body_path.write_text("body", encoding="utf-8")
+            with _install_client(FakeGhRunner()):
+                rc, _out, err = _run_cli(["pr", "create", "--base", "main",
+                                          "--title-file", str(Path(td) / "absent.txt"),
+                                          "--body-file", str(body_path)])
+        self.assertEqual(rc, 2)
+        self.assertIn("cannot read --title-file", err)
+        self.assertNotIn("--body-file", err)
+
+    def test_title_and_title_file_together_are_refused(self):
+        rc, err, fake = self._create("--title", "t", "--title-file", "TITLE_FILE", title_text="t")
+        self.assertEqual(rc, 2)
+        self.assertIn("not both", err)
+        self.assertEqual(fake.calls, [])
+
+    def test_missing_title_is_refused(self):
+        rc, err, fake = self._create()
+        self.assertEqual(rc, 2)
+        self.assertIn("--title or --title-file", err)
+        self.assertEqual(fake.calls, [])
+
+    def test_empty_or_multiline_title_file_is_refused(self):
+        for text, needle in (("  \n", "is empty"), ("line one\nline two\n", "more than one line"),
+                             ("title\n\n", "more than one line"), ("title\r\n\r\n", "more than one line")):
+            rc, err, fake = self._create("--title-file", "TITLE_FILE", title_text=text)
+            with self.subTest(text=text):
+                self.assertEqual(rc, 2)
+                self.assertIn(needle, err)
+                self.assertEqual(fake.calls, [])
+
+    def test_edit_accepts_title_file(self):
+        fake = FakeGhRunner()
+        fake.add(["pr", "edit"], stdout="")
+        fake.add(["pr", "view"], stdout=json.dumps({"title": self.HOSTILE, "body": ""}))
+        with TemporaryDirectory() as td:
+            title_path = Path(td) / "title.txt"
+            title_path.write_text(self.HOSTILE, encoding="utf-8")
+            with _install_client(fake):
+                rc, _out, _err = _run_cli(["pr", "edit", "--pr", "3", "--title-file", str(title_path)])
+        self.assertEqual(rc, 0)
+        argv = fake.calls[0].argv
+        self.assertEqual(argv[argv.index("--title") + 1], self.HOSTILE)
+
+
 class TestPrCreate(unittest.TestCase):
     def test_create_returns_number_and_url(self):
         fake = FakeGhRunner()

@@ -21,7 +21,7 @@ from typing import Any
 
 from core.copilot_overview import _file_id
 from tests.fixtures import TempDirMixin, bin_path, repo_root
-from workflow.cli_dispatch import (
+from workflow.cli_dispatch_review import (
     _cmd_aggregate_fix_results,
     _cmd_check_fix_index,
     _cmd_check_thread_ids,

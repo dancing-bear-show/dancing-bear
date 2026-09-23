@@ -10,6 +10,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from core.cli_errors import UsageError
@@ -21,7 +22,6 @@ from worker._helpers import (
 )
 from worker import queue_ops as q
 from worker.handlers import REGISTRY as HANDLERS
-from worker.queue_metrics import counts
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,8 @@ def _finish_or_retry(
 def _effective_job_timeout(job_data: dict[str, object], default_timeout: int) -> int:
     """Resolve per-job timeout override, falling back to default_timeout."""
     try:
-        per_job = int(job_data.get("timeout_sec") or 0)
+        raw = job_data.get("timeout_sec") or 0
+        per_job = int(raw) if isinstance(raw, (int, float, str)) else 0
         return per_job if per_job > 0 else default_timeout
     except (TypeError, ValueError):
         return default_timeout
@@ -67,6 +68,32 @@ def _undo_retry_attempt(job_stem: str, original_attempts: int, q_root: Path) -> 
         atomic_write_json(path, data)
     except Exception:  # nosec B110 - best-effort; worker will still retry correctly
         pass
+
+
+def _processing_stems(root: Path) -> set[str]:
+    """Return the job stems currently in processing/ under ``root``."""
+    folder = q._ensure_dirs(root)["processing"]
+    return {p.stem for p in q._list_job_paths(folder)}
+
+
+def _reap_stale_unowned(job_timeout: int, root: Path, owned: set[str]) -> list[str]:
+    """Reap stale processing/ jobs under ``root``, skipping stems in ``owned``.
+
+    Mirrors ``q.reap_stale_processing_jobs`` but never touches a job a live
+    local thread is still executing: moving it back to pending/ would let a
+    later tick run it a second time while the original is still running.
+    """
+    paths = q._ensure_dirs(root)
+    now = datetime.now(UTC)
+    log = logging.getLogger(q.__name__)
+    reaped: list[str] = []
+    for p in q._list_job_paths(paths["processing"]):
+        if p.stem in owned:
+            continue
+        job_id = q._reap_one_job(p, job_timeout, paths, now, log)
+        if job_id:
+            reaped.append(job_id)
+    return reaped
 
 
 # ============================================================================
@@ -98,12 +125,14 @@ class JobContext:
     @classmethod
     def from_item(cls, job_path: Path, job_data: dict[str, object]) -> JobContext:
         """Create JobContext from queue item."""
+        raw_attempts = job_data.get("attempts") or 0
+        raw_max = job_data.get("max_attempts") or 3
         return cls(
             job_path=job_path,
             job_data=job_data,
             job_type=str(job_data.get("type") or ""),
-            attempts=int(job_data.get("attempts") or 0),
-            max_attempts=int(job_data.get("max_attempts") or 3),
+            attempts=int(raw_attempts) if isinstance(raw_attempts, (int, float, str)) else 0,
+            max_attempts=int(raw_max) if isinstance(raw_max, (int, float, str)) else 3,
         )
 
 
@@ -328,15 +357,119 @@ class JobProcessor:
 
 
 class DaemonRunner:
-    """Runs the worker daemon loop."""
+    """Runs the worker daemon loop.
+
+    ``tick()`` is the non-blocking, DAEMON-mode tick: it starts threads for
+    newly claimed jobs and returns immediately without waiting for them to
+    finish, so one long-running job never blocks a later tick from claiming
+    other work. Live threads are tracked in ``_live_threads`` (keyed by job
+    stem) across ticks and pruned as they finish. ``run_once()`` uses a
+    separate, still-blocking path (``_run_once_batch``) because
+    ``worker run-once``, the workflow ``worker_queue`` dispatch stage, and
+    existing tests depend on it waiting for the batch to complete before
+    returning.
+    """
 
     def __init__(self, config: WorkerConfig, processor: JobProcessor):
         """Initialize daemon with configuration and processor."""
         self.config = config
         self.processor = processor
+        self._live_threads: dict[str, threading.Thread] = {}
+        self._registry_lock = threading.Lock()
 
     def tick(self) -> int:
-        """Process one batch of jobs."""
+        """Start newly claimed jobs without blocking; return count started.
+
+        Never joins the threads it starts. Capacity accounts for jobs
+        already claimed but not yet visible in processing/ (a started
+        thread may not have finished ``start_processing``'s rename yet) by
+        counting live threads alongside the on-disk processing/ jobs. The
+        stale-job reap skips every job a live local thread still owns, so a
+        slow local job is never requeued and run twice.
+        """
+        self._prune_live_threads()
+        with self._registry_lock:
+            owned = set(self._live_threads)
+        _reap_stale_unowned(self.config.job_timeout, q.QUEUE_ROOT, owned)
+
+        allowed = self._calculate_allowed_jobs()
+        if allowed <= 0:
+            return 0
+
+        items = [
+            (p, d) for p, d in q.list_pending() if p.stem not in self._live_threads
+        ][:allowed]
+        if not items:
+            return 0
+
+        return self._start_batch(items)
+
+    def _prune_live_threads(self) -> None:
+        """Drop finished threads from the live-thread registry."""
+        with self._registry_lock:
+            for stem in [s for s, t in self._live_threads.items() if not t.is_alive()]:
+                del self._live_threads[stem]
+
+    def _process_one_guarded(self, job_path: Path, job_data: dict[str, object]) -> int:
+        """Run ``process_one`` in a worker thread, logging any escaped exception.
+
+        Shared thread target for both the daemon tick and run_once, so an
+        error raised outside SafeProcessor (bad job metadata, queue I/O)
+        never surfaces as an uncaught thread exception.
+        """
+        try:
+            return self.processor.process_one(job_path, job_data)
+        except Exception:  # nosec B110 - thread boundary; logged, counted as processed
+            logger.exception("worker job %s raised outside the handler", job_path.stem)
+            return 1
+
+    def _start_batch(self, items: list[tuple[Path, dict[str, object]]]) -> int:
+        """Start one thread per item without joining; register and return count started."""
+        started = 0
+        for p, d in items:
+            t = threading.Thread(target=self._process_one_guarded, args=(p, d), daemon=True)
+            with self._registry_lock:
+                self._live_threads[p.stem] = t
+            t.start()
+            started += 1
+        return started
+
+    def _calculate_allowed_jobs(self) -> int:
+        """Calculate how many jobs can be started based on max_inflight cap.
+
+        In-flight is the union, by job stem, of one processing/ listing
+        (ours or another worker's, e.g. a concurrent ``worker run-once``)
+        and the live local threads. A single read means no interleaving can
+        drop a job: a live thread counts until it is pruned whether its file
+        is still in pending/, in processing/, or already gone, and each
+        external processing/ job counts once. A finished-but-unpruned thread
+        over-counts by at most one tick, which is the conservative
+        direction. When max_inflight is unbounded (<= 0), live threads are
+        still capped at max_per_tick to preserve today's effective
+        concurrency rather than spawning unboundedly.
+        """
+        with self._registry_lock:
+            live_stems = set(self._live_threads)
+        live = len(live_stems)
+        if self.config.max_inflight <= 0:
+            return max(0, self.config.max_per_tick - live)
+        try:
+            in_flight = len(_processing_stems(q.QUEUE_ROOT) | live_stems)
+        except Exception:  # nosec B110 - unreadable queue; fall back to live threads only
+            in_flight = live
+        return max(
+            0,
+            min(self.config.max_per_tick, self.config.max_inflight - in_flight),
+        )
+
+    def _run_once_batch(self) -> int:
+        """Process one batch of jobs, blocking until every job finishes.
+
+        Uses ``_calculate_allowed_jobs`` for the capacity check; the
+        live-thread registry it also accounts for is unpopulated here since
+        this path never starts a registered thread, so it degrades to a
+        plain processing/-count check.
+        """
         q.reap_stale_processing_jobs(self.config.job_timeout, root=q.QUEUE_ROOT)
 
         allowed = self._calculate_allowed_jobs()
@@ -349,19 +482,6 @@ class DaemonRunner:
 
         return self._process_batch(items)
 
-    def _calculate_allowed_jobs(self) -> int:
-        """Calculate how many jobs can be processed based on max_inflight cap."""
-        if self.config.max_inflight > 0:
-            try:
-                cur_proc = int(counts(root=q.QUEUE_ROOT).get("processing", 0))
-                return max(
-                    0,
-                    min(self.config.max_per_tick, self.config.max_inflight - cur_proc),
-                )
-            except Exception:  # nosec B110 - fallback to max_per_tick
-                return self.config.max_per_tick
-        return self.config.max_per_tick
-
     def _process_batch(self, items: list[tuple[Path, dict[str, object]]]) -> int:
         """Process a batch of jobs in parallel with threading."""
         threads: list[threading.Thread] = []
@@ -371,11 +491,8 @@ class DaemonRunner:
             _effective_job_timeout(d, self.config.job_timeout) for _, d in items
         ]
 
-        def _run(idx: int, pth: Path, dat: dict[str, object]):
-            try:
-                results[idx] = self.processor.process_one(pth, dat)
-            except Exception:  # nosec B110 - thread safety; result defaults to 1
-                results[idx] = 1
+        def _run(idx: int, pth: Path, dat: dict[str, object]) -> None:
+            results[idx] = self._process_one_guarded(pth, dat)
 
         for i, (p, d) in enumerate(items):
             t = threading.Thread(target=_run, args=(i, p, d), daemon=True)
@@ -402,12 +519,22 @@ class DaemonRunner:
             t.join(timeout=remaining)
 
     def run_once(self) -> int:
-        """Run one tick and exit."""
-        self.tick()
+        """Run one batch, blocking until it finishes, and exit.
+
+        Deliberately does not call ``tick()``: ``worker run-once``, the
+        workflow ``worker_queue`` dispatch stage, and existing tests depend
+        on this call waiting for every started job to finish before
+        returning, which the non-blocking ``tick()`` no longer does.
+        """
+        self._run_once_batch()
         return 0
 
     def run_daemon(self) -> int:
-        """Run continuous daemon loop."""
+        """Run continuous daemon loop.
+
+        Calls the non-blocking ``tick()`` each iteration so a long-running
+        job never blocks the daemon from claiming other pending work.
+        """
         # Anchor the daemon's cwd to the repo root so job scripts that use
         # relative paths (./bin/...) resolve correctly.
         os.chdir(str(get_repo_root()))

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import datetime
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from charts.theme import ChartTheme
 from charts.types.area import AreaChartSpec
@@ -231,7 +231,7 @@ def _plot_series_smooth(
     plot_x = x_dense if not is_dates else [
         x_values[int(round(min(xi, len(x_values) - 1)))] for xi in x_dense
     ]
-    ax.plot(plot_x, y_smooth, color=style.color, linewidth=style.linewidth, label=style.label)
+    ax.plot(cast(Any, plot_x), y_smooth, color=style.color, linewidth=style.linewidth, label=style.label)
     return True
 
 
@@ -251,7 +251,7 @@ def _render_line(ax: Axes, spec: LineChartSpec, theme: ChartTheme) -> None:
                 continue
 
         ax.plot(
-            x_values, y_values,
+            cast(Any, x_values), y_values,
             color=color,
             linewidth=spec.line_width,
             marker=spec.marker,
@@ -276,8 +276,8 @@ def _render_area(ax: Axes, spec: AreaChartSpec, theme: ChartTheme) -> None:
         y_top = baseline + y_raw if spec.stacked else y_raw
         fill_bottom = baseline if spec.stacked else np.zeros(len(x_values))
 
-        ax.fill_between(x_values, fill_bottom, y_top, color=color, alpha=spec.alpha)
-        ax.plot(x_values, y_top, color=color, linewidth=1.5, label=series.label or series.name)
+        ax.fill_between(cast(Any, x_values), fill_bottom, y_top, color=color, alpha=spec.alpha)
+        ax.plot(cast(Any, x_values), y_top, color=color, linewidth=1.5, label=series.label or series.name)
 
         if spec.stacked:
             baseline = y_top
@@ -325,7 +325,7 @@ def _plot_dual_series(
         row_map = _build_row_map(series, ctx.x_field, ctx.is_dates)
         y = [row_map.get(x, float("nan")) for x in ctx.x_values]
         label = series.label or series.name
-        (line,) = ax.plot(ctx.x_values, y, color=color, linewidth=2.0, linestyle=ctx.linestyle, label=label)
+        (line,) = ax.plot(cast(Any, ctx.x_values), y, color=color, linewidth=2.0, linestyle=ctx.linestyle, label=label)
         handles.append(line)
         labels.append(label)
     return handles, labels

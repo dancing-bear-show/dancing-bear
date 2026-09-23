@@ -74,7 +74,9 @@ def _serve_once(html: str, port: int = 0) -> tuple[http.server.HTTPServer, str]:
     server.timeout = 1
     server.server_bind()
     server.server_activate()
-    host, bound_port = server.server_address
+    addr = server.server_address
+    host: str = str(addr[0])
+    bound_port: int = int(addr[1])
     url = f"http://{host}:{bound_port}/"
     return server, url
 

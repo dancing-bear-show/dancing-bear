@@ -532,8 +532,10 @@ stages:
         }
       Index width = len(str(total - 1)) digits (e.g. 9 items → 1 digit;
       10 items → 2 digits). Each "data" value is the full manifest entry object.
-      Use python3 inline to build and write this file atomically:
-        python3 -c "
+      Use python3 inline to build and write this file atomically. `-I -S`
+      keeps an inherited PYTHONPATH from running another checkout's
+      sitecustomize.py first; this script needs only the standard library:
+        python3 -I -S -c "
         import json
         from pathlib import Path
 
@@ -991,8 +993,15 @@ stages:
         finding's file (use the first critical finding if any; otherwise first
         major; otherwise first minor).
 
-        Then post the comment body file using the GitHub CLI:
-          ./bin/github pr review-comment --pr {pr_number} \
+        Then post the comment body file using the GitHub CLI, with the PR
+        number, repo and commit read from pr-context.json — NOT the raw
+        trigger parameter, which is blank when the PR was detected from the
+        branch and would leave --pr with no value:
+          PR_NUM=$(python3 -I -S -c 'import json,sys;print(json.load(open(sys.argv[1]))["number"])' {workspace}/outputs/pr-context.json)
+          OWNER_REPO=$(python3 -I -S -c 'import json,sys;print(json.load(open(sys.argv[1]))["owner_repo"])' {workspace}/outputs/pr-context.json)
+          COMMIT_ID=$(python3 -I -S -c 'import json,sys;print(json.load(open(sys.argv[1]))["commit_id"])' {workspace}/outputs/pr-context.json)
+          ./bin/github pr review-comment --pr "$PR_NUM" --repo "$OWNER_REPO" \
+            --commit "$COMMIT_ID" \
             --path FIRST_FINDING_PATH --line FIRST_FINDING_LINE --side RIGHT \
             --body-file /tmp/cr-summary-body.txt
         This posts one consolidated comment thread rather than N individual

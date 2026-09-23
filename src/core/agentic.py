@@ -119,8 +119,10 @@ def cli_path_exists(parser: ArgumentParser | None, path: Sequence[str]) -> bool:
     """Return True if the parser exposes a nested path of subcommands."""
     if parser is None:
         return False
-    cur = parser
+    cur: ArgumentParser | None = parser
     for name in path:
+        if cur is None:
+            return False
         act = _get_subparsers_action(cur)
         if not act:
             return False

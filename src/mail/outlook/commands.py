@@ -32,9 +32,11 @@ from .processors_rules import (  # noqa: F401 — resolved by name via _PIPELINE
 )
 from .processors_rules_write import (  # noqa: F401 — resolved by name via _PIPELINES
     OutlookRulesSyncProcessor,
-    OutlookRulesPlanProcessor,
     OutlookRulesDeleteProcessor,
     OutlookRulesSweepProcessor,
+)
+from .processors_rules_plan import (  # noqa: F401 — resolved by name via _PIPELINES
+    OutlookRulesPlanProcessor,
 )
 from .processors_calendar import (  # noqa: F401 — resolved by name via _PIPELINES
     OutlookCategoriesListProcessor,
