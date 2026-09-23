@@ -127,27 +127,27 @@ stages:
         cannot detect a swallowed import or a fallback banner.
 
         For each app emit one JSON record:
-          {{
+          {
             "app": "wifi",
             "app_id": "wifi",              # as ANNOUNCED, not the package name
             "parser": "argparse|click",
-            "tier0": {{"cliapp": bool, "appmeta": bool, "real_emit_func": bool,
-                       "main_returns_int": bool}},
-            "tier1": {{"rc": 0, "capsule_bytes": 525, "json_keys": [...],
+            "tier0": {"cliapp": bool, "appmeta": bool, "real_emit_func": bool,
+                       "main_returns_int": bool},
+            "tier1": {"rc": 0, "capsule_bytes": 525, "json_keys": [...],
                        "compact_smaller": bool, "separator_equivalent": bool,
-                       "no_subcommand_rc": 0}},
-            "tier2": {{"has_agentic_module": bool, "shape": "full|minimal|none",
+                       "no_subcommand_rc": 0},
+            "tier2": {"has_agentic_module": bool, "shape": "full|minimal|none",
                        "has_domain_map": bool, "has_cli_tree": bool,
-                       "emit_matches_builder": bool}},
-            "tier3": {{"has_llm_cli": bool, "prog": "llm-wifi",
-                       "doc_suffix": "WIFI"}},
+                       "emit_matches_builder": bool},
+            "tier3": {"has_llm_cli": bool, "prog": "llm-wifi",
+                       "doc_suffix": "WIFI"},
             "contracts_adopted": ["AgenticCLIContractMixin", ...],
-            "violations": [{{"rule": "A2", "detail": "<measured, e.g. capsule is N bytes>"}}]
-          }}
+            "violations": [{"rule": "A2", "detail": "<measured, e.g. capsule is N bytes>"}]
+          }
 
         Emit ONE JSON DOCUMENT, not JSON Lines. Write a single top-level
-        object: {{"apps": [<one record per app>], "duplication": [...],
-        "summary": {{...}}}}. The first run of this workflow emitted one object
+        object: {"apps": [<one record per app>], "duplication": [...],
+        "summary": {...}}. The first run of this workflow emitted one object
         per line, so json.load() raised "Extra data: line 2 column 1" and every
         downstream consumer had to special-case it. Also make sure nothing else
         writes to stdout — two apps print a usage banner when imported, which
@@ -160,7 +160,7 @@ stages:
         appmeta=false — a false negative that would fail verify-conformance's
         improvement gate against work that had actually landed. Derive each
         field by importing or globbing at run time:
-          appmeta        -> importlib.import_module(f"{{pkg}}.meta").META exists
+          appmeta        -> importlib.import_module(f"{pkg}.meta").META exists
                             and produces a non-empty agentic_fallback
           cliapp         -> a CLIApp instance is reachable; CHECK BOTH
                             <pkg>.cli AND <pkg>.cli.main. Many packages define

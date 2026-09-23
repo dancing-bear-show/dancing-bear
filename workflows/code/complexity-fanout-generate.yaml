@@ -111,7 +111,7 @@ stages:
         sweep, identified by {prior_split_ref}.
 
         FIRST confirm the ref resolves — this check fails silently otherwise:
-          git rev-parse --verify --quiet {prior_split_ref}^{{commit}}
+          git rev-parse --verify --quiet {prior_split_ref}^{commit}
         If it does not resolve (history rewritten, squashed, shallow clone in
         CI), HARD FAIL this stage with a clear error. Do NOT continue with an
         empty result: an unresolvable ref makes the git log below return no

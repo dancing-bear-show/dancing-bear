@@ -631,7 +631,7 @@ stages:
            carry it with resolvable false.
         6. With --repair, rewrite triage.json in place (atomically, and only
            when nothing halts), appending one "_id_repairs" record per
-           relabel — {{thread_id, from: {{path, line}}, to: {{path, line}}}} — so
+           relabel — {thread_id, from: {path, line}, to: {path, line}} — so
            the run is auditable. Ids are never repaired, only coordinates.
 
       The gate therefore asserts both over the entries with a NON-NULL

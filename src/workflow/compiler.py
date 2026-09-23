@@ -386,21 +386,18 @@ def _resolve_criteria(
 
     For each criterion:
     1. Substitute ``{param}`` placeholders from trigger params.
-    2. Unescape doubled braces (via :func:`resolve_params`).
-    3. If the resolved text came from a param whose value contained ``|``,
+    2. If the resolved text came from a param whose value contained ``|``,
        split on ``|``, strip whitespace, and drop empty segments; each
        non-empty segment becomes its own criterion.
 
     A criterion that contained no recognisable param reference, or whose param
-    value had no ``|``, stays as a single criterion (possibly with brace
-    unescaping applied).
+    value had no ``|``, stays as a single criterion.
     """
     resolved: list[str] = []
     for raw in validation.criteria:
         rendered = resolve_params(raw, params)
         if rendered == raw:
             # No param substituted — keep as a single criterion.
-            # Doubled braces in static criteria are still unescaped by resolve_params.
             resolved.append(rendered)
             continue
         # A param was substituted.  If the original raw text was *only* the
@@ -424,11 +421,11 @@ def _resolve_stage(
         spec, project_root, params
     )
 
-    # Always resolve description so doubled-brace unescape applies even when
-    # there are no trigger params.
-    resolved_spec = replace(
-        spec, description=resolve_params(spec.description, params)
-    ) if spec.description else spec
+    resolved_spec = (
+        replace(spec, description=resolve_params(spec.description, params))
+        if params and spec.description
+        else spec
+    )
 
     if resolved_spec.validation is not None:
         resolved_spec = replace(
@@ -477,22 +474,19 @@ def _build_cli_command(skill: str, mapping: dict[str, str]) -> str:
 
 
 def resolve_params(template: str, params: dict[str, str]) -> str:
-    """Resolve ``{param}`` placeholders in a string, then unescape doubled braces.
+    """Resolve ``{param}`` placeholders in a string.
 
-    Two-pass processing:
-    1. Substitute identifier-shaped keys (e.g. ``{team}`` → trigger-param value).
-       Non-identifier keys like ``2,40`` are skipped to avoid rewriting regex
-       quantifiers (defence in depth behind ``enforce_param_rules``).
-    2. Unescape doubled braces: ``{{`` → ``{`` and ``}}`` → ``}``, following
-       ``str.format``-style escaping. ``{{{{`` → ``{{``, ``}}}}`` → ``}}``, etc.
-       Unresolved single-brace placeholders (unknown params) are left as-is.
+    Substitutes identifier-shaped keys (e.g. ``{team}`` → trigger-param value).
+    Non-identifier keys like ``2,40`` are skipped to avoid rewriting regex
+    quantifiers (defence in depth behind ``enforce_param_rules``).
+
+    Unresolved placeholders are left as-is.  Braces are never unescaped —
+    ``{{`` renders verbatim.
     """
     result = template
     for key, value in params.items():
         if is_identifier(key):
             result = result.replace(f"{{{key}}}", value)
-    result = result.replace("{{", "\x00OPEN\x00").replace("}}", "\x00CLOSE\x00")
-    result = result.replace("\x00OPEN\x00", "{").replace("\x00CLOSE\x00", "}")
     return result
 
 

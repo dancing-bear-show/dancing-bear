@@ -59,19 +59,19 @@ stages:
       violations that can be confirmed purely from the document text.
 
       Write {workspace}/validation/plan-validate-findings.json:
-        {{
+        {
           "status": "pass|fail",
           "findings": [
-            {{
+            {
               "severity": "critical|minor|info",
               "claim": "<quoted or paraphrased claim>",
               "detail": "<why it is inconsistent or suspicious>"
-            }}
+            }
           ]
-        }}
+        }
 
       Status is "fail" if any critical findings exist; otherwise "pass".
-      Write the file on all code paths — write {{"status": "pass", "findings": []}}
+      Write the file on all code paths — write {"status": "pass", "findings": []}
       if the document is fully consistent.
     agent:
       role: fact-checker
@@ -125,24 +125,24 @@ stages:
       check in the critique output.
 
       Write {workspace}/validation/critique.json:
-        {{
-          "critic_focus": "<value of {{critic_focus}} or 'full-spectrum'>",
+        {
+          "critic_focus": "<value of {critic_focus} or 'full-spectrum'>",
           "blockers": [
-            {{
+            {
               "concern": "<one-sentence summary>",
               "detail": "<2-4 sentences: why it matters and what would fix it>",
               "section": "<section heading or description of where in the plan>"
-            }}
+            }
           ],
           "suggestions": [
-            {{
+            {
               "concern": "<one-sentence summary>",
               "detail": "<2-4 sentences: reasoning and improvement>",
               "section": "<section heading or description>"
-            }}
+            }
           ],
           "strengths": ["<one-sentence strength>", ...]
-        }}
+        }
 
       Blockers are concerns that should block acting on the plan as written.
       Suggestions are improvements that would strengthen the plan but are not
@@ -184,19 +184,19 @@ stages:
 
       Write {workspace}/validation/critique-checked.json using the same schema
       as critique.json but with an additional top-level "removed" field:
-        {{
+        {
           "critic_focus": "...",
           "blockers": [...],
           "suggestions": [...],
           "strengths": [...],
           "removed": [
-            {{
+            {
               "concern": "<original concern summary>",
               "type": "blocker|suggestion",
               "reason": "<why it was removed: already-addressed|not-grounded|hallucinated-section>"
-            }}
+            }
           ]
-        }}
+        }
 
       Write the file on all code paths. If no items are removed, write an
       empty "removed" array. If all blockers or suggestions are removed, write
@@ -295,10 +295,10 @@ stages:
       Record the human's choice.
 
       Write {workspace}/validation/human-decision.json:
-        {{
+        {
           "decision": "approve_all|approve_subset|skip",
           "approved_items": [1, 2, 3]
-        }}
+        }
 
       For decision "approve_all", set approved_items to the full list of
       numbered items from the Recommended revisions section.

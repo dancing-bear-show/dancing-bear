@@ -769,7 +769,7 @@ stages:
            condition inversion (guard clauses)
              — `if x:` is not the negation of `if x is None:`. Inverting a
                truthiness test silently changes behavior when the value can
-               be 0, "", [], {{}}, or 0.0 — all falsy but not None. Read what
+               be 0, "", [], {}, or 0.0 — all falsy but not None. Read what
                the condition actually distinguishes before inverting it.
              — Early-returning out of a try/finally or a with-block changes
                when cleanup runs. Do not hoist a return past either.

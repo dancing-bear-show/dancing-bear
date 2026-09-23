@@ -282,17 +282,16 @@ Other kinds route through `_header()`, which emits `description` under a
 `## Task` heading. `_validate()` never calls `_header()`. If the instruction does
 not fit as criteria, use `kind: execute`.
 
-### 2. Brace escaping in stage descriptions
+### 2. Brace handling in stage descriptions
 
-Stage `description` fields are processed by `resolve_params` at compile time.
-After trigger-param substitution, doubled braces are unescaped: `{{` → `{` and
-`}}` → `}` (str.format-style). Use `{{` and `}}` for literal JSON braces in
-examples. To produce a literal `{{` or `}}` in the rendered agent prompt, write
-`{{{{` or `}}}}` in the YAML.
+Stage `description` fields undergo trigger-param substitution at compile time.
+Braces are never unescaped: `{{` and `}}` render verbatim to the agent.
+Write JSON examples and code snippets with single braces (`{` and `}`).
 
-Unknown `{name}` placeholders (no matching trigger param) are left as-is.
+`{name}` matching a trigger param is substituted with the param's value.
+Unknown `{name}` placeholders are left as-is.
 
-Validation criteria undergo the same substitution and unescape. When a criterion
+Validation criteria undergo the same param substitution. When a criterion
 contains a `|`-separated trigger-param value, the criterion is split into one
 entry per `|`-delimited item (whitespace stripped, empty items dropped).
 

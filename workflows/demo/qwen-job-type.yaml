@@ -613,12 +613,12 @@ stages:
           "commit_stat": "<git show --stat output>",
           "queue": "private — worker runs under env DANCING_BEAR_WORKER_STATE_DIR=<mktemp -d>; the user's real queue is untouched",
           "planned_jobs": [
-            {{"case": "success",  "payload": {{"message": "hello"}}}},
-            {{"case": "terminal", "payload": {{}}}},
-            {{"case": "plain",    "payload": {{"message": "x", "fail": true}}}},
-            {{"case": "deferred", "payload": {{"message": "x", "defer": true}}}},
-            {{"case": "non_object_enqueue", "payload": "bad", "expect": "enqueue refused, exit 2, nothing queued"}},
-            {{"case": "non_object_runtime", "payload": "bad", "expect": "error/ with invalid payload, handler never runs"}}
+            {"case": "success",  "payload": {"message": "hello"}},
+            {"case": "terminal", "payload": {}},
+            {"case": "plain",    "payload": {"message": "x", "fail": true}},
+            {"case": "deferred", "payload": {"message": "x", "defer": true}},
+            {"case": "non_object_enqueue", "payload": "bad", "expect": "enqueue refused, exit 2, nothing queued"},
+            {"case": "non_object_runtime", "payload": "bad", "expect": "error/ with invalid payload, handler never runs"}
           ],
           "leaves_behind": "nothing — the private directory is deleted at the end",
           "safe_to_proceed": true|false

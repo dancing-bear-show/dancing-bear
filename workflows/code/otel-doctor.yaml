@@ -69,7 +69,7 @@ stages:
         daemon").
 
       Check 3 — is this repo's otel-collector container up?
-        docker ps --filter "name=otel-collector" --format '{{{{.Names}}}}\t{{{{.Status}}}}\t{{{{.Ports}}}}'
+        docker ps --filter "name=otel-collector" --format '{{.Names}}\t{{.Status}}\t{{.Ports}}'
         The container name is "<project-dir-name>-otel-collector-1" (Docker
         Compose derives it from the directory name — differs per worktree).
         Failure signal: no row for this repo's directory name, or the row
@@ -84,7 +84,7 @@ stages:
         for the otel-collector service without touching any container. For
         each resolved published port, check whether something else already
         holds it:
-          docker ps --filter "publish=<port>" --format '{{{{.Names}}}}\t{{{{.Ports}}}}'
+          docker ps --filter "publish=<port>" --format '{{.Names}}\t{{.Ports}}'
         If a container OTHER than this repo's own otel-collector holds one
         of the resolved ports, that's the collision — record which port and
         which container. This is what propose-fix will act on (rebinding

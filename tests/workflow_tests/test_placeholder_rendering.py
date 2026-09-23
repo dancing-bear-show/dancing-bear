@@ -1,17 +1,19 @@
-"""Tests for workflow placeholder rendering fixes.
+"""Tests for workflow placeholder rendering.
 
-Defect 1 — doubled braces render literally:
-  After trigger-param substitution, ``{{`` -> ``{`` and ``}}`` -> ``}``
-  using str.format-style escaping. Unknown ``{name}`` stays literal.
+Design:
+  - ``{name}`` matching a trigger param is substituted with the param's value.
+  - Unknown ``{name}`` placeholders are left as-is.
+  - Braces are never unescaped — ``{{`` and ``}}`` render verbatim.
+  - Natural nested JSON is never corrupted (regression guard).
 
-Defect 2 — trigger params not resolved inside validation criteria:
-  A kind:validate stage whose criteria reference a trigger param gets them
-  resolved at compile time. A criterion that came from a pipe-separated param
-  value is split into one criterion per ``|``-delimited item.
+Criteria param resolution:
+  - Trigger params inside validation criteria are resolved at compile time.
+  - A criterion whose param value contains ``|`` is split into one criterion
+    per ``|``-delimited item (whitespace stripped, empty items dropped).
 
-Additional invariants:
-  - Fan-out key placeholders survive (they are filled later by the orchestrator)
-  - The synthesize-workflow escape instruction renders with ``{{``/``}}``
+Lint check:
+  - The linter warns when a stage description contains ``{{`` outside a
+    backtick span that is not a Go-template or GitHub-Actions pattern.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from __future__ import annotations
 import unittest
 
 from workflow.compiler import compile_workflow, resolve_params
+from workflow.linter_types import LintWarning
 from workflow.models import (
     StageKind,
     ValidationStrategy,
@@ -33,57 +36,73 @@ from tests.workflow_tests.helpers.factories import (
 
 
 # ---------------------------------------------------------------------------
-# Defect 1: doubled-brace unescape
+# resolve_params: param substitution, verbatim braces, no unescape
 # ---------------------------------------------------------------------------
 
 
-class TestResolveParamsDoubledBraceUnescape(unittest.TestCase):
-    """resolve_params unescapes doubled braces after param substitution."""
+class TestResolveParamsVerbatimBraces(unittest.TestCase):
+    """resolve_params does NOT unescape doubled braces."""
 
-    def test_double_open_becomes_single(self) -> None:
-        result = resolve_params('{"a": 1}', {})
-        # single braces are unchanged (no param key matches)
-        self.assertEqual(result, '{"a": 1}')
+    def test_nested_json_unchanged(self) -> None:
+        """Nested JSON with natural }} at end is returned unchanged."""
+        text = '{"a": {"b": 1}}'
+        self.assertEqual(resolve_params(text, {}), text)
 
-    def test_doubled_open_becomes_single(self) -> None:
-        result = resolve_params('{{"a": 1}}', {})
-        self.assertEqual(result, '{"a": 1}')
+    def test_double_open_renders_verbatim(self) -> None:
+        """{{ is left as {{ — not converted to {."""
+        self.assertEqual(resolve_params("{{", {}), "{{")
 
-    def test_four_braces_become_double(self) -> None:
-        """{{{{ -> {{ after unescape."""
-        result = resolve_params('{{{{', {})
-        self.assertEqual(result, '{{')
+    def test_double_close_renders_verbatim(self) -> None:
+        """}} is left as }} — not converted to }."""
+        self.assertEqual(resolve_params("}}", {}), "}}")
 
-    def test_four_close_braces_become_double(self) -> None:
-        """}}}} -> }} after unescape."""
-        result = resolve_params('}}}}', {})
-        self.assertEqual(result, '}}')
+    def test_param_substitution_still_works(self) -> None:
+        """{key} matching a param is replaced."""
+        self.assertEqual(resolve_params("{key}", {"key": "val"}), "val")
 
-    def test_unknown_single_brace_stays_literal(self) -> None:
+    def test_unknown_placeholder_unchanged(self) -> None:
         """An unknown {name} placeholder is left as-is."""
-        result = resolve_params('{unknown}', {})
-        self.assertEqual(result, '{unknown}')
+        self.assertEqual(resolve_params("{unknown}", {}), "{unknown}")
 
-    def test_known_param_replaced_before_unescape(self) -> None:
-        """Param substitution happens first, then brace unescape."""
-        result = resolve_params('{key} + {{literal}}', {'key': 'VALUE'})
-        self.assertEqual(result, 'VALUE + {literal}')
+    def test_single_braces_unchanged_no_params(self) -> None:
+        """Natural single-brace JSON is left unchanged when there are no params."""
+        text = '{"a": 1}'
+        self.assertEqual(resolve_params(text, {}), text)
 
-    def test_unescape_does_not_affect_already_unresolved_single_braces(self) -> None:
-        """Single braces that are not params pass through unchanged."""
-        result = resolve_params('{workspace}/foo', {})
-        self.assertEqual(result, '{workspace}/foo')
+    def test_fan_out_placeholder_survives(self) -> None:
+        """{fan_out.key} is not a valid identifier — stays as-is."""
+        self.assertEqual(
+            resolve_params("Process {fan_out.key} now", {}),
+            "Process {fan_out.key} now",
+        )
 
-    def test_mixed_escape_and_param(self) -> None:
-        """JSON example with param: {{"key": "{name}"}} -> {"key": "Alice"}."""
-        result = resolve_params('{{"key": "{name}"}}', {'name': 'Alice'})
-        self.assertEqual(result, '{"key": "Alice"}')
+    def test_workspace_placeholder_survives(self) -> None:
+        """{workspace}/foo is not a trigger param — stays as-is."""
+        self.assertEqual(resolve_params("{workspace}/foo", {}), "{workspace}/foo")
 
 
-class TestDoubledBraceInCompiledDescription(unittest.TestCase):
-    """Compiled stage descriptions also have their doubled braces unescaped."""
+# ---------------------------------------------------------------------------
+# Compiled descriptions: param substitution in stages
+# ---------------------------------------------------------------------------
 
-    def test_stage_description_brace_unescape(self) -> None:
+
+class TestCompiledDescriptionParamSubstitution(unittest.TestCase):
+    """Compiled stage descriptions have trigger params substituted."""
+
+    def test_param_replaced_in_description(self) -> None:
+        stage = make_stage_spec(
+            name="s",
+            description="Hello {name}",
+        )
+        wf = make_workflow_definition(
+            trigger=make_trigger_spec(source="manual", params={"name": "world"}),
+            stages=(stage,),
+        )
+        manifest = compile_workflow(wf)
+        self.assertEqual(manifest.resolved_stages["s"].spec.description, "Hello world")
+
+    def test_double_braces_stay_doubled_in_description(self) -> None:
+        """{{...}} in description is not unescaped — renders verbatim."""
         stage = make_stage_spec(
             name="s",
             description='{{"a": 1}}',
@@ -93,36 +112,22 @@ class TestDoubledBraceInCompiledDescription(unittest.TestCase):
             stages=(stage,),
         )
         manifest = compile_workflow(wf)
-        resolved = manifest.resolved_stages["s"]
-        self.assertEqual(resolved.spec.description, '{"a": 1}')
+        self.assertEqual(manifest.resolved_stages["s"].spec.description, '{{"a": 1}}')
 
-    def test_four_braces_in_description_become_double(self) -> None:
-        """{{{{text}}}} in YAML description -> {{text}} in rendered description."""
-        stage = make_stage_spec(
-            name="s",
-            description="Escape {{{{",
-        )
+    def test_natural_nested_json_not_corrupted(self) -> None:
+        """Natural nested JSON in a description is not corrupted by compilation."""
+        desc = '{"data": {"guide": "x"}}'
+        stage = make_stage_spec(name="s", description=desc)
         wf = make_workflow_definition(
             trigger=make_trigger_spec(source="manual", params={}),
             stages=(stage,),
         )
         manifest = compile_workflow(wf)
-        resolved = manifest.resolved_stages["s"]
-        self.assertEqual(resolved.spec.description, "Escape {{")
-
-
-class TestFanOutKeyPlaceholderSurvives(unittest.TestCase):
-    """A fan-out key placeholder ({fan_out.key}) must survive unescape unchanged."""
-
-    def test_fan_out_placeholder_is_not_corrupted(self) -> None:
-        """Single-brace {fan_out.key} stays literal after resolve_params."""
-        result = resolve_params("Process {fan_out.key} now", {})
-        # {fan_out.key} is not a valid identifier (contains dot), stays as-is
-        self.assertEqual(result, "Process {fan_out.key} now")
+        self.assertEqual(manifest.resolved_stages["s"].spec.description, desc)
 
 
 # ---------------------------------------------------------------------------
-# Defect 2: criteria param resolution and pipe-split
+# Criteria param resolution and pipe-split
 # ---------------------------------------------------------------------------
 
 
@@ -154,21 +159,13 @@ class TestValidationCriteriaParamResolution(unittest.TestCase):
         return resolved_validation.criteria
 
     def test_simple_param_resolved_in_criterion(self) -> None:
-        """A criterion referencing {key} has the param substituted.
-
-        The resolved criterion is split on ``|``.  Surrounding template text
-        lands in the first and last segments.
-        """
+        """A criterion referencing {key} has the param substituted."""
         criteria = self._compile_with_criteria(
             raw_criteria=("All criteria in {validation_criteria} are checked",),
             params={"validation_criteria": "counts match|no fabricated numbers"},
         )
-        # After resolution + pipe-split:
-        #   "All criteria in counts match|no fabricated numbers are checked"
-        #   -> ("All criteria in counts match", "no fabricated numbers are checked")
         self.assertIn("All criteria in counts match", criteria)
         self.assertIn("no fabricated numbers are checked", criteria)
-        # Original placeholder criterion is replaced
         self.assertNotIn("All criteria in {validation_criteria} are checked", criteria)
 
     def test_pipe_separated_param_splits_into_multiple_criteria(self) -> None:
@@ -197,7 +194,6 @@ class TestValidationCriteriaParamResolution(unittest.TestCase):
             raw_criteria=("{validation_criteria}",),
             params={"validation_criteria": "a||b| |c"},
         )
-        # Empty and whitespace-only segments dropped
         self.assertEqual(len(criteria), 3)
         self.assertIn("a", criteria)
         self.assertIn("b", criteria)
@@ -212,14 +208,14 @@ class TestValidationCriteriaParamResolution(unittest.TestCase):
         self.assertEqual(len(criteria), 1)
         self.assertEqual(criteria[0], "All {unknown_param} checked")
 
-    def test_doubled_braces_in_criterion_unescape(self) -> None:
-        """{{literal}} in a criterion unescapes to {literal}."""
+    def test_double_braces_in_criterion_stay_doubled(self) -> None:
+        """{{literal}} in a criterion stays as {{literal}} — braces are not unescaped."""
         criteria = self._compile_with_criteria(
             raw_criteria=('{{"key": "value"}}',),
             params={},
         )
         self.assertEqual(len(criteria), 1)
-        self.assertEqual(criteria[0], '{"key": "value"}')
+        self.assertEqual(criteria[0], '{{"key": "value"}}')
 
 
 # ---------------------------------------------------------------------------
@@ -257,23 +253,86 @@ class TestValidateThenRenderFragment(unittest.TestCase):
         assert resolved_validation is not None  # nosec B101 - type narrowing for static analysis
         criteria = resolved_validation.criteria
 
-        # The static criterion survives unchanged
         self.assertIn(
             "Every quantitative claim traces to a source file in the workspace",
             criteria,
         )
-        # "All criteria in {validation_criteria} are checked" with
-        # validation_criteria = "counts match source|no fabricated numbers|all paths exist"
-        # resolves to "All criteria in counts match source|no fabricated numbers|all paths exist are checked"
-        # then splits on "|":
         self.assertIn("All criteria in counts match source", criteria)
         self.assertIn("no fabricated numbers", criteria)
         self.assertIn("all paths exist are checked", criteria)
-        # The template placeholder criterion is gone
         self.assertNotIn(
             "All criteria in {validation_criteria} are checked",
             criteria,
         )
+
+
+# ---------------------------------------------------------------------------
+# Lint check: escape-style {{ warning
+# ---------------------------------------------------------------------------
+
+
+class TestEscapeStyleBracesLintWarning(unittest.TestCase):
+    """The linter warns when a description contains {{ outside exempt patterns."""
+
+    def _lint_stages(self, stages: list[object]) -> list[LintWarning]:
+        from workflow.linter import _check_escape_style_braces
+        from workflow.linter_types import LintResult
+
+        result: LintResult = LintResult(file="test")
+        _check_escape_style_braces(tuple(stages), result)
+        return result.warnings
+
+    def test_escape_style_json_warns(self) -> None:
+        """{{"key": "val"}} fires the lint warning."""
+        stage = make_stage_spec(name="s", description='{{"key": "val"}}')
+        warnings = self._lint_stages([stage])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("does not unescape", warnings[0].message)
+
+    def test_standalone_double_open_warns(self) -> None:
+        """A bare {{ on its own fires the lint warning."""
+        stage = make_stage_spec(name="s", description="start\n  {{\n    x")
+        warnings = self._lint_stages([stage])
+        self.assertEqual(len(warnings), 1)
+
+    def test_go_template_no_warn(self) -> None:
+        """{{.Names}} is a Go template — no warning."""
+        stage = make_stage_spec(name="s", description="docker --format '{{.Names}}'")
+        warnings = self._lint_stages([stage])
+        self.assertEqual(len(warnings), 0)
+
+    def test_github_actions_no_warn(self) -> None:
+        """${{ secrets.TOKEN }} is GitHub Actions — no warning."""
+        stage = make_stage_spec(name="s", description="uses ${{ secrets.TOKEN }}")
+        warnings = self._lint_stages([stage])
+        self.assertEqual(len(warnings), 0)
+
+    def test_backtick_span_no_warn(self) -> None:
+        """{{ inside a backtick code span is exempt."""
+        stage = make_stage_spec(name="s", description="write `{{` for escaped braces")
+        warnings = self._lint_stages([stage])
+        self.assertEqual(len(warnings), 0)
+
+    def test_natural_nested_json_no_warn(self) -> None:
+        """Natural nested JSON with }} at line end does not trigger {{ warning."""
+        stage = make_stage_spec(name="s", description='{"data": {"guide": "x"}}')
+        warnings = self._lint_stages([stage])
+        self.assertEqual(len(warnings), 0)
+
+    def test_no_description_no_warn(self) -> None:
+        """A stage with no description does not warn."""
+        stage = make_stage_spec(name="s", description=None)
+        warnings = self._lint_stages([stage])
+        self.assertEqual(len(warnings), 0)
+
+    def test_one_warning_per_stage(self) -> None:
+        """Multiple {{ occurrences in a stage emit only one warning."""
+        stage = make_stage_spec(
+            name="s",
+            description='{{"a": 1}}\n{{"b": 2}}',
+        )
+        warnings = self._lint_stages([stage])
+        self.assertEqual(len(warnings), 1)
 
 
 if __name__ == "__main__":

@@ -226,8 +226,8 @@ stages:
         {
           "total": N,
           "items": [
-            {{"index": "0", "data": {{"guide": "correctness.md"}}}},
-            {{"index": "1", "data": {{"guide": "workflow.md"}}}},
+            {"index": "0", "data": {"guide": "correctness.md"}},
+            {"index": "1", "data": {"guide": "workflow.md"}},
             ...
           ]
         }
