@@ -75,20 +75,21 @@ def _print_json(obj: Any) -> None:
     print(json.dumps(obj, indent=2, ensure_ascii=False))
 
 
-def _read_body(path: str) -> str:
-    """Read a body file. ``-`` means stdin.
+def _read_body(path: str, *, option: str = "--body-file") -> str:
+    """Read a body (or title) file. ``-`` means stdin.
 
     The whole point of ``--body-file`` is that review-derived text never
     reaches an argv, so this helper deliberately reads the *literal* file
     content: no shell expansion, no stripping of a leading ``@``, no
-    interpretation whatsoever.
+    interpretation whatsoever. ``option`` names the flag in the error, so a
+    bad --title-file is reported as --title-file.
     """
     if path == "-":
         return sys.stdin.read()
     try:
         return Path(path).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
-        raise CLIError(f"cannot read --body-file {path}: {exc}", ExitCode.USAGE) from exc
+        raise CLIError(f"cannot read {option} {path}: {exc}", ExitCode.USAGE) from exc
 
 
 def _write_or_print(path: str | None, text: str) -> None:
@@ -440,7 +441,12 @@ def _title(args, *, required: bool) -> str | None:
         if required and inline is None:
             raise CLIError("pr create needs --title or --title-file", ExitCode.USAGE)
         return inline
-    title = _strip_one_line_ending(_read_body(path))
+    if path == "-" and getattr(args, "body_file", None) == "-":
+        # One stdin cannot carry two values: the title read would consume it
+        # and the body would read EOF — for pr edit, silently emptying the
+        # PR body. Refuse before reading anything.
+        raise CLIError("--title-file and --body-file cannot both be - (stdin)", ExitCode.USAGE)
+    title = _strip_one_line_ending(_read_body(path, option="--title-file"))
     if not title.strip():
         raise CLIError(f"--title-file {path} is empty", ExitCode.USAGE)
     if "\n" in title or "\r" in title:

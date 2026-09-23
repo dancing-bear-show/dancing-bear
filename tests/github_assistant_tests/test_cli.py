@@ -817,6 +817,32 @@ class TestPrTitleFile(unittest.TestCase):
                 argv = fake.calls[0].argv
                 self.assertEqual(argv[argv.index("--title") + 1], "t")
 
+    def test_both_from_stdin_is_refused_before_anything_is_read(self):
+        # One stdin cannot carry two values; pr edit would otherwise read the
+        # title, hit EOF for the body, and blank the PR body.
+        for argv in (["pr", "create", "--base", "main", "--title-file", "-", "--body-file", "-"],
+                     ["pr", "edit", "--pr", "3", "--title-file", "-", "--body-file", "-"]):
+            fake = FakeGhRunner()
+            with self.subTest(cmd=argv[1]), _install_client(fake), \
+                    patch("sys.stdin", io.StringIO("title\nbody text\n")) as stdin:
+                rc, _out, err = _run_cli(argv)
+                self.assertEqual(rc, 2)
+                self.assertIn("cannot both be -", err)
+                self.assertEqual(fake.calls, [])
+                self.assertEqual(stdin.tell(), 0, "stdin must not be consumed")
+
+    def test_unreadable_title_file_names_the_title_option(self):
+        with TemporaryDirectory() as td:
+            body_path = Path(td) / "pr.md"
+            body_path.write_text("body", encoding="utf-8")
+            with _install_client(FakeGhRunner()):
+                rc, _out, err = _run_cli(["pr", "create", "--base", "main",
+                                          "--title-file", str(Path(td) / "absent.txt"),
+                                          "--body-file", str(body_path)])
+        self.assertEqual(rc, 2)
+        self.assertIn("cannot read --title-file", err)
+        self.assertNotIn("--body-file", err)
+
     def test_title_and_title_file_together_are_refused(self):
         rc, err, fake = self._create("--title", "t", "--title-file", "TITLE_FILE", title_text="t")
         self.assertEqual(rc, 2)
