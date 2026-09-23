@@ -310,6 +310,27 @@ classify_path() {
 
   case "$p" in
     /*)
+      # `..` in an ABSOLUTE path, before any containment test.
+      #
+      # The containment test below is textual: it asks whether the path starts with
+      # `REPO_ROOT/`. A path that re-enters this checkout through a parent segment --
+      # `<parent>/other/../<repo-name>/src/mail/cli.py` -- does not, so it took the
+      # "outside this repo" branch and returned ok, never reaching the `*..*` refusal
+      # further down. Both Write/Edit and Bash redirects could modify source that way,
+      # including `rm -rf <parent>/other/../<repo>/src`.
+      #
+      # Refused rather than resolved, for the reason the relative `..` rule already
+      # gives: textual normalisation disagrees with the kernel when symlinks are
+      # involved, and resolving against the live filesystem reintroduces the
+      # empty-result hole that rule was written to avoid. An absolute path containing
+      # `..` is ambiguous about where it lands, and ambiguity resolves to refusal.
+      case "$p" in
+        */../*|*/..)
+          printf "guarded:an absolute path containing '..', which can resolve back into the repo"
+          return
+          ;;
+      esac
+
       # The repo root ITSELF, before the prefix strip. The strip requires a trailing
       # `REPO_ROOT/`, so a path exactly equal to the root fell through to the "outside
       # this repo" branch and was ALLOWED -- meaning the guard refused `rm -rf src`

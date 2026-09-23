@@ -1,0 +1,248 @@
+# The write-boundary CONTRACT: what block-readonly-role-writes.sh promises.
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# The .test.sh suite beside it grew one case at a time, each added after a review
+# round found a hole. That makes it a record of PAST BUGS rather than a statement of
+# INTENT -- it answers "has this specific bypass come back?" and never "is the thing
+# we set out to guard actually guarded?"
+#
+# Seven review rounds on PR #395 found 25 findings. Every one was real, and the suite
+# caught none of them, because you cannot regression-test a case nobody thought of.
+# Worse, it produced two FALSE PASSES: an over-blocking case that passed only because
+# a directory happened not to exist, and a teeth-probe that reported "no teeth"
+# because the fixes it reverted were redundant. A green suite was not evidence.
+#
+# The fix is not more cases of the same kind. It is to write the promises down, derive
+# the cases from them, and let a gap show up as an unfilled row rather than an absent
+# one. Adding a promise here without implementing it produces a FAILING test: the
+# contract leads and the code follows.
+#
+# HONEST LIMIT: this cannot enumerate what nobody thought of either. It would have
+# caught round 7's `rm -rf <repo>` -- "the root is not a loophole" is an obvious row
+# once you are writing promises instead of reacting to bugs -- but it is a better base
+# rate, not a guarantee.
+#
+# FORMAT
+#   group      - a promise in plain words
+#   why        - what breaks if the rows below are wrong
+#   needs_dirs - directories to create before asserting (see the artifacts group)
+#   cases      - what/tool/role/cwd/input/expect
+#   raw_cases  - what/payload/expect, for payloads too malformed to build
+#
+# Defaults: role=researcher, cwd=repo root. `{REPO}` expands to the repo root.
+
+promises:
+
+  - group: "Tracked source is never written by a read-only role"
+    why: >
+      The core promise. Each tree is asserted at three depths, because past bugs
+      lived at exactly one of them: the bare directory token (`rm -rf src` was
+      allowed while `rm -rf src/` was blocked), a file directly inside, and a
+      nested file.
+    cases:
+      - {what: "bare tree token",        tool: Bash,  input: "rm -rf src",              expect: block}
+      - {what: "file in tree",           tool: Write, input: "src/probe.py",            expect: block}
+      - {what: "nested file",            tool: Write, input: "src/mail/cli.py",         expect: block}
+      - {what: "tests tree",             tool: Write, input: "tests/test_probe.py",     expect: block}
+      - {what: "bin tree",               tool: Write, input: "bin/probe",               expect: block}
+      - {what: "workflows tree",         tool: Write, input: "workflows/probe.yaml",    expect: block}
+      - {what: "templates tree",         tool: Write, input: "templates/probe.md",      expect: block}
+      - {what: "signatures_assets tree", tool: Write, input: "signatures_assets/p.png", expect: block}
+      - {what: "qlty config tree",       tool: Write, input: ".qlty/qlty.toml",         expect: block}
+      - {what: "singular config tree",   tool: Write, input: "config/probe.yaml",       expect: block}
+      - {what: "concerns tree",          tool: Write, input: "concerns/probe.md",       expect: block}
+      - {what: "llm tree",               tool: Write, input: ".llm/probe.md",           expect: block}
+
+  - group: "The repository root itself is not a loophole"
+    why: >
+      Round 7, the most severe bypass on the branch. The prefix test required a
+      trailing slash, so a path equal to the root fell through to "outside this
+      repo": the guard refused `rm -rf src` and allowed `rm -rf <the checkout>`.
+    cases:
+      - {what: "root, bare",           tool: Bash,  input: "rm -rf {REPO}",       expect: block}
+      - {what: "root, trailing slash", tool: Bash,  input: "rm -rf {REPO}/",      expect: block}
+      - {what: "root, moved",          tool: Bash,  input: "mv {REPO} /tmp/gone", expect: block}
+      - {what: "root, as Write path",  tool: Write, input: "{REPO}",              expect: block}
+      - {what: "root via /.",          tool: Write, input: "{REPO}/.",            expect: block}
+      - {what: "root via //",          tool: Write, input: "{REPO}//",            expect: block}
+
+  - group: "Path spelling never changes the answer"
+    why: >
+      Four separate bypasses came from this class, each one variant over from the
+      last: /./, //, a leading ./, and a relative path from a non-root cwd. Every
+      spelling of the same file must get the same verdict.
+    cases:
+      - {what: "embedded /./",       tool: Write, input: "{REPO}/./src/mail/cli.py",     expect: block}
+      - {what: "repeated //",        tool: Write, input: "{REPO}//src/mail/cli.py",      expect: block}
+      - {what: "leading ./",         tool: Write, input: "./src/mail/cli.py",            expect: block}
+      - {what: "combined",           tool: Write, input: "{REPO}//.//src//mail/cli.py",  expect: block}
+      - {what: "trailing slash",     tool: Write, input: "src/",                         expect: block}
+      - {what: "dot-dot re-entry",   tool: Write, input: "src/mail/../mail/cli.py",      expect: block}
+      - {what: "relative, cwd=src",  tool: Write, cwd: "{REPO}/src",      input: "mail/cli.py", expect: block}
+      - {what: "relative, cwd deep", tool: Write, cwd: "{REPO}/src/mail", input: "cli.py",      expect: block}
+      # Round 8: an absolute path re-entering the checkout through a parent segment
+      # never textually starts with REPO_ROOT/, so it took the "outside this repo"
+      # branch and returned ok BEFORE the relative `..` refusal was reached.
+      - {what: "absolute via parent",  tool: Write, input: "{REPO}/../{REPO_NAME}/src/mail/cli.py", expect: block}
+      - {what: "absolute via sibling", tool: Write, input: "{REPO_PARENT}/other/../{REPO_NAME}/src/mail/cli.py", expect: block}
+      - {what: "absolute, mid-path",   tool: Write, input: "{REPO}/src/../src/mail/cli.py",  expect: block}
+      - {what: "traversal via Bash",   tool: Bash,  input: "echo x > {REPO_PARENT}/other/../{REPO_NAME}/src/mail/cli.py", expect: block}
+      - {what: "traversal rm -rf",     tool: Bash,  input: "rm -rf {REPO_PARENT}/other/../{REPO_NAME}/src", expect: block}
+      # ...while a path genuinely outside the repo stays writable.
+      - {what: "sibling repo",         tool: Write, input: "{REPO_PARENT}/some-other-repo/f.py", expect: allow}
+
+  - group: "Every read-only role is bound, not just researcher"
+    why: >
+      The suite tested `researcher` almost exclusively. READONLY_ROLES is
+      hand-maintained, so a role added without a case here would be unverified.
+    cases:
+      - {what: "reviewer",             tool: Bash, role: reviewer,             input: "rm -rf src", expect: block}
+      - {what: "critic",               tool: Bash, role: critic,               input: "rm -rf src", expect: block}
+      - {what: "fact-checker",         tool: Bash, role: fact-checker,         input: "rm -rf src", expect: block}
+      - {what: "unit-validator",       tool: Bash, role: unit-validator,       input: "rm -rf src", expect: block}
+      - {what: "cross-unit-validator", tool: Bash, role: cross-unit-validator, input: "rm -rf src", expect: block}
+      - {what: "haiku-reviewer",       tool: Bash, role: haiku-reviewer,       input: "rm -rf src", expect: block}
+      - {what: "Explore",              tool: Bash, role: Explore,              input: "rm -rf src", expect: block}
+      - {what: "Plan",                 tool: Bash, role: Plan,                 input: "rm -rf src", expect: block}
+
+  - group: "Write-capable roles are never obstructed"
+    why: >
+      A guard that blocks code-writer breaks every implementation stage. This half
+      matters as much as the blocking half and is easier to forget.
+    cases:
+      - {what: "code-writer",     tool: Write, role: code-writer,     input: "src/mail/cli.py",  expect: allow}
+      - {what: "tester",          tool: Bash,  role: tester,          input: "sed -i '' 's/a/b/' tests/t.py", expect: allow}
+      - {what: "ci-fixer",        tool: Write, role: ci-fixer,        input: "src/workflow/runner.py", expect: allow}
+      - {what: "doc-writer",      tool: Write, role: doc-writer,      input: "README.md",        expect: allow}
+      - {what: "thread-fixer",    tool: Write, role: thread-fixer,    input: "src/mail/cli.py",  expect: allow}
+      - {what: "workflow-author", tool: Write, role: workflow-author, input: "workflows/x.yaml", expect: allow}
+      - {what: "main session",    tool: Write, role: "",              input: "src/mail/cli.py",  expect: allow}
+
+  - group: "Artifacts a read-only role must be able to produce"
+    why: >
+      The inverse promise, and the one a guard-shaped mind forgets. Round 7 found the
+      runner's own workspace roots blocked once they existed -- rejecting the output
+      the stage was spawned to write. These rows MUST be asserted with the
+      directories present: absent, they pass for the wrong reason, which is exactly
+      the false pass that let the bug through.
+    needs_dirs: [outputs, validation, stages, dispatch, analysis, context]
+    cases:
+      - {what: "workspace outputs",     tool: Write, input: "outputs/report.json",        expect: allow}
+      - {what: "workspace stages",      tool: Write, input: "stages/result.json",         expect: allow}
+      - {what: "workspace validation",  tool: Write, input: "validation/findings.json",   expect: allow}
+      - {what: "workspace dispatch",    tool: Write, input: "dispatch/plan.json",         expect: allow}
+      - {what: "workspace analysis",    tool: Write, input: "analysis/inventory.json",    expect: allow}
+      - {what: "nested artifact",       tool: Write, input: "outputs/deep/nested.json",   expect: allow}
+      - {what: "generated out/",        tool: Write, input: "out/report.json",            expect: allow}
+      - {what: "absolute /tmp",         tool: Write, input: "/tmp/ws/findings.json",      expect: allow}
+      - {what: "artifact from src cwd", tool: Write, cwd: "{REPO}/src", input: "/tmp/out.json", expect: allow}
+      - {what: "redirect to artifact",  tool: Bash,  input: "echo '{}' > outputs/x.json", expect: allow}
+
+  - group: "Reading and running the repo is never obstructed"
+    why: >
+      A researcher exists to read code. An over-broad operand scan once blocked
+      `cat src/mail/cli.py` and `grep -rn AppMeta src/`, making the role useless --
+      a guard that stops the work is as broken as one that stops nothing.
+    cases:
+      - {what: "cat a source file",  tool: Bash, input: "cat src/mail/cli.py",             expect: allow}
+      - {what: "grep the tree",      tool: Bash, input: "grep -rn AppMeta src/",           expect: allow}
+      - {what: "make test",          tool: Bash, input: "make test",                       expect: allow}
+      - {what: "run a repo CLI",     tool: Bash, input: "./bin/workflow list",             expect: allow}
+      - {what: "git status",         tool: Bash, input: "git status",                      expect: allow}
+      - {what: "sed read-only",      tool: Bash, input: "sed -n '1,5p' src/mail/cli.py",   expect: allow}
+      - {what: "sed no -i",          tool: Bash, input: "sed -E 's/a/b/' src/mail/cli.py", expect: allow}
+      - {what: "cp source to tmp",   tool: Bash, input: "cp src/mail/cli.py /tmp/c.py",    expect: allow}
+      - {what: "cp -t to tmp",       tool: Bash, input: "cp -t /tmp src/mail/cli.py",      expect: allow}
+      - {what: "dd read",            tool: Bash, input: "dd if=src/mail/cli.py of=/tmp/o", expect: allow}
+
+  - group: "Mutating commands are caught whatever the spelling"
+    why: >
+      Enumerating option spellings drifted twice (sed -iE, cp -t). These assert the
+      shapes, including the two that invert argument order.
+    cases:
+      - {what: "sed -i",          tool: Bash, input: "sed -i '' 's/a/b/' src/mail/cli.py",  expect: block}
+      - {what: "sed -iE",         tool: Bash, input: "sed -iE 's/a/b/' src/mail/cli.py",    expect: block}
+      - {what: "sed -Ei",         tool: Bash, input: "sed -Ei 's/a/b/' src/mail/cli.py",    expect: block}
+      - {what: "sed --in-place",  tool: Bash, input: "sed --in-place 's/a/b/' src/x.py",    expect: block}
+      - {what: "cp -t",           tool: Bash, input: "cp -t src /tmp/evil.py",              expect: block}
+      - {what: "cp --target-dir", tool: Bash, input: "cp --target-directory=src /tmp/e.py", expect: block}
+      - {what: "tee",             tool: Bash, input: "tee src/mail/cli.py < /tmp/x",        expect: block}
+      - {what: "touch",           tool: Bash, input: "touch src/newfile.py",                expect: block}
+      - {what: "truncate",        tool: Bash, input: "truncate -s 0 src/mail/cli.py",       expect: block}
+      - {what: "chmod",           tool: Bash, input: "chmod 000 src/mail/cli.py",           expect: block}
+      - {what: "chown",           tool: Bash, input: "chown nobody src/mail/cli.py",        expect: block}
+      - {what: "ln over source",  tool: Bash, input: "ln -s /tmp/x src/mail/cli.py",        expect: block}
+      - {what: "mv source away",  tool: Bash, input: "mv src/mail/cli.py /tmp/x.py",        expect: block}
+      - {what: "qualified path",  tool: Bash, input: "/bin/sed -i '' 's/a/b/' src/x.py",    expect: block}
+      - {what: "single-quoted",   tool: Bash, input: "rm -rf 'src'",                        expect: block}
+      - {what: "double-quoted",   tool: Bash, input: "rm -rf \"src\"",                      expect: block}
+
+  - group: "Command separators do not hide a second command"
+    why: >
+      Round 6: `read -ra` consumed only the first physical line, so anything after a
+      newline was never inspected at all -- not misclassified, never seen.
+    cases:
+      - {what: "after &&",      tool: Bash, input: "cat README.md && rm -rf src",         expect: block}
+      - {what: "after ;",       tool: Bash, input: "cat README.md; rm -rf src",           expect: block}
+      - {what: "after newline", tool: Bash, input: "cat README.md\nrm -rf src",           expect: block}
+      - {what: "after &",       tool: Bash, input: "cat README.md & rm -rf src",          expect: block}
+      - {what: "after |",       tool: Bash, input: "cat README.md | tee src/mail/cli.py", expect: block}
+      - {what: "third line",    tool: Bash, input: "echo a\necho b\ntouch src/new.py",    expect: block}
+      - {what: "ordinary multi", tool: Bash, input: "make test\nmake lint",               expect: allow}
+
+  - group: "Redirect targets are write targets, in every spelling"
+    why: "Round 2 found `>&` left the token carrying a leading `&`, matching nothing."
+    cases:
+      - {what: ">",        tool: Bash, input: "echo x > src/mail/cli.py",  expect: block}
+      - {what: ">>",       tool: Bash, input: "echo x >> src/mail/cli.py", expect: block}
+      - {what: ">|",       tool: Bash, input: "echo x >| src/mail/cli.py", expect: block}
+      - {what: ">&",       tool: Bash, input: "echo x >&src/mail/cli.py",  expect: block}
+      - {what: "no space", tool: Bash, input: "echo x >src/mail/cli.py",   expect: block}
+      - {what: "fd dup is not a path", tool: Bash, input: "make test 2>&1", expect: allow}
+
+  - group: "Repo-root files are tracked content"
+    why: >
+      A hand-listed set missed 9 of 20, including AGENTS.md -- rewriting which
+      changes what LATER agents are told, a more durable compromise than editing one
+      source file, and one that shows up in no diff anyone is reviewing.
+    cases:
+      - {what: "AGENTS.md",           tool: Write, input: "AGENTS.md",               expect: block}
+      - {what: "CLAUDE.md",           tool: Write, input: "CLAUDE.md",               expect: block}
+      - {what: "COPILOT.md",          tool: Write, input: "COPILOT.md",              expect: block}
+      - {what: "GEMINI.md",           tool: Write, input: "GEMINI.md",               expect: block}
+      - {what: "Makefile",            tool: Write, input: "Makefile",                expect: block}
+      - {what: "pyproject.toml",      tool: Write, input: "pyproject.toml",          expect: block}
+      - {what: "typecheck-baseline",  tool: Write, input: "typecheck-baseline.json", expect: block}
+      - {what: "root file via Bash",  tool: Bash,  input: "echo x > AGENTS.md",      expect: block}
+      - {what: "same name in /tmp",   tool: Write, input: "/tmp/AGENTS.md",          expect: allow}
+      - {what: "same name nested",    tool: Write, input: "outputs/AGENTS.md",       expect: allow}
+
+  - group: "The Edit tool is bound like Write"
+    why: >
+      The matcher covers Write|Edit|Bash, but the suite exercised Write and Bash
+      almost exclusively. Edit is the tool a read-only role is most likely to reach
+      for on source.
+    cases:
+      - {what: "edit source",      tool: Edit, input: "src/mail/cli.py",   expect: block}
+      - {what: "edit root file",   tool: Edit, input: "AGENTS.md",         expect: block}
+      - {what: "edit an artifact", tool: Edit, input: "/tmp/out.json",     expect: allow}
+      - {what: "code-writer edit", tool: Edit, role: code-writer, input: "src/mail/cli.py", expect: allow}
+
+  - group: "A malformed payload fails closed"
+    why: >
+      A hook that cannot read its input does not know what it is approving. The
+      failure of the inspecting step must never read as approval.
+    raw_cases:
+      - {what: "not JSON",          payload: 'not json at all',                                                               expect: block}
+      - {what: "empty input",       payload: '',                                                                              expect: block}
+      - {what: "agent_type object", payload: '{"agent_type":{},"tool_name":"Write","tool_input":{"file_path":"src/x.py"}}',    expect: block}
+      - {what: "agent_type array",  payload: '{"agent_type":[],"tool_name":"Write","tool_input":{"file_path":"src/x.py"}}',    expect: block}
+      - {what: "file_path missing", payload: '{"agent_type":"researcher","tool_name":"Write","tool_input":{}}',                expect: block}
+      - {what: "file_path null",    payload: '{"agent_type":"researcher","tool_name":"Write","tool_input":{"file_path":null}}', expect: block}
+      - {what: "file_path object",  payload: '{"agent_type":"researcher","tool_name":"Write","tool_input":{"file_path":{}}}',  expect: block}
+      - {what: "file_path empty",   payload: '{"agent_type":"researcher","tool_name":"Write","tool_input":{"file_path":""}}',  expect: block}
+      - {what: "command missing",   payload: '{"agent_type":"researcher","tool_name":"Bash","tool_input":{}}',                 expect: block}
+      - {what: "command object",    payload: '{"agent_type":"researcher","tool_name":"Bash","tool_input":{"command":{}}}',     expect: block}
+      - {what: "command empty",     payload: '{"agent_type":"researcher","tool_name":"Bash","tool_input":{"command":""}}',     expect: block}
+      - {what: "no agent_type key", payload: '{"tool_name":"Write","tool_input":{"file_path":"src/x.py"}}',                    expect: allow}

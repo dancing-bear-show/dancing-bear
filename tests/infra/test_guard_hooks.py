@@ -53,6 +53,11 @@ SUITES = (
     "block-destructive-bash.test.sh",
     "block-protected-paths.test.sh",
     "block-readonly-role-writes.test.sh",
+    # Derived from guard-contract.yaml rather than from past bugs. Kept alongside
+    # the regression suite above, not instead of it: the two catch different things,
+    # and a probe reproducing PR #395's round-8 traversal bypass failed the contract
+    # while the 301-case regression suite passed it clean.
+    "guard-contract.test.sh",
     "statusline.test.sh",
 )
 
