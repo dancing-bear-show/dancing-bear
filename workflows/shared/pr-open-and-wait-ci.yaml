@@ -56,7 +56,7 @@ stages:
           --title "{pr_title}" \
           --body-file {workspace}/outputs/pr-body.md \
           --draft
-        ./bin/github handles GITHUB_TOKEN scrubbing; no GITHUB_TOKEN= prefix needed.
+        The github CLI handles GITHUB_TOKEN scrubbing; no GITHUB_TOKEN= prefix needed.
         Text bodies are passed via --body-file, never as an inline string, to
         avoid shell-quoting corruption of backticks and newlines.
 
@@ -92,7 +92,7 @@ stages:
 
       Step 2 — mark PR ready (exits draft):
         ./bin/github pr ready --pr {pr_number}
-        ./bin/github handles GITHUB_TOKEN scrubbing internally.
+        The github CLI handles GITHUB_TOKEN scrubbing internally.
 
       Step 3 — poll CI status:
         ./bin/github pr checks --pr {pr_number} --watch --interval 60
@@ -125,7 +125,7 @@ stages:
     validation:
       strategy: unit
       criteria:
-        - All GitHub Actions checks pass (./bin/github pr checks exits 0)
+        - All GitHub Actions checks pass (./bin/github pr checks --watch exits 0; the non-watch form exits 0 even while checks fail, so read each entry's bucket instead)
       max_revisions: 1
     required: true
     writes_to:

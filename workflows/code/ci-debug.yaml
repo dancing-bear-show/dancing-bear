@@ -51,7 +51,7 @@ stages:
         If both are empty, write a failed stage result and exit.
 
       Step 2 — fetch GitHub Actions failures:
-        `./bin/github` scrubs a stale GITHUB_TOKEN automatically — no
+        The github CLI scrubs a stale GITHUB_TOKEN automatically — no
         `GITHUB_TOKEN=` prefix or owner/repo preamble needed.
         If {run_url} is non-empty:
           Use the Bash tool to extract the run ID from the URL (last path segment)

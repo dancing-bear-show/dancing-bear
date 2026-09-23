@@ -169,7 +169,7 @@ stages:
           {workspace}/outputs/merged-prs.json.
           If no PRs found, write [] and exit 0.
         Step 2 — for each merged PR (up to {max_prs} most recent), fetch all
-        three sources with the same ./bin/github commands shown in MODE A
+        three sources with the same github CLI calls shown in MODE A
         (substituting the PR number). Wrap each PR's fetch so a single failed
         call does NOT abort the loop: on non-zero exit, log the skipped PR
         number to {workspace}/outputs/skipped-prs.json and continue.

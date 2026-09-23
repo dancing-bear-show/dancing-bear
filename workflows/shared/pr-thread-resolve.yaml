@@ -45,7 +45,7 @@ stages:
       Reply to and resolve the review threads on PR {pr_number} that the caller
       has marked safe to close.
 
-      Use ./bin/github for all GitHub access — it handles GITHUB_TOKEN
+      Use the github CLI for all GitHub access — it handles GITHUB_TOKEN
       scrubbing internally. No GITHUB_TOKEN= prefix is needed; do not
       re-implement this with raw gh. Owner/repo is the default context;
       no owner/repo preamble is required.

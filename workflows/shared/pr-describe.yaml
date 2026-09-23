@@ -32,7 +32,7 @@ stages:
       Rewrite the title and description of PR {pr_number} to match what the
       branch actually does now.
 
-      Use ./bin/github for all GitHub access — it handles GITHUB_TOKEN
+      Use the github CLI for all GitHub access — it handles GITHUB_TOKEN
       scrubbing internally. Do not re-implement this with raw gh.
 
       Step 1 — read the current state:

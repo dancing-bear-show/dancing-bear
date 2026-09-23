@@ -121,11 +121,11 @@ stages:
           mkdir -p {workspace}/outputs/diffs {workspace}/outputs/findings {workspace}/validation
 
       Step 1 — resolve PR number and repository context.
-        Use ./bin/github for all GitHub access — it handles GITHUB_TOKEN
+        Use the github CLI for all GitHub access — it handles GITHUB_TOKEN
         scrubbing internally, so no GITHUB_TOKEN= prefix is needed. Do not
         re-implement this with raw gh.
 
-        Owner/repo is the default context for every ./bin/github command;
+        Owner/repo is the default context for every github CLI call;
         no preamble is required.
 
         If {pr_number} is blank, detect from current branch:

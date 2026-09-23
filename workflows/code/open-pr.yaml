@@ -356,7 +356,7 @@ stages:
             --title "{pr_title}" \
             --body-file /tmp/pr-description.md \
             --base main
-        `./bin/github` scrubs a stale GITHUB_TOKEN automatically — no
+        The github CLI scrubs a stale GITHUB_TOKEN automatically — no
         `GITHUB_TOKEN=` prefix needed. The command returns JSON
         {"number","url"} read back from GitHub.
 

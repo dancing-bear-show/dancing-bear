@@ -51,7 +51,7 @@ stages:
           --raw {workspace}/outputs/threads-raw.json \
           --summary {workspace}/outputs/threads-summary.md
 
-      ./bin/github handles GITHUB_TOKEN scrubbing internally. Do not
+      The github CLI handles GITHUB_TOKEN scrubbing internally. Do not
       re-implement this with raw gh. The command covers all three GitHub
       surfaces (GraphQL review threads paginated at BOTH levels, REST review
       bodies with --paginate, and REST issue comments with --paginate) and

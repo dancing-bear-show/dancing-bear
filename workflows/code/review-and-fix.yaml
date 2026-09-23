@@ -665,7 +665,7 @@ stages:
         Use the Read tool on {workspace}/outputs/fix-manifest.json and extract
         each entry's comment_url.
 
-        `./bin/github` scrubs a stale GITHUB_TOKEN automatically — no
+        The github CLI scrubs a stale GITHUB_TOKEN automatically — no
         `GITHUB_TOKEN=` prefix or owner/repo preamble needed. Do not
         re-implement this fetch with raw gh or inline GraphQL.
 
