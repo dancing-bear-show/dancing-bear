@@ -320,25 +320,11 @@ class JobProcessor:
         self.config = config
         self.command = command
 
-    def process_one(
-        self,
-        job_path: Path,
-        job_data: dict[str, object],
-        *,
-        stop_event: threading.Event | None = None,
-    ) -> int:
-        """Process a single job.
-
-        ``stop_event``, when provided, is checked immediately after the job is
-        claimed (moved from pending/ to processing/).  If it is already set the
-        job is requeued instead of run.  This closes the shutdown/claim race:
-        even if ``drain_live_threads`` ran while this thread had not yet claimed
-        the job (so ``requeue_processing`` found nothing and returned None), the
-        worker still requeues it after the claim rather than leaving it stranded
-        in processing/ when the daemon exits.
+    def process_one(self, job_path: Path, job_data: dict[str, object]) -> int:
+        """Claim a pending job, then process it via ``process_claimed``.
 
         Returns:
-            1 if processed, 0 if skipped (already claimed) or requeued on shutdown
+            1 if processed, 0 if skipped (already claimed by another worker)
         """
         st = time.time()
         proc_path = q.start_processing(job_path)
@@ -347,16 +333,26 @@ class JobProcessor:
             # Already claimed by another worker
             return 0
 
-        if stop_event is not None and stop_event.is_set():
-            # A stop was requested between thread registration and the claim.
-            # Requeue so the job is not stranded if the daemon exits before the
-            # handler finishes.  The thread continues running after
-            # requeue_processing moves the file (at-least-once; documented in
-            # drain_live_threads).
-            q.requeue_processing(job_path.stem, reason=SHUTDOWN_REQUEUE_REASON, root=q.QUEUE_ROOT)
-            return 0
+        return self.process_claimed(proc_path, job_data, started_at=st)
 
-        ctx = JobContext.from_item(job_path, job_data)
+    def process_claimed(
+        self,
+        proc_path: Path,
+        job_data: dict[str, object],
+        *,
+        started_at: float | None = None,
+    ) -> int:
+        """Process a job this worker has already moved into processing/.
+
+        The daemon tick claims each job itself before starting a thread on
+        this method, so only confirmed claims ever run here. ``started_at``
+        lets ``process_one`` include its claim in the logged duration.
+
+        Returns:
+            1 (the job was handled, finished, or retried)
+        """
+        st = time.time() if started_at is None else started_at
+        ctx = JobContext.from_item(proc_path, job_data)
 
         # A non-object payload can never be handled — terminal failure, no retry.
         raw_payload = job_data.get("payload")
@@ -439,7 +435,8 @@ class DaemonRunner:
     newly claimed jobs and returns immediately without waiting for them to
     finish, so one long-running job never blocks a later tick from claiming
     other work. Live threads are tracked in ``_live_threads`` (keyed by job
-    stem) across ticks and pruned as they finish. ``run_once()`` uses a
+    stem) across ticks and pruned as they finish; an entry exists only for a
+    job this runner claimed itself. ``run_once()`` uses a
     separate, still-blocking path (``_run_once_batch``) because
     ``worker run-once``, the workflow ``worker_queue`` dispatch stage, and
     existing tests depend on it waiting for the batch to complete before
@@ -457,10 +454,10 @@ class DaemonRunner:
     def tick(self) -> int:
         """Start newly claimed jobs without blocking; return count started.
 
-        Never joins the threads it starts. Capacity accounts for jobs
-        already claimed but not yet visible in processing/ (a started
-        thread may not have finished ``start_processing``'s rename yet) by
-        counting live threads alongside the on-disk processing/ jobs. The
+        Never joins the threads it starts. Each job is claimed in this
+        thread before its worker thread starts (see ``_start_batch``).
+        Capacity counts live threads alongside the on-disk processing/
+        jobs, so a finished-but-unpruned thread still holds its slot. The
         stale-job reap skips every job a live local thread still owns, so a
         slow local job is never requeued and run twice.
         """
@@ -487,28 +484,63 @@ class DaemonRunner:
             for stem in [s for s, t in self._live_threads.items() if not t.is_alive()]:
                 del self._live_threads[stem]
 
-    def _process_one_guarded(self, job_path: Path, job_data: dict[str, object]) -> int:
-        """Run ``process_one`` in a worker thread, logging any escaped exception.
+    @staticmethod
+    def _run_guarded(stem: str, target: Callable[[], int]) -> int:
+        """Run a job thread's body, logging any exception it lets escape.
 
-        Shared thread target for both the daemon tick and run_once, so an
-        error raised outside SafeProcessor (bad job metadata, queue I/O)
-        never surfaces as an uncaught thread exception.
-
-        Passes ``stop_event`` so ``process_one`` can requeue the job instead
-        of running it when a shutdown was requested after the claim — see
-        ``process_one`` for the race-closure details.
+        An error raised outside SafeProcessor (bad job metadata, queue I/O)
+        must never surface as an uncaught thread exception.
         """
         try:
-            return self.processor.process_one(job_path, job_data, stop_event=self.stop_event)
+            return target()
         except Exception:  # nosec B110 - thread boundary; logged, counted as processed
-            logger.exception("worker job %s raised outside the handler", job_path.stem)
+            logger.exception("worker job %s raised outside the handler", stem)
             return 1
 
+    def _process_one_guarded(self, job_path: Path, job_data: dict[str, object]) -> int:
+        """run_once thread target: claim and process one pending job."""
+        return self._run_guarded(
+            job_path.stem, lambda: self.processor.process_one(job_path, job_data)
+        )
+
+    def _process_claimed_guarded(self, proc_path: Path, job_data: dict[str, object]) -> int:
+        """Daemon-tick thread target: process a job ``_start_batch`` already claimed."""
+        return self._run_guarded(
+            proc_path.stem, lambda: self.processor.process_claimed(proc_path, job_data)
+        )
+
+    @staticmethod
+    def _claim(job_path: Path) -> Path | None:
+        """Claim a pending job for this runner; None if it cannot be claimed.
+
+        None covers both another worker winning the claim and a claim that
+        raised (logged), so one bad file never stops the daemon loop.
+        """
+        try:
+            return q.start_processing(job_path)
+        except Exception:  # nosec B110 - skip this job; logged, the loop continues
+            logger.exception("worker could not claim job %s", job_path.stem)
+            return None
+
     def _start_batch(self, items: list[tuple[Path, dict[str, object]]]) -> int:
-        """Start one thread per item without joining; register and return count started."""
+        """Claim each item, then start and register a thread per confirmed claim.
+
+        The claim runs here, in the dispatching thread, before any thread is
+        registered. ``_live_threads`` therefore only ever holds jobs this
+        runner has moved into processing/ itself, which is what lets
+        ``drain_live_threads`` requeue its entries without touching a job
+        another worker claimed. Nothing is claimed once a stop is requested.
+        """
         started = 0
         for p, d in items:
-            t = threading.Thread(target=self._process_one_guarded, args=(p, d), daemon=True)
+            if self.stop_event.is_set():
+                break
+            proc_path = self._claim(p)
+            if proc_path is None:
+                continue
+            t = threading.Thread(
+                target=self._process_claimed_guarded, args=(proc_path, d), daemon=True
+            )
             with self._registry_lock:
                 self._live_threads[p.stem] = t
             t.start()
@@ -522,7 +554,7 @@ class DaemonRunner:
         (ours or another worker's, e.g. a concurrent ``worker run-once``)
         and the live local threads. A single read means no interleaving can
         drop a job: a live thread counts until it is pruned whether its file
-        is still in pending/, in processing/, or already gone, and each
+        is still in processing/ or already gone, and each
         external processing/ job counts once. A finished-but-unpruned thread
         over-counts by at most one tick, which is the conservative
         direction. When max_inflight is unbounded (<= 0), live threads are
@@ -617,10 +649,11 @@ class DaemonRunner:
         ``grace``. Each thread still alive at the deadline has its job moved
         from processing/ back to pending/ without consuming an attempt, with
         ``last_error`` set to ``SHUTDOWN_REQUEUE_REASON``. Only jobs owned by
-        this runner's live threads are touched; another worker's processing/
-        jobs are left alone. A job that already left processing/ (it
-        finished during the race) is not recreated. Returns the requeued
-        job stems.
+        this runner's live threads are touched: ``_start_batch`` registers a
+        thread only after this runner's own claim succeeded, so a job another
+        worker won is never in the registry and its processing/ file is left
+        alone. A job that already left processing/ (it finished during the
+        race) is not recreated. Returns the requeued job stems.
 
         Delivery is at-least-once. Threads cannot be killed, so a requeued
         job's thread keeps running until the interpreter exits, and the job

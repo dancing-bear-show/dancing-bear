@@ -6,11 +6,13 @@ Pre-fix behavior (on 112a0223 before each fix is applied):
   The thread runs the job to completion even after a grace=0 shutdown.
 - Thread 2: recover_staged_requeues does not exist (AttributeError/ImportError).
 - Thread 3: nan and +inf pass the ``< 0`` check and reach WorkerConfig.
+- Round 2, claim ownership: a thread was registered before its claim, so a
+  grace=0 drain could requeue another worker's processing/ copy of the job.
 
 Post-fix:
-- Thread 1: process_one checks stop_event immediately after claiming the job;
-  if shutdown is requested it requeues the job and returns without running.
-  This closes the race whether stop_event was set before or after the claim.
+- Threads 1 and round 2: ``_start_batch`` claims each job in the dispatching
+  thread and registers a worker thread only for a confirmed claim; nothing
+  is claimed once a stop is requested.
 - Thread 2: recover_staged_requeues moves *.json.requeue files to pending/.
 - Thread 3: math.isfinite check rejects nan, +inf, and -inf.
 """
@@ -28,10 +30,12 @@ from tests.worker_tests.helpers import QueueRootIsolationMixin
 from tests.worker_tests.test_daemon_nonblocking import (
     _make_runner,
     _patch_queue_root,
+    _wait_for,
 )
 from worker.queue_ops import (
     Job,
     enqueue,
+    start_processing as _real_start,
 )
 
 
@@ -42,25 +46,14 @@ def _read(path: Path) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Thread 1: shutdown/claim race
 #
-# Pre-fix (112a0223): process_one claims the job and then runs the handler,
-# with no check of stop_event between the claim and the run.  When
-# drain_live_threads fires before start_processing (the thread is registered
-# but not yet claiming), requeue_processing finds no file and returns None.
-# The thread then claims and runs the job — stranded in done/ instead of
-# pending/ when the daemon was supposed to shut down.
+# Pre-fix (112a0223): process_one claimed the job inside the worker thread
+# and then ran the handler.  When drain_live_threads fired before that claim,
+# requeue_processing found no file and returned None, and the thread then
+# claimed and ran the job anyway.
 #
-# Post-fix: process_one checks stop_event AFTER start_processing succeeds.
-# If the event is set it requeues the job and returns 0 without running.
-# This closes both windows:
-#   - drain ran before the claim → requeue_processing returned None, but the
-#     worker's post-claim check requeues the job
-#   - drain ran after the claim → requeue_processing already moved the file;
-#     post-claim check's requeue_processing call returns None (no-op)
-#
-# The test makes the race deterministic by pre-setting stop_event before
-# tick() and using a fast (non-blocking) handler.  On 112a0223 the handler
-# runs and the job lands in done/; after the fix the worker short-circuits
-# and the job lands in pending/.
+# Post-fix: tick() claims in the dispatching thread and claims nothing once
+# stop_event is set, so a stop requested before a tick leaves the job
+# untouched in pending/ with its attempts unchanged.
 # ---------------------------------------------------------------------------
 
 
@@ -69,11 +62,7 @@ def _cheap_handler(job_data: dict[str, object]) -> tuple[bool, object]:
 
 
 class TestShutdownClaimRace(unittest.TestCase, QueueRootIsolationMixin):
-    """process_one requeues the job when stop_event is set after the claim.
-
-    Pre-fix (112a0223): no post-claim stop_event check; handler runs.
-    Post-fix: check in process_one; job lands in pending/ instead of done/.
-    """
+    """No job is claimed or run once a stop has been requested."""
 
     def setUp(self) -> None:
         self.setup_queue_root()
@@ -88,35 +77,122 @@ class TestShutdownClaimRace(unittest.TestCase, QueueRootIsolationMixin):
             if t not in self._threads_before:
                 t.join(timeout=5)
 
-    def test_job_requeued_when_stop_event_set_before_tick(self) -> None:
-        """stop_event set before tick() → process_one claims, checks, requeues.
+    def test_job_left_pending_when_stop_event_set_before_tick(self) -> None:
+        """stop_event set before tick(): the job is neither claimed nor run.
 
         Pre-fix (112a0223): no stop-event check; handler runs; job lands in done/.
-        Post-fix: process_one checks stop_event after claiming; job in pending/.
-
-        The race is made deterministic by pre-setting stop_event so the worker
-        always sees it set after claiming, regardless of scheduling.
+        Post-fix: _start_batch claims nothing after a stop; job stays in pending/.
         """
         runner = _make_runner(self.root, max_per_tick=1)
         enqueue(Job(id="race1", type="fast", payload={}, attempts=2), root=self.root)
 
-        # Pre-set stop_event: the thread will see it set immediately after claiming.
         runner.stop_event.set()
 
-        runner.tick()
-        # Wait for the worker thread to finish.
-        thread = runner._live_threads.get("race1")
-        if thread is not None:
-            thread.join(timeout=5)
+        self.assertEqual(runner.tick(), 0)
+        self.assertEqual(runner._live_threads, {})
 
         pending = self.root / "pending" / "race1.json"
-        done = self.root / "done" / "race1.json"
-        # Pre-fix: done exists, pending does not (handler ran to completion).
-        # Post-fix: pending exists, done does not (thread requeued instead of running).
-        self.assertTrue(pending.exists(), "job must be in pending/ after stop-event requeue")
-        self.assertFalse(done.exists(), "job must NOT be in done/ — handler must not have run")
-        data = _read(pending)
-        self.assertEqual(data["attempts"], 2, "attempts must not be incremented by requeue")
+        self.assertTrue(pending.exists(), "job must stay in pending/ after a stop request")
+        self.assertFalse((self.root / "processing" / "race1.json").exists())
+        self.assertFalse((self.root / "done" / "race1.json").exists(), "handler must not have run")
+        self.assertEqual(_read(pending)["attempts"], 2, "attempts must be unchanged")
+
+
+# ---------------------------------------------------------------------------
+# Round 2, thread PRRT_kwDOQr1kjM6lV8Xf: requeue only confirmed claims
+#
+# Pre-fix (fd986138): _start_batch registered a thread before that thread
+# claimed its job.  If another worker won the claim, the local thread was
+# still registered and alive, and a grace=0 drain requeued the other
+# worker's processing/ file back to pending/ — a duplicate execution.
+#
+# Post-fix: the claim happens in the dispatching thread and a thread is
+# registered only once the claim succeeded.
+# ---------------------------------------------------------------------------
+
+
+class _ContestedStart:
+    """start_processing stand-in where another worker wins one job's claim.
+
+    For ``contested_id`` it first claims the file as "another worker" (the
+    real rename), then reports the local claim as lost (None). A claim made
+    from a worker thread stays in flight until ``release`` opens, which keeps
+    that thread alive across the drain exactly as a slow claim would; a claim
+    made from the dispatching (main) thread returns at once.
+    """
+
+    def __init__(self, root: Path, contested_id: str) -> None:
+        self._root = root
+        self._contested_id = contested_id
+        self.other_claimed = threading.Event()
+        self.release = threading.Event()
+        self.other_path: Path | None = None
+
+    def __call__(self, job_path: Path, root: Path | None = None) -> Path | None:
+        if job_path.stem != self._contested_id:
+            return _real_start(job_path, self._root)
+        self.other_path = _real_start(job_path, self._root)
+        self.other_claimed.set()
+        if threading.current_thread() is not threading.main_thread():
+            self.release.wait(timeout=5)
+        return None
+
+
+class TestDrainRequeuesOnlyConfirmedClaims(unittest.TestCase, QueueRootIsolationMixin):
+    def setUp(self) -> None:
+        self.setup_queue_root()
+        self.gate = threading.Event()
+        self.handler_ids: list[str] = []
+
+        def _gated(job_data: dict[str, object]) -> tuple[bool, object]:
+            self.handler_ids.append(str(job_data.get("id")))
+            self.gate.wait(timeout=5)
+            return True, "ok"
+
+        self.contested = _ContestedStart(self.root, "theirs")
+        base = _patch_queue_root(self.root)
+        base.enter_context(patch.dict("worker.job_runtime.HANDLERS", {"slow": _gated}))
+        base.enter_context(patch("worker.job_runtime.q.start_processing", side_effect=self.contested))
+        self.addCleanup(base.close)
+        self._threads_before = set(threading.enumerate())
+        # LIFO: release everything, then join, then drop the patches.
+        self.addCleanup(self._join_new_threads)
+        self.addCleanup(self.contested.release.set)
+        self.addCleanup(self.gate.set)
+
+    def _join_new_threads(self) -> None:
+        for t in threading.enumerate():
+            if t not in self._threads_before:
+                t.join(timeout=10)
+
+    def test_grace_zero_drain_leaves_other_workers_claim_untouched(self) -> None:
+        runner = _make_runner(self.root, max_per_tick=2)
+        enqueue(Job(id="mine", type="slow", payload={}, attempts=1), root=self.root)
+        enqueue(Job(id="theirs", type="slow", payload={}), root=self.root)
+
+        runner.tick()
+        self.assertTrue(self.contested.other_claimed.wait(timeout=5), "contested claim never attempted")
+        other = self.contested.other_path
+        if other is None:
+            self.fail("the other worker's claim did not happen")
+        before = other.read_bytes()
+        self.assertTrue(
+            _wait_for(lambda: self.handler_ids == ["mine"], timeout=5), "claimed job never started"
+        )
+
+        with self.assertLogs("worker.job_runtime", "WARNING"):
+            requeued = runner.drain_live_threads(grace=0)
+
+        self.assertEqual(requeued, ["mine"], "only this runner's claimed job may be requeued")
+        self.assertTrue(other.exists(), "another worker's processing/ file was moved")
+        self.assertEqual(other.read_bytes(), before)
+        self.assertFalse((self.root / "pending" / "theirs.json").exists())
+        mine = _read(self.root / "pending" / "mine.json")
+        self.assertEqual((mine["status"], mine["attempts"]), ("pending", 1))
+        self.contested.release.set()
+        self.gate.set()
+        self._join_new_threads()
+        self.assertEqual(self.handler_ids, ["mine"], "the local handler ran for a lost claim")
 
 
 # ---------------------------------------------------------------------------

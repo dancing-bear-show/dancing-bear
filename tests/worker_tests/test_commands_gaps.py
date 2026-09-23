@@ -429,6 +429,7 @@ class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
         cfg = WorkerConfig(**config_kwargs)
         proc = MagicMock(spec=JobProcessor)
         proc.process_one.return_value = 1
+        proc.process_claimed.return_value = 1
         runner = DaemonRunner(cfg, proc)
         return runner, proc
 
@@ -457,12 +458,11 @@ class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
         # tick() returns before its threads run; join them before asserting.
         _join_live_threads(self, runner)
         self.assertEqual(result, 1)
-        # _process_one_guarded now passes stop_event as a keyword arg so
-        # process_one can requeue the job on shutdown.  Verify positional args
-        # only; stop_event is an implementation detail of the daemon-tick path.
-        call_args = mock_proc.process_one.call_args
-        self.assertEqual(call_args.args, (pending_path, job_data))
-        self.assertIn("stop_event", call_args.kwargs)
+        # tick() claims the job itself, then hands the thread the processing/ path.
+        mock_proc.process_claimed.assert_called_once_with(
+            self.root / "processing" / "tick1.json", job_data
+        )
+        mock_proc.process_one.assert_not_called()
 
     def test_run_once_returns_zero(self):
         from worker.queue_ops import _ensure_dirs
@@ -512,7 +512,7 @@ class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
         # Join before asserting, or a count of 0 (threads not yet run) passes.
         _join_live_threads(self, runner)
         self.assertEqual(result, 2)
-        self.assertEqual(mock_proc.process_one.call_count, 2)
+        self.assertEqual(mock_proc.process_claimed.call_count, 2)
 
 
 def _join_live_threads(test: unittest.TestCase, runner: Any, timeout: float = 5.0) -> None:
