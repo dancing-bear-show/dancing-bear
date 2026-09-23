@@ -137,15 +137,16 @@ stages:
       context for triage and CANNOT be resolved via resolveReviewThread. Mark
       them source accordingly so a downstream stage never tries.
 
-      ALWAYS FILL comments[].database_id, on every surface. For Step 1 it is
-      the GraphQL comment's `databaseId`; for Step 2 (review bodies) it is the
-      REST review's `id`; for Step 3 (issue comments) the REST comment's `id`.
-      For a null-id entry this number is its ONLY stable identity:
+      comments[].database_id is filled on every surface: the GraphQL
+      comment's `databaseId` for review threads, the REST review's `id` for
+      review bodies, and the REST comment's `id` for issue comments. For a
+      null-id entry this number is its ONLY stable identity:
       review-fix-threads looks such entries up by `comments[0].database_id`
-      and halts rather than guessing when it is missing — so an entry left
-      without one stops the whole run at dispatch. Never write null here; if
-      a surface genuinely returned no id, say so in the summary instead of
-      emitting the entry silently without one.
+      and halts rather than guessing when it is missing — so an entry
+      without one would stop the whole run at dispatch. The command never
+      writes a null one: a REST item that arrives without an id fails the
+      fetch (non-zero exit, message on stderr) rather than being emitted
+      silently.
 
       A note that downstream triage depends on: GitHub returns line: null for
       any thread where isOutdated is true, because the anchored line no longer

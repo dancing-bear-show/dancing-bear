@@ -271,6 +271,24 @@ class TestThreadsDoc(unittest.TestCase):
         self.assertEqual(doc["repo"], "o/r")
         self.assertEqual(doc["pr_number"], "3")
 
+    def test_every_rest_entry_carries_its_rest_id_as_database_id(self):
+        doc = build_threads_doc(
+            owner="o", repo="r", pr=1, raw_threads=[],
+            reviews=[_review(0)],
+            issue_comments=[{"id": 77, "user": {"login": "h", "type": "User"}, "body": "hi"}],
+        )
+        ids = {t["source"]: t["comments"][0]["database_id"] for t in doc["threads"]}
+        self.assertEqual(ids, {"review-body": 5000, "issue-comment": 77})
+
+    def test_rest_item_without_id_fails_instead_of_emitting_a_null_identity(self):
+        # review-fix-threads halts at dispatch on a null-id entry with no
+        # database_id, so the fetch must refuse it up front.
+        for reviews, comments in (([{**_review(0), "id": None}], []),
+                                  ([], [{"user": {"login": "h"}, "body": "no id"}])):
+            with self.subTest(reviews=bool(reviews)), self.assertRaisesRegex(GhError, "has no id"):
+                build_threads_doc(owner="o", repo="r", pr=1, raw_threads=[],
+                                  reviews=reviews, issue_comments=comments)
+
     def test_outdated_thread_keeps_null_line(self):
         doc = build_threads_doc(owner="o", repo="r", pr=1, reviews=[], issue_comments=[],
                                 raw_threads=[{"id": "T", "isOutdated": True, "line": None,

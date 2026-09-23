@@ -211,6 +211,11 @@ def _rest_author(item: dict[str, Any]) -> tuple[str, str]:
 
 
 def _rest_entry(item: dict[str, Any], source: str) -> dict[str, Any]:
+    # A REST entry has no thread_id, so its database_id is its only stable
+    # identity: review-fix-threads looks it up by comments[0].database_id and
+    # halts when it is missing. Fail the fetch rather than emit one silently.
+    if item.get("id") is None:
+        raise GhError(f"{source} item has no id; cannot give it a stable identity")
     login, kind = _rest_author(item)
     comment = {
         "author": login,
