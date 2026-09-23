@@ -280,10 +280,15 @@ stages:
          flat and subdir layouts and appends without cross-dedup). Build a dict
          keyed by session_id, keeping the last entry seen, before iterating.
          For each unique session_id, locate its transcript files using BOTH layouts:
+           Expand {projects_dir} before constructing any glob:
+             projects_dir = os.path.expandvars(os.path.expanduser("{projects_dir}"))
+           If the expanded directory does not exist, print an error to stderr and
+           exit non-zero (do NOT silently return an empty result — a missing
+           directory means no transcripts were found and the signal is void).
            Flat layout (post-Apr 2026):
-             Glob: {projects_dir}/**/<session_id>.jsonl
+             Glob: <projects_dir>/**/<session_id>.jsonl
            Subdir layout (pre-Apr 2026):
-             Glob: {projects_dir}/**/<session_id>/subagents/*.jsonl
+             Glob: <projects_dir>/**/<session_id>/subagents/*.jsonl
          Collect ALL matching files across both globs. If the flat glob matches
          multiple files, take the largest (by byte size) from that set.
          Each located .jsonl file is an independent conversation stream — parse
@@ -294,6 +299,15 @@ stages:
          own spans to the union.
 
       2. Parse each .jsonl file line by line. Each line is a JSON record.
+         Malformed-input handling (per line):
+           - Wrap json.loads() in a try/except json.JSONDecodeError; on error,
+             increment a skipped_lines counter and continue to the next line.
+           - After parsing, verify the record is a dict; if not, skip and count.
+           - If record["message"] is not a dict, skip and count.
+           - If record["message"]["content"] is not a list, skip and count.
+         After processing all files, record the total skipped_lines count in the
+         "notes" field of intent-sequences.json (e.g. "skipped_malformed_lines: N").
+         Do NOT abort on a malformed line — continue processing the rest of the file.
          Focus on assistant records (type == "assistant").
          message.content is a LIST; iterate blocks.
          Extract Bash tool_use blocks: block["type"] == "tool_use" and
@@ -304,11 +318,18 @@ stages:
            Desk (no wrapper): r'python3\s+(?:-[^\s]+\s+)*-m\s+desk'
          After capturing the CLI name, apply dispatcher normalisation:
            If the captured name is "assistant", discard "assistant" and take the
-           NEXT token as the app name (e.g. "./bin/assistant resume export" →
-           "resume"); shift subcommand capture by one position accordingly.
+           NEXT shell token as a candidate app name. Accept it ONLY if it matches
+           r'^[a-z][a-z_-]*$' AND appears in the known-app list from
+           ./bin/llm inventory --stdout (run once at script startup and cache the
+           result as a set). If the next token is a flag (starts with '-'), a
+           shell operator (&&, ;, |, ||), or is absent, or is not in the
+           known-app set, DISCARD the entire invocation — do not count it as
+           "assistant" or as anything else. Shift subcommand capture by one
+           position for accepted invocations.
            The "python3 -m desk" special case is unchanged.
-           Use ./bin/llm inventory --stdout for the authoritative invocation list
-           when the correct app name for a binary is in doubt.
+           (e.g. "./bin/assistant resume export" → "resume";
+                "./bin/assistant --help" → discarded;
+                "./bin/assistant && ls"  → discarded.)
          All downstream tallies (cli_usage, top_subcommands, pairs) use the
          normalised app name — "assistant" must never appear as a CLI name in
          any output field.
@@ -332,6 +353,15 @@ stages:
          belong to the current span.) A span runs from its opening user record to
          the next string user record within the SAME file. Never carry a span
          across a file boundary.
+         Define span identity explicitly as the triple
+           (session_id, file_path, opening_line_number)
+         where file_path is the absolute path of the .jsonl file being parsed and
+         opening_line_number is the 0-based index of the user record that opened
+         the span. Carry this triple through all downstream uses: pair counting
+         (step 5), the secondary-source union, and any deduplication — two spans
+         with the same session_id but different file_path are DISTINCT spans and
+         must never be merged. The span set for each pair is therefore a set of
+         these triples, not a set of (session_id, ordinal) pairs.
          Collect all CLIs invoked by assistant tool_use blocks within each span.
 
       5. Within each span, enumerate all unordered pairs of distinct CLIs.
@@ -460,8 +490,11 @@ stages:
           Run: ./bin/<cli> --agentic --agentic-format yaml --agentic-compact
           Parse the YAML output to extract existing subcommand names.
           If the CLI has no agentic schema, fall back to: ./bin/<cli> --help
-          Read the example_prompts for each cluster assigned to this domain
-          (stored in domain-map.json under each domain entry as "example_prompts").
+          Read the domain's example_prompts from domain-map.json:
+            domain-map.json stores example_prompts at the DOMAIN level
+            (domains[].example_prompts) — not per cluster. Clusters under a
+            domain do NOT carry their own example_prompts in domain-map.json;
+            use the domain-level list for gap analysis.
           Determine whether any example_prompt intent is NOT covered by an
           existing subcommand. Heuristic: if the prompt describes an action that
           matches no subcommand name (keyword overlap < 0.3), mark as a gap.
