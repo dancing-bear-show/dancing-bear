@@ -1870,8 +1870,8 @@ stages:
            Apply the same discipline to any path you take from these files
            before passing it to `git ls-files`: confirm it is a
            repo-relative path with no `..` segment and no leading `-`, or
-           report it rather than querying it. The demo's land-and-verify
-           stage carries this exact check for this exact reason.
+           report it rather than querying it. The demo's verify-landed stage
+           carries this exact check for this exact reason.
 
         3. Confirm the commit is actually reachable from HEAD:
              git merge-base --is-ancestor <the validated commit_sha> HEAD
