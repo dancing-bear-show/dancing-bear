@@ -171,6 +171,22 @@ stages:
       not name. The checkout may be shared with other sessions, so files that
       are already dirty now are recorded with their content hash rather than
       blamed on this run. A non-zero exit (git status failed) fails this stage.
+
+      dirty-baseline.json is written into {workspace}/outputs/, which every
+      later fix-threads agent (Bash, Write, access: read-write) can also write
+      to. check-unlisted trusts this file unverified, so a fixer rewriting it
+      after editing an unlisted path would make the gate pass on a lie — the
+      engine's writes_to contract only resolves under {workspace}, so this
+      file cannot be relocated outside the fixer-writable tree from this
+      workflow alone. Close the gap with provenance instead: compute this
+      file's own sha256 right after writing it, and record that hash as
+      "dirty_baseline_sha256" in pr-context.json — a file this init stage owns
+      and no later stage is ever instructed to modify:
+        shasum -a 256 "{workspace}/outputs/dirty-baseline.json"
+      check-unlisted (commit-and-push, Step 3b) must re-hash dirty-baseline.json
+      at verification time and fail closed if it no longer matches the value
+      recorded here, so a baseline rewritten after init wrote it is rejected
+      rather than trusted.
     agent:
       role: researcher
       model: sonnet
@@ -1058,6 +1074,16 @@ stages:
 
       Step 3b — refuse edits the list does not name, BEFORE staging:
         ./bin/workflow check-unlisted "{workspace}/outputs/dirty-baseline.json" "{workspace}/outputs/fix-results.json"
+      Before trusting dirty-baseline.json, check-unlisted must verify it
+      against the "dirty_baseline_sha256" value init recorded in
+      pr-context.json: re-hash the file on disk and fail closed (same as an
+      unreadable baseline) if the hashes differ. dirty-baseline.json lives in
+      {workspace}/outputs/, which every fix-threads agent this run spawned can
+      also write to, so an unverified read lets a fixer rewrite the baseline
+      with post-edit hashes (or drop its own unlisted entry) to make this gate
+      pass on a false baseline. The hash recorded at init, before any fixer
+      ran, is the trusted value; pr-context.json is never a fixer's write
+      target.
       It exits 1 and prints "UNLISTED: <path>" for every path changed since
       init's snapshot that files_changed omits. Such a path would be left
       behind by Step 3's by-name staging — and it never passed through Step
@@ -1086,9 +1112,18 @@ stages:
       Step 4 — commit with a message summarizing the threads addressed (one
       line per thread, from fix-results.json's per-thread summary field), then
       push to the head_branch value read from pr-context.json in Step 2 (never
-      a hardcoded branch name):
+      a hardcoded branch name). Do not type head_branch's value into the
+      command text, even quoted: a quoted expansion stops word-splitting and
+      globbing, but not command substitution performed while the string
+      containing it is itself being constructed, and a valid git ref can
+      contain "$(...)" or backticks. Load it into a shell variable through
+      `jq`, the same pattern this workflow already uses elsewhere for
+      pr-context.json fields, so the raw value only ever flows through a
+      captured command's stdout and is never re-typed as shell source; then
+      pass the variable as a quoted expansion:
+        HEAD_BRANCH=$(jq -r '.head_branch' {workspace}/outputs/pr-context.json)
         git commit -m "<summary derived from fix-results.json>"
-        git push origin <head_branch from pr-context.json>
+        git push origin "$HEAD_BRANCH"
 
       If the push is rejected (e.g. the remote advanced), do not force-push
       and do not rebase. Write commit-result.json with
@@ -1099,9 +1134,11 @@ stages:
 
       Step 5 — verify the push landed, in two parts.
 
-      5a, the remote ref, which is authoritative for the push itself:
+      5a, the remote ref, which is authoritative for the push itself. Reuse
+      the same quoted $HEAD_BRANCH variable from Step 4 rather than
+      substituting head_branch into the command text again:
         git rev-parse HEAD
-        git ls-remote origin refs/heads/<head_branch from pr-context.json>
+        git ls-remote origin "refs/heads/$HEAD_BRANCH"
       The first field of the ls-remote line must equal the local HEAD sha.
       git has already reported the push, so there is nothing to wait for:
       if they differ, fail now (see below).

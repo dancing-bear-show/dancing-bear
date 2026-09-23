@@ -91,6 +91,12 @@ def _resolve_ws(text: str, ws: str) -> str:
     return text.replace(_WORKSPACE_PLACEHOLDER, ws)
 
 
+#: Placeholder the orchestrator fills with a fan-out item's zero-based position
+#: in ``fan_out.field``. Used for the per-item result path instead of the key
+#: value, which is untrusted prior-stage data.
+FAN_OUT_POSITION = "fan_out_index"
+
+
 def _fan_out_key(stage: ResolvedStage) -> str | None:
     """The per-item placeholder name of an agent fan-out stage, else None.
 
@@ -110,6 +116,11 @@ def _fan_out_section(stage: ResolvedStage) -> list[str]:
     item, and the orchestrator substitutes each item's value before spawning
     that item's agent. The note avoids spelling the braced token itself so it
     still reads correctly after that substitution has run over it.
+
+    The key value comes from prior-stage JSON and is unconstrained -- it can
+    contain ``/`` or ``../`` -- so it never reaches a path. The per-item result
+    path built in ``_completion`` carries the separate ``FAN_OUT_POSITION``
+    placeholder, which the orchestrator fills with the item's position.
     """
     fan_out = stage.spec.fan_out
     key = _fan_out_key(stage)
@@ -123,7 +134,12 @@ def _fan_out_section(stage: ResolvedStage) -> list[str]:
             f"item's `{key}`, the orchestrator has substituted YOUR item's value. If "
             f"a brace-wrapped `{key}` placeholder is still visible anywhere above or "
             "below, substitution did not happen: report status \"failed\" and do not "
-            "guess which item is yours."
+            "guess which item is yours.\n\n"
+            "The Completion section's result path is numbered by your item's "
+            f"zero-based position in `{fan_out.field}`, not by its `{key}`: that "
+            "value comes from prior-stage JSON and is not a trusted filename. The "
+            f"orchestrator fills a brace-wrapped `{FAN_OUT_POSITION}` placeholder "
+            "with the position; the same rule applies if it is still visible."
         ),
         "",
     ]
@@ -191,8 +207,10 @@ def _completion(stage: ResolvedStage, ws: str) -> str:
     root = _ISOLATED_ROOT if _is_isolated(stage) else ws
     # A fan-out stage's N agents share this prompt; without a per-item suffix
     # every one of them is told to write the same result file.
-    key = _fan_out_key(stage)
-    suffix = f"-{{{key}}}" if key else ""
+    # The suffix is the item's POSITION, never its key value: the value comes
+    # from prior-stage JSON and may contain "/" or "..", which would carry the
+    # result file out of stages/.
+    suffix = f"-{{{FAN_OUT_POSITION}}}" if _fan_out_key(stage) else ""
     result_path = f"{root}/stages/{stage.index:03d}-{stage.spec.name}{suffix}.json"
     isolated_note = (
         "\n\nYou are running in your OWN git worktree. Write every path above "

@@ -85,8 +85,10 @@ def build_agentic_capsule() -> str:
     )
     lines.append(
         "  - check-unlisted exits 1 printing UNLISTED for every path changed since the "
-        "snapshot-dirty baseline (new, content-changed, or reverted) that fix-results "
-        "files_changed omits; fails closed on unreadable input or a failed git status"
+        "snapshot-dirty baseline (new, content-changed, reverted, or committed since the "
+        "baseline HEAD) that fix-results files_changed omits; fails closed on unreadable "
+        "input, a failed git call, a baseline with no head, or a baseline whose sha256 "
+        "differs from dirty_baseline_sha256 in the sibling pr-context.json"
     )
     return "\n".join(lines)
 

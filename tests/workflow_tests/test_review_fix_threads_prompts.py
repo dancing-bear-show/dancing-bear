@@ -42,7 +42,17 @@ class TestPushVerification(unittest.TestCase):
         self.prompt = _flat(_prompts()["commit-and-push"])
 
     def test_remote_ref_is_checked_directly(self) -> None:
-        self.assertIn("git ls-remote origin refs/heads/", self.prompt)
+        self.assertIn('git ls-remote origin "refs/heads/$HEAD_BRANCH"', self.prompt)
+
+    def test_head_branch_is_not_substituted_into_command_text(self) -> None:
+        # head_branch must be loaded into a shell variable via a controlled
+        # `jq` command substitution, never typed into shell source directly —
+        # a git ref can contain "$(...)" or backticks. See PRRT_kwDOQr1kjM6lOUjx.
+        self.assertIn(
+            "HEAD_BRANCH=$(jq -r '.head_branch' ", self.prompt
+        )
+        self.assertNotIn("git push origin <head_branch", self.prompt)
+        self.assertNotIn("git ls-remote origin refs/heads/<head_branch", self.prompt)
 
     def test_head_ref_oid_comparison_is_retried_and_bounded(self) -> None:
         self.assertIn("retry at most 4 more times", self.prompt)

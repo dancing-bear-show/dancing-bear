@@ -44,6 +44,26 @@ from workflow.param_guard import load_params
 #: option. Do not widen it into a denylist.
 FILE_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}")
 
+#: Allowlist for one ``/``-separated segment of the path half of a
+#: ``tests_added`` id (before ``::``), which fix-aggregate folds into
+#: ``files_changed`` in :func:`_test_file_of` below. files_changed is staged
+#: with commit-and-push's ``git add <file1> <file2> ...`` and
+#: ``./bin/workflow check-paths <file1> <file2> ...`` -- both LLM agent stages
+#: that interpolate the path into shell command text, not a sandboxed argv
+#: array. A fixer/LLM-authored id such as ``tests/$(...)\.py::T::test`` would
+#: otherwise reach that text unchanged. Only plain relative POSIX path
+#: characters are accepted per segment (alphanumeric, ``.``, ``_``, ``-``); no
+#: ``\``, quotes, ``$``, backticks, parens, semicolons, or whitespace. A
+#: leading ``.`` is allowed so dotdirs like ``.claude``/``.github`` still
+#: reach files_changed and get refused downstream by check-paths -- a leading
+#: ``-`` is rejected so a segment can never be read as a flag, and a segment
+#: of exactly ``.`` or ``..`` is rejected separately, below, to block
+#: traversal. A rejected id yields ``None``, the same outcome as a
+#: non-path-shaped id -- commit-and-push's unlisted-edit check (Step 3b) is
+#: what catches a test file that reaches the tree without going through this
+#: path.
+_TEST_PATH_SEGMENT = re.compile(r"(?!-)[A-Za-z0-9._-]+")
+
 DISCRIMINATOR_DATABASE_ID = "database_id"
 DISCRIMINATOR_FINGERPRINT = "fingerprint"
 
@@ -431,13 +451,26 @@ def _union_of(results: tuple[dict[str, Any], ...], field_name: str) -> list[str]
 def _test_file_of(test_id: str) -> str | None:
     """``tests/x/test_y.py::Class::method`` -> ``tests/x/test_y.py``.
 
-    Only a path-shaped id yields a file. A dotted module id
+    Only a path-shaped id yields a file, and only one built from safe
+    characters: every ``/``-separated segment must match
+    ``_TEST_PATH_SEGMENT`` (alphanumeric, ``.``, ``_``, ``-``, no leading
+    ``-``) and not be exactly ``.`` or ``..``, which rejects traversal and
+    every shell metacharacter (``$``, backticks, parens, quotes, ``;``,
+    whitespace, ``\\``) before the value can reach files_changed and the
+    shell command text commit-and-push builds from it. A dotted module id
     (``tests.x.test_y.Class``) cannot be mapped to a path without guessing
     where the module ends, so it yields None; commit-and-push's unlisted-edit
     check is what catches a test file that reaches the tree that way.
     """
     path = test_id.split("::", 1)[0].strip()
-    return path if path.endswith(".py") else None
+    if not path.endswith(".py"):
+        return None
+    segments = path.split("/")
+    if any(segment in (".", "..") for segment in segments):
+        return None
+    if not all(_TEST_PATH_SEGMENT.fullmatch(segment) for segment in segments):
+        return None
+    return path
 
 
 def _files_changed(results: tuple[dict[str, Any], ...]) -> list[str]:

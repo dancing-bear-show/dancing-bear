@@ -678,6 +678,32 @@ class TestAggregateFixResults(_Aggregate):
         ))
         self.assertEqual(self._merged()["files_changed"], ["src/a.py"])
 
+    def test_nested_safe_test_path_is_folded_in(self) -> None:
+        """A multi-segment path built entirely from safe characters still
+        reaches files_changed -- the allowlist must not over-reject."""
+        self._write_for(UNLINKED_A, _result(
+            UNLINKED_A, None, files_changed=["src/a.py"],
+            tests_added=["tests/workflow_tests/sub-dir/test_x.py::T::test_y"],
+        ))
+        self.assertIn("tests/workflow_tests/sub-dir/test_x.py", self._merged()["files_changed"])
+
+    def test_shell_metacharacter_test_ids_are_rejected(self) -> None:
+        """A test id containing shell metacharacters must not reach
+        files_changed: commit-and-push interpolates files_changed into shell
+        command text (``git add <file1> <file2> ...``), not an argv array, so
+        an unrejected ``$(...)`` or backtick would execute on staging."""
+        self._write_for(UNLINKED_A, _result(
+            UNLINKED_A, None, files_changed=["src/a.py"],
+            tests_added=[
+                "tests/$(id).py::T::test",
+                "tests/`id`.py::T::test",
+                "tests/../../etc/passwd.py::T::test",
+                "tests/a b.py::T::test",
+                "tests/te;st.py::T::test",
+            ],
+        ))
+        self.assertEqual(self._merged()["files_changed"], ["src/a.py"])
+
     def test_null_thread_findings_reconcile_on_id(self) -> None:
         """Reconciling on thread_id would look for null.json and lose both."""
         self._write_for(UNLINKED_A, _result(UNLINKED_A, None))

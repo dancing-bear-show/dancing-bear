@@ -428,20 +428,44 @@ class TestFanOutPrompt(unittest.TestCase):
     def test_result_path_is_per_item(self) -> None:
         """Without the suffix every item's agent writes the same result file."""
         prompt = self._render()
-        self.assertIn("/stages/005-fix-{index}.json", prompt)
+        self.assertIn("/stages/005-fix-{fan_out_index}.json", prompt)
         self.assertNotIn("/stages/005-fix.json", prompt)
 
     def test_note_survives_orchestrator_substitution(self) -> None:
-        """After {index} -> 3 the note must not claim a placeholder is left."""
-        rendered = self._render().replace("{index}", "3")
+        """After both substitutions the note must not claim a placeholder is left."""
+        rendered = self._render().replace("{index}", "3").replace("{fan_out_index}", "3")
         self.assertIn("Fix group 3.", rendered)
         self.assertIn("/stages/005-fix-3.json", rendered)
         self.assertNotIn("{index}", rendered)
+        self.assertNotIn("{fan_out_index}", rendered)
+
+    def test_untrusted_key_value_never_reaches_the_result_path(self) -> None:
+        """PR #406 review: the key value is prior-stage JSON and may hold '../'.
+
+        Substituting a hostile value for the key must leave the result path
+        untouched; only the position placeholder numbers it.
+        """
+        from workflow.models import FanOutSpec
+
+        spec = make_stage_spec(
+            name="fix", kind=StageKind.execute, description="Fix {service}.",
+            fan_out=FanOutSpec(source="dispatch", field="items", key="service"),
+        )
+        prompt = build_agent_prompt(make_resolved_stage(spec=spec, index=5), "wf", "/ws")
+        rendered = prompt.replace("{service}", "../../etc").replace("{fan_out_index}", "0")
+        self.assertIn("Fix ../../etc.", rendered)
+        self.assertIn("/ws/stages/005-fix-0.json", rendered)
+        self.assertNotIn("stages/005-fix-../", rendered)
 
     def test_worker_queue_fan_out_gets_no_agent_note(self) -> None:
         prompt = self._render(mode="worker_queue")
         self.assertNotIn("## Fan-out", prompt)
         self.assertIn("/stages/005-fix.json", prompt)
+
+    def test_fan_out_note_explains_position_numbering(self) -> None:
+        prompt = self._render()
+        self.assertIn("not a trusted filename", prompt)
+        self.assertIn("zero-based position in `items`", prompt)
 
     def test_plain_stage_has_no_fan_out_section(self) -> None:
         spec = make_stage_spec(name="plain", kind=StageKind.execute)
