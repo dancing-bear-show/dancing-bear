@@ -113,7 +113,7 @@ Write your result JSON to the path given in your prompt, which is named
   "path": "src/resume/docx_sidebar_sections.py",
   "action": "fixed|rejected|moot|deferred",
   "summary": "one sentence: what you changed, or why you did not",
-  "files_changed": ["src/resume/docx_sidebar_sections.py"],
+  "files_changed": ["src/resume/docx_sidebar_sections.py", "tests/resume_tests/test_x.py"],
   "tests_added": ["tests/resume_tests/test_x.py::test_rejects_bool_width"],
   "happy_path_covered": true,
   "sad_path_covered": true,
@@ -127,6 +127,13 @@ Write your result JSON to the path given in your prompt, which is named
   "error": null
 }
 ```
+
+`files_changed` lists EVERY file you edited or created, test files included,
+as repo-relative paths. `tests_added` holds test ids in `path::Class::method`
+form. Aggregation adds each id's file as a backstop, but a dotted id
+(`tests.x.test_y`) cannot be mapped to a path. The commit stage stages exactly
+the reported files and refuses the whole run if the tree holds an edit that
+no result lists.
 
 Copy `id` and `thread_id` verbatim from your fix-index item, `null` included.
 `id` is how aggregation matches your result back to its finding: the aggregator

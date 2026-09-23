@@ -65,15 +65,15 @@ stages:
     description: >
       Bootstrap the workspace. Use the Bash tool to create the directory
       structure needed by downstream stages:
-        mkdir -p {workspace}/outputs/diffs
-        mkdir -p {workspace}/outputs/findings
-        mkdir -p {workspace}/outputs/fix
-        mkdir -p {workspace}/validation
+        mkdir -p "{workspace}/outputs/diffs"
+        mkdir -p "{workspace}/outputs/findings"
+        mkdir -p "{workspace}/outputs/fix"
+        mkdir -p "{workspace}/validation"
       Exit 0 immediately. All substantive work begins in fetch-pr-context.
 
       If skip_review is "true", also write a sentinel file so Phase 2 stages
       know the swarm output already exists:
-        echo "skip_review=true" > {workspace}/outputs/skip-review.txt
+        echo "skip_review=true" > "{workspace}/outputs/skip-review.txt"
     agent:
       role: researcher
       model: sonnet
@@ -226,11 +226,20 @@ stages:
            Record both even when you made no edits; "fixed": [] with an empty
            branch is a legitimate no-op, and the merge stage distinguishes
            that from edits that were never committed.
+        7. Prove nothing was left behind — a test file you edited but did not
+           name when staging would otherwise ride along on a non-empty branch
+           and never land:
+             Bash tool: git status --porcelain --untracked-files=all -- . ':!outputs' ':!stages' ':!inputs' ':!validation'
+           Your worktree is private, so every path it prints is your own
+           uncommitted edit. Commit it (or revert it if it was not meant to
+           change), re-run, and record the remaining paths — normally none —
+           as "uncommitted_paths".
 
       Write <your-cwd>/outputs/fix/fix-code-results.json:
         {
           "branch": "worktree-agent-...",
           "head_commit": "<sha from git rev-parse HEAD>",
+          "uncommitted_paths": [],
           "fixed": [
             {
               "finding_id": "0",
@@ -309,11 +318,15 @@ stages:
              Bash tool: git rev-parse --abbrev-ref HEAD   -> "branch"
              Bash tool: git rev-parse HEAD                -> "head_commit"
            Record both even when you made no edits.
+        6. Prove nothing was left behind, exactly as fix-code's last step
+           does, and record what remains as "uncommitted_paths":
+             Bash tool: git status --porcelain --untracked-files=all -- . ':!outputs' ':!stages' ':!inputs' ':!validation'
 
       Write <your-cwd>/outputs/fix/fix-tests-results.json:
         {
           "branch": "worktree-agent-...",
           "head_commit": "<sha from git rev-parse HEAD>",
+          "uncommitted_paths": [],
           "fixed": [
             {
               "finding_id": "2",
@@ -397,10 +410,15 @@ stages:
         Record both even when you made no edits — an empty qlty bucket is
         common and is treated as a no-op, not a failure.
 
+      Step 5 — prove nothing was left behind, exactly as fix-code's last step
+        does, and record what remains as "uncommitted_paths":
+          Bash tool: git status --porcelain --untracked-files=all -- . ':!outputs' ':!stages' ':!inputs' ':!validation'
+
       Write <your-cwd>/outputs/fix/fix-sq-results.json:
         {
           "branch": "worktree-agent-...",
           "head_commit": "<sha from git rev-parse HEAD>",
+          "uncommitted_paths": [],
           "fixed": [
             {
               "key": "AY...",
@@ -482,25 +500,141 @@ stages:
            either field, fail this stage for that fixer rather than guessing:
            an unidentifiable branch is not safe to merge.
 
+           The branch name is agent-authored text: the fixer wrote it into
+           its own result file. Never type it into a command — not in
+           `git merge-base`, `git log`, `git merge`, or anywhere else. Git
+           refnames may contain `$(`, backticks and other shell syntax, so a
+           pasted name can execute code or retarget the merge. Every command
+           below that consumes the branch loads it itself with `jq`,
+           validates it with `git check-ref-format --branch`, and passes it
+           only as the quoted argument "refs/heads/$BRANCH" (the full ref,
+           so a leading "-" can never read as an option). Run each such
+           block as ONE Bash tool call: shell variables do not survive
+           between Bash tool calls, so a variable set in one call is empty
+           in the next. PRE_FIX_SHA is this stage's own `git rev-parse`
+           output; confirm it is 40 hex characters before using it.
+
            Verify the branch belongs to this run before merging it:
-             Bash tool: git merge-base --is-ancestor <PRE_FIX_SHA> <branch>
-           A branch that does not descend from PRE_FIX_SHA predates this run.
-           Record it and fail — do not merge it.
+             Bash tool: BRANCH="$(jq -er '.branch' "{workspace}/outputs/fix/<fixer result file>")" &&
+                        git check-ref-format --branch "$BRANCH" >/dev/null &&
+                        git merge-base --is-ancestor <PRE_FIX_SHA> "refs/heads/$BRANCH"
+                        echo "EXIT=$?"
+           A non-zero EXIT means the branch is missing, malformed, or does
+           not descend from PRE_FIX_SHA (it predates this run). Record it
+           under "unidentifiable" and fail — do not merge it.
 
         2. Decide whether there is anything to merge:
-             Bash tool: git log --oneline <PRE_FIX_SHA>..<branch>
+             Bash tool: BRANCH="$(jq -er '.branch' "{workspace}/outputs/fix/<fixer result file>")" &&
+                        git check-ref-format --branch "$BRANCH" >/dev/null &&
+                        git log --oneline <PRE_FIX_SHA>.."refs/heads/$BRANCH"
+                        echo "EXIT=$?"
+           A non-zero EXIT is a failure, not an empty branch.
 
-           An empty branch is a legitimate outcome: a bucket with no findings
-           produces no edits, and the fixer prompts explicitly allow that.
-           Record it as a no-op, skip the merge, and CONTINUE.
+           An empty branch can be a legitimate outcome: a bucket with no
+           findings produces no edits, and the fixer prompts explicitly allow
+           that. It is a no-op ONLY once the worktree check below also comes
+           back clean. Run that check for EVERY fixer, whatever this step
+           found — an empty branch included. A fixer can leave its edits
+           uncommitted, report `fixed: []`, and produce no commits; skipping
+           the check for an empty branch would record that as a no-op and
+           lose the edits silently. When the branch is empty AND the check
+           is clean, record a no-op, skip the merge, and CONTINUE.
 
-           It is a failure only when the fixer's result JSON lists entries
+           It is also a failure when the fixer's result JSON lists entries
            under "fixed" while its branch has no commits — that means edits
            were made and never committed, so they would silently not land.
            Record the discrepancy and fail this stage.
 
-        3. Merge (skip when step 2 found no commits):
-             Bash tool: git merge --no-ff <branch> -m "merge fix stage <name>"
+           Neither an empty nor a non-empty branch is proof that nothing was
+           left behind: a fixer that committed its source edit but not its
+           test file passes the check above. Do NOT trust the fixer's self-reported
+           "uncommitted_paths" for this — it is produced by the same agent
+           whose worktree it describes, and an empty list there is not
+           evidence the check was actually run. Verify independently against
+           the fixer's actual worktree instead:
+             Bash tool: git worktree list --porcelain -z > "{workspace}/validation/worktree-list.txt"
+           Its "branch" field is the full ref (e.g. "refs/heads/<branch>"),
+           not the short name recorded in the fixer's result file. Find the
+           entry whose "branch" equals "refs/heads/<branch>" (not a bare
+           <branch> comparison — that never matches, and a lookup that
+           cannot match turns every fixer into a failed check) and take its
+           "worktree" path. Never type that path into a shell command line yourself, as
+           a bare argument or as an assignment
+           (`WORKTREE_PATH=<worktree_path>`) — either form still pastes
+           untrusted text into shell source, where spaces or shell
+           metacharacters in the path can split the command or inject
+           unintended ones. The same holds for the branch name: it comes
+           from the fixer's result file, which that agent wrote, so do not
+           type it into the command either. Both values reach the shell only
+           as command output — the branch read by `jq` from the fixer's
+           result file (a path this workflow names), the worktree path
+           printed by a second `jq`, which gets the ref through the
+           environment rather than its program text. Do not parse the
+           `-z` listing with `awk -v RS='\0'`: macOS awk stops at the first
+           NUL, sees only the main worktree, and never matches a fixer's. Run the whole block as ONE Bash
+           tool call — shell variables do not survive between calls, so a
+           WORKTREE_PATH set in one call is empty in the next:
+             Bash tool: BRANCH="$(jq -er '.branch' "{workspace}/outputs/fix/<fixer result file>")" &&
+                        git check-ref-format --branch "$BRANCH" >/dev/null || { echo "BAD-BRANCH"; exit 3; }
+                        WORKTREE_PATH="$(REF="refs/heads/$BRANCH" jq -Rrs '
+                          split("\u0000\u0000")[] | split("\u0000")
+                          | select(any(. == "branch " + env.REF))
+                          | map(select(startswith("worktree ")))[0][9:]
+                        ' "{workspace}/validation/worktree-list.txt")"
+                        [ -n "$WORKTREE_PATH" ] || { echo "NO-MATCH"; exit 4; }
+                        git -C "$WORKTREE_PATH" status --porcelain --untracked-files=all -- . ':!outputs' ':!stages' ':!inputs' ':!validation'
+                        echo "EXIT=$?"
+           The empty-path test comes BEFORE git status: `git -C ""` runs
+           against the current directory, which would report the shared
+           tree instead of the fixer's.
+
+           Pass only when the block printed no paths and ended "EXIT=0".
+           Every other outcome fails this fixer, recorded under
+           "uncommitted":
+           - any stdout paths — record the paths this command printed (not
+             the fixer's self-reported list);
+           - a non-zero EXIT with no stdout (worktree unreadable, removed
+             between lookup and status) — detail
+             "git status exited non-zero: <code>". A silent non-zero exit
+             must never read as clean;
+           - BAD-BRANCH — detail "fixer-reported branch missing or invalid";
+           - NO-MATCH — no worktree entry matches "refs/heads/<branch>" —
+             detail "fixer worktree not found; cannot verify". Fail closed.
+             Do NOT fall back to the fixer's "uncommitted_paths": it is
+             written by the agent whose worktree it describes, so an empty
+             list there is not evidence of anything. A fixer that removed
+             its worktree after committing only part of its edits would
+             pass a gate that trusted it.
+
+        3. Merge (skip when step 2 found no commits). Merge the fixer's
+           RECORDED head_commit, and only after confirming the branch tip is
+           still that commit. Checking ancestry from PRE_FIX_SHA is not
+           enough: if anything advanced the branch after the fixer wrote its
+           result, merging the branch ref would import commits the fixer
+           never recorded. head_commit is agent-written too, so it is
+           loaded by `jq` and must be exactly 40 lowercase hex characters
+           before it is used. Run as ONE Bash tool call:
+             Bash tool: F="{workspace}/outputs/fix/<fixer result file>"
+                        BRANCH="$(jq -er '.branch' "$F")" && git check-ref-format --branch "$BRANCH" >/dev/null || { echo "BAD-BRANCH"; exit 3; }
+                        WANT="$(jq -er '.head_commit' "$F")" || { echo "BAD-HEAD-COMMIT"; exit 3; }
+                        case "$WANT" in *[!0-9a-f]*|"") echo "BAD-HEAD-COMMIT"; exit 3;; esac
+                        [ "${#WANT}" -eq 40 ] || { echo "BAD-HEAD-COMMIT"; exit 3; }
+                        TIP="$(git rev-parse --verify -q "refs/heads/$BRANCH^{commit}")" || { echo "NO-TIP"; exit 3; }
+                        [ "$TIP" = "$WANT" ] || { echo "HEAD-MISMATCH $TIP"; exit 4; }
+                        git diff --name-only -z <PRE_FIX_SHA> "$WANT" -- outputs stages inputs validation > "{workspace}/validation/engine-paths.z" || { echo "ENGINE-CHECK-FAILED"; exit 3; }
+                        [ ! -s "{workspace}/validation/engine-paths.z" ] || { echo "ENGINE-PATHS"; exit 4; }
+                        git merge --no-ff "$WANT" -m "merge fix stage <name>"
+                        echo "EXIT=$?"
+           BAD-BRANCH, BAD-HEAD-COMMIT or NO-TIP goes under "unidentifiable"
+           with that token as the detail; HEAD-MISMATCH goes under
+           "unidentifiable" with detail "branch tip <TIP> != recorded
+           head_commit". ENGINE-PATHS or ENGINE-CHECK-FAILED goes under
+           "unidentifiable" too. The worktree check above excludes the engine
+           directories (outputs, stages, inputs, validation) because the
+           fixer writes its result files there, so it cannot see a COMMITTED
+           edit to them. This check covers that, and a branch that commits
+           into them is never merged. Nothing was merged in any of those
+           cases; fail this stage for that fixer.
            On a conflict, abort the merge (`git merge --abort`), record the
            conflicting paths, and fail this stage. Do NOT resolve conflicts
            here — a conflict means two fixers changed the same lines and a
@@ -522,7 +656,9 @@ stages:
           ],
           "uncommitted": [
             {"stage": "fix-tests", "reported_fixed": 3,
-             "detail": "result lists fixes but branch has no commits"}
+             "detail": "result lists fixes but branch has no commits"},
+            {"stage": "fix-code", "paths": ["tests/foo/test_bar.py"],
+             "detail": "git status against fixer worktree shows uncommitted paths; edits would not land"}
           ],
           "unidentifiable": [],
           "conflicts": [],
@@ -530,7 +666,10 @@ stages:
           "all_merged": true
         }
 
-      "no_op" is a normal outcome and does NOT affect "all_merged".
+      "no_op" is a normal outcome and does NOT affect "all_merged". A fixer
+      belongs in "no_op" only when its branch is empty AND its worktree
+      check was clean; an empty branch with a dirty or unverifiable worktree
+      goes in "uncommitted".
 
       Set "all_merged" false only when something was actually lost or unsafe:
       a "wrong_branch" value (checkout is not the PR's head branch, so nothing
@@ -675,7 +814,7 @@ stages:
         the count — the old raw GraphQL approach capped at 100 threads with no
         pagination check:
           ./bin/github threads fetch --pr {pr_number} \
-            --out {workspace}/outputs/fix/threads-for-resolve.json
+            --out "{workspace}/outputs/fix/threads-for-resolve.json"
 
         If it exits non-zero, STOP: do not build resolve-plan.json from the
         file. A count mismatch still writes it (with `truncated: true`) for
