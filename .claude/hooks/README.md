@@ -171,11 +171,24 @@ drifted in exactly the same way inside the same function: `templates/` and
 `signatures_assets/` were tracked and unguarded. An explicit list survives only as a
 floor for the case where `REPO_ROOT` cannot be resolved.
 
-**Generated-output roots stay writable** — `out/`, `_out/`, `backups/`, and the usual
-vendored/cache directories. Existence alone is the wrong test: `out/` sits at the repo
-root, is gitignored, and is where artifacts belong, so a bare "is a top-level
-directory" rule refused `out/report.json` — the very thing a read-only role exists to
-produce.
+**The repository root itself is guarded**, which needed stating separately: the
+prefix test requires a trailing `<repo>/`, so a path *equal to* the root took the
+"outside this repo" branch and was allowed. The guard refused `rm -rf src` while
+permitting `rm -rf <the whole checkout>` — one character of prefix away from the rule
+covering everything beneath it.
+
+**Generated-output and workspace roots stay writable** — `out/`, `_out/`, `backups/`,
+the usual vendored/cache directories, and the workflow workspace roots `stages/`,
+`outputs/`, `validation/`, `dispatch/`, `analysis/`, `context/`, `design/`.
+
+Existence alone is the wrong test, and that bit twice. `out/` sits at the repo root,
+is gitignored, and is where artifacts belong, so a bare "is a top-level directory"
+rule refused `out/report.json`. Worse, the workflow runner *creates* `stages/`,
+`outputs/` and `validation/` (`persistence.py` `_SUBDIRS`) before a stage writes — so
+each flipped from allowed to blocked the moment it existed, rejecting the stage's
+required artifact. The suite's ALLOW case had passed only because the directory
+happened to be absent when it ran; the cases now create the directories first, which
+is the difference between a test and a coincidence.
 
 The root-file rule is derived, not enumerated: a slashless repo-relative token that
 names an existing file at the root is guarded. An earlier hand-maintained list held 11

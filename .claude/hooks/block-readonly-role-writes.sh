@@ -310,12 +310,29 @@ classify_path() {
 
   case "$p" in
     /*)
+      # The repo root ITSELF, before the prefix strip. The strip requires a trailing
+      # `REPO_ROOT/`, so a path exactly equal to the root fell through to the "outside
+      # this repo" branch and was ALLOWED -- meaning the guard refused `rm -rf src`
+      # and permitted `rm -rf <the whole checkout>`. The most severe bypass found on
+      # this branch, and it was one character of prefix away from the rule that
+      # catches everything beneath it.
+      if [ -n "$REPO_ROOT" ] && { [ "$p" = "$REPO_ROOT" ] || [ "$p" = "$REPO_ROOT/" ]; }; then
+        printf 'guarded:the repository root itself (%s)' "$REPO_ROOT"
+        return
+      fi
       if [ -n "$REPO_ROOT" ] && [ "${p#"$REPO_ROOT"/}" != "$p" ]; then
         rel="${p#"$REPO_ROOT"/}"
         # The repo-relative remainder can itself begin `./` once the prefix comes off.
         while [ "${rel#./}" != "$rel" ]; do
           rel="${rel#./}"
         done
+        # A remainder that is now empty means the path WAS the root, reached via a
+        # spelling the equality test above did not catch (`<repo>/.`, `<repo>//`).
+        # Those collapse to "" here rather than to the root string.
+        if [ -z "$rel" ]; then
+          printf 'guarded:the repository root itself (%s)' "$REPO_ROOT"
+          return
+        fi
       else
         # An absolute path outside this repo is not this repo's tracked source. The
         # scratchpad and /tmp artifacts land here, which is the intended allow.
@@ -345,12 +362,31 @@ classify_path() {
   # The exclusion matters and the first version omitted it: `out/` exists at the root,
   # is gitignored, and is where generated artifacts go, so "directory exists" alone
   # blocked `out/report.json` -- refusing the very thing a read-only role is supposed
-  # to produce. Existence is the wrong test on its own; these are the repo's declared
-  # generated-output roots (.gitignore, CLAUDE.md "Ignore During Scanning").
+  # to produce.
+  #
+  # EXISTENCE IS THE WRONG TEST, and the exclusion list is why this kept failing.
+  # A workflow workspace holds stages/, outputs/, validation/ (persistence.py
+  # _SUBDIRS) plus dispatch/, analysis/, context/ and whatever a workflow names in
+  # writes_to. The runner CREATES those before a stage writes, so each one flipped
+  # from allowed to blocked the moment it existed -- rejecting the stage's required
+  # artifact. The suite's ALLOW case passed only because the directory happened to be
+  # absent when it ran, which is a false pass rather than evidence.
+  #
+  # So the real question is "is this TRACKED content?", not "does it exist?". Asked
+  # cheaply and without forking git: a directory the repo tracks has an entry in the
+  # index, and every artifact root here is gitignored or untracked. `git check-ignore`
+  # would fork per call; instead we treat a directory as tracked only when it is NOT
+  # one of the known artifact/generated roots AND it exists. The list below is
+  # therefore load-bearing and is kept in sync with persistence.py _SUBDIRS.
   local first="${bare%%/*}"
   case "$first" in
+    # Generated / vendored roots (.gitignore, CLAUDE.md "Ignore During Scanning").
     out|_out|backups|.venv|.cache|.git|node_modules|__pycache__|.pytest_cache)
-      first="" ;;   # generated or vendored: not tracked content, fall through
+      first="" ;;
+    # Workflow workspace roots. stages/outputs/validation are persistence.py
+    # _SUBDIRS; the rest are conventional writes_to destinations in this tree.
+    stages|outputs|validation|dispatch|analysis|context|design|artifacts|workspace)
+      first="" ;;
   esac
   if [ -n "$REPO_ROOT" ] && [ -n "$first" ] && [ -d "$REPO_ROOT/$first" ]; then
     if [ "$bare" = "$first" ]; then

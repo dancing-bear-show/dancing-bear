@@ -499,6 +499,45 @@ run_bash ALLOW researcher "sed -E 's/a/b/' src/mail/cli.py"
 run_bash ALLOW researcher "sed --expression='s/a/b/' src/mail/cli.py"
 
 echo
+echo "--- the repository root ITSELF: must BLOCK ---"
+# The prefix strip requires a trailing `REPO_ROOT/`, so a path equal to the root
+# fell through to the "outside this repo" branch and was ALLOWED: the guard refused
+# `rm -rf src` while permitting `rm -rf <the whole checkout>`. One character of
+# prefix away from the rule that catches everything beneath it.
+run BLOCK researcher "$REPO_ROOT"
+run BLOCK researcher "$REPO_ROOT/"
+run_bash BLOCK researcher "rm -rf $REPO_ROOT"
+run_bash BLOCK researcher "rm -rf $REPO_ROOT/"
+run_bash BLOCK researcher "mv $REPO_ROOT /tmp/gone"
+run_bash BLOCK Plan "rm -rf $REPO_ROOT"
+# Spellings that collapse to the root rather than equalling it.
+run BLOCK researcher "$REPO_ROOT/."
+run BLOCK researcher "$REPO_ROOT//"
+
+echo
+echo "--- workflow artifact roots stay writable EVEN WHEN THEY EXIST ---"
+# This is the half the previous suite got wrong. The runner creates stages/,
+# outputs/ and validation/ (persistence.py _SUBDIRS) before a stage writes, so each
+# flipped from allowed to blocked the moment it existed -- rejecting the stage's
+# required artifact. The old ALLOW case passed only because the directory happened
+# to be absent, which is a false pass rather than evidence. So: create them first.
+_wsdirs=""
+for d in outputs validation stages dispatch analysis context; do
+  if [ ! -d "$REPO_ROOT/$d" ]; then
+    mkdir -p "$REPO_ROOT/$d"
+    _wsdirs="$_wsdirs $d"
+  fi
+done
+for d in outputs validation stages dispatch analysis context; do
+  run ALLOW researcher "$d/report.json"
+  run ALLOW researcher "$d/nested/deeper.json"
+done
+run_bash ALLOW researcher "echo '{}' > outputs/summary.json"
+run ALLOW Plan "design/plan.md"
+# Remove only the directories this suite created, so a real workspace is untouched.
+for d in $_wsdirs; do rmdir "$REPO_ROOT/$d" 2>/dev/null; done
+
+echo
 echo "--- KNOWN GAPS: documented, not fixed (see the SCOPE note in the hook) ---"
 # These are ALLOWed by design. A string matcher cannot evaluate what the shell will do
 # to the string, and block-destructive-bash.sh's header records four adversarial rounds
