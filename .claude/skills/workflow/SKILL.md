@@ -437,7 +437,7 @@ Monitor(
     command=f"""
 until ls {workspace}/stages/{index:03d}-{stage_name}.json 2>/dev/null \
    && ls {workspace}/{writes_to_file} 2>/dev/null; do sleep 5; done
-python3 -c "
+python3 -I -S -c "
 import json
 s = json.load(open('{workspace}/stages/{index:03d}-{stage_name}.json'))
 print(f'{stage_name}: {{s[\"status\"]}}')
@@ -461,7 +461,7 @@ if result["status"] in ("success", "failed"):
 
 ```bash
 # Stage result must exist and show success:
-python3 -c "import json; s=json.load(open('{workspace}/stages/{N:03d}-{stage}.json')); assert s['status']=='success', s"
+python3 -I -S -c "import json; s=json.load(open('{workspace}/stages/{N:03d}-{stage}.json')); assert s['status']=='success', s"
 # Every writes_to output must exist:
 for file in {group_writes_to}; do
     ls {workspace}/${file} || echo "MISSING: ${file}"
@@ -869,11 +869,11 @@ If a stage has `fan_out` defined, check `fan_out.mode`:
 ### mode: worker_queue
 
 Headless, CLI-only fan-out — no agents spawned. The Python dispatcher
-(`workflow/dispatchers.py`'s `WorkerQueueDispatcher`) enqueues one
+(`src/workflow/dispatchers.py`'s `WorkerQueueDispatcher`) enqueues one
 `Job(type="workflow_stage")` per fan-out item via `worker.queue.enqueue`,
 substituting `{key}` into `fan_out.script`. Each job returns `pending`
 immediately; a worker (`./bin/worker run-once` or the daemon) processes it
-asynchronously via `worker/handlers.py`'s `handle_workflow_stage`. Same
+asynchronously via `src/worker/handlers.py`'s `handle_workflow_stage`. Same
 applies to a single stage with `executor: worker_queue` (no `fan_out`
 needed). See `workflows/demo/worker-queue-stage.yaml` and
 `workflows/demo/worker-queue-fanout.yaml` for runnable examples.

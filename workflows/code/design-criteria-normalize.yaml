@@ -259,7 +259,7 @@ stages:
         - Preserve every existing public function/class name unless the
           plan explicitly lists a rename (C10 gaps only).
         - After each SafeProcessor/BaseProducer conversion (C2), re-run a
-          quick smoke check: python3 -c "import <module_path>" 2>&1.
+          quick smoke check: PYTHONPATH="$PWD/src" python3 -c "import <module_path>" 2>&1.
         - Follow core/pipeline.py's SafeProcessor/BaseProducer template
           exactly as documented in .llm/PATTERNS.md "SafeProcessor Pattern".
         - Do not touch this domain's test files in this stage — tests are
@@ -326,7 +326,7 @@ stages:
             (FakeGmailClient/FakeOutlookClient) rather than live calls.
 
       Run the domain's test suite after writing tests:
-        python3 -m unittest discover -s <test_dir> -t . -p "test_*.py" -q 2>&1
+        PYTHONPATH="$PWD/src" python3 -m unittest discover -s <test_dir> -t . -p "test_*.py" -q 2>&1
       Fix failures up to 2 cycles. If still failing, document the blocker —
       do not abort other domains.
 
@@ -553,7 +553,7 @@ stages:
       Read all {workspace}/outputs/*-tests.md to enumerate touched domains.
 
       Run the full suite to catch cross-domain regressions:
-        set -o pipefail && python3 -m unittest discover -q 2>&1 | tail -20
+        set -o pipefail && PYTHONPATH="$PWD/src" python3 -m unittest discover -q 2>&1 | tail -20
         (pipefail is required here — without it, a failing test suite's
         non-zero exit is masked by tail's own exit 0, and this stage would
         report PASS on a broken suite.)
@@ -570,7 +570,7 @@ stages:
     validation:
       strategy: unit
       criteria:
-        - python3 -m unittest discover exits 0 (full suite)
+        - PYTHONPATH="$PWD/src" python3 -m unittest discover exits 0 (full suite)
         - Every touched domain shows PASS or a documented blocker
       max_revisions: 1
     required: true
@@ -620,7 +620,7 @@ stages:
 
       Run:
         ~/.qlty/bin/qlty check <space-separated list of modified files>
-        python3 -m unittest discover -q 2>&1
+        PYTHONPATH="$PWD/src" python3 -m unittest discover -q 2>&1
 
       If qlty reports critical issues: ~/.qlty/bin/qlty check --fix <file>,
       then re-check.
@@ -642,7 +642,7 @@ stages:
       strategy: unit
       criteria:
         - qlty check exits 0 on all modified files
-        - python3 -m unittest discover exits 0
+        - PYTHONPATH="$PWD/src" python3 -m unittest discover exits 0
       max_revisions: 1
     required: true
     writes_to:

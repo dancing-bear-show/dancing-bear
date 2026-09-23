@@ -77,5 +77,5 @@ You should know:
 - How to run CLIs (`./bin/<assistant> <subcommand> <flags>`)
 - Visualization + orchestration tooling (`charts`, `diagrams`, `workflow`)
 - Where to find patterns (`.llm/PATTERNS.md`)
-- Paths to skip (`.venv/`, `.git/`, `.cache/`, `maker/`, `_disasm/`, `out/`, `_out/`, `backups/`)
+- Paths to skip (`.venv/`, `.git/`, `.cache/`, `src/maker/`, `_disasm/`, `out/`, `_out/`, `backups/`)
 - Available skills (`/familiarize`, `/dancing-bear-rules`, etc.)

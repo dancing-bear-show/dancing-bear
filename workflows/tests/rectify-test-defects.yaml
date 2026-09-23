@@ -668,7 +668,7 @@ stages:
       Summarize what actually changed, for the commit/PR decision.
 
       Read validation.md and every outputs/fixed/*.json, and write
-      {workspace}/outputs/report.md:
+      {workspace}/outputs/run-report.md:
         - Files touched, methods rewritten, methods added, per class.
         - Every class A rewrite: old assertion -> new assertion, with its
           teeth-proof failure message. This is the section a reviewer reads
@@ -686,4 +686,4 @@ stages:
       access: read-write
     required: true
     writes_to:
-      - outputs/report.md
+      - outputs/run-report.md

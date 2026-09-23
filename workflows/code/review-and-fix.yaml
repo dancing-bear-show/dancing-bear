@@ -45,9 +45,9 @@ trigger:
     # this workflow to the single consolidated reviewer.
     pr_size: "large"
     pr_number: ""          # PR number (required; auto-detected from branch if blank)
-    test_cmd: ""           # e.g. "pytest tests/grafana/ -x -q"
-    source_root: ""        # e.g. "grafana/"
-    test_path: ""          # e.g. "tests/grafana/"
+    test_cmd: ""           # e.g. 'PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/mail_tests -t . -f -q'
+    source_root: ""        # e.g. "src/mail/"
+    test_path: ""          # e.g. "tests/mail_tests/"
     min_coverage: "80"     # coverage threshold (percent, no % sign)
     auth_domains: "github"
     skip_review: "false"   # set "true" to bypass Phase 1 if review already ran
@@ -211,7 +211,7 @@ stages:
            introduce scope creep.
         5. If item["finding_id"] maps to a test file in inputs/outputs/changed-files.txt,
            run the test suite. Pin PYTHONPATH to THIS worktree — a bare
-           `python3 -m unittest` can resolve imports from an inherited
+           unittest run can resolve imports from an inherited
            main-checkout PYTHONPATH and pass without ever executing your code:
              Bash tool: PYTHONPATH="$PWD/src" {test_cmd}
            Confirm the `Ran N tests` line; an exit code alone is not evidence
@@ -305,7 +305,7 @@ stages:
            is missing entirely. Use the Edit tool for modifications; use the
            Write tool only when creating a new test file.
         4. After each edit, run the test to confirm it is green. Pin PYTHONPATH
-           to THIS worktree — a bare `python3 -m unittest` can resolve imports
+           to THIS worktree — a bare unittest run can resolve imports
            from an inherited main-checkout PYTHONPATH and pass against code you
            did not change, which is indistinguishable from a real pass:
              Bash tool: PYTHONPATH="$PWD/src" python3 -m unittest <item["file"]> -f -q

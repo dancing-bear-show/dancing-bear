@@ -378,7 +378,7 @@ stages:
     description: >
       Use the doc-writer role to merge findings from {workspace}/outputs/signals.json
       and {workspace}/outputs/config.json into a unified report at
-      {workspace}/outputs/report.md.
+      {workspace}/outputs/run-report.md.
     agent:
       role: doc-writer
     depends_on:
@@ -387,7 +387,9 @@ stages:
     reads_from:
       - gather-signals
       - gather-config
-    writes_to: [report.md]
+    # Not `report.md`: the harness refuses a subagent Write of a file named exactly
+    # report.md, summary.md or findings.md. `workflow lint` flags those names.
+    writes_to: [run-report.md]
 ```
 
 ### 4. Fan-out (gather list → fan-out execute per item → aggregate validate)
@@ -430,13 +432,13 @@ stages:
     description: >
       Use the reviewer role to read all per-group result files from
       {workspace}/outputs/ and write a consolidated summary to
-      {workspace}/outputs/summary.md.
+      {workspace}/outputs/run-summary.md.
     agent:
       role: reviewer
     depends_on:
       - process-group
     reads_from: [process-group]
-    writes_to: [summary.md]
+    writes_to: [run-summary.md]
     validation:
       strategy: cross_unit
       criteria:

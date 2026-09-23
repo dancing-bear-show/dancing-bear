@@ -114,18 +114,24 @@ fi
 # Create any directory a group needs, remembering only what we made so a real
 # workspace is left alone. Round 7's bug hid behind an absent directory: the ALLOW
 # case passed because `outputs/` did not exist, not because the guard was right.
-MADE_DIRS=""
+#
+# All three lists are ARRAYS, expanded quoted. They were space-joined strings, which
+# split a checkout path containing a space (`/tmp/my repo/analysis`) into pieces that
+# matched nothing, and whose splitting depended on whatever IFS was in scope when the
+# EXIT trap fired -- ensure_dirs' `local IFS='|'` included, which made every exit
+# taken inside setup remove nothing at all.
+MADE_DIRS=()
 # Symlinks are tracked too, and removed on exit. The round-14 rows link REPO-ROOT names
 # (analysis, context, stages, ...) at src/, so leaving them behind would litter the
 # working tree with links into source that a later `git status` reports as untracked.
-MADE_LINKS=""
+MADE_LINKS=()
 # ...and so is every directory `mkdir -p` creates to hold one. The link is removed on
 # exit, but its parent (`analysis/` for `analysis/srclink`) was never recorded, so each
 # run left eight empty directories (analysis/, out/, stages/, ...) at the repo root.
 # `git status` cannot see an empty directory; mid-run each held a `srclink` that a
 # concurrent changed-files scan picked up and handed to qlty, which then failed on a
 # path that no longer existed.
-MADE_LINK_PARENTS=""
+MADE_LINK_PARENTS=()
 ensure_dirs() {
   local spec="$1" csv="$spec" linkspec="" d pair
   # The flattener appends "#LINKS#a>b|c>d" when a group needs symlinks.
@@ -150,7 +156,7 @@ ensure_dirs() {
           echo "Aborting rather than running rows against an absent directory." >&2
           exit 1
         fi
-        MADE_DIRS="$MADE_DIRS $d"
+        MADE_DIRS+=("$d")
       fi
     done
   fi
@@ -160,11 +166,21 @@ ensure_dirs() {
     for pair in $linkspec; do
       [ -n "$pair" ] || continue
       local link="${pair%%>*}" target="${pair#*>}"
-      # `ln -sfn` over an existing REAL directory creates the link INSIDE it rather
-      # than replacing it, so the case would then exercise a path that does not exist
-      # and pass for the wrong reason. Anything already at the name that is not our
-      # own symlink is a setup failure.
-      if [ -e "$link" ] && [ ! -L "$link" ]; then
+      # Something already at the name is never ours to replace or remove. A real file
+      # or directory: `ln -sfn` over a directory creates the link INSIDE it, so the
+      # rows would test a path that does not exist and pass for the wrong reason. A
+      # symlink pointing elsewhere: replacing it would destroy someone else's link,
+      # and recording it would let cleanup delete it. Only an identical link -- a
+      # previous run's leftover -- is reused, and it is left exactly as found.
+      if [ -L "$link" ]; then
+        if [ "$(readlink "$link")" = "$target" ]; then
+          continue
+        fi
+        echo "FATAL: '$link' is a symlink to '$(readlink "$link")', not '$target'." >&2
+        echo "Refusing to replace a link this run did not create." >&2
+        exit 1
+      fi
+      if [ -e "$link" ]; then
         echo "FATAL: '$link' already exists and is not a symlink." >&2
         echo "Refusing to run link rows against it." >&2
         exit 1
@@ -172,37 +188,49 @@ ensure_dirs() {
       # Record only ancestors that do not exist yet, so a real workspace is left
       # alone. Walked deepest first, and PREPENDED to the running list, so cleanup
       # removes a later link's directories before an earlier link's shared ancestor.
-      local parent missing=""
+      local parent
+      local -a missing=()
       parent=$(dirname "$link")
       while [ ! -e "$parent" ] && [ ! -L "$parent" ]; do
-        missing="$missing $parent"
+        missing+=("$parent")
         parent=$(dirname "$parent")
       done
+      # Record BEFORE creating, never after: a mkdir that creates `analysis/` then
+      # fails, or a signal between creation and bookkeeping, would otherwise leave
+      # an untracked directory or link. Cleanup tolerates entries never created --
+      # rmdir of a missing directory fails quietly, and a link is removed only if
+      # [ -L ] -- so over-recording is harmless and under-recording leaks. Safe for
+      # the link itself only because the checks above proved nothing was there.
+      MADE_LINK_PARENTS=(${missing[@]+"${missing[@]}"} ${MADE_LINK_PARENTS[@]+"${MADE_LINK_PARENTS[@]}"})
+      MADE_LINKS+=("$link")
       if ! mkdir -p "$(dirname "$link")"; then
         echo "FATAL: could not create the parent directory for link '$link'." >&2
         exit 1
       fi
-      MADE_LINK_PARENTS="$missing $MADE_LINK_PARENTS"
-      if ! ln -sfn "$target" "$link"; then
+      if ! ln -s "$target" "$link"; then
         echo "FATAL: could not create the symlink '$link' -> '$target'." >&2
         echo "Aborting rather than running link rows against a missing link." >&2
         exit 1
       fi
-      MADE_LINKS="$MADE_LINKS $link"
     done
   fi
 }
 cleanup_dirs() {
+  # Quoted array expansion: immune to the IFS in scope when this trap fires (see
+  # the note on the lists above) and to spaces in the checkout path.
   local d l
   # Links first: one may sit inside a directory we also have to remove.
-  for l in $MADE_LINKS; do [ -L "$l" ] && rm -f "$l"; done
+  for l in ${MADE_LINKS[@]+"${MADE_LINKS[@]}"}; do [ -L "$l" ] && rm -f "$l"; done
   # rmdir, not rm -rf: it removes only an EMPTY directory, so anything a case wrote
   # into one survives to be noticed rather than being deleted with it.
-  for d in $MADE_LINK_PARENTS; do rmdir "$d" 2>/dev/null; done
-  for d in $MADE_DIRS; do rmdir "$REPO_ROOT/$d" 2>/dev/null; done
+  for d in ${MADE_LINK_PARENTS[@]+"${MADE_LINK_PARENTS[@]}"}; do rmdir "$d" 2>/dev/null; done
+  for d in ${MADE_DIRS[@]+"${MADE_DIRS[@]}"}; do rmdir "$REPO_ROOT/$d" 2>/dev/null; done
   cleanup_scratch
 }
 trap cleanup_dirs EXIT
+# A signal must become an exit, or the EXIT trap may not run: measured, a SIGHUP
+# mid-run left srclink symlinks and five empty directories at the repo root.
+trap 'exit 1' INT TERM HUP
 
 run_case() { # run_case <tool> <role> <cwd> <input> <expect> <label>
   local tool="$1" role="$2" cwd="$3" input="$4" expect="$5" label="$6" payload rc

@@ -293,7 +293,7 @@ stages:
       type == "new_domain":
         Plan the package layout:
           src/<domain>/__init__.py, cli.py (CLIApp subclass), and a data-access
-          module if applicable; bin/<domain> (thin wrapper); tests/<domain>/.
+          module if applicable; bin/<domain> (thin wrapper); tests/<domain>_tests/.
         Read src/core/cli_framework.py to get the real CLIApp contract, and read
         one existing small domain's cli.py as a reference implementation.
         If the domain writes output files it MUST use
@@ -795,7 +795,7 @@ stages:
       strategy: unit
       criteria:
         - "Upstream criticals were actually resolved: read validation/integration-findings.json and outputs/fixes-applied.json. Every finding whose status is fail/FAIL (compare case-insensitively; a failing finding with no severity counts as critical) must appear in fixes-applied.json \"fixed\". Any critical left in \"unfixed\", or absent from both, is itself a critical finding — do not report a passing verification over known-broken code"
-        - "`make test` exits 0 — run it, never a bare `python3 -m unittest`, which resolves imports to the main checkout in a worktree and produces a false green"
+        - "`make test` exits 0 — run it, never a bare unittest run, which resolves imports to the main checkout in a worktree and produces a false green"
         - "Every test named in tests-manifest.json test_names actually ran — confirm by name in the `make test` output, since a test file that is never collected reports as passing"
         - "`make lint` exits 0 — use it, never a bare `ruff check` (there is no standalone ruff on PATH)"
         - "If the run_qlty param is \"true\" (its default), also run `~/.qlty/bin/qlty check <changed files>` TWICE, naming the changed files explicitly, and confirm the union of both runs is clean. `make lint` covers ruff only, whereas CI gates on qlty, which additionally runs bandit and radarlint — passing verify on ruff alone can still fail CI. qlty scans correctly from inside .claude/worktrees/ (the exclusion was narrowed to `**/.claude/worktrees/**` on 2026-08-27), so run it where you are. Run it twice because its per-run finding cap is nondeterministic, and name the paths because with none it scans only what it considers changed and prints \"No issues\" either way. If qlty cannot be run at all, report this criterion as status \"fail\" with severity \"minor\" and say so plainly — never record an unrun scan as passing. If run_qlty is \"false\", record it as skipped, not passed"

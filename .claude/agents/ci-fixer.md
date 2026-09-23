@@ -28,7 +28,7 @@ make cov
 ```
 
 Two silent-pass traps — both look identical to a green run:
-- Bare `python3 -m unittest` / `coverage run` in a worktree resolves imports to the
+- A bare unittest / `coverage run` in a worktree resolves imports to the
   **main checkout** via an inherited PYTHONPATH, so tests pass against unmodified code.
 - `qlty check` with no path argument scans only the files it considers
   changed and prints "✔ No issues" either way. Name the paths explicitly, run

@@ -665,7 +665,7 @@ stages:
       that is not weekly-with-byday, so it cannot on its own establish the
       round trip. Use fakes; do not touch a live calendar or mailbox.
 
-      Run the suite with `make test`. NEVER run bare `python3 -m unittest` — in a
+      Run the suite with `make test`. NEVER run a bare unittest — in a
       worktree an inherited PYTHONPATH silently resolves imports to the main
       checkout and produces a false green indistinguishable from a real one.
       Skip only if run_tests={run_tests} is "false".
@@ -683,7 +683,7 @@ stages:
       self-reported. Run this and paste its output into your summary; a non-zero
       exit means the round trip did NOT pass, regardless of what you wrote in
       the file:
-        python3 -c "import json,sys; d=json.load(open(sys.argv[1])); e=d.get('events_expected'); g=d.get('events_exported'); ok=isinstance(e,int) and isinstance(g,int) and e==g and bool(d.get('round_trip_passed')); print('ROUND_TRIP_VERDICT:', 'PASS' if ok else 'FAIL', '| expected=', e, '| exported=', g); sys.exit(0 if ok else 1)" {workspace}/outputs/integration.json
+        python3 -I -S -c "import json,sys; d=json.load(open(sys.argv[1])); e=d.get('events_expected'); g=d.get('events_exported'); ok=isinstance(e,int) and isinstance(g,int) and e==g and bool(d.get('round_trip_passed')); print('ROUND_TRIP_VERDICT:', 'PASS' if ok else 'FAIL', '| expected=', e, '| exported=', g); sys.exit(0 if ok else 1)" {workspace}/outputs/integration.json
       The engine's has_key check only verifies a key EXISTS — it cannot catch
       round_trip_passed: false. This command is the actual gate. Running it
       before integration.json exists would fail on a missing file rather than
@@ -806,7 +806,7 @@ stages:
          **/.claude/worktrees/**. Pass --all: the default is
          changed-files-only and prints "No issues" on a clean branch either way.
 
-      2. Tests: `make test` (never bare python3 -m unittest — see G3).
+      2. Tests: `make test` (never a bare unittest run — see G3).
 
       3. Agentic schema: the project requires --agentic output to never drift
          from the real CLI. Run:
@@ -840,7 +840,7 @@ stages:
         - "SCOPE: you are recording findings, not fixing. Fix ONLY trivially mechanical issues (import order, formatting). Do NOT change logic, tests, or behaviour — the review stage reads this tree immediately after you."
         - "Lint: run `make lint` and confirm it is clean. Do NOT run a bare `ruff check` — there is no ruff on PATH; CI lints via qlty's pinned build."
         - "Lint deeper with `qlty check --all` (no path argument — `--all` and an explicit path are mutually exclusive). It scans correctly from inside a worktree; the exclusion was narrowed to **/.claude/worktrees/**, which only applies when scanning from the main checkout. `qlty check` without `--all` defaults to changed files only, so on a clean branch it prints 'No issues' regardless — treat an implausibly empty result as a broken environment, not a pass."
-        - "Tests: run `make test` and confirm it passes. NEVER run a bare `python3 -m unittest` in a worktree — an inherited PYTHONPATH resolves imports to the main checkout and yields a false green."
+        - "Tests: run `make test` and confirm it passes. NEVER run a bare unittest in a worktree — an inherited PYTHONPATH resolves imports to the main checkout and yields a false green."
         - "Agentic schema: run `./bin/calendar --agentic --agentic-format json` and confirm every new subcommand appears with accurate help text (the project requires --agentic never drifts from the real CLI)."
         - "Run `make bin-wrappers-check` if that make target exists."
         - "Confirm no new runtime dependency was added to pyproject.toml — the project is dependency-light by constraint. Any addition is a blocking finding."
@@ -893,7 +893,7 @@ stages:
         - "Report the happy:sad ratio for the added tests. A ratio with no sad-path tests at all is blocking regardless of the mode-by-mode result."
         - "Write findings to {workspace}/outputs/sad-path-coverage.json with keys: failure_modes (list of {mode, expected_behaviour, covered (boolean), tests (list of test names)}), tests_classified (list of {test, file, classification}), happy_count, sad_count, neither_count, uncovered_modes (list), blocking_issues (list), and passed (boolean)."
         - "Set passed=true ONLY if uncovered_modes is empty AND sad_count > 0 AND design.json carried a non-empty failure_modes list. Otherwise set passed=false and put the reason in blocking_issues. Be aware the engine's has_key check only verifies a key EXISTS, not that a list is empty — so a populated uncovered_modes will NOT be caught mechanically. You are the enforcement. Do not set passed=true with a non-empty uncovered_modes; a downstream reviewer reads this field and will treat true as meaning every named failure mode is tested."
-        - "Run this to make the verdict checkable rather than self-reported, and paste its output into your summary: python3 -c \"import json,sys; d=json.load(open(sys.argv[1])); u=d.get('uncovered_modes') or []; s=d.get('sad_count',0); ok=(not u) and s>0; print('SAD_PATH_VERDICT:', 'PASS' if ok else 'FAIL', '| uncovered=', u, '| sad_count=', s); sys.exit(0 if ok else 1)\" {workspace}/outputs/sad-path-coverage.json"
+        - "Run this to make the verdict checkable rather than self-reported, and paste its output into your summary: python3 -I -S -c \"import json,sys; d=json.load(open(sys.argv[1])); u=d.get('uncovered_modes') or []; s=d.get('sad_count',0); ok=(not u) and s>0; print('SAD_PATH_VERDICT:', 'PASS' if ok else 'FAIL', '| uncovered=', u, '| sad_count=', s); sys.exit(0 if ok else 1)\" {workspace}/outputs/sad-path-coverage.json"
     agent:
       role: reviewer
       # read-write because writes_to is non-empty. NOTE: `tools` and `access`
@@ -1019,7 +1019,7 @@ stages:
       what must change.
 
       Do NOT open a PR, commit, or push. That is the human's call.
-      Write the summary to {workspace}/outputs/summary.md.
+      Write the summary to {workspace}/outputs/run-summary.md.
     agent:
       role: doc-writer
       access: read-write
@@ -1032,4 +1032,4 @@ stages:
         mode: generate
         description: Human-facing readiness summary.
     writes_to:
-      - outputs/summary.md
+      - outputs/run-summary.md

@@ -20,21 +20,22 @@ running only the security scan dimension. Findings are applied and rechecked aut
 
 ## How to Run
 
-Bootstrap `source_root` and `test_path` from context:
-- `source_root`: the `<domain>/` directory of the files you just wrote or changed
-- `test_path`: the corresponding `tests/<domain>/` directory
+Bootstrap `source_root`, `test_path` and `domain_slug` from context:
+- `source_root`: the `src/<domain>/` directory of the files you just wrote or changed
+- `test_path`: the corresponding `tests/<domain>_tests/` directory
+- `domain_slug`: `source_root` with `/` replaced by `-` (e.g. `src-mail`); keeps each domain's workspace separate
 - `pr_number`: optional — if you have an open PR, pass it to scope file detection to that PR's diff
 
 **IMPORTANT**: Use the `/workflow` skill — do NOT call `./bin/workflow run --execute` directly. It only writes dispatch files and exits (status=pending). The `/workflow` skill is what actually spawns agents, waits for results, and handles human gates.
 
 ```python
-Skill(skill="workflow", args="--workflow workflows/code/optimize-code.yaml --params source_root=<domain>/ --params test_path=tests/<domain>/ --params skip_checks=reuse,complexity,coverage,arch")
+Skill(skill="workflow", args="--workflow workflows/code/optimize-code.yaml --params source_root=src/<domain>/ --params test_path=tests/<domain>_tests/ --params domain_slug=src-<domain> --params skip_checks=reuse,complexity,coverage,arch")
 ```
 
 With a PR number:
 
 ```python
-Skill(skill="workflow", args="--workflow workflows/code/optimize-code.yaml --params pr_number=314 --params source_root=<domain>/ --params test_path=tests/<domain>/ --params skip_checks=reuse,complexity,coverage,arch")
+Skill(skill="workflow", args="--workflow workflows/code/optimize-code.yaml --params pr_number=314 --params source_root=src/<domain>/ --params test_path=tests/<domain>_tests/ --params domain_slug=src-<domain> --params skip_checks=reuse,complexity,coverage,arch")
 ```
 
 ## What Runs
@@ -54,8 +55,9 @@ The workflow runs the full correction and recheck cycle:
 
 | Param | Default | Description |
 |-------|---------|-------------|
-| `source_root` | `""` | Path prefix for changed source files, e.g. `workflow/` |
-| `test_path` | `""` | Test directory to run, e.g. `tests/workflow/` |
+| `source_root` | `""` | Path prefix for changed source files, e.g. `src/workflow/` |
+| `test_path` | `""` | Test directory to run, e.g. `tests/workflow_tests/` |
+| `domain_slug` | `""` | Required: `source_root` with `/` replaced by `-`, e.g. `src-workflow`; keeps each domain's workspace separate |
 | `pr_number` | `""` | Optional PR number — scopes file detection to that PR's diff |
 | `skip_checks` | `reuse,complexity,coverage,arch` | Passed automatically — controls which scan dimensions run |
 | `auth_domains` | `"github,qlty"` | Comma-separated auth pre-flight services |

@@ -67,6 +67,21 @@ class TargetsTest(unittest.TestCase):
         # Brace and tilde expansion are static, so they are performed.
         ("rm -rf {src,x}", ["T0src", "T0x"]),
         ("{rm,-rf,src}", ["T0src"]),
+        # Nested groups. PR #408's review claimed these stay literal; bash expands
+        # each to three words, and so must the analyser, or `rm -rf` hides src.
+        ("rm -rf {src,{tests,bin}}", ["T0src", "T0tests", "T0bin"]),
+        ("rm -rf {{src,tests},bin}", ["T0src", "T0tests", "T0bin"]),
+        ("rm -rf x{a,{b,src}}", ["T0xa", "T0xb", "T0xsrc"]),
+        ("rm -rf {{a..c},src}", ["T0a", "T0b", "T0c", "T0src"]),
+        # Depth 3 is the case with teeth: words are brace-expanded once per command
+        # and again per target, so two levels expand even if brace_expand stopped
+        # recursing. Only a third level proves the recursion itself.
+        ("rm -rf {a,{b,{src,c}}}", ["T0a", "T0b", "T0src", "T0c"]),
+        # ...and where bash does NOT expand, neither may the analyser: a group with
+        # no top-level comma, or a quoted/escaped comma, stays one literal word.
+        ("rm -rf {{src,tests}}", ["T0{src}", "T0{tests}"]),
+        ("rm -rf '{src,x}'", ["T0{src,x}"]),
+        ("rm -rf {src\\,x}", ["T0{src,x}"]),
         # Options: attached, glued long, prefix long, clusters, and --.
         ("cp -t src /tmp/e.py", ["T1src"]),
         ("cp --target-directory=src /tmp/e.py", ["T1src"]),

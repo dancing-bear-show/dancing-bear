@@ -124,7 +124,7 @@ stages:
 
       Guard 1 — the workspace must be outside the repo:
 
-        python3 -c "
+        python3 -I -S -c "
         import os, subprocess, sys
         ws = os.path.realpath('{workspace}')
         root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
@@ -138,7 +138,7 @@ stages:
       Guard 2 — the profile directory this run will WRITE to must also be
       outside the repo:
 
-        python3 -c "
+        python3 -I -S -c "
         import os, subprocess, sys
         pd = os.path.realpath('{profile_dir}')
         root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
@@ -427,7 +427,8 @@ stages:
           to one role is not a refresh, it is a rewrite, and it belongs in a
           separate deliberate pass.
 
-      Write the file, then confirm it parses by running `python3 -c` with
+      Write the file, then confirm it parses by running `python3 -I -c` (isolated from an
+      inherited PYTHONPATH; no -S, since yaml lives in site-packages) with
       yaml.safe_load over the path, passing the path as argv[1] rather than
       interpolating it into the Python source. Print only the proposal count —
       not the file contents, which are PII and would land in the unredacted run
@@ -656,7 +657,7 @@ stages:
       GUARD 2 — confirm the destination is outside the repo checkout before
       touching it:
 
-        python3 -c "
+        python3 -I -S -c "
         import os, subprocess, sys
         pd = os.path.realpath('{profile_dir}')
         root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
@@ -727,7 +728,7 @@ stages:
       NOT APPLIED with the reason and continue. A bullet written under the wrong
       employer is a factual error in the source of truth.
 
-      After the edits, confirm the file still parses by running `python3 -c`
+      After the edits, confirm the file still parses by running `python3 -I -c`
       with yaml.safe_load, passing {profile_dir}/experience.yaml as argv[1].
       Pass the path as an argument — never interpolate {profile_dir} into the
       Python source itself. That value is a user-supplied param, so a quote

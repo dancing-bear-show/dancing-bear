@@ -22,8 +22,8 @@ trigger:
   params:
     run_url: ""          # GitHub Actions workflow run URL (optional if pr_number given)
     pr_number: ""        # PR number to check (optional if run_url given)
-    test_cmd: ""         # Test invocation for local verify (e.g. "python3 -m unittest tests/core/ -f -q")
-    source_root: ""      # Source dir for coverage scoping (e.g. "core/")
+    test_cmd: ""         # Test invocation for local verify (e.g. 'PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/core_tests -t . -f -q')
+    source_root: ""      # Source dir for coverage scoping (e.g. "src/core/")
     min_coverage: "80"   # Minimum new coverage % required
 
 workspace_dir: "{work_dir}/ci-debug-{pr_number}"
@@ -127,7 +127,7 @@ stages:
       Step 2 — extract GH Actions failures:
         For each failed step in gh-run-raw.txt, extract:
           - job_name: e.g. "test / Run tests"
-          - test_file: e.g. "tests/core/test_auth.py" (parse from FAILED lines)
+          - test_file: e.g. "tests/core_tests/test_auth.py" (parse from FAILED lines)
           - test_name: e.g. "test_token_refresh"
           - error_type: AssertionError | AttributeError | ImportError | other
           - error_message: the actual traceback or assertion text
@@ -143,7 +143,7 @@ stages:
           git log --oneline -5 -- <test_file>
         Use the Bash tool to run:
           git log --oneline -5 -- <source_module_path>
-        (Derive source_module_path by mapping tests/<domain>/ → <domain>/)
+        (Derive source_module_path by mapping tests/<domain>_tests/ → src/<domain>/)
         Record what changed recently that aligns with the error.
 
       Step 4 — extract qlty issues:
@@ -283,7 +283,7 @@ stages:
 
       Step 2 — run targeted tests:
         For each failure in findings.json["ci_failures"], use the Bash tool to run:
-          python3 -m unittest <test_file>.<test_name> -v
+          PYTHONPATH="$PWD/src" python3 -m unittest <test_file>.<test_name> -v
         If {test_cmd} is non-empty, also use the Bash tool to run:
           {test_cmd}
         Record exit code and output for each run.
@@ -351,7 +351,7 @@ stages:
           {test_cmd}
         Else derive from findings.json (the domain from the first failure's
         test_file): use the Bash tool to run:
-          python3 -m unittest discover -s tests/<domain>/ -t . -f -q
+          PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/<domain>_tests/ -t . -f -q
         Record total tests, failures, and exit code.
 
       Step 3 — re-check qlty on changed files:

@@ -1243,7 +1243,7 @@ stages:
 
       Step 1 — full test suite:
         {test_cmd}
-      Use `make test` rather than a bare `python3 -m unittest`: in a worktree an
+      Use `make test` rather than a bare unittest run: in a worktree an
       inherited PYTHONPATH resolves imports to the main checkout, and the suite
       passes against code you did not change. That false green is
       indistinguishable from a real one.
@@ -1416,6 +1416,21 @@ stages:
       sentences is usually right. A rejection must carry its evidence — a bare
       "this is intentional" is not a reply a reviewer can act on.
 
+      Step 3b — verify every fact before it is posted. Rejected/moot/defer
+      replies are composed from triage's "reason" and "evidence", which an
+      agent wrote and nobody has checked. On PR #408 that text called
+      non-strict records "strict", claimed 21 spellings compared against real
+      bash when 16 were, and the composed reply described a code line
+      (`:346`) as "hex-escape tables" when it was a keyword set. Before a
+      reply is final:
+        - Read each cited file:line and confirm the reply's description of
+          what is there. Compare the description, do not just confirm the
+          line exists.
+        - Re-derive every count by re-running the command it came from, or
+          drop the number.
+        - Never cite {workspace} paths or scratch scripts: the reviewer cannot
+          open them. Give a command they can run against the repo instead.
+
       Step 4 — write {workspace}/outputs/replies/final-replies.json:
         {
           "replies": [
@@ -1447,6 +1462,8 @@ stages:
         - every reply carries an id, and no id repeats
         - no reply contains a sycophantic opening or exclamation mark
         - every rejection reply cites concrete evidence
+        - every file:line a reply cites was read, and the reply's description of it matches what is there (a matching line number with a mismatched description FAILS)
+        - every number in a reply traces to a command or file the validator re-ran or read, and no reply cites a {workspace} path
       max_revisions: 1
     required: true
     writes_to:
@@ -1632,7 +1649,7 @@ stages:
     depends_on: [resolve-threads]
     reads_from: [resolve-threads, plan-resolution, verify-fixes, triage-threads, fix-aggregate, commit-and-push, update-pr-description, parse-review-overview]
     description: >
-      Write the run summary to {workspace}/outputs/report.md.
+      Write the run summary to {workspace}/outputs/run-report.md.
 
       Read triage.json, fix-results.json, verify-results.json,
       pr-describe-result.json, resolve-plan.json, resolution.json, and
@@ -1700,7 +1717,7 @@ stages:
       access: read-write
     required: true
     writes_to:
-      - report.md
+      - run-report.md
 
 include:
   # Triple-source thread fetch (GraphQL threads + review bodies + issue comments).

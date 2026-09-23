@@ -17,6 +17,7 @@ from pathlib import Path
 from core.cli_errors import CLIError, ExitCode
 from core.fileutil import safe_read_text
 from core.date_utils import iso_now
+from workflow.harness_outputs import describe, find_refused_outputs
 from workflow.models import (
     OutputMode,
     ResolvedStage,
@@ -171,6 +172,16 @@ def compile_workflow(
     # Before ANY resolve_params call: once a value is substituted into stage
     # text it is already in the prompt, and no later check can take it back.
     enforce_param_rules(definition.trigger, trigger_params or {})
+    # The harness refuses a subagent Write of report.md/summary.md/findings.md,
+    # so a stage declaring one can never produce it. Checked HERE, not only in
+    # `workflow lint`: `workflow run` compiles without linting, and only the
+    # compiler sees the effective params -- a --params override can name the
+    # file through a param such as validate-then-render's {report_artifact}.
+    refused = find_refused_outputs(definition.stages, params)
+    if refused:
+        raise WorkflowCompileError(
+            "stage outputs rejected: " + "; ".join(describe(item) for item in refused)
+        )
     stage_map: dict[str, StageSpec] = {s.name: s for s in definition.stages}
 
     parallel_groups = _compute_parallel_groups(definition.stages)

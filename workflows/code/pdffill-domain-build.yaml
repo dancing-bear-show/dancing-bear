@@ -168,7 +168,7 @@ stages:
           PURPOSE = "PDF form-filling toolkit (widget-fill and coordinate-injection)"
 
         src/pdffill/__main__.py
-          Thin re-export shim so both "python3 -m pdffill" and bin/pdffill work:
+          Thin re-export shim so both module execution (-m pdffill) and bin/pdffill work:
             from __future__ import annotations
             from .cli import main
             __all__ = ["main"]
@@ -182,7 +182,7 @@ stages:
             SRC_ROOT = Path(__file__).resolve().parents[1] / "src" into sys.path,
             then "from pdffill.__main__ import main" and
             "if __name__ == '__main__': raise SystemExit(main())".
-          Do not use exec python3 -m.
+          Do not exec the interpreter with -m.
           (Derive the exact pattern from cat bin/wifi.)
 
         tests/pdffill_tests/__init__.py  (empty)
@@ -337,7 +337,7 @@ stages:
 
         7. Bin wrapper pattern
            Does the spec reference the correct pattern from bin/wifi? Any
-           deviation (e.g. using python -m directly as the default) must be
+           deviation (e.g. using module execution directly as the default) must be
            flagged.
 
         8. Missing edge cases
@@ -449,7 +449,7 @@ stages:
         the optional dependency:
           Bash tool: pip install -e ".[pdffill]" -q 2>&1 | tail -5
         Confirm fitz is importable:
-          Bash tool: python3 -c "import fitz; print(fitz.__version__)" 2>&1
+          Bash tool: python3 -I -c "import fitz; print(fitz.__version__)" 2>&1
 
       Step 3 -- write implementation files:
         Write src/pdffill/__init__.py (empty or minimal re-exports only).
@@ -534,10 +534,10 @@ stages:
           if __name__ == "__main__":  # pragma: no cover
               raise SystemExit(main())
         Confirm the file exists and imports cleanly:
-          Bash tool: python3 -c "from pdffill.__main__ import main; print('ok')" 2>&1
+          Bash tool: PYTHONPATH="$PWD/src" python3 -c "from pdffill.__main__ import main; print('ok')" 2>&1
 
       Step 4 -- write bin/pdffill.
-        Use the same Python wrapper pattern as bin/wifi (not exec python3 -m):
+        Use the same Python wrapper pattern as bin/wifi (not an exec of the interpreter with -m):
           #!/usr/bin/env python3, a docstring, insert SRC_ROOT into sys.path
           via Path(__file__).resolve().parents[1] / "src", then
           "from pdffill.__main__ import main" and
@@ -545,7 +545,7 @@ stages:
         Make it executable: Bash tool: chmod +x bin/pdffill
 
       Step 5 -- CLI import smoke check:
-        Bash tool: python3 -c "import pdffill.cli" 2>&1
+        Bash tool: PYTHONPATH="$PWD/src" python3 -c "import pdffill.cli" 2>&1
         If it fails, fix before writing the manifest (likely a module-level
         import of fitz or pdffill.widget at the top of cli.py).
 
@@ -806,7 +806,7 @@ stages:
           - Use the Edit tool.
 
       Step 5 -- re-run import smoke checks:
-        Bash tool: python3 -c "import pdffill; import pdffill.widget; import pdffill.inject; import pdffill.cli" 2>&1
+        Bash tool: PYTHONPATH="$PWD/src" python3 -c "import pdffill; import pdffill.widget; import pdffill.inject; import pdffill.cli" 2>&1
         If still failing, fix and retry once more.
 
       Step 6 -- write {workspace}/outputs/fix-integration-results.json:
@@ -971,7 +971,7 @@ stages:
         - src/pdffill/widget.py     -- WidgetFiller (AcroForm/widget-fill strategy)
         - src/pdffill/inject.py     -- CoordinateInjector (coordinate-injection strategy)
         - src/pdffill/cli.py        -- CLIApp entry point
-        - src/pdffill/__main__.py   -- python -m / bin import shim
+        - src/pdffill/__main__.py   -- module-execution / bin import shim
         - src/pdffill/meta.py       -- domain metadata
         - bin/pdffill               -- bin wrapper
         - tests/pdffill_tests/   -- synthetic test suite (no real PDF dependency)
