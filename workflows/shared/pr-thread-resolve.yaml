@@ -79,6 +79,19 @@ stages:
       plan without one rather than inventing a value: a fresh id each attempt
       would make every retry post duplicates.
 
+      CHECK THE PLAN IS COMPLETE. When the plan carries "triaged_count" and
+      "planned_count", refuse to act unless they are equal, and refuse any
+      plan whose threads list is shorter than "planned_count". A caller that
+      silently drops threads from its plan leaves them with no reply and no
+      resolution, so the fix lands while the reviewer still sees an open
+      question — which looks exactly like the work never happening.
+
+      This fragment cannot see the caller's triage, so it cannot detect an
+      omission on its own; the counts are how a caller proves it did not drop
+      anything. Treat their absence as an older caller and proceed, but
+      record "completeness_checked": false in resolution.json so the report
+      says the check did not run.
+
       CONSTRAIN THE PATH. verify_file arrives from an agent-written plan.
       Reject it unless, after normalisation, it is relative, contains no ".."
       segment, and resolves inside {workspace}. Reject absolute paths
@@ -228,6 +241,7 @@ stages:
           "status": "ok|partial|blocked",
           "verify_file": "validation/verify-results.json",
           "all_green": true,
+          "completeness_checked": true,
           "replied": [{"thread_id": "...", "comment_url": "..."}],
           "already_replied": ["PRRT_..."],
           "resolved": ["PRRT_..."],

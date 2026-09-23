@@ -708,6 +708,8 @@ stages:
         {
           "run_id": "<the workflow run id, stable across retries>",
           "verify_file": "outputs/fix/verify-results.json",
+          "triaged_count": 12,
+          "planned_count": 12,
           "threads": [
             {"thread_id": "PRRT_...", "action": "reply-and-resolve",
              "reply": "Fixed in <sha>: <one line on what changed>."},
@@ -738,6 +740,13 @@ stages:
       was skipped, or that a human opened about something else, must stay open
       — resolving it asserts a concern was handled when it was not. Anything
       not in the fixed set is action "skip" with the reason recorded.
+
+      That is about which threads get RESOLVED, not which appear in the plan.
+      Every finding in fix-manifest.json gets an entry, including skipped and
+      rejected ones — a finding omitted from the plan is never replied to, so
+      the reviewer sees an open thread with no answer and cannot distinguish
+      that from the work not being done. Record "triaged_count" and
+      "planned_count" and fail rather than writing a plan where they differ.
 
       Also write {workspace}/outputs/fix/thread-resolution.json for the human
       gate, recording the plan (not its outcome — the fragment reports that):

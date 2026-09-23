@@ -848,6 +848,23 @@ stages:
 
       Threads with directive "context" get action "skip": nothing was asked.
 
+      EVERY triaged thread gets an entry. Not "every thread you fixed" —
+      every thread in triage.json, including the ones you rejected, deferred,
+      or classified as context. Count them before writing: the plan's thread
+      count must equal triage.json's, and any thread present in one and
+      absent from the other is a bug in this stage, not a judgement call.
+
+      Omission is the failure mode this stage exists to prevent. A thread left
+      out of the plan is never replied to and never resolved, so the fix lands
+      while the reviewer sees an open conversation with no answer — which is
+      indistinguishable from the work never having been done. "I fixed it" and
+      "the reviewer can tell I fixed it" are different claims, and only the
+      second one closes a review.
+
+      Record the reconciliation in the plan as "triaged_count" and
+      "planned_count". If they differ, set "blocked_reason" and exit non-zero
+      rather than writing a partial plan.
+
       Step 4 — write {workspace}/outputs/resolve-plan.json in the schema the
       pr-thread-resolve fragment consumes:
 
@@ -856,6 +873,8 @@ stages:
           "verify_file": "validation/verify-results.json",
           "blocked_reason": null,
           "incomplete_input": false,
+          "triaged_count": 18,
+          "planned_count": 18,
           "threads": [
             {"thread_id": "PRRT_...", "action": "reply-and-resolve",
              "reply": "<the text from final-replies.json, verbatim>"},
@@ -922,6 +941,13 @@ stages:
         Verification — test and lint status, any coverage gaps
         PR metadata — old and new title, whether the description was updated
         Resolution — replied, resolved, skipped, failed, and unresolved_after
+        Still open — every thread that ends the run unresolved, with the
+          reason from resolution.json. State the count in the summary, not
+          only in a table: a run that fixed twelve threads and left five
+          unanswered is a partial success, and the reviewer looking at those
+          five cannot tell a deliberate defer from a dropped thread. If
+          resolution.json reports "completeness_checked": false, say so —
+          the plan was not verified to cover every triaged thread.
 
       Follow .claude/WRITING_GUIDE.md. State counts and outcomes plainly. If
       anything failed or was skipped, say so in the summary rather than only in
