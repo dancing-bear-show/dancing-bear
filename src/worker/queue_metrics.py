@@ -9,17 +9,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from worker.queue_ops import (
-    QUEUE_ROOT,
     _ensure_dirs,
     _get_file_mtime,
     _list_job_paths,
     _parse_timestamp_safe,
+    _q,
     list_processing,
 )
 from core.fileutil import safe_load_json
 
 
-def counts(root: Path = QUEUE_ROOT) -> dict[str, int]:
+def counts(root: Path | None = None) -> dict[str, int]:
     paths = _ensure_dirs(root)
     return {k: len(_list_job_paths(v)) for k, v in paths.items()}
 
@@ -90,7 +90,7 @@ def _compute_processing_oldest_age(
     return proc_oldest
 
 
-def status(root: Path = QUEUE_ROOT) -> dict[str, object]:
+def status(root: Path | None = None) -> dict[str, object]:
     """Compute a queue status summary for visibility/monitoring.
 
     Returns keys:
@@ -126,5 +126,5 @@ def status(root: Path = QUEUE_ROOT) -> dict[str, object]:
         "next_scheduled_in_sec": (int(next_in) if next_in is not None else None),
         "processing_oldest_age_sec": int(proc_oldest),
         "recent_error_ids": [e.stem for e in errs],
-        "root": str(root),
+        "root": str(_q(root)),
     }
