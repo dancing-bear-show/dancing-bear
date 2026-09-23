@@ -332,6 +332,34 @@ class TestThreadsReplyIdempotencyMarker(unittest.TestCase):
             )
 
 
+class TestThreadsReplyMarkerFetchFailure(unittest.TestCase):
+    """The marker re-fetch failed: posting blind could duplicate a reply."""
+
+    def test_failed_refetch_reports_failed_json_and_posts_nothing(self):
+        fake = FakeGhRunner()
+        fake.add(["node"], stdout=json.dumps({"errors": [{"message": "rate limited"}]}))
+        fake.add(["addPullRequestReviewThreadReply"], **_reply_success_response().__dict__)
+        fake.add(["resolveReviewThread"], **_resolve_success_response().__dict__)
+
+        with TemporaryDirectory() as td:
+            body_path = Path(td) / "reply.md"
+            body_path.write_text("fixed", encoding="utf-8")
+            with _install_client(fake):
+                rc, out, _err = _run_cli([
+                    "threads", "reply", "--thread", "PRT_kwABC",
+                    "--body-file", str(body_path), "--run-id", "R", "--resolve",
+                ])
+
+        self.assertEqual(rc, 1)
+        payload = json.loads(out)
+        self.assertEqual(payload["status"], "failed")
+        self.assertIn("rate limited", payload["error"])
+        self.assertFalse(payload["resolved"])
+        for call in fake.calls:
+            self.assertNotIn("addPullRequestReviewThreadReply", call.all_text())
+            self.assertNotIn("resolveReviewThread", call.all_text())
+
+
 class TestThreadsReplyAlreadyRepliedWithResolve(unittest.TestCase):
     """Retry after a run died between reply and resolve.
 

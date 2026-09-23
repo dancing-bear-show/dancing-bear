@@ -8,7 +8,10 @@ the wiring (argv shape, exit codes, body-file routing).
 Every subcommand shares:
 
 * ``--repo OWNER/NAME`` — defaults to the current checkout, resolved with
-  ``gh repo view`` inside ``core.github.repo.resolve_owner_repo``;
+  ``gh repo view`` inside ``core.github.repo.resolve_owner_repo``. The
+  exceptions are ``threads comments|reply|resolve``: they address a thread by
+  its GraphQL node id, which is global, so they take no ``--repo`` rather than
+  accept one they would ignore;
 * ``client()`` from ``core.github`` — scrubs ``GITHUB_TOKEN`` so a stale export
   cannot silently override gh's keyring credentials.
 
@@ -147,7 +150,6 @@ def cmd_threads_fetch(args) -> int:
 
 
 @threads_group.command("comments", help="List every comment in one review thread")
-@app.argument("--repo", help="OWNER/NAME (unused; kept for uniform shape)")
 @app.argument("--thread", required=True, help="Review thread node id")
 def cmd_threads_comments(args) -> int:
     comments = fetch_thread_comments(_gh(), args.thread)
@@ -223,7 +225,6 @@ def _append_marker(body: str, marker: str) -> str:
 
 
 @threads_group.command("reply", help="Reply into a thread; optionally resolve after verifying")
-@app.argument("--repo", help="OWNER/NAME (unused; kept for uniform shape)")
 @app.argument("--thread", required=True, help="Review thread node id")
 @app.argument("--body-file", required=True, dest="body_file", help="Body path (- for stdin)")
 @app.argument("--run-id", dest="run_id", help="Append a run marker and skip if already present")
@@ -247,7 +248,11 @@ def cmd_threads_reply(args) -> int:
     if args.run_id:
         # Whole chain, not the latest comment: a reviewer may have replied
         # since our last run, and "is the latest ours?" misses exactly that.
-        existing = fetch_thread_comments(gh, thread_id)
+        # A failed re-fetch is a failed reply: posting blind could duplicate.
+        try:
+            existing = fetch_thread_comments(gh, thread_id)
+        except GhError as exc:
+            return _handle_reply_failure(thread_id, exc)
         if has_run_marker(existing, args.run_id):
             return _handle_already_replied(gh, thread_id, bool(args.resolve))
         body = _append_marker(body, run_marker(args.run_id))
@@ -273,7 +278,6 @@ def cmd_threads_reply(args) -> int:
 
 
 @threads_group.command("resolve", help="Resolve a thread (no reply)")
-@app.argument("--repo", help="OWNER/NAME (unused; kept for uniform shape)")
 @app.argument("--thread", required=True, help="Review thread node id")
 def cmd_threads_resolve(args) -> int:
     resolve_thread(_gh(), args.thread)
