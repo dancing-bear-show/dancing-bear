@@ -162,13 +162,17 @@ class TestIsolatedStagesAvoidWorkspace(unittest.TestCase):
 class TestOutputPathsResolve(unittest.TestCase):
     def test_no_output_path_carries_a_literal_workspace_placeholder(self) -> None:
         """writes_to gets no {param} substitution: "{workspace}/x.md" rendered as
-        <ws>/outputs/{workspace}/x.md, a directory named with literal braces."""
+        <ws>/outputs/{workspace}/x.md, a directory named with literal braces. The
+        placeholder can land anywhere in a path (<ws>/outputs/design/{workspace}.md,
+        <ws>/validation/{workspace}.json), so no prefix list is complete. The
+        engine-generated sections never legitimately carry the token at all, so
+        assert it is absent from them outright."""
+        path_token = re.compile(r"\S*" + re.escape(_PLACEHOLDER) + r"\S*")
         for wf, stage, _, prompt in _ROWS:
             with self.subTest(workflow=wf, stage=stage):
                 generated = _ENGINE_HEADINGS.split(prompt, maxsplit=1)
                 tail = prompt[len(generated[0]):] if len(generated) > 1 else ""
-                self.assertNotIn(f"{_WS_MARK}/outputs/{_PLACEHOLDER}", tail)
-                self.assertNotIn(f"<your-cwd>/outputs/{_PLACEHOLDER}", tail)
+                self.assertEqual(path_token.findall(tail), [])
 
 
 class TestConsolidateSchemaInputs(unittest.TestCase):
@@ -178,7 +182,7 @@ class TestConsolidateSchemaInputs(unittest.TestCase):
         for wf, st, _, prompt in _ROWS:
             if (wf, st) == ("workflows/resume/consolidate-schema.yaml", stage):
                 return re.sub(r"\s+", " ", _task(prompt))
-        self.fail(f"stage {stage} not rendered")
+        raise AssertionError(f"stage {stage} not rendered")
 
     def test_readers_name_the_copied_in_path(self) -> None:
         cases = {
@@ -206,5 +210,38 @@ class TestConsolidateSchemaInputs(unittest.TestCase):
     def test_pii_never_lands_under_a_checkout(self) -> None:
         task = self._task("test-e2e-data")
         self.assertIn("mktemp -d", task)
-        self.assertIn('rm -rf "$E2E_TMP"', task)
         self.assertNotIn(f"only under {_WS_MARK}", task)
+
+    def test_e2e_tmp_cleanup_is_a_trap_not_a_manual_step(self) -> None:
+        """A prose "delete it before you finish" instruction can be skipped by
+        an interrupted run or a failing command. The trap must be registered
+        in the SAME shell, immediately after $E2E_TMP is created, so cleanup
+        does not depend on the agent remembering a later rm -rf."""
+        task = self._task("test-e2e-data")
+        self.assertIn("trap 'rm -rf \"$E2E_TMP\"' EXIT", task)
+        create_idx = task.index("E2E_TMP=$(mktemp")
+        trap_idx = task.index("trap 'rm -rf \"$E2E_TMP\"' EXIT")
+        self.assertLess(
+            create_idx, trap_idx,
+            msg="trap must be registered immediately after E2E_TMP is created, "
+            "not after other commands run in between",
+        )
+        # No longer a bare prose "delete it ... before you finish" instruction:
+        # the only rm -rf left is the trap body itself.
+        self.assertEqual(task.count("rm -rf"), 1)
+
+    def test_e2e_tmp_is_verified_outside_every_checkout(self) -> None:
+        """mktemp -d alone honors TMPDIR, which can point inside a checkout.
+        The stage must use an explicit outside-checkout template AND verify
+        the realpath against both the agent's own worktree and the main
+        checkout before the directory is used."""
+        task = self._task("test-e2e-data")
+        self.assertIn('mktemp -d "${TMPDIR:-/tmp}/e2e-schema.XXXXXX"', task)
+        self.assertIn("git rev-parse --show-toplevel", task)
+        self.assertIn(
+            "git rev-parse --path-format=absolute --git-common-dir", task
+        )
+        # The verification must abort the sample run rather than proceed.
+        verify_idx = task.index("git rev-parse --show-toplevel")
+        abort_idx = task.index("aborting")
+        self.assertLess(verify_idx, abort_idx)

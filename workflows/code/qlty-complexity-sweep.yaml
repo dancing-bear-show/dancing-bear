@@ -699,8 +699,8 @@ stages:
     reads_from: [plan-splits]
     description: >
       Fan out: the orchestrator spawns one code-writer agent per group listed
-      in plan-splits' `outputs/design/domain-groups.json`. All group agents
-      run in parallel, each with isolation:worktree.
+      in plan-splits' `<your-cwd>/inputs/outputs/design/domain-groups.json`.
+      All group agents run in parallel, each with isolation:worktree.
 
       Each agent handles all files for its assigned {group}.
 

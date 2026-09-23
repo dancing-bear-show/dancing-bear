@@ -743,14 +743,35 @@ stages:
       NOT write it to {workspace} either: an isolated stage never writes the
       shared workspace.
 
-      Instead, as the one exception to writing only under your cwd, create a
-      private scratch directory OUTSIDE every checkout:
+      Instead, as the one exception to writing only under your cwd, run the
+      ENTIRE sample-resume pipeline (steps 2-7 above) as ONE shell invocation
+      that creates the scratch directory, registers its own cleanup in the
+      SAME shell BEFORE anything is written into it, and verifies the
+      directory is actually outside every checkout before use:
 
-        E2E_TMP=$(mktemp -d)    # e.g. /var/folders/..., never under the repo
+        E2E_TMP=$(mktemp -d "${TMPDIR:-/tmp}/e2e-schema.XXXXXX") || exit 1
+        trap 'rm -rf "$E2E_TMP"' EXIT
+        WT_ROOT=$(git rev-parse --show-toplevel)
+        MAIN_ROOT=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+        case "$(cd "$E2E_TMP" && pwd -P)" in
+          "$WT_ROOT"/*|"$WT_ROOT"|"$MAIN_ROOT"/*|"$MAIN_ROOT")
+            echo "E2E_TMP resolved inside a checkout, aborting" >&2; exit 1 ;;
+        esac
 
-      Pass it as every `--out`/`--out-dir` for the sample run, and delete it
-      with `rm -rf "$E2E_TMP"` before you finish, pass or fail. Record in
-      `<your-cwd>/outputs/e2e-summary.md` only non-identifying results —
+      `mktemp -d` alone is not enough: it honors `TMPDIR`, and `TMPDIR` can be
+      set to point inside a checkout. The `case` check above is what catches
+      that, whatever the template resolves to — if the realpath
+      lands under your own worktree (`$WT_ROOT`) or the main checkout
+      (`$MAIN_ROOT`), stop without running the sample rather than writing PII
+      into a git-tracked tree. `trap ... EXIT` runs on normal completion,
+      an early `exit`, or an interrupted command, so a failure partway through
+      the pipeline still deletes `$E2E_TMP` — cleanup never depends on a
+      separate, rememberable step. Do NOT split this across multiple Bash
+      tool calls: the trap is only registered in the shell that sets it, so a
+      later call in a fresh shell would not delete anything.
+
+      Pass `$E2E_TMP` as every `--out`/`--out-dir` for the sample run. Record
+      in `<your-cwd>/outputs/e2e-summary.md` only non-identifying results —
       per-section pass/fail and counts, never a name, email, phone number or
       bullet text. Any committed fixture must be synthetic.
 
