@@ -716,7 +716,7 @@ stages:
           "available": true|false,
           "unavailable_reason": "..." | null,
           "window_days": N,
-          "jobs": {"total": N, "by_outcome": {"success": N, "terminal": N, "deferred": N, "retried": N}},
+          "jobs": {{"total": N, "by_outcome": {{"success": N, "terminal": N, "deferred": N, "retried": N}}}},
           "duration": {"total_minutes": N, "median_ms": N, "p95_ms": N, "trend": "growing|flat|shrinking|insufficient-data"},
           "tokens": {"prompt": N, "completion": N} | null,
           "notes": "..."

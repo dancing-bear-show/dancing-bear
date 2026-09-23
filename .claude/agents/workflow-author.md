@@ -51,7 +51,7 @@ A stage spawns an agent when:
 - Every stage in `reads_from` must be transitively reachable via `depends_on`
 - Files in `writes_to` must be written on ALL code paths (use a sentinel on error/skip paths)
 - Never use `./bin/workflow run` inside a stage description — sub-workflows use the skill dispatcher
-- Escape `{` and `}` as `{{` and `}}` in Python code snippets inside stage descriptions
+- In stage descriptions, `{{` renders as `{` and `}}` renders as `}` (str.format-style escaping applied at compile time). Use `{{` and `}}` for JSON examples and code snippets. To produce a literal `{{` or `}}` in the agent prompt, write `{{{{` or `}}}}`.
 - Never commit hardcoded absolute paths (`/Users/...`) in workflow YAML
 
 ## Validation Checklist

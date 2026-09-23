@@ -23,6 +23,7 @@ from workflow.models import (
     ResolvedStage,
     StageSpec,
     TriggerSpec,
+    ValidationSpec,
     WorkflowDefinition,
     WorkflowManifest,
 )
@@ -378,6 +379,38 @@ def _validate_when(spec: StageSpec) -> None:
         )
 
 
+def _resolve_criteria(
+    validation: ValidationSpec, params: dict[str, str]
+) -> ValidationSpec:
+    """Resolve trigger params in each criterion and expand pipe-separated values.
+
+    For each criterion:
+    1. Substitute ``{param}`` placeholders from trigger params.
+    2. Unescape doubled braces (via :func:`resolve_params`).
+    3. If the resolved text came from a param whose value contained ``|``,
+       split on ``|``, strip whitespace, and drop empty segments; each
+       non-empty segment becomes its own criterion.
+
+    A criterion that contained no recognisable param reference, or whose param
+    value had no ``|``, stays as a single criterion (possibly with brace
+    unescaping applied).
+    """
+    resolved: list[str] = []
+    for raw in validation.criteria:
+        rendered = resolve_params(raw, params)
+        if rendered == raw:
+            # No param substituted — keep as a single criterion.
+            # Doubled braces in static criteria are still unescaped by resolve_params.
+            resolved.append(rendered)
+            continue
+        # A param was substituted.  If the original raw text was *only* the
+        # param placeholder (e.g. ``{validation_criteria}``) and the resolved
+        # value contains ``|``, split into individual criteria.
+        parts = [p.strip() for p in rendered.split("|")]
+        resolved.extend(p for p in parts if p)
+    return replace(validation, criteria=tuple(resolved))
+
+
 def _resolve_stage(
     spec: StageSpec,
     index: int,
@@ -391,11 +424,17 @@ def _resolve_stage(
         spec, project_root, params
     )
 
-    resolved_spec = (
-        replace(spec, description=resolve_params(spec.description, params))
-        if params and spec.description
-        else spec
-    )
+    # Always resolve description so doubled-brace unescape applies even when
+    # there are no trigger params.
+    resolved_spec = replace(
+        spec, description=resolve_params(spec.description, params)
+    ) if spec.description else spec
+
+    if resolved_spec.validation is not None:
+        resolved_spec = replace(
+            resolved_spec,
+            validation=_resolve_criteria(resolved_spec.validation, params),
+        )
 
     return ResolvedStage(
         spec=resolved_spec,
@@ -438,18 +477,22 @@ def _build_cli_command(skill: str, mapping: dict[str, str]) -> str:
 
 
 def resolve_params(template: str, params: dict[str, str]) -> str:
-    """Resolve ``{param}`` placeholders in a string.
+    """Resolve ``{param}`` placeholders in a string, then unescape doubled braces.
 
-    Substitutes keys like ``{team}`` from trigger params.
-    Unresolved placeholders are left as-is. Only identifier-shaped keys are
-    substituted: a key such as ``2,40`` would otherwise rewrite a regex
-    quantifier ``{2,40}`` in stage text (defence in depth behind
-    ``enforce_param_rules``, which rejects undeclared keys outright).
+    Two-pass processing:
+    1. Substitute identifier-shaped keys (e.g. ``{team}`` → trigger-param value).
+       Non-identifier keys like ``2,40`` are skipped to avoid rewriting regex
+       quantifiers (defence in depth behind ``enforce_param_rules``).
+    2. Unescape doubled braces: ``{{`` → ``{`` and ``}}`` → ``}``, following
+       ``str.format``-style escaping. ``{{{{`` → ``{{``, ``}}}}`` → ``}}``, etc.
+       Unresolved single-brace placeholders (unknown params) are left as-is.
     """
     result = template
     for key, value in params.items():
         if is_identifier(key):
             result = result.replace(f"{{{key}}}", value)
+    result = result.replace("{{", "\x00OPEN\x00").replace("}}", "\x00CLOSE\x00")
+    result = result.replace("\x00OPEN\x00", "{").replace("\x00CLOSE\x00", "}")
     return result
 
 

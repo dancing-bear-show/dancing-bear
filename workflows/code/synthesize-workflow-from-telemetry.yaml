@@ -223,7 +223,7 @@ stages:
         - Every `reads_from` entry must be transitively reachable via
           `depends_on`
         - No hardcoded absolute paths
-        - Escape `{` and `}` as `{{` and `}}` in any Python snippets
+        - Escape `{` and `}` as `{{{{` and `}}}}` in any Python snippets
 
       Choose a filename under workflows/ that matches the pattern's domain
       (e.g. workflows/code/, workflows/mail/, workflows/shared/ if it's

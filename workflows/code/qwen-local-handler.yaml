@@ -2704,12 +2704,12 @@ stages:
       Write {workspace}/validation/config-validation.json:
         {
           "checks": [
-            {"check": "daemon_concurrency",  "passed": true|false, "blocking": true|false, "detail": "...", "observed": {"max_per_tick": N, "max_inflight": N, "lock_implemented": true|false}},
+            {{"check": "daemon_concurrency",  "passed": true|false, "blocking": true|false, "detail": "...", "observed": {{"max_per_tick": N, "max_inflight": N, "lock_implemented": true|false}}}},
             {"check": "lock_path_usable",    "passed": true|false, "blocking": true|false, "detail": "...", "path": "...", "inside_repo": true|false},
             {"check": "no_stale_lock",       "passed": true|false, "blocking": false,      "detail": "...", "lock_present": true|false, "holder_pid_alive": true|false|null},
             {"check": "memory_headroom",     "passed": true|false, "blocking": true|false, "detail": "...", "available_gb": N, "required_gb": N},
             {"check": "timeout_coherent",    "passed": true|false, "blocking": true|false, "detail": "...", "job_timeout_passed": true|false, "design_route": "..."},
-            {"check": "guards_present",      "passed": true|false, "blocking": true|false, "detail": "...", "found": {"input_confinement": true|false, "patch_caps": true|false, "redaction": true|false, "disk_guard": true|false, "explain_mode": true|false, "deferral_counter": true|false, "admission": "handler-side|operator-limit|follow-up|MISSING"}},
+            {{"check": "guards_present",      "passed": true|false, "blocking": true|false, "detail": "...", "found": {{"input_confinement": true|false, "patch_caps": true|false, "redaction": true|false, "disk_guard": true|false, "explain_mode": true|false, "deferral_counter": true|false, "admission": "handler-side|operator-limit|follow-up|MISSING"}}}},
             {"check": "guards_wired",        "passed": true|false, "blocking": true|false, "detail": "...", "probes": [{"probe": "nonexistent-path-outside-allowlist", "expected": "terminal confinement string", "observed": "...", "ordering_correct": true|false}, {"probe": "allowed-existing-file", "expected": "success", "observed": "..."}]},
             {"check": "model_digest",        "passed": true|false, "blocking": false,      "detail": "...", "recorded": "...", "observed": "...", "matches": true|false},
             {"check": "patch_output_dir",    "passed": true|false, "blocking": true|false, "detail": "...", "path": "...", "inside_repo": true|false, "writable": true|false, "free_gb": N},

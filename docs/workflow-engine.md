@@ -282,7 +282,21 @@ Other kinds route through `_header()`, which emits `description` under a
 `## Task` heading. `_validate()` never calls `_header()`. If the instruction does
 not fit as criteria, use `kind: execute`.
 
-### 2. `writes_to` gets no `{param}` substitution
+### 2. Brace escaping in stage descriptions
+
+Stage `description` fields are processed by `resolve_params` at compile time.
+After trigger-param substitution, doubled braces are unescaped: `{{` → `{` and
+`}}` → `}` (str.format-style). Use `{{` and `}}` for literal JSON braces in
+examples. To produce a literal `{{` or `}}` in the rendered agent prompt, write
+`{{{{` or `}}}}` in the YAML.
+
+Unknown `{name}` placeholders (no matching trigger param) are left as-is.
+
+Validation criteria undergo the same substitution and unescape. When a criterion
+contains a `|`-separated trigger-param value, the criterion is split into one
+entry per `|`-delimited item (whitespace stripped, empty items dropped).
+
+### 3. `writes_to` gets no `{param}` substitution
 
 `description` gets trigger-param substitution. `writes_to` does not:
 `_write_paths()` (`src/workflow/dispatch.py:115`) consumes `stage.spec.writes_to`
