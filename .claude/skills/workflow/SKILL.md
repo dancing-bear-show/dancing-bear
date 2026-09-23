@@ -290,11 +290,15 @@ result_file = f"{workspace}/stages/{index:03d}-{stage_name}.json"
 
 A fan-out stage has no single result file of its own until you write one.
 Each item writes `{index:03d}-{stage_name}-{position}.json` (see Fan-Out
-Stages). Treat the stage as complete only when the stage-level file above
-exists with `"success"` — write it yourself once every item has finished — or
-when every item's per-position file exists with `"success"`. Checking only the
-unsuffixed path reports a finished fan-out as never run, and re-spawns all of
-it.
+Stages). The stage is complete when the stage-level file above exists with
+`"success"`. If it is missing but every item's per-position file exists with
+`"success"` — a run interrupted after the items finished — write the
+stage-level file from those results FIRST, then treat the stage as complete.
+Never skip it on the per-position files alone: downstream `reads_from`, status
+and resume all read the unsuffixed file, so a stage marked done without one
+leaves every later stage looking at nothing. Checking only the unsuffixed path
+without this recovery reports a finished fan-out as never run and re-spawns
+all of it.
 
 **Parallel group:** Spawn one background agent per incomplete stage in the same
 message so they run concurrently.
@@ -844,9 +848,15 @@ If a stage has `fan_out` defined, check `fan_out.mode`:
    ```
 4. All fan-out agents run in parallel (same group).
 5. Collect all results (one Monitor per agent) before advancing. Wait on each
-   item's own file, `{workspace}/stages/{index:03d}-{stage_name}-{position}.json`
+   item's own STAGE RESULT, `{workspace}/stages/{index:03d}-{stage_name}-{position}.json`
    — the unsuffixed path in 2c's Monitor template never appears for a
-   fan-out, so waiting on it hangs until timeout.
+   fan-out, so waiting on it hangs until timeout. That stage result is the
+   completion signal every fan-out agent writes: the engine puts it in each
+   item's Completion section. It is separate from whatever the stage produces
+   as OUTPUT — `review-fix-threads`' `fix-threads`, for example, writes its
+   work to `outputs/fixes/<file_id>.json`, and `fix-aggregate` reads those.
+   Wait on the stage result for completion; let the next stage read the
+   outputs where its own contract says they are.
 6. Once every item has finished, write the stage-level
    `{workspace}/stages/{index:03d}-{stage_name}.json` summarising them, so
    resume and downstream `reads_from` see one result for the stage.
