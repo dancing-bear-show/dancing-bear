@@ -347,6 +347,180 @@ class TestBuildDispatchInstruction(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
+class TestWorkspacePlaceholderResolved(unittest.TestCase):
+    """``{workspace}`` in stage text must reach the agent as the real path.
+
+    Trigger params are resolved at compile time; the workspace is not known
+    until dispatch. Before this was resolved here, the Task body said
+    ``{workspace}/outputs/x`` while the generated sections named the absolute
+    path, and the agent had to guess the two were the same directory.
+    """
+
+    def _render(self, stage_kind: StageKind = StageKind.execute, **overrides: object) -> tuple[str, str]:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spec = make_stage_spec(name="s", kind=stage_kind, **overrides)
+            prompt = build_agent_prompt(make_resolved_stage(spec=spec, index=1), "wf", tmp_dir)
+            return prompt, str(Path(tmp_dir).resolve())
+
+    def test_description_workspace_is_resolved(self) -> None:
+        prompt, ws = self._render(description="Read {workspace}/outputs/threads.json first.")
+        self.assertIn(f"Read {ws}/outputs/threads.json first.", prompt)
+        self.assertNotIn("{workspace}", prompt)
+
+    def test_isolated_stage_gets_the_shared_path(self) -> None:
+        """In an isolated stage, {workspace} names the tree it must NOT write."""
+        from workflow.models import AgentSpec
+
+        prompt, ws = self._render(
+            description="Do NOT write {workspace}/outputs/.",
+            agent=AgentSpec(role="code-writer", isolation="worktree"),
+        )
+        self.assertIn(f"Do NOT write {ws}/outputs/.", prompt)
+        self.assertNotIn("{workspace}", prompt)
+
+    def test_validate_criteria_and_rules_are_resolved(self) -> None:
+        spec = make_validation_spec(
+            criteria=("{workspace}/outputs/a.json exists",),
+            domain_rules=(make_domain_rule(
+                description="count rows in {workspace}/outputs/a.json",
+                source_cmd="wc -l {workspace}/outputs/a.json",
+            ),),
+        )
+        prompt, ws = self._render(stage_kind=StageKind.validate, validation=spec)
+        self.assertIn(f"{ws}/outputs/a.json exists", prompt)
+        self.assertIn(f"wc -l {ws}/outputs/a.json", prompt)
+        self.assertNotIn("{workspace}", prompt)
+
+    def test_review_fix_threads_renders_no_literal_workspace(self) -> None:
+        """The workflow whose dry run exposed this: 61 literal tokens before."""
+        from workflow.compiler import compile_workflow
+        from workflow.parser import parse_workflow
+
+        root = Path(__file__).resolve().parents[2]
+        defn = parse_workflow(str(root / "workflows/code/review-fix-threads.yaml"))
+        manifest = compile_workflow(defn, project_root=root, trigger_params={"pr_number": "405"})
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            for name, stage in manifest.resolved_stages.items():
+                with self.subTest(stage=name):
+                    prompt = build_agent_prompt(stage, defn.name, tmp_dir)
+                    self.assertNotIn("{workspace}", prompt)
+
+
+class TestFanOutPrompt(unittest.TestCase):
+    """One rendered prompt serves every fan-out item; it must say so."""
+
+    def _render(self, mode: str = "agent") -> str:
+        from workflow.models import FanOutSpec
+
+        spec = make_stage_spec(
+            name="fix",
+            kind=StageKind.execute,
+            description="Fix group {index}.",
+            fan_out=FanOutSpec(source="dispatch", field="items", key="index", mode=mode),
+        )
+        return build_agent_prompt(make_resolved_stage(spec=spec, index=5), "wf", "/ws")
+
+    def test_explains_the_per_item_placeholder(self) -> None:
+        prompt = self._render()
+        self.assertIn("## Fan-out", prompt)
+        self.assertIn("one agent per element of `items` in the `dispatch` stage", prompt)
+
+    def test_result_path_is_per_item(self) -> None:
+        """Without the suffix every item's agent writes the same result file."""
+        prompt = self._render()
+        self.assertIn("/stages/005-fix-{fan_out_index}.json", prompt)
+        self.assertNotIn("/stages/005-fix.json", prompt)
+
+    def test_note_survives_orchestrator_substitution(self) -> None:
+        """After both substitutions the note must not claim a placeholder is left."""
+        rendered = self._render().replace("{index}", "3").replace("{fan_out_index}", "3")
+        self.assertIn("Fix group 3.", rendered)
+        self.assertIn("/stages/005-fix-3.json", rendered)
+        self.assertNotIn("{index}", rendered)
+        self.assertNotIn("{fan_out_index}", rendered)
+
+    def test_untrusted_key_value_never_reaches_the_result_path(self) -> None:
+        """PR #406 review: the key value is prior-stage JSON and may hold '../'.
+
+        Substituting a hostile value for the key must leave the result path
+        untouched; only the position placeholder numbers it.
+        """
+        from workflow.models import FanOutSpec
+
+        spec = make_stage_spec(
+            name="fix", kind=StageKind.execute, description="Fix {service}.",
+            fan_out=FanOutSpec(source="dispatch", field="items", key="service"),
+        )
+        prompt = build_agent_prompt(make_resolved_stage(spec=spec, index=5), "wf", "/ws")
+        rendered = prompt.replace("{service}", "../../etc").replace("{fan_out_index}", "0")
+        self.assertIn("Fix ../../etc.", rendered)
+        self.assertIn("/ws/stages/005-fix-0.json", rendered)
+        self.assertNotIn("stages/005-fix-../", rendered)
+
+    def test_worker_queue_fan_out_gets_no_agent_note(self) -> None:
+        prompt = self._render(mode="worker_queue")
+        self.assertNotIn("## Fan-out", prompt)
+        self.assertIn("/stages/005-fix.json", prompt)
+
+    def test_fan_out_note_explains_position_numbering(self) -> None:
+        prompt = self._render()
+        self.assertIn("not a trusted filename", prompt)
+        self.assertIn("zero-based position in `items`", prompt)
+
+    def test_plain_stage_has_no_fan_out_section(self) -> None:
+        spec = make_stage_spec(name="plain", kind=StageKind.execute)
+        prompt = build_agent_prompt(make_resolved_stage(spec=spec, index=2), "wf", "/ws")
+        self.assertNotIn("## Fan-out", prompt)
+        self.assertIn("/stages/002-plain.json", prompt)
+
+
+class TestFanOutReservedKeys(unittest.TestCase):
+    """PR #406 review: a fan_out.key equal to a dispatch placeholder name lets
+    the untrusted item value overwrite that placeholder everywhere it is
+    substituted, including the per-item result path.
+    """
+
+    def _spec(self, key: str) -> object:
+        from workflow.models import FanOutSpec
+
+        return make_stage_spec(
+            name="fix",
+            kind=StageKind.execute,
+            description="Fix {" + key + "}.",
+            fan_out=FanOutSpec(source="dispatch", field="items", key=key),
+        )
+
+    def test_key_fan_out_index_is_rejected(self) -> None:
+        """'fan_out_index' collides with the per-item result-path placeholder."""
+        spec = self._spec("fan_out_index")
+        with self.assertRaises(ValueError) as ctx:
+            build_agent_prompt(make_resolved_stage(spec=spec, index=5), "wf", "/ws")
+        self.assertIn("fan_out_index", str(ctx.exception))
+        self.assertIn("fix", str(ctx.exception))
+
+    def test_key_workspace_is_rejected(self) -> None:
+        """'workspace' collides with the {workspace} placeholder _resolve_ws fills."""
+        spec = self._spec("workspace")
+        with self.assertRaises(ValueError) as ctx:
+            build_agent_prompt(make_resolved_stage(spec=spec, index=5), "wf", "/ws")
+        self.assertIn("workspace", str(ctx.exception))
+
+    def test_empty_key_is_rejected(self) -> None:
+        """PR #406 round 13: an empty key read as "no fan-out" to the
+        result-path suffix, so every item shared one completion file."""
+        for key in ("", "  "):
+            with self.subTest(key=key):
+                with self.assertRaisesRegex(ValueError, "fan_out.key must be a non-empty name"):
+                    build_agent_prompt(make_resolved_stage(spec=self._spec(key), index=5), "wf", "/ws")
+
+    def test_ordinary_key_still_builds_a_prompt(self) -> None:
+        """Happy path: a non-reserved key renders normally, unaffected."""
+        spec = self._spec("service")
+        prompt = build_agent_prompt(make_resolved_stage(spec=spec, index=5), "wf", "/ws")
+        self.assertIn("Fix {service}.", prompt)
+        self.assertIn("/stages/005-fix-{fan_out_index}.json", prompt)
+
+
 class TestBuildGroupDispatch(unittest.TestCase):
     def test_returns_list_of_dicts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -371,6 +545,19 @@ class TestBuildGroupDispatch(unittest.TestCase):
             result = build_group_dispatch(group, resolved_stages, "test-workflow", tmp_dir)
             for item in result:
                 self.assertIn("prompt", item)
+
+
+class TestSkillFanOutSummaryPropagatesFailure(unittest.TestCase):
+    """PR #406 round 6: the orchestrator writes a failed per-position result
+    for an unsafe fan-out key, but the skill's summary step never said the
+    stage-level result must then be failed, so downstream stages could run."""
+
+    def test_stage_summary_fails_when_any_item_failed(self) -> None:
+        skill = Path(__file__).resolve().parents[2] / ".claude/skills/workflow/SKILL.md"
+        text = " ".join(skill.read_text(encoding="utf-8").split())
+        self.assertIn('Its `status` is `"success"` only when EVERY per-position result is `"success"`', text)
+        self.assertIn('write `"status": "failed"` and list each failed position in `errors`', text)
+        self.assertIn("never write a successful summary over a failed item", text)
 
 
 if __name__ == "__main__":

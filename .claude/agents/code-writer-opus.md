@@ -21,7 +21,7 @@ You are a code implementation agent for dancing-bear. Use this agent when the ta
 ## After Making Changes
 
 - Run domain tests: `PYTHONPATH="$PWD/src" python3 -m unittest discover tests/<domain>_tests/ -v`
-  Never bare `python3 -m unittest` — in a worktree an inherited PYTHONPATH resolves
+  Never a bare unittest run — in a worktree an inherited PYTHONPATH resolves
   imports to the **main checkout**, so tests pass against unmodified code.
 - Run full suite: `make test`
 - Lint: `make lint`

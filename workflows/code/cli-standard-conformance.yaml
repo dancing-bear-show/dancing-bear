@@ -223,7 +223,7 @@ stages:
         the BYTE-IDENTICAL script rather than a reimplementation.
 
       Step 5 — sanity-check the result.
-        An audit reporting zero violations across 18 apps is far more likely to
+        An audit reporting zero violations across 19 apps is far more likely to
         be a broken audit than a conformant repo.
 
         These are SHAPE checks, not fixed expected values. Do NOT "correct" the

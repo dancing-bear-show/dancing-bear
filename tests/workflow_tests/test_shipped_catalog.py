@@ -170,6 +170,7 @@ _NEGATIVE_COMMIT_RE = re.compile(
 # stale one, so this table cannot silently fall out of step with the catalog.
 _REQUIRED_PARAM_SAMPLES: dict[tuple[str, str], str] = {
     ("workflows/code/review-fix-threads.yaml", "pr_number"): "391",
+    ("workflows/code/optimize-code.yaml", "domain_slug"): "src-mail",
 }
 
 

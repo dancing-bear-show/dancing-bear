@@ -49,7 +49,7 @@ CLI help:
 | WhatsApp | `./bin/whatsapp` | Local-only ChatStorage search |
 | WiFi | `./bin/wifi` | Diagnostics |
 | Apple Music | `./bin/apple-music-assistant` | Playlist management |
-| Desk | `python3 -m desk` | macOS filesystem tidying (no `bin/desk`) |
+| Desk | `./bin/desk` | macOS filesystem tidying |
 | Maker | `./bin/maker` | Utility generators |
 | Charts | `./bin/charts` | Render time-series charts from JSON |
 | Diagrams | `./bin/diagrams` | Mermaid diagram generation |
@@ -328,10 +328,10 @@ bcsphone = 00008150-000578D421D8401C
 ## Desk (macOS)
 
 ```bash
-python3 -m desk scan --paths ~/Downloads --out scan.yaml
-python3 -m desk plan --config rules.yaml --out plan.yaml
-python3 -m desk apply --plan plan.yaml --dry-run
-python3 -m desk rules list
+./bin/desk scan --paths ~/Downloads --out scan.yaml
+./bin/desk plan --config rules.yaml --out plan.yaml
+./bin/desk apply --plan plan.yaml --dry-run
+./bin/desk rules list
 ```
 
 ## Apple Music
@@ -391,7 +391,7 @@ src/
   phone/        iOS layout tooling
   whatsapp/     local-only ChatStorage search
   wifi/         diagnostics
-  desk/         macOS filesystem tidying (no bin/ wrapper; run python3 -m desk)
+  desk/         macOS filesystem tidying
   apple_music/  Apple Music API
   maker/        utility generators
   charts/       time-series chart rendering (line/bar/area/dual)

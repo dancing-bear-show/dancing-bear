@@ -30,9 +30,9 @@ trigger:
   source: manual
   params:
     pr_title: ""          # Required: conventional-commit title e.g. "feat(mail): add label sync"
-    test_cmd: ""          # Optional: override test command e.g. 'PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/mail/ -t . -q'
-    source_root: ""       # Source directory to scope mypy + qlty e.g. "mail/"
-    test_path: ""         # Test directory path e.g. "tests/mail/" (used when test_cmd is empty)
+    test_cmd: ""          # Optional: override test command e.g. 'PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/mail_tests/ -t . -q'
+    source_root: ""       # Source directory to scope mypy + qlty e.g. "src/mail/"
+    test_path: ""         # Test directory path e.g. "tests/mail_tests/" (used when test_cmd is empty)
     min_coverage: "80"    # Minimum coverage threshold (percent)
     auth_domains: "github,qlty"  # Comma-separated services for pre-flight auth check
 

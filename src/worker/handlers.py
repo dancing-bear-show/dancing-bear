@@ -449,3 +449,8 @@ def handle_workflow_stage(job: dict[str, object]) -> tuple[bool, object]:
 
 
 REGISTRY["workflow_stage"] = handle_workflow_stage
+
+# qwen_patch: local Ollama-backed code-patch generation (src/worker/qwen.py).
+from worker.qwen import handle_qwen_patch  # noqa: E402 - registered after REGISTRY exists
+
+REGISTRY["qwen_patch"] = handle_qwen_patch

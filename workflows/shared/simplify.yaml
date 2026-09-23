@@ -9,8 +9,8 @@
 # Stage injected: {prefix}-simplify
 #
 # Caller must set trigger.params:
-#   test_path  — e.g. "tests/workflow/"  (used in the no-test-run reminder)
-#   test_cmd   — e.g. "pytest tests/workflow/ -x -q"  (named for context only;
+#   test_path  — e.g. "tests/workflow_tests/"  (used in the no-test-run reminder)
+#   test_cmd   — e.g. 'PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests/workflow_tests -t . -q'  (named for context only;
 #                the verify stage that follows this one owns the actual test run)
 #
 # Output: {workspace}/validation/simplify-notes.md

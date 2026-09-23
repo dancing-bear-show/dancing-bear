@@ -23,27 +23,28 @@ corrections, and rechecks.
 **IMPORTANT**: Use the `/workflow` skill — do NOT call `./bin/workflow run --execute` directly. It only writes dispatch files and exits (status=pending). The `/workflow` skill is what actually spawns agents, waits for results, and handles human gates.
 
 ```python
-Skill(skill="workflow", args="--workflow workflows/code/optimize-code.yaml --params source_root=<domain>/ --params test_path=tests/<domain>/")
+Skill(skill="workflow", args="--workflow workflows/code/optimize-code.yaml --params source_root=src/<domain>/ --params test_path=tests/<domain>_tests/ --params domain_slug=src-<domain>")
 ```
 
 With a PR number (scopes changed-files detection to that PR):
 
 ```python
-Skill(skill="workflow", args="--workflow workflows/code/optimize-code.yaml --params pr_number=314 --params source_root=<domain>/ --params test_path=tests/<domain>/")
+Skill(skill="workflow", args="--workflow workflows/code/optimize-code.yaml --params pr_number=314 --params source_root=src/<domain>/ --params test_path=tests/<domain>_tests/ --params domain_slug=src-<domain>")
 ```
 
 Skip specific checks:
 
 ```python
-Skill(skill="workflow", args="--workflow workflows/code/optimize-code.yaml --params source_root=<domain>/ --params test_path=tests/<domain>/ --params skip_checks=coverage,security")
+Skill(skill="workflow", args="--workflow workflows/code/optimize-code.yaml --params source_root=src/<domain>/ --params test_path=tests/<domain>_tests/ --params domain_slug=src-<domain> --params skip_checks=coverage,security")
 ```
 
 ## Workflow Params
 
 | Param | Default | Description |
 |-------|---------|-------------|
-| `source_root` | `""` | Path prefix for changed source files, e.g. `workflow/` |
-| `test_path` | `""` | Test directory to run, e.g. `tests/workflow/` |
+| `source_root` | `""` | Path prefix for changed source files, e.g. `src/workflow/` |
+| `test_path` | `""` | Test directory to run, e.g. `tests/workflow_tests/` |
+| `domain_slug` | `""` | Required: `source_root` with `/` replaced by `-`, e.g. `src-workflow`; keeps each domain's workspace separate |
 | `pr_number` | `""` | Optional PR number — scopes file detection to that PR's diff |
 | `skip_checks` | `""` | Comma-separated checks to skip: `reuse,complexity,coverage,security,arch` |
 | `auth_domains` | `github,qlty` | Auth pre-flight domains |

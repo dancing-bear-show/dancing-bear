@@ -9,8 +9,8 @@
 # Stage injected: {prefix}-validate-code
 #
 # Caller must set trigger.params:
-#   source_root   — e.g. "workflow/"
-#   test_path     — e.g. "tests/workflow/"
+#   source_root   — e.g. "src/workflow/"
+#   test_path     — e.g. "tests/workflow_tests/"
 #
 # Optional trigger.params:
 #   extra_checks  — additional domain-specific rules appended to the

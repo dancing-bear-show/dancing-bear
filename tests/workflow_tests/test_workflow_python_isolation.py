@@ -1,4 +1,4 @@
-"""Shipped workflows must not start an unisolated ``python -c``/``-m`` interpreter.
+"""Workflows, agents and skills must not start an unisolated ``python -c``/``-m``.
 
 Python imports ``sitecustomize`` from every ``PYTHONPATH`` entry during
 startup, before the ``-c`` body or ``-m`` module runs. A workflow agent
@@ -29,6 +29,12 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS_DIR = REPO_ROOT / "workflows"
+# Agent definitions and skills are instructions agents act on, like stage
+# prompts. .claude/hooks is deliberately absent: its test suites feed the guard
+# hooks interpreter commands as BLOCK/ALLOW fixtures, and its comments describe
+# interpreters as a class. tests/infra/test_check_pythonpath_hook.py covers the
+# hooks' own interpreter use.
+AGENT_DOC_DIRS = (REPO_ROOT / ".claude" / "agents", REPO_ROOT / ".claude" / "skills")
 
 # An interpreter — a literal python/python3 (optionally .venv/bin/) or a shell
 # variable naming one ($PY, "${PYTHON}") — then its flags, then -c or -m as a
@@ -114,21 +120,32 @@ class TestScanner(unittest.TestCase):
         self.assertEqual(unisolated_invocations('a\nb\n  python3 -c "x"\n'), [3])
 
 
+def _offenders(paths: list[Path]) -> list[str]:
+    return [
+        f"{p.relative_to(REPO_ROOT)}:{n}"
+        for p in paths
+        for n in unisolated_invocations(p.read_text(encoding="utf-8"))
+    ]
+
+
+_FIX_HINT = (
+    "use python3 -I -S (stdlib only), -I (needs site-packages), or a "
+    'PYTHONPATH="$PWD/src" prefix (imports this checkout)'
+)
+
+
 class TestShippedWorkflows(unittest.TestCase):
     def test_no_unisolated_python_c_or_m(self):
         paths = sorted(WORKFLOWS_DIR.rglob("*.yaml"))
         self.assertGreater(len(paths), 50, "workflow catalog not found")
-        offenders = [
-            f"{p.relative_to(REPO_ROOT)}:{n}"
-            for p in paths
-            for n in unisolated_invocations(p.read_text(encoding="utf-8"))
-        ]
-        self.assertEqual(
-            offenders,
-            [],
-            "use python3 -I -S (stdlib only), -I (needs site-packages), or a "
-            'PYTHONPATH="$PWD/src" prefix (imports this checkout)',
-        )
+        self.assertEqual(_offenders(paths), [], _FIX_HINT)
+
+
+class TestAgentAndSkillDocs(unittest.TestCase):
+    def test_no_unisolated_python_c_or_m(self):
+        paths = sorted(p for d in AGENT_DOC_DIRS for p in d.rglob("*.md"))
+        self.assertGreater(len(paths), 20, "agent/skill docs not found")
+        self.assertEqual(_offenders(paths), [], _FIX_HINT)
 
 
 if __name__ == "__main__":

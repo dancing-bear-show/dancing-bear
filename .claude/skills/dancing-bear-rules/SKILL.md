@@ -7,7 +7,7 @@ description: Shared project rules for all dancing-bear agents. Covers CLI conven
 
 ## 1. Bin Wrappers First
 
-Always use `./bin/<tool>` wrappers, never `python -m` directly:
+Always use `./bin/<tool>` wrappers, never module execution (`-m`) directly:
 ```
 ./bin/mail <subcommand> [flags]
 ./bin/calendar <subcommand> [flags]
@@ -54,7 +54,7 @@ Never mutate state without first staging and previewing:
 
 ## 7. Testing
 
-- Framework: `unittest` (not pytest); run with `make test` — never bare `python3 -m unittest` in a worktree (inherited `PYTHONPATH` resolves imports to the main checkout and yields false greens). Fallback: `PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests -t .`
+- Framework: `unittest` (not pytest); run with `make test` — never a bare unittest run in a worktree (inherited `PYTHONPATH` resolves imports to the main checkout and yields false greens). Fallback: `PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests -t .`
 - Coverage: `make cov` (or `make cov-html`)
 - Patch where the name is **used**, not where it's **defined**
 - Use factories/fakes from `tests/fakes/`; never construct API response dicts manually
@@ -83,7 +83,7 @@ For CLI schemas (prefer over `--help`):
 
 Always pass `--compact`. On `./bin/llm agentic` the uncompacted form is 38KB — it
 inlines CONTEXT.md, MIGRATION_STATE.md, PATTERNS.md and AGENTS.md — versus 2KB
-compact for the same CLI schema. All 18 apps support `--agentic`; run
+compact for the same CLI schema. All 19 apps support `--agentic`; run
 `./bin/llm inventory --stdout` for the exact invocation of each.
 
 Flag asymmetry to know before you type it: `--compact` exists **only** on the

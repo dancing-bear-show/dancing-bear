@@ -55,7 +55,7 @@ Run these checks manually:
 
 ```bash
 # Extract trigger.params from a workflow
-python3 -c "
+python3 -I -c "
 import yaml
 d = yaml.safe_load(open('workflows/code/code-review.yaml'))
 print('\n'.join((d.get('trigger') or {}).get('params', {})))
@@ -64,7 +64,7 @@ print('\n'.join((d.get('trigger') or {}).get('params', {})))
 # List all stage names after fragment expansion (compiled DAG).
 # Stage names live under groups[].stages as comma-joined strings — a bare
 # `grep name:` would match the workflow name and warning keys instead.
-./bin/workflow compile workflows/code/code-review.yaml --format yaml 2>/dev/null | python3 -c "
+./bin/workflow compile workflows/code/code-review.yaml --format yaml 2>/dev/null | python3 -I -c "
 import sys, yaml
 d = yaml.safe_load(sys.stdin)
 for g in d.get('groups', []):
@@ -107,7 +107,7 @@ For each skill that calls `./bin/workflow run`:
 ```bash
 diff \
   <(grep -oE '\-\-params [a-z_]+' .claude/skills/code-review/SKILL.md | awk '{print $2}' | sort -u) \
-  <(python3 -c "
+  <(python3 -I -c "
 import yaml
 d = yaml.safe_load(open('workflows/code/code-review.yaml'))
 print('\n'.join((d.get('trigger') or {}).get('params', {})))
@@ -123,7 +123,7 @@ For each skill that lists stage names in a table or prose:
 
 ```bash
 # Get compiled stage list
-./bin/workflow compile workflows/code/code-review.yaml --format yaml 2>/dev/null | python3 -c "
+./bin/workflow compile workflows/code/code-review.yaml --format yaml 2>/dev/null | python3 -I -c "
 import sys, yaml
 d = yaml.safe_load(sys.stdin)
 for g in d.get('groups', []):

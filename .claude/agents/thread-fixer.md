@@ -74,7 +74,7 @@ report `action: "moot"` rather than inventing a fix.
 5. If the fix changes behaviour, cover it. See below.
 6. Run the narrowest test that exercises your change:
    `PYTHONPATH="$PWD/src" python3 -m unittest tests.<module> -f -q`
-   Never bare `python3 -m unittest` without PYTHONPATH — in a worktree an
+   Never run unittest without that PYTHONPATH — in a worktree an
    inherited PYTHONPATH resolves imports to the *main* checkout and your change
    is not what ran. A green result from the wrong tree is worse than a red one.
 7. Do **not** run a repo-wide lint or `--fix` pass. Other fixer agents are
@@ -113,7 +113,7 @@ Write your result JSON to the path given in your prompt, which is named
   "path": "src/resume/docx_sidebar_sections.py",
   "action": "fixed|rejected|moot|deferred",
   "summary": "one sentence: what you changed, or why you did not",
-  "files_changed": ["src/resume/docx_sidebar_sections.py"],
+  "files_changed": ["src/resume/docx_sidebar_sections.py", "tests/resume_tests/test_x.py"],
   "tests_added": ["tests/resume_tests/test_x.py::test_rejects_bool_width"],
   "happy_path_covered": true,
   "sad_path_covered": true,
@@ -127,6 +127,13 @@ Write your result JSON to the path given in your prompt, which is named
   "error": null
 }
 ```
+
+`files_changed` lists EVERY file you edited or created, test files included,
+as repo-relative paths. `tests_added` holds test ids in `path::Class::method`
+form. Aggregation adds each id's file as a backstop, but a dotted id
+(`tests.x.test_y`) cannot be mapped to a path. The commit stage stages exactly
+the reported files and refuses the whole run if the tree holds an edit that
+no result lists.
 
 Copy `id` and `thread_id` verbatim from your fix-index item, `null` included.
 `id` is how aggregation matches your result back to its finding: the aggregator

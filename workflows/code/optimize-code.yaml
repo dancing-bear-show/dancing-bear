@@ -39,8 +39,8 @@ metadata:
 trigger:
   source: manual
   params:
-    source_root: ""     # e.g. "workflow/"
-    test_path: ""       # e.g. "tests/workflow/"
+    source_root: ""     # e.g. "src/workflow/"
+    test_path: ""       # e.g. "tests/workflow_tests/"
     scope: "changed"    # changed = files differing from origin/main (or {pr_number});
                         # domain  = every .py under {source_root} + {test_path}
     domain_slug: ""     # required: {source_root} with "/" replaced by "-" (e.g. "src-mail").
@@ -49,6 +49,13 @@ trigger:
                         # is rejected by scan-changed-files rather than silently ignored
     skip_checks: ""     # optional — comma-separated: reuse,complexity,coverage,security,arch
     auth_domains: "github"
+  # domain_slug is interpolated into workspace_dir, so the engine must reject it
+  # at compile time — before any workspace exists. A blank slug made every
+  # domain resolve to optimize-code-{scope}--{pr_number}, so two runs shared and
+  # overwrote one workspace; a "/" or ".." would escape the flat run directory.
+  param_rules:
+    domain_slug: '[a-z0-9][a-z0-9_-]{0,63}'
+  required: [domain_slug]
 
 # {source_root} is NOT interpolated here: it contains a "/" (e.g. "src/mail"), which
 # would split the workspace into a spurious nested directory rather than one flat run

@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +43,29 @@ from workflow.param_guard import load_params
 #: character rules out ``.``/``..``/hidden names and a leading ``-`` read as an
 #: option. Do not widen it into a denylist.
 FILE_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}")
+
+#: Allowlist for one ``/``-separated segment of a repo-relative path bound
+#: for ``files_changed`` -- both a fixer's reported files_changed entries and
+#: the path half of a ``tests_added`` id (before ``::``), which fix-aggregate
+#: folds into files_changed in :func:`_test_file_of` below. See
+#: :func:`_is_safe_repo_path`, which applies this to both. files_changed is
+#: staged with commit-and-push's ``git add <file1> <file2> ...`` and
+#: ``./bin/workflow check-paths <file1> <file2> ...`` -- both LLM agent stages
+#: that interpolate the path into shell command text, not a sandboxed argv
+#: array. A fixer/LLM-authored value such as ``tests/$(...)\.py`` or
+#: ``a.py; rm -rf /`` would otherwise reach that text unchanged, ahead of
+#: check-paths, which only runs once this list is already built into that
+#: text. Only plain relative POSIX path characters are accepted per segment
+#: (alphanumeric, ``.``, ``_``, ``-``); no ``\``, quotes, ``$``, backticks,
+#: parens, semicolons, or whitespace. A leading ``.`` is allowed so dotdirs
+#: like ``.claude``/``.github`` still reach files_changed and get refused
+#: downstream by check-paths -- a leading ``-`` is rejected so a segment can
+#: never be read as a flag, and a segment of exactly ``.`` or ``..`` is
+#: rejected separately, below, to block traversal. A rejected value is
+#: dropped, the same outcome as a non-path-shaped tests_added id --
+#: commit-and-push's unlisted-edit check (Step 3b) is what catches a file
+#: that reaches the tree without going through this path.
+_TEST_PATH_SEGMENT = re.compile(r"(?!-)[A-Za-z0-9._-]+")
 
 DISCRIMINATOR_DATABASE_ID = "database_id"
 DISCRIMINATOR_FINGERPRINT = "fingerprint"
@@ -389,28 +412,36 @@ class _Expected:
     id: str
     file_id: str
     thread_id: object
+    scope: str | None = None
 
 
 @dataclass(frozen=True)
 class FixResults:
-    """The fix-results.json document fix-aggregate writes."""
+    """The fix-results.json document fix-aggregate writes.
+
+    ``scopes`` maps each finding id to the one source file its fixer was
+    dispatched to (None when it had none).
+    """
 
     total_expected: int
     results: tuple[dict[str, Any], ...]
     missing_results: tuple[str, ...]
     key_mismatches: tuple[dict[str, Any], ...]
+    scopes: dict[str, str | None] = field(default_factory=dict)
 
     def to_json(self) -> dict[str, Any]:
         by_action = dict.fromkeys(_KNOWN_ACTIONS, 0)
         for result in self.results:
             action = str(result.get("action"))
             by_action[action] = by_action.get(action, 0) + 1
+        files_changed, out_of_scope = _files_changed(self.results, self.scopes)
         return {
             "total_expected": self.total_expected,
             "total_results": len(self.results),
             "by_action": by_action,
-            "files_changed": _union_of(self.results, "files_changed"),
-            "tests_added": _union_of(self.results, "tests_added"),
+            "files_changed": files_changed,
+            "out_of_scope_paths": out_of_scope,
+            **_validated_tests(self.results),
             "missing_results": list(self.missing_results),
             "failed_tests": [_failed_test(r) for r in self.results if _is_unproven_fix(r)],
             "key_mismatches": list(self.key_mismatches),
@@ -426,6 +457,153 @@ def _union_of(results: tuple[dict[str, Any], ...], field_name: str) -> list[str]
         if isinstance(items, list):
             values.update(item for item in items if isinstance(item, str))
     return sorted(values)
+
+
+def _is_safe_repo_path(path: str) -> bool:
+    """True when every ``/``-separated segment of ``path`` is shell-safe.
+
+    The same contract ``_test_file_of`` applies to a tests_added id's path
+    half: every segment must match ``_TEST_PATH_SEGMENT`` (alphanumeric,
+    ``.``, ``_``, ``-``, no leading ``-``) and not be exactly ``.`` or
+    ``..``, which rejects traversal and every shell metacharacter (``$``,
+    backticks, parens, quotes, ``;``, whitespace, ``\\``) before the value
+    can reach files_changed and the shell command text commit-and-push
+    builds from it (``check-paths <...>`` and ``git add <...>``). Applied to
+    both a fixer's reported files_changed entries and the path derived from
+    each tests_added id -- files_changed is fixer/LLM-authored text, just
+    like a tests_added id, and check-paths runs after staging is already
+    text-interpolated, so a metacharacter must be refused here, not there.
+    """
+    if not path:
+        return False
+    segments = path.split("/")
+    if any(segment in (".", "..") for segment in segments):
+        return False
+    return all(_TEST_PATH_SEGMENT.fullmatch(segment) for segment in segments)
+
+
+def _test_file_of(test_id: str) -> str | None:
+    """``tests/x/test_y.py::Class::method`` -> ``tests/x/test_y.py``.
+
+    Only a path-shaped id yields a file, and only one built from safe
+    characters -- see :func:`_is_safe_repo_path`. A dotted module id
+    (``tests.x.test_y.Class``) cannot be mapped to a path without guessing
+    where the module ends, so it yields None; commit-and-push's unlisted-edit
+    check is what catches a test file that reaches the tree that way.
+    """
+    path = test_id.split("::", 1)[0].strip()
+    if not path.endswith(".py"):
+        return None
+    if not _is_safe_repo_path(path):
+        return None
+    return path
+
+
+def _files_changed(results: tuple[dict[str, Any], ...],
+                   scopes: dict[str, str | None]) -> tuple[list[str], list[dict[str, Any]]]:
+    """Every file a fixer edited: its files_changed plus its tests' files.
+
+    The fixer schema records tests as test ids, not paths, and a fixer that
+    followed it listed only the source file here. commit-and-push stages
+    exactly this list, so the fix was pushed without its tests -- and
+    verify-fixes tests the working tree, where the tests still existed, so
+    the run could not see it. Deriving the paths in tested code rather than
+    trusting each fixer to repeat them also routes every test file through
+    check-paths, which runs over this list.
+
+    files_changed entries are fixer/LLM-authored text, exactly like a
+    tests_added id's path half, and reach the same shell-interpolated
+    commit-and-push commands -- so they get the same ``_is_safe_repo_path``
+    contract here rather than relying on check-paths, which only runs after
+    this list is already built into that shell text.
+
+    Only ``"fixed"`` results contribute -- both their ``files_changed`` and
+    their ``tests_added``. A rejected, moot, or deferred result claims it
+    changed nothing, so any path it names is not authorized to be committed.
+    Crediting it here would be worse than useless: check-unlisted subtracts
+    this list from the dirty set, so a path listed by a non-fixed result
+    could never be reported as an unlisted edit. Left off the list, an edit
+    such a result really made stays dirty, check-unlisted reports it, and
+    the commit fails closed.
+
+    Each fixed result is also held to its own scope: the one source file its
+    group was dispatched for (``scopes[id]``) plus the files under ``tests/``
+    its own ``tests_added`` ids name. A fixer that lists any other path -- a
+    compromised or over-eager fixer claiming ``src/other.py`` or
+    ``tests/other.py`` -- does not get it authorized.
+    That path is returned in the second list instead, so the run reports it,
+    and because it is left off the first list, check-unlisted still sees the
+    edit and the commit fails closed.
+
+    Returns:
+        ``(files_changed, out_of_scope_paths)``, the latter as
+        ``{"id": ..., "path": ...}`` records.
+    """
+    paths: set[str] = set()
+    out_of_scope: list[dict[str, Any]] = []
+    for result in results:
+        if result.get("action") != "fixed":
+            continue
+        scope = scopes.get(str(result.get("id")))
+        allowed = {scope} | _own_test_files(result)
+        for path in _claimed_paths(result):
+            if path in allowed:
+                paths.add(path)
+            else:
+                out_of_scope.append({"id": result.get("id"), "path": path})
+    return sorted(paths), sorted(out_of_scope, key=lambda r: (str(r["id"]), r["path"]))
+
+
+def _validated_tests(results: tuple[dict[str, Any], ...]) -> dict[str, Any]:
+    """The test ids downstream stages may open, split from the ones they may not.
+
+    ``results`` stays verbatim, so each result's own ``tests_added`` can
+    still name ``../../.envrc::x`` or ``/etc/passwd::t``. verify-fixes reads
+    every named test from disk, so it must read from here instead: only
+    ids from fixed results whose file part is a safe path under
+    ``tests/`` (see :func:`_test_file_of`). Every other id is listed in
+    ``rejected_tests_added`` so the run reports it rather than opening it.
+    """
+    by_result: dict[str, list[str]] = {}
+    rejected: list[dict[str, Any]] = []
+    for result in results:
+        if result.get("action") != "fixed":
+            continue
+        ok: list[str] = []
+        for test_id in _union_of((result,), "tests_added"):
+            path = _test_file_of(test_id)
+            if path and path.startswith("tests/"):
+                ok.append(test_id)
+            else:
+                rejected.append({"id": result.get("id"), "test": test_id})
+        by_result[str(result.get("id"))] = ok
+    return {
+        "tests_added": sorted({t for ids in by_result.values() for t in ids}),
+        "tests_by_result": by_result,
+        "rejected_tests_added": rejected,
+    }
+
+
+def _own_test_files(result: dict[str, Any]) -> set[str]:
+    """Files under tests/ named by this result's own tests_added ids.
+
+    Only these test files are in the result's scope -- not every path under
+    tests/. A fixer that edits some other test file and lists it in
+    files_changed does not get it authorized.
+    """
+    files = (_test_file_of(t) for t in _union_of((result,), "tests_added"))
+    return {f for f in files if f and f.startswith("tests/")}
+
+
+def _claimed_paths(result: dict[str, Any]) -> set[str]:
+    """Safe repo paths a result claims: files_changed plus tests' files."""
+    one = (result,)
+    claimed = {p for p in _union_of(one, "files_changed") if _is_safe_repo_path(p)}
+    for test_id in _union_of(one, "tests_added"):
+        path = _test_file_of(test_id)
+        if path:
+            claimed.add(path)
+    return claimed
 
 
 def _out_of_scope_requests(results: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
@@ -458,14 +636,31 @@ def _failed_test(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _entry_scopes(index_path: str | Path) -> list[str | None]:
+    """The group file each finding is anchored to, in ``_index_entries`` order.
+
+    A group's ``data.path`` is the one source file its fixer was dispatched
+    to edit. It is None -- no source file in scope -- when absent or not a
+    safe repo path, e.g. a PR-level finding with no anchor.
+    """
+    scopes: list[str | None] = []
+    for item in _list_at(load_params(index_path, key=None), "items", index_path):
+        data = item["data"]
+        path = data.get("path")
+        scope = path if isinstance(path, str) and _is_safe_repo_path(path) else None
+        scopes.extend([scope] * len(data["threads"]))
+    return scopes
+
+
 def _expected_findings(index_path: str | Path) -> list[_Expected]:
     """Every finding in fix-index.json, after re-asserting the index gate."""
     gate = check_fix_index(index_path)
     if not gate.ok:
         raise ValueError(f"{index_path}: fix-index gate fails; run check-fix-index")
     return [
-        _Expected(id=entry["id"], file_id=entry["file_id"], thread_id=entry.get("thread_id"))
-        for _, entry in _index_entries(index_path)
+        _Expected(id=entry["id"], file_id=entry["file_id"], thread_id=entry.get("thread_id"),
+                  scope=scope)
+        for (_, entry), scope in zip(_index_entries(index_path), _entry_scopes(index_path), strict=True)
     ]
 
 
@@ -535,4 +730,5 @@ def aggregate_fix_results(index_path: str | Path, fixes_dir: str | Path) -> FixR
         results=tuple(credited[e.file_id] for e in expected_list if e.file_id in credited),
         missing_results=tuple(e.id for e in expected_list if e.file_id not in credited),
         key_mismatches=tuple(mismatches),
+        scopes={e.id: e.scope for e in expected_list},
     )

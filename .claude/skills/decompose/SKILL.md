@@ -23,7 +23,7 @@ Calibrated against the actual file distribution in this repo:
 
 | File type | Flag for review | Strong candidate | Split immediately |
 |-----------|----------------|------------------|-------------------|
-| Source module (`<domain>/*.py`) | 500+ lines | 700+ lines | 900+ lines |
+| Source module (`src/<domain>/*.py`) | 500+ lines | 700+ lines | 900+ lines |
 | Test file (`tests/**/*.py`) | 700+ lines | 850+ lines | 1000+ lines |
 | Helper/utility module | 400+ lines | 550+ lines | 700+ lines |
 
@@ -33,7 +33,7 @@ Calibrated against the actual file distribution in this repo:
 
 ```bash
 # Find large source files in a domain
-find <domain>/ -name "*.py" -not -path "*/__pycache__/*" | xargs wc -l | sort -rn | head -20
+find src/<domain>/ -name "*.py" -not -path "*/__pycache__/*" | xargs wc -l | sort -rn | head -20
 
 # Find large test files
 find tests/<domain>_tests/ -name "*.py" | xargs wc -l | sort -rn | head -10
@@ -73,8 +73,8 @@ grep -rnE "from <domain>.<module> import|import <domain>.<module>" . \
 
 | Before | After |
 |--------|-------|
-| `mail/filters/processors.py` (641 lines) | `processors_core.py`, `processors_gmail.py`, `processors_outlook.py` |
-| `schedule/pipeline.py` (1024 lines) | `pipeline_fetch.py`, `pipeline_plan.py`, `pipeline_apply.py` |
+| `src/mail/filters/processors.py` (641 lines) | `processors_core.py`, `processors_gmail.py`, `processors_outlook.py` |
+| `src/schedule/pipeline.py` (1024 lines) | `pipeline_fetch.py`, `pipeline_plan.py`, `pipeline_apply.py` |
 
 **Helper/mock modules** — extract by concern:
 
@@ -90,17 +90,17 @@ For each file to split, spawn a `code-writer` agent with isolation:
 Agent(
     subagent_type="code-writer",
     isolation="worktree",
-    description="Split <domain>/<module>.py into focused submodules",
+    description="Split src/<domain>/<module>.py into focused submodules",
     prompt="""
-Split <domain>/<module>.py into the following files:
-  - <domain>/<submodule_a>.py  — <responsibility A>
-  - <domain>/<submodule_b>.py  — <responsibility B>
-  - <domain>/<submodule_c>.py  — <responsibility C> (shared fixtures/constants)
+Split src/<domain>/<module>.py into the following files:
+  - src/<domain>/<submodule_a>.py  — <responsibility A>
+  - src/<domain>/<submodule_b>.py  — <responsibility B>
+  - src/<domain>/<submodule_c>.py  — <responsibility C> (shared fixtures/constants)
 
 Target: each output file under <N> lines.
 
 Rules:
-1. NO re-export facade: delete <domain>/<module>.py entirely and update every
+1. NO re-export facade: delete src/<domain>/<module>.py entirely and update every
    import site to point at the new modules directly. Do not leave behind a
    `from .submodule import *` shim.
 2. Extract shared fixtures/base classes into <submodule_c>.py first.
@@ -110,7 +110,7 @@ Rules:
        grep -rnE "<domain>[./]<module>" src/ tests/ bin/ .llm/ workflows/ concerns/ docs/ README.md
 4. Each new file must be independently runnable (no circular deps).
 5. Verify with `make test` (pins PYTHONPATH to this checkout). NEVER run bare
-   `python3 -m unittest` — an inherited PYTHONPATH silently resolves imports to
+   unittest — an inherited PYTHONPATH silently resolves imports to
    the MAIN checkout and produces a false green. Fallback:
        PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests -t .
 6. Do not rename test classes (preserves git blame).
@@ -125,7 +125,7 @@ Rules:
 original module is **deleted**, not converted into a shim:
 
 ```python
-# WRONG — <domain>/<module>.py left behind as a facade
+# WRONG — src/<domain>/<module>.py left behind as a facade
 from .submodule_a import *  # noqa: F401,F403
 from .submodule_b import *  # noqa: F401,F403
 ```
@@ -166,7 +166,7 @@ Use the same style in all rewritten import sites and generated code — no relat
 # Confirm imports resolve to THIS checkout, not the main one
 make check-env
 
-# Full suite — never bare `python3 -m unittest` (false greens in a worktree)
+# Full suite — never a bare unittest run (false greens in a worktree)
 make test
 
 # Lint with the ruff build CI enforces (there is no bare `ruff` on PATH)
@@ -224,8 +224,8 @@ For multi-file decomposition, spawn one `code-writer` agent per file in a single
 - **Missing non-Python references**: `mock.patch()` target strings, `concerns/*.md` "when loaded" triggers, and README module lists break silently — tests stay green while the concerns guide stops firing
 - **Duplicating code**: shared helpers go into one submodule, not copied into each
 - **Duplicating test bodies**: when splitting a test file, each test must live in exactly one file — copying full method bodies into several files makes them run twice
-- **False-green verification**: bare `python3 -m unittest` in a worktree resolves to the main checkout — a missing tool or an unscanned tree is not a pass. (The `qlty check` half of this trap is fixed; worktrees now scan.)
+- **False-green verification**: a bare unittest run in a worktree resolves to the main checkout — a missing tool or an unscanned tree is not a pass. (The `qlty check` half of this trap is fixed; worktrees now scan.)
 - **Losing coverage**: run the test suite before and after; coverage must not drop
 - **Renaming test classes**: keep class names identical in the new files (preserves git blame)
 - **Touching bin/\***: entry point wrappers are public API — never move or rename them
-- **Renaming public CLI-facing modules**: `mail/cli/main.py` → `mail/cli/main_new.py` breaks backwards compatibility
+- **Renaming public CLI-facing modules**: `src/mail/cli/main.py` → `src/mail/cli/main_new.py` breaks backwards compatibility

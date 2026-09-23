@@ -19,7 +19,7 @@ You are a codebase exploration agent. Your job is to find, read, and understand 
 
 ## Skip These Paths
 
-`.venv/`, `.cache/`, `.git/`, `maker/`, `_disasm/`, `out/`, `_out/`, `backups/`, `personal_assistants.egg-info/`
+`.venv/`, `.cache/`, `.git/`, `src/maker/`, `_disasm/`, `out/`, `_out/`, `backups/`, `personal_assistants.egg-info/`
 
 ## Tools
 
