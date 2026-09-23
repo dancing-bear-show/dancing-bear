@@ -333,14 +333,14 @@ correction, and then forces its own `src/` to the *front* of `sys.path`. Set
 `DANCING_BEAR_PATH_DEBUG=1` to see what was dropped.
 
 Coverage is **every `bin/` entry point that imports a repo module**, by two
-routes: the generated wrappers are symlinks to `bin/_router.py`, while `bin/llm`
-and `bin/path-guard` are standalone scripts calling the same shared module. Both
-are pinned by `tests/infra/test_pathrepair_shared.py` and
+routes: the generated wrappers are symlinks to `bin/_router.py`, while `bin/llm`,
+`bin/path-guard`, and `bin/pr-assistant` are standalone scripts calling the same
+shared module. All are pinned by `tests/infra/test_pathrepair_shared.py` and
 `tests/infra/test_router_pythonpath.py`, including end-to-end cases that execute
 the real binaries. Revert the repair and those suites go red.
 
 That is narrower than "all of `bin/`", which an earlier revision claimed.
-`pr-assistant`, `code-review-log-findings.py`, `code-review-backfill-log.py`,
+`code-review-log-findings.py`, `code-review-backfill-log.py`,
 `check_test_discovery.py`, `mypy_ratchet.py` and `uuidgen-pair` are Python entry
 points with no repair wired in — deliberately, because none of them import a
 repo module, so there is nothing for a foreign checkout to shadow. Audited by
@@ -353,8 +353,9 @@ they kept the old membership-only guard while the router had moved on. With a
 foreign checkout ahead of ours on `PYTHONPATH` they raised
 `ModuleNotFoundError: No module named 'core.llm_cli'` / `'core.path_guard'`, and
 against a *real* foreign checkout they would have silently run the other tree's
-code instead. If you add another standalone script under `bin/` that imports a
-repo module, wire it to `bin/_pathrepair.py` too.
+code instead. `bin/pr-assistant` was likewise wired only once it grew a repo
+import (through `core.github`); if you add another standalone script under
+`bin/` that imports a repo module, wire it to `bin/_pathrepair.py` too.
 
 Do **not** treat `bin/_wrappers.yaml`'s `manual:` list as that inventory — it is
 a generator exclusion list, not a hazard list, and it is incomplete for this
@@ -365,8 +366,8 @@ and `worker-wait` are all standalone scripts absent from it.
 questions, not just the first:
 
 1. **Does it import a repo module?** If so, a foreign checkout can shadow that
-   module — wire it to `bin/_pathrepair.py`. Among those five, only
-   `bin/bootstrap` does.
+   module — wire it to `bin/_pathrepair.py`. Among those five, `bin/bootstrap`
+   and `bin/pr-assistant` do.
 2. **Does it start a Python interpreter at all?** If so, a foreign
    `PYTHONPATH` executes that tree's `sitecustomize.py` during startup,
    *before* the `-c` body runs — so the hazard does not depend on what the
