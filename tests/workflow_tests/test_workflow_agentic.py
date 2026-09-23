@@ -80,11 +80,30 @@ class TestWorkflowCapsuleContent(unittest.TestCase):
             with self.subTest(cmd=cmd):
                 self.assertIn(f"  - {cmd}:", capsule)
 
-    def test_capsule_documents_the_print_flag(self):
-        """--print is the flag the qwen workflows capture into a shell var."""
-        from workflow.agentic import build_agentic_capsule
+    def test_capsule_documents_every_check_params_flag(self):
+        """Every check-params option is in the capsule, derived from the parser.
 
-        self.assertIn("--print", build_agentic_capsule())
+        This was a hand-written assertIn("--print") and it let --top-level ship
+        undocumented even though the demo workflow needs it to validate
+        handler.json — the same drift the subcommand test above exists to
+        prevent, one level down. Enumerating the registered arguments means
+        the next flag added to check-params fails here instead.
+        """
+        from workflow.agentic import build_agentic_capsule
+        from workflow.cli import app
+
+        capsule = build_agentic_capsule()
+        flags = sorted(
+            flag
+            for arg in app._commands["check-params"].arguments
+            for flag in arg.name_or_flags
+            if flag.startswith("--")
+        )
+        self.assertIn("--print", flags, "parser wiring changed; fix this test")
+        self.assertIn("--top-level", flags, "parser wiring changed; fix this test")
+        for flag in flags:
+            with self.subTest(flag=flag):
+                self.assertIn(flag, capsule)
 
 
 class TestWorkflowMainAgenticExtra(unittest.TestCase):

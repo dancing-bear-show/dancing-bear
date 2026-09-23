@@ -20,7 +20,7 @@ def build_agentic_capsule() -> str:
     lines.append("  - validate-fragment: ./bin/workflow validate-fragment <fragment.yaml>")
     lines.append(
         "  - check-params: ./bin/workflow check-params <workspace>/manifest.json "
-        "--check 'name=regex' [--print name]"
+        "--check 'name=regex' [--top-level] [--print name]"
     )
     lines.append("notes:")
     lines.append("  - ./bin/workflow list is the authoritative live catalog of available workflows")
@@ -30,7 +30,9 @@ def build_agentic_capsule() -> str:
     lines.append(
         "  - check-params validates trigger params as JSON data (exit 0 pass, 1 fail); "
         "--print writes one value to stdout only if every --check passed, so a stage "
-        "can capture it with HOST=$(...) instead of interpolating the raw param"
+        "can capture it with HOST=$(...) instead of interpolating the raw param; "
+        "--top-level reads fields from the document root, for stage outputs such as "
+        "handler.json rather than the manifest's trigger_params"
     )
     return "\n".join(lines)
 

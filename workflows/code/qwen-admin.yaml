@@ -185,7 +185,18 @@ stages:
       rejected value.
 
       If it does not match, ABORT this stage immediately with a clear message
-      naming the offending value — do not run any command against it.
+      naming the offending PARAMETER and the reason check-params gave — never
+      the value itself — and do not run any command against it.
+
+      NEVER ECHO A REJECTED VALUE. check-params deliberately does not print
+      one (tests/workflow_tests/test_param_guard.py pins that), because a
+      value that failed validation is by definition untrusted: it may carry
+      shell syntax or a secret someone pasted into the wrong field.
+      Reproducing it in a message, a record or a report copies it to exactly
+      the places that later get pasted into a command line or shared, and
+      undoes the guard's no-echo contract one step downstream. "ollama_host
+      failed validation (does not match the URL pattern)" is a complete
+      report; the value adds nothing a reader needs.
 
       READ-ONLY. Probe every layer and stop nothing. Record what you find,
       including "down" — a down layer is a finding, not a thing to fix here.

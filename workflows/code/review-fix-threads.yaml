@@ -539,13 +539,19 @@ stages:
         present = [k for k in keys if k]
         dupes = sorted({k for k in present if present.count(k) > 1})
         unsafe = sorted(k for k in present
-                        if "/" in k or "\\" in k or ".." in k or k.startswith("."))
+                        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,99}", k))
         if missing or dupes or unsafe:
             sys.exit("finding_key invalid: missing=%d dupes=%r unsafe=%r"
                      % (len(missing), dupes, unsafe))
 
-      and write nothing if it fails. `unsafe` exists because the key becomes
-      a filename: a key like `../x` would write outside outputs/fixes/.
+      and write nothing if it fails (the script needs `import re, sys`).
+      `unsafe` exists because the key becomes a filename, and triage — an
+      LLM — produces it. It is an ALLOWLIST, not a denylist: an earlier
+      revision rejected only `/`, `\`, `..` and a leading `.`, which still
+      let `$(...)`, spaces, `;` and quotes through into a filename that
+      later stages handle. Every legitimate key already fits the narrow
+      shape — a `PRRT_...` thread id, a numeric database id, or `body-<n>`
+      — so nothing real is lost by requiring it.
       `present` is separate from `keys` so that several MISSING keys are
       reported as missing rather than as a duplicate of None. The message
       uses %-formatting, not an f-string, deliberately: the engine treats a

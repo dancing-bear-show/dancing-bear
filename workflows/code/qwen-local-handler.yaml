@@ -2357,8 +2357,14 @@ stages:
         a command; this step is the abort gate, not the delivery mechanism.
         If either is rejected, abort the stage immediately: write
         {workspace}/validation/install.json with skipped=true and a
-        skip_reason naming which param failed and its (redacted if
-        necessary) value, and do not proceed to Step 1. Do not attempt to
+        skip_reason naming which param failed and the reason check-params
+        gave — NEVER its value, redacted or otherwise — and do not proceed
+        to Step 1. "Redact if necessary" would leave it to the agent to judge
+        whether a hostile value is safe to write, and a rejected value is by
+        definition the one not to trust with that judgement. check-params
+        itself never echoes a rejected value (pinned by
+        tests/workflow_tests/test_param_guard.py); this record must not undo
+        that one step downstream. Do not attempt to
         sanitize or auto-correct a rejected value — an override with shell
         metacharacters is a caller error to report, not silently fix.
 
