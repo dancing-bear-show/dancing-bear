@@ -396,12 +396,18 @@ class TestJobProcessor(unittest.TestCase, QueueRootIsolationMixin):
                     self.assertFalse((self.root / "processing" / f"{job_id}.json").exists())
                     self.assertFalse((self.root / "pending" / f"{job_id}.json").exists())
 
-    def test_process_one_object_or_missing_payload_reaches_handler(self):
-        for job_id, payload in (("good_obj", {"x": 1}), ("good_none", None)):
-            with self.subTest(payload=payload):
-                result, handler = self._process_with_payload(job_id, payload)
+    def test_process_one_object_or_missing_payload_reaches_handler_as_object(self):
+        cases = (
+            ("good_obj", {"x": 1}, 0, {"x": 1}),
+            ("good_none", None, 0, {}),
+            ("good_none_to", None, 30, {"timeout": 30}),
+        )
+        for job_id, payload, timeout, expected in cases:
+            with self.subTest(payload=payload, job_timeout=timeout):
+                result, handler = self._process_with_payload(job_id, payload, job_timeout=timeout)
                 self.assertEqual(result, 1)
                 handler.assert_called_once()
+                self.assertEqual(handler.call_args.args[0]["payload"], expected)
                 self.assertTrue((self.root / "done" / f"{job_id}.json").exists())
 
 

@@ -274,7 +274,8 @@ class JobProcessor:
         job_timeout_sec = _effective_job_timeout(job_data, self.config.job_timeout)
         if job_timeout_sec > 0:
             base_payload["timeout"] = job_timeout_sec
-            job_data = {**job_data, "payload": base_payload}
+        # Handlers always see an object payload, whether or not a timeout applies.
+        job_data = {**job_data, "payload": base_payload}
 
         # Check for handler — unknown type is a terminal failure, no retry.
         handler = HANDLERS.get(ctx.job_type)
