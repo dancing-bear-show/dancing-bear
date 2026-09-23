@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from workflow.models import StageStatus
+from workflow.models import StageResult, StageStatus
 from workflow.persistence import (
     init_workspace,
     list_stage_results,
@@ -42,7 +42,7 @@ class TestInitWorkspaceNoBaseDir(unittest.TestCase):
 class TestStatusAliases(unittest.TestCase):
     """Persistence tolerates non-canonical status strings from agents."""
 
-    def _write_and_read(self, tmp_path: Path, status_str: str) -> object:
+    def _write_and_read(self, tmp_path: Path, status_str: str) -> StageResult:
         stage_dir = tmp_path / "stages"
         stage_dir.mkdir()
         data = {
@@ -54,7 +54,9 @@ class TestStatusAliases(unittest.TestCase):
             "duration_ms": 60000,
         }
         (stage_dir / "000-alias-stage.json").write_text(json.dumps(data), encoding="utf-8")
-        return read_stage_result(tmp_path, "alias-stage")
+        result = read_stage_result(tmp_path, "alias-stage")
+        assert result is not None  # nosec B101 - narrows Optional for mypy
+        return result
 
     def test_complete_maps_to_success(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -105,11 +107,13 @@ class TestStatusAliases(unittest.TestCase):
 class TestFieldAliases(unittest.TestCase):
     """Non-standard field names from agents are mapped to canonical names."""
 
-    def _write_and_read(self, tmp_path: Path, data: dict) -> object:
+    def _write_and_read(self, tmp_path: Path, data: dict) -> StageResult:
         stage_dir = tmp_path / "stages"
         stage_dir.mkdir()
         (stage_dir / "000-aliased.json").write_text(json.dumps(data), encoding="utf-8")
-        return read_stage_result(tmp_path, "aliased")
+        result = read_stage_result(tmp_path, "aliased")
+        assert result is not None  # nosec B101 - narrows Optional for mypy
+        return result
 
     def test_stage_field_alias_for_stage_name(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -157,7 +161,7 @@ class TestFieldAliases(unittest.TestCase):
 
 
 class TestDurationMsTolerance(unittest.TestCase):
-    def _write_and_read(self, tmp_path: Path, duration_ms) -> object:
+    def _write_and_read(self, tmp_path: Path, duration_ms: object) -> StageResult:
         stage_dir = tmp_path / "stages"
         stage_dir.mkdir()
         data = {
@@ -169,7 +173,9 @@ class TestDurationMsTolerance(unittest.TestCase):
             "duration_ms": duration_ms,
         }
         (stage_dir / "000-dur-stage.json").write_text(json.dumps(data), encoding="utf-8")
-        return read_stage_result(tmp_path, "dur-stage")
+        result = read_stage_result(tmp_path, "dur-stage")
+        assert result is not None  # nosec B101 - narrows Optional for mypy
+        return result
 
     def test_string_duration_coerced_to_int(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

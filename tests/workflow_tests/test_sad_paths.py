@@ -109,6 +109,7 @@ class TestReadStageResultGlobEscaping(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             result = read_stage_result(self._workspace(tmp_dir), "deploy-prod")
             self.assertIsNotNone(result)
+            assert result is not None  # nosec B101 - narrows Optional for mypy
             self.assertEqual(result.stage_name, "deploy-prod")
 
     def test_star_does_not_match_other_stages(self) -> None:
@@ -133,6 +134,7 @@ class TestReadStageResultGlobEscaping(unittest.TestCase):
             )
             result = read_stage_result(workspace, "build[x]")
             self.assertIsNotNone(result)
+            assert result is not None  # nosec B101 - narrows Optional for mypy
             self.assertEqual(result.stage_name, "build[x]")
 
 
@@ -207,7 +209,8 @@ class TestTryReadCachedCompileOSError(unittest.TestCase):
             cache_path = Path(tmp_dir) / "cache.json"
             cache_path.write_text('{"name": "wf", "total_stages": 2}', encoding="utf-8")
             result = _try_read_cached_compile(cache_path)
-        self.assertIsInstance(result, dict)
+        self.assertIsNotNone(result)
+        assert result is not None  # nosec B101 - narrows Optional for mypy
         self.assertEqual(result["name"], "wf")
 
 

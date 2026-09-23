@@ -521,7 +521,7 @@ def _bfs_advance(
     return next_queue
 
 
-def _compute_dag_depth(stages: tuple[object, ...]) -> int:
+def _compute_dag_depth(stages: "tuple[StageSpec, ...]") -> int:
     """Compute the longest dependency chain depth (number of BFS levels)."""
     if not stages:
         return 0

@@ -64,6 +64,9 @@ import html.parser as _html_parser
 class _Tag:
     """Minimal DOM node."""
 
+    _next_sibling_match: object
+    _prev_sibling_match: object
+
     def __init__(self, name: str, attrs: dict, children: list, text: str = ""):
         self.name = name
         self.attrs = attrs

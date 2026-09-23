@@ -68,12 +68,13 @@ class OutlookCalendarMixin(_OutlookCalendarHost):
     def _paginated_get(self, url: str) -> list[dict[str, Any]]:
         """Fetch all pages from a paginated Graph API endpoint."""
         out: list[dict[str, Any]] = []
-        while url:
-            r = _requests().get(url, headers=self._headers())
+        cur_url: str | None = url
+        while cur_url:
+            r = _requests().get(cur_url, headers=self._headers())
             r.raise_for_status()
             data = r.json() or {}
             out.extend(data.get("value", []) or [])
-            url = data.get("@odata.nextLink")
+            cur_url = data.get("@odata.nextLink")
         return out
 
     @staticmethod

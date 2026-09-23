@@ -7,6 +7,7 @@ Token-update producers are in producers_token.py.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 from core.cli_output import OutputWriter
 from core.pipeline import BaseProducer
@@ -134,8 +135,8 @@ class FiltersSyncProducer(BaseProducer):
         return deleted
 
     def _build_action_ids(self, actions: dict[str, object]) -> dict:
-        add = list(actions.get("add") or [])
-        remove = list(actions.get("remove") or [])
+        add = list(cast(list, actions.get("add") or []))
+        remove = list(cast(list, actions.get("remove") or []))
         act_ids: dict = {}
         if add or remove:
             add_ids, rem_ids = action_to_label_changes(self.client, {"add": add, "remove": remove})

@@ -14,8 +14,11 @@ import textwrap
 import unittest
 from pathlib import Path
 
+from typing import cast
+
 from workflow.compiler import compile_workflow
 from workflow.linter import lint_workflow
+from workflow.models import WorkflowDefinition
 from workflow.parser import WorkflowParseError, parse_workflow_str
 
 
@@ -129,7 +132,7 @@ class TestParseFragmentValidation(unittest.TestCase):
 
 
 class TestStageNamePrefixing(unittest.TestCase):
-    def _parse_with_fragment(self, tmp_path: Path) -> object:
+    def _parse_with_fragment(self, tmp_path: Path) -> WorkflowDefinition:
         frag = tmp_path / "validate-and-correct.yaml"
         frag.write_text(_minimal_fragment())
         yaml = _workflow_with_fragment(str(frag), prefix="vc")
@@ -571,6 +574,7 @@ class TestRewriteFanOut(unittest.TestCase):
         rename = {"gather": "prefix-gather"}
         result = _rewrite_fan_out(fan_out, rename)
         self.assertIsNotNone(result)
+        assert result is not None  # nosec B101 - narrows Optional for mypy
         self.assertEqual(result.source, "prefix-gather")
         self.assertEqual(result.field, "items")
         self.assertEqual(result.key, "name")
@@ -766,7 +770,8 @@ class TestExtractIncludeEntries(unittest.TestCase):
         content = "include:\n  - path: shared/frag.yaml\n"
         result = extract_include_entries(content)
         self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["path"], "shared/frag.yaml")
+        entry = cast(dict[str, object], result[0])
+        self.assertEqual(entry["path"], "shared/frag.yaml")
 
 
 # ---------------------------------------------------------------------------

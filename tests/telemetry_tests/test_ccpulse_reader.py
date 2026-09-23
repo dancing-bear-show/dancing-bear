@@ -56,6 +56,7 @@ class TestReadCurrentSchemaValidation(unittest.TestCase):
             _write_payload(path, {"schema": schema, "tips": []})
             result = read_current(path, now=time.time())
             self.assertIsNotNone(result)
+            assert result is not None  # nosec B101 - narrows Optional for mypy
             self.assertEqual(result["schema"], schema)
 
     def test_unsupported_schema_returns_none(self) -> None:
@@ -118,6 +119,7 @@ class TestReadCurrentValidPayload(unittest.TestCase):
             _write_payload(path, payload)
             result = read_current(path, now=time.time())
             self.assertIsNotNone(result)
+            assert result is not None  # nosec B101 - narrows Optional for mypy
             self.assertEqual(result["efficiency_score"], 80.0)
             self.assertEqual(len(result["tips"]), 1)
 

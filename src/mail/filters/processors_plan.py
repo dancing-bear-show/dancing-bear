@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from core.pipeline import Processor, SafeProcessor, ResultEnvelope
 
@@ -47,7 +47,7 @@ class FiltersPlanProcessor(SafeProcessor[FiltersPlanPayload, FiltersPlanResult])
             key, entry = _canon_desired(spec, payload.name_to_id)
             desired_entries.append((key, entry))
             desired_keys.add(key)
-            for name in entry.action_names.get("add", []) or []:
+            for name in cast(list, entry.action_names.get("add") or []):
                 add_counter[name] += 1
 
         to_create = [entry for key, entry in desired_entries if key not in existing_map]
@@ -288,8 +288,8 @@ def _canon_desired_with_names(spec: dict) -> tuple[str, FilterPlanEntry]:
             "subject": criteria.get("subject"),
             "query": criteria.get("query"),
             "negatedQuery": criteria.get("negatedQuery"),
-            "add": tuple(sorted(action_names.get("add") or [])),
-            "remove": tuple(sorted(action_names.get("remove") or [])),
+            "add": tuple(sorted(cast(list, action_names.get("add") or []))),
+            "remove": tuple(sorted(cast(list, action_names.get("remove") or []))),
             "forward": action_names.get("forward"),
         }
     )

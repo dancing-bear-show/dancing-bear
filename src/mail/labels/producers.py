@@ -119,13 +119,10 @@ class LabelsSyncProducer(BaseProducer):
         """Move all messages from old_id to new_id in chunks."""
         from ..utils.batch import apply_in_chunks
 
-        apply_in_chunks(
-            lambda chunk, _new=new_id, _old=old_id: self.client.batch_modify_messages(
-                chunk, add_label_ids=[_new], remove_label_ids=[_old]
-            ),
-            ids,
-            500,
-        )
+        def _do_move(chunk: list[str]) -> None:
+            self.client.batch_modify_messages(chunk, add_label_ids=[new_id], remove_label_ids=[old_id])
+
+        apply_in_chunks(_do_move, ids, 500)
 
     def _delete_redirect_source_label(self, old: str, new: str, old_id: str) -> None:
         """Delete the now-empty source label, logging (not raising) on failure."""

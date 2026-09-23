@@ -19,6 +19,7 @@ from rich.text import Text
 
 from telemetry.blame import BlameEngine
 from telemetry.classify import ClassifyEngine
+from telemetry.providers.transcript import TranscriptProvider
 from telemetry.tui._stats import _StatsRenderer, print_summary
 
 from tests.telemetry_tests.shared_fixtures import (
@@ -36,13 +37,14 @@ from tests.telemetry_tests.shared_fixtures import (
 def _make_renderer(
     session_id: str | None = None,
     compact: bool = False,
-    transcript: object | None = None,
+    transcript: TranscriptProvider | None = None,
 ) -> _StatsRenderer:
     """Build a _StatsRenderer with stub engines and optional transcript mock."""
     if transcript is None:
-        transcript = MagicMock()
-        transcript.get_current_session_id.return_value = None
-        transcript.find_session_file.return_value = None
+        mock = MagicMock(spec=TranscriptProvider)
+        mock.get_current_session_id.return_value = None
+        mock.find_session_file.return_value = None
+        transcript = mock
     return _StatsRenderer(
         session_id=session_id,
         compact=compact,

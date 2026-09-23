@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from workflow.models import StageKind
+from workflow.models import AgentSpec, StageKind
 from workflow.parser import WorkflowParseError, parse_workflow, parse_workflow_str
 
 
@@ -425,6 +425,7 @@ class TestFanOut(unittest.TestCase):
         defn = parse_workflow_str(_fan_out_two_stage_yaml())
         fan_stage = next(s for s in defn.stages if s.name == "fan-stage")
         self.assertIsNotNone(fan_stage.fan_out)
+        assert fan_stage.fan_out is not None  # nosec B101 - narrows Optional for mypy
         self.assertEqual(fan_stage.fan_out.mode, "agent")
 
     def test_fan_out_worker_queue_mode(self) -> None:
@@ -432,6 +433,7 @@ class TestFanOut(unittest.TestCase):
         defn = parse_workflow_str(_fan_out_two_stage_yaml(extra))
         fan_stage = next(s for s in defn.stages if s.name == "fan-stage")
         self.assertIsNotNone(fan_stage.fan_out)
+        assert fan_stage.fan_out is not None  # nosec B101 - narrows Optional for mypy
         self.assertEqual(fan_stage.fan_out.mode, "worker_queue")
         self.assertIn("{team}", fan_stage.fan_out.script)
 
@@ -439,6 +441,7 @@ class TestFanOut(unittest.TestCase):
         defn = parse_workflow_str(_fan_out_two_stage_yaml())
         fan_stage = next(s for s in defn.stages if s.name == "fan-stage")
         self.assertIsNotNone(fan_stage.fan_out)
+        assert fan_stage.fan_out is not None  # nosec B101 - narrows Optional for mypy
         self.assertEqual(fan_stage.fan_out.script, "")
 
     def test_fan_out_invalid_mode_raises(self) -> None:
@@ -595,7 +598,7 @@ class TestSubWorkflow(unittest.TestCase):
 class TestParseAgentIsolation(unittest.TestCase):
     """Tests for _parse_agent isolation parsing and unknown-key rejection."""
 
-    def _parse_agent(self, data: dict) -> object:
+    def _parse_agent(self, data: dict) -> AgentSpec:
         from workflow.parser_fields import _parse_agent
         return _parse_agent(data, source="test.yaml")
 

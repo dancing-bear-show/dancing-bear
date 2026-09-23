@@ -23,6 +23,8 @@ class SignaturesExportProducer(BaseProducer):
         if payload.default_html:
             doc["signatures"]["default_html"] = payload.default_html
 
+        if payload.out_path is None:
+            raise ValueError("signatures export produced no out_path")
         payload.out_path.parent.mkdir(parents=True, exist_ok=True)
         dump_config(str(payload.out_path), doc)
 

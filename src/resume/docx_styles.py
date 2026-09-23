@@ -76,8 +76,8 @@ class StyleManager:
     @staticmethod
     def tight_paragraph(
         paragraph,
-        before_pt: int = 0,
-        after_pt: int = 0,
+        before_pt: int | float = 0,
+        after_pt: int | float = 0,
         line_spacing: float = 1.0,
     ) -> None:
         """Apply tight spacing to a paragraph."""

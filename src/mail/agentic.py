@@ -15,6 +15,27 @@ from core.agentic import (
 from core.textio import read_text as _read_text
 
 
+def _context_sections(root: Path, llm: Path) -> list[tuple[str, str]]:
+    """Return (title, content) for each readable repo context file."""
+    files: list[Path] = [
+        llm / "CONTEXT.md",
+        llm / "UNIFIED.llm",
+        llm / "DOMAIN_MAP.md",
+        llm / "MIGRATION_STATE.md",
+        llm / "PATTERNS.md",
+        root / "AGENTS.md",
+    ]
+    sections: list[tuple[str, str]] = []
+    for p in files:
+        if not p.exists():
+            continue
+        title = f"{p.parent.name}/{p.name}" if p.parent.name == ".llm" else p.name
+        content = _read_text(p)
+        if content is not None:
+            sections.append((title, content))
+    return sections
+
+
 def build_agentic_capsule(compact: bool = False) -> str:
     """Return a compact, LLM-friendly capsule of repo context as a string.
 
@@ -37,23 +58,8 @@ def build_agentic_capsule(compact: bool = False) -> str:
         "messages threads-get: ./bin/mail messages threads-get --thread-id THREAD1 --include-body",
     ]
 
-    sections: list[tuple[str, str]] = []
-
-    if not compact:
-        # Full mode: include .llm context files
-        files: list[Path] = [
-            llm / "CONTEXT.md",
-            llm / "UNIFIED.llm",
-            llm / "DOMAIN_MAP.md",
-            llm / "MIGRATION_STATE.md",
-            llm / "PATTERNS.md",
-            root / "AGENTS.md",
-        ]
-        for p in files:
-            if not p.exists():
-                continue
-            title = f"{p.parent.name}/{p.name}" if p.parent.name == ".llm" else p.name
-            sections.append((title, _read_text(p)))
+    # Full mode includes .llm context files; compact skips them.
+    sections: list[tuple[str, str]] = [] if compact else _context_sections(root, llm)
 
     cli_tree = _build_cli_tree()
     if cli_tree.strip():

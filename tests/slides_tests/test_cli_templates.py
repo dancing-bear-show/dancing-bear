@@ -34,8 +34,9 @@ from slides.cli import cmd_templates, _list_pptx_layouts
 def _make_templates_args(**overrides: object):
     """Create a Namespace for cmd_templates with all required attributes."""
     import argparse
+    from typing import Any
 
-    defaults = {
+    defaults: dict[str, Any] = {
         "pptx": "template.pptx",
         "format": "table",
     }

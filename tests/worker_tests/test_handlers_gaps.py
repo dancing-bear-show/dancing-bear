@@ -301,6 +301,7 @@ class TestExecShellResult(unittest.TestCase):
         ok, result = _exec_shell_result({"returncode": 0, "stdout": "hi", "stderr": ""})
         self.assertTrue(ok)
         self.assertIsInstance(result, dict)
+        assert isinstance(result, dict)  # nosec B101 - narrows Optional for mypy
         self.assertEqual(result["stdout"], "hi")
 
     def test_nonzero_returncode_is_not_ok(self) -> None:

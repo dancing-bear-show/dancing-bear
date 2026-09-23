@@ -193,7 +193,8 @@ class _Item:
         """Coerce a non-dict input into this item type, advisory-warning."""
         primary = cls._primary_field()
         if isinstance(data, str) and primary:
-            return cls(_present={primary}, **{primary: data})
+            kwargs: dict[str, Any] = {primary: data}
+            return cls(_present={primary}, **kwargs)
         if data is not None:
             _warn(
                 "%s: expected dict, got %s; using defaults",

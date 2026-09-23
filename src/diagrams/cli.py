@@ -210,6 +210,8 @@ def cmd_embed(args) -> int:
         mermaid_text, err = _convert_yaml_spec(spec)
         if err:
             return err
+        if mermaid_text is None:
+            return 1
     else:
         mermaid_text = content
 

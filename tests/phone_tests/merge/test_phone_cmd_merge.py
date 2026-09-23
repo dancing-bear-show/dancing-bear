@@ -35,7 +35,7 @@ _LAYOUT = {
 }
 
 
-def _write_layout(dir_path: Path, layout: dict = None) -> Path:
+def _write_layout(dir_path: Path, layout: dict | None = None) -> Path:
     """Write a layout YAML into dir_path and return its path."""
     p = dir_path / "ios.IconState.yaml"
     p.write_text(yaml.safe_dump(layout if layout is not None else _LAYOUT))

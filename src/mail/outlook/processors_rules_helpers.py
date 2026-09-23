@@ -221,7 +221,7 @@ def _build_rule_action(action_spec: dict[str, Any], ctx: RuleContext) -> dict[st
     ``ctx.move_to_folders`` is True.  The marker is read here but never written
     to the output ``action`` dict — it must not appear in the Graph API payload.
     """
-    action = {}
+    action: dict[str, Any] = {}
     add_labs = action_spec.get("add") or []
 
     if action_spec.get("moveToFolder"):
@@ -234,8 +234,8 @@ def _build_rule_action(action_spec: dict[str, Any], ctx: RuleContext) -> dict[st
         action["moveToFolderId"] = fid
     elif add_labs:
         # Categorise only: either noMoveToFolder (keepInInbox) or move_to_folders=False.
-        ids = [ctx.name_to_id.get(x) or ctx.name_to_id.get(norm_label_name_outlook(x)) for x in add_labs]
-        ids = [x for x in ids if x]
+        raw_ids = [ctx.name_to_id.get(x) or ctx.name_to_id.get(norm_label_name_outlook(x)) for x in add_labs]
+        ids: list[str] = [x for x in raw_ids if x]
         if ids:
             action["addLabelIds"] = ids
 
@@ -352,7 +352,7 @@ def _build_plan_action(action_spec: dict[str, Any], ctx: RuleContext) -> dict[st
     reported "no move" for a rule that sync and sweep would move: the plan
     contradicted the apply it is supposed to preview.
     """
-    action = {}
+    action: dict[str, Any] = {}
     adds = action_spec.get("add") or []
 
     if action_spec.get("moveToFolder"):
@@ -368,10 +368,10 @@ def _build_plan_action(action_spec: dict[str, Any], ctx: RuleContext) -> dict[st
         action["moveToFolderId"] = _resolve_folder_id(str(adds[0]), ctx.folder_map, ctx.client)
     elif adds:
         # Categorise only: either noMoveToFolder (keepInInbox) or move_to_folders=False.
-        ids = [ctx.name_to_id.get(x) or ctx.name_to_id.get(norm_label_name_outlook(x)) for x in adds]
-        ids = [x for x in ids if x]
-        if ids:
-            action["addLabelIds"] = ids
+        raw_adds_ids = [ctx.name_to_id.get(x) or ctx.name_to_id.get(norm_label_name_outlook(x)) for x in adds]
+        adds_ids: list[str] = [x for x in raw_adds_ids if x]
+        if adds_ids:
+            action["addLabelIds"] = adds_ids
 
     if action_spec.get("forward"):
         action["forward"] = action_spec["forward"]

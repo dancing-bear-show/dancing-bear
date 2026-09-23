@@ -2,6 +2,7 @@
 
 import unittest
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from telemetry.otel.cost_models import (
     AnomalyFlag,
@@ -19,8 +20,8 @@ from telemetry.otel.cost_models import (
 )
 
 
-def _make_session_cost(**overrides) -> SessionCost:
-    defaults = dict(
+def _make_session_cost(**overrides: Any) -> SessionCost:
+    defaults: dict[str, Any] = dict(
         session_id="sess-1",
         api_calls=10,
         input_tokens=100,
@@ -34,8 +35,8 @@ def _make_session_cost(**overrides) -> SessionCost:
     return SessionCost(**defaults)
 
 
-def _make_model_cost(**overrides) -> ModelCost:
-    defaults = dict(
+def _make_model_cost(**overrides: Any) -> ModelCost:
+    defaults: dict[str, Any] = dict(
         model_name="claude-sonnet",
         api_calls=5,
         input_tokens=200,
@@ -49,8 +50,8 @@ def _make_model_cost(**overrides) -> ModelCost:
     return ModelCost(**defaults)
 
 
-def _make_cost_metrics(**overrides) -> CostMetrics:
-    defaults = dict(
+def _make_cost_metrics(**overrides: Any) -> CostMetrics:
+    defaults: dict[str, Any] = dict(
         total_api_calls=20,
         total_input_tokens=400,
         total_output_tokens=200,

@@ -46,7 +46,8 @@ def _skill_text() -> str:
 
 def _settings_patch_source() -> str:
     match = _HEREDOC.search(_skill_text())
-    assert match, "settings-patch heredoc not found in SKILL.md"
+    if match is None:
+        raise AssertionError("settings-patch heredoc not found in SKILL.md")
     return match.group(1)
 
 
@@ -69,7 +70,7 @@ def _load_matcher(home: str):
     start = source.index("HOOK_PATH =")
     end = source.index("upgraded = False")
     namespace: dict[str, Any] = {}
-    exec(compile("import os\n" + source[start:end], "<matcher>", "exec"), namespace)  # noqa: S102
+    exec(compile("import os\n" + source[start:end], "<matcher>", "exec"), namespace)  # nosec B102 - repo-owned SKILL.md source under test
     matcher: Callable[[str], object] = namespace["is_managed_hook"]
 
     def with_fake_home(cmd: str) -> bool:
@@ -262,7 +263,7 @@ class TestHookMatcher(unittest.TestCase):
     def test_rejects_same_name_in_another_directory(self) -> None:
         """A basename comparison alone wrongly claims these."""
         for path in (
-            "/tmp/tmux-session-namer.py",
+            "/tmp/tmux-session-namer.py",  # nosec B108 - test string only
             "~/dev/tmux-session-namer.py",
             "/opt/.claude/hooks/tmux-session-namer.py",
             f"{self.HOME}/Downloads/tmux-session-namer.py",
@@ -327,7 +328,7 @@ class TestSettingsPatch(unittest.TestCase):
         settings = claude / "settings.json"
         if settings_text is not None:
             settings.write_text(settings_text, encoding="utf-8")
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(  # nosec B603 - fixed argv, no shell, test-owned script
             [sys.executable, "-I", "-S", "-c", _settings_patch_source()],
             env={**os.environ, "HOME": tmp},
             capture_output=True,
@@ -383,7 +384,7 @@ class TestSettingsPatch(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         first = settings.read_text(encoding="utf-8")
 
-        second = subprocess.run(  # noqa: S603
+        second = subprocess.run(  # nosec B603 - fixed argv, no shell, test-owned script
             [sys.executable, "-I", "-S", "-c", _settings_patch_source()],
             env={**os.environ, "HOME": str(settings.parent.parent)},
             capture_output=True,
@@ -436,7 +437,7 @@ class TestSettingsPatch(unittest.TestCase):
         result, settings = self._run(json.dumps({"hooks": {}}))
         self.assertEqual(result.returncode, 0, result.stderr)
         settings.chmod(0o600)
-        subprocess.run(  # noqa: S603
+        subprocess.run(  # nosec B603 - fixed argv, no shell, test-owned script
             [sys.executable, "-I", "-S", "-c", _settings_patch_source()],
             env={**os.environ, "HOME": str(settings.parent.parent)},
             capture_output=True,
@@ -464,7 +465,7 @@ class TestHookCadence(unittest.TestCase):
     HISTORY_CAP = 200
 
     def _run_hook(self, env: dict[str, str], prompt: str) -> None:
-        subprocess.run(  # noqa: S603
+        subprocess.run(  # nosec B603 - fixed argv, no shell, test-owned script
             [sys.executable, "-I", "-S", str(HOOK)],
             input=json.dumps({"session_id": "test-session", "prompt": prompt}),
             text=True,
@@ -489,7 +490,7 @@ class TestHookCadence(unittest.TestCase):
         env = {
             **os.environ,
             "XDG_CACHE_HOME": str(Path(tmp) / "cache"),
-            "TMUX": "/tmp/fake-tmux,1,0",  # noqa: S108 - a value, not a path we open
+            "TMUX": "/tmp/fake-tmux,1,0",  # nosec B108 - a value, not a path we open
             "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
         }
         return env, fired
@@ -531,7 +532,7 @@ class TestHookCadence(unittest.TestCase):
 
     def test_history_is_capped_and_private(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            env, fired = self._make_env(tmp)
+            env, _ = self._make_env(tmp)
             for i in range(1, self.HISTORY_CAP + 25):
                 self._run_hook(env, f"prompt {i}")
             history = Path(env["XDG_CACHE_HOME"]) / "claude" / "prompts-test-session.txt"
@@ -613,7 +614,7 @@ class TestHookCadence(unittest.TestCase):
                 counter = Path(env["XDG_CACHE_HOME"]) / "claude" / "count-test-session.txt"
                 counter.write_text(corrupt, encoding="utf-8")
 
-                result = subprocess.run(  # noqa: S603
+                result = subprocess.run(  # nosec B603 - fixed argv, no shell, test-owned script
                     [sys.executable, "-I", "-S", str(HOOK)],
                     input=json.dumps({"session_id": "test-session", "prompt": "next"}),
                     text=True,
@@ -673,7 +674,7 @@ class TestHookCadence(unittest.TestCase):
             env, fired = self._make_env(tmp)
             for payload in ("", "not json at all", "[]", '{"no_prompt_key": 1}'):
                 with self.subTest(payload=payload):
-                    result = subprocess.run(  # noqa: S603
+                    result = subprocess.run(  # nosec B603 - fixed argv, no shell, test-owned script
                         [sys.executable, "-I", "-S", str(HOOK)],
                         input=payload,
                         text=True,
