@@ -477,8 +477,13 @@ def _cmd_check_params(args: argparse.Namespace) -> int:
     for why any shell-embedding guard is defeatable.
 
     Exit status is the contract: 0 accepted, 1 rejected or unreadable.
+
+    With ``--print NAME`` the accepted value is additionally written to stdout
+    so a caller can capture it into a shell variable. Nothing is printed
+    unless every check passed -- see ``select_printable`` for why the name
+    must itself be one of the ``--check`` names.
     """
-    from workflow.param_guard import check_params, load_params, parse_check
+    from workflow.param_guard import check_params, load_params, parse_check, select_printable
 
     try:
         checks = [parse_check(spec) for spec in args.check]
@@ -494,11 +499,24 @@ def _cmd_check_params(args: argparse.Namespace) -> int:
         return 1
 
     result = check_params(params, checks)
-    if result.ok:
+    if not result.ok:
+        for failure in result.failures:
+            print(f"check-params: {failure}", file=sys.stderr)
+        return 1
+
+    if args.print_param is None:
         return 0
-    for failure in result.failures:
-        print(f"check-params: {failure}", file=sys.stderr)
-    return 1
+
+    try:
+        value = select_printable(args.print_param, params, checks)
+    except ValueError as exc:
+        print(f"check-params: {exc}", file=sys.stderr)
+        return 1
+
+    # No trailing newline: $(...) strips one, but a caller redirecting to a
+    # file would otherwise get a value that differs from the manifest's.
+    sys.stdout.write(value)
+    return 0
 
 
 def _cmd_resume(args: argparse.Namespace) -> int:

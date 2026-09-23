@@ -130,3 +130,36 @@ def check_params(params: dict[str, object], checks: list[ParamCheck]) -> ParamGu
         elif re.fullmatch(check.pattern, value) is None:
             failures.append(f"{check.name}: does not match {check.pattern}")
     return ParamGuardResult(ok=not failures, failures=tuple(failures))
+
+
+def select_printable(
+    name: str, params: dict[str, object], checks: list[ParamCheck]
+) -> str:
+    """Return the value of ``name``, but only if a check covers and accepts it.
+
+    This exists so ``check-params --print`` can hand a value to a shell
+    variable without ever putting it in shell source. Two conditions guard it,
+    and both are necessary:
+
+    * ``name`` must appear among ``checks``. Printing a param nobody validated
+      would hand the caller exactly what this module exists to withhold --
+      and silently, since the command would still exit 0 on the strength of
+      the OTHER params' checks.
+    * the value must still satisfy every pattern registered for that name.
+      Callers are expected to have run :func:`check_params` first; re-checking
+      here means a future caller that forgets cannot leak an unvalidated
+      value, rather than relying on call order for its safety.
+
+    Raises:
+        ValueError: if no check covers ``name``, or the value fails one.
+    """
+    patterns = [c.pattern for c in checks if c.name == name]
+    if not patterns:
+        raise ValueError(f"--print {name}: no --check covers it; refusing to print")
+
+    value = params.get(name)
+    if not isinstance(value, str):
+        raise ValueError(f"--print {name}: not a string; refusing to print")
+    if any(re.fullmatch(pattern, value) is None for pattern in patterns):
+        raise ValueError(f"--print {name}: failed validation; refusing to print")
+    return value

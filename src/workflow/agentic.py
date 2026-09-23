@@ -18,11 +18,20 @@ def build_agentic_capsule() -> str:
     lines.append("  - init-workspace: ./bin/workflow init-workspace <file.yaml>")
     lines.append("  - resume: ./bin/workflow resume <workspace-dir>")
     lines.append("  - validate-fragment: ./bin/workflow validate-fragment <fragment.yaml>")
+    lines.append(
+        "  - check-params: ./bin/workflow check-params <workspace>/manifest.json "
+        "--check 'name=regex' [--print name]"
+    )
     lines.append("notes:")
     lines.append("  - ./bin/workflow list is the authoritative live catalog of available workflows")
     lines.append("  - file arguments are positional (./bin/workflow run <file>), not --input")
     lines.append("  - --params accepts k=v pairs; repeat for multiple params")
     lines.append("  - resume exits 0 if all stages done, exits 2 if stages remain")
+    lines.append(
+        "  - check-params validates trigger params as JSON data (exit 0 pass, 1 fail); "
+        "--print writes one value to stdout only if every --check passed, so a stage "
+        "can capture it with HOST=$(...) instead of interpolating the raw param"
+    )
     return "\n".join(lines)
 
 

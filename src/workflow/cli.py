@@ -217,6 +217,11 @@ def cmd_validate_fragment(args: argparse.Namespace) -> int:
     "--top-level", action="store_true",
     help="Read params from the document root instead of its 'trigger_params' key",
 )
+@app.argument(
+    "--print", dest="print_param", default=None, metavar="name",
+    help="Also write this param's value to stdout, only if every --check passed "
+         "(the name must be one of them)",
+)
 def cmd_check_params(args: argparse.Namespace) -> int:
     return _cmd_check_params(args)
 

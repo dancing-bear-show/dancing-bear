@@ -62,6 +62,30 @@ class TestWorkflowCapsuleContent(unittest.TestCase):
 
         self.assertIn("--params", build_agentic_capsule())
 
+    def test_capsule_lists_every_registered_subcommand(self):
+        """Derived from the real parser, not a hand-listed set.
+
+        A hand-written capsule drifts silently: check-params shipped with two
+        workflows depending on it and no capsule entry, so an agent reading
+        ./bin/workflow --agentic could not discover it. Enumerating the
+        parser's own subcommands means the next addition fails here instead.
+        """
+        from workflow.agentic import build_agentic_capsule
+        from workflow.cli import app
+
+        capsule = build_agentic_capsule()
+        registered = sorted(app._commands)
+        self.assertIn("check-params", registered, "parser wiring changed; fix this test")
+        for cmd in registered:
+            with self.subTest(cmd=cmd):
+                self.assertIn(f"  - {cmd}:", capsule)
+
+    def test_capsule_documents_the_print_flag(self):
+        """--print is the flag the qwen workflows capture into a shell var."""
+        from workflow.agentic import build_agentic_capsule
+
+        self.assertIn("--print", build_agentic_capsule())
+
 
 class TestWorkflowMainAgenticExtra(unittest.TestCase):
     """workflow-specific CLI behaviour not covered by the shared contract."""

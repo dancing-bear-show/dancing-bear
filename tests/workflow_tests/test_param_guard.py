@@ -14,6 +14,8 @@ pass on the truncated remnant.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import subprocess  # nosec B404 - runs the repo's own ./bin/workflow wrapper
 import tempfile
@@ -26,6 +28,7 @@ from workflow.param_guard import (
     check_params,
     load_params,
     parse_check,
+    select_printable,
 )
 
 HEREDOC_ESCAPE = "http://ok\nRAW\ntouch /tmp/PWNED_param_guard\ncat > /dev/null <<'RAW'\nx"
@@ -37,15 +40,27 @@ SHA_PATTERN = r"[0-9a-f]{40}"
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
+#: Cap on the wrapper subprocess. Generous for a JSON read plus a regex, but
+#: finite: an unpinned timeout means a hung wrapper hangs the whole suite.
+_WRAPPER_TIMEOUT_S = 60
 
-def _args(file: str, check: list[str], *, top_level: bool = False) -> argparse.Namespace:
+
+def _args(
+    file: str,
+    check: list[str],
+    *,
+    top_level: bool = False,
+    print_param: str | None = None,
+) -> argparse.Namespace:
     """Build real CLI args.
 
     Deliberately an argparse.Namespace rather than a MagicMock: a mock would
     auto-stub any attribute the handler gains later, so a wiring mistake would
     read as a pass.
     """
-    return argparse.Namespace(file=file, check=check, top_level=top_level)
+    return argparse.Namespace(
+        file=file, check=check, top_level=top_level, print_param=print_param
+    )
 
 
 class ParamGuardTempMixin(unittest.TestCase):
@@ -261,12 +276,17 @@ class TestCheckParamsEndToEnd(ParamGuardTempMixin):
     side effect the payload would cause is asserted absent.
     """
 
-    def _run(self, path: str, checks: list[str]) -> subprocess.CompletedProcess[str]:
+    def _run(
+        self, path: str, checks: list[str], *, print_param: str | None = None
+    ) -> subprocess.CompletedProcess[str]:
         argv = [str(_REPO_ROOT / "bin" / "workflow"), "check-params", path]
         for spec in checks:
             argv += ["--check", spec]
+        if print_param is not None:
+            argv += ["--print", print_param]
         return subprocess.run(  # nosec B603 - fixed argv, no shell, repo-owned binary
             argv, capture_output=True, text=True, cwd=str(_REPO_ROOT), check=False,
+            timeout=_WRAPPER_TIMEOUT_S,
         )
 
     def test_valid_value_exits_zero_through_the_wrapper(self) -> None:
@@ -294,6 +314,174 @@ class TestCheckParamsEndToEnd(ParamGuardTempMixin):
         proc = self._run(path, [f"ollama_host={HOST_PATTERN}"])
         self.assertEqual(proc.returncode, 1)
         self.assertIn("ollama_host", proc.stderr)
+        self.assertEqual(proc.stdout, "")
+
+
+class TestSelectPrintable(unittest.TestCase):
+    """select_printable is the gate on --print: it refuses more than it allows."""
+
+    def test_returns_value_when_a_check_covers_and_accepts_it(self) -> None:
+        value = select_printable(
+            "ollama_host",
+            {"ollama_host": "http://localhost:11434"},
+            [ParamCheck("ollama_host", HOST_PATTERN)],
+        )
+        self.assertEqual(value, "http://localhost:11434")
+
+    def test_refuses_a_name_no_check_covers(self) -> None:
+        """The whole point: an unvalidated param is never printable.
+
+        Without this the command would still exit 0 on the strength of the
+        OTHER params' checks, and hand back the one nobody validated.
+        """
+        with self.assertRaises(ValueError):
+            select_printable(
+                "model_tag",
+                {"model_tag": SUBSHELL, "ollama_host": "http://localhost:11434"},
+                [ParamCheck("ollama_host", HOST_PATTERN)],
+            )
+
+    def test_refuses_a_covered_name_whose_value_fails(self) -> None:
+        with self.assertRaises(ValueError):
+            select_printable(
+                "ollama_host", {"ollama_host": SUBSHELL}, [ParamCheck("ollama_host", HOST_PATTERN)]
+            )
+
+    def test_refuses_a_missing_param(self) -> None:
+        with self.assertRaises(ValueError):
+            select_printable("ollama_host", {}, [ParamCheck("ollama_host", HOST_PATTERN)])
+
+    def test_refuses_a_non_string_param(self) -> None:
+        with self.assertRaises(ValueError):
+            select_printable("port", {"port": 11434}, [ParamCheck("port", r"\d+")])
+
+    def test_requires_every_pattern_for_a_repeated_name(self) -> None:
+        """Two --check specs for one name must BOTH hold before printing.
+
+        Honouring only the first would let a caller widen a narrow check by
+        appending a permissive one.
+        """
+        with self.assertRaises(ValueError):
+            select_printable(
+                "ollama_host",
+                {"ollama_host": "http://evil.example"},
+                [
+                    ParamCheck("ollama_host", HOST_PATTERN),
+                    ParamCheck("ollama_host", r"https?://localhost(:[0-9]+)?/?"),
+                ],
+            )
+
+    def test_refusal_does_not_echo_the_rejected_value(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            select_printable(
+                "ollama_host", {"ollama_host": SUBSHELL}, [ParamCheck("ollama_host", HOST_PATTERN)]
+            )
+        self.assertNotIn("PWNED", str(ctx.exception))
+
+
+class TestCheckParamsPrintHandler(ParamGuardTempMixin):
+    """The --print branch of the handler, in process."""
+
+    def test_prints_accepted_value_to_stdout(self) -> None:
+        path = self.write_manifest({"ollama_host": "http://localhost:11434"})
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = _cmd_check_params(
+                _args(path, [f"ollama_host={HOST_PATTERN}"], print_param="ollama_host")
+            )
+        self.assertEqual(rc, 0)
+        self.assertEqual(buf.getvalue(), "http://localhost:11434")
+
+    def test_prints_nothing_when_validation_fails(self) -> None:
+        path = self.write_manifest({"ollama_host": SUBSHELL})
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):
+            rc = _cmd_check_params(
+                _args(path, [f"ollama_host={HOST_PATTERN}"], print_param="ollama_host")
+            )
+        self.assertEqual(rc, 1)
+        self.assertEqual(buf.getvalue(), "")
+
+    def test_prints_nothing_for_an_unchecked_name(self) -> None:
+        """model_tag passes no check, so it must not be printable."""
+        path = self.write_manifest(
+            {"ollama_host": "http://localhost:11434", "model_tag": "x; rm -rf /"}
+        )
+        buf, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+            rc = _cmd_check_params(
+                _args(path, [f"ollama_host={HOST_PATTERN}"], print_param="model_tag")
+            )
+        self.assertEqual(rc, 1)
+        self.assertEqual(buf.getvalue(), "")
+        self.assertIn("no --check covers it", err.getvalue())
+
+    def test_without_print_nothing_reaches_stdout(self) -> None:
+        """The default stays exit-status-only; --print is strictly opt-in."""
+        path = self.write_manifest({"ollama_host": "http://localhost:11434"})
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = _cmd_check_params(_args(path, [f"ollama_host={HOST_PATTERN}"]))
+        self.assertEqual(rc, 0)
+        self.assertEqual(buf.getvalue(), "")
+
+    def test_value_is_emitted_without_a_trailing_newline(self) -> None:
+        """$(...) strips one, but a redirect to a file would keep it."""
+        path = self.write_manifest({"ollama_host": "http://localhost:11434"})
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            _cmd_check_params(
+                _args(path, [f"ollama_host={HOST_PATTERN}"], print_param="ollama_host")
+            )
+        self.assertFalse(buf.getvalue().endswith("\n"))
+
+
+class TestCheckParamsPrintEndToEnd(TestCheckParamsEndToEnd):
+    """--print through the real wrapper, in the $(...) form the YAML uses.
+
+    Inherits the parent's payload cases so the plain path keeps its coverage;
+    these add the shell-capture contract on top.
+    """
+
+    def test_accepted_value_prints_intact_through_the_wrapper(self) -> None:
+        path = self.write_manifest({"ollama_host": "http://localhost:11434"})
+        proc = self._run(path, [f"ollama_host={HOST_PATTERN}"], print_param="ollama_host")
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout, "http://localhost:11434")
+
+    def test_subshell_payload_prints_nothing_and_never_executes(self) -> None:
+        marker = self.tmp / "PWNED_PRINT"
+        path = self.write_manifest({"ollama_host": f"http://h$(touch {marker})"})
+        proc = self._run(path, [f"ollama_host={HOST_PATTERN}"], print_param="ollama_host")
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(proc.stdout, "")
+        self.assertFalse(marker.exists(), "payload executed: the guard is inert")
+
+    def test_heredoc_payload_prints_nothing_and_never_executes(self) -> None:
+        marker = self.tmp / "PWNED_PRINT_HEREDOC"
+        payload = f"http://ok\nRAW\ntouch {marker}\ncat > /dev/null <<'RAW'\nx"
+        path = self.write_manifest({"ollama_host": payload})
+        proc = self._run(path, [f"ollama_host={HOST_PATTERN}"], print_param="ollama_host")
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(proc.stdout, "")
+        self.assertFalse(marker.exists(), "payload executed: the guard is inert")
+
+    def test_one_failing_param_blocks_printing_a_passing_sibling(self) -> None:
+        """A rejected ollama_host must withhold the valid model_tag too.
+
+        Otherwise a caller learns the stage ran far enough to read the file,
+        and the exit status stops being the single contract the YAML branches
+        on.
+        """
+        path = self.write_manifest(
+            {"ollama_host": SUBSHELL, "model_tag": "qwen2.5-coder:14b"}
+        )
+        proc = self._run(
+            path,
+            [f"ollama_host={HOST_PATTERN}", r"model_tag=[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)?"],
+            print_param="model_tag",
+        )
+        self.assertEqual(proc.returncode, 1)
         self.assertEqual(proc.stdout, "")
 
 

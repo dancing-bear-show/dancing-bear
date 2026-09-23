@@ -2348,6 +2348,13 @@ stages:
         command runs if either pattern fails:
           ollama_host: ^https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?$
           model_tag:   ^[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)?$
+
+        THEN BIND THEM TO SHELL VARIABLES IN STEP 1b BEFORE USING THEM.
+        Passing here is necessary but not sufficient: validation does not
+        rewrite the `{ollama_host}` / `{model_tag}` tokens elsewhere in this
+        description, and the engine substitutes the raw value at each one. The
+        `--print` form in Step 1b is what actually gets a validated value into
+        a command; this step is the abort gate, not the delivery mechanism.
         If either is rejected, abort the stage immediately: write
         {workspace}/validation/install.json with skipped=true and a
         skip_reason naming which param failed and its (redacted if
@@ -2384,23 +2391,46 @@ stages:
         after the operator acts, and every step in this stage is idempotent
         precisely so that re-running costs nothing.
 
+      Step 1b — Capture both validated values into shell variables.
+        Step 0's check proves the values are SAFE; it does not make them
+        AVAILABLE. Writing `{ollama_host}` into Step 2 or `{model_tag}` into
+        Step 3 puts the raw trigger param back into shell source, because the
+        engine substitutes at every occurrence of the token regardless of what
+        Step 0 concluded. Bind them once, here, and use only the variables:
+
+          HOST=$(./bin/workflow check-params {workspace}/manifest.json \
+            --check 'ollama_host=https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?' \
+            --print ollama_host) || exit 1
+          TAG=$(./bin/workflow check-params {workspace}/manifest.json \
+            --check 'model_tag=[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)?' \
+            --print model_tag) || exit 1
+
+        `--print` writes a value ONLY when every `--check` in that invocation
+        passed, and refuses a name no `--check` covers, so each variable holds
+        a validated value or the command exited non-zero having printed
+        nothing. Keep both `|| exit 1` guards: without them a rejection leaves
+        the variable empty and the commands below run against "/api/tags" or
+        an empty tag. From here on, $HOST and $TAG are the ONLY forms used —
+        `{ollama_host}` and `{model_tag}` must not appear in any command.
+
       Step 2 — Ollama server reachable.
-        Check:  curl -sS -m 5 -f -o /dev/null "{ollama_host}/api/tags"
-                (quoted — {ollama_host} is a trigger param; see Step 0. -f
-                turns a non-2xx status into a non-zero exit, so no curl
-                format string is needed — exit 0 means the server is up)
+        Check:  curl -sS -m 5 -f -o /dev/null "$HOST/api/tags"
+                (the variable from Step 1b, never the raw token. -f turns a
+                non-2xx status into a non-zero exit, so no curl format string
+                is needed — exit 0 means the server is up)
         Act:    start the server in the background (`ollama serve`), then poll
-                the same quoted check until it returns 200, up to ~30s.
+                that same "$HOST/api/tags" check until it returns 200, up to
+                ~30s. Poll the VARIABLE — re-interpolating {ollama_host} into
+                the poll loop reintroduces exactly what Step 1b removed.
         If it already returns 200, do NOT start a second server and do NOT
         restart the running one — something else may be using it.
 
       Step 3 — Model present.
-        Check:  ollama list | grep -F -- "{model_tag}"
-                (quoted, and `--` ends option parsing so a tag that happened
-                to start with `-` cannot be read as a grep flag)
-        Act:    ollama pull -- "{model_tag}"
-                (quoted the same way, for the same reason — both {model_tag}
-                uses reach a shell; see Step 0)
+        Check:  ollama list | grep -F -- "$TAG"
+                (the variable from Step 1b; `--` ends option parsing so a tag
+                that happened to start with `-` cannot be read as a grep flag)
+        Act:    ollama pull -- "$TAG"
+                (same variable, same reason — both uses reach a shell)
         This is a multi-GB download. Never pull when the check already matches.
 
         Then RECORD THE DIGEST, whether or not you pulled. `{model_tag}` is a
