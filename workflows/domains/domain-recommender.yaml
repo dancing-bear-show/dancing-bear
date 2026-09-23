@@ -556,7 +556,8 @@ stages:
                                  also contains prompt_text_pairs (a separate
                                  higher-intent secondary signal: CLI pairs
                                  mentioned directly in prompt text, counted by
-                                 session_id only — do NOT union with cli_sequences)
+                                 session_id only — do NOT union with cli_sequences;
+                                 Step 3 consumes it on its own path)
         WORKSPACE/prompt-corpus.json     — full prompt text for intent analysis
         WORKSPACE/efficiency-scores.json — per-session cache/cost metrics and the top-10
                                  expensive prompts. Context only; it does NOT
@@ -636,10 +637,10 @@ stages:
         commands into one slash-joined string (see the format rule in Step 4).
 
         This test must run here, on every Step 1 candidate. Step 3 carries a
-        similar check but is driven by intent-sequences.json cli_sequences,
-        which is now sourced from Bash tool_use records rather than prompt text
-        and carries real signal — so run the MULTI-SOURCE TEST in Step 3 as well;
-        do not skip it under the assumption cli_sequences will be empty.
+        similar check but is driven by intent-sequences.json cli_sequences
+        (sourced from Bash tool_use records, so it carries real signal) and
+        prompt_text_pairs — so run the MULTI-SOURCE TEST in Step 3 as well;
+        do not skip it under the assumption either list will be empty.
 
       Step 2 — new domain candidates:
         For each cluster in domain-map.json "cluster_detail" where
@@ -659,6 +660,19 @@ stages:
           synthesize-workflow-from-telemetry.yaml is the correct tool — do not
           propose CLI surface to cover a workflow-shaped need.
           Set impl_complexity = "medium" (new subcommand) or "high" (new domain).
+          Record signal_source "tool_calls" and prompt_freq = the sequence's freq.
+
+        Then, SEPARATELY, for each entry in intent-sequences.json
+        prompt_text_pairs with sessions >= 3 — the higher-intent signal of a
+        user naming both CLIs in one prompt. Never add its sessions to a
+        cli_sequences freq; the two sources count different units (sessions vs
+        spans) and cannot be summed:
+          - If the same sorted sequence already produced a candidate above,
+            do not create a second one. Annotate the existing entry with
+            prompt_text_sessions = sessions, leaving its prompt_freq unchanged.
+          - Otherwise create a candidate exactly as above (same workflow-vs-CLI
+            judgement and MULTI-SOURCE TEST), with signal_source "prompt_text"
+            and prompt_freq = sessions.
 
       Step 4 — ROI scoring.
 
