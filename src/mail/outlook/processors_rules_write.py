@@ -30,6 +30,7 @@ from .processors_rules_helpers import (
 )
 from .processors_rules_index import (
     _build_norm_existing_keys,
+    _build_reconcile_index,
     _build_unmappable_criteria_index,
     _all_unmappable_ids,
 )
@@ -509,37 +510,6 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
                     return key, False, False, True, None
         return key, True, False, False, None
 
-    def _build_reconcile_index(
-        self, existing: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Build a criteria-only index of live rules for reconciliation.
-
-        The first live rule for each criteria key wins; later duplicates are
-        skipped (their canon keys remain in ``existing`` and are eligible for
-        ``--delete-missing``).  Entries are popped as they are matched, so the
-        same live rule cannot be reconciled twice.
-
-        Live rules carrying conditions this codebase cannot express are excluded
-        entirely.  ``_criteria_key`` keys on from/to/subject only, so a UI-created
-        rule that is ALSO scoped by ``bodyContains`` is indistinguishable here
-        from a sender-only rule.  Reconcile recreates by delete+create from the
-        mapped criteria, so rewriting such a rule silently drops the extra
-        condition and the replacement matches *more* mail than the original --
-        e.g. a rule for "from bank.example AND body contains 'wire transfer'"
-        becomes one for every message from that sender.  Broadening a filter
-        without being asked is the dangerous direction, so these rules are left
-        exactly as they are: not reconciled, and (because their canon key stays
-        in ``existing``) not silently rewritten by any other path either.
-        """
-        index: dict[str, Any] = {}
-        for live_rule in existing.values():
-            if live_rule.get("unmappedConditions"):
-                continue
-            ck = _criteria_key(live_rule.get("criteria") or {})
-            if ck not in index:
-                index[ck] = live_rule
-        return index
-
     def _create_desired_rules(
         self,
         desired: list[dict[str, Any]],
@@ -567,7 +537,7 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         failed = 0
         desired_keys: set[str] = set()
         reconciled_rule_ids_set: set[str] = set()
-        reconcile_index = self._build_reconcile_index(existing) if reconcile else None
+        reconcile_index = _build_reconcile_index(existing) if reconcile else None
         norm_existing_keys = _build_norm_existing_keys(existing) if reconcile else None
         unmappable_index = _build_unmappable_criteria_index(existing) if reconcile else None
 
