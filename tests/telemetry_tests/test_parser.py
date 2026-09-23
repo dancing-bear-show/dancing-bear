@@ -203,6 +203,8 @@ class TestPricing(unittest.TestCase):
         self.assertEqual(model_tier("claude-opus-4-6"), "opus")
         self.assertEqual(model_tier("claude-sonnet-4-6"), "sonnet")
         self.assertEqual(model_tier("claude-haiku-4-5-20251001"), "haiku")
+        self.assertEqual(model_tier("claude-fable-5-1"), "fable")
+        self.assertEqual(model_tier("claude-mythos-5"), "mythos")
         self.assertEqual(model_tier("unknown-model"), "unknown")
 
     def test_compute_cost(self):

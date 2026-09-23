@@ -71,10 +71,10 @@ def _cost_multiplier() -> float:
 def normalize_model(model_id: str) -> str:
     """Map a full model ID to a pricing tier key.
 
-    Returns "opus", "sonnet", "haiku", or "unknown".
+    Returns "opus", "sonnet", "haiku", "fable", "mythos", or "unknown".
     """
     lower = model_id.lower()
-    for tier in ("opus", "sonnet", "haiku"):
+    for tier in ("opus", "sonnet", "haiku", "fable", "mythos"):
         if re.search(tier, lower):
             return tier
     return "unknown"

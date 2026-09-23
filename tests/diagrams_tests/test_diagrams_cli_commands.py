@@ -51,6 +51,16 @@ class TestRenderCostPie(unittest.TestCase):
         result = _render_cost_pie([], 7, compute_cost, model_tier)
         self.assertIn("pie title", result)
 
+    def test_fable_and_mythos_get_own_slices(self):
+        sessions = [
+            make_session(model="claude-fable-5-1", input_tok=1_000_000),
+            make_session(model="claude-mythos-5", input_tok=1_000_000),
+        ]
+        result = _render_cost_pie(sessions, 7, compute_cost, model_tier)
+        self.assertIn("Fable $", result)
+        self.assertIn("Mythos $", result)
+        self.assertNotIn("Unknown", result)
+
     def test_unknown_model_excluded(self):
         sessions = [make_session(model="future-xyz", input_tok=1_000_000)]
         result = _render_cost_pie(sessions, 7, compute_cost, model_tier)
