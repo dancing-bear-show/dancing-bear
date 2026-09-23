@@ -231,17 +231,49 @@ class TestConsolidateSchemaInputs(unittest.TestCase):
         self.assertEqual(task.count("rm -rf"), 1)
 
     def test_e2e_tmp_is_verified_outside_every_checkout(self) -> None:
-        """mktemp -d alone honors TMPDIR, which can point inside a checkout.
-        The stage must use an explicit outside-checkout template AND verify
-        the realpath against both the agent's own worktree and the main
-        checkout before the directory is used."""
+        """mktemp -d alone honors TMPDIR, which can point inside a checkout —
+        not just the agent's own worktree or the main checkout, but any other
+        linked worktree too. The stage must use an explicit outside-checkout
+        template AND enumerate every root from `git worktree list --porcelain`
+        (which includes the main checkout) rather than checking only two
+        fixed roots."""
         task = self._task("test-e2e-data")
         self.assertIn('mktemp -d "${TMPDIR:-/tmp}/e2e-schema.XXXXXX"', task)
-        self.assertIn("git rev-parse --show-toplevel", task)
+        self.assertIn("git worktree list --porcelain", task)
+        # Enumeration failure (a git error) must abort rather than proceed
+        # with an empty root set. The git call must NOT be piped straight
+        # into awk with the exit check on the pipeline -- awk exits 0 on
+        # empty input regardless of git's own status, so that form silently
+        # swallows a git failure. git's exit status must be checked on its
+        # own line.
         self.assertIn(
-            "git rev-parse --path-format=absolute --git-common-dir", task
+            "WT_LIST=$(git worktree list --porcelain) || exit 1", task
         )
+        self.assertNotIn("git worktree list --porcelain | awk", task)
+        # A repo always has at least one worktree, so zero enumerated roots
+        # means enumeration broke, not that no checkouts exist -- abort.
+        self.assertIn('[ -s "$ROOTS_FILE" ]', task)
+        # The roots must be read from a real file via `while read ... done <
+        # file`, not a bare `for ROOT in $ROOTS` word-split (a no-op in zsh,
+        # which does not split unquoted expansions on IFS by default) or a
+        # piped `while read` (runs in a subshell, so its `exit 1` would not
+        # stop the parent shell). Check the code form directly rather than
+        # forbidding the anti-pattern's name, which the explanatory prose
+        # legitimately mentions.
+        self.assertIn("while IFS= read -r ROOT; do", task)
+        self.assertIn('done < "$ROOTS_FILE"', task)
         # The verification must abort the sample run rather than proceed.
-        verify_idx = task.index("git rev-parse --show-toplevel")
+        verify_idx = task.index("git worktree list --porcelain")
         abort_idx = task.index("aborting")
         self.assertLess(verify_idx, abort_idx)
+
+    def test_e2e_tmp_check_enumerates_not_two_fixed_roots(self) -> None:
+        """The old form hardcoded exactly two roots (own worktree, main
+        checkout) via `git rev-parse --show-toplevel` / `--git-common-dir`.
+        That misses a TMPDIR pointing inside a THIRD, unrelated linked
+        worktree. The check must enumerate every worktree root instead of
+        naming two fixed ones."""
+        task = self._task("test-e2e-data")
+        self.assertNotIn("git rev-parse --show-toplevel", task)
+        self.assertNotIn("git rev-parse --path-format=absolute --git-common-dir", task)
+        self.assertIn("pwd -P", task)

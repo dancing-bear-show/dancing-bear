@@ -751,19 +751,40 @@ stages:
 
         E2E_TMP=$(mktemp -d "${TMPDIR:-/tmp}/e2e-schema.XXXXXX") || exit 1
         trap 'rm -rf "$E2E_TMP"' EXIT
-        WT_ROOT=$(git rev-parse --show-toplevel)
-        MAIN_ROOT=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
-        case "$(cd "$E2E_TMP" && pwd -P)" in
-          "$WT_ROOT"/*|"$WT_ROOT"|"$MAIN_ROOT"/*|"$MAIN_ROOT")
-            echo "E2E_TMP resolved inside a checkout, aborting" >&2; exit 1 ;;
-        esac
+        ROOTS_FILE="$E2E_TMP/.worktree-roots"
+        WT_LIST=$(git worktree list --porcelain) || exit 1
+        printf '%s\n' "$WT_LIST" | awk '/^worktree /{print substr($0,10)}' > "$ROOTS_FILE"
+        [ -s "$ROOTS_FILE" ] || { echo "no worktree roots enumerated, aborting" >&2; exit 1; }
+        E2E_REAL=$(cd "$E2E_TMP" && pwd -P)
+        while IFS= read -r ROOT; do
+          [ -d "$ROOT" ] || continue
+          ROOT_REAL=$(cd "$ROOT" && pwd -P)
+          case "$E2E_REAL" in
+            "$ROOT_REAL"|"$ROOT_REAL"/*)
+              echo "E2E_TMP resolved inside a checkout, aborting" >&2; exit 1 ;;
+          esac
+        done < "$ROOTS_FILE"
 
       `mktemp -d` alone is not enough: it honors `TMPDIR`, and `TMPDIR` can be
-      set to point inside a checkout. The `case` check above is what catches
-      that, whatever the template resolves to — if the realpath
-      lands under your own worktree (`$WT_ROOT`) or the main checkout
-      (`$MAIN_ROOT`), stop without running the sample rather than writing PII
-      into a git-tracked tree. `trap ... EXIT` runs on normal completion,
+      set to point inside a checkout — any checkout, not just this worktree or
+      the main one. The loop above enumerates every `worktree <path>` line from
+      `git worktree list --porcelain` (which includes the main checkout),
+      canonicalizes each with `pwd -P`, skips a root whose directory no longer
+      exists (a prunable entry), and aborts if `$E2E_TMP` canonicalizes to one
+      of them or a path under one. `git worktree list` runs on its own line so
+      its exit status is checked directly, not masked by the `awk` pipe stage
+      after it — a piped `cmd | awk ... || exit 1` would NOT catch a `git`
+      failure, because `awk` exits 0 on empty input regardless of what `git`
+      did. An empty `$ROOTS_FILE` also aborts explicitly: a repo always has at
+      least one worktree, so zero enumerated roots means enumeration is
+      broken, not that no checkouts exist. The roots are read via `while read
+      < "$ROOTS_FILE"` rather than a plain `for ROOT in $ROOTS` word-split or a
+      piped `while read` — the former does not word-split on `$IFS` in zsh
+      (each root would need `SH_WORD_SPLIT`, unset by default, so the whole
+      multi-line list becomes one non-matching loop iteration and the check
+      silently passes), and the latter runs the loop body in a subshell, where
+      its `exit 1` would not stop the parent shell. Reading from a real file
+      avoids both. `trap ... EXIT` runs on normal completion,
       an early `exit`, or an interrupted command, so a failure partway through
       the pipeline still deletes `$E2E_TMP` — cleanup never depends on a
       separate, rememberable step. Do NOT split this across multiple Bash
