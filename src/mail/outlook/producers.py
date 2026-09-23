@@ -12,10 +12,10 @@ from .processors_rules import (
 )
 from .processors_rules_write import (
     OutlookRulesSyncResult,
-    OutlookRulesPlanResult,
     OutlookRulesDeleteResult,
     OutlookRulesSweepResult,
 )
+from .processors_rules_plan import OutlookRulesPlanResult
 from .processors_calendar import (
     OutlookCategoriesListResult,
     OutlookCategoriesExportResult,
