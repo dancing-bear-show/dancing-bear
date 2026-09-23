@@ -39,8 +39,8 @@ metadata:
 trigger:
   source: manual
   params:
-    source_root: ""     # e.g. "workflow/"
-    test_path: ""       # e.g. "tests/workflow/"
+    source_root: ""     # e.g. "src/workflow/"
+    test_path: ""       # e.g. "tests/workflow_tests/"
     scope: "changed"    # changed = files differing from origin/main (or {pr_number});
                         # domain  = every .py under {source_root} + {test_path}
     domain_slug: ""     # required: {source_root} with "/" replaced by "-" (e.g. "src-mail").

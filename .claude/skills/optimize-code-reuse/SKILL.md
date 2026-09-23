@@ -20,21 +20,22 @@ running only the reuse scan dimension. Findings are applied and rechecked automa
 
 ## How to Run
 
-Bootstrap `source_root` and `test_path` from context:
-- `source_root`: the `<domain>/` directory of the files you just wrote or changed
-- `test_path`: the corresponding `tests/<domain>/` directory
+Bootstrap `source_root`, `test_path` and `domain_slug` from context:
+- `source_root`: the `src/<domain>/` directory of the files you just wrote or changed
+- `test_path`: the corresponding `tests/<domain>_tests/` directory
+- `domain_slug`: `source_root` with `/` replaced by `-` (e.g. `src-mail`); keeps each domain's workspace separate
 - `pr_number`: optional — if you have an open PR, pass it to scope file detection to that PR's diff
 
 **IMPORTANT**: Use the `/workflow` skill — do NOT call `./bin/workflow run --execute` directly. It only writes dispatch files and exits (status=pending). The `/workflow` skill is what actually spawns agents, waits for results, and handles human gates.
 
 ```python
-Skill(skill="workflow", args="--workflow workflows/code/optimize-code.yaml --params source_root=<domain>/ --params test_path=tests/<domain>/ --params skip_checks=complexity,coverage,security,arch")
+Skill(skill="workflow", args="--workflow workflows/code/optimize-code.yaml --params source_root=src/<domain>/ --params test_path=tests/<domain>_tests/ --params domain_slug=src-<domain> --params skip_checks=complexity,coverage,security,arch")
 ```
 
 With a PR number:
 
 ```python
-Skill(skill="workflow", args="--workflow workflows/code/optimize-code.yaml --params pr_number=314 --params source_root=<domain>/ --params test_path=tests/<domain>/ --params skip_checks=complexity,coverage,security,arch")
+Skill(skill="workflow", args="--workflow workflows/code/optimize-code.yaml --params pr_number=314 --params source_root=src/<domain>/ --params test_path=tests/<domain>_tests/ --params domain_slug=src-<domain> --params skip_checks=complexity,coverage,security,arch")
 ```
 
 ## What Runs

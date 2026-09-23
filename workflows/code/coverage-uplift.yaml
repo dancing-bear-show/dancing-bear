@@ -611,7 +611,7 @@ stages:
         in the results and document the blocker — do not abort other domains.
 
       Step 3 — run qlty on all changed files in touched domains:
-        ~/.qlty/bin/qlty check tests/<domain>/ <domain>/
+        ~/.qlty/bin/qlty check tests/<domain>_tests/ src/<domain>/
 
         Fix any lint errors before proceeding.
 

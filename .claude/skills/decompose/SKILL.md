@@ -23,7 +23,7 @@ Calibrated against the actual file distribution in this repo:
 
 | File type | Flag for review | Strong candidate | Split immediately |
 |-----------|----------------|------------------|-------------------|
-| Source module (`<domain>/*.py`) | 500+ lines | 700+ lines | 900+ lines |
+| Source module (`src/<domain>/*.py`) | 500+ lines | 700+ lines | 900+ lines |
 | Test file (`tests/**/*.py`) | 700+ lines | 850+ lines | 1000+ lines |
 | Helper/utility module | 400+ lines | 550+ lines | 700+ lines |
 
