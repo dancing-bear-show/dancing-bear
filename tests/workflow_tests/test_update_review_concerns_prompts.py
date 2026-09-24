@@ -86,7 +86,7 @@ class TestParamRules(unittest.TestCase):
         rules = {c.name: c.pattern for c in defn.trigger.rules.checks}
         text = _WORKFLOW.read_text(encoding="utf-8")
         found = re.findall(r"--check '([a-z_]+)=([^']*)'", text)
-        self.assertEqual({n for n, _ in found}, {"mode", "min_threads", "pr_number"})
+        self.assertEqual({n for n, _ in found}, {"mode", "min_threads", "max_prs", "pr_number"})
         for name, pattern in found:
             self.assertEqual(pattern, rules[name], name)
 
@@ -148,6 +148,52 @@ class TestRenderedPrompts(unittest.TestCase):
             self.assertIn(code, text)
         self.assertIn("## Rejected clusters", text)
         self.assertIn('"sweep":', text)
+
+    def test_blank_pr_number_scans_max_prs_recent_prs(self) -> None:
+        text = _prompts("/ws", mode="rereview", max_prs="30")["fetch-round-history"]
+        self.assertIn('review-rounds --recent "30" --out-dir "/ws/outputs/rounds" --min-threads "15"', text)
+        self.assertNotIn("--recent 60", text)
+
+    def test_empty_scan_advice_sits_in_step_4(self) -> None:
+        text = self.prompts["fetch-round-history"]
+        step4, step5 = text.index("Step 4"), text.index("Step 5")
+        advice = text.index("suggest a lower min_threads")
+        self.assertLess(step4, advice)
+        self.assertLess(advice, step5)
+
+    def test_classifier_deletes_its_own_output_first(self) -> None:
+        text = self.prompts["classify-rereview"]
+        rm = text.index('rm -f "/ws/outputs/classified/pr{pr}.json"')
+        self.assertLess(rm, text.index("Write only your own output file"))
+
+    def test_fetch_findings_names_no_guide_list(self) -> None:
+        """Guides are found by glob; a hand list drifts (it missed resume-copy.md)."""
+        text = _prompts("/ws", mode="topics")["fetch-findings"]
+        named = set(re.findall(r"concerns/[A-Za-z0-9_-]+\.md", text))
+        self.assertEqual(named, {"concerns/README.md"})
+        self.assertIn("concerns/*.md", text)
+
+    def test_update_guides_writes_to_covers_every_guide(self) -> None:
+        _, manifest = _compile(mode="topics")
+        declared = set(manifest.resolved_stages["update-guides"].spec.writes_to)
+        guides = {f"concerns/{p.name}" for p in (_ROOT / "concerns").glob("*.md")}
+        self.assertTrue(guides)
+        self.assertEqual(guides - declared, set())
+
+    def test_update_guides_counts_readme_row_after_appending(self) -> None:
+        text = self.prompts["update-guides"]
+        self.assertLess(text.index("Step 3 — append"), text.index("Step 3b —"))
+        self.assertLess(text.index("Step 3b —"), text.index("Step 4"))
+        self.assertIn("grep -c '^### ' concerns/collateral-damage.md", text)
+
+    def test_prompt_file_describes_full_oids_and_both_lines(self) -> None:
+        body = _PROMPT_FILE.read_text(encoding="utf-8")
+        self.assertNotIn("10-character", body)
+        self.assertIn("full OID", body)
+        self.assertIn("`original_line`", body)
+        self.assertIn("git show <commit>:<path>", body)
+        self.assertIn("aggregate-rereview fails the run", body)
+        self.assertNotIn("cluster-gaps' aggregate check", body)
 
     def test_topics_prompt_routes_away_from_rereview(self) -> None:
         text = _prompts("/ws", mode="topics")["cluster-gaps"]
@@ -226,6 +272,41 @@ class TestRenderedJqExecutes(unittest.TestCase):
             self.assertEqual(self._run(cmd).returncode, 0, cmd)
         self.assertNotEqual(self._run(self.check).returncode, 0)
         self.assertIn("395: 0 classified files", self._run(self.explain).stdout)
+
+    def test_pr_number_mode_keeps_a_pr_under_the_floor(self) -> None:
+        """#429 has 5 threads; with pr_number set, Step 4 and Step 5 must pass it."""
+        self._write("outputs/rounds/summary.json", [{"pr": 429, "threads": 5}])
+        fetch = _jq_lines(_prompts(str(self.ws), mode="rereview", pr_number="429")["fetch-round-history"])
+        refuse_empty = next(c for c in fetch if "length > 0' " in c and "items" not in c)
+        build_index = next(c for c in fetch if "select(.items" in c and "--argjson" not in c)
+        self.assertEqual(self._run(refuse_empty).returncode, 0)
+        self.assertEqual(self._run(build_index).returncode, 0)
+        index = json.loads((self.ws / "outputs/rereview-index.json").read_text())
+        self.assertEqual(index, {"items": [{"pr": "429"}]})
+
+    def test_cluster_totals_are_computed_by_jq(self) -> None:
+        self._write("outputs/rereview-classified.json", [
+            {"pr": 406, "threads": [{"category": "SIBLING"}, {"category": "ROUND0"}, {"category": "SIBLING"}]},
+            {"pr": 395, "threads": [{"category": "NOISE"}]},
+        ])
+        self._write("outputs/known-concern-ids.json", ["a", "b", "c"])
+        text = _prompts(str(self.ws), mode="rereview")["cluster-gaps"]
+        (totals,) = [c for c in _jq_lines(text) if "known concern ids" in c]
+        res = self._run(totals)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(res.stdout.splitlines(), [
+            "PRs: 2", "threads: 4", "NOISE: 1", "ROUND0: 1", "SIBLING: 2", "known concern ids: 3",
+        ])
+
+    def test_classifier_count_jq_executes(self) -> None:
+        body = _PROMPT_FILE.read_text(encoding="utf-8")
+        (line,) = [ln.strip() for ln in body.splitlines() if ln.strip().startswith("jq '[.threads")]
+        out = self.ws / "outputs/classified/pr1.json"
+        self._write("outputs/classified/pr1.json",
+                    {"pr": 1, "threads": [{"category": "SIBLING"}, {"category": "SIBLING"}, {"category": "NOISE"}]})
+        res = self._run(line.replace("<your output file>", f'"{out}"'))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(json.loads(res.stdout), {"NOISE": 1, "SIBLING": 2})
 
     def test_aggregate_halts_on_partial_classification(self) -> None:
         self._index()
