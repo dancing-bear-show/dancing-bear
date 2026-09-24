@@ -1,13 +1,18 @@
 """Fetch PR review-round data and write per-PR JSON + summary.
 
-A "bot round" is one distinct commit OID against which a bot submitted a review.
-Bot classification uses author.__typename == "Bot" — never login-string matching.
+A "round" is one distinct commit OID against which the Copilot pull-request
+reviewer submitted a review. Other bots (github-code-quality, github-actions)
+do not open rounds; their reviews are counted per PR as ``other_bot_reviews``.
+Copilot is identified with ``core.github.authors.is_copilot_reviewer`` (bot by
+``__typename`` AND Copilot's login), never by a login match alone.
 
 Threads are assigned to a round by their first comment's originalCommit.oid.
-Threads whose first comment's commit is not in any bot round get round=null and
+Threads whose first comment's commit is not in any round get round=null and
 are counted separately as unplaced_threads (excluded from both round0 and later).
 
-Writes ``<out-dir>/pr<N>.json`` and ``<out-dir>/summary.json``.
+Writes ``<out-dir>/pr<N>.json`` and ``<out-dir>/summary.json``. A stale
+``summary.json`` is deleted before anything is fetched, so a failed run never
+leaves an earlier run's summary looking current.
 Exit 1 on any API failure or truncated pagination (partial data is never
 reported as complete).
 """
@@ -24,6 +29,13 @@ _BODY_MAX = 1500
 _REPLY_MAX = 400
 _REPLY_COUNT = 3
 _COMMIT_PAGE_REST = 100  # REST commit list, per page
+#: GitHub's REST ``pulls/{n}/commits`` endpoint never returns more than this.
+_REST_COMMIT_CAP = 250
+
+#: Default --min-threads floor, applied only to a --recent scan.
+DEFAULT_MIN_THREADS = 15
+#: Upper bound for --recent: one ``gh pr list`` call, count-checked.
+RECENT_MAX = 200
 
 
 # ---------------------------------------------------------------------------
@@ -44,6 +56,7 @@ class ThreadEntry:
     commit: str | None
     path: str
     line: int | None
+    original_line: int | None
     outdated: bool
     resolved: bool
     author_kind: str
@@ -58,7 +71,21 @@ class PRRounds:
     rounds: list[RoundEntry]
     threads: list[ThreadEntry]
     review_bodies_count: int
-    truncated: bool = False
+    other_bot_reviews: int = 0
+    truncated_parts: list[str] = field(default_factory=list)
+
+    @property
+    def truncated(self) -> bool:
+        return bool(self.truncated_parts)
+
+
+@dataclass(frozen=True)
+class _ReviewScan:
+    """What the review list says about rounds, once classified by author."""
+
+    round_oids: list[str]
+    review_bodies: int
+    other_bot_reviews: int
 
 
 # ---------------------------------------------------------------------------
@@ -66,10 +93,20 @@ class PRRounds:
 # ---------------------------------------------------------------------------
 
 def _is_bot(author: Any) -> bool:
-    """Classify by __typename, never by login."""
+    """Classify with the shared helper, typed field first, never login alone."""
+    from core.github.authors import classify_author
+
     if not isinstance(author, dict):
         return False
-    return author.get("__typename") == "Bot"
+    return classify_author(author.get("login"), typename=author.get("__typename")) == "bot"
+
+
+def _is_copilot(author: Any) -> bool:
+    from core.github.authors import is_copilot_reviewer
+
+    if not isinstance(author, dict):
+        return False
+    return is_copilot_reviewer(author.get("login"), typename=author.get("__typename"))
 
 
 def _author_kind(comments: list[Any]) -> str:
@@ -94,17 +131,17 @@ def _fetch_commit_headlines(
     owner: str,
     repo: str,
     pr: int,
+    expected: int | None,
 ) -> tuple[dict[str, str], bool]:
     """Fetch all commits on a PR; return (oid -> headline, truncated).
 
-    Uses REST pagination via api_paginated. A PR can have 40+ commits.
+    Raises GhError on API failure; that is an API failure, not a truncation.
+    ``truncated`` is True when the listing disagrees with ``expected`` (the
+    PR's GraphQL commit count) or ``expected`` is unknown. REST lists at most
+    250 commits, so a longer PR always reports truncated.
     """
-    from core.gh_cli import GhError
     path = f"repos/{owner}/{repo}/pulls/{pr}/commits?per_page={_COMMIT_PAGE_REST}"
-    try:
-        items = gh.api_paginated(path)
-    except GhError:
-        return {}, True
+    items = gh.api_paginated(path)
     headlines: dict[str, str] = {}
     for item in items:
         if not isinstance(item, dict):
@@ -117,39 +154,40 @@ def _fetch_commit_headlines(
             msg = full_msg.splitlines()[0] if full_msg else ""
         if sha:
             headlines[sha] = msg
-    return headlines, False
+    truncated = expected is None or len(items) != expected or expected > _REST_COMMIT_CAP
+    return headlines, truncated
 
 
 # ---------------------------------------------------------------------------
 # Build PR rounds structure
 # ---------------------------------------------------------------------------
 
-def _extract_bot_rounds(
-    review_nodes: list[Any],
-) -> tuple[list[str], int]:
-    """Return (ordered round OIDs, bot_review_bodies) from review nodes.
+def _extract_bot_rounds(review_nodes: list[Any]) -> _ReviewScan:
+    """Classify review nodes into Copilot rounds and other-bot counts.
 
-    Bot rounds are ordered by their earliest submittedAt.
-    bot_review_bodies counts bot reviews that have a non-empty body.
+    Only Copilot reviews open a round; rounds are ordered by their earliest
+    submittedAt. ``review_bodies`` counts bot reviews (any bot) with a
+    non-empty body. ``other_bot_reviews`` counts reviews by bots other than
+    Copilot, which never open a round.
     """
     seen_oids: dict[str, str] = {}  # oid -> earliest submittedAt
     bot_review_bodies = 0
+    other_bot_reviews = 0
     for node in review_nodes:
         author = node.get("author") or {}
         if not _is_bot(author):
             continue
-        body = (node.get("body") or "").strip()
-        if body:
+        if (node.get("body") or "").strip():
             bot_review_bodies += 1
-        commit = node.get("commit") or {}
-        oid = commit.get("oid") or ""
-        if not oid:
+        if not _is_copilot(author):
+            other_bot_reviews += 1
             continue
+        oid = (node.get("commit") or {}).get("oid") or ""
         submitted_at = node.get("submittedAt") or ""
-        if oid not in seen_oids or submitted_at < seen_oids[oid]:
+        if oid and (oid not in seen_oids or submitted_at < seen_oids[oid]):
             seen_oids[oid] = submitted_at
     ordered = sorted(seen_oids, key=lambda o: seen_oids[o])
-    return ordered, bot_review_bodies
+    return _ReviewScan(ordered, bot_review_bodies, other_bot_reviews)
 
 
 def _first_comment_oid(node: Any) -> str:
@@ -167,7 +205,12 @@ def _thread_entry(
     node: Any,
     oid_to_round: dict[str, int],
 ) -> ThreadEntry:
-    """Convert one raw thread node into a ThreadEntry."""
+    """Convert one raw thread node into a ThreadEntry.
+
+    ``line`` (current; null once the thread is outdated) and ``original_line``
+    (the line in ``commit``) are kept separate: they refer to different
+    revisions of the file and must never be merged.
+    """
     thread_id = node.get("id") or ""
     comments = (node.get("comments") or {}).get("nodes") or []
     first_comment = comments[0] if comments else {}
@@ -179,7 +222,8 @@ def _thread_entry(
         round=round_num,
         commit=first_oid or None,
         path=node.get("path") or "",
-        line=node.get("line") or node.get("originalLine"),
+        line=node.get("line"),
+        original_line=node.get("originalLine"),
         outdated=bool(node.get("isOutdated")),
         resolved=bool(node.get("isResolved")),
         author_kind=_author_kind(comments),
@@ -200,31 +244,43 @@ def build_pr_rounds(
     """Fetch and process one PR into a PRRounds structure.
 
     Uses core.github.threads for paginated, count-checked thread and review
-    fetching. Raises GhError on API failure. Sets truncated=True on any
-    pagination count mismatch — never silently returns partial data.
+    fetching. Raises GhError on API failure. Records each connection whose
+    count disagrees in ``truncated_parts`` — never silently returns partial data.
     """
     from core.github.threads import fetch_pr_reviews, fetch_raw_threads
 
-    review_nodes, pr_title, reviews_truncated = fetch_pr_reviews(gh, owner, repo, pr)
-    ordered_oids, bot_review_bodies = _extract_bot_rounds(review_nodes)
-    headlines, commits_truncated = _fetch_commit_headlines(gh, owner, repo, pr)
+    reviews = fetch_pr_reviews(gh, owner, repo, pr)
+    scan = _extract_bot_rounds(reviews.nodes)
+    headlines, commits_truncated = _fetch_commit_headlines(
+        gh, owner, repo, pr, reviews.commit_count
+    )
 
     rounds = [
         RoundEntry(round=i, commit=oid, headline=headlines.get(oid) or "")
-        for i, oid in enumerate(ordered_oids)
+        for i, oid in enumerate(scan.round_oids)
     ]
     oid_to_round: dict[str, int] = {r.commit: r.round for r in rounds}
 
     thread_nodes, threads_truncated = fetch_raw_threads(gh, owner, repo, pr)
     entries = [_thread_entry(node, oid_to_round) for node in thread_nodes]
 
+    parts = [
+        name
+        for name, short in (
+            ("reviews", reviews.truncated),
+            ("threads", threads_truncated),
+            (f"commits (REST lists at most {_REST_COMMIT_CAP})", commits_truncated),
+        )
+        if short
+    ]
     return PRRounds(
         pr=pr,
-        title=pr_title,
+        title=reviews.title,
         rounds=rounds,
         threads=entries,
-        review_bodies_count=bot_review_bodies,
-        truncated=reviews_truncated or threads_truncated or commits_truncated,
+        review_bodies_count=scan.review_bodies,
+        other_bot_reviews=scan.other_bot_reviews,
+        truncated_parts=parts,
     )
 
 
@@ -248,6 +304,7 @@ def _pr_to_json(result: PRRounds) -> dict[str, Any]:
                 "commit": t.commit,
                 "path": t.path,
                 "line": t.line,
+                "original_line": t.original_line,
                 "outdated": t.outdated,
                 "resolved": t.resolved,
                 "author_kind": t.author_kind,
@@ -283,6 +340,7 @@ def _pr_summary(result: PRRounds) -> dict[str, Any]:
         "unplaced_threads": unplaced_threads,
         "later_share": later_share,
         "review_bodies": result.review_bodies_count,
+        "other_bot_reviews": result.other_bot_reviews,
         "per_round": per_round,
         "truncated": result.truncated,
     }
@@ -308,6 +366,8 @@ def run_review_rounds(
     from core.github.repo import resolve_owner_repo
 
     out_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = out_dir / "summary.json"
+    summary_path.unlink(missing_ok=True)
 
     try:
         owner, repo = resolve_owner_repo(gh)
@@ -319,6 +379,8 @@ def run_review_rounds(
     failed = False
 
     for pr_num in pr_numbers:
+        pr_path = out_dir / f"pr{pr_num}.json"
+        pr_path.unlink(missing_ok=True)  # a failed fetch must not leave the last run's file
         try:
             result = build_pr_rounds(gh, owner, repo, pr_num)
         except GhError as exc:
@@ -328,14 +390,13 @@ def run_review_rounds(
 
         if result.truncated:
             print(
-                f"review-rounds: PR #{pr_num} pagination was truncated — "
-                "refusing to write partial data",
+                f"review-rounds: PR #{pr_num} pagination was truncated "
+                f"({', '.join(result.truncated_parts)}) — refusing to write partial data",
                 file=sys.stderr,
             )
             failed = True
             continue
 
-        pr_path = out_dir / f"pr{pr_num}.json"
         atomic_write_json(pr_path, _pr_to_json(result))
         summaries.append(_pr_summary(result))
 
@@ -346,7 +407,6 @@ def run_review_rounds(
     filtered = [s for s in summaries if s["threads"] >= min_threads]
     filtered.sort(key=lambda s: s["threads"], reverse=True)
 
-    summary_path = out_dir / "summary.json"
     atomic_write_json(summary_path, filtered)
     print(json.dumps(filtered, indent=2))
     return 0
@@ -356,28 +416,35 @@ def fetch_recent_prs(
     gh: Any,
     owner: str,
     repo: str,
-    days: int,
+    count: int,
 ) -> list[int]:
-    """Return PR numbers merged in the last ``days`` days, sorted descending."""
-    import datetime
+    """Return the ``count`` most recent PR numbers, any state, sorted descending.
 
+    Open, merged and closed PRs all count. The listing is count-checked
+    against the repository's PR total: a result shorter than
+    ``min(count, total)`` raises GhError rather than passing as complete.
+    """
     from core.gh_cli import GhError
-    from core.github.pulls import pr_list
+    from core.github.pulls import pr_list, pr_total_count
 
-    since = (
-        datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)
-    ).strftime("%Y-%m-%d")
+    if not 1 <= count <= RECENT_MAX:
+        raise ValueError(f"count must be 1..{RECENT_MAX}, got {count}")
     try:
+        total = pr_total_count(gh, owner, repo)
         prs = pr_list(
             gh,
-            fields=["number", "mergedAt"],
-            state="merged",
-            limit=200,
-            search=f"merged:>={since}",
+            fields=["number"],
+            state="all",
+            limit=count,
             repo=f"{owner}/{repo}",
         )
     except GhError as exc:
         raise GhError(f"fetching recent PRs: {exc}") from exc
-    numbers = [p["number"] for p in prs if isinstance(p.get("number"), int)]
-    numbers.sort(reverse=True)
+    numbers = sorted({p["number"] for p in prs if isinstance(p.get("number"), int)}, reverse=True)
+    expected = min(count, total)
+    if len(numbers) != expected:
+        raise GhError(
+            f"fetching recent PRs: listing returned {len(numbers)} PRs, "
+            f"expected {expected} ({total} in the repository)"
+        )
     return numbers

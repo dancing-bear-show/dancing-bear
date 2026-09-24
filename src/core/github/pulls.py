@@ -244,3 +244,25 @@ def run_log(gh: GhCLI, run_id: int | str, *, failed_only: bool = True, repo: str
     """Return a workflow run's log, by default only the failed steps."""
     args = ["run", "view", str(run_id), *_repo_args(repo), "--log-failed" if failed_only else "--log"]
     return _checked(gh.run(args), "gh run view")
+
+
+_PR_TOTAL_QUERY = """
+query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) { pullRequests { totalCount } }
+}
+"""
+
+
+def pr_total_count(gh: GhCLI, owner: str, repo: str) -> int:
+    """Return how many PRs the repository has in any state (open, merged, closed).
+
+    Lets a caller of ``pr_list`` tell "the repo has fewer PRs than I asked
+    for" apart from "the listing came back short".
+    """
+    data = gh.graphql_checked(_PR_TOTAL_QUERY, {"owner": owner, "name": repo})
+    repo_obj = data.get("repository")
+    conn = repo_obj.get("pullRequests") if isinstance(repo_obj, dict) else None
+    total = conn.get("totalCount") if isinstance(conn, dict) else None
+    if not isinstance(total, int):
+        raise GhError(f"{owner}/{repo}: response has no repository.pullRequests.totalCount")
+    return total

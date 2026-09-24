@@ -325,15 +325,15 @@ def cmd_check_unlisted(args: argparse.Namespace) -> int:
 )
 @app.argument(
     "--prs",
-    default="",
-    help="Comma-separated PR numbers to fetch (mutually exclusive with --recent)",
+    default=None,
+    help="Comma-separated PR numbers; never thread-filtered unless --min-threads is given",
 )
 @app.argument(
     "--recent",
     type=int,
-    default=60,
-    metavar="DAYS",
-    help="Fetch PRs merged in the last N days (default: 60; ignored when --prs is given)",
+    default=None,
+    metavar="N",
+    help="The N most recent PRs by number, any state (1-200)",
 )
 @app.argument(
     "--out-dir",
@@ -345,9 +345,9 @@ def cmd_check_unlisted(args: argparse.Namespace) -> int:
     "--min-threads",
     dest="min_threads",
     type=int,
-    default=15,
+    default=None,
     metavar="N",
-    help="Exclude PRs with fewer than N threads from summary.json (default: 15)",
+    help="Drop PRs with fewer than N threads from summary.json (default: 15 with --recent, 0 with --prs)",
 )
 def cmd_review_rounds(args: argparse.Namespace) -> int:
     return _cmd_review_rounds(args)

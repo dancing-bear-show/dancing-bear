@@ -48,15 +48,18 @@ def build_agentic_capsule() -> str:
     )
     lines.append(
         "  - review-rounds: ./bin/workflow review-rounds --prs 391,406 --out-dir <dir> "
-        "[--min-threads 15]  OR  --recent 60 --out-dir <dir> [--min-threads 15]"
+        "[--min-threads N]  OR  --recent 20 --out-dir <dir> [--min-threads 15]"
     )
     lines.append("notes:")
     lines.append("  - ./bin/workflow list is the authoritative live catalog of available workflows")
     lines.append(
-        "  - review-rounds fetches bot review rounds per PR (distinct commit OIDs with a bot "
-        "review), assigns each thread a round by its first comment's originalCommit.oid, "
-        "writes pr<N>.json (rounds + threads) and summary.json (per-PR stats sorted by "
-        "threads desc, filtered by --min-threads); exit 1 on API failure or truncation"
+        "  - review-rounds: a round is a distinct commit OID with a Copilot review (other bots "
+        "are counted as other_bot_reviews, never rounds); each thread gets a round by its first "
+        "comment's originalCommit.oid; writes pr<N>.json (rounds + threads with line and "
+        "original_line) and summary.json (per-PR stats sorted by threads desc); --recent N = "
+        "the N most recent PRs by number, any state, 1-200, count-checked; --min-threads "
+        "defaults to 15 for --recent and 0 for --prs; exactly one of --prs/--recent; exit 1 "
+        "on bad args, API failure or truncation"
     )
     lines.append("  - file arguments are positional (./bin/workflow run <file>), not --input")
     lines.append("  - --params accepts k=v pairs; repeat for multiple params")

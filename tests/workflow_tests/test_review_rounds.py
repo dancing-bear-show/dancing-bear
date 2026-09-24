@@ -1,7 +1,10 @@
 """Tests for workflow.review_rounds and the ./bin/workflow review-rounds subcommand.
 
 Covers:
-- Round assignment from bot review commit OIDs
+- Round assignment from Copilot review commit OIDs (other bots never open a round)
+- line and original_line kept separate
+- Stale summary.json / pr<N>.json removed before a run
+- CLI: --prs parsing/dedupe, --recent bounds and count check, --min-threads defaults
 - Null round for threads whose commit is not in any bot review
 - Bot vs human classification by __typename (not login)
 - Thread pagination (truncated -> exit 1)
@@ -17,18 +20,23 @@ Covers:
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from types import SimpleNamespace
 from typing import Any
 
 from tests.fixtures import TempDirMixin
 from workflow.review_rounds import (
     _author_kind,
+    _fetch_commit_headlines,
     _is_bot,
     _truncate,
     build_pr_rounds,
+    fetch_recent_prs,
     run_review_rounds,
 )
 
@@ -86,11 +94,30 @@ class FakeGhTransport:
         body = json.dumps({"errors": [{"message": message}]})
         self.responses.setdefault("graphql", []).append(_proc(stdout=body))
 
+    def push_api_error(self, message: str) -> None:
+        self.responses.setdefault("api", []).append(_proc(returncode=1, stderr=message))
+
+    def push_pr_list(self, numbers: list[int]) -> None:
+        rows = [{"number": n} for n in numbers]
+        self.responses.setdefault("pr_list", []).append(_proc(stdout=json.dumps(rows)))
+
 
 def _new_gh(fake: FakeGhTransport) -> Any:
     """Build a real GhCLI backed by fake."""
     from core.gh_cli import GhCLI
     return GhCLI(run_func=fake)
+
+
+def _run_captured(**kwargs: Any) -> tuple[int, str, str]:
+    """Call run_review_rounds with stdout/stderr captured; return (rc, out, err)."""
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        rc = run_review_rounds(**kwargs)
+    return rc, out.getvalue(), err.getvalue()
+
+
+def _quiet_run(**kwargs: Any) -> int:
+    return _run_captured(**kwargs)[0]
 
 
 # ---------------------------------------------------------------------------
@@ -105,13 +132,18 @@ def _reviews_response(
     has_next: bool = False,
     cursor: str | None = None,
     title: str = "Test PR",
+    commit_count: int | None = None,
 ) -> dict[str, Any]:
+    """``commit_count`` None omits commits.totalCount, which reads as truncated."""
     if total is None:
         total = len(nodes)
+    pull: dict[str, Any] = {"title": title}
+    if commit_count is not None:
+        pull["commits"] = {"totalCount": commit_count}
     return {
         "repository": {
             "pullRequest": {
-                "title": title,
+                **pull,
                 "reviews": {
                     "totalCount": total,
                     "pageInfo": {"hasNextPage": has_next, "endCursor": cursor},
@@ -154,6 +186,22 @@ def _bot_review(oid: str, *, submitted_at: str = "2024-01-01T00:00:00Z", body: s
     }
 
 
+def _other_bot_review(
+    oid: str,
+    *,
+    login: str = "github-code-quality",
+    submitted_at: str = "2024-01-01T00:30:00Z",
+    body: str = "",
+) -> dict[str, Any]:
+    return {
+        "author": {"login": login, "__typename": "Bot"},
+        "state": "COMMENTED",
+        "submittedAt": submitted_at,
+        "commit": {"oid": oid},
+        "body": body,
+    }
+
+
 def _human_review(oid: str, *, submitted_at: str = "2024-01-01T01:00:00Z") -> dict[str, Any]:
     return {
         "author": {"login": "alice", "__typename": "User"},
@@ -170,6 +218,7 @@ def _thread_node(
     oid: str = "",
     path: str = "src/foo.py",
     line: int | None = 10,
+    original_line: int | None = None,
     resolved: bool = False,
     outdated: bool = False,
     author_typename: str = "Bot",
@@ -192,7 +241,7 @@ def _thread_node(
         "isOutdated": outdated,
         "path": path,
         "line": line,
-        "originalLine": line,
+        "originalLine": line if original_line is None else original_line,
         "comments": {
             "totalCount": comment_total if comment_total is not None else len(nodes),
             "pageInfo": {"hasNextPage": False, "endCursor": None},
@@ -220,7 +269,9 @@ def _setup_pr(
     title: str = "Test PR",
 ) -> None:
     """Push the three calls needed for one PR: reviews graphql, threads graphql, commits REST."""
-    fake.push_graphql(_reviews_response(reviews, total=review_total, title=title))
+    fake.push_graphql(_reviews_response(
+        reviews, total=review_total, title=title, commit_count=len(commits)
+    ))
     fake.push_graphql(_threads_response(threads, total=thread_total))
     fake.push_api([_commit_page(commits)])
 
@@ -338,29 +389,93 @@ class TestBuildPRRounds(TempDirMixin, unittest.TestCase):
         self.assertEqual(len(result.rounds), 0)
         self.assertIsNone(result.threads[0].round)
 
-    def test_bot_classification_by_typename_not_login(self) -> None:
-        """A reviewer with __typename=='Bot' is a bot regardless of login."""
+    def test_code_quality_only_push_opens_no_round(self) -> None:
+        """A non-Copilot bot is a bot by __typename, but its review opens no round."""
         oid = "ffff5555" * 5
-        # Login does NOT contain [bot] — should still be classified as bot
-        bot_review = {
-            "author": {"login": "github-code-quality", "__typename": "Bot"},
+        fake = FakeGhTransport()
+        _setup_pr(
+            fake,
+            reviews=[_other_bot_review(oid)],
+            threads=[_thread_node("T_gcp", oid=oid, author_typename="Bot")],
+            commits=[(oid, "fix: something")],
+        )
+        gh = _new_gh(fake)
+        result = build_pr_rounds(gh, "owner", "repo", 7)
+        self.assertEqual(result.rounds, [])
+        self.assertIsNone(result.threads[0].round)
+        self.assertEqual(result.threads[0].author_kind, "bot")
+        self.assertEqual(result.other_bot_reviews, 1)
+
+    def test_copilot_and_code_quality_on_one_commit_make_one_round(self) -> None:
+        """Only Copilot opens the round; the other bot is counted, not a second round."""
+        oid0 = "abab0000" * 5
+        oid1 = "cdcd1111" * 5
+        fake = FakeGhTransport()
+        _setup_pr(
+            fake,
+            reviews=[
+                _other_bot_review(oid0, submitted_at="2024-01-01T00:00:00Z"),
+                _bot_review(oid0, submitted_at="2024-01-01T00:05:00Z"),
+                # A later code-quality-only push: still no round.
+                _other_bot_review(oid1, login="github-actions", submitted_at="2024-01-02T00:00:00Z"),
+            ],
+            threads=[_thread_node("T1", oid=oid0), _thread_node("T2", oid=oid1)],
+            commits=[(oid0, "feat"), (oid1, "fix")],
+        )
+        gh = _new_gh(fake)
+        result = build_pr_rounds(gh, "owner", "repo", 8)
+        self.assertEqual([r.commit for r in result.rounds], [oid0])
+        self.assertEqual(result.threads[0].round, 0)
+        self.assertIsNone(result.threads[1].round)
+        self.assertEqual(result.other_bot_reviews, 2)
+
+    def test_user_with_copilot_login_opens_no_round(self) -> None:
+        """Copilot is identified by __typename AND login, never by login alone."""
+        oid = "efef2222" * 5
+        impostor = {
+            "author": {"login": "copilot-pull-request-reviewer", "__typename": "User"},
             "state": "COMMENTED",
             "submittedAt": "2024-01-01T00:00:00Z",
             "commit": {"oid": oid},
             "body": "",
         }
         fake = FakeGhTransport()
+        _setup_pr(fake, reviews=[impostor], threads=[], commits=[(oid, "x")])
+        result = build_pr_rounds(_new_gh(fake), "owner", "repo", 9)
+        self.assertEqual(result.rounds, [])
+        self.assertEqual(result.other_bot_reviews, 0)
+
+    def test_outdated_thread_keeps_line_and_original_line_separate(self) -> None:
+        """A null current line is never back-filled from originalLine."""
+        oid = "1a1a3333" * 5
+        fake = FakeGhTransport()
         _setup_pr(
             fake,
-            reviews=[bot_review],
-            threads=[_thread_node("T_gcp", oid=oid, author_typename="Bot")],
-            commits=[(oid, "fix: something")],
+            reviews=[_bot_review(oid)],
+            threads=[
+                _thread_node("T_old", oid=oid, line=None, original_line=7, outdated=True),
+                _thread_node("T_cur", oid=oid, line=12, original_line=10),
+            ],
+            commits=[(oid, "fix")],
         )
-        gh = _new_gh(fake)
-        result = build_pr_rounds(gh, "owner", "repo", 7)
-        self.assertEqual(len(result.rounds), 1)
-        self.assertEqual(result.threads[0].round, 0)
-        self.assertEqual(result.threads[0].author_kind, "bot")
+        result = build_pr_rounds(_new_gh(fake), "owner", "repo", 10)
+        old, cur = result.threads
+        self.assertIsNone(old.line)
+        self.assertEqual(old.original_line, 7)
+        self.assertTrue(old.outdated)
+        self.assertEqual((cur.line, cur.original_line), (12, 10))
+
+    def test_commit_count_mismatch_sets_truncated(self) -> None:
+        """REST commits disagreeing with GraphQL's commit count -> truncated (commits)."""
+        oid = "2b2b4444" * 5
+        fake = FakeGhTransport()
+        fake.push_graphql(_reviews_response([_bot_review(oid)], commit_count=300))
+        fake.push_graphql(_threads_response([]))
+        fake.push_api([_commit_page([(oid, "fix")])])
+        result = build_pr_rounds(_new_gh(fake), "owner", "repo", 11)
+        self.assertEqual(len(result.truncated_parts), 1)
+        self.assertIn("commits", result.truncated_parts[0])
+        self.assertIn("250", result.truncated_parts[0])
 
     def test_user_with_bot_in_login_is_human(self) -> None:
         """A reviewer with __typename=='User' is NOT a bot even if login has [bot]."""
@@ -422,7 +537,7 @@ class TestBuildPRRounds(TempDirMixin, unittest.TestCase):
                 ],
             },
         }
-        fake.push_graphql(_reviews_response([_bot_review(oid)]))
+        fake.push_graphql(_reviews_response([_bot_review(oid)], commit_count=1))
         fake.push_graphql(_threads_response([thread]))
         fake.push_api([_commit_page([(oid, "fix")])])
 
@@ -434,7 +549,7 @@ class TestBuildPRRounds(TempDirMixin, unittest.TestCase):
         """Two pages of threads are merged correctly."""
         oid = "dddd8888" * 5
         fake = FakeGhTransport()
-        fake.push_graphql(_reviews_response([_bot_review(oid)]))
+        fake.push_graphql(_reviews_response([_bot_review(oid)], commit_count=1))
         # Page 1 of threads: has_next=True
         fake.push_graphql(_threads_response(
             [_thread_node("T_p1", oid=oid)],
@@ -466,19 +581,20 @@ class TestBuildPRRounds(TempDirMixin, unittest.TestCase):
             [_bot_review(oid)],
             total=200,
             has_next=False,
+            commit_count=0,
         ))
         fake.push_graphql(_threads_response([]))
         fake.push_api([_commit_page([])])
 
         gh = _new_gh(fake)
         result = build_pr_rounds(gh, "owner", "repo", 6)
-        self.assertTrue(result.truncated)
+        self.assertEqual(result.truncated_parts, ["reviews"])
 
     def test_threads_count_mismatch_sets_truncated(self) -> None:
         """reviewThreads totalCount mismatch -> truncated=True."""
         oid = "ffff0000" * 5
         fake = FakeGhTransport()
-        fake.push_graphql(_reviews_response([_bot_review(oid)]))
+        fake.push_graphql(_reviews_response([_bot_review(oid)], commit_count=1))
         # Threads: claims 10 but only returns 1 with no next page
         fake.push_graphql(_threads_response(
             [_thread_node("T1", oid=oid)],
@@ -489,13 +605,13 @@ class TestBuildPRRounds(TempDirMixin, unittest.TestCase):
 
         gh = _new_gh(fake)
         result = build_pr_rounds(gh, "owner", "repo", 7)
-        self.assertTrue(result.truncated)
+        self.assertEqual(result.truncated_parts, ["threads"])
 
     def test_thread_comments_count_mismatch_sets_truncated(self) -> None:
         """Per-thread comments totalCount mismatch -> truncated=True."""
         oid = "aaaa1111" * 5
         fake = FakeGhTransport()
-        fake.push_graphql(_reviews_response([_bot_review(oid)]))
+        fake.push_graphql(_reviews_response([_bot_review(oid)], commit_count=1))
         # Thread claims 5 comments but only has 1 in nodes, no next page
         thread = _thread_node("T_short_comments", oid=oid, comment_total=5)
         fake.push_graphql(_threads_response([thread]))
@@ -503,7 +619,7 @@ class TestBuildPRRounds(TempDirMixin, unittest.TestCase):
 
         gh = _new_gh(fake)
         result = build_pr_rounds(gh, "owner", "repo", 8)
-        self.assertTrue(result.truncated)
+        self.assertEqual(result.truncated_parts, ["threads"])
 
     def test_api_failure_raises(self) -> None:
         """A graphql error from the API raises GhError."""
@@ -561,7 +677,7 @@ class TestRunReviewRounds(TempDirMixin, unittest.TestCase):
         fake = self._make_successful_fake(42, oid)
         gh = _new_gh(fake)
 
-        rc = run_review_rounds(
+        rc = _quiet_run(
             pr_numbers=[42],
             out_dir=out,
             min_threads=0,
@@ -584,7 +700,7 @@ class TestRunReviewRounds(TempDirMixin, unittest.TestCase):
         fake = self._make_successful_fake(10, oid)
         gh = _new_gh(fake)
 
-        rc = run_review_rounds(
+        rc = _quiet_run(
             pr_numbers=[10],
             out_dir=out,
             min_threads=0,
@@ -607,7 +723,7 @@ class TestRunReviewRounds(TempDirMixin, unittest.TestCase):
         fake = self._make_successful_fake(77, oid)
         gh = _new_gh(fake)
 
-        rc = run_review_rounds(
+        rc = _quiet_run(
             pr_numbers=[77],
             out_dir=out,
             min_threads=5,  # PR only has 1 thread -> filtered out
@@ -625,7 +741,7 @@ class TestRunReviewRounds(TempDirMixin, unittest.TestCase):
         fake.responses["repo_view"] = [_proc(stdout="owner/repo\n")]
         gh = _new_gh(fake)
 
-        rc = run_review_rounds(
+        rc = _quiet_run(
             pr_numbers=[99],
             out_dir=out,
             min_threads=0,
@@ -641,14 +757,14 @@ class TestRunReviewRounds(TempDirMixin, unittest.TestCase):
         fake.responses["repo_view"] = [_proc(stdout="owner/repo\n")]
         # reviews: claims 200 but returns 1 with no next page -> truncated
         fake.push_graphql(_reviews_response(
-            [_bot_review(oid)], total=200, has_next=False
+            [_bot_review(oid)], total=200, has_next=False, commit_count=0
         ))
         fake.push_graphql(_threads_response([]))
         fake.push_api([_commit_page([])])
 
         gh = _new_gh(fake)
 
-        rc = run_review_rounds(
+        rc = _quiet_run(
             pr_numbers=[200],
             out_dir=out,
             min_threads=0,
@@ -664,7 +780,7 @@ class TestRunReviewRounds(TempDirMixin, unittest.TestCase):
         oid = "5678efgh" * 5
         fake = FakeGhTransport()
         fake.responses["repo_view"] = [_proc(stdout="owner/repo\n")]
-        fake.push_graphql(_reviews_response([_bot_review(oid)]))
+        fake.push_graphql(_reviews_response([_bot_review(oid)], commit_count=1))
         # threads: claims 10 but returns 1 with no next page -> truncated
         fake.push_graphql(_threads_response(
             [_thread_node("T1", oid=oid)], total=10, has_next=False
@@ -672,7 +788,7 @@ class TestRunReviewRounds(TempDirMixin, unittest.TestCase):
         fake.push_api([_commit_page([(oid, "fix")])])
 
         gh = _new_gh(fake)
-        rc = run_review_rounds(pr_numbers=[10], out_dir=out, min_threads=0, gh=gh)
+        rc = _quiet_run(pr_numbers=[10], out_dir=out, min_threads=0, gh=gh)
         self.assertEqual(rc, 1)
         self.assertFalse((out / "pr10.json").exists())
 
@@ -682,14 +798,14 @@ class TestRunReviewRounds(TempDirMixin, unittest.TestCase):
         oid = "6789fghi" * 5
         fake = FakeGhTransport()
         fake.responses["repo_view"] = [_proc(stdout="owner/repo\n")]
-        fake.push_graphql(_reviews_response([_bot_review(oid)]))
+        fake.push_graphql(_reviews_response([_bot_review(oid)], commit_count=1))
         # Thread claims 5 comments but only has 1
         thread = _thread_node("T_short", oid=oid, comment_total=5)
         fake.push_graphql(_threads_response([thread]))
         fake.push_api([_commit_page([(oid, "fix")])])
 
         gh = _new_gh(fake)
-        rc = run_review_rounds(pr_numbers=[11], out_dir=out, min_threads=0, gh=gh)
+        rc = _quiet_run(pr_numbers=[11], out_dir=out, min_threads=0, gh=gh)
         self.assertEqual(rc, 1)
 
     def test_summary_sorted_by_threads_desc(self) -> None:
@@ -718,7 +834,7 @@ class TestRunReviewRounds(TempDirMixin, unittest.TestCase):
         )
 
         gh = _new_gh(fake)
-        rc = run_review_rounds(pr_numbers=[1, 2], out_dir=out, min_threads=0, gh=gh)
+        rc = _quiet_run(pr_numbers=[1, 2], out_dir=out, min_threads=0, gh=gh)
         self.assertEqual(rc, 0)
         summary = json.loads((out / "summary.json").read_text())
         self.assertEqual(len(summary), 2)
@@ -747,7 +863,7 @@ class TestRunReviewRounds(TempDirMixin, unittest.TestCase):
         )
 
         gh = _new_gh(fake)
-        rc = run_review_rounds(pr_numbers=[5], out_dir=out, min_threads=0, gh=gh)
+        rc = _quiet_run(pr_numbers=[5], out_dir=out, min_threads=0, gh=gh)
         self.assertEqual(rc, 0)
         summary = json.loads((out / "summary.json").read_text())
         row = summary[0]
@@ -774,7 +890,7 @@ class TestRunReviewRounds(TempDirMixin, unittest.TestCase):
         )
 
         gh = _new_gh(fake)
-        rc = run_review_rounds(pr_numbers=[6], out_dir=out, min_threads=0, gh=gh)
+        rc = _quiet_run(pr_numbers=[6], out_dir=out, min_threads=0, gh=gh)
         self.assertEqual(rc, 0)
         summary = json.loads((out / "summary.json").read_text())
         row = summary[0]
@@ -803,7 +919,7 @@ class TestRunReviewRounds(TempDirMixin, unittest.TestCase):
         )
 
         gh = _new_gh(fake)
-        rc = run_review_rounds(pr_numbers=[7], out_dir=out, min_threads=0, gh=gh)
+        rc = _quiet_run(pr_numbers=[7], out_dir=out, min_threads=0, gh=gh)
         self.assertEqual(rc, 0)
         summary = json.loads((out / "summary.json").read_text())
         self.assertEqual(summary[0]["review_bodies"], 2)
@@ -822,10 +938,267 @@ class TestRunReviewRounds(TempDirMixin, unittest.TestCase):
         )
 
         gh = _new_gh(fake)
-        run_review_rounds(pr_numbers=[1], out_dir=out, min_threads=0, gh=gh)
+        self.assertEqual(_quiet_run(pr_numbers=[1], out_dir=out, min_threads=0, gh=gh), 0)
 
         pr_data = json.loads((out / "pr1.json").read_text())
         self.assertEqual(pr_data["rounds"][0]["headline"], "feat: the real headline")
+
+
+# ---------------------------------------------------------------------------
+# Housekeeping, commits, reviews pagination
+# ---------------------------------------------------------------------------
+
+
+class TestRunHousekeeping(TempDirMixin, unittest.TestCase):
+
+    def _out(self) -> Path:
+        out = Path(self.tmpdir) / "out"
+        out.mkdir()
+        return out
+
+    def test_stale_summary_deleted_when_run_fails(self) -> None:
+        """A failed run in a reused --out-dir must not leave the last good summary."""
+        out = self._out()
+        (out / "summary.json").write_text('[{"pr": 1, "threads": 99}]')
+        fake = FakeGhTransport()
+        fake.push_graphql_error("not found")
+        rc, _, err = _run_captured(pr_numbers=[99], out_dir=out, min_threads=0, gh=_new_gh(fake))
+        self.assertEqual(rc, 1)
+        self.assertIn("PR #99 failed", err)
+        self.assertFalse((out / "summary.json").exists())
+
+    def test_stale_pr_file_removed_when_pr_is_truncated(self) -> None:
+        out = self._out()
+        (out / "pr200.json").write_text('{"pr": 200, "threads": []}')
+        fake = FakeGhTransport()
+        fake.push_graphql(_reviews_response([_bot_review("a" * 40)], total=5, commit_count=0))
+        fake.push_graphql(_threads_response([]))
+        fake.push_api([_commit_page([])])
+        rc, _, err = _run_captured(pr_numbers=[200], out_dir=out, min_threads=0, gh=_new_gh(fake))
+        self.assertEqual(rc, 1)
+        self.assertIn("PR #200 pagination was truncated (reviews)", err)
+        self.assertFalse((out / "pr200.json").exists())
+
+    def test_commit_api_failure_reports_as_api_failure(self) -> None:
+        """A GhError from the REST commits call is an API failure, not truncation."""
+        out = self._out()
+        fake = FakeGhTransport()
+        fake.push_graphql(_reviews_response([_bot_review("b" * 40)], commit_count=1))
+        fake.push_api_error("HTTP 502: Bad Gateway")
+        rc, _, err = _run_captured(pr_numbers=[5], out_dir=out, min_threads=0, gh=_new_gh(fake))
+        self.assertEqual(rc, 1)
+        self.assertIn("PR #5 failed: HTTP 502: Bad Gateway", err)
+        self.assertNotIn("truncated", err)
+
+    def test_summary_reports_other_bot_reviews(self) -> None:
+        out = self._out()
+        oid = "c" * 40
+        fake = FakeGhTransport()
+        _setup_pr(
+            fake,
+            reviews=[_bot_review(oid), _other_bot_review(oid), _other_bot_review(oid, login="github-actions")],
+            threads=[_thread_node("T1", oid=oid)],
+            commits=[(oid, "fix")],
+        )
+        rc, stdout, _ = _run_captured(pr_numbers=[3], out_dir=out, min_threads=0, gh=_new_gh(fake))
+        self.assertEqual(rc, 0)
+        summary = json.loads((out / "summary.json").read_text())
+        self.assertEqual(summary[0]["other_bot_reviews"], 2)
+        self.assertEqual(summary[0]["bot_rounds"], 1)
+        self.assertEqual(json.loads(stdout), summary)
+        pr = json.loads((out / "pr3.json").read_text())
+        self.assertIn("original_line", pr["threads"][0])
+
+
+class TestFetchCommitHeadlines(unittest.TestCase):
+
+    def test_gh_error_propagates(self) -> None:
+        from core.gh_cli import GhError
+        fake = FakeGhTransport()
+        fake.push_api_error("HTTP 404")
+        with self.assertRaises(GhError) as ctx:
+            _fetch_commit_headlines(_new_gh(fake), "o", "r", 1, expected=1)
+        self.assertIn("HTTP 404", str(ctx.exception))
+
+    def test_unknown_expected_count_is_truncated(self) -> None:
+        fake = FakeGhTransport()
+        fake.push_api([_commit_page([("a" * 40, "x")])])
+        headlines, truncated = _fetch_commit_headlines(_new_gh(fake), "o", "r", 1, expected=None)
+        self.assertEqual(headlines, {"a" * 40: "x"})
+        self.assertTrue(truncated)
+
+    def test_matching_count_is_complete(self) -> None:
+        fake = FakeGhTransport()
+        fake.push_api([_commit_page([("a" * 40, "x\nbody")]), _commit_page([("b" * 40, "y")])])
+        headlines, truncated = _fetch_commit_headlines(_new_gh(fake), "o", "r", 1, expected=2)
+        self.assertEqual(headlines, {"a" * 40: "x", "b" * 40: "y"})
+        self.assertFalse(truncated)
+
+
+class TestFetchPrReviews(unittest.TestCase):
+
+    def test_pages_past_100_reviews(self) -> None:
+        from core.github.threads import fetch_pr_reviews
+        page1 = [_bot_review(f"{i:040d}") for i in range(100)]
+        page2 = [_bot_review(f"{i:040d}") for i in range(100, 105)]
+        fake = FakeGhTransport()
+        fake.push_graphql(_reviews_response(page1, total=105, has_next=True, cursor="c1", commit_count=7))
+        fake.push_graphql(_reviews_response(page2, total=105, has_next=False, commit_count=7))
+        got = fetch_pr_reviews(_new_gh(fake), "o", "r", 1)
+        self.assertEqual(len(got.nodes), 105)
+        self.assertFalse(got.truncated)
+        self.assertEqual(got.commit_count, 7)
+        graphql_calls = [c for c in fake.calls if c[:3] == ["gh", "api", "graphql"]]
+        self.assertEqual(len(graphql_calls), 2)
+
+    def test_short_second_page_is_truncated(self) -> None:
+        from core.github.threads import fetch_pr_reviews
+        fake = FakeGhTransport()
+        fake.push_graphql(_reviews_response([_bot_review("a" * 40)] * 100, total=150, has_next=True, cursor="c1"))
+        fake.push_graphql(_reviews_response([_bot_review("b" * 40)] * 10, total=150, has_next=False))
+        got = fetch_pr_reviews(_new_gh(fake), "o", "r", 1)
+        self.assertEqual(len(got.nodes), 110)
+        self.assertTrue(got.truncated)
+
+
+def _pr_total(total: int) -> dict[str, Any]:
+    return {"repository": {"pullRequests": {"totalCount": total}}}
+
+
+class TestFetchRecentPrs(unittest.TestCase):
+
+    def test_returns_most_recent_any_state_descending(self) -> None:
+        fake = FakeGhTransport()
+        fake.push_graphql(_pr_total(400))
+        fake.push_pr_list([431, 433, 432, 430, 429])
+        got = fetch_recent_prs(_new_gh(fake), "o", "r", 5)
+        self.assertEqual(got, [433, 432, 431, 430, 429])
+        (call,) = [c for c in fake.calls if c[:3] == ["gh", "pr", "list"]]
+        self.assertEqual(call[call.index("--state") + 1], "all")
+        self.assertEqual(call[call.index("--limit") + 1], "5")
+
+    def test_short_listing_fails(self) -> None:
+        from core.gh_cli import GhError
+        fake = FakeGhTransport()
+        fake.push_graphql(_pr_total(400))
+        fake.push_pr_list([3, 2, 1])
+        with self.assertRaises(GhError) as ctx:
+            fetch_recent_prs(_new_gh(fake), "o", "r", 5)
+        self.assertIn("listing returned 3 PRs, expected 5 (400 in the repository)", str(ctx.exception))
+
+    def test_small_repo_returns_all_it_has(self) -> None:
+        fake = FakeGhTransport()
+        fake.push_graphql(_pr_total(3))
+        fake.push_pr_list([1, 2, 3])
+        self.assertEqual(fetch_recent_prs(_new_gh(fake), "o", "r", 5), [3, 2, 1])
+
+    def test_count_bounds(self) -> None:
+        for bad in (0, 201):
+            with self.subTest(count=bad), self.assertRaises(ValueError) as ctx:
+                fetch_recent_prs(_new_gh(FakeGhTransport()), "o", "r", bad)
+            self.assertIn("1..200", str(ctx.exception))
+
+
+# ---------------------------------------------------------------------------
+# CLI: ./bin/workflow review-rounds
+# ---------------------------------------------------------------------------
+
+
+class TestReviewRoundsCLI(TempDirMixin, unittest.TestCase):
+
+    def _main(self, argv: list[str], fake: FakeGhTransport | None = None) -> tuple[int, str, str]:
+        from workflow.cli import main
+        gh = _new_gh(fake or FakeGhTransport())
+        out, err = io.StringIO(), io.StringIO()
+        with patch("core.github.client", return_value=gh), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = main(["review-rounds", *argv, "--out-dir", str(Path(self.tmpdir) / "o")])
+        return rc, out.getvalue(), err.getvalue()
+
+    def _five_thread_pr(self, fake: FakeGhTransport, pr_oid: str = "d" * 40) -> None:
+        _setup_pr(
+            fake,
+            reviews=[_bot_review(pr_oid)],
+            threads=[_thread_node(f"T{i}", oid=pr_oid) for i in range(5)],
+            commits=[(pr_oid, "fix")],
+        )
+
+    def test_invalid_prs_rejected(self) -> None:
+        rc, _, err = self._main(["--prs", "12,abc"])
+        self.assertEqual(rc, 1)
+        self.assertIn("invalid --prs value 'abc'", err)
+
+    def test_zero_pr_rejected(self) -> None:
+        rc, _, err = self._main(["--prs", "0"])
+        self.assertEqual(rc, 1)
+        self.assertIn("invalid --prs value '0'", err)
+
+    def test_prs_comma_only_rejected(self) -> None:
+        rc, _, err = self._main(["--prs", ","])
+        self.assertEqual(rc, 1)
+        self.assertIn("--prs names no PR numbers", err)
+
+    def test_recent_bounds_rejected(self) -> None:
+        for bad in ("0", "201", "-3"):
+            with self.subTest(recent=bad):
+                rc, _, err = self._main(["--recent", bad])
+                self.assertEqual(rc, 1)
+                self.assertIn(f"--recent must be 1..200, got {bad}", err)
+
+    def test_needs_exactly_one_selector(self) -> None:
+        for argv in ([], ["--prs", "1", "--recent", "5"]):
+            with self.subTest(argv=argv):
+                rc, _, err = self._main(argv)
+                self.assertEqual(rc, 1)
+                self.assertIn("give exactly one of --prs or --recent", err)
+
+    def test_negative_min_threads_rejected(self) -> None:
+        rc, _, err = self._main(["--prs", "1", "--min-threads", "-1"])
+        self.assertEqual(rc, 1)
+        self.assertIn("--min-threads must be >= 0, got -1", err)
+
+    def test_named_pr_under_default_floor_is_kept(self) -> None:
+        """An explicit --prs list is never thread-filtered by the default floor."""
+        fake = FakeGhTransport()
+        self._five_thread_pr(fake)
+        rc, _, _ = self._main(["--prs", "429"], fake)
+        self.assertEqual(rc, 0)
+        summary = json.loads((Path(self.tmpdir) / "o/summary.json").read_text())
+        self.assertEqual([(r["pr"], r["threads"]) for r in summary], [(429, 5)])
+
+    def test_explicit_min_threads_still_filters_prs(self) -> None:
+        fake = FakeGhTransport()
+        self._five_thread_pr(fake)
+        rc, _, _ = self._main(["--prs", "429", "--min-threads", "15"], fake)
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads((Path(self.tmpdir) / "o/summary.json").read_text()), [])
+
+    def test_prs_deduped_in_order(self) -> None:
+        with patch("workflow.review_rounds.run_review_rounds", return_value=0) as run:
+            rc, _, _ = self._main(["--prs", "9, 7,9,,8,7"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(run.call_args.kwargs["pr_numbers"], [9, 7, 8])
+        self.assertEqual(run.call_args.kwargs["min_threads"], 0)
+
+    def test_recent_branch_lists_then_applies_default_floor(self) -> None:
+        fake = FakeGhTransport()
+        fake.push_graphql(_pr_total(300))
+        fake.push_pr_list([10, 12, 11])
+        with patch("workflow.review_rounds.run_review_rounds", return_value=0) as run:
+            rc, _, _ = self._main(["--recent", "3"], fake)
+        self.assertEqual(rc, 0)
+        self.assertEqual(run.call_args.kwargs["pr_numbers"], [12, 11, 10])
+        self.assertEqual(run.call_args.kwargs["min_threads"], 15)
+
+    def test_recent_short_listing_exits_1(self) -> None:
+        fake = FakeGhTransport()
+        fake.push_graphql(_pr_total(300))
+        fake.push_pr_list([10])
+        with patch("workflow.review_rounds.run_review_rounds", return_value=0) as run:
+            rc, _, err = self._main(["--recent", "3"], fake)
+        self.assertEqual(rc, 1)
+        self.assertIn("listing returned 1 PRs, expected 3", err)
+        run.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -845,9 +1218,11 @@ class TestCLIRegistration(unittest.TestCase):
         """workflow CLI registers and parses review-rounds arguments."""
         from workflow.cli import main
         # --help raises SystemExit(0) from argparse; that proves the command is registered.
-        with self.assertRaises(SystemExit) as ctx:
+        out = io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stdout(out):
             main(["review-rounds", "--help"])
         self.assertEqual(ctx.exception.code, 0)
+        self.assertIn("--recent N", out.getvalue())
 
     def test_workflow_cli_agentic_includes_review_rounds(self) -> None:
         """The agentic schema emitted by the CLI includes review-rounds."""
