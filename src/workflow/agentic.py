@@ -46,8 +46,18 @@ def build_agentic_capsule() -> str:
         "  - check-unlisted: ./bin/workflow check-unlisted <workspace>/outputs/dirty-baseline.json "
         "<workspace>/outputs/fix-results.json"
     )
+    lines.append(
+        "  - review-rounds: ./bin/workflow review-rounds --prs 391,406 --out-dir <dir> "
+        "[--min-threads 15]  OR  --recent 60 --out-dir <dir> [--min-threads 15]"
+    )
     lines.append("notes:")
     lines.append("  - ./bin/workflow list is the authoritative live catalog of available workflows")
+    lines.append(
+        "  - review-rounds fetches bot review rounds per PR (distinct commit OIDs with a bot "
+        "review), assigns each thread a round by its first comment's originalCommit.oid, "
+        "writes pr<N>.json (rounds + threads) and summary.json (per-PR stats sorted by "
+        "threads desc, filtered by --min-threads); exit 1 on API failure or truncation"
+    )
     lines.append("  - file arguments are positional (./bin/workflow run <file>), not --input")
     lines.append("  - --params accepts k=v pairs; repeat for multiple params")
     lines.append("  - resume exits 0 if all stages done, exits 2 if stages remain")

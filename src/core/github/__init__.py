@@ -25,6 +25,8 @@ from .mutations import (
 from .repo import resolve_owner_repo
 from .threads import (
     build_threads_doc,
+    fetch_pr_reviews,
+    fetch_raw_threads,
     fetch_review_threads,
     fetch_thread_comments,
     fetch_thread_states,
@@ -37,6 +39,8 @@ __all__ = [
     "build_threads_doc",
     "classify_author",
     "client",
+    "fetch_pr_reviews",
+    "fetch_raw_threads",
     "fetch_review_threads",
     "fetch_thread_comments",
     "fetch_thread_states",

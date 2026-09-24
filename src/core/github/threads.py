@@ -32,7 +32,7 @@ COMMENT_PAGE = 50
 #: Hard ceiling on pages per connection: a cursor bug must fail, not spin.
 MAX_PAGES = 1000
 
-_COMMENT_FIELDS = "databaseId author { login __typename } body createdAt url"
+_COMMENT_FIELDS = "databaseId author { login __typename } body createdAt url originalCommit { oid }"
 
 THREADS_QUERY = f"""
 query($owner: String!, $name: String!, $pr: Int!, $after: String) {{
@@ -43,7 +43,7 @@ query($owner: String!, $name: String!, $pr: Int!, $after: String) {{
         pageInfo {{ hasNextPage endCursor }}
         nodes {{
           id isResolved isOutdated isCollapsed
-          path line startLine diffSide
+          path line originalLine startLine diffSide
           comments(first: {COMMENT_PAGE}) {{
             totalCount
             pageInfo {{ hasNextPage endCursor }}
@@ -363,6 +363,71 @@ def build_threads_doc(
         "threads": entries,
         "review_bodies": [_review_body(r) for r in with_body],
     }
+
+
+# ---------------------------------------------------------------------------
+# PR reviews query (for bot-round detection in review-rounds).
+# ---------------------------------------------------------------------------
+
+_REVIEW_PAGE = 100
+
+PR_REVIEWS_QUERY = f"""
+query($owner: String!, $name: String!, $pr: Int!, $after: String) {{
+  repository(owner: $owner, name: $name) {{
+    pullRequest(number: $pr) {{
+      title
+      reviews(first: {_REVIEW_PAGE}, after: $after) {{
+        totalCount
+        pageInfo {{ hasNextPage endCursor }}
+        nodes {{
+          author {{ login __typename }}
+          state
+          submittedAt
+          commit {{ oid }}
+          body
+        }}
+      }}
+    }}
+  }}
+}}
+"""
+
+
+def fetch_pr_reviews(
+    gh: GhCLI,
+    owner: str,
+    repo: str,
+    pr: int,
+) -> tuple[list[dict[str, Any]], str, bool]:
+    """Fetch every review node for a PR, including author __typename and commit oid.
+
+    Returns (review nodes, pr_title, truncated). Raises on API failure.
+    Count-checks the reviews connection: truncated is True when GitHub reports
+    more reviews than were fetched.
+    """
+    nodes: list[dict[str, Any]] = []
+    cursor: str | None = None
+    reported_total: Any = None
+    pr_title = ""
+    for _ in range(MAX_PAGES):
+        data = gh.graphql_checked(
+            PR_REVIEWS_QUERY,
+            {"owner": owner, "name": repo, "pr": int(pr), "after": cursor},
+        )
+        conn = _dig(data, "repository", "pullRequest", "reviews", what=f"PR #{pr} reviews")
+        pr_title = pr_title or (
+            _dig(data, "repository", "pullRequest", what=f"PR #{pr}").get("title") or ""
+        )
+        nodes.extend(conn.get("nodes") or [])
+        reported_total = conn.get("totalCount")
+        cursor = _next_cursor(conn.get("pageInfo"), cursor, f"PR #{pr} reviews")
+        if cursor is None:
+            break
+    else:
+        raise GhError(f"PR #{pr} reviews: exceeded {MAX_PAGES} pages")
+
+    truncated = _count_disagrees(len(nodes), reported_total)
+    return nodes, pr_title, truncated
 
 
 def fetch_review_threads(gh: GhCLI, owner: str, repo: str, pr: int) -> tuple[dict[str, Any], dict[str, Any]]:

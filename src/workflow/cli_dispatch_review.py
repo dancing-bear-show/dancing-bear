@@ -1,8 +1,8 @@
 """PR-review-thread subcommand handlers for the workflow CLI.
 
 Handles check-fix-index, thread-fingerprints, check-thread-ids,
-aggregate-fix-results, check-paths, parse-overview, snapshot-dirty and
-check-unlisted command handlers, plus their private helpers.
+aggregate-fix-results, check-paths, parse-overview, snapshot-dirty,
+check-unlisted and review-rounds command handlers, plus their private helpers.
 """
 
 from __future__ import annotations
@@ -348,3 +348,47 @@ def _cmd_check_unlisted(args: argparse.Namespace) -> int:
         print(f"{len(unlisted)} changed path(s) missing from files_changed", file=sys.stderr)
         return 1
     return 0
+
+
+def _cmd_review_rounds(args: argparse.Namespace) -> int:
+    """Fetch PR review-round data and write per-PR JSON + summary.
+
+    Accepts either --prs (explicit list) or --recent (last N days).
+    Exit 1 on API failure or truncated pagination.
+    """
+    from core.github import client
+    from workflow.review_rounds import fetch_recent_prs, run_review_rounds
+    from core.github.repo import resolve_owner_repo
+    from core.gh_cli import GhError
+
+    out_dir = Path(args.out_dir)
+    min_threads: int = args.min_threads
+
+    gh = client()
+
+    if args.prs:
+        raw = [s.strip() for s in args.prs.split(",") if s.strip()]
+        try:
+            pr_numbers = [int(n) for n in raw]
+        except ValueError as exc:
+            print(f"review-rounds: invalid --prs value: {exc}", file=sys.stderr)
+            return 1
+    else:
+        days: int = args.recent
+        try:
+            owner, repo = resolve_owner_repo(gh)
+            pr_numbers = fetch_recent_prs(gh, owner, repo, days)
+        except GhError as exc:
+            print(f"review-rounds: {exc}", file=sys.stderr)
+            return 1
+
+    if not pr_numbers:
+        print("review-rounds: no PRs to process", file=sys.stderr)
+        return 1
+
+    return run_review_rounds(
+        pr_numbers=pr_numbers,
+        out_dir=out_dir,
+        min_threads=min_threads,
+        gh=gh,
+    )

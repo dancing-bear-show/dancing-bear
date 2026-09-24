@@ -48,6 +48,7 @@ from workflow.cli_dispatch_review import (
     _cmd_check_thread_ids,
     _cmd_check_unlisted,
     _cmd_parse_overview,
+    _cmd_review_rounds,
     _cmd_snapshot_dirty,
     _cmd_thread_fingerprints,
 )
@@ -318,6 +319,40 @@ def cmd_check_unlisted(args: argparse.Namespace) -> int:
     return _cmd_check_unlisted(args)
 
 
+@app.command(
+    "review-rounds",
+    help="Fetch PR bot-review-round data and write per-PR JSON + summary",
+)
+@app.argument(
+    "--prs",
+    default="",
+    help="Comma-separated PR numbers to fetch (mutually exclusive with --recent)",
+)
+@app.argument(
+    "--recent",
+    type=int,
+    default=60,
+    metavar="DAYS",
+    help="Fetch PRs merged in the last N days (default: 60; ignored when --prs is given)",
+)
+@app.argument(
+    "--out-dir",
+    dest="out_dir",
+    required=True,
+    help="Directory to write pr<N>.json and summary.json",
+)
+@app.argument(
+    "--min-threads",
+    dest="min_threads",
+    type=int,
+    default=15,
+    metavar="N",
+    help="Exclude PRs with fewer than N threads from summary.json (default: 15)",
+)
+def cmd_review_rounds(args: argparse.Namespace) -> int:
+    return _cmd_review_rounds(args)
+
+
 def _no_command_usage() -> int:
     """Preserve the legacy no-subcommand behavior (one-line usage to
     stderr, ExitCode.USAGE) rather than CLIApp's default (full --help),
@@ -326,7 +361,7 @@ def _no_command_usage() -> int:
         "Usage: workflow {parse,compile,run,lint,list,status,init-workspace,resume,"
         "validate-fragment,parse-overview,check-paths,check-params,check-fix-index,"
         "thread-fingerprints,check-thread-ids,aggregate-fix-results,snapshot-dirty,"
-        "check-unlisted} [options]",
+        "check-unlisted,review-rounds} [options]",
         file=sys.stderr,
     )
     return ExitCode.USAGE
