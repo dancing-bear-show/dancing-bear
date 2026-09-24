@@ -1523,7 +1523,9 @@ def _explain_report(prepared: _PreparedJob) -> dict[str, object]:
         "memory_detail": {
             "requirement": memory.requirement,
             "required_gb": memory.required_gb,
-            "available_gb": None if memory.available_bytes is None else round(memory.available_bytes / _GIB, 2),
+            # Floor to 2 decimal places so the displayed value stays on the same side
+            # of the threshold as the guard's decision (round-to-nearest can flip it).
+            "available_gb": None if memory.available_bytes is None else memory.available_bytes * 100 // _GIB / 100,
         },
     }
     return {mask_text(key): _masked(value) for key, value in report.items()}

@@ -307,6 +307,11 @@ class QwenWarmModelTests(QwenHandlerCase):
     def test_explain_and_real_run_reach_the_same_decision(self) -> None:
         warm: dict[str, object] = {"models": [{"name": MODEL, "model": MODEL}]}
         full_gb = qwen.THRESHOLDS.model_resident_gb + qwen.THRESHOLDS.memory_margin_gb
+        # One byte short of a cold load: nearest-rounding would display it as full_gb
+        # beside a deferral, so the shown value must stay below the requirement.
+        just_short = int(full_gb * GIB) - 1
+        just_short_gb = just_short * 100 // GIB / 100
+        self.assertLess(just_short_gb, full_gb)
         cases: tuple[tuple[str, int | None, dict[str, object], str, dict[str, object]], ...] = (
             ("warm", self.FIVE_GIB, warm, "pass", {"requirement": "margin_only", "required_gb": 4, "available_gb": 5.0}),
             (
@@ -324,6 +329,24 @@ class QwenWarmModelTests(QwenHandlerCase):
                 {"requirement": "model_resident+margin", "required_gb": full_gb, "available_gb": 64.0},
             ),
             ("unreadable", None, {"models": []}, "pass", {"requirement": "unguarded", "required_gb": None, "available_gb": None}),
+            (
+                "cold-boundary",
+                just_short,
+                {"models": []},
+                "deferred-low-memory",
+                {"requirement": "model_resident+margin", "required_gb": full_gb, "available_gb": just_short_gb},
+            ),
+            (
+                "cold-exact",
+                int(full_gb * GIB),
+                {"models": []},
+                "pass",
+                {
+                    "requirement": "model_resident+margin",
+                    "required_gb": full_gb,
+                    "available_gb": int(full_gb * GIB) * 100 // GIB / 100,
+                },
+            ),
         )
         for name, available, ps, verdict, detail in cases:
             with self.subTest(name):
