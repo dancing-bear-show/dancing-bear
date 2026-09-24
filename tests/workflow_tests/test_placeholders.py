@@ -92,6 +92,22 @@ class TestFindRefs(unittest.TestCase):
     def test_no_placeholder(self) -> None:
         self.assertEqual(find_refs("plain text with no braces"), set())
 
+    def test_shell_var_not_a_ref(self) -> None:
+        """${SAFE} is shell expansion, not a workflow placeholder."""
+        self.assertEqual(find_refs("${SAFE}"), set())
+
+    def test_shell_var_mixed_with_workflow_ref(self) -> None:
+        """${SHELL} is not a ref but {workflow_param} in the same text is."""
+        self.assertEqual(find_refs("${SHELL} and {workflow_param}"), {"workflow_param"})
+
+    def test_dollar_space_brace_still_a_ref(self) -> None:
+        """$ {X} (space between $ and {) is still a ref — only ${ (no space) is shell."""
+        self.assertEqual(find_refs("$ {X}"), {"X"})
+
+    def test_letter_before_brace_still_a_ref(self) -> None:
+        """a{X} — brace preceded by a letter, not $ or { — is still a ref."""
+        self.assertEqual(find_refs("a{X}"), {"X"})
+
 
 class TestFindRefsSkipCode(unittest.TestCase):
     """find_refs with skip_code=True."""
@@ -108,6 +124,14 @@ class TestFindRefsSkipCode(unittest.TestCase):
     def test_double_brace_inside_backticks_stays_ignored(self) -> None:
         """{{x}} inside backticks: doubled brace is still not a ref."""
         self.assertEqual(find_refs("`{{x}}`", skip_code=True), set())
+
+    def test_git_reflog_syntax_in_backticks_not_a_ref(self) -> None:
+        """HEAD@{N} inside backticks is not a ref with skip_code=True."""
+        self.assertEqual(find_refs("use `HEAD@{N}` not HEAD~N", skip_code=True), set())
+
+    def test_git_reflog_syntax_outside_backticks_is_a_ref(self) -> None:
+        """HEAD@{N} outside backticks IS a ref (the @ is not a special guard)."""
+        self.assertIn("N", find_refs("use HEAD@{N} not HEAD~N", skip_code=False))
 
     def test_multiline_backtick_scoping(self) -> None:
         """Backtick spans are per-line."""

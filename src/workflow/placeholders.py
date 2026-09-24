@@ -46,12 +46,13 @@ __all__ = [
 # to stay faithful to the grammar described in the module docstring.
 IDENTIFIER_RE = re.compile(r"[A-Za-z_]\w*", re.ASCII)
 
-# Matches {ident} but NOT {{ident}}.
-# - (?<!\{) negative lookbehind: skip when the { is preceded by another {,
-#   so {{name}} is not treated as a placeholder (it renders verbatim).
+# Matches {ident} but NOT {{ident}} or ${ident}.
+# - (?<![{\$]) negative lookbehind: skip when { is preceded by another { (so
+#   {{name}} is not a placeholder — it renders verbatim) or by $ (so ${VAR}
+#   is not a placeholder — it is shell variable expansion, not a workflow param).
 # - No closing-brace lookahead: {name} inside a JSON wrapper such as
 #   '{"value": {name}}' is a valid placeholder and must be found.
-_PLACEHOLDER_RE = re.compile(r"(?<!\{)\{([A-Za-z_]\w*)\}", re.ASCII)
+_PLACEHOLDER_RE = re.compile(r"(?<![{$])\{([A-Za-z_]\w*)\}", re.ASCII)
 
 
 def is_identifier(name: str) -> bool:

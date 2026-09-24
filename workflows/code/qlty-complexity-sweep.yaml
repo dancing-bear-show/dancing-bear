@@ -1223,7 +1223,7 @@ stages:
       Step 5 — prove the code actually landed:
           git diff --name-only "$PRE_SWEEP"...HEAD
         Use the ref recorded in Step 0, not a reflog- or offset-relative form
-        like HEAD@{N} or HEAD~N: the number of merge commits varies with the
+        like `HEAD@{N}` or `HEAD~N`: the number of merge commits varies with the
         group count, and a reflog reference is fragile across the stage's own
         git operations.
 
