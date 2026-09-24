@@ -246,6 +246,36 @@ class TestValidationCriteriaParamResolution(unittest.TestCase):
         self.assertEqual(len(criteria), 1)
         self.assertEqual(criteria[0], '{{"key": "value"}}')
 
+    def test_uppercase_pipe_param_expands_to_n_criteria(self) -> None:
+        """An uppercase param name like {CRITERIA} is recognised and pipe-expanded."""
+        criteria = self._compile_with_criteria(
+            raw_criteria=("{CRITERIA}",),
+            params={"CRITERIA": "check one|check two|check three"},
+        )
+        self.assertEqual(len(criteria), 3)
+        self.assertIn("check one", criteria)
+        self.assertIn("check two", criteria)
+        self.assertIn("check three", criteria)
+
+    def test_json_wrapper_kept_per_expansion_item(self) -> None:
+        """A criterion like '{"value": {validation_criteria}}' expands with the JSON frame intact."""
+        criteria = self._compile_with_criteria(
+            raw_criteria=('{"value": {validation_criteria}}',),
+            params={"validation_criteria": "alpha|beta"},
+        )
+        self.assertEqual(len(criteria), 2)
+        self.assertIn('{"value": alpha}', criteria)
+        self.assertIn('{"value": beta}', criteria)
+
+    def test_double_braced_param_not_pipe_expanded(self) -> None:
+        """{{validation_criteria}} is not recognised as a param reference; no pipe expansion."""
+        criteria = self._compile_with_criteria(
+            raw_criteria=("{{validation_criteria}}",),
+            params={"validation_criteria": "item one|item two"},
+        )
+        # Not expanded — stays as a single criterion.
+        self.assertEqual(len(criteria), 1)
+
 
 # ---------------------------------------------------------------------------
 # Domain-recommender integration: the real validate-then-render fragment

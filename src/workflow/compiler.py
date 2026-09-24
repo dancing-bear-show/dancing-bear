@@ -391,7 +391,12 @@ def _validate_when(spec: StageSpec) -> None:
         )
 
 
-_CRITERION_PARAM_RE = re.compile(r"(?<!\{)\{([a-z_][a-z0-9_]*)\}(?!\})")
+# Same identifier grammar as is_identifier / param_rules._IDENTIFIER_RE:
+# [A-Za-z_][A-Za-z0-9_]* (ASCII).  The negative lookbehind skips {{name}} so
+# doubled-brace escapes are not treated as param references.  No closing-brace
+# lookahead: {name} inside a JSON-like wrapper such as '{"k": {name}}' is valid
+# and must be detected.
+_CRITERION_PARAM_RE = re.compile(r"(?<!\{)\{([A-Za-z_]\w*)\}", re.ASCII)
 
 
 def _resolve_criteria(
