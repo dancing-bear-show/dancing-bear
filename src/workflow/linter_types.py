@@ -32,6 +32,7 @@ class LintWarning:
     stage: str
     field: str
     message: str
+    rule: str = ""  # stable rule id (e.g. "python-not-isolated"); "" for unnamed checks
 
 
 @dataclass
@@ -55,7 +56,7 @@ class LintResult:
                 for e in self.errors
             ],
             "warnings": [
-                {"stage": w.stage, "field": w.field, "message": w.message}
+                {"stage": w.stage, "field": w.field, "rule": w.rule, "message": w.message}
                 for w in self.warnings
             ],
             "stages": self.stages,
