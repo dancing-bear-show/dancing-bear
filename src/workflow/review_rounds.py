@@ -162,6 +162,14 @@ def _fetch_commit_headlines(
 # Build PR rounds structure
 # ---------------------------------------------------------------------------
 
+def _record_round(seen_oids: dict[str, str], node: dict[str, Any]) -> None:
+    """Keep the earliest submittedAt per reviewed commit OID."""
+    oid = (node.get("commit") or {}).get("oid") or ""
+    submitted_at = node.get("submittedAt") or ""
+    if oid and (oid not in seen_oids or submitted_at < seen_oids[oid]):
+        seen_oids[oid] = submitted_at
+
+
 def _extract_bot_rounds(review_nodes: list[Any]) -> _ReviewScan:
     """Classify review nodes into Copilot rounds and other-bot counts.
 
@@ -179,13 +187,10 @@ def _extract_bot_rounds(review_nodes: list[Any]) -> _ReviewScan:
             continue
         if (node.get("body") or "").strip():
             bot_review_bodies += 1
-        if not _is_copilot(author):
+        if _is_copilot(author):
+            _record_round(seen_oids, node)
+        else:
             other_bot_reviews += 1
-            continue
-        oid = (node.get("commit") or {}).get("oid") or ""
-        submitted_at = node.get("submittedAt") or ""
-        if oid and (oid not in seen_oids or submitted_at < seen_oids[oid]):
-            seen_oids[oid] = submitted_at
     ordered = sorted(seen_oids, key=lambda o: seen_oids[o])
     return _ReviewScan(ordered, bot_review_bodies, other_bot_reviews)
 
