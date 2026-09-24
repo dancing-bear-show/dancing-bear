@@ -30,11 +30,11 @@ from workflow.models import (
 )
 from workflow.param_rules import (
     UnsafePathError,
-    is_identifier,
     require_shell_safe_path,
     undeclared_overrides,
     validate_param_values,
 )
+from workflow.placeholders import find_refs, substitute
 
 __all__ = [
     "WorkflowCompileError",
@@ -391,12 +391,6 @@ def _validate_when(spec: StageSpec) -> None:
         )
 
 
-# Same identifier grammar as is_identifier / param_rules._IDENTIFIER_RE:
-# [A-Za-z_][A-Za-z0-9_]* (ASCII).  The negative lookbehind skips {{name}} so
-# doubled-brace escapes are not treated as param references.  No closing-brace
-# lookahead: {name} inside a JSON-like wrapper such as '{"k": {name}}' is valid
-# and must be detected.
-_CRITERION_PARAM_RE = re.compile(r"(?<!\{)\{([A-Za-z_]\w*)\}", re.ASCII)
 
 
 def _resolve_criteria(
@@ -442,7 +436,7 @@ def _resolve_criteria(
 
     resolved: list[str] = []
     for raw in validation.criteria:
-        refs = {m.group(1) for m in _CRITERION_PARAM_RE.finditer(raw)}
+        refs = find_refs(raw)
         pipe_refs = refs & pipe_params.keys()
 
         if len(pipe_refs) == 1:
@@ -551,18 +545,12 @@ def _build_cli_command(skill: str, mapping: dict[str, str]) -> str:
 def resolve_params(template: str, params: dict[str, str]) -> str:
     """Resolve ``{param}`` placeholders in a string.
 
-    Substitutes identifier-shaped keys (e.g. ``{team}`` → trigger-param value).
+    Delegates to :func:`workflow.placeholders.substitute`, which substitutes
+    identifier-shaped keys and leaves unknown placeholders as-is.
     Non-identifier keys like ``2,40`` are skipped to avoid rewriting regex
-    quantifiers (defence in depth behind ``enforce_param_rules``).
-
-    Unresolved placeholders are left as-is.  Braces are never unescaped —
-    ``{{`` renders verbatim.
+    quantifiers.  Braces are never unescaped — ``{{`` renders verbatim.
     """
-    result = template
-    for key, value in params.items():
-        if is_identifier(key):
-            result = result.replace(f"{{{key}}}", value)
-    return result
+    return substitute(template, params)
 
 
 def match_when_expression(when: str, params: dict[str, str]) -> bool | None:

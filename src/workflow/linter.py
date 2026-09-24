@@ -30,6 +30,7 @@ from .harness_outputs import describe, find_refused_outputs
 from .include import extract_include_entries, resolve_fragment_path
 from .linter_access import _check_agent_access, _check_stage_access
 from .linter_types import LintError, LintResult, LintWarning
+from .placeholders import find_refs, in_backtick_span
 
 __all__ = [
     "LintError",
@@ -50,8 +51,6 @@ _CLI_NO_HELP_ALLOWLIST: dict[str, set[str]] = {
 }
 
 _GLOBAL_STAGE = "<global>"
-
-_VAR_RE = re.compile(r"(?<!\{)\{([a-z_][a-z0-9_]*)\}(?!\})")
 
 _RUNTIME_BUILTIN_VARS: frozenset[str] = frozenset({"workspace"})
 
@@ -351,23 +350,13 @@ def _compute_dag_depth(stages: "tuple[StageSpec, ...]") -> int:
     return depth
 
 
-def _is_in_backtick_span(line: str, pos: int) -> bool:
-    """Return True if *pos* falls inside a backtick code span."""
-    return line[:pos].count("`") % 2 == 1
-
-
 def _extract_var_refs(text: str) -> set[str]:
     """Return all ``{param}`` placeholder names found in *text*.
 
     Skips matches inside backtick code spans so that references in inline-code
     examples (e.g. `` `{pkg}` ``) do not trigger undeclared-variable warnings.
     """
-    result: set[str] = set()
-    for line in text.splitlines():
-        for m in _VAR_RE.finditer(line):
-            if not _is_in_backtick_span(line, m.start()):
-                result.add(m.group(1))
-    return result
+    return find_refs(text, skip_code=True)
 
 
 def _check_cli_commands(defn: object, result: LintResult) -> None:
@@ -445,7 +434,7 @@ def _description_has_escape_brace(description: str) -> bool:
                 continue  # ${{ GitHub Actions
             if _GO_TEMPLATE_RE.match(line, pos):
                 continue  # {{. Go template
-            if _is_in_backtick_span(line, pos):
+            if in_backtick_span(line, pos):
                 continue  # inside backtick span
             return True
     return False
