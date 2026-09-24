@@ -120,10 +120,14 @@ class QwenMemoryMeasurementTests(unittest.TestCase):
         for name, error, completed, expected in cases:
             with self.subTest(name), mock.patch("subprocess.run", side_effect=error, return_value=completed) as run:
                 self.assertEqual(qwen._run_probe(["memory_pressure", "-Q"]), expected)
-                self.assertEqual(run.call_args.args[0], ["memory_pressure", "-Q"])
-                # The full keyword contract: a lost timeout would let the probe block
-                # the worker, and a lost text/capture would starve the parser.
-                self.assertEqual(run.call_args.kwargs, {"capture_output": True, "text": True, "timeout": 5})
+                self.assertEqual(run.call_args.args[0], ("memory_pressure", "-Q"))
+                # A lost timeout would let the probe block the worker, a lost
+                # text/capture would starve the parser, and shell=True must never appear.
+                kwargs = run.call_args.kwargs
+                self.assertEqual(
+                    (kwargs["timeout"], kwargs["capture_output"], kwargs["text"], kwargs.get("shell", False)),
+                    (5, True, True, False),
+                )
 
     def test_seams_run_fixed_argv(self) -> None:
         with mock.patch("worker.qwen._run_probe", return_value="x") as probe:

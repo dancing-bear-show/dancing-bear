@@ -59,6 +59,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+from core.process import run_binary
 from core.secrets import mask_text
 from worker._helpers import get_repo_root, get_worker_state_dir
 from worker.qwen_telemetry import describe_exception, export_in_background, export_job_metrics, export_job_span
@@ -440,14 +441,9 @@ def _model_loaded(host: str, model: str) -> bool:
 
 def _run_probe(argv: list[str]) -> str | None:
     """stdout of a fixed read-only system command; None if missing, failing or slow."""
-    import subprocess  # nosec B404 - subprocess imported deliberately for memory_pressure/vm_stat; call site below carries its own review
-
-    try:
-        out = subprocess.run(  # nosec B603 B607 - fixed argv from the two seams below, no shell, no user input
-            argv, capture_output=True, text=True, timeout=5
-        )
-    except Exception:  # nosec B110 - unavailable source: the caller falls back, then fails open with a warning
-        return None
+    # run_binary never raises: missing, unrunnable and timed-out commands all
+    # come back as a non-zero return code, so the caller falls back.
+    out = run_binary(argv, timeout=5)
     return out.stdout if out.returncode == 0 else None
 
 
