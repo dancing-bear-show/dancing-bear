@@ -411,8 +411,11 @@ def _model_digest(host: str, model: str) -> str | None:
 
 
 _OLLAMA_PS_TIMEOUT_SEC = 3.0
-# All digits up to the literal %; a value over 100 is then rejected in the parser.
-_FREE_PERCENT_RE = re.compile(r"System-wide memory free percentage:\s*(\d+)%")
+# At most four digits, then the literal %: a value over 100 is rejected in the
+# parser, and a longer run (a corrupted reading) does not match at all, so int()
+# never sees an arbitrarily long string. Unbounded \d+ let a 4300+-digit value
+# raise ValueError (Python's int-string length limit) out of the guard.
+_FREE_PERCENT_RE = re.compile(r"System-wide memory free percentage:\s*(\d{1,4})%")
 
 
 def _model_loaded(host: str, model: str) -> bool:

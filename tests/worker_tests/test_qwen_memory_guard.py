@@ -82,6 +82,9 @@ class QwenMemoryMeasurementTests(unittest.TestCase):
             "System-wide memory free percentage: 250%\n",
             "System-wide memory free percentage: 1000%\n",
             "System-wide memory free percentage: 4700%\n",
+            "System-wide memory free percentage: 99999%\n",
+            # Longer than Python's int-string limit: must fall back, not raise.
+            "System-wide memory free percentage: " + "9" * 5000 + "%\n",
         ):
             with self.subTest(garbage=garbage):
                 self.assertEqual(self.measure(garbage, VM_STAT_TODAY), VM_STAT_FALLBACK)
