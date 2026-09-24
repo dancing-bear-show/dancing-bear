@@ -517,15 +517,21 @@ def _parse_vm_stat(text: str) -> int | None:
     page_match = re.search(r"page size of (\d+) bytes", text)
     if not page_match:
         return None
-    page_size = int(page_match.group(1))
     wanted = ("Pages free", "Pages inactive", "Pages speculative")
-    total_pages = 0
-    for line in text.splitlines():
-        for label in wanted:
-            if line.startswith(label):
-                digits = re.sub(r"[^\d]", "", line.split(":", 1)[-1])
-                if digits:
-                    total_pages += int(digits)
+    try:
+        # int() raises ValueError on a digit run past Python's int-string
+        # limit; a corrupted reading must stay "unparseable" (None), never
+        # escape the guard as an exception.
+        page_size = int(page_match.group(1))
+        total_pages = 0
+        for line in text.splitlines():
+            for label in wanted:
+                if line.startswith(label):
+                    digits = re.sub(r"[^\d]", "", line.split(":", 1)[-1])
+                    if digits:
+                        total_pages += int(digits)
+    except ValueError:
+        return None
     return total_pages * page_size if total_pages else None
 
 
@@ -843,7 +849,12 @@ def _hunk_line_counts(line: str) -> tuple[int, int] | None:
     if match is None:
         return None
     old, new = match.group(1), match.group(2)
-    return int(old if old is not None else 1), int(new if new is not None else 1)
+    try:
+        return int(old if old is not None else 1), int(new if new is not None else 1)
+    except ValueError as exc:
+        # The diff is model output: an overlong count must fail closed as an
+        # unparseable patch, not escape as a bare ValueError.
+        raise UnsupportedPatchError(f"unparseable hunk header: {line[:80]!r}") from exc
 
 
 def _consume_hunk_line(line: str, remaining: tuple[int, int]) -> tuple[int, int, int] | None:
@@ -1044,7 +1055,9 @@ class _LockHolder:
 def _read_lock_holder(lock_path: Path) -> _LockHolder | None:
     try:
         raw = json.loads(lock_path.read_text())
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
+        # ValueError, not just JSONDecodeError: an overlong integer in the
+        # file makes json.loads raise a plain ValueError (int-string limit).
         return None
     try:
         token = raw.get("token")

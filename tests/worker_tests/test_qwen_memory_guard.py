@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import subprocess  # nosec B404 - only CompletedProcess/TimeoutExpired values, nothing is executed
 import unittest
 import urllib.error
 import unittest.mock as mock
+from pathlib import Path
 
 from worker import qwen
 from tests.worker_tests.qwen_fixtures import GIB, MODEL, QwenHandlerCase
@@ -135,6 +137,44 @@ class QwenMemoryMeasurementTests(unittest.TestCase):
             self.assertEqual(qwen._total_memory_bytes(), TOTAL_32_GIB)
         with mock.patch("os.sysconf", side_effect=ValueError("unsupported")):
             self.assertIsNone(qwen._total_memory_bytes())
+
+
+class QwenOverlongNumberTests(unittest.TestCase):
+    """Every int() over text from outside the process must survive a digit run
+    past Python's int-string limit (4300) by treating it as unparseable, never
+    by raising: memory_pressure, vm_stat, model-written hunk headers, the lock file.
+    """
+
+    HUGE = "9" * 5000
+
+    def test_overlong_vm_stat_count_or_page_size_reads_as_unparseable(self) -> None:
+        for text in (
+            VM_STAT_TODAY.replace(str(_FREE), self.HUGE),
+            VM_STAT_TODAY.replace(f"page size of {_PAGE}", f"page size of {self.HUGE}"),
+        ):
+            with self.subTest(field="count" if str(_FREE) not in text else "page size"):
+                self.assertIsNone(qwen._parse_vm_stat(text))
+
+    def test_overlong_vm_stat_fails_open_through_the_guard(self) -> None:
+        corrupt = VM_STAT_TODAY.replace(str(_FREE), self.HUGE)
+        with (
+            mock.patch("worker.qwen._memory_pressure_output", return_value=None),
+            mock.patch("worker.qwen._vm_stat_output", return_value=corrupt),
+            self.assertLogs("worker.qwen", level="WARNING"),
+        ):
+            self.assertIsNone(qwen._check_memory_guard(qwen.DEFAULT_OLLAMA_HOST, MODEL))
+
+    def test_overlong_hunk_count_in_model_output_fails_closed(self) -> None:
+        diff = f"--- a/src/x.py\n+++ b/src/x.py\n@@ -1,{self.HUGE} +1,1 @@\n-a\n+b\n"
+        with self.assertRaises(qwen.UnsupportedPatchError):
+            qwen.diff_stats(diff)
+        self.assertEqual(qwen.check_patch_caps(diff), "terminal-patch-too-broad")
+
+    def test_overlong_pid_in_the_lock_file_reads_as_no_holder(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = Path(tmp) / "model.lock"
+            lock.write_text('{"pid": ' + self.HUGE + ', "started_at": 1.0}', encoding="utf-8")
+            self.assertIsNone(qwen._read_lock_holder(lock))
 
 
 class QwenMemoryThresholdBoundaryTests(unittest.TestCase):
