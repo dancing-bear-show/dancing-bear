@@ -113,6 +113,7 @@ Set `human_gate: true` on any stage to pause execution for human review after th
 - `include.py` — workflow fragment inclusion and merging
 - `models.py` — `StageKind`, `ResolvedStage`, `WorkflowManifest`, `WorkflowRun` dataclasses
 - `linter.py` — structural lint checks
+- `linter_shell.py` / `shell_text.py` — warnings (with `rule` ids) on shell embedded in stage prose: `shell-unvalidated-param`, `shell-unquoted-fan-out-key`, `shell-unbound-variable`, `python-not-isolated`, `validate-stage-writes-output`, `shell-guard-refused`
 - `output_checks.py` — post-stage output validation
 - `param_guard.py` — `check-params`: validate params read as JSON data
 - `review_ids.py` — `check-fix-index`, `thread-fingerprints`, `check-thread-ids`, `aggregate-fix-results`
