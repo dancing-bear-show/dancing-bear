@@ -396,11 +396,21 @@ class TestEvalWhen(unittest.TestCase):
     def test_param_substitution_in_when(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             orch = self._make_orch(tmp_dir)
+            # {env} is a real placeholder; after substitution: "production" contains "prod"
+            result = orch._eval_when(
+                '"{env}" contains "prod"', {"env": "production"}
+            )
+            self.assertTrue(result)
+
+    def test_double_brace_in_when_not_substituted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            orch = self._make_orch(tmp_dir)
+            # {{env}} is NOT a placeholder — it stays literal, so the expression
+            # evaluates as: "{{env}}" contains "prod" → "prod" in "{{env}}" → False
             result = orch._eval_when(
                 '"{{env}}" contains "prod"', {"env": "production"}
             )
-            # After param resolution "production" contains "prod"
-            self.assertTrue(result)
+            self.assertFalse(result)
 
     def test_unrecognised_expression_raises_execution_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

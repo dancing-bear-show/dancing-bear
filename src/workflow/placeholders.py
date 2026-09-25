@@ -98,15 +98,24 @@ def in_backtick_span(line: str, pos: int) -> bool:
 def substitute(text: str, mapping: Mapping[str, str]) -> str:
     """Replace ``{key}`` with the corresponding value for identifier-shaped keys.
 
-    Only keys that pass :func:`is_identifier` are substituted.  Non-identifier
-    keys (e.g. regex quantifiers like ``2,40``) are skipped to avoid corrupting
-    ``{2,40}``-style patterns.  Unknown placeholder names are left as-is.
-    ``{{key}}`` is NOT a placeholder and is left as-is.
+    Uses :data:`_PLACEHOLDER_RE` so the scanner and the replacer share one
+    grammar: a match is replaced only when its captured name is a key in
+    *mapping*.  This guarantees:
+
+    * ``{{key}}`` is NOT a placeholder and is left as-is (the lookbehind in
+      the regex skips ``{{``-prefixed braces).
+    * ``${key}`` is NOT a placeholder and is left as-is (the lookbehind also
+      skips ``$``-prefixed braces).
+    * Non-identifier tokens such as ``{2,40}`` are never matched.
+    * Unknown placeholder names are left as-is.
+    * Substitution is a single pass — a value that contains ``{x}`` is not
+      re-expanded.
 
     This is the canonical substitution logic for all workflow modules.
     """
-    result = text
-    for key, value in mapping.items():
-        if is_identifier(key):
-            result = result.replace(f"{{{key}}}", value)
-    return result
+
+    def _replace(m: re.Match[str]) -> str:
+        name = m.group(1)
+        return mapping[name] if name in mapping else m.group(0)
+
+    return _PLACEHOLDER_RE.sub(_replace, text)

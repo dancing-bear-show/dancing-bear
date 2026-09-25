@@ -166,14 +166,30 @@ class TestSubstitute(unittest.TestCase):
         """Non-identifier keys do not cause {2,40} style patterns to change."""
         self.assertEqual(substitute("{2,40}", {"2,40": "oops"}), "{2,40}")
 
-    def test_double_brace_modified_if_key_matches(self) -> None:
-        """substitute does a plain str.replace; {{name}} contains {name} so it is modified."""
-        # This is the documented behaviour: substitute is a plain replace, not a
-        # template engine. Callers that need {{name}} to be truly literal should
-        # not pass name as a key. The linter's find_refs(skip={{...}}) already
-        # excludes {{name}} from the ref-set so no pipe expansion occurs for it.
+    def test_double_brace_left_as_is(self) -> None:
+        """{{name}} is NOT a placeholder; substitute must leave it untouched even when name is in mapping."""
         result = substitute("{{name}}", {"name": "Alice"})
-        self.assertEqual(result, "{Alice}")
+        self.assertEqual(result, "{{name}}")
+
+    def test_shell_var_left_as_is(self) -> None:
+        """${name} is shell expansion, not a workflow placeholder; substitute must leave it untouched."""
+        result = substitute("${name}", {"name": "Alice"})
+        self.assertEqual(result, "${name}")
+
+    def test_double_brace_with_real_placeholder_nearby(self) -> None:
+        """{{name}} stays literal while {other} is substituted."""
+        result = substitute("{{name}} and {other}", {"name": "Alice", "other": "Bob"})
+        self.assertEqual(result, "{{name}} and Bob")
+
+    def test_shell_var_with_real_placeholder_nearby(self) -> None:
+        """${name} stays literal while {other} is substituted."""
+        result = substitute("${name} and {other}", {"name": "Alice", "other": "Bob"})
+        self.assertEqual(result, "${name} and Bob")
+
+    def test_no_double_substitution(self) -> None:
+        """A value that itself contains {x} must not be re-substituted (single pass)."""
+        result = substitute("{a}", {"a": "{b}", "b": "surprise"})
+        self.assertEqual(result, "{b}")
 
     def test_json_wrapper_substitution(self) -> None:
         self.assertEqual(
