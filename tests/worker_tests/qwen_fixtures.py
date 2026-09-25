@@ -4,7 +4,7 @@ Every handler test inherits QwenHandlerCase, which makes three promises the
 per-test mock lists used to leave to chance:
 
 * No network egress. urllib.request.urlopen is replaced by a router that
-  serves /api/generate and /api/tags from per-test fixtures and records
+  serves /api/generate, /api/tags and /api/ps from per-test fixtures and records
   any other URL, and the test fails in cleanup if one was requested.
   Errors are raised from urlopen itself, so they travel the real
   _ollama_request -> _call_ollama_generate translation path.
@@ -142,6 +142,10 @@ class QwenHandlerCase(TempDirMixin, unittest.TestCase):
         self.generate_error: BaseException | None = None
         self.tags_response: dict[str, object] = {"models": [{"name": MODEL, "digest": RUNNING_DIGEST}]}
         self.tags_error: BaseException | None = None
+        # /api/ps: no model loaded unless a test says otherwise.
+        self.ps_response: dict[str, object] = {"models": []}
+        self.ps_error: BaseException | None = None
+        self.ps_raw: bytes | None = None
         self.requests: list[tuple[str, dict[str, Any] | None, float | None]] = []
         self.unexpected_urls: list[str] = []
 
@@ -213,6 +217,12 @@ class QwenHandlerCase(TempDirMixin, unittest.TestCase):
             if self.tags_error is not None:
                 raise self.tags_error
             return FakeResponse(json.dumps(self.tags_response).encode("utf-8"))
+        if url.endswith("/api/ps"):
+            if self.ps_error is not None:
+                raise self.ps_error
+            if self.ps_raw is not None:
+                return FakeResponse(self.ps_raw)
+            return FakeResponse(json.dumps(self.ps_response).encode("utf-8"))
         self.unexpected_urls.append(url)
         raise AssertionError(f"unexpected network egress to {url}")
 
