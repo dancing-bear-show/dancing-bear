@@ -1,21 +1,20 @@
-"""Regression tests for PR #421 review threads, round 3.
+"""Queue claim ownership and requeue safety.
 
-Pre-fix behaviour (0a62f195):
-- Ownership (PRRT_kwDOQr1kjM6lWhMg): after a drain requeued a running job,
-  the job's thread still finished, and ``retry()``/``finish()`` loaded the
-  missing processing/ file as ``{}``. ``retry()`` overwrote the requeued
-  pending/ copy with near-empty metadata; ``finish()`` wrote a done/ or
-  error/ record for a job that was back in pending/. A job re-claimed by
-  another worker in between had its processing/ file finished by the stale
-  thread.
-- No-clobber fallback (PRRT_kwDOQr1kjM6lWhNC): without hard links the
-  publish checked ``dest.exists()`` and then replaced it, so a pending/ file
-  created in between was overwritten.
-- Recovery (PRRT_kwDOQr1kjM6lWhNp): only ``run_daemon`` recovered staged
-  requeues; ``run_once`` left a ``*.json.requeue`` file invisible.
-- Thread start (PRRT_kwDOQr1kjM6lXFQk): a ``Thread.start()`` failure after
-  the claim left the job in processing/ with a dead registry entry that
-  ``drain_live_threads`` skipped.
+- Claim-token ownership: ``finish()`` and ``retry()`` act only while the
+  caller still owns the processing/ record. A record that is gone,
+  unreadable, or carries another claim's token is left alone and nothing is
+  written, so a job requeued by a shutdown drain keeps its payload, type and
+  attempts whatever its still-running thread does next, and a job re-claimed
+  by another worker is never finished by the stale thread.
+- No-clobber publish fallback: without hard links, a staged record is
+  published by exclusive create, so a pending/ file created concurrently is
+  never overwritten and the staged record is kept for recovery.
+- Staged-requeue recovery on every entry point: ``run_once`` publishes a
+  ``*.json.requeue`` file left by a killed worker, as ``run_daemon`` does,
+  and waits for any transition that holds the queue lock.
+- Thread-start failure: a claimed job whose worker thread fails to start is
+  requeued without consuming an attempt; the drain requeues a registered
+  thread that never started; run-once joins the threads that did start.
 """
 
 from __future__ import annotations
@@ -90,7 +89,7 @@ class _RuntimeTestBase(unittest.TestCase, QueueRootIsolationMixin):
 
 
 # ---------------------------------------------------------------------------
-# PRRT_kwDOQr1kjM6lWhMg: outcome transitions verify ownership
+# Outcome transitions verify ownership
 # ---------------------------------------------------------------------------
 
 
@@ -205,7 +204,7 @@ class TestTransitionsRefuseMissingSource(unittest.TestCase, QueueRootIsolationMi
 
 
 # ---------------------------------------------------------------------------
-# PRRT_kwDOQr1kjM6lWhNC: no-clobber publish without hard links
+# No-clobber publish without hard links
 # ---------------------------------------------------------------------------
 
 
@@ -253,7 +252,7 @@ class TestPublishWithoutHardLinks(unittest.TestCase, QueueRootIsolationMixin):
 
 
 # ---------------------------------------------------------------------------
-# PRRT_kwDOQr1kjM6lWhNp: recovery on every queue-consuming entry point
+# Recovery on every queue-consuming entry point
 # ---------------------------------------------------------------------------
 
 
@@ -294,7 +293,7 @@ class TestRunOnceRecoversStagedRequeues(_RuntimeTestBase):
 
 
 # ---------------------------------------------------------------------------
-# PRRT_kwDOQr1kjM6lXFQk: Thread.start failure after a claim
+# Thread.start failure after a claim
 # ---------------------------------------------------------------------------
 
 
