@@ -125,7 +125,7 @@ stages:
           the analysis argued against.
 
       Write sketch.json:
-        {{
+        {
           "gap_id": "...",
           "type": "subcommand" | "new_domain",
           "domain": "...",
@@ -138,7 +138,7 @@ stages:
           "notes": "...",
           "build_recommended": true,
           "source": "sketches_file" | "manual_spec"
-        }}
+        }
     agent:
       role: researcher
       model: sonnet
@@ -223,21 +223,21 @@ stages:
       intra-domain-duplicate rule as the standard.
 
       Write prior-art.json:
-        {{
+        {
           "keywords": ["..."],
           "findings": [
-            {{"capability": "...", "bucket": "reuse_directly",
+            {"capability": "...", "bucket": "reuse_directly",
               "existing_symbol": "core.paths.output_dir",
               "existing_path": "src/core/paths.py",
               "evidence": "<what you read that proves it does this>",
-              "action": "<import it | promote to core/ and migrate | extend | none>"}}
+              "action": "<import it | promote to core/ and migrate | extend | none>"}
           ],
           "migrations_required": [
-            {{"symbol": "...", "from": "src/x/y.py", "to": "src/core/z.py",
-              "call_sites": ["src/a/b.py:12", "tests/c/d.py:44", "bin/e:7"]}}
+            {"symbol": "...", "from": "src/x/y.py", "to": "src/core/z.py",
+              "call_sites": ["src/a/b.py:12", "tests/c/d.py:44", "bin/e:7"]}
           ],
           "genuinely_new": ["<only what nothing else provides>"]
-        }}
+        }
     agent:
       role: researcher
       model: sonnet
@@ -326,24 +326,24 @@ stages:
         - implement-tests owns every call site under tests/, and design.json
           must list those specific test files in test_files with the exact edit
           required.
-        - Record the split in "migrations" as {{"symbol", "from", "to",
-          "call_sites_src", "call_sites_tests"}} so each stage sees only its own
+        - Record the split in "migrations" as {"symbol", "from", "to",
+          "call_sites_src", "call_sites_tests"} so each stage sees only its own
           half and integration-review can verify both halves happened.
       If a migration is too entangled to split this way, say so in design.md and
       plan it as a SEQUENTIAL follow-up rather than forcing it through the
       parallel stages.
 
       Write design.md (human-readable plan) and design.json:
-        {{
+        {
           "type": "subcommand" | "new_domain",
           "domain": "...",
-          "reuse_plan": [{{"import": "from core.paths import output_dir", "instead_of": "hand-rolled path builder"}}],
-          "migrations": [{{"symbol": "...", "from": "...", "to": "...", "call_sites": ["..."]}}],
-          "core_files": [{{"path": "...", "purpose": "...", "signatures": ["..."]}}],
-          "cli_files": [{{"path": "...", "purpose": "...", "signatures": ["..."]}}],
-          "test_files": [{{"path": "...", "covers": ["..."]}}],
+          "reuse_plan": [{"import": "from core.paths import output_dir", "instead_of": "hand-rolled path builder"}],
+          "migrations": [{"symbol": "...", "from": "...", "to": "...", "call_sites": ["..."]}],
+          "core_files": [{"path": "...", "purpose": "...", "signatures": ["..."]}],
+          "cli_files": [{"path": "...", "purpose": "...", "signatures": ["..."]}],
+          "test_files": [{"path": "...", "covers": ["..."]}],
           "public_signatures": ["<every signature the three stages must agree on>"]
-        }}
+        }
 
       public_signatures is the contract between the parallel stages — it is what
       integration-review checks them against, so it must be exact and complete.
@@ -411,9 +411,9 @@ stages:
           C) Reject — stop without writing any code."
 
       Write validation/critique-decision.json:
-        {{"decision": "approve|approve_with_changes|reject",
+        {"decision": "approve|approve_with_changes|reject",
           "required_changes": ["..."],
-          "blockers_found": N}}
+          "blockers_found": N}
 
       If decision is "reject", FAIL this stage after writing the decision file.
       The engine halts the DAG on a failed required stage; simply recording
@@ -488,9 +488,9 @@ stages:
       human's decision, not this stage's. Stay on the branch you started on.
 
       Write outputs/core-manifest.json:
-        {{"files_written": ["..."], "symbols": ["<exact signatures implemented>"],
+        {"files_written": ["..."], "symbols": ["<exact signatures implemented>"],
           "imports_reused": ["..."], "migrations_applied": ["..."],
-          "call_sites_updated": ["..."], "skipped_reason": null}}
+          "call_sites_updated": ["..."], "skipped_reason": null}
 
       symbols must exactly match the relevant entries in design.json
       public_signatures — integration-review compares them.
@@ -560,9 +560,9 @@ stages:
       human's decision, not this stage's. Stay on the branch you started on.
 
       Write outputs/cli-manifest.json:
-        {{"files_written": ["..."], "subcommands_added": ["..."],
+        {"files_written": ["..."], "subcommands_added": ["..."],
           "core_symbols_called": ["<exact signatures relied on>"],
-          "skipped_reason": null}}
+          "skipped_reason": null}
     agent:
       role: code-writer
       model: sonnet
@@ -628,8 +628,8 @@ stages:
       human's decision, not this stage's. Stay on the branch you started on.
 
       Write outputs/tests-manifest.json:
-        {{"files_written": ["..."], "test_names": ["..."],
-          "signatures_under_test": ["..."], "skipped_reason": null}}
+        {"files_written": ["..."], "test_names": ["..."],
+          "signatures_under_test": ["..."], "skipped_reason": null}
     agent:
       role: tester
       model: sonnet
@@ -741,8 +741,8 @@ stages:
       human's decision, not this stage's. Stay on the branch you started on.
 
       Write outputs/fixes-applied.json:
-        {{"fixed": [{{"id": "I-001", "what": "...", "reverified_with": "<command>"}}],
-          "unfixed": [{{"id": "...", "why": "..."}}]}}
+        {"fixed": [{"id": "I-001", "what": "...", "reverified_with": "<command>"}],
+          "unfixed": [{"id": "...", "why": "..."}]}
 
       If findings-file has no failures, write an empty "fixed" array and stop.
     agent:

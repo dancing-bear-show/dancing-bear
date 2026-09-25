@@ -769,7 +769,7 @@ stages:
            condition inversion (guard clauses)
              — `if x:` is not the negation of `if x is None:`. Inverting a
                truthiness test silently changes behavior when the value can
-               be 0, "", [], {{}}, or 0.0 — all falsy but not None. Read what
+               be 0, "", [], {}, or 0.0 — all falsy but not None. Read what
                the condition actually distinguishes before inverting it.
              — Early-returning out of a try/finally or a with-block changes
                when cleanup runs. Do not hoist a return past either.
@@ -1223,7 +1223,7 @@ stages:
       Step 5 — prove the code actually landed:
           git diff --name-only "$PRE_SWEEP"...HEAD
         Use the ref recorded in Step 0, not a reflog- or offset-relative form
-        like HEAD@{N} or HEAD~N: the number of merge commits varies with the
+        like `HEAD@{N}` or `HEAD~N`: the number of merge commits varies with the
         group count, and a reflog reference is fragile across the stage's own
         git operations.
 

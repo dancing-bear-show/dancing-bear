@@ -1006,11 +1006,11 @@ stages:
       with the reviewer's stated reason.
 
       Write approved-backlog.json:
-        {{
+        {
           "decision": "approve_all|approve_subset|reject_all",
           "approved_gap_ids": ["..."],
-          "rejected": [{{"gap_id": "...", "reason": "..."}}]
-        }}
+          "rejected": [{"gap_id": "...", "reason": "..."}]
+        }
 
       For decision "reject_all", write sketches.json with an empty "sketches"
       array. The docs fragment will then correctly detect a no-op and write

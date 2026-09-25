@@ -24,16 +24,17 @@ from workflow.models import (
     ResolvedStage,
     StageSpec,
     TriggerSpec,
+    ValidationSpec,
     WorkflowDefinition,
     WorkflowManifest,
 )
 from workflow.param_rules import (
     UnsafePathError,
-    is_identifier,
     require_shell_safe_path,
     undeclared_overrides,
     validate_param_values,
 )
+from workflow.placeholders import find_refs, substitute
 
 __all__ = [
     "WorkflowCompileError",
@@ -390,6 +391,69 @@ def _validate_when(spec: StageSpec) -> None:
         )
 
 
+
+
+def _resolve_criteria(
+    validation: ValidationSpec, params: dict[str, str]
+) -> ValidationSpec:
+    """Resolve trigger params in each criterion, expanding pipe-separated values.
+
+    **Expansion rule (one pipe-valued param)**
+
+    For each criterion that references exactly one param whose value contains
+    ``|``, produce N criteria by substituting each pipe-delimited item into
+    that param's position while keeping the criterion's own prefix and suffix
+    intact.  All other params are substituted normally in each expansion.
+
+    Example::
+
+        criterion: "All criteria in {validation_criteria} are checked"
+        validation_criteria: "counts match|no fabricated numbers"
+        → "All criteria in counts match are checked"
+        → "All criteria in no fabricated numbers are checked"
+
+    This preserves the grammatical frame of the criterion and avoids splitting
+    on ``|`` that appears in the criterion's own prose.
+
+    **No cross-multiplication (two or more pipe-valued params)**
+
+    If a criterion references two or more params whose values contain ``|``,
+    the criterion is substituted with the raw (``|``-including) param values
+    and left as a single criterion.  Cross-multiplying all combinations would
+    produce a combinatorial explosion with no clear user intent.
+
+    **No-param and single-item criteria**
+
+    A criterion with no param references, or whose only pipe-valued param
+    resolves to a single item, is kept as a single criterion.
+    """
+    # Identify which params carry pipe-separated values.
+    pipe_params: dict[str, list[str]] = {
+        k: [item.strip() for item in v.split("|")]
+        for k, v in params.items()
+        if "|" in v
+    }
+
+    resolved: list[str] = []
+    for raw in validation.criteria:
+        refs = find_refs(raw)
+        pipe_refs = refs & pipe_params.keys()
+
+        if len(pipe_refs) == 1:
+            key = next(iter(pipe_refs))
+            items = [item for item in pipe_params[key] if item]
+            for item in items:
+                # Substitute this item for the pipe param; keep other params as-is.
+                expanded = resolve_params(raw, {**params, key: item})
+                if expanded:
+                    resolved.append(expanded)
+        else:
+            # Zero or multiple pipe-valued params: substitute as-is (no expansion).
+            resolved.append(resolve_params(raw, params))
+
+    return replace(validation, criteria=tuple(resolved))
+
+
 def _stage_params(spec: StageSpec, params: dict[str, str]) -> dict[str, str]:
     """*params* minus the stage's fan-out key; rejects an empty key.
 
@@ -431,6 +495,12 @@ def _resolve_stage(
         if params and spec.description
         else spec
     )
+
+    if resolved_spec.validation is not None:
+        resolved_spec = replace(
+            resolved_spec,
+            validation=_resolve_criteria(resolved_spec.validation, params),
+        )
 
     return ResolvedStage(
         spec=resolved_spec,
@@ -475,17 +545,12 @@ def _build_cli_command(skill: str, mapping: dict[str, str]) -> str:
 def resolve_params(template: str, params: dict[str, str]) -> str:
     """Resolve ``{param}`` placeholders in a string.
 
-    Substitutes keys like ``{team}`` from trigger params.
-    Unresolved placeholders are left as-is. Only identifier-shaped keys are
-    substituted: a key such as ``2,40`` would otherwise rewrite a regex
-    quantifier ``{2,40}`` in stage text (defence in depth behind
-    ``enforce_param_rules``, which rejects undeclared keys outright).
+    Delegates to :func:`workflow.placeholders.substitute`, which substitutes
+    identifier-shaped keys and leaves unknown placeholders as-is.
+    Non-identifier keys like ``2,40`` are skipped to avoid rewriting regex
+    quantifiers.  Braces are never unescaped — ``{{`` renders verbatim.
     """
-    result = template
-    for key, value in params.items():
-        if is_identifier(key):
-            result = result.replace(f"{{{key}}}", value)
-    return result
+    return substitute(template, params)
 
 
 def match_when_expression(when: str, params: dict[str, str]) -> bool | None:

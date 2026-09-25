@@ -23,25 +23,17 @@ without linting -- so it enforces literal names too.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
-from workflow.param_rules import is_identifier
+from workflow.placeholders import find_refs, substitute
 
 if TYPE_CHECKING:
     from workflow.models import StageSpec
 
 REFUSED_OUTPUT_NAMES = frozenset({"report.md", "summary.md", "findings.md"})
-
-# The compiler's placeholder grammar, deliberately, not the linter's stricter
-# lowercase one: compile_workflow substitutes any `{key}` whose key passes
-# param_rules.is_identifier ([A-Za-z_]\w*, ASCII) -- including inside `{{...}}`,
-# since resolve_params is a plain str.replace. A narrower pattern here let
-# `{ReportArtifact}` resolve to report.md while this check never saw it.
-_PARAM_REF = re.compile(r"\{([A-Za-z_]\w*)\}", re.ASCII)
 
 
 def is_refused(path: str) -> bool:
@@ -64,12 +56,6 @@ class RefusedOutput:
     param: str | None = None
 
 
-def _substitute(text: str, params: Mapping[str, str]) -> str:
-    """Exactly compiler.resolve_params' substitution (which imports this module)."""
-    for key, value in params.items():
-        if is_identifier(key):
-            text = text.replace(f"{{{key}}}", str(value))
-    return text
 
 
 def find_refused_outputs(stages: Iterable[StageSpec], params: Mapping[str, str]) -> list[RefusedOutput]:
@@ -92,8 +78,8 @@ def _from_writes_to(stage: StageSpec, params: Mapping[str, str]) -> list[Refused
     for path in stage.writes_to:
         # Only a param in the FILENAME makes the name param-derived.
         # "{workspace}/report.md" is a literal report.md in a param directory.
-        name_refs = _PARAM_REF.findall(PurePosixPath(path).name)
-        resolved = _substitute(path, params) if name_refs else path
+        name_refs = sorted(find_refs(PurePosixPath(path).name))
+        resolved = substitute(path, params) if name_refs else path
         if is_refused(resolved):
             found.append(RefusedOutput(stage.name, path, PurePosixPath(resolved).name.lower(),
                                        param=name_refs[-1] if name_refs else None))
@@ -102,9 +88,9 @@ def _from_writes_to(stage: StageSpec, params: Mapping[str, str]) -> list[Refused
 
 def _from_description(stage: StageSpec, params: Mapping[str, str]) -> list[RefusedOutput]:
     """Params the description names but writes_to does not -- validate-then-render's shape."""
-    in_writes = {name for path in stage.writes_to for name in _PARAM_REF.findall(path)}
+    in_writes = {name for path in stage.writes_to for name in find_refs(path)}
     found: list[RefusedOutput] = []
-    for name in sorted(set(_PARAM_REF.findall(stage.description)) - in_writes):
+    for name in sorted(find_refs(stage.description) - in_writes):
         value = params.get(name)
         if isinstance(value, str) and is_refused(value):
             found.append(RefusedOutput(stage.name, "{" + name + "}",
