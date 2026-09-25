@@ -171,11 +171,11 @@ class _HeldClaimed:
         self._lock = threading.Lock()
         self.waiting = 0
 
-    def __call__(self, proc_path: Path, job_data: dict[str, object]) -> int:
+    def __call__(self, proc_path: Path, job_data: dict[str, object], **kwargs: Any) -> int:
         with self._lock:
             self.waiting += 1
         self._gate.wait(timeout=5)
-        return self._real(proc_path, job_data)
+        return self._real(proc_path, job_data, **kwargs)
 
 
 @contextmanager

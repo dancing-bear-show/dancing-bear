@@ -458,9 +458,10 @@ class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
         _join_live_threads(self, runner)
         self.assertEqual(result, 1)
         # tick() claims the job itself, then hands the thread the processing/ path.
-        mock_proc.process_claimed.assert_called_once_with(
-            self.root / "processing" / "tick1.json", job_data
-        )
+        proc = self.root / "processing" / "tick1.json"
+        token = q.claim_token(proc)
+        self.assertTrue(token, "start_processing must record a claim token")
+        mock_proc.process_claimed.assert_called_once_with(proc, job_data, claim_token=token)
         mock_proc.process_one.assert_not_called()
 
     def test_run_once_returns_zero(self):
