@@ -21,6 +21,7 @@ triage stages consume it.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any
 
 from core.gh_cli import GhCLI, GhError
@@ -32,7 +33,7 @@ COMMENT_PAGE = 50
 #: Hard ceiling on pages per connection: a cursor bug must fail, not spin.
 MAX_PAGES = 1000
 
-_COMMENT_FIELDS = "databaseId author { login __typename } body createdAt url"
+_COMMENT_FIELDS = "databaseId author { login __typename } body createdAt url originalCommit { oid }"
 
 THREADS_QUERY = f"""
 query($owner: String!, $name: String!, $pr: Int!, $after: String) {{
@@ -43,7 +44,7 @@ query($owner: String!, $name: String!, $pr: Int!, $after: String) {{
         pageInfo {{ hasNextPage endCursor }}
         nodes {{
           id isResolved isOutdated isCollapsed
-          path line startLine diffSide
+          path line originalLine startLine diffSide
           comments(first: {COMMENT_PAGE}) {{
             totalCount
             pageInfo {{ hasNextPage endCursor }}
@@ -363,6 +364,92 @@ def build_threads_doc(
         "threads": entries,
         "review_bodies": [_review_body(r) for r in with_body],
     }
+
+
+# ---------------------------------------------------------------------------
+# PR reviews query (for bot-round detection in review-rounds).
+# ---------------------------------------------------------------------------
+
+_REVIEW_PAGE = 100
+
+PR_REVIEWS_QUERY = f"""
+query($owner: String!, $name: String!, $pr: Int!, $after: String) {{
+  repository(owner: $owner, name: $name) {{
+    pullRequest(number: $pr) {{
+      title
+      commits {{ totalCount }}
+      reviews(first: {_REVIEW_PAGE}, after: $after) {{
+        totalCount
+        pageInfo {{ hasNextPage endCursor }}
+        nodes {{
+          author {{ login __typename }}
+          state
+          submittedAt
+          commit {{ oid }}
+          body
+        }}
+      }}
+    }}
+  }}
+}}
+"""
+
+
+@dataclass(frozen=True)
+class PRReviews:
+    """Every review on one PR, plus the PR facts fetched alongside them.
+
+    ``commit_count`` is GitHub's own count of the PR's commits, so a caller
+    listing commits another way can count-check its result against it.
+    """
+
+    nodes: list[dict[str, Any]] = field(default_factory=list)
+    title: str = ""
+    commit_count: int | None = None
+    truncated: bool = False
+
+
+def fetch_pr_reviews(
+    gh: GhCLI,
+    owner: str,
+    repo: str,
+    pr: int,
+) -> PRReviews:
+    """Fetch every review node for a PR, including author __typename and commit oid.
+
+    Raises on API failure. Count-checks the reviews connection: ``truncated``
+    is True when GitHub reports more reviews than were fetched.
+    """
+    nodes: list[dict[str, Any]] = []
+    cursor: str | None = None
+    reported_total: Any = None
+    pr_title = ""
+    commit_count: int | None = None
+    for _ in range(MAX_PAGES):
+        data = gh.graphql_checked(
+            PR_REVIEWS_QUERY,
+            {"owner": owner, "name": repo, "pr": int(pr), "after": cursor},
+        )
+        pull = _dig(data, "repository", "pullRequest", what=f"PR #{pr}")
+        conn = _dig(pull, "reviews", what=f"PR #{pr} reviews")
+        pr_title = pr_title or (pull.get("title") or "")
+        commits = pull.get("commits")
+        if commit_count is None and isinstance(commits, dict) and isinstance(commits.get("totalCount"), int):
+            commit_count = commits["totalCount"]
+        nodes.extend(conn.get("nodes") or [])
+        reported_total = conn.get("totalCount")
+        cursor = _next_cursor(conn.get("pageInfo"), cursor, f"PR #{pr} reviews")
+        if cursor is None:
+            break
+    else:
+        raise GhError(f"PR #{pr} reviews: exceeded {MAX_PAGES} pages")
+
+    return PRReviews(
+        nodes=nodes,
+        title=pr_title,
+        commit_count=commit_count,
+        truncated=_count_disagrees(len(nodes), reported_total),
+    )
 
 
 def fetch_review_threads(gh: GhCLI, owner: str, repo: str, pr: int) -> tuple[dict[str, Any], dict[str, Any]]:

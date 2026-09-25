@@ -27,10 +27,9 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from core.github.authors import normalize_login
+from core.github.authors import COPILOT_LOGIN, normalize_login
 
 OVERVIEW_MARKER = "<!-- ccr-overview-v2 -->"
-COPILOT_LOGIN = "copilot-pull-request-reviewer"
 ZERO_WIDTH_SPACE = "​"
 
 #: Section naming findings the reviewer already raised and saw go unaddressed.

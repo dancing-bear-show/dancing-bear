@@ -26,6 +26,9 @@ BOT_SUFFIX = "[bot]"
 #: Logins known to be bots, compared after ``[bot]`` is stripped.
 KNOWN_BOT_LOGINS = frozenset({"copilot-pull-request-reviewer", "github-actions"})
 
+#: Copilot's reviewer login, as GraphQL spells it (REST adds ``[bot]``).
+COPILOT_LOGIN = "copilot-pull-request-reviewer"
+
 
 def normalize_login(login: str | None) -> str:
     """Strip a trailing ``[bot]`` so both API spellings compare equal."""
@@ -55,3 +58,20 @@ def classify_author(
     if login.endswith(BOT_SUFFIX) or normalize_login(login) in KNOWN_BOT_LOGINS:
         return "bot"
     return "human"
+
+
+def is_copilot_reviewer(
+    login: str | None,
+    *,
+    typename: str | None = None,
+    user_type: str | None = None,
+) -> bool:
+    """True when the author is the Copilot pull-request reviewer.
+
+    Both halves are required: the account must classify as a bot (typed fields
+    first, as in ``classify_author``) and its normalised login must be
+    Copilot's. A ``User`` whose login happens to match is not Copilot.
+    """
+    if classify_author(login, typename=typename, user_type=user_type) != "bot":
+        return False
+    return normalize_login(login) == COPILOT_LOGIN

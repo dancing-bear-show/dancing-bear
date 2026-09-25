@@ -1,8 +1,8 @@
 """PR-review-thread subcommand handlers for the workflow CLI.
 
 Handles check-fix-index, thread-fingerprints, check-thread-ids,
-aggregate-fix-results, check-paths, parse-overview, snapshot-dirty and
-check-unlisted command handlers, plus their private helpers.
+aggregate-fix-results, check-paths, parse-overview, snapshot-dirty,
+check-unlisted and review-rounds command handlers, plus their private helpers.
 """
 
 from __future__ import annotations
@@ -348,3 +348,80 @@ def _cmd_check_unlisted(args: argparse.Namespace) -> int:
         print(f"{len(unlisted)} changed path(s) missing from files_changed", file=sys.stderr)
         return 1
     return 0
+
+
+def _parse_pr_list(raw: str) -> list[int]:
+    """Parse a comma-separated PR list; dedupe, keeping first-seen order.
+
+    Raises ValueError naming the bad token, or when no number is given.
+    """
+    numbers: list[int] = []
+    for token in (t.strip() for t in raw.split(",")):
+        if not token:
+            continue
+        if not token.isdigit() or int(token) < 1:
+            raise ValueError(f"invalid --prs value {token!r}: expected positive PR numbers")
+        numbers.append(int(token))
+    if not numbers:
+        raise ValueError("--prs names no PR numbers")
+    return list(dict.fromkeys(numbers))
+
+
+def _review_rounds_arg_error(args: argparse.Namespace) -> str | None:
+    """Return the usage error for review-rounds' selector flags, or None."""
+    from workflow.review_rounds import RECENT_MAX
+
+    if (args.prs is None) == (args.recent is None):
+        return "give exactly one of --prs or --recent"
+    if args.recent is not None and not 1 <= args.recent <= RECENT_MAX:
+        return f"--recent must be 1..{RECENT_MAX}, got {args.recent}"
+    if args.min_threads is not None and args.min_threads < 0:
+        return f"--min-threads must be >= 0, got {args.min_threads}"
+    return None
+
+
+def _cmd_review_rounds(args: argparse.Namespace) -> int:
+    """Fetch PR review-round data and write per-PR JSON + summary.
+
+    Accepts exactly one of --prs (explicit list) or --recent (the N most
+    recent PRs, any state). --min-threads defaults to DEFAULT_MIN_THREADS for
+    --recent and to 0 for --prs: a named PR is never filtered out unless the
+    caller asks. Exit 1 on bad arguments, API failure or truncated pagination.
+    """
+    from core.gh_cli import GhError
+    from core.github import client
+    from core.github.repo import resolve_owner_repo
+    from workflow.review_rounds import DEFAULT_MIN_THREADS, fetch_recent_prs, run_review_rounds
+
+    error = _review_rounds_arg_error(args)
+    if error:
+        print(f"review-rounds: {error}", file=sys.stderr)
+        return 1
+    if args.prs is not None:
+        try:
+            pr_numbers = _parse_pr_list(args.prs)
+        except ValueError as exc:
+            print(f"review-rounds: {exc}", file=sys.stderr)
+            return 1
+    default_floor = 0 if args.prs is not None else DEFAULT_MIN_THREADS
+    min_threads: int = default_floor if args.min_threads is None else args.min_threads
+
+    gh = client()
+    if args.prs is None:
+        try:
+            owner, repo = resolve_owner_repo(gh)
+            pr_numbers = fetch_recent_prs(gh, owner, repo, args.recent)
+        except GhError as exc:
+            print(f"review-rounds: {exc}", file=sys.stderr)
+            return 1
+
+    if not pr_numbers:
+        print("review-rounds: no PRs to process", file=sys.stderr)
+        return 1
+
+    return run_review_rounds(
+        pr_numbers=pr_numbers,
+        out_dir=Path(args.out_dir),
+        min_threads=min_threads,
+        gh=gh,
+    )
